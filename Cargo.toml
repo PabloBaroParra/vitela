@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "core/pdf-document",
+    "core/pdf-render",
+    "core/pdf-manip",
+    "core/pdf-annotate",
+    "core/pdf-save",
+    "core/pdf-ffi",
+    "apps/linux-gtk",
+    "tests/fixtures/gen-fixtures",
+    "tools/zero-network-guard",
+]
+# spikes/uniffi-cs is a standalone crate/workspace (Batch 1 spike) — deliberately
+# excluded so its experimental uniffi-bindgen-cs dependency pin can never break
+# the main workspace build/lockfile.
+exclude = ["spikes/uniffi-cs"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3

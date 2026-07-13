@@ -1,0 +1,9 @@
+[package]
+name = "linux-gtk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Linux GTK4 shell (dogfood client) — bypasses pdf-ffi, links core/* crates directly. Batch 0 scaffold stub; GTK4 (gtk-rs) wiring lands in Batch 8."
+publish = false
+
+[dependencies]

@@ -1,0 +1,18 @@
+# Supply-chain policy. License policy is intentionally deferred until the
+# project distributes binaries and its allowed third-party-license set is set.
+
+[advisories]
+unmaintained = "workspace"
+unsound = "all"
+ignore = []
+
+[bans]
+# Transitive duplicate versions are common in an early Rust workspace. Surface
+# them now without blocking delivery; promote this to "deny" once the graph
+# stabilizes.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
