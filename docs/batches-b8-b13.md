@@ -15,6 +15,7 @@
 | B11 (verificación) | B8+B9+B10; T-123/T-125 además B15–B19; T-124 además B12 | BLOQUEADO |
 | B12 (pdf-sign) | B6 ✓ | **LISTO** (paralelo a todos los shells) |
 | B13 (Android) | B7 ✓ (NO depende de B1) | **LISTO** |
+| B20 (formularios AcroForm, ver [batch-forms.md](batch-forms.md)) | B6 ✓ | **LISTO** (paralelo a todos los shells; T-141..T-143 de B8 dependen de él) |
 
 B8, B9, B10, B12 y B13 son mutuamente independientes y pueden correr en paralelo.
 B14 (iOS) queda fuera de este documento: depende de B9 (reutiliza sus bindings y vistas).
@@ -25,7 +26,8 @@ B14 (iOS) queda fuera de este documento: depende de B9 (reutiliza sus bindings y
 
 **Dependencias:** B6 ✓. Dep directa de crates core — **bypasea B7/FFI** por decisión de design
 ("GTK4 FFI bypass"). El gap de `/Annots` preexistentes que lo bloqueaba se resolvió en la
-remediación pre-B7.
+remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B20
+([batch-forms.md](batch-forms.md)); el resto de B8 no está gateado por él.
 
 ### Tareas
 - [ ] T-044 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [OpenPDF, NavZoom]
@@ -39,6 +41,16 @@ remediación pre-B7.
 - [ ] T-052 Shortcuts estándar C/V/Z/Y/P/S/F/O/N. [ShortcutsDnD]
 - [ ] T-053 Bundling pdfium .so + empaquetado (deb/AppImage). [pdfium dist]
 - [ ] T-054 linux.yml CI: build + package. [infra]
+- [ ] T-141 (dep B20) Modo edición de formularios: colocar campo (texto/checkbox/radio/
+      dropdown) sobre el canvas, arrastrar/resize con handles, inspector de estilo
+      (fuente standard-14, tamaño, color) → comandos MoveFormField/ResizeFormField/
+      RestyleFormField del EditLog. [FormUI, UndoRedo]
+- [ ] T-142 (dep B20) Modo relleno: panel lateral de inputs generado desde
+      `list_form_fields` (o el FormFieldSet directo — B8 bypasea FFI); tipear emite
+      SetFieldValue y dibuja el valor como overlay en vivo sobre el rect del widget
+      (sin re-render pdfium; /V + /AP se escriben al guardar). [FormUI]
+- [ ] T-143 (dep B20) Tab-order del panel = orden del FormFieldSet; foco en el input
+      del panel resalta el widget correspondiente en el canvas y viceversa. [FormUI]
 
 ### Criterios de aceptación (spec)
 - PDF válido sin cifrar abre y renderiza página 1.
@@ -152,9 +164,9 @@ de ningún shell.
 - [x] T-071 Scaffold `core/pdf-sign` con RustCrypto (`cms`, `x509-cert`/`x509-parser`, `der`,
       `spki`, `sha2`, traits `signature`), aislado del resto de core (un build futuro
       "solo visor" no debe arrastrar crypto). [infra]
-- [ ] T-072 Trait `CertificateSourcePort`: `list_identities() -> Vec<SigningIdentity>`,
-      `sign_digest(identity, digest, alg) -> Result<Vec<u8>, SignError>`. [FirmaCripto]
-- [ ] T-073 Builder de campo AcroForm/Sig: placeholder `/Contents` (hex ceros, tamaño
+- [x] T-072 Trait `CertificateSourcePort`: `list_identities() -> Vec<SigningIdentity>`,
+      `sign_digest(identity_id, digest, alg) -> Result<Vec<u8>, SignError>`. [FirmaCripto]
+- [x] T-073 Builder de campo AcroForm/Sig: placeholder `/Contents` (hex ceros, tamaño
       suficiente) + cálculo de `/ByteRange` (dos rangos alrededor del placeholder). [FirmaCripto]
 - [ ] T-074 Digest configurable (SHA-256/384/512) sobre los byte ranges. [FirmaCripto]
 - [ ] T-075 Builder CMS SignedData (PKCS#7): digest firmado + cadena de certificados. [FirmaCripto]

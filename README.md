@@ -93,8 +93,10 @@ pinning, which matters.)
 
 Rendering, page operations, annotations, encrypted save, and the FFI surface
 are done. In progress / upcoming: the five platform shells, drawn signatures,
-and PKCS#7/PAdES cryptographic signing (offline — no TSA/OCSP). Deliberately
-out of scope for the MVP: text/image body editing, forms, OCR, redaction.
+PKCS#7/PAdES cryptographic signing (offline — no TSA/OCSP), and fillable
+AcroForm forms — create, style, and fill standard form fields, including forms
+authored by other tools (see [docs/batch-forms.md](docs/batch-forms.md)).
+Deliberately out of scope for the MVP: text/image body editing, OCR, redaction.
 
 ## License
 
