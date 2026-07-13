@@ -1,0 +1,30 @@
+[workspace]
+
+[package]
+name = "uniffi-cs-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = """
+Batch 1 spike (T-006..T-010): validate uniffi-bindgen-cs (Rust -> C#) marshaling,
+error mapping, and callback delivery before committing the Windows shell
+(Batch 10) to UniFFI. Deliberately excluded from the root workspace (see root
+Cargo.toml `[workspace] exclude`) so its pinned uniffi version can never
+collide with the main workspace's dependency graph.
+"""
+
+[lib]
+name = "uniffi_cs_spike"
+# cdylib so the C# host can load it as a native library; rlib so `cargo test`
+# can exercise the same logic in-process without going through the FFI.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pinned EXACTLY to match uniffi-bindgen-cs v0.11.0+v0.31.0 (the tag encodes
+# the uniffi-rs version it targets: vX.Y.Z+vA.B.C -> uniffi-rs vA.B.C).
+# This is the #1 gotcha with uniffi-bindgen-cs: it is versioned separately
+# from uniffi-rs and only works against the exact uniffi-rs version it was
+# built against. Do NOT bump this without also bumping the installed
+# uniffi-bindgen-cs tag to match.
+uniffi = "=0.31.0"
+thiserror = "1"
