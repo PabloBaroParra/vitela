@@ -1,0 +1,190 @@
+//! FFI-facing data types (T-040): UniFFI `Record`/`Enum` shapes for the
+//! command surface, plus their conversions to/from the real
+//! `pdf_document`/`pdf_render`/`pdf_save` types. Kept as thin, explicit
+//! mapping structs/enums rather than re-exporting the core crates' own types
+//! directly — those crates are not UniFFI-aware (by design, per each
+//! crate's "never depends on uniffi" boundary), and a stable FFI shape must
+//! not break every time an internal core type gains a field.
+
+use pdf_document::{Orientation, PageSize, Rect};
+
+/// Mirrors `pdf_document::PageSize`.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
+pub enum FfiPageSize {
+    A4,
+    Letter,
+    Custom { width_pt: f64, height_pt: f64 },
+}
+
+impl From<FfiPageSize> for PageSize {
+    fn from(size: FfiPageSize) -> Self {
+        match size {
+            FfiPageSize::A4 => PageSize::A4,
+            FfiPageSize::Letter => PageSize::Letter,
+            FfiPageSize::Custom {
+                width_pt,
+                height_pt,
+            } => PageSize::Custom {
+                width_pt,
+                height_pt,
+            },
+        }
+    }
+}
+
+/// Mirrors `pdf_document::Orientation`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiOrientation {
+    Portrait,
+    Landscape,
+}
+
+impl From<FfiOrientation> for Orientation {
+    fn from(orientation: FfiOrientation) -> Self {
+        match orientation {
+            FfiOrientation::Portrait => Orientation::Portrait,
+            FfiOrientation::Landscape => Orientation::Landscape,
+        }
+    }
+}
+
+/// Mirrors `pdf_document::Rect` (page-space rectangle, points, origin
+/// bottom-left) — distinct from `pdf_render::Rect` (a render-time clip
+/// region in the same units but a different field shape); this FFI type
+/// only ever crosses at the `pdf_document`/`pdf_annotate` annotation-rect
+/// meaning.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct FfiRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl From<FfiRect> for Rect {
+    fn from(rect: FfiRect) -> Self {
+        Rect {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
+/// Mirrors `pdf_document::Color`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct FfiColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl From<FfiColor> for pdf_document::Color {
+    fn from(color: FfiColor) -> Self {
+        pdf_document::Color {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+        }
+    }
+}
+
+/// A single point of an ink/freehand stroke (mirrors the `(f64, f64)` tuple
+/// `pdf_document::AnnotationKind::Ink` stores — UniFFI records need named
+/// fields, tuples don't cross the boundary directly).
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct FfiPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Mirrors `pdf_render::RenderOptions`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, uniffi::Record)]
+pub struct FfiRenderOptions {
+    pub invert_content_colors: bool,
+}
+
+impl From<FfiRenderOptions> for pdf_render::RenderOptions {
+    fn from(options: FfiRenderOptions) -> Self {
+        pdf_render::RenderOptions {
+            invert_content_colors: options.invert_content_colors,
+        }
+    }
+}
+
+/// Mirrors `pdf_save::SaveIntent`: the caller's declared intent for how
+/// `save`/`save_to_bytes`/`save_to_path` should treat an existing
+/// `SecurityContext` (spec "Encrypted Document Save Behavior"). Choosing
+/// `StripProtection` from a shell UI is exactly the "explicit, user-consented
+/// removal of protection" the spec requires — see `document::save_to_bytes`,
+/// which records the audit-log consent event when this variant is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, uniffi::Enum)]
+pub enum FfiSaveIntent {
+    #[default]
+    Default,
+    StripProtection,
+}
+
+impl From<FfiSaveIntent> for pdf_save::SaveIntent {
+    fn from(intent: FfiSaveIntent) -> Self {
+        match intent {
+            FfiSaveIntent::Default => pdf_save::SaveIntent::Default,
+            FfiSaveIntent::StripProtection => pdf_save::SaveIntent::StripProtection,
+        }
+    }
+}
+
+/// The FFI-facing shape of `pdf_document::Command` (T-040's `apply_edit`
+/// surface). One variant per real `Command`/annotation-kind combination
+/// this workspace supports as of Batch 7 — `move`/`resize`/`restyle` are
+/// deliberately absent (documented Batch 5 gap: not yet `EditLog` commands,
+/// see `pdf-annotate::ops` module docs).
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum FfiEditCommand {
+    RotatePage {
+        page: u32,
+        delta_degrees: i32,
+    },
+    InsertBlankPage {
+        index: u32,
+        size: FfiPageSize,
+        orientation: FfiOrientation,
+    },
+    RemovePage {
+        index: u32,
+    },
+    AddHighlight {
+        page: u32,
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    AddUnderline {
+        page: u32,
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    AddStrikeout {
+        page: u32,
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    AddShape {
+        page: u32,
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    AddInk {
+        page: u32,
+        points: Vec<FfiPoint>,
+        color: FfiColor,
+    },
+    AddTextNote {
+        page: u32,
+        rect: FfiRect,
+        contents: String,
+    },
+    RemoveAnnotation {
+        annotation_id: u64,
+    },
+}

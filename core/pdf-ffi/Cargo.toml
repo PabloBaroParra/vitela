@@ -1,0 +1,40 @@
+[package]
+name = "pdf-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "UniFFI boundary crate: DocumentHandle/BitmapHandle interface objects, FFI commands, FfiError. Batch 7 (T-039..T-043, T-068)."
+publish = false
+
+[lib]
+# cdylib: consumed by Swift/C#/Kotlin shells through generated UniFFI
+# bindings. rlib: lets this crate's own `cargo test` exercise the same logic
+# in-process without going through the FFI boundary (see spikes/uniffi-cs).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pinned EXACTLY (not a range): uniffi-bindgen-cs v0.11.0+v0.31.0 (Batch 1
+# spike, GO) only works against this exact uniffi-rs version — see
+# spikes/uniffi-cs/README.md "Version pinning" and design.md §6b. Any future
+# bump MUST update both together.
+uniffi = "=0.31.0"
+thiserror = "1"
+pdf-document = { path = "../pdf-document" }
+pdf-manip = { path = "../pdf-manip" }
+pdf-render = { path = "../pdf-render" }
+pdf-annotate = { path = "../pdf-annotate" }
+pdf-save = { path = "../pdf-save" }
+
+[features]
+# Enables the `uniffi-bindgen` CLI binary below (T-042). Off by default so
+# the shells' cdylib build never pulls the bindgen CLI's dependency tree.
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+lopdf = "0.44"
