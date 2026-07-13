@@ -69,6 +69,29 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      # pdf-render/pdf-save/pdf-ffi integration tests need the prebuilt
+      # pdfium dynamic library, which is never committed (see
+      # core/pdf-render/vendor/pdfium/README.md). Same pinned release the
+      # enabled pdfium_7763 Cargo feature targets. The Linux tarball ships
+      # the library under lib/ (not bin/), so resolution goes through the
+      # PDFIUM_DYNAMIC_LIB_PATH env override rather than the vendored-dir
+      # convention (see core/pdf-render/src/library.rs).
+      - name: Cache pdfium prebuilt
+        id: pdfium-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: core/pdf-render/vendor/pdfium
+          key: pdfium-linux-x64-7763
+      - name: Download pdfium prebuilt (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-linux-x64.tgz" \
+            | tar -xz -C core/pdf-render/vendor/pdfium
+      - name: Point PDFIUM_DYNAMIC_LIB_PATH at the extracted library
+        run: |
+          lib="$(find core/pdf-render/vendor/pdfium -name 'libpdfium.so' | head -n1)"
+          test -n "$lib" || { echo "libpdfium.so not found after extraction"; exit 1; }
+          echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
       - name: Build workspace
         run: cargo build --workspace --locked
       - name: Run tests (workspace)
@@ -92,10 +115,26 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache pdfium prebuilt
+        id: pdfium-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: core/pdf-render/vendor/pdfium
+          key: pdfium-linux-x64-7763
+      - name: Download pdfium prebuilt (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-linux-x64.tgz" \
+            | tar -xz -C core/pdf-render/vendor/pdfium
+      - name: Point PDFIUM_DYNAMIC_LIB_PATH at the extracted library
+        run: |
+          lib="$(find core/pdf-render/vendor/pdfium -name 'libpdfium.so' | head -n1)"
+          test -n "$lib" || { echo "libpdfium.so not found after extraction"; exit 1; }
+          echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
       # Build/fetch everything BEFORE entering the network namespace: cargo
       # itself needs network access to resolve/download crates, but the test
       # *run* must not. Compiling test binaries ahead of time means the
-      # isolated step below only needs to execute already-built artifacts.
+      # isolated steps below only need to execute already-built artifacts.
       - name: Pre-build test binaries (network allowed)
         run: cargo test --workspace --locked --no-run
       # `unshare --net` creates a new network namespace with only a loopback
@@ -105,10 +144,24 @@ jobs:
       # see spec.md "Offline-First, No Telemetry" and
       # tools/zero-network-guard's `real_world_egress.rs` for the assertion
       # that proves the isolation is actually in effect.
-      - name: Run zero-network-guard's CI-only proof inside a network namespace
+      #
+      # `sudo` resets PATH via secure_path and drops the runner env, so
+      # `env "PATH=$PATH"` re-injects the toolchain PATH and -E preserves
+      # HOME/PDFIUM_DYNAMIC_LIB_PATH for rustup/cargo/pdfium resolution.
+      #
+      # The full (non-ignored) suite runs inside the namespace — that IS the
+      # T-005 enforcement: every test must pass with no usable network. The
+      # egress proof then runs scoped to zero-network-guard; the perf harness
+      # (also #[ignore]d) is deliberately NOT run in CI — wall-clock
+      # assertions on shared runners are noise, per its own module docs.
+      - name: Run the full test suite inside a network namespace
         run: |
-          sudo unshare --net --map-root-user \
-            cargo test --workspace --locked -- --ignored
+          sudo -E env "PATH=$PATH" unshare --net --map-root-user \
+            cargo test --workspace --locked
+      - name: Run zero-network-guard's CI-only egress proof inside the namespace
+        run: |
+          sudo -E env "PATH=$PATH" unshare --net --map-root-user \
+            cargo test -p zero-network-guard --locked -- --ignored
 
   determinism:
     name: pdf-save deterministic-writer byte-identical check (T-038)
