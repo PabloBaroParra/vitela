@@ -1,0 +1,229 @@
+# Fichas de batches B8–B13 — pdf-editor-mvp
+
+> Extraído de los artefactos SDD en engram (2026-07-13): tasks (`sdd/pdf-editor-mvp/tasks`),
+> spec (`sdd/pdf-editor-mvp/spec`, obs 2248) y apply-progress (`sdd/pdf-editor-mvp/apply-progress`).
+> Estado de partida: B0–B7 completos y verificados; los hallazgos del verify de B7 están todos
+> resueltos salvo el WARNING de UX de re-render, diferido por decisión a B8/B9.
+
+## Estado de dependencias (2026-07-13)
+
+| Batch | Depende de | Estado |
+|-------|-----------|--------|
+| B8 (GTK4) | B6 ✓ (dep directa de crates, bypasea FFI) | **LISTO** |
+| B9 (macOS) | B7 ✓ | **LISTO** (paralelo con B10) |
+| B10 (Windows) | B7 ✓ + spike T-010 GO ✓ | **LISTO** (paralelo con B9) |
+| B11 (verificación) | B8+B9+B10; T-123/T-125 además B15–B19; T-124 además B12 | BLOQUEADO |
+| B12 (pdf-sign) | B6 ✓ | **LISTO** (paralelo a todos los shells) |
+| B13 (Android) | B7 ✓ (NO depende de B1) | **LISTO** |
+
+B8, B9, B10, B12 y B13 son mutuamente independientes y pueden correr en paralelo.
+B14 (iOS) queda fuera de este documento: depende de B9 (reutiliza sus bindings y vistas).
+
+---
+
+## B8 — Shell GTK4 (Linux, dogfood)
+
+**Dependencias:** B6 ✓. Dep directa de crates core — **bypasea B7/FFI** por decisión de design
+("GTK4 FFI bypass"). El gap de `/Annots` preexistentes que lo bloqueaba se resolvió en la
+remediación pre-B7.
+
+### Tareas
+- [ ] T-044 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [OpenPDF, NavZoom]
+- [ ] T-045 Prompt de contraseña en apertura encriptada + UX de error. [PwdPDF]
+- [ ] T-046 Selección de texto + búsqueda doc-wide con matches resaltados y navegables. [TextSelSearch]
+- [ ] T-047 Toolbar de anotaciones wired a pdf-annotate (7 tipos). [AnnoCreate, AnnoEditDelete]
+- [ ] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
+- [ ] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]
+- [ ] T-050 gdk::Clipboard paste → stamp_from_image_bytes; rechazar URL-texto, sin fetch. [Clipboard]
+- [ ] T-051 Drag-and-drop: abrir PDF / insertar imagen como stamp. [ShortcutsDnD]
+- [ ] T-052 Shortcuts estándar C/V/Z/Y/P/S/F/O/N. [ShortcutsDnD]
+- [ ] T-053 Bundling pdfium .so + empaquetado (deb/AppImage). [pdfium dist]
+- [ ] T-054 linux.yml CI: build + package. [infra]
+
+### Criterios de aceptación (spec)
+- PDF válido sin cifrar abre y renderiza página 1.
+- Contraseña errónea → error claro, sin crash y sin render parcial.
+- Zoom al 150% persiste al navegar entre páginas.
+- Búsqueda: "invoice" presente en 3 páginas → 3 matches resaltados y navegables.
+- Anotación borrada + Ctrl+Z → restaurada desde su inverse data del EditLog; Ctrl+Y re-aplica.
+- El strip de protección NO es deshacible (vive en audit log, jamás en EditLog).
+- Paste de bitmap → stamp en la posición de pegado; paste de URL-texto → mensaje informativo
+  y CERO llamadas de red.
+- Imprimir un rango → diálogo nativo GTK, output coincide con el documento renderizado.
+- PDF arrastrado a la ventana abre; imagen arrastrada sobre un documento abierto → stamp en
+  el punto de drop.
+
+### Gotchas heredados
+- El gap de undo de B5 (move/resize/restyle de anotaciones fuera del EditLog) se cierra AQUÍ —
+  `Command` es `#[non_exhaustive]` precisamente para poder agregar esas variantes.
+- B8 es donde se decide el WARNING de UX de re-render (edits sin guardar requieren
+  `save_to_bytes` + reabrir handle) con datos de shell real, no en el vacío.
+
+---
+
+## B9 — Shell macOS (SwiftUI)
+
+**Dependencias:** B7 ✓. Paralelo con B10.
+
+### Tareas
+- [ ] T-055 App SwiftUI vía bindings pdf-ffi; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
+- [ ] T-056 Prompt de contraseña, selección/búsqueda de texto, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
+- [ ] T-057 NSPrintOperation vía render_page. [Print]
+- [ ] T-058 NSPasteboard paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
+- [ ] T-059 Bundling .dylib, sign + notarize en macos.yml. [pdfium dist]
+
+### Criterios de aceptación
+- La misma batería funcional de B8 (OpenPDF, PwdPDF, NavZoom, TextSelSearch, AnnoCreate,
+  UndoRedo, Print, Clipboard, ShortcutsDnD), ejecutada a través de la superficie FFI real.
+- macos.yml produce una app firmada y notarizada.
+
+### Notas
+- macos.yml YA existe con el job `swift-bindings` (T-042) — B9 lo extiende, no crea workflow.
+- Para guardar cifrado tras un edit estructural el shell DEBE ofrecer el flujo
+  `openWithPasswords`/`openWithPasswordsFromBytes` (fix post-verify de B7); con una sola
+  password solo hay save incremental — `save_to_bytes` devuelve `InvalidSaveRequest` tipado
+  en el caso no soportado.
+- B14 (iOS) reutilizará estos mismos bindings Swift y una porción sustancial de las vistas:
+  diseñar las vistas SwiftUI con esa reutilización en mente.
+
+---
+
+## B10 — Shell Windows (WinUI3 + C#)
+
+**Dependencias:** B7 ✓ + T-010 spike uniffi-bindgen-cs = GO ✓. Paralelo con B9.
+
+### Tareas
+- [ ] T-060 App WinUI3 vía bindings C# de uniffi-bindgen-cs; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
+- [ ] T-061 Prompt de contraseña, selección/búsqueda, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
+- [ ] T-062 PrintDocument vía render_page. [Print]
+- [ ] T-063 WinRT Clipboard/DataPackage paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
+- [ ] T-064 Bundling .dll + firma Authenticode en windows.yml. [pdfium dist]
+
+### Criterios de aceptación
+- Misma batería funcional que B8/B9 vía FFI.
+- Los errores FFI llegan a C# como excepciones tipadas anidadas — nunca strings crudos
+  (contrato validado en el spike T-008).
+- windows.yml produce binario firmado con Authenticode.
+
+### Gotchas críticos
+- uniffi-bindgen-cs v0.11.0 exige `uniffi = "0.31.0"` EXACTO — ya pineado en
+  `core/pdf-ffi/Cargo.toml`; cualquier bump debe actualizar ambos juntos
+  (ver spikes/uniffi-cs/README.md).
+- El round-trip de buffers ≥8MB cuesta ~20ms de marshaling (p50, hardware real del spike),
+  NO "single-digit ms": presupuestarlo en el render loop (~1.5% del budget de 1.5s).
+
+---
+
+## B11 — Verificación transversal
+
+**Dependencias:** B8 + B9 + B10. Las tareas de firma (T-123, T-125) además requieren B15–B19;
+T-124 requiere B12.
+
+### Tareas
+- [ ] T-065 Checklist manual de round-trip de anotaciones en Acrobat/Preview, pre-release. [AnnoInterop]
+- [ ] T-066 Test de paridad estructural: misma op en 2 plataformas, comparar output. [Parity]
+- [ ] T-067 Auditoría offline/zero-network completa en todos los shells. [Offline]
+- [ ] T-123 (dep B15–B19) Round-trip cross-viewer de firmas criptográficas: Acrobat + un segundo validador independiente. [FirmaCripto, AnnoInterop]
+- [ ] T-124 (dep B12) Corpus de PDFs firmados conocidos-buenos (rcgen self-signed), versionado en tests/fixtures: single-signature y segunda-firma-no-invalida-primera. [FirmaCripto]
+- [ ] T-125 (dep B15–B19) Smoke tests del contrato CertificateSourcePort por plataforma (incl. variante Secure Enclave en macOS/iOS). [FirmaCripto]
+
+### Criterios de aceptación (spec)
+- Anotaciones creadas por la app renderizan en Acrobat/Preview con tipo, posición y contenido
+  correctos. Text-note enlaza con `/Popup` + `/Parent` de vuelta — NUNCA `/IRT` (reservado
+  para reply threads). Stamps renderizan vía su `/AP` con transparencia (SMask).
+- Paridad = equivalencia ESTRUCTURAL en producción (páginas, contenido, anotaciones,
+  semántica de metadata); byte-idéntica SOLO en CI con clock e ID-generator deterministas
+  inyectados (los PDFs embeben /ModDate e IDs no deterministas por defecto).
+- Cero requests salientes monitorizando la red durante cualquier operación MVP, en todos
+  los shells.
+
+---
+
+## B12 — Crate pdf-sign
+
+**Dependencias:** B6 ✓ únicamente. Conceptualmente paralelo a B7/B8/B9/B10/B13 — no depende
+de ningún shell.
+
+### Tareas
+- [ ] T-070 **PRIMERA TAREA DEL BATCH — smoke test**: validar un callback interface UniFFI
+      SÍNCRONO CON VALOR DE RETORNO (patrón de `sign_digest`). El spike T-009 solo validó
+      callbacks async de eventos sin retorno; hay que desriesgar ANTES de construir el resto
+      del batch sobre este patrón. [risk-mitigation]
+- [ ] T-071 Scaffold `core/pdf-sign` con RustCrypto (`cms`, `x509-cert`/`x509-parser`, `der`,
+      `spki`, `sha2`, traits `signature`), aislado del resto de core (un build futuro
+      "solo visor" no debe arrastrar crypto). [infra]
+- [ ] T-072 Trait `CertificateSourcePort`: `list_identities() -> Vec<SigningIdentity>`,
+      `sign_digest(identity, digest, alg) -> Result<Vec<u8>, SignError>`. [FirmaCripto]
+- [ ] T-073 Builder de campo AcroForm/Sig: placeholder `/Contents` (hex ceros, tamaño
+      suficiente) + cálculo de `/ByteRange` (dos rangos alrededor del placeholder). [FirmaCripto]
+- [ ] T-074 Digest configurable (SHA-256/384/512) sobre los byte ranges. [FirmaCripto]
+- [ ] T-075 Builder CMS SignedData (PKCS#7): digest firmado + cadena de certificados. [FirmaCripto]
+- [ ] T-076 Hook hacia el writer incremental de pdf-save:
+      `append_signature_bytes(doc_bytes, byte_range, signature_der) -> Vec<u8>`. [FirmaCripto, IncrementalAPI]
+- [ ] T-077 Adaptador Linux in-process: PKCS#11 (`cryptoki`) + archivos .p12/.pfx (`pkcs12`). [FirmaCripto]
+- [ ] T-078 Corpus de fixtures firmados conocidos-buenos (rcgen self-signed, uso exclusivo
+      de test). [FirmaCripto]
+- [ ] T-079 Cross-validación: verificación estructural automatizada (hash/ByteRange) en CI +
+      checklist manual documentado para validación externa. [FirmaCripto]
+- [ ] T-080 Tests: corrección de ByteRange, sizing del placeholder, coincidencia de digest,
+      segunda-firma-preserva-primera. [FirmaCripto]
+
+### Criterios de aceptación (spec delta)
+- Firma anexada EXCLUSIVAMENTE vía incremental update — jamás full rewrite al firmar
+  (invalidaría `/ByteRange` de firmas previas).
+- Segunda firma NO invalida la primera; ambas verificables independientemente.
+- Al abrir un documento firmado: indicador básico pass/fail de validez de hash/estructura.
+  Contenido alterado fuera del `/ByteRange` firmado → indicador "inválida" SIN bloquear la
+  apertura del documento.
+- Sin certificados disponibles en el almacén → mensaje claro, sin crash.
+- Firma y verificación 100% offline: cero TSA (RFC 3161), OCSP o CRL por red.
+- **Out of scope explícito:** LTV, timestamping, validación profunda de cadena de confianza,
+  workflow UX de múltiples firmantes.
+
+### Regla de oro (T-076)
+El writer incremental YA existe: `pdf_save::strategy::save_incremental`/`IncrementalWriter`,
+backed por `lopdf::IncrementalDocument`. pdf-sign lo REUSA vía un hook de bajo nivel a exponer
+en pdf-save (o extendiendo `ObjectSink`) — construir un writer paralelo es un defecto de
+arquitectura, no un atajo.
+
+---
+
+## B13 — Shell Android (Kotlin/Jetpack Compose)
+
+**Dependencias:** B7 ✓ únicamente. NO depende de B1 (ese spike gateaba exclusivamente
+Windows/C#). Paralelo con B9 y B10.
+
+### Tareas
+- [ ] T-081 Scaffold Kotlin/Compose + generación de bindings UniFFI Kotlin en android.yml. [infra]
+- [ ] T-082 Cross-compile pdfium .so por ABI (arm64-v8a, armeabi-v7a, x86_64) + empaquetado. [pdfium dist]
+- [ ] T-083 SAF: `ContentResolver.openInputStream()` → `open_from_bytes`; guardar vía
+      `OutputStream` del mismo Uri → `save_to_bytes`. [ui-android, FileAccessPort]
+- [ ] T-084 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [ui-android, OpenPDF, NavZoom]
+- [ ] T-085 Prompt de contraseña en apertura encriptada + manejo de error. [ui-android, PwdPDF]
+- [ ] T-086 Selección de texto + búsqueda doc-wide con matches navegables. [ui-android, TextSelSearch]
+- [ ] T-087 Toolbar táctil wired a pdf-annotate (7 tipos incl. image stamp). [ui-android, AnnoCreate, AnnoEditDelete]
+- [ ] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
+      el placement_rect. [FirmaDibujada]
+- [ ] T-089 Undo/redo vía botones táctiles → EditLog. [ui-android, UndoRedo]
+- [ ] T-090 Android PrintManager usando render_page a DPI de impresión. [ui-android, Print]
+- [ ] T-091 Paste de bitmap desde portapapeles → stamp; rechazar URL-texto sin fetch. [ui-android, Clipboard]
+- [ ] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
+      arrastre en split-screen. [ui-android, ShortcutsDnD]
+- [ ] T-093 .apk firmado + android.yml CI completo (bindings Kotlin + cross-compile por ABI +
+      Gradle + firma). [ui-android, infra]
+
+### Criterios de aceptación (spec delta)
+- Acceso a archivos EXCLUSIVAMENTE vía Storage Access Framework: el core recibe
+  bytes/descriptors, NUNCA rutas crudas — ni al abrir ni al guardar.
+- Paridad funcional completa con desktop: los 7 tipos de anotación, undo/redo con el MISMO
+  EditLog, impresión nativa (PrintManager), paste de bitmap como stamp.
+- Touch-first: toolbar táctil reemplaza los atajos Ctrl/Cmd; share-sheet/SAF/split-screen
+  reemplazan el drag-and-drop de escritorio (imagen arrastrada en split-screen → stamp).
+- La firma dibujada persiste como annotation estándar (ink o image stamp con /AP) e
+  interopera en Acrobat/Preview.
+- android.yml produce un .apk firmado instalable en dispositivo compatible.
+
+### Nota clave
+T-068 ya está hecho: `open_from_bytes`/`save_to_bytes` son el contrato canónico en pdf-ffi,
+incluida la variante dual-password (`open_with_passwords_from_bytes`) para guardar cifrado
+tras edits estructurales.
