@@ -1,0 +1,11 @@
+[package]
+name = "pdf-manip"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ManipulationPort implementation (lopdf backed): merge/split/rotate/reorder/extract/create-blank. Batch 0 scaffold stub; implementation lands in Batch 4."
+publish = false
+
+[dependencies]
+lopdf = "0.44"
+pdf-document = { path = "../pdf-document" }
