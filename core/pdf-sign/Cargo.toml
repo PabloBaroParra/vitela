@@ -13,7 +13,9 @@ publish = false
 # implementations into the core signing protocol.
 cms = { version = "0.2.3", default-features = false, features = ["std"] }
 der = { version = "0.7.10", features = ["alloc", "derive", "oid", "std"] }
+lopdf = "0.44"
 sha2 = { version = "0.10.9", features = ["oid"] }
 signature = "2.2.0"
 spki = { version = "0.7.3", features = ["alloc", "std"] }
+thiserror = "1"
 x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }

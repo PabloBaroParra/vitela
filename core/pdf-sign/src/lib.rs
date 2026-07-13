@@ -9,6 +9,17 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod error;
+mod port;
+mod signature;
+
+pub use error::SignError;
+pub use port::{CertificateSourcePort, DigestAlgorithm, SigningAlgorithm, SigningIdentity};
+pub use signature::{
+    prepare_signature_bytes, ByteRange, PreparedSignature, SignatureFieldBuilder,
+    SignaturePlaceholder, DEFAULT_SIGNATURE_CAPACITY,
+};
+
 #[cfg(test)]
 mod tests {
     use cms::content_info::ContentInfo;
