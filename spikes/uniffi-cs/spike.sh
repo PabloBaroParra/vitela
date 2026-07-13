@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Batch 1 spike (T-006..T-010): rebuild the Rust cdylib, regenerate the C#
+# UniFFI C# spike (T-006..T-010, T-070): rebuild the Rust cdylib, regenerate the C#
 # bindings, build the C# host, and run it end-to-end. Every number the host
 # prints comes from a real measured run — nothing here is simulated.
 #

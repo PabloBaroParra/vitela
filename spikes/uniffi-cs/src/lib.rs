@@ -1,4 +1,4 @@
-//! Batch 1 spike (T-006..T-010): uniffi-bindgen-cs go/no-go validation.
+//! UniFFI C# interop spike (T-006..T-010 and T-070).
 //!
 //! Exercises exactly what production `pdf-ffi` will need from a C# consumer,
 //! per the design doc's "uniffi-bindgen-cs spike (detailed plan)":
@@ -7,6 +7,7 @@
 //! 3. >=8MB buffer round-trip benchmark                                -> T-007
 //! 4. Error-enum -> C# exception mapping                               -> T-008
 //! 5. Callback/event delivery (Rust -> C#, async off the calling thread) -> T-009
+//! 6. Synchronous callback with a fallible byte-array return              -> T-070
 //!
 //! Go/no-go decision recorded separately (T-010) — see
 //! engram topic `sdd/pdf-editor-mvp/spike-uniffi-cs-decision`.
@@ -103,6 +104,38 @@ pub fn fire_events(listener: Box<dyn SpikeEventListener>, count: u32) {
 }
 
 // ---------------------------------------------------------------------
+// T-070: synchronous callback with a return value, C# -> Rust
+// ---------------------------------------------------------------------
+
+/// Errors that a foreign digest signer can report synchronously.
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum SigningCallbackError {
+    #[error("the requested signing identity is unavailable")]
+    IdentityUnavailable,
+}
+
+/// Models the fallible, synchronous callback required by
+/// `CertificateSourcePort::sign_digest`.
+#[uniffi::export(callback_interface)]
+pub trait DigestSigner: Send + Sync {
+    /// Signs `digest` and returns the signature bytes before the call completes.
+    fn sign_digest(&self, digest: Vec<u8>) -> Result<Vec<u8>, SigningCallbackError>;
+}
+
+/// Invokes a foreign digest signer synchronously and returns its byte array.
+///
+/// # Errors
+///
+/// Returns the typed [`SigningCallbackError`] supplied by the callback.
+#[uniffi::export]
+pub fn request_digest_signature(
+    signer: Box<dyn DigestSigner>,
+    digest: Vec<u8>,
+) -> Result<Vec<u8>, SigningCallbackError> {
+    signer.sign_digest(digest)
+}
+
+// ---------------------------------------------------------------------
 // Unit tests (Strict TDD: these encode the acceptance criteria the
 // in-process Rust logic must satisfy, independent of whether the C# host
 // can build on this machine).
@@ -117,7 +150,10 @@ mod tests {
     fn echo_string_identity_including_non_ascii() {
         assert_eq!(echo_string(String::new()), "");
         assert_eq!(echo_string("hello".to_string()), "hello");
-        assert_eq!(echo_string("héllo wörld 日本語".to_string()), "héllo wörld 日本語");
+        assert_eq!(
+            echo_string("héllo wörld 日本語".to_string()),
+            "héllo wörld 日本語"
+        );
     }
 
     #[test]
@@ -196,5 +232,39 @@ mod tests {
             assert_eq!(seq, expected_seq);
             assert_eq!(msg, format!("event-{expected_seq}"));
         }
+    }
+
+    struct DeterministicDigestSigner;
+
+    impl DigestSigner for DeterministicDigestSigner {
+        fn sign_digest(&self, digest: Vec<u8>) -> Result<Vec<u8>, SigningCallbackError> {
+            Ok(digest.into_iter().map(|byte| byte ^ 0xA5).collect())
+        }
+    }
+
+    #[test]
+    fn request_digest_signature_returns_bytes_from_synchronous_callback() {
+        let digest = vec![0x00, 0x12, 0xA5, 0xFF];
+
+        let signature = request_digest_signature(Box::new(DeterministicDigestSigner), digest)
+            .expect("deterministic signer should succeed");
+
+        assert_eq!(signature, vec![0xA5, 0xB7, 0x00, 0x5A]);
+    }
+
+    struct UnavailableDigestSigner;
+
+    impl DigestSigner for UnavailableDigestSigner {
+        fn sign_digest(&self, _digest: Vec<u8>) -> Result<Vec<u8>, SigningCallbackError> {
+            Err(SigningCallbackError::IdentityUnavailable)
+        }
+    }
+
+    #[test]
+    fn request_digest_signature_propagates_typed_callback_error() {
+        let error = request_digest_signature(Box::new(UnavailableDigestSigner), vec![0x01])
+            .expect_err("unavailable signer should fail");
+
+        assert!(matches!(error, SigningCallbackError::IdentityUnavailable));
     }
 }

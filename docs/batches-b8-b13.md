@@ -145,7 +145,7 @@ T-124 requiere B12.
 de ningún shell.
 
 ### Tareas
-- [ ] T-070 **PRIMERA TAREA DEL BATCH — smoke test**: validar un callback interface UniFFI
+- [x] T-070 **PRIMERA TAREA DEL BATCH — smoke test**: validar un callback interface UniFFI
       SÍNCRONO CON VALOR DE RETORNO (patrón de `sign_digest`). El spike T-009 solo validó
       callbacks async de eventos sin retorno; hay que desriesgar ANTES de construir el resto
       del batch sobre este patrón. [risk-mitigation]

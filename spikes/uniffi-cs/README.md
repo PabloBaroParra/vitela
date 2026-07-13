@@ -1,9 +1,12 @@
-# uniffi-bindgen-cs spike (Batch 1, T-006..T-010)
+# uniffi-bindgen-cs spike (T-006..T-010, T-070)
 
 Validates `uniffi-bindgen-cs` (Rust -> C#) as the FFI bridge for the future
 Windows shell (Batch 10) before any real `pdf-ffi` / WinUI3 work begins. See
 `sdd/pdf-editor-mvp/design` ("uniffi-bindgen-cs spike (detailed plan)") and
 `sdd/pdf-editor-mvp/spike-uniffi-cs-decision` for the recorded go/no-go call.
+Batch 12 reuses the harness for T-070 to validate the synchronous, fallible
+callback shape required by `CertificateSourcePort::sign_digest` before the
+`pdf-sign` crate is scaffolded.
 
 This crate is **excluded** from the root workspace (`Cargo.toml` ->
 `[workspace] exclude`) so its pinned `uniffi` version can never collide with
@@ -75,11 +78,13 @@ the real benchmark numbers, and exits non-zero if anything failed.
 | T-007 | >=8MB byte-array round trip, 20 measured iterations + 3 warmup, Stopwatch timings (min/p50/avg/max) | `bytes_round_trip` called with an 8MB+37-byte buffer from `Program.cs` |
 | T-008 | Error enum -> typed C# exception (not a string), both a unit variant and a variant carrying a field | `SpikeError::EmptyInput` / `SpikeError::DivideByZero { numerator }` -> generated `SpikeException.EmptyInput` / `SpikeException.DivideByZero` |
 | T-009 | Async callback/event delivery, Rust background thread -> C#, call returns before delivery, events arrive in order | `SpikeEventListener` callback interface + `fire_events` |
+| T-070 | Synchronous C# callback -> Rust with `Result<Vec<u8>, SigningCallbackError>` return; success bytes and typed callback error both cross the real FFI boundary | `DigestSigner` callback interface + `request_digest_signature` |
 
 ## Key findings (see engram `spike-uniffi-cs-decision` for the full go/no-go writeup)
 
-- All 5 spike checks passed on a real run (not simulated) — see decision doc
-  for exact benchmark numbers.
+- The original five spike areas and the T-070 callback check passed on real
+  runs (not simulated) — see the decision doc for the original benchmark
+  numbers.
 - The generated exception hierarchy nests error variants as inner classes of
   a base exception type (e.g. `SpikeException.DivideByZero : SpikeException`),
   which C# `catch` blocks can discriminate directly by type — confirms the
@@ -90,6 +95,11 @@ the real benchmark numbers, and exits non-zero if anything failed.
   instance; the exported Rust function returns immediately (fire-and-forget),
   matching the async `PageRendered`-style notification contract the real
   `pdf-ffi` will need.
+- A callback interface method can synchronously return a byte array and a
+  declared callback error crosses back to Rust and out to C# as the generated
+  typed exception. This validates the FFI shape planned for
+  `CertificateSourcePort::sign_digest`; T-071/T-072 do not need an alternate
+  polling or two-phase protocol.
 - The measured >=8MB round-trip cost came in noticeably higher than the
   design doc's "single-digit milliseconds" assumption for a raw memcpy — see
   the decision doc for numbers and the reason (marshaling involves allocation

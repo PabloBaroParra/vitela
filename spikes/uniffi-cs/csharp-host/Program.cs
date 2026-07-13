@@ -1,4 +1,4 @@
-// Batch 1 spike host (T-006..T-010): exercises the uniffi-bindgen-cs
+// UniFFI C# spike host (T-006..T-010, T-070): exercises the uniffi-bindgen-cs
 // generated bindings for uniffi_cs_spike from a real, running C# process.
 // No simulated numbers — every timing printed here comes from an actual
 // Stopwatch measurement around a real native call.
@@ -149,6 +149,33 @@ for (int i = 0; i < received.Count; i++)
 Check("events delivered in order with correct payload", inOrder);
 
 Console.WriteLine();
+Console.WriteLine("=== T-070: synchronous callback with a return value ===");
+
+var digest = new byte[] { 0x00, 0x12, 0xA5, 0xFF };
+var signature = UniffiCsSpikeMethods.RequestDigestSignature(
+    new DeterministicDigestSigner(),
+    digest);
+Check(
+    "sign_digest synchronously returns signature bytes",
+    signature.SequenceEqual(new byte[] { 0xA5, 0xB7, 0x00, 0x5A }));
+
+try
+{
+    UniffiCsSpikeMethods.RequestDigestSignature(
+        new UnavailableDigestSigner(),
+        digest);
+    Check("sign_digest should have returned a typed callback error", false);
+}
+catch (SigningCallbackException.IdentityUnavailable)
+{
+    Check("sign_digest propagates typed callback error", true);
+}
+catch (Exception ex)
+{
+    Check($"sign_digest propagated wrong error type: {ex.GetType().FullName}", false);
+}
+
+Console.WriteLine();
 Console.WriteLine($"=== RESULT: {(failures == 0 ? "ALL CHECKS PASSED" : $"{failures} CHECK(S) FAILED")} ===");
 return failures == 0 ? 0 : 1;
 
@@ -176,5 +203,21 @@ class RecordingListener : SpikeEventListener
                 _done.Set();
             }
         }
+    }
+}
+
+class DeterministicDigestSigner : DigestSigner
+{
+    public byte[] SignDigest(byte[] digest)
+    {
+        return digest.Select(value => (byte)(value ^ 0xA5)).ToArray();
+    }
+}
+
+class UnavailableDigestSigner : DigestSigner
+{
+    public byte[] SignDigest(byte[] digest)
+    {
+        throw new SigningCallbackException.IdentityUnavailable();
     }
 }
