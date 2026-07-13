@@ -1,0 +1,9 @@
+[package]
+name = "zero-network-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Zero-network CI enforcement: verifies outbound network calls are blocked in the test environment (T-005)."
+publish = false
+
+[dependencies]

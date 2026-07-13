@@ -1,0 +1,18 @@
+[package]
+name = "gen-fixtures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Generates the encrypted-PDF test corpus (RC4/AES x user/owner password) consumed by pdf-manip and shell integration tests."
+publish = false
+
+[lib]
+name = "gen_fixtures"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gen-fixtures"
+path = "src/main.rs"
+
+[dependencies]
+lopdf = "0.44"
