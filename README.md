@@ -1,7 +1,12 @@
-# PDF Editor (working title)
+# Vitela
 
 An offline-first, cross-platform PDF editor with a Rust core. View, annotate,
 sign, and reorganize PDFs — without your documents ever leaving your machine.
+
+*Vitela* is Spanish for vellum — the finest parchment, a writing support made
+to last centuries. That is how this editor treats your documents: annotations
+from other tools are preserved, encryption is never silently stripped, and
+existing signatures survive your edits.
 
 **Status: pre-release, under active development.** The core engine (rendering,
 page operations, annotations, encrypted save, FFI surface) is complete and
