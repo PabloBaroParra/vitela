@@ -1,0 +1,12 @@
+[package]
+name = "pdf-annotate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Annotation-object builders (highlight/underline/strikeout/ink/text-note/shape, image stamps). Batch 0 scaffold stub; implementation lands in Batch 5."
+publish = false
+
+[dependencies]
+pdf-document = { path = "../pdf-document" }
+lopdf = "0.44"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
