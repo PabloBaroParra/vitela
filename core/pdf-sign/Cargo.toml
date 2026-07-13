@@ -1,0 +1,19 @@
+[package]
+name = "pdf-sign"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Offline PDF cryptographic signing and structural signature verification."
+publish = false
+
+[dependencies]
+# Keep these on the stable RustCrypto DER 0.7 family used by cms 0.2.
+# The cms/builder feature is intentionally disabled: platform certificate
+# stores sign digests externally, so pdf-sign must not pull private-key
+# implementations into the core signing protocol.
+cms = { version = "0.2.3", default-features = false, features = ["std"] }
+der = { version = "0.7.10", features = ["alloc", "derive", "oid", "std"] }
+sha2 = { version = "0.10.9", features = ["oid"] }
+signature = "2.2.0"
+spki = { version = "0.7.3", features = ["alloc", "std"] }
+x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }

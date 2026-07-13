@@ -149,7 +149,7 @@ de ningún shell.
       SÍNCRONO CON VALOR DE RETORNO (patrón de `sign_digest`). El spike T-009 solo validó
       callbacks async de eventos sin retorno; hay que desriesgar ANTES de construir el resto
       del batch sobre este patrón. [risk-mitigation]
-- [ ] T-071 Scaffold `core/pdf-sign` con RustCrypto (`cms`, `x509-cert`/`x509-parser`, `der`,
+- [x] T-071 Scaffold `core/pdf-sign` con RustCrypto (`cms`, `x509-cert`/`x509-parser`, `der`,
       `spki`, `sha2`, traits `signature`), aislado del resto de core (un build futuro
       "solo visor" no debe arrastrar crypto). [infra]
 - [ ] T-072 Trait `CertificateSourcePort`: `list_identities() -> Vec<SigningIdentity>`,

@@ -7,6 +7,7 @@ members = [
     "core/pdf-annotate",
     "core/pdf-save",
     "core/pdf-ffi",
+    "core/pdf-sign",
     "apps/linux-gtk",
     "tests/fixtures/gen-fixtures",
     "tools/zero-network-guard",
