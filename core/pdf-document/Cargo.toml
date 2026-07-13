@@ -1,0 +1,9 @@
+[package]
+name = "pdf-document"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure PDF document data model and hexagonal port trait definitions. No I/O, no pdfium/lopdf dependencies."
+publish = false
+
+[dependencies]
