@@ -8,6 +8,7 @@ members = [
     "core/pdf-save",
     "core/pdf-ffi",
     "core/pdf-sign",
+    "core/pdf-sign-pkcs11",
     "apps/linux-gtk",
     "tests/fixtures/gen-fixtures",
     "tools/zero-network-guard",

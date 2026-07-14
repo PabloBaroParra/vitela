@@ -172,7 +172,15 @@ de ningún shell.
 - [x] T-075 Builder CMS SignedData (PKCS#7): digest firmado + cadena de certificados. [FirmaCripto]
 - [x] T-076 Hook hacia el writer incremental de pdf-save:
       `append_signature_bytes(doc_bytes, byte_range, signature_der) -> Vec<u8>`. [FirmaCripto, IncrementalAPI]
-- [ ] T-077 Adaptador Linux in-process: PKCS#11 (`cryptoki`) + archivos .p12/.pfx (`pkcs12`). [FirmaCripto]
+- [x] T-077a Adaptador Linux PKCS#11 (`cryptoki`) implementando `CertificateSourcePort`;
+      la clave privada nunca sale del token. Crate hoja separado (p. ej.
+      `core/pdf-sign-pkcs11`) — `pdf-sign` core no debe arrastrar implementaciones de
+      clave privada. [FirmaCripto]
+- [ ] T-077b Adaptador archivos .p12/.pfx vía `p12-keystore` (Rust puro, mantenido;
+      `pkcs12` de RustCrypto descartado: descifrado pendiente upstream, aún pre-release)
+      + firma in-process (`rsa`/`p256` con traits `signature`). Mismo crate hoja o
+      feature no-default — jamás en `pdf-sign` core. Depende de T-077a solo por
+      compartir crate/contrato de tests. [FirmaCripto]
 - [ ] T-078 Corpus de fixtures firmados conocidos-buenos (rcgen self-signed, uso exclusivo
       de test). [FirmaCripto]
 - [ ] T-079 Cross-validación: verificación estructural automatizada (hash/ByteRange) en CI +
