@@ -9,11 +9,13 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod cms;
 mod digest;
 mod error;
 mod port;
 mod signature;
 
+pub use cms::CmsSignedDataBuilder;
 pub use digest::{digest_byte_ranges, DocumentDigest};
 pub use error::SignError;
 pub use port::{CertificateSourcePort, DigestAlgorithm, SigningAlgorithm, SigningIdentity};

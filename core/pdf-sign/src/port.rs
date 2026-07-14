@@ -110,7 +110,11 @@ pub trait CertificateSourcePort: Send + Sync {
     /// Only [`sign_digest`](Self::sign_digest) calls this method; it has
     /// already checked that `digest` was produced by the algorithm carried in
     /// `algorithm`, so adapters can forward the bytes to their key store
-    /// without re-validating them.
+    /// without re-validating them. For [`SigningAlgorithm::Ecdsa`], a
+    /// successful result must be DER-encoded `ECDSA-Sig-Value`: a sequence of
+    /// two positive ASN.1 INTEGER values (`r` and `s`). The CMS builder rejects
+    /// any other ECDSA representation, including fixed-width raw `r || s`
+    /// bytes. RSA results are the signature octets returned by the key store.
     ///
     /// # Errors
     ///

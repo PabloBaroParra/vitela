@@ -59,6 +59,46 @@ pub enum SignError {
         /// Adapter-provided diagnostic detail.
         message: String,
     },
+    /// The selected identity did not provide a signer certificate.
+    #[error("signing identity `{identity_id}` has no certificate chain")]
+    MissingCertificateChain {
+        /// Opaque identifier of the identity with no certificates.
+        identity_id: String,
+    },
+    /// One certificate supplied by the selected identity is not valid DER.
+    #[error("certificate {index} in the signing identity chain is invalid: {message}")]
+    InvalidCertificate {
+        /// Zero-based position in the leaf-first certificate chain.
+        index: usize,
+        /// DER decoder diagnostic.
+        message: String,
+    },
+    /// A CMS value could not be represented or serialized as DER.
+    #[error("CMS encoding failed: {message}")]
+    CmsEncoding {
+        /// DER encoder diagnostic.
+        message: String,
+    },
+    /// The certificate source returned no signature bytes.
+    #[error("certificate source returned an empty signature")]
+    EmptySignature,
+    /// An ECDSA signature returned by a certificate source is not a DER
+    /// `ECDSA-Sig-Value` sequence.
+    #[error("certificate source returned an invalid DER ECDSA signature")]
+    InvalidEcdsaSignature,
+    /// The requested signing algorithm does not match the leaf certificate's
+    /// SubjectPublicKeyInfo algorithm.
+    #[error(
+        "signing identity `{identity_id}` has public-key algorithm {public_key_algorithm}, which is incompatible with {signing}"
+    )]
+    IncompatibleCertificateAlgorithm {
+        /// Opaque identifier originally returned by the certificate source.
+        identity_id: String,
+        /// Object identifier from the leaf certificate SubjectPublicKeyInfo.
+        public_key_algorithm: String,
+        /// Signature scheme requested for the CMS signer.
+        signing: SigningAlgorithm,
+    },
     /// A signature placeholder was requested with no room for a CMS value.
     #[error("signature placeholder capacity must be greater than zero")]
     InvalidPlaceholderCapacity,
