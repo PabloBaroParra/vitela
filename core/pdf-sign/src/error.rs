@@ -120,4 +120,14 @@ pub enum SignError {
         /// Serialized document length in bytes.
         length: usize,
     },
+    /// The DER signature does not fit the placeholder's reserved capacity.
+    #[error(
+        "signature of {signature_length} bytes exceeds the reserved placeholder capacity of {capacity} bytes"
+    )]
+    SignatureTooLarge {
+        /// DER-encoded CMS signature length in bytes.
+        signature_length: usize,
+        /// Maximum DER bytes the `/Contents` placeholder can hold.
+        capacity: usize,
+    },
 }

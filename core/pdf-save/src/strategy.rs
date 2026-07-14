@@ -78,6 +78,47 @@ pub fn save_document_with_options(
     }
 }
 
+/// Appends one incremental revision to `original_bytes` using the same
+/// `lopdf::IncrementalDocument` writer as the ordinary incremental save path.
+///
+/// `base` must be the document loaded from `original_bytes`: `lopdf` computes
+/// the new revision's `/Prev` offset and object numbering from it, so a
+/// mismatched pair produces a structurally broken file. A base that was never
+/// parsed from bytes at all (built in memory) is rejected up front; a base
+/// parsed from *different* bytes cannot be detected cheaply and remains the
+/// caller's contract.
+///
+/// The callback is responsible for adding or changing only objects in the new
+/// revision. The original bytes remain unchanged, which makes this the narrow
+/// extension point for operations such as the pdf-sign signature-field append
+/// (T-076).
+///
+/// # Errors
+///
+/// Returns a [`SaveError`] if `base` was not parsed from a serialized
+/// document, if `lopdf` cannot create or serialize the incremental revision,
+/// or if `update` returns one.
+pub fn append_incremental_update(
+    original_bytes: Vec<u8>,
+    base: LopdfDocument,
+    update: impl FnOnce(&mut IncrementalDocument) -> Result<(), SaveError>,
+) -> Result<Vec<u8>, SaveError> {
+    let base = base.into_lopdf();
+    if base.xref_start == 0 {
+        return Err(SaveError::InvalidSaveRequest(
+            "append_incremental_update requires a base parsed from original_bytes — a document \
+             built in memory has no existing cross-reference table to append to",
+        ));
+    }
+
+    let mut incremental = IncrementalDocument::create_from(original_bytes, base);
+    update(&mut incremental)?;
+
+    let mut bytes = Vec::new();
+    incremental.save_to(&mut bytes)?;
+    Ok(bytes)
+}
+
 fn requires_full_rewrite(input: &SaveInput) -> Result<bool, SaveError> {
     if input.intent == SaveIntent::StripProtection || input.original_bytes.is_none() {
         return Ok(true);
@@ -149,33 +190,28 @@ fn save_incremental(input: &SaveInput) -> Result<Vec<u8>, SaveError> {
         ));
     }
 
-    let mut incremental =
-        IncrementalDocument::create_from(original_bytes.clone(), input.base.as_lopdf().clone());
-
     let page_ids = bridge::page_object_ids(&input.base, &input.document.pages)?;
     let existing_annotations = bridge::page_annotation_objects(&input.base)?;
+    append_incremental_update(original_bytes.clone(), input.base.clone(), |incremental| {
+        for (page_id, rotation) in bridge::rotation_changes(&original_pages, &input.document.pages)
+        {
+            let page_object_id = *page_ids.get(&page_id).ok_or(SaveError::InvalidSaveRequest(
+                "rotation change references a page id absent from the base document",
+            ))?;
+            let dict: &mut Dictionary = incremental.page_dict_mut(page_object_id)?;
+            dict.set(
+                "Rotate",
+                Object::Integer(i64::from(bridge::rotation_degrees(rotation))),
+            );
+        }
 
-    for (page_id, rotation) in bridge::rotation_changes(&original_pages, &input.document.pages) {
-        let page_object_id = *page_ids.get(&page_id).ok_or(SaveError::InvalidSaveRequest(
-            "rotation change references a page id absent from the base document",
-        ))?;
-        let dict: &mut Dictionary = incremental.page_dict_mut(page_object_id)?;
-        dict.set(
-            "Rotate",
-            Object::Integer(i64::from(bridge::rotation_degrees(rotation))),
-        );
-    }
-
-    annotations::attach_annotations(
-        &mut incremental,
-        &page_ids,
-        &existing_annotations,
-        &input.document.annotations,
-    )?;
-
-    let mut bytes = Vec::new();
-    incremental.save_to(&mut bytes)?;
-    Ok(bytes)
+        annotations::attach_annotations(
+            incremental,
+            &page_ids,
+            &existing_annotations,
+            &input.document.annotations,
+        )
+    })
 }
 
 fn set_mod_date(doc: &mut lopdf::Document, clock: &dyn Clock) {
@@ -350,6 +386,15 @@ mod tests {
     fn incremental_save_rejects_missing_original_bytes() {
         let input = blank_input(); // original_bytes: None
         let result = save_incremental(&input);
+        assert!(matches!(result, Err(SaveError::InvalidSaveRequest(_))));
+    }
+
+    #[test]
+    fn append_incremental_update_rejects_a_base_never_parsed_from_bytes() {
+        let base = pdf_manip::create_blank_document(PageSize::A4, Orientation::Portrait);
+
+        let result = append_incremental_update(Vec::new(), base, |_| Ok(()));
+
         assert!(matches!(result, Err(SaveError::InvalidSaveRequest(_))));
     }
 }

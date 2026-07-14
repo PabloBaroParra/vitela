@@ -19,3 +19,11 @@ signature = "2.2.0"
 spki = { version = "0.7.3", features = ["alloc", "std"] }
 thiserror = "1"
 x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
+
+# T-076 round-trip test only: production pdf-sign stays an isolated leaf and
+# must not pull the save/render dependency graph. Promote to [dependencies]
+# only when signing orchestration code actually calls into pdf-save.
+[dev-dependencies]
+pdf-document = { path = "../pdf-document" }
+pdf-manip = { path = "../pdf-manip" }
+pdf-save = { path = "../pdf-save" }

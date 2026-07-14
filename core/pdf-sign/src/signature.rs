@@ -209,6 +209,81 @@ pub fn prepare_signature_bytes(
     })
 }
 
+/// Writes a DER-encoded CMS signature into the reserved `/Contents`
+/// placeholder of prepared PDF bytes (T-076).
+///
+/// The gap between the two `/ByteRange` regions must still hold the unsigned
+/// placeholder: `<`, hexadecimal zeros, `>`. The signature is stored as
+/// uppercase hexadecimal and the unused capacity keeps its zero padding —
+/// trailing zero bytes are harmless because the DER value carries its own
+/// length. Bytes covered by `byte_range` are never touched, so a digest
+/// computed with [`crate::digest_byte_ranges`] before this call stays valid
+/// for the returned bytes.
+///
+/// # Errors
+///
+/// - [`SignError::EmptySignature`] when `signature_der` is empty.
+/// - [`SignError::InvalidByteRange`] when the ranges do not describe a
+///   document that starts at offset zero, ends exactly at `doc_bytes.len()`,
+///   and leaves a gap between the two regions.
+/// - [`SignError::MalformedPlaceholder`] when the gap is not an unsigned
+///   hexadecimal placeholder.
+/// - [`SignError::SignatureTooLarge`] when the DER value does not fit the
+///   reserved capacity.
+pub fn append_signature_bytes(
+    mut doc_bytes: Vec<u8>,
+    byte_range: ByteRange,
+    signature_der: &[u8],
+) -> Result<Vec<u8>, SignError> {
+    if signature_der.is_empty() {
+        return Err(SignError::EmptySignature);
+    }
+
+    let [first_offset, first_length, second_offset, second_length] = byte_range.values();
+    let invalid_range = || SignError::InvalidByteRange {
+        byte_range,
+        document_length: doc_bytes.len(),
+    };
+    let gap_start = first_offset
+        .checked_add(first_length)
+        .ok_or_else(invalid_range)?;
+    let document_end = second_offset
+        .checked_add(second_length)
+        .ok_or_else(invalid_range)?;
+    if first_offset != 0 || gap_start >= second_offset || document_end != doc_bytes.len() as u64 {
+        return Err(invalid_range());
+    }
+    let gap_start = gap_start as usize;
+    let gap_end = second_offset as usize;
+
+    let hex_start = gap_start + 1;
+    let hex_end = gap_end - 1;
+    if doc_bytes[gap_start] != b'<'
+        || doc_bytes[hex_end] != b'>'
+        || doc_bytes[hex_start..hex_end]
+            .iter()
+            .any(|byte| *byte != b'0')
+    {
+        return Err(SignError::MalformedPlaceholder);
+    }
+
+    let capacity = (hex_end - hex_start) / 2;
+    if signature_der.len() > capacity {
+        return Err(SignError::SignatureTooLarge {
+            signature_length: signature_der.len(),
+            capacity,
+        });
+    }
+
+    const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+    let hex = &mut doc_bytes[hex_start..hex_end];
+    for (index, byte) in signature_der.iter().enumerate() {
+        hex[2 * index] = HEX_DIGITS[usize::from(byte >> 4)];
+        hex[2 * index + 1] = HEX_DIGITS[usize::from(byte & 0x0F)];
+    }
+    Ok(doc_bytes)
+}
+
 fn patch_byte_range(
     bytes: &mut [u8],
     marker_offset: usize,
@@ -370,5 +445,94 @@ mod tests {
             prepare_signature_bytes(two, 8).expect_err("ambiguous placeholders should fail safely");
 
         assert_eq!(error, SignError::AmbiguousPlaceholder { count: 2 });
+    }
+
+    #[test]
+    fn append_signature_bytes_writes_uppercase_hex_and_keeps_zero_padding() {
+        let prepared = prepare_signature_bytes(serialized_placeholder(8), 8)
+            .expect("serialized placeholder should be prepared");
+        let hex_range = prepared.contents_hex_range.clone();
+
+        let signed = append_signature_bytes(prepared.bytes, prepared.byte_range, &[0xAB, 0x01])
+            .expect("two DER bytes should fit an eight-byte placeholder");
+
+        assert_eq!(&signed[hex_range], b"AB01000000000000");
+    }
+
+    #[test]
+    fn append_signature_bytes_never_touches_covered_regions() {
+        let prepared = prepare_signature_bytes(serialized_placeholder(8), 8)
+            .expect("serialized placeholder should be prepared");
+        let [_, first_length, second_offset, _] =
+            prepared.byte_range.values().map(|value| value as usize);
+        let before = prepared.bytes.clone();
+
+        let signed = append_signature_bytes(prepared.bytes, prepared.byte_range, &[0xFF; 8])
+            .expect("a capacity-sized signature should fit");
+
+        assert_eq!(
+            (&signed[..first_length], &signed[second_offset..]),
+            (&before[..first_length], &before[second_offset..])
+        );
+    }
+
+    #[test]
+    fn append_signature_bytes_rejects_empty_signature() {
+        let prepared = prepare_signature_bytes(serialized_placeholder(8), 8)
+            .expect("serialized placeholder should be prepared");
+
+        let error = append_signature_bytes(prepared.bytes, prepared.byte_range, &[])
+            .expect_err("an empty signature should fail");
+
+        assert_eq!(error, SignError::EmptySignature);
+    }
+
+    #[test]
+    fn append_signature_bytes_rejects_signature_over_capacity() {
+        let prepared = prepare_signature_bytes(serialized_placeholder(8), 8)
+            .expect("serialized placeholder should be prepared");
+
+        let error = append_signature_bytes(prepared.bytes, prepared.byte_range, &[0xFF; 9])
+            .expect_err("nine DER bytes should not fit an eight-byte placeholder");
+
+        assert_eq!(
+            error,
+            SignError::SignatureTooLarge {
+                signature_length: 9,
+                capacity: 8,
+            }
+        );
+    }
+
+    #[test]
+    fn append_signature_bytes_rejects_byte_range_past_document_end() {
+        let prepared = prepare_signature_bytes(serialized_placeholder(8), 8)
+            .expect("serialized placeholder should be prepared");
+        let truncated = prepared.bytes[..prepared.bytes.len() - 1].to_vec();
+        let truncated_length = truncated.len();
+
+        let error = append_signature_bytes(truncated, prepared.byte_range, &[0xAB])
+            .expect_err("a byte range past the document end should fail");
+
+        assert_eq!(
+            error,
+            SignError::InvalidByteRange {
+                byte_range: prepared.byte_range,
+                document_length: truncated_length,
+            }
+        );
+    }
+
+    #[test]
+    fn append_signature_bytes_rejects_an_already_signed_placeholder() {
+        let prepared = prepare_signature_bytes(serialized_placeholder(8), 8)
+            .expect("serialized placeholder should be prepared");
+        let signed = append_signature_bytes(prepared.bytes, prepared.byte_range, &[0xAB])
+            .expect("first signature should succeed");
+
+        let error = append_signature_bytes(signed, prepared.byte_range, &[0xCD])
+            .expect_err("signing the same placeholder twice should fail");
+
+        assert_eq!(error, SignError::MalformedPlaceholder);
     }
 }

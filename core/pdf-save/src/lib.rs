@@ -38,4 +38,6 @@ pub use clock::{
 pub use error::SaveError;
 pub use export::{export_page_as_image, ExportFormat};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
-pub use strategy::{save_document, save_document_with_options, SaveInput, SaveOptions};
+pub use strategy::{
+    append_incremental_update, save_document, save_document_with_options, SaveInput, SaveOptions,
+};

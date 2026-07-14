@@ -20,8 +20,8 @@ pub use digest::{digest_byte_ranges, DocumentDigest};
 pub use error::SignError;
 pub use port::{CertificateSourcePort, DigestAlgorithm, SigningAlgorithm, SigningIdentity};
 pub use signature::{
-    prepare_signature_bytes, ByteRange, PreparedSignature, SignatureFieldBuilder,
-    SignaturePlaceholder, DEFAULT_SIGNATURE_CAPACITY,
+    append_signature_bytes, prepare_signature_bytes, ByteRange, PreparedSignature,
+    SignatureFieldBuilder, SignaturePlaceholder, DEFAULT_SIGNATURE_CAPACITY,
 };
 
 #[cfg(test)]
