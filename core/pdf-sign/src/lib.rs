@@ -9,10 +9,12 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod digest;
 mod error;
 mod port;
 mod signature;
 
+pub use digest::{digest_byte_ranges, DocumentDigest};
 pub use error::SignError;
 pub use port::{CertificateSourcePort, DigestAlgorithm, SigningAlgorithm, SigningIdentity};
 pub use signature::{
@@ -24,7 +26,6 @@ pub use signature::{
 mod tests {
     use cms::content_info::ContentInfo;
     use der::Decode;
-    use sha2::{Digest, Sha256, Sha384, Sha512};
     use signature::hazmat::PrehashSigner;
     use spki::AlgorithmIdentifierOwned;
     use x509_cert::Certificate;
@@ -42,21 +43,6 @@ mod tests {
     #[test]
     fn spki_types_use_the_selected_der_surface() {
         assert!(AlgorithmIdentifierOwned::from_der(&[]).is_err());
-    }
-
-    #[test]
-    fn sha256_is_available() {
-        assert_eq!(Sha256::digest(b"pdf-sign").len(), 32);
-    }
-
-    #[test]
-    fn sha384_is_available() {
-        assert_eq!(Sha384::digest(b"pdf-sign").len(), 48);
-    }
-
-    #[test]
-    fn sha512_is_available() {
-        assert_eq!(Sha512::digest(b"pdf-sign").len(), 64);
     }
 
     struct EchoSigner;

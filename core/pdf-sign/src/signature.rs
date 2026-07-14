@@ -251,23 +251,25 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+/// Serializes a one-object PDF containing an unsigned signature placeholder.
+#[cfg(test)]
+pub(crate) fn serialized_placeholder(capacity: usize) -> Vec<u8> {
+    let placeholder = SignatureFieldBuilder::new("Signature_1", (1, 0), [0.0; 4])
+        .contents_capacity(capacity)
+        .build()
+        .expect("test placeholder should build");
+    let mut document = lopdf::Document::with_version("1.7");
+    document.add_object(Object::Dictionary(placeholder.signature_dictionary));
+    let mut bytes = Vec::new();
+    document
+        .save_to(&mut bytes)
+        .expect("test placeholder should serialize");
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn serialized_placeholder(capacity: usize) -> Vec<u8> {
-        let placeholder = SignatureFieldBuilder::new("Signature_1", (1, 0), [0.0; 4])
-            .contents_capacity(capacity)
-            .build()
-            .expect("test placeholder should build");
-        let mut document = lopdf::Document::with_version("1.7");
-        document.add_object(Object::Dictionary(placeholder.signature_dictionary));
-        let mut bytes = Vec::new();
-        document
-            .save_to(&mut bytes)
-            .expect("test placeholder should serialize");
-        bytes
-    }
 
     #[test]
     fn builder_uses_default_contents_capacity() {

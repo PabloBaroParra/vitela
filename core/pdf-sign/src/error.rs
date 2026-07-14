@@ -1,8 +1,8 @@
-//! Error type shared by the signing port and signature serialization.
+//! Error type shared by digesting, the signing port, and signature serialization.
 
 use thiserror::Error;
 
-use crate::{DigestAlgorithm, SigningAlgorithm};
+use crate::{ByteRange, DigestAlgorithm, SigningAlgorithm};
 
 /// Errors reported while preparing a signature placeholder or asking a
 /// certificate source to sign a digest.
@@ -32,6 +32,23 @@ pub enum SignError {
         expected: usize,
         /// Supplied digest length in bytes.
         actual: usize,
+    },
+    /// The digest was produced by a different algorithm than the signature
+    /// scheme expects.
+    #[error("digest was produced with {digest} but the signing algorithm is {signing}")]
+    DigestAlgorithmMismatch {
+        /// Algorithm that produced the digest bytes.
+        digest: DigestAlgorithm,
+        /// Signature scheme the caller asked the adapter to use.
+        signing: SigningAlgorithm,
+    },
+    /// A PDF `/ByteRange` points outside the supplied document bytes.
+    #[error("invalid PDF byte range {byte_range:?} for document length {document_length}")]
+    InvalidByteRange {
+        /// The offsets and lengths from the PDF signature dictionary.
+        byte_range: ByteRange,
+        /// Number of available document bytes.
+        document_length: usize,
     },
     /// The user cancelled an operating-system signing prompt.
     #[error("signing was cancelled by the user")]

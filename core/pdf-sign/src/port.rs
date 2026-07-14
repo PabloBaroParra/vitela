@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::SignError;
+use crate::{DocumentDigest, SignError};
 
 /// Hash algorithm used to produce the digest passed to a certificate source.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,9 +19,9 @@ pub enum DigestAlgorithm {
 impl DigestAlgorithm {
     /// Returns the digest output length in bytes.
     ///
-    /// This is the `expected` length a certificate source reports through
-    /// [`SignError::InvalidDigestLength`] when a supplied digest does not
-    /// match the requested algorithm.
+    /// This is the `expected` length [`DocumentDigest::new`] reports through
+    /// [`SignError::InvalidDigestLength`] when supplied bytes do not match
+    /// the requested algorithm.
     #[must_use]
     pub const fn digest_len(self) -> usize {
         match self {
@@ -105,29 +105,61 @@ pub trait CertificateSourcePort: Send + Sync {
     /// An empty vector means that no usable certificate is available.
     fn list_identities(&self) -> Vec<SigningIdentity>;
 
-    /// Signs a precomputed digest synchronously with the identity whose
-    /// [`SigningIdentity::id`] equals `identity_id`.
+    /// Raw signing hook implemented by platform adapters.
     ///
-    /// Only the opaque identifier crosses the boundary; the adapter already
-    /// holds the certificate and key material it advertised through
-    /// [`list_identities`](Self::list_identities).
+    /// Only [`sign_digest`](Self::sign_digest) calls this method; it has
+    /// already checked that `digest` was produced by the algorithm carried in
+    /// `algorithm`, so adapters can forward the bytes to their key store
+    /// without re-validating them.
     ///
     /// # Errors
     ///
     /// Returns [`SignError`] when the identity disappears, the requested
-    /// algorithm is unsupported, the digest length does not match
-    /// `algorithm`, the user cancels a platform prompt, or the backing store
-    /// fails.
-    fn sign_digest(
+    /// algorithm is unsupported, the user cancels a platform prompt, or the
+    /// backing store fails.
+    fn sign_digest_raw(
         &self,
         identity_id: &str,
         digest: &[u8],
         algorithm: SigningAlgorithm,
     ) -> Result<Vec<u8>, SignError>;
+
+    /// Signs a precomputed digest synchronously with the identity whose
+    /// [`SigningIdentity::id`] equals `identity_id`.
+    ///
+    /// Only the opaque identifier crosses the boundary; the adapter already
+    /// holds the certificate and key material it advertised through
+    /// [`list_identities`](Self::list_identities). Adapters must not override
+    /// this method: it is the validation layer in front of
+    /// [`sign_digest_raw`](Self::sign_digest_raw).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SignError::DigestAlgorithmMismatch`] before reaching the
+    /// adapter when `digest` was produced by a different algorithm than
+    /// `algorithm` carries. Otherwise returns any error produced by
+    /// [`sign_digest_raw`](Self::sign_digest_raw).
+    fn sign_digest(
+        &self,
+        identity_id: &str,
+        digest: &DocumentDigest,
+        algorithm: SigningAlgorithm,
+    ) -> Result<Vec<u8>, SignError> {
+        let expected = algorithm.digest_algorithm();
+        if digest.algorithm() != expected {
+            return Err(SignError::DigestAlgorithmMismatch {
+                digest: digest.algorithm(),
+                signing: algorithm,
+            });
+        }
+        self.sign_digest_raw(identity_id, digest.as_bytes(), algorithm)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
 
     fn identity() -> SigningIdentity {
@@ -139,6 +171,11 @@ mod tests {
         }
     }
 
+    fn sha256_digest() -> DocumentDigest {
+        DocumentDigest::new(DigestAlgorithm::Sha256, vec![0xA5; 32])
+            .expect("test digest should wrap")
+    }
+
     struct DeterministicCertificateSource;
 
     impl CertificateSourcePort for DeterministicCertificateSource {
@@ -146,7 +183,7 @@ mod tests {
             vec![identity()]
         }
 
-        fn sign_digest(
+        fn sign_digest_raw(
             &self,
             _identity_id: &str,
             digest: &[u8],
@@ -163,7 +200,7 @@ mod tests {
             Vec::new()
         }
 
-        fn sign_digest(
+        fn sign_digest_raw(
             &self,
             identity_id: &str,
             _digest: &[u8],
@@ -175,12 +212,32 @@ mod tests {
         }
     }
 
+    struct RecordingCertificateSource {
+        calls: AtomicUsize,
+    }
+
+    impl CertificateSourcePort for RecordingCertificateSource {
+        fn list_identities(&self) -> Vec<SigningIdentity> {
+            Vec::new()
+        }
+
+        fn sign_digest_raw(
+            &self,
+            _identity_id: &str,
+            digest: &[u8],
+            _algorithm: SigningAlgorithm,
+        ) -> Result<Vec<u8>, SignError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Ok(digest.to_vec())
+        }
+    }
+
     #[test]
     fn sign_digest_preserves_typed_adapter_error() {
         let error = UnavailableCertificateSource
             .sign_digest(
                 &identity().id,
-                &[0; 32],
+                &sha256_digest(),
                 SigningAlgorithm::RsaPkcs1v15(DigestAlgorithm::Sha256),
             )
             .expect_err("unavailable identity should fail");
@@ -190,6 +247,50 @@ mod tests {
             SignError::IdentityUnavailable {
                 identity_id: "test-key".to_owned()
             }
+        );
+    }
+
+    #[test]
+    fn sign_digest_rejects_algorithm_mismatch_before_calling_adapter() {
+        let source = RecordingCertificateSource {
+            calls: AtomicUsize::new(0),
+        };
+        let algorithm = SigningAlgorithm::Ecdsa(DigestAlgorithm::Sha384);
+
+        let error = source
+            .sign_digest("test-key", &sha256_digest(), algorithm)
+            .expect_err("SHA-256 digest signed as SHA-384 should fail");
+
+        assert_eq!(
+            (error, source.calls.load(Ordering::Relaxed)),
+            (
+                SignError::DigestAlgorithmMismatch {
+                    digest: DigestAlgorithm::Sha256,
+                    signing: algorithm,
+                },
+                0,
+            )
+        );
+    }
+
+    #[test]
+    fn sign_digest_dispatches_matching_digest_to_adapter() {
+        let source = RecordingCertificateSource {
+            calls: AtomicUsize::new(0),
+        };
+        let digest = sha256_digest();
+
+        let signature = source
+            .sign_digest(
+                "test-key",
+                &digest,
+                SigningAlgorithm::RsaPkcs1v15(DigestAlgorithm::Sha256),
+            )
+            .expect("matching digest should reach adapter");
+
+        assert_eq!(
+            (signature, source.calls.load(Ordering::Relaxed)),
+            (digest.as_bytes().to_vec(), 1)
         );
     }
 

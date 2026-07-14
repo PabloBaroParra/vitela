@@ -168,7 +168,7 @@ de ningún shell.
       `sign_digest(identity_id, digest, alg) -> Result<Vec<u8>, SignError>`. [FirmaCripto]
 - [x] T-073 Builder de campo AcroForm/Sig: placeholder `/Contents` (hex ceros, tamaño
       suficiente) + cálculo de `/ByteRange` (dos rangos alrededor del placeholder). [FirmaCripto]
-- [ ] T-074 Digest configurable (SHA-256/384/512) sobre los byte ranges. [FirmaCripto]
+- [x] T-074 Digest configurable (SHA-256/384/512) sobre los byte ranges. [FirmaCripto]
 - [ ] T-075 Builder CMS SignedData (PKCS#7): digest firmado + cadena de certificados. [FirmaCripto]
 - [ ] T-076 Hook hacia el writer incremental de pdf-save:
       `append_signature_bytes(doc_bytes, byte_range, signature_der) -> Vec<u8>`. [FirmaCripto, IncrementalAPI]
