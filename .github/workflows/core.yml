@@ -148,6 +148,9 @@ jobs:
       # `sudo` resets PATH via secure_path and drops the runner env, so
       # `env "PATH=$PATH"` re-injects the toolchain PATH and -E preserves
       # HOME/PDFIUM_DYNAMIC_LIB_PATH for rustup/cargo/pdfium resolution.
+      # Do not add `--map-root-user` here: `sudo` already supplies the
+      # privilege needed for `--net`, while an extra user namespace prevents
+      # the mapped root process from executing the runner-owned Cargo binary.
       #
       # The full (non-ignored) suite runs inside the namespace — that IS the
       # T-005 enforcement: every test must pass with no usable network. The
@@ -156,11 +159,11 @@ jobs:
       # assertions on shared runners are noise, per its own module docs.
       - name: Run the full test suite inside a network namespace
         run: |
-          sudo -E env "PATH=$PATH" unshare --net --map-root-user \
+          sudo -E env "PATH=$PATH" unshare --net \
             cargo test --workspace --locked
       - name: Run zero-network-guard's CI-only egress proof inside the namespace
         run: |
-          sudo -E env "PATH=$PATH" unshare --net --map-root-user \
+          sudo -E env "PATH=$PATH" unshare --net \
             cargo test -p zero-network-guard --locked -- --ignored
 
   determinism:
