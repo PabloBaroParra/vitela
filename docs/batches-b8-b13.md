@@ -176,7 +176,7 @@ de ningún shell.
       la clave privada nunca sale del token. Crate hoja separado (p. ej.
       `core/pdf-sign-pkcs11`) — `pdf-sign` core no debe arrastrar implementaciones de
       clave privada. [FirmaCripto]
-- [ ] T-077b Adaptador archivos .p12/.pfx vía `p12-keystore` (Rust puro, mantenido;
+- [x] T-077b Adaptador archivos .p12/.pfx vía `p12-keystore` (Rust puro, mantenido;
       `pkcs12` de RustCrypto descartado: descifrado pendiente upstream, aún pre-release)
       + firma in-process (`rsa`/`p256` con traits `signature`). Mismo crate hoja o
       feature no-default — jamás en `pdf-sign` core. Depende de T-077a solo por

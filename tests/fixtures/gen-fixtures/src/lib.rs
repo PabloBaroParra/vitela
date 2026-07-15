@@ -22,6 +22,7 @@ use lopdf::{
 };
 
 pub mod large;
+pub mod signed;
 
 /// Encryption algorithm used for a corpus fixture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

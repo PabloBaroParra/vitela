@@ -31,3 +31,42 @@ detected as encrypted, opens with either correct password via
 
 Consumed by `pdf-manip`'s decrypt-on-open integration tests (Batch 4,
 T-025/T-026) and any shell-level password-prompt testing (Batch 8+).
+
+## signed/ — known-good signed-PDF corpus (T-078)
+
+Statically-generated fixtures signed through the REAL production pipeline
+(pdf-save incremental hook → `pdf_sign::digest_byte_ranges` →
+`CmsSignedDataBuilder` → `PfxCertificateSource`), using rcgen self-signed
+identities. **Test use only** — the signer certificates are self-signed and
+carry no trust.
+
+| File | Key | Signature scheme | Digest | Signatures |
+|---|---|---|---|---|
+| `rsa2048_sha256.pdf` | RSA-2048 | RSASSA-PKCS1-v1_5 | SHA-256 | 1 |
+| `p256_sha256.pdf` | ECDSA P-256 | ECDSA | SHA-256 | 1 |
+| `p256_sha384.pdf` | ECDSA P-256 | ECDSA | SHA-384 | 1 |
+| `two_signatures_rsa2048_sha256.pdf` | RSA-2048 | RSASSA-PKCS1-v1_5 | SHA-256 | 2 |
+
+Every signature is `adbe.pkcs7.detached` with a `/ByteRange` covering its
+complete revision. The two-signature fixture proves the spec.md acceptance
+criterion "a second signature must not invalidate the first": each signature
+verifies independently over its own byte ranges.
+
+Regenerate with:
+
+```sh
+cargo run -p gen-fixtures
+```
+
+**Regeneration is not byte-reproducible**: each run mints fresh random keys
+and certificates, so the regenerated files always differ from the committed
+ones. The known-good property is guaranteed by the generator's integration
+tests (`signed_corpus.rs`), not by byte equality: on every test run they
+regenerate a corpus, re-derive each `/ByteRange` digest, compare it against
+the CMS `message-digest` signed attribute, verify the certificate's own
+self-signature, cryptographically verify each CMS signature, and assert the
+fields are discoverable through `/AcroForm /Fields` and the page's
+`/Annots` (PDF 32000-1 §12.7.2).
+
+Consumed by structural cross-validation (T-079) and the signing test suite
+(T-080).

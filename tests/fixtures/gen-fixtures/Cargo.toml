@@ -3,7 +3,7 @@ name = "gen-fixtures"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Generates the encrypted-PDF test corpus (RC4/AES x user/owner password) consumed by pdf-manip and shell integration tests."
+description = "Generates the encrypted-PDF and signed-PDF test corpora consumed by pdf-manip, pdf-sign, and shell integration tests."
 publish = false
 
 [lib]
@@ -16,3 +16,21 @@ path = "src/main.rs"
 
 [dependencies]
 lopdf = "0.44"
+p12-keystore = "0.3.1"
+pdf-manip = { path = "../../../core/pdf-manip" }
+pdf-save = { path = "../../../core/pdf-save" }
+pdf-sign = { path = "../../../core/pdf-sign" }
+pdf-sign-pfx = { path = "../../../core/pdf-sign-pfx" }
+# T-078: self-signed test identities. ring (not the default aws-lc-rs) keeps
+# the native build dependency-free on all CI hosts.
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
+rand = "0.8"
+rsa = { version = "0.9.8", features = ["sha2"] }
+
+[dev-dependencies]
+cms = { version = "0.2.3", default-features = false, features = ["std"] }
+der = { version = "0.7.10", features = ["alloc", "derive", "oid", "std"] }
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8"] }
+sha2 = "0.10.9"
+signature = "2.2.0"
+x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
