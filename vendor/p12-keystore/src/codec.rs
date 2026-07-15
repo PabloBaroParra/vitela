@@ -63,12 +63,36 @@ pub struct ParsedAuthSafe {
 const MAX_MAC_ITERATIONS: i32 = 1_000_000;
 
 /// Upper bound for attacker-controlled PBES1/PBES2 KDF iteration counts read
-/// from container DER; far above interoperable defaults (OpenSSL uses 2048).
+/// from container DER; deliberately far above counts produced by mainstream
+/// tooling, so no interoperable container is rejected.
 const MAX_KDF_ITERATIONS: i32 = 1_000_000;
 
-/// Upper bound for the attacker-controlled scrypt cost parameter `N`; memory
-/// use grows as 128 * r * N bytes, so 2^20 caps it at 1 GiB with r = 8.
-const MAX_SCRYPT_COST: u64 = 1 << 20;
+/// Upper bound for scrypt's effective memory cost (`128 * N * r` bytes). Both
+/// `N` (cost parameter) and `r` (block size) are attacker-controlled through
+/// the container DER and both feed the cost, so bounding `N` alone leaves the
+/// memory unbounded via a large `r`. 1 GiB.
+const MAX_SCRYPT_MEMORY_BYTES: u64 = 1 << 30;
+
+/// Upper bound for scrypt's parallelisation parameter `p`, also attacker-
+/// controlled; it multiplies CPU work and internal allocation.
+const MAX_SCRYPT_PARALLELISM: u16 = 16;
+
+/// Returns `true` when attacker-controlled scrypt parameters stay within the
+/// memory and parallelism budget. The effective memory cost is `128 * N * r`
+/// bytes; `checked_mul` treats an overflowing product as over budget, since
+/// such parameters are by definition far past the limit.
+fn scrypt_within_limits(params: &pkcs5::pbes2::ScryptParams) -> bool {
+    if params.parallelization > MAX_SCRYPT_PARALLELISM {
+        return false;
+    }
+    match 128u64
+        .checked_mul(params.cost_parameter)
+        .and_then(|value| value.checked_mul(u64::from(params.block_size)))
+    {
+        Some(memory) => memory <= MAX_SCRYPT_MEMORY_BYTES,
+        None => false,
+    }
+}
 
 pub fn verify_mac(mac_data: &MacData, password: &str, data: &[u8]) -> Result<()> {
     if mac_data.iterations > MAX_MAC_ITERATIONS {
@@ -144,7 +168,7 @@ fn decrypt(alg: &AlgorithmIdentifierOwned, data: &[u8], password: &str) -> Resul
                 pbes2::Kdf::Pbkdf2(pbkdf2) if pbkdf2.iteration_count > MAX_KDF_ITERATIONS as u32 => {
                     return Err(Error::InvalidParameters);
                 }
-                pbes2::Kdf::Scrypt(scrypt) if scrypt.cost_parameter > MAX_SCRYPT_COST => {
+                pbes2::Kdf::Scrypt(scrypt) if !scrypt_within_limits(scrypt) => {
                     return Err(Error::InvalidParameters);
                 }
                 _ => {}
@@ -691,22 +715,54 @@ mod tests {
         assert!(matches!(result, Err(Error::InvalidParameters)));
     }
 
-    #[test]
-    fn decrypt_rejects_pbes2_scrypt_cost_above_maximum_before_kdf() {
+    /// Builds a PBES2/scrypt AlgorithmIdentifier, letting the caller tamper
+    /// with the decoded scrypt parameters before re-encoding.
+    fn scrypt_alg_id(tamper: impl FnOnce(&mut pkcs5::pbes2::ScryptParams)) -> super::AlgorithmIdentifierOwned {
         let salt = [0x5au8; 32];
         let iv = [0xa5u8; 16];
         let scrypt_params = pkcs5::scrypt::Params::new(4, 8, 1).unwrap();
         let mut params = pkcs5::pbes2::Parameters::generate_scrypt_aes256cbc(scrypt_params, &salt, iv).unwrap();
         match &mut params.kdf {
-            pkcs5::pbes2::Kdf::Scrypt(scrypt) => {
-                scrypt.cost_parameter = super::MAX_SCRYPT_COST + 1;
-            }
+            pkcs5::pbes2::Kdf::Scrypt(scrypt) => tamper(scrypt),
             _ => unreachable!("builder always produces scrypt"),
         }
-        let alg_id = super::AlgorithmIdentifierOwned {
+        super::AlgorithmIdentifierOwned {
             oid: crate::oid::PBES2_OID,
             parameters: Some(Any::from_der(&params.to_der().unwrap()).unwrap()),
-        };
+        }
+    }
+
+    #[test]
+    fn decrypt_rejects_pbes2_scrypt_memory_cost_from_large_n_before_kdf() {
+        // r = 8 (from the builder), so N alone pushes 128 * N * r past 1 GiB.
+        let alg_id = scrypt_alg_id(|scrypt| {
+            scrypt.cost_parameter = (super::MAX_SCRYPT_MEMORY_BYTES / (128 * 8)) + 1;
+        });
+
+        let result = super::decrypt(&alg_id, b"ciphertext", TEST_STORE_PASSWORD);
+
+        assert!(matches!(result, Err(Error::InvalidParameters)));
+    }
+
+    #[test]
+    fn decrypt_rejects_pbes2_scrypt_memory_cost_from_large_block_size_before_kdf() {
+        // N within any sane bound, but a huge r blows the 128 * N * r budget —
+        // the case a cost-parameter-only guard misses.
+        let alg_id = scrypt_alg_id(|scrypt| {
+            scrypt.cost_parameter = 1 << 14;
+            scrypt.block_size = u16::MAX;
+        });
+
+        let result = super::decrypt(&alg_id, b"ciphertext", TEST_STORE_PASSWORD);
+
+        assert!(matches!(result, Err(Error::InvalidParameters)));
+    }
+
+    #[test]
+    fn decrypt_rejects_pbes2_scrypt_excessive_parallelism_before_kdf() {
+        let alg_id = scrypt_alg_id(|scrypt| {
+            scrypt.parallelization = super::MAX_SCRYPT_PARALLELISM + 1;
+        });
 
         let result = super::decrypt(&alg_id, b"ciphertext", TEST_STORE_PASSWORD);
 
