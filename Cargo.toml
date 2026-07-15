@@ -9,6 +9,7 @@ members = [
     "core/pdf-ffi",
     "core/pdf-sign",
     "core/pdf-sign-pkcs11",
+    "core/pdf-sign-pfx",
     "apps/linux-gtk",
     "tests/fixtures/gen-fixtures",
     "tools/zero-network-guard",
@@ -28,3 +29,6 @@ opt-level = 0
 
 [profile.release]
 opt-level = 3
+
+[patch.crates-io]
+p12-keystore = { path = "vendor/p12-keystore" }

@@ -11,12 +11,14 @@
 
 mod cms;
 mod digest;
+mod encoding;
 mod error;
 mod port;
 mod signature;
 
 pub use cms::CmsSignedDataBuilder;
 pub use digest::{digest_byte_ranges, DocumentDigest};
+pub use encoding::{der_encode_ecdsa_signature, der_integer, der_length, rsa_digest_info};
 pub use error::SignError;
 pub use port::{CertificateSourcePort, DigestAlgorithm, SigningAlgorithm, SigningIdentity};
 pub use signature::{

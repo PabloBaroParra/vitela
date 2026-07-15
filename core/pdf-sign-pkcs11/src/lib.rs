@@ -18,7 +18,8 @@ use cryptoki::{
     types::AuthPin,
 };
 use pdf_sign::{
-    CertificateSourcePort, DigestAlgorithm, SignError, SigningAlgorithm, SigningIdentity,
+    der_encode_ecdsa_signature, rsa_digest_info, CertificateSourcePort, DigestAlgorithm, SignError,
+    SigningAlgorithm, SigningIdentity,
 };
 use thiserror::Error;
 use x509_cert::{der::Decode, Certificate};
@@ -436,63 +437,6 @@ fn decode_hex(value: &str) -> Option<Vec<u8>> {
         })
         .collect()
 }
-fn rsa_digest_info(algorithm: DigestAlgorithm, digest: &[u8]) -> Option<Vec<u8>> {
-    let prefix = match algorithm {
-        DigestAlgorithm::Sha256 => &[
-            0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
-            0x01, 0x05, 0x00, 0x04, 0x20,
-        ][..],
-        DigestAlgorithm::Sha384 => &[
-            0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
-            0x02, 0x05, 0x00, 0x04, 0x30,
-        ][..],
-        DigestAlgorithm::Sha512 => &[
-            0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
-            0x03, 0x05, 0x00, 0x04, 0x40,
-        ][..],
-        _ => return None,
-    };
-    Some([prefix, digest].concat())
-}
-fn der_encode_ecdsa_signature(raw: &[u8]) -> Option<Vec<u8>> {
-    if raw.is_empty() || !raw.len().is_multiple_of(2) {
-        return None;
-    }
-    let half = raw.len() / 2;
-    let body = [der_integer(&raw[..half])?, der_integer(&raw[half..])?].concat();
-    let mut sequence = vec![0x30];
-    sequence.extend(der_length(body.len())?);
-    sequence.extend(body);
-    Some(sequence)
-}
-
-fn der_integer(value: &[u8]) -> Option<Vec<u8>> {
-    let magnitude = &value[value
-        .iter()
-        .position(|byte| *byte != 0)
-        .unwrap_or(value.len())..];
-    // INTEGER content is the minimal magnitude, plus a 0x00 pad when the high
-    // bit would read as a sign bit; an all-zero value encodes as a single 0x00.
-    let pad = usize::from(magnitude.first().is_none_or(|byte| byte & 0x80 != 0));
-    let mut integer = vec![0x02];
-    integer.extend(der_length(magnitude.len() + pad)?);
-    if pad == 1 {
-        integer.push(0x00);
-    }
-    integer.extend_from_slice(magnitude);
-    Some(integer)
-}
-
-/// DER length octets: short form below 128, long form up to two length bytes,
-/// which covers every ECDSA curve a token can return.
-fn der_length(length: usize) -> Option<Vec<u8>> {
-    match length {
-        0..=0x7f => Some(vec![length as u8]),
-        0x80..=0xff => Some(vec![0x81, length as u8]),
-        0x100..=0xffff => Some(vec![0x82, (length >> 8) as u8, (length & 0xff) as u8]),
-        _ => None,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -555,13 +499,6 @@ mod tests {
             CryptokiError::Pkcs11(RvError::FunctionCanceled, cryptoki::context::Function::Sign);
 
         assert_eq!(sign_error(error), SignError::UserCancelled);
-    }
-
-    #[test]
-    fn der_length_uses_long_form_from_128_bytes() {
-        assert_eq!(der_length(0x7f), Some(vec![0x7f]));
-        assert_eq!(der_length(0x80), Some(vec![0x81, 0x80]));
-        assert_eq!(der_length(0x12c), Some(vec![0x82, 0x01, 0x2c]));
     }
 
     #[test]
