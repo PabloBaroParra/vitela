@@ -131,10 +131,7 @@ impl KeyStore {
                     .iter()
                     .find(|c| c.cert.subject == entry.cert.issuer && !c.trusted)
                 {
-                    // Stop if this issuer is already in the chain: an issuer
-                    // cycle (A issued by B, B issued by A) would otherwise loop
-                    // forever. The chain is tiny (typically <= 3), so a linear
-                    // scan is cheaper than a separate visited set.
+                    // prevent infinite loop in case of cycle certificate chains
                     if certs.contains(&issuer.cert) {
                         break;
                     }

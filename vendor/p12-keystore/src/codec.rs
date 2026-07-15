@@ -62,25 +62,15 @@ pub struct ParsedAuthSafe {
 
 const MAX_MAC_ITERATIONS: i32 = 1_000_000;
 
-/// Upper bound for attacker-controlled PBES1/PBES2 KDF iteration counts read
-/// from container DER; deliberately far above counts produced by mainstream
-/// tooling, so no interoperable container is rejected.
+// Upper bound for KDF iteration counts read from container DER.
 const MAX_KDF_ITERATIONS: i32 = 1_000_000;
 
-/// Upper bound for scrypt's effective memory cost (`128 * N * r` bytes). Both
-/// `N` (cost parameter) and `r` (block size) are attacker-controlled through
-/// the container DER and both feed the cost, so bounding `N` alone leaves the
-/// memory unbounded via a large `r`. 1 GiB.
+// Cap on scrypt effective memory cost (128 * N * r). 1 GiB.
 const MAX_SCRYPT_MEMORY_BYTES: u64 = 1 << 30;
 
-/// Upper bound for scrypt's parallelisation parameter `p`, also attacker-
-/// controlled; it multiplies CPU work and internal allocation.
+// Cap on scrypt parallelism p.
 const MAX_SCRYPT_PARALLELISM: u16 = 16;
 
-/// Returns `true` when attacker-controlled scrypt parameters stay within the
-/// memory and parallelism budget. The effective memory cost is `128 * N * r`
-/// bytes; `checked_mul` treats an overflowing product as over budget, since
-/// such parameters are by definition far past the limit.
 fn scrypt_within_limits(params: &pkcs5::pbes2::ScryptParams) -> bool {
     if params.parallelization > MAX_SCRYPT_PARALLELISM {
         return false;
@@ -715,8 +705,8 @@ mod tests {
         assert!(matches!(result, Err(Error::InvalidParameters)));
     }
 
-    /// Builds a PBES2/scrypt AlgorithmIdentifier, letting the caller tamper
-    /// with the decoded scrypt parameters before re-encoding.
+    // Builds a PBES2/scrypt AlgorithmIdentifier, letting the caller tamper
+    // with the decoded scrypt parameters before re-encoding.
     fn scrypt_alg_id(tamper: impl FnOnce(&mut pkcs5::pbes2::ScryptParams)) -> super::AlgorithmIdentifierOwned {
         let salt = [0x5au8; 32];
         let iv = [0xa5u8; 16];
