@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, btree_map::Iter};
+use std::collections::{BTreeMap, btree_map::Iter};
 
 use cms::content_info::ContentInfo;
 use der::{Any, Decode, Encode, asn1::OctetString, oid::ObjectIdentifier};
@@ -126,13 +126,16 @@ impl KeyStore {
 
                 let mut certs = vec![entry.cert.clone()];
                 let leaf_cert = &entry.cert;
-                let mut visited = BTreeSet::from([entry.cert.as_der()]);
 
                 while let Some(issuer) = parsed_certs
                     .iter()
                     .find(|c| c.cert.subject == entry.cert.issuer && !c.trusted)
                 {
-                    if !visited.insert(issuer.cert.as_der()) {
+                    // Stop if this issuer is already in the chain: an issuer
+                    // cycle (A issued by B, B issued by A) would otherwise loop
+                    // forever. The chain is tiny (typically <= 3), so a linear
+                    // scan is cheaper than a separate visited set.
+                    if certs.contains(&issuer.cert) {
                         break;
                     }
                     // Avoid duplication of self-signed certs.
