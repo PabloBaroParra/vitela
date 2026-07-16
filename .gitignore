@@ -20,8 +20,10 @@ skills-lock.json
 *.iml
 
 # Windows shell (future) build artifacts
-apps/windows/bin/
-apps/windows/obj/
+apps/windows/**/bin/
+apps/windows/**/obj/
+apps/windows/Pdf.Windows/Generated/
+apps/windows/Pdf.Windows/Native/
 
 # macOS shell (future) build artifacts
 apps/macos/.build/

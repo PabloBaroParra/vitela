@@ -1,12 +1,28 @@
-# Windows shell (stub)
+# Windows shell
 
-Placeholder for the C#/WinUI3 application. Not a Rust crate — not part of the
-Cargo workspace.
+`Pdf.Windows` is the WinUI 3 shell. Its views use only the handwritten C# facade;
+generated UniFFI types are isolated in `Facade/GeneratedPdfCore.cs`.
 
-Implementation lands in Batch 10 (T-060..T-064), gated on the Batch 1
-uniffi-bindgen-cs spike's go/no-go decision (T-010): WinUI3 app consuming
-the `pdf-ffi` C# bindings (uniffi-bindgen-cs, or the `cbindgen` + P/Invoke
-fallback) for open/render/scroll/zoom, password prompt, text select/search,
-annotation toolbar, undo/redo, `PrintDocument` printing, WinRT
-`Clipboard`/`DataPackage` paste + drag-and-drop, and `.dll` bundling with
-Authenticode signing wired into `windows.yml`.
+## First vertical
+
+The current vertical opens a local PDF, renders one page, and navigates between
+pages. It intentionally does not include editing, saving, password UI, update
+logic, or CI workflows.
+
+Build the native library and regenerate its matching bindings before building the
+WinUI app:
+
+```powershell
+./build.ps1
+dotnet build Pdf.Windows/Pdf.Windows.csproj
+```
+
+`build.ps1` uses the pinned `uniffi-bindgen-cs v0.11.0+v0.31.0` installation to
+generate bindings from the exact `pdf_ffi.dll` it copies beside the app. The
+generated source and native DLL are local build artifacts and are not committed.
+
+Facade behavior is checked without a WinUI runtime dependency:
+
+```powershell
+dotnet run --project Pdf.Windows.Facade.Tests/Pdf.Windows.Facade.Tests.csproj
+```
