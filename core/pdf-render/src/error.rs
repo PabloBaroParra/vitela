@@ -40,7 +40,12 @@ impl fmt::Display for RenderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RenderError::LibraryLoad { path, message } => {
-                write!(f, "failed to load pdfium library at {path:?}: {message}")
+                write!(
+                    f,
+                    "failed to load pdfium library at {path:?}: {message}. \
+                     Set PDFIUM_DYNAMIC_LIB_PATH, or populate vendor/pdfium/bin/ \
+                     (see vendor/pdfium/README.md)."
+                )
             }
             RenderError::OpenDocument(message) => write!(f, "failed to open document: {message}"),
             RenderError::InvalidPassword => write!(f, "invalid or missing password"),

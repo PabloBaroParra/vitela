@@ -222,6 +222,19 @@ pub struct JobHandle<T> {
 }
 
 impl<T> JobHandle<T> {
+    /// A handle that was never queued and already holds `error` — lets
+    /// fire-and-forget APIs (`render_page`, `text_runs`) report an actor
+    /// bring-up failure through the same channel as any job result instead
+    /// of panicking.
+    pub(crate) fn failed(error: RenderError) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let _ = tx.send(Err(error));
+        JobHandle {
+            receiver: rx,
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     /// Requests cancellation. Has no effect if the job has already been
     /// dequeued and started running (mid-raster abort is a documented future
     /// optimization, not MVP behavior — see `spec.md`).
@@ -247,6 +260,12 @@ mod tests {
         let actor = Actor::spawn(());
         let order = Arc::new(Mutex::new(Vec::new()));
         (actor, order)
+    }
+
+    #[test]
+    fn failed_handle_delivers_its_error_without_an_actor() {
+        let handle: JobHandle<u32> = JobHandle::failed(RenderError::ActorShutDown);
+        assert!(matches!(handle.wait(), Err(RenderError::ActorShutDown)));
     }
 
     #[test]

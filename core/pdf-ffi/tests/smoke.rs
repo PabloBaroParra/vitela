@@ -133,7 +133,11 @@ fn search_does_not_match_across_a_line_break() {
     let single_line = handle
         .search("bravo".to_string())
         .expect("search should succeed");
-    assert_eq!(single_line.len(), 1, "a real single-line query should match once");
+    assert_eq!(
+        single_line.len(),
+        1,
+        "a real single-line query should match once"
+    );
     assert_eq!(single_line[0].page_index, 0);
 }
 

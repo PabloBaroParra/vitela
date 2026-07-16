@@ -120,7 +120,10 @@ fn inherited_attribute<'a>(
         if let Ok(value) = dictionary.get(key) {
             return Some(value);
         }
-        current = dictionary.get(b"Parent").and_then(Object::as_reference).ok()?;
+        current = dictionary
+            .get(b"Parent")
+            .and_then(Object::as_reference)
+            .ok()?;
     }
     None
 }
@@ -137,6 +140,19 @@ fn number(object: &Object) -> Option<f64> {
         Object::Integer(value) => Some(*value as f64),
         Object::Real(value) => Some((*value).into()),
         _ => None,
+    }
+}
+
+/// Width/height in PDF points for `size`, swapped for `Landscape`
+/// orientation. Shared by `create_blank_document` and `insert_blank_page`.
+pub(crate) fn oriented_dimensions(
+    size: pdf_document::PageSize,
+    orientation: pdf_document::Orientation,
+) -> (f64, f64) {
+    let (width, height) = size.dimensions_pt();
+    match orientation {
+        pdf_document::Orientation::Portrait => (width, height),
+        pdf_document::Orientation::Landscape => (height, width),
     }
 }
 
@@ -260,18 +276,5 @@ mod tests {
                 2
             ]
         );
-    }
-}
-
-/// Width/height in PDF points for `size`, swapped for `Landscape`
-/// orientation. Shared by `create_blank_document` and `insert_blank_page`.
-pub(crate) fn oriented_dimensions(
-    size: pdf_document::PageSize,
-    orientation: pdf_document::Orientation,
-) -> (f64, f64) {
-    let (width, height) = size.dimensions_pt();
-    match orientation {
-        pdf_document::Orientation::Portrait => (width, height),
-        pdf_document::Orientation::Landscape => (height, width),
     }
 }

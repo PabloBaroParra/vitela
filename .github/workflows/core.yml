@@ -49,6 +49,10 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
+      # -sys crates resolve GTK through pkg-config at build time.
+      - name: Install GTK4 development libraries (apps/linux-gtk)
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - name: Clippy (workspace, all targets)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -92,6 +96,10 @@ jobs:
           lib="$(find core/pdf-render/vendor/pdfium -name 'libpdfium.so' | head -n1)"
           test -n "$lib" || { echo "libpdfium.so not found after extraction"; exit 1; }
           echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
+      # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
+      # -sys crates resolve GTK through pkg-config at build time.
+      - name: Install GTK4 development libraries (apps/linux-gtk)
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - name: Build workspace
         run: cargo build --workspace --locked
       - name: Run tests (workspace)
@@ -131,6 +139,10 @@ jobs:
           lib="$(find core/pdf-render/vendor/pdfium -name 'libpdfium.so' | head -n1)"
           test -n "$lib" || { echo "libpdfium.so not found after extraction"; exit 1; }
           echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
+      # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
+      # -sys crates resolve GTK through pkg-config at build time.
+      - name: Install GTK4 development libraries (apps/linux-gtk)
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       # Build/fetch everything BEFORE entering the network namespace: cargo
       # itself needs network access to resolve/download crates, but the test
       # *run* must not. Compiling test binaries ahead of time means the

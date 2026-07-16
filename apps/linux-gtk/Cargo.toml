@@ -3,7 +3,9 @@ name = "linux-gtk"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Linux GTK4 shell (dogfood client) — bypasses pdf-ffi, links core/* crates directly. Batch 0 scaffold stub; GTK4 (gtk-rs) wiring lands in Batch 8."
+description = "Linux GTK4 shell (dogfood client) that links core Rust crates directly."
 publish = false
 
-[dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { package = "gtk4", version = "0.9.5" }
+pdf-render = { path = "../../core/pdf-render" }

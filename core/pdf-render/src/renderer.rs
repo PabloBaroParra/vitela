@@ -2,7 +2,7 @@
 //! serialized through the single pdfium actor (T-015, T-016, T-018).
 
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use pdfium_render::prelude::{
     PdfPageRenderRotation, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError,
@@ -26,25 +26,38 @@ pub type PdfiumActor = Actor<PdfiumState>;
 /// A cancellable handle to an in-flight or completed page render.
 pub type RenderHandle = JobHandle<BitmapHandle>;
 
-fn global_actor() -> &'static PdfiumActor {
+fn global_actor() -> Result<&'static PdfiumActor, RenderError> {
+    // Only a *successful* bind is cached: a failed `bind_to_library` never
+    // constructs the singleton `Pdfium` (pdfium.rs's `BINDINGS` is set solely
+    // inside `Pdfium::new`), so retrying after a transient failure — library
+    // installed later, env var fixed, AV briefly locking the file — is safe
+    // and keeps the process usable without a restart.
     static ACTOR: OnceLock<PdfiumActor> = OnceLock::new();
-    ACTOR.get_or_init(|| {
-        let path = resolve_library_path();
-        let bindings = Pdfium::bind_to_library(&path).unwrap_or_else(|e| {
-            panic!(
-                "pdf-render: failed to load the pdfium dynamic library at {path:?}: {e}. \
-                 Set PDFIUM_DYNAMIC_LIB_PATH, or populate vendor/pdfium/bin/ for local dev \
-                 (see vendor/pdfium/README.md)."
-            )
-        });
-        // Leaked deliberately: exactly one `Pdfium` instance may exist for
-        // the lifetime of the process (`Pdfium::new` asserts this — see
-        // pdfium.rs's `BINDINGS` global), matching this crate's single-actor
-        // design. The actor, and this leaked reference, live until process
-        // exit.
-        let pdfium: &'static Pdfium = Box::leak(Box::new(Pdfium::new(bindings)));
-        Actor::spawn(PdfiumState::new(pdfium))
-    })
+    static BIND: Mutex<()> = Mutex::new(());
+
+    if let Some(actor) = ACTOR.get() {
+        return Ok(actor);
+    }
+    let _guard = BIND.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(actor) = ACTOR.get() {
+        return Ok(actor);
+    }
+    let actor = bind_actor(resolve_library_path())?;
+    Ok(ACTOR.get_or_init(|| actor))
+}
+
+fn bind_actor(path: std::path::PathBuf) -> Result<PdfiumActor, RenderError> {
+    let bindings = Pdfium::bind_to_library(&path).map_err(|error| RenderError::LibraryLoad {
+        path,
+        message: error.to_string(),
+    })?;
+    // Leaked deliberately: exactly one `Pdfium` instance may exist for
+    // the lifetime of the process (`Pdfium::new` asserts this — see
+    // pdfium.rs's `BINDINGS` global), matching this crate's single-actor
+    // design. The actor, and this leaked reference, live until process
+    // exit.
+    let pdfium: &'static Pdfium = Box::leak(Box::new(Pdfium::new(bindings)));
+    Ok(Actor::spawn(PdfiumState::new(pdfium)))
 }
 
 fn map_pdfium_error(err: PdfiumError) -> RenderError {
@@ -77,7 +90,7 @@ impl PdfiumRenderer {
         let path = path.as_ref().to_path_buf();
         let password = password.map(|p| p.to_string());
 
-        global_actor()
+        global_actor()?
             .submit(Priority::Visible, move |state: &mut PdfiumState| {
                 let document = state
                     .pdfium
@@ -105,7 +118,7 @@ impl PdfiumRenderer {
     ) -> Result<DocumentHandle, RenderError> {
         let password = password.map(|p| p.to_string());
 
-        global_actor()
+        global_actor()?
             .submit(Priority::Visible, move |state: &mut PdfiumState| {
                 let document = state
                     .pdfium
@@ -120,7 +133,7 @@ impl PdfiumRenderer {
     /// Returns `true` if the handle was known and closed, `false` if it was
     /// already closed or never valid.
     pub fn close_document(&self, handle: DocumentHandle) -> Result<bool, RenderError> {
-        global_actor()
+        global_actor()?
             .submit(Priority::Visible, move |state: &mut PdfiumState| {
                 Ok(state.close_document(handle))
             })
@@ -144,9 +157,29 @@ impl PdfiumRenderer {
         options: RenderOptions,
         priority: Priority,
     ) -> RenderHandle {
-        global_actor().submit(priority, move |state: &mut PdfiumState| {
-            render_page_job(state, doc, page_index, dpi, region, options)
-        })
+        match global_actor() {
+            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
+                render_page_job(state, doc, page_index, dpi, region, options)
+            }),
+            Err(error) => JobHandle::failed(error),
+        }
+    }
+
+    /// Queries a page's size in PDF points without rasterizing it — the
+    /// cheap preflight shells need to compute a fit-to-width DPI before the
+    /// one real `render_page` call.
+    pub fn page_size(
+        &self,
+        doc: DocumentHandle,
+        page_index: u32,
+        priority: Priority,
+    ) -> JobHandle<(f32, f32)> {
+        match global_actor() {
+            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
+                page_size_job(state, doc, page_index)
+            }),
+            Err(error) => JobHandle::failed(error),
+        }
     }
 
     /// Queries per-run text position/font data for a page (T-018, spec's
@@ -159,9 +192,12 @@ impl PdfiumRenderer {
         page_index: u32,
         priority: Priority,
     ) -> JobHandle<Vec<TextRun>> {
-        global_actor().submit(priority, move |state: &mut PdfiumState| {
-            text_runs_job(state, doc, page_index)
-        })
+        match global_actor() {
+            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
+                text_runs_job(state, doc, page_index)
+            }),
+            Err(error) => JobHandle::failed(error),
+        }
     }
 }
 
@@ -245,4 +281,33 @@ fn text_runs_job(
         .text()
         .map_err(|e| RenderError::RenderFailed(e.to_string()))?;
     Ok(collect_text_runs(&text))
+}
+
+fn page_size_job(
+    state: &mut PdfiumState,
+    doc: DocHandle,
+    page_index: u32,
+) -> Result<(f32, f32), RenderError> {
+    let document = state
+        .documents
+        .get(&doc.0)
+        .ok_or(RenderError::DocumentNotFound)?;
+    let page = document
+        .pages()
+        .get(page_index as i32)
+        .map_err(|_| RenderError::PageIndexOutOfBounds(page_index))?;
+    Ok((page.width().value, page.height().value))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_pdfium() {
+        assert!(matches!(
+            bind_actor("x".into()),
+            Err(RenderError::LibraryLoad { .. })
+        ));
+    }
 }

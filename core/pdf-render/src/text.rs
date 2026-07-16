@@ -128,7 +128,10 @@ mod tests {
     fn character_rect_uses_loose_bounds_when_available() {
         // new_from_values(bottom, left, top, right): left=20, bottom=10,
         // width=right-left=30, height=top-bottom=30.
-        let rect = character_rect(Ok(PdfRect::new_from_values(10.0, 20.0, 40.0, 50.0)), Err(PDFIUM_ERR));
+        let rect = character_rect(
+            Ok(PdfRect::new_from_values(10.0, 20.0, 40.0, 50.0)),
+            Err(PDFIUM_ERR),
+        );
 
         assert_eq!(
             rect,
@@ -143,7 +146,10 @@ mod tests {
 
     #[test]
     fn character_rect_falls_back_to_a_zero_size_rect_at_the_glyph_origin() {
-        let rect = character_rect(Err(PDFIUM_ERR), Ok((PdfPoints::new(72.0), PdfPoints::new(144.0))));
+        let rect = character_rect(
+            Err(PDFIUM_ERR),
+            Ok((PdfPoints::new(72.0), PdfPoints::new(144.0))),
+        );
 
         // A glyph pdfium can't bound still yields exactly one rect — anchored at
         // its real position so a highlight lands on the glyph, not in a corner.
