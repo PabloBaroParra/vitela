@@ -7,12 +7,22 @@
 //! never depends on lopdf at all (see crate-level docs); this wrapper is
 //! `pdf-manip`'s own boundary, one layer further out.
 
+use lopdf::{Object, ObjectId};
+
 /// Opaque handle wrapping an in-memory `lopdf::Document`.
 ///
 /// Used by every public manipulation function rather than leaking
 /// `lopdf::Document` through this crate's API.
 #[derive(Debug, Clone)]
 pub struct LopdfDocument(pub(crate) lopdf::Document);
+
+/// One page's layout size in PDF points, as a viewer should present it:
+/// a `/Rotate` of 90 or 270 swaps the reported axes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageDimensions {
+    pub width_pt: f64,
+    pub height_pt: f64,
+}
 
 impl LopdfDocument {
     /// Wraps an existing `lopdf::Document`. Exposed (rather than
@@ -41,6 +51,215 @@ impl LopdfDocument {
     /// Number of pages currently in the document.
     pub fn page_count(&self) -> usize {
         self.0.get_pages().len()
+    }
+
+    /// Per-page layout dimensions in PDF points, in page order.
+    ///
+    /// `/MediaBox` and `/Rotate` are resolved with page-tree inheritance
+    /// (walking `/Parent`, bounded against reference cycles). A page whose
+    /// media box is missing or malformed reports US Letter (612 x 792)
+    /// instead of failing: these values size viewer placeholders, and
+    /// rendering remains the ground truth for what a page looks like.
+    pub fn page_dimensions(&self) -> Vec<PageDimensions> {
+        self.0
+            .get_pages()
+            .values()
+            .map(|&page_id| page_dimensions_for(&self.0, page_id))
+            .collect()
+    }
+}
+
+const DEFAULT_MEDIA_BOX_PT: (f64, f64) = (612.0, 792.0);
+const INHERITANCE_DEPTH_LIMIT: usize = 64;
+
+fn page_dimensions_for(doc: &lopdf::Document, page_id: ObjectId) -> PageDimensions {
+    let (width_pt, height_pt) = media_box_size(doc, page_id).unwrap_or(DEFAULT_MEDIA_BOX_PT);
+    let rotation = inherited_attribute(doc, page_id, b"Rotate")
+        .and_then(|object| resolve(doc, object).as_i64().ok())
+        .unwrap_or(0)
+        .rem_euclid(360);
+    if rotation == 90 || rotation == 270 {
+        PageDimensions {
+            width_pt: height_pt,
+            height_pt: width_pt,
+        }
+    } else {
+        PageDimensions {
+            width_pt,
+            height_pt,
+        }
+    }
+}
+
+fn media_box_size(doc: &lopdf::Document, page_id: ObjectId) -> Option<(f64, f64)> {
+    let array = resolve(doc, inherited_attribute(doc, page_id, b"MediaBox")?)
+        .as_array()
+        .ok()?;
+    if array.len() != 4 {
+        return None;
+    }
+    let mut edges = [0.0_f64; 4];
+    for (edge, entry) in edges.iter_mut().zip(array) {
+        *edge = number(resolve(doc, entry))?;
+    }
+    let width = (edges[2] - edges[0]).abs();
+    let height = (edges[3] - edges[1]).abs();
+    (width > 0.0 && height > 0.0).then_some((width, height))
+}
+
+/// Finds `key` on the page dictionary or, per the PDF page-tree inheritance
+/// rules, on the nearest ancestor `/Parent` that defines it.
+fn inherited_attribute<'a>(
+    doc: &'a lopdf::Document,
+    page_id: ObjectId,
+    key: &[u8],
+) -> Option<&'a Object> {
+    let mut current = page_id;
+    for _ in 0..INHERITANCE_DEPTH_LIMIT {
+        let dictionary = doc.get_dictionary(current).ok()?;
+        if let Ok(value) = dictionary.get(key) {
+            return Some(value);
+        }
+        current = dictionary.get(b"Parent").and_then(Object::as_reference).ok()?;
+    }
+    None
+}
+
+fn resolve<'a>(doc: &'a lopdf::Document, object: &'a Object) -> &'a Object {
+    match object {
+        Object::Reference(id) => doc.get_object(*id).unwrap_or(object),
+        other => other,
+    }
+}
+
+fn number(object: &Object) -> Option<f64> {
+    match object {
+        Object::Integer(value) => Some(*value as f64),
+        Object::Real(value) => Some((*value).into()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pdf_document::{Orientation, PageSize};
+
+    const A4_PT: PageDimensions = PageDimensions {
+        width_pt: 595.0,
+        height_pt: 842.0,
+    };
+
+    fn two_page_a4() -> LopdfDocument {
+        let blank = crate::create_blank_document(PageSize::A4, Orientation::Portrait);
+        let one = crate::insert_blank_page(&blank, 0, PageSize::A4, Orientation::Portrait)
+            .expect("first page should insert");
+        crate::insert_blank_page(&one, 1, PageSize::A4, Orientation::Portrait)
+            .expect("second page should insert")
+    }
+
+    fn page_ids(document: &LopdfDocument) -> Vec<ObjectId> {
+        document.0.get_pages().values().copied().collect()
+    }
+
+    #[test]
+    fn page_dimensions_reads_each_page_media_box() {
+        let document = two_page_a4();
+
+        assert_eq!(document.page_dimensions(), vec![A4_PT; 2]);
+    }
+
+    #[test]
+    fn page_dimensions_falls_back_to_the_inherited_media_box() {
+        let mut document = two_page_a4();
+        for id in page_ids(&document) {
+            document
+                .0
+                .get_dictionary_mut(id)
+                .expect("page dictionary should exist")
+                .remove(b"MediaBox");
+        }
+
+        assert_eq!(document.page_dimensions(), vec![A4_PT; 2]);
+    }
+
+    #[test]
+    fn page_dimensions_swaps_axes_for_rotated_pages() {
+        let mut document = two_page_a4();
+        let first = page_ids(&document)[0];
+        document
+            .0
+            .get_dictionary_mut(first)
+            .expect("page dictionary should exist")
+            .set("Rotate", 270);
+
+        assert_eq!(
+            document.page_dimensions(),
+            vec![
+                PageDimensions {
+                    width_pt: 842.0,
+                    height_pt: 595.0,
+                },
+                A4_PT,
+            ]
+        );
+    }
+
+    #[test]
+    fn page_dimensions_uses_the_media_box_extent_not_its_corners() {
+        let mut document = two_page_a4();
+        let first = page_ids(&document)[0];
+        document
+            .0
+            .get_dictionary_mut(first)
+            .expect("page dictionary should exist")
+            .set(
+                "MediaBox",
+                vec![
+                    Object::Integer(10),
+                    Object::Integer(20),
+                    Object::Integer(310),
+                    Object::Integer(420),
+                ],
+            );
+
+        assert_eq!(
+            document.page_dimensions(),
+            vec![
+                PageDimensions {
+                    width_pt: 300.0,
+                    height_pt: 400.0,
+                },
+                A4_PT,
+            ]
+        );
+    }
+
+    #[test]
+    fn page_dimensions_defaults_to_letter_when_no_media_box_exists() {
+        let mut document = two_page_a4();
+        let mut all_ids = page_ids(&document);
+        all_ids.push(
+            crate::create_blank::root_pages_id(&document.0).expect("page tree root should exist"),
+        );
+        for id in all_ids {
+            document
+                .0
+                .get_dictionary_mut(id)
+                .expect("dictionary should exist")
+                .remove(b"MediaBox");
+        }
+
+        assert_eq!(
+            document.page_dimensions(),
+            vec![
+                PageDimensions {
+                    width_pt: 612.0,
+                    height_pt: 792.0,
+                };
+                2
+            ]
+        );
     }
 }
 

@@ -39,6 +39,20 @@ fn sample_png() -> Vec<u8> {
 // ---------------------------------------------------------------------
 
 #[test]
+fn page_dimensions_match_the_page_count_and_carry_point_sizes() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string()))
+        .expect("should open with the correct user password");
+
+    let dimensions = handle.page_dimensions();
+
+    assert_eq!(dimensions.len() as u32, handle.page_count());
+    assert!(dimensions
+        .iter()
+        .all(|page| page.width_pt > 0.0 && page.height_pt > 0.0));
+}
+
+#[test]
 fn opens_encrypted_fixture_from_bytes_and_renders_page_one() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
     let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string()))

@@ -53,6 +53,24 @@ impl From<FfiOrientation> for Orientation {
 /// region in the same units but a different field shape); this FFI type
 /// only ever crosses at the `pdf_document`/`pdf_annotate` annotation-rect
 /// meaning.
+/// One page's layout size in PDF points (`/Rotate`-aware — 90/270 swap the
+/// axes), read from the same bytes `render_page` draws so viewers can size
+/// placeholders that match the rendered output.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct FfiPageDimensions {
+    pub width_pt: f64,
+    pub height_pt: f64,
+}
+
+impl From<pdf_manip::PageDimensions> for FfiPageDimensions {
+    fn from(dimensions: pdf_manip::PageDimensions) -> Self {
+        FfiPageDimensions {
+            width_pt: dimensions.width_pt,
+            height_pt: dimensions.height_pt,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
 pub struct FfiRect {
     pub x: f64,

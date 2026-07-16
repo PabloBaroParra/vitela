@@ -99,7 +99,7 @@ pub fn remove_page(document: &LopdfDocument, index: usize) -> Result<LopdfDocume
 }
 
 /// Resolves the document's page-tree root via `/Root/Pages` in the catalog.
-fn root_pages_id(doc: &lopdf::Document) -> Result<lopdf::ObjectId, ManipError> {
+pub(crate) fn root_pages_id(doc: &lopdf::Document) -> Result<lopdf::ObjectId, ManipError> {
     doc.catalog()?
         .get(b"Pages")
         .and_then(|o| o.as_reference())

@@ -20,7 +20,7 @@ mod open;
 mod page_ops;
 
 pub use create_blank::{create_blank_document, insert_blank_page, remove_page};
-pub use document::LopdfDocument;
+pub use document::{LopdfDocument, PageDimensions};
 pub use error::ManipError;
 pub use merge_split::{merge, split};
 pub use open::{

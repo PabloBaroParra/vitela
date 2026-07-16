@@ -41,7 +41,8 @@ use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
 use crate::types::{
-    FfiEditCommand, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions, FfiSaveIntent,
+    FfiEditCommand, FfiOrientation, FfiPageDimensions, FfiPageSize, FfiRect, FfiRenderOptions,
+    FfiSaveIntent,
 };
 use crate::BitmapHandle;
 
@@ -224,6 +225,19 @@ impl DocumentHandle {
     /// rendering — see module docs).
     pub fn page_count(&self) -> u32 {
         self.lock().document.pages.len() as u32
+    }
+
+    /// Per-page layout sizes in PDF points, in page order, read from the
+    /// last-opened/saved bytes — the same source `render_page` draws from —
+    /// so placeholder sizes always match the rendered output, even while
+    /// unsaved edits are pending in the document model.
+    pub fn page_dimensions(&self) -> Vec<FfiPageDimensions> {
+        self.lock()
+            .base
+            .page_dimensions()
+            .into_iter()
+            .map(Into::into)
+            .collect()
     }
 }
 
