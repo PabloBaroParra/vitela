@@ -8,7 +8,10 @@ generated UniFFI types are isolated in `Facade/GeneratedPdfCore.cs`.
 The current vertical opens a local PDF, lazily renders its pages, and supports
 case-sensitive exact-text search. Selecting a result navigates to its page and highlights the
 matching PDF-space character geometry. It intentionally does not include
-editing, saving, password UI, update logic, or CI workflows.
+editing, saving, password UI, or update logic. CI runs in
+`.github/workflows/windows.yml`: the Rust workspace on a Windows runner, the
+facade suite, and a full shell build (native dll + regenerated bindings +
+MSBuild).
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:
