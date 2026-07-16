@@ -70,3 +70,20 @@ fields are discoverable through `/AcroForm /Fields` and the page's
 
 Consumed by structural cross-validation (T-079) and the signing test suite
 (T-080).
+
+### External validator checklist (T-079)
+
+Run this before a release against each file in `tests/fixtures/signed/` and a
+representative production-signed PDF:
+
+1. Open the PDF in Adobe Acrobat Reader and confirm each signature is listed.
+2. Inspect each signature's properties and confirm the signed revision has not
+   been modified; self-signed fixture certificates are expected to be untrusted.
+3. Open the same file in an independent validator such as `pdfsig` from
+   Poppler and confirm each `/ByteRange` and detached CMS signature is valid.
+4. For `two_signatures_rsa2048_sha256.pdf`, confirm both signatures validate
+   independently and the first covers an earlier revision.
+
+The CI structural check is `cargo test -p pdf-sign --test
+signed_fixture_validation`; it validates `/ByteRange` boundaries and compares
+each recomputed document digest to the CMS `message-digest` signed attribute.

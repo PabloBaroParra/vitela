@@ -181,12 +181,12 @@ de ningún shell.
       + firma in-process (`rsa`/`p256` con traits `signature`). Mismo crate hoja o
       feature no-default — jamás en `pdf-sign` core. Depende de T-077a solo por
       compartir crate/contrato de tests. [FirmaCripto]
-- [ ] T-078 Corpus de fixtures firmados conocidos-buenos (rcgen self-signed, uso exclusivo
-      de test). [FirmaCripto]
-- [ ] T-079 Cross-validación: verificación estructural automatizada (hash/ByteRange) en CI +
-      checklist manual documentado para validación externa. [FirmaCripto]
-- [ ] T-080 Tests: corrección de ByteRange, sizing del placeholder, coincidencia de digest,
-      segunda-firma-preserva-primera. [FirmaCripto]
+- [x] T-078 Corpus de fixtures firmados conocidos-buenos (rcgen self-signed, uso exclusivo
+       de test). [FirmaCripto]
+- [x] T-079 Cross-validación: verificación estructural automatizada (hash/ByteRange) en CI +
+       checklist manual documentado para validación externa. [FirmaCripto]
+- [x] T-080 Tests: corrección de ByteRange, sizing del placeholder, coincidencia de digest,
+       segunda-firma-preserva-primera. [FirmaCripto]
 
 ### Criterios de aceptación (spec delta)
 - Firma anexada EXCLUSIVAMENTE vía incremental update — jamás full rewrite al firmar

@@ -29,6 +29,12 @@ pub struct ByteRange {
 }
 
 impl ByteRange {
+    /// Creates a byte range from the four integers stored in a PDF signature.
+    #[must_use]
+    pub const fn new(values: [u64; 4]) -> Self {
+        Self { values }
+    }
+
     /// Returns the four PDF `/ByteRange` integers.
     #[must_use]
     pub const fn values(self) -> [u64; 4] {
