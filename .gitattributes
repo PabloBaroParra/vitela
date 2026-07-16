@@ -1,0 +1,11 @@
+# Normalize all text files to LF in the repo and the working tree.
+* text=auto eol=lf
+
+# PowerShell is the one Windows consumer that conventionally keeps CRLF.
+*.ps1 text eol=crlf
+
+# Test fixtures that must never be touched by line-ending conversion.
+*.pdf binary
+*.p12 binary
+*.pfx binary
+*.der binary
