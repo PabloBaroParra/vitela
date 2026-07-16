@@ -45,6 +45,26 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
+    public IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query)
+    {
+        try
+        {
+            var generated = ((GeneratedDocument)document).Handle;
+            return [.. generated.Search(query).Select(result => new PdfCoreSearchHit(
+                result.PageIndex,
+                result.Text,
+                [.. result.CharacterBounds.Select(bounds => new PdfCoreSearchRect(
+                    bounds.XPt,
+                    bounds.YPt,
+                    bounds.WidthPt,
+                    bounds.HeightPt))]))];
+        }
+        catch (FfiException error)
+        {
+            throw Translate(error);
+        }
+    }
+
     private static PdfCoreException Translate(FfiException error)
     {
         var category = error switch

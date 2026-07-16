@@ -15,6 +15,13 @@ public enum DocumentSessionState
 
 public sealed record RenderedPage(string SessionId, uint PageIndex, ulong Sequence, uint Width, uint Height, uint Stride, byte[] Rgba);
 
+/// <summary>PDF-space geometry with a bottom-left origin, in points.</summary>
+public sealed record SearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
+
+public sealed record SearchHit(uint PageIndex, string Text, IReadOnlyList<SearchRect> CharacterBounds);
+
+public sealed record SearchResults(string SessionId, ulong Sequence, string Query, IReadOnlyList<SearchHit> Hits);
+
 public sealed record UserSafeError(string Message, string CorrelationId);
 
 public sealed record OperationResult<T>(T? Value, UserSafeError? Error)
@@ -37,4 +44,13 @@ public sealed record RenderResult(RenderedPage? Value, UserSafeError? Error, boo
     public static RenderResult Discarded() => new(null, null, false, true);
 
     public static RenderResult Failure(UserSafeError error) => new(null, error, false, false);
+}
+
+public sealed record SearchResult(SearchResults? Value, UserSafeError? Error, bool IsDiscarded)
+{
+    public bool IsSuccess => Error is null && !IsDiscarded;
+
+    public static SearchResult Success(SearchResults value) => new(value, null, false);
+    public static SearchResult Discarded() => new(null, null, true);
+    public static SearchResult Failure(UserSafeError error) => new(null, error, false);
 }

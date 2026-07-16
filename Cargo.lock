@@ -1428,6 +1428,7 @@ version = "0.1.0"
 name = "pdf-ffi"
 version = "0.1.0"
 dependencies = [
+ "gen-fixtures",
  "image",
  "lopdf",
  "pdf-annotate",

@@ -141,6 +141,11 @@ fn text_runs_returns_real_font_and_position_data() {
     assert!(!run.text.is_empty());
     assert!(!run.font_name.is_empty());
     assert!(run.font_size_pt > 0.0);
+    assert_eq!(run.text.chars().count(), run.character_bounds.len());
+    assert!(run
+        .character_bounds
+        .iter()
+        .any(|bounds| bounds.height_pt > 0.0));
 
     let _ = std::fs::remove_file(&path);
 }

@@ -45,7 +45,7 @@ pub use document::{
 pub use error::FfiError;
 pub use types::{
     FfiColor, FfiEditCommand, FfiOrientation, FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect,
-    FfiRenderOptions, FfiSaveIntent,
+    FfiRenderOptions, FfiSaveIntent, FfiSearchResult, FfiTextRect, FfiTextRun,
 };
 
 uniffi::setup_scaffolding!();

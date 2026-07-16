@@ -112,6 +112,64 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+    /// <summary>
+    /// Renders one page at print quality, deliberately independent of the
+    /// coalesced viewer render queue so a scrolling page cannot supersede it.
+    /// Callers render a document one page at a time and release each page's
+    /// pixels before requesting the next, so printing a large document never
+    /// holds every page's raw bitmap in memory at once.
+    /// </summary>
+    public Task<RenderResult> RenderPageForPrintAsync(string sessionId, uint pageIndex, uint dpi, bool invertContentColors)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(RenderResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "print_render", sessionId, pageIndex)));
+            }
+
+            if (pageIndex >= session.Document.PageCount)
+            {
+                return Task.FromResult(RenderResult.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, "print_render", sessionId, pageIndex)));
+            }
+
+            session.InFlightPrints++;
+            return RenderPageForPrintAsync(session, pageIndex, dpi, invertContentColors);
+        }
+    }
+
+    public Task<SearchResult> SearchAsync(string sessionId, string query)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(SearchResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "search", sessionId, null)));
+            }
+
+            return QueueSearchLocked(session, query);
+        }
+    }
+
+    public Task<OperationResult<DocumentSession>> NavigateToSearchResultAsync(string sessionId, SearchHit hit)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "navigate_search", sessionId, hit.PageIndex)));
+            }
+
+            if (hit.PageIndex >= session.Document.PageCount)
+            {
+                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, "navigate_search", sessionId, hit.PageIndex)));
+            }
+
+            session.PageIndex = hit.PageIndex;
+            return Task.FromResult(OperationResult<DocumentSession>.Success(session.ToDto()));
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
@@ -136,9 +194,87 @@ public sealed class PdfDocumentFacade : IDisposable
 
         session.Retired = true;
         session.AbandonPendingRenders();
-        if (session.InFlightRenders == 0)
+        session.AbandonPendingSearches();
+        if (session.HasNoInFlightOperations)
         {
             session.Dispose();
+        }
+    }
+
+    private Task<SearchResult> QueueSearchLocked(SessionEntry session, string query)
+    {
+        var request = new SearchRequest(++session.Search.Sequence, query, new TaskCompletionSource<SearchResult>(TaskCreationOptions.RunContinuationsAsynchronously));
+        session.Search.Pending?.Completion.TrySetResult(SearchResult.Discarded());
+        session.Search.Pending = request;
+        if (!session.Search.DispatchScheduled)
+        {
+            session.Search.DispatchScheduled = true;
+            _ = DispatchSearchAsync(session);
+        }
+
+        return request.Completion.Task;
+    }
+
+    private async Task DispatchSearchAsync(SessionEntry session)
+    {
+        await Task.Yield();
+
+        SearchRequest request;
+        lock (_gate)
+        {
+            if (_currentSession != session || session.Search.Pending is null)
+            {
+                session.Search.Pending?.Completion.TrySetResult(SearchResult.Discarded());
+                session.Search.Pending = null;
+                session.Search.DispatchScheduled = false;
+                return;
+            }
+
+            request = session.Search.Pending;
+            session.Search.Pending = null;
+            session.InFlightSearches++;
+        }
+
+        SearchResult result;
+        try
+        {
+            var hits = await Task.Run(() => _core.Search(session.Document, request.Query)).ConfigureAwait(false);
+            result = SearchResult.Success(new SearchResults(session.Id, request.Sequence, request.Query, [.. hits.Select(hit => new SearchHit(hit.PageIndex, hit.Text, [.. hit.CharacterBounds.Select(bounds => new SearchRect(bounds.XPt, bounds.YPt, bounds.WidthPt, bounds.HeightPt))]))]));
+        }
+        catch (PdfCoreException error)
+        {
+            result = SearchResult.Failure(MapError(error, "search", session.Id, null));
+        }
+        catch (Exception error)
+        {
+            result = SearchResult.Failure(MapUnexpected(error, "search", session.Id, null));
+        }
+
+        lock (_gate)
+        {
+            session.InFlightSearches--;
+            if (session.Retired)
+            {
+                session.Search.DispatchScheduled = false;
+                if (session.HasNoInFlightOperations)
+                {
+                    session.Dispose();
+                }
+
+                request.Completion.TrySetResult(SearchResult.Discarded());
+                return;
+            }
+
+            var stillCurrent = _currentSession == session && session.Search.Sequence == request.Sequence;
+            request.Completion.TrySetResult(stillCurrent ? result : SearchResult.Discarded());
+            if (session.Search.Pending is not null)
+            {
+                _ = DispatchSearchAsync(session);
+            }
+            else
+            {
+                session.Search.DispatchScheduled = false;
+            }
         }
     }
 
@@ -204,7 +340,7 @@ public sealed class PdfDocumentFacade : IDisposable
                 // Dispose before completing so awaiting continuations observe
                 // the retired document as already released.
                 page.DispatchScheduled = false;
-                if (session.InFlightRenders == 0)
+                if (session.HasNoInFlightOperations)
                 {
                     session.Dispose();
                 }
@@ -227,6 +363,40 @@ public sealed class PdfDocumentFacade : IDisposable
             {
                 page.DispatchScheduled = false;
             }
+        }
+    }
+
+    private async Task<RenderResult> RenderPageForPrintAsync(SessionEntry session, uint pageIndex, uint dpi, bool invertContentColors)
+    {
+        RenderResult result;
+        try
+        {
+            var bitmap = await Task.Run(() => _core.RenderPage(session.Document, pageIndex, dpi, invertContentColors)).ConfigureAwait(false);
+            result = RenderResult.Success(new RenderedPage(session.Id, pageIndex, (ulong)pageIndex + 1, bitmap.Width, bitmap.Height, bitmap.Stride, bitmap.Rgba));
+        }
+        catch (PdfCoreException error)
+        {
+            result = RenderResult.Failure(MapError(error, "print_render", session.Id, pageIndex));
+        }
+        catch (Exception error)
+        {
+            result = RenderResult.Failure(MapUnexpected(error, "print_render", session.Id, pageIndex));
+        }
+
+        lock (_gate)
+        {
+            session.InFlightPrints--;
+            if (session.Retired)
+            {
+                if (session.HasNoInFlightOperations)
+                {
+                    session.Dispose();
+                }
+
+                return RenderResult.Discarded();
+            }
+
+            return _currentSession == session ? result : RenderResult.Discarded();
         }
     }
 
@@ -277,7 +447,11 @@ public sealed class PdfDocumentFacade : IDisposable
         public IPdfCoreDocument Document { get; }
         public uint PageIndex { get; set; }
         public int InFlightRenders { get; set; }
+        public int InFlightSearches { get; set; }
+        public int InFlightPrints { get; set; }
         public bool Retired { get; set; }
+        public SearchState Search { get; } = new();
+        public bool HasNoInFlightOperations => InFlightRenders == 0 && InFlightSearches == 0 && InFlightPrints == 0;
 
         public void AbandonPendingRenders()
         {
@@ -286,6 +460,12 @@ public sealed class PdfDocumentFacade : IDisposable
                 page.Pending?.Completion.TrySetResult(RenderResult.Discarded());
                 page.Pending = null;
             }
+        }
+
+        public void AbandonPendingSearches()
+        {
+            Search.Pending?.Completion.TrySetResult(SearchResult.Discarded());
+            Search.Pending = null;
         }
 
         public PageRenderState GetPage(uint pageIndex)
@@ -318,4 +498,12 @@ public sealed class PdfDocumentFacade : IDisposable
     }
 
     private sealed record RenderRequest(ulong Sequence, uint Dpi, bool InvertContentColors, TaskCompletionSource<RenderResult> Completion);
+    private sealed class SearchState
+    {
+        public ulong Sequence { get; set; }
+        public bool DispatchScheduled { get; set; }
+        public SearchRequest? Pending { get; set; }
+    }
+
+    private sealed record SearchRequest(ulong Sequence, string Query, TaskCompletionSource<SearchResult> Completion);
 }

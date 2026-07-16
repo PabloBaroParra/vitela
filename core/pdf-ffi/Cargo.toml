@@ -36,5 +36,6 @@ path = "src/bin/uniffi-bindgen.rs"
 required-features = ["bindgen"]
 
 [dev-dependencies]
+gen-fixtures = { path = "../../tests/fixtures/gen-fixtures" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 lopdf = "0.44"

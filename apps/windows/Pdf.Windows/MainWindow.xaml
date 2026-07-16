@@ -6,16 +6,21 @@
     <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,*">
         <StackPanel Orientation="Horizontal" Spacing="12">
             <Button x:Name="OpenButton" Click="OpenButton_Click">Open</Button>
+            <Button x:Name="PrintButton" Click="PrintButton_Click">Print</Button>
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
+            <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" />
+            <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
+            <TextBlock x:Name="PrintStatus" VerticalAlignment="Center" TextWrapping="Wrap" />
         </StackPanel>
 
-        <Grid Grid.Row="1">
-            <ProgressRing x:Name="BusyIndicator" IsActive="False" Visibility="Collapsed" />
-            <TextBlock x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Text="Open a PDF to begin." />
-            <TextBlock x:Name="ErrorState" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
+        <Grid Grid.Row="1" ColumnSpacing="16" ColumnDefinitions="*,260">
+            <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="2" IsActive="False" Visibility="Collapsed" />
+            <TextBlock x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Text="Open a PDF to begin." />
+            <TextBlock x:Name="ErrorState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
             <ScrollViewer
                 x:Name="PageScroller"
+                Grid.Column="0"
                 HorizontalScrollBarVisibility="Auto"
                 VerticalScrollBarVisibility="Auto"
                 Visibility="Collapsed"
@@ -23,6 +28,10 @@
                 SizeChanged="PageScroller_SizeChanged">
                 <StackPanel x:Name="PageStack" HorizontalAlignment="Center" />
             </ScrollViewer>
+            <StackPanel Grid.Column="1" Spacing="8">
+                <TextBlock x:Name="SearchStatus" TextWrapping="Wrap" />
+                <ListView x:Name="SearchResultsList" SelectionChanged="SearchResultsList_SelectionChanged" />
+            </StackPanel>
         </Grid>
     </Grid>
 </Window>

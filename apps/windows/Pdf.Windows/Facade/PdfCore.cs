@@ -20,9 +20,13 @@ internal interface IPdfCore
     IPdfCoreDocument CreateBlank();
 
     PdfCoreBitmap RenderPage(IPdfCoreDocument document, uint pageIndex, uint dpi, bool invertContentColors);
+
+    IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query);
 }
 
 internal sealed record PdfCoreBitmap(uint Width, uint Height, uint Stride, byte[] Rgba);
+internal sealed record PdfCoreSearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
+internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyList<PdfCoreSearchRect> CharacterBounds);
 
 /// <summary>
 /// The renderer may pad each pixel row to a stride wider than width * 4;

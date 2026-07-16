@@ -36,13 +36,13 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pdf_document::{AnnotationId, Command, Document, PageId};
+use pdf_document::{AnnotationId, Command, Credential, Document, PageId};
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
 use crate::types::{
     FfiEditCommand, FfiOrientation, FfiPageDimensions, FfiPageSize, FfiRect, FfiRenderOptions,
-    FfiSaveIntent,
+    FfiSaveIntent, FfiSearchResult, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -218,6 +218,15 @@ impl DocumentHandle {
     }
 }
 
+fn text_extraction_is_allowed(document: &Document) -> bool {
+    match document.security.as_ref() {
+        Some(security) => {
+            security.credential == Credential::Owner || security.permissions.0 & (1 << 4) != 0
+        }
+        None => true,
+    }
+}
+
 #[uniffi::export]
 impl DocumentHandle {
     /// Current page count of the in-memory document model (reflects
@@ -238,6 +247,78 @@ impl DocumentHandle {
             .into_iter()
             .map(Into::into)
             .collect()
+    }
+
+    /// Extracts the text runs for one 0-indexed page. Each run has one
+    /// PDF-space rectangle per Unicode scalar in its text.
+    pub fn text_runs(&self, page_index: u32) -> Result<Vec<FfiTextRun>, FfiError> {
+        let render_doc = {
+            let state = self.lock();
+            if !text_extraction_is_allowed(&state.document) {
+                return Err(FfiError::UnsupportedOperation {
+                    message: "text extraction is not permitted".to_string(),
+                });
+            }
+            state.render_doc.ok_or(FfiError::DocumentNotFound)?
+        };
+        pdf_render::PdfiumRenderer::new()
+            .text_runs(render_doc, page_index, pdf_render::Priority::Visible)
+            .wait()
+            .map(|runs| runs.into_iter().map(Into::into).collect())
+            .map_err(Into::into)
+    }
+
+    /// Finds exact, case-sensitive text matches in render-side page order.
+    /// Search reflects the last-opened/saved bytes until pending edits are saved.
+    pub fn search(&self, query: String) -> Result<Vec<FfiSearchResult>, FfiError> {
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let page_count = self.lock().base.page_dimensions().len() as u32;
+        let query_character_count = query.chars().count();
+        let mut results = Vec::new();
+        for page_index in 0..page_count {
+            let runs = self.text_runs(page_index)?;
+            let page_text: String = runs.iter().map(|run| run.text.as_str()).collect();
+            let character_bounds: Vec<_> = runs
+                .into_iter()
+                .flat_map(|run| run.character_bounds)
+                .collect();
+            for (byte_index, _) in page_text.match_indices(&query) {
+                let character_index = page_text[..byte_index].chars().count();
+                results.push(FfiSearchResult {
+                    page_index,
+                    text: query.clone(),
+                    character_bounds: character_bounds
+                        [character_index..character_index + query_character_count]
+                        .to_vec(),
+                });
+            }
+        }
+        Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pdf_document::{EncryptionCredentials, Permissions, SecurityContext, SecurityHandler};
+
+    #[test]
+    fn text_extraction_respects_user_copy_permission_and_owner_bypass() {
+        let mut document = Document::blank();
+        document.security = Some(SecurityContext {
+            handler: SecurityHandler::Rc4_128,
+            credential: Credential::User,
+            credentials: EncryptionCredentials::default(),
+            permissions: Permissions(0),
+        });
+
+        assert!(!text_extraction_is_allowed(&document));
+
+        document.security.as_mut().unwrap().credential = Credential::Owner;
+        assert!(text_extraction_is_allowed(&document));
     }
 }
 

@@ -32,6 +32,7 @@ These are **proposed facade methods**, not additions to `pdf-ffi`.
 | `CreateBlank(request)` | `create_blank_document(pageSize, orientation)` | Create an empty session and publish empty UI state. |
 | `GetSession(sessionId)` | `DocumentHandle.page_count()` | Return facade-owned session metadata, never the raw handle. |
 | `RenderPage(request)` | `render_page`, bitmap metadata, `get_pixels` | Dispatch off the UI thread, materialize a UI bitmap DTO, discard stale results. |
+| `Search(request)` | `DocumentHandle.search(query)` | Dispatch off the UI thread, translate page-space matches, and discard stale query results. |
 | `ApplyEdit(request)` / `InsertImageStamp(request)` | `apply_edit` / `insert_image_stamp` | Translate validated UI commands to FFI DTOs; mark session render state stale. |
 | `Undo(sessionId)` / `Redo(sessionId)` | `undo` / `redo` | Return whether state changed and refresh session metadata. |
 | `Save(request)` | `save_to_bytes(intent)` | Write returned bytes through the selected destination; enforce protection consent flow. |
@@ -52,6 +53,9 @@ CreateBlankRequest { pageSize: A4 | Letter | Custom(widthPt, heightPt), orientat
 Session { sessionId: opaque string, displayName: string, pageCount: uint, state: Empty | Ready | Dirty | Saving }
 RenderRequest { sessionId: opaque string, pageIndex: uint, dpi: uint, invertContentColors: bool, sequence: uint64 }
 RenderedPage { sessionId: opaque string, pageIndex: uint, sequence: uint64, width: uint, height: uint, stride: uint, rgba: binary }
+SearchRequest { sessionId: opaque string, query: string, sequence: uint64 }
+SearchResults { sessionId: opaque string, sequence: uint64, query: string, hits: SearchHit[] }
+SearchHit { pageIndex: uint, text: string, characterBounds: PdfRect[] }
 EditRequest { sessionId: opaque string, command: EditCommand }
 SaveRequest { sessionId: opaque string, destination: DocumentDestination, intent: Default | StripProtection, stripProtectionConsent: bool }
 OperationResult<T> { value?: T, error?: UserSafeError }
@@ -66,6 +70,7 @@ All binding/core calls run off the UI thread. The facade alone provides cancella
 1. Before dispatch, coalesce duplicate or superseded render requests for the same session/page.
 2. Assign a monotonically increasing sequence per `(sessionId, pageIndex)`.
 3. On completion, publish only when the returned sequence equals that page's current sequence and the session remains current; otherwise discard pixels and result.
+4. Apply the same session-scoped monotonic sequencing to searches; only the latest query result may reach WinUI state.
 
 This is not Rust rendering cancellation. `pdf-ffi::render_page` submits with internal `Visible` priority and synchronously calls `.wait()`; its public FFI signature exposes no cancellation token, priority, or queue handle. Once it crosses FFI, the facade cannot abort or reprioritize it. The Rust render crate has internal job cancellation/priority facilities, but they are deliberately not ports in `pdf-ffi`.
 
@@ -105,11 +110,10 @@ Evidence: [`core/pdf-ffi/src/error.rs`](../../core/pdf-ffi/src/error.rs).
 
 ## Non-Goals And Required Ports
 
-This contract does not add search/text extraction, thumbnail/prefetch scheduling, progress reporting, true rendering cancellation, or form editing. Advanced screens require explicit `pdf-ffi` ports before implementation:
+This contract includes text extraction/search through `DocumentHandle.text_runs(pageIndex)` and `DocumentHandle.search(query)`. Matches carry a 0-indexed page and per-character PDF-point rectangles with a bottom-left origin, enabling WinUI overlays without renderer types. It does not add thumbnail/prefetch scheduling, progress reporting, true rendering cancellation, or form editing. Advanced screens require explicit `pdf-ffi` ports before implementation:
 
 | Screen capability | Required missing port |
 |---|---|
-| Search and text selection | Text-run/search query API with page coordinates and stale-result identity. |
 | Thumbnail rail and prefetch | Render priority, bounded queue visibility, and cancellable request handle. |
 | Long-operation progress | Progress callback or operation status port. |
 | Real cancellation | FFI cancellation token/handle that reaches the render job before dequeue; mid-render cancellation remains a separate capability. |

@@ -11,7 +11,11 @@ var tests = new (string Name, Func<Task> Run)[]
     ("defers document disposal until in-flight render completes", DefersDisposalUntilRenderCompletesAsync),
     ("packs padded renderer rows tightly", PacksPaddedRowsTightlyAsync),
     ("exposes page dimensions on the session", ExposesPageDimensionsAsync),
-    ("renders any page independently of the current page index", RendersPagesIndependentlyOfCurrentIndexAsync)
+    ("renders any page independently of the current page index", RendersPagesIndependentlyOfCurrentIndexAsync),
+    ("renders a print page independently of viewer renders", RendersPrintPageIndependentlyAsync),
+    ("discards a print page after a session swap", DiscardsPrintPageAfterSessionSwapAsync),
+    ("discards stale search results", DiscardsStaleSearchResultAsync),
+    ("navigates to a selected search result", NavigatesToSearchResultAsync)
 };
 
 foreach (var test in tests)
@@ -132,6 +136,58 @@ static async Task RendersPagesIndependentlyOfCurrentIndexAsync()
     Assert(result.Value!.PageIndex == 2, "the rendered page should carry its own index");
 }
 
+static async Task RendersPrintPageIndependentlyAsync()
+{
+    var core = new FakeCore { PageCount = 2, BlockFirstRender = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var viewerRender = facade.RenderPageAsync(session.SessionId, 0, 144, false);
+    await core.FirstRenderStarted.Task;
+    var print = facade.RenderPageForPrintAsync(session.SessionId, 1, 300, false);
+    core.ReleaseFirstRender.Set();
+    var printResult = await print;
+    Assert(printResult.IsSuccess, "print render should not be superseded by an in-flight viewer render");
+    Assert(printResult.Value!.PageIndex == 1, "print render should carry its own page index");
+    Assert(core.RenderDpis.Any(dpi => dpi == 300), "print render should use print DPI");
+    await viewerRender;
+}
+
+static async Task DiscardsPrintPageAfterSessionSwapAsync()
+{
+    var core = new FakeCore { PageCount = 2, BlockFirstRender = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    var print = facade.RenderPageForPrintAsync(session.SessionId, 0, 300, false);
+    await core.FirstRenderStarted.Task;
+    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+    core.ReleaseFirstRender.Set();
+    var result = await print.WaitAsync(TimeSpan.FromSeconds(5));
+    Assert(result.IsDiscarded, "a print render for a replaced session must be discarded");
+}
+
+static async Task DiscardsStaleSearchResultAsync()
+{
+    var core = new FakeCore { BlockFirstSearch = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var first = facade.SearchAsync(session.SessionId, "first");
+    await core.FirstSearchStarted.Task;
+    var second = facade.SearchAsync(session.SessionId, "second");
+    core.ReleaseFirstSearch.Set();
+    var firstResult = await first;
+    var secondResult = await second;
+    Assert(firstResult.IsDiscarded, "superseded search should be discarded");
+    Assert(secondResult.IsSuccess && secondResult.Value!.Query == "second", "only the latest query may publish results");
+}
+
+static async Task NavigatesToSearchResultAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore { PageCount = 3 }, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var result = await facade.NavigateToSearchResultAsync(session.SessionId, new SearchHit(2, "match", []));
+    Assert(result.IsSuccess && result.Value!.PageIndex == 2, "selected search result should navigate to its page");
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition)
@@ -148,10 +204,15 @@ sealed class FakeCore : IPdfCore
     public PdfCoreError? OpenError { get; init; }
     public PdfCoreError? RenderError { get; init; }
     public bool BlockFirstRender { get; init; }
+    public bool BlockFirstSearch { get; init; }
     public TaskCompletionSource FirstRenderStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public ManualResetEventSlim ReleaseFirstRender { get; } = new(false);
+    public TaskCompletionSource FirstSearchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public ManualResetEventSlim ReleaseFirstSearch { get; } = new(false);
+    public System.Collections.Concurrent.ConcurrentQueue<uint> RenderDpis { get; } = new();
     public FakeDocument? LastDocument { get; private set; }
     private int _renderCount;
+    private int _searchCount;
 
     public IPdfCoreDocument OpenFromBytes(byte[] bytes, string? password)
     {
@@ -167,6 +228,7 @@ sealed class FakeCore : IPdfCore
 
     public PdfCoreBitmap RenderPage(IPdfCoreDocument document, uint pageIndex, uint dpi, bool invertContentColors)
     {
+        RenderDpis.Enqueue(dpi);
         if (Interlocked.Increment(ref _renderCount) == 1 && BlockFirstRender)
         {
             FirstRenderStarted.SetResult();
@@ -179,6 +241,17 @@ sealed class FakeCore : IPdfCore
         }
 
         return new PdfCoreBitmap(1, 1, 4, [0, 0, 0, 255]);
+    }
+
+    public IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query)
+    {
+        if (Interlocked.Increment(ref _searchCount) == 1 && BlockFirstSearch)
+        {
+            FirstSearchStarted.SetResult();
+            ReleaseFirstSearch.Wait(TimeSpan.FromSeconds(5));
+        }
+
+        return [new PdfCoreSearchHit(0, query, [new PdfCoreSearchRect(100, 700, 24, 24)])];
     }
 }
 

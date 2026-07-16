@@ -71,6 +71,53 @@ impl From<pdf_manip::PageDimensions> for FfiPageDimensions {
     }
 }
 
+/// A page-space rectangle in PDF points with a bottom-left origin, suitable
+/// for mapping directly onto a rendered page.
+#[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
+pub struct FfiTextRect {
+    pub x_pt: f64,
+    pub y_pt: f64,
+    pub width_pt: f64,
+    pub height_pt: f64,
+}
+
+impl From<pdf_render::TextRect> for FfiTextRect {
+    fn from(rect: pdf_render::TextRect) -> Self {
+        Self {
+            x_pt: f64::from(rect.x_pt),
+            y_pt: f64::from(rect.y_pt),
+            width_pt: f64::from(rect.width_pt),
+            height_pt: f64::from(rect.height_pt),
+        }
+    }
+}
+
+/// Extracted text from one font run, with one PDF-space rectangle per Unicode
+/// scalar in `text`.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiTextRun {
+    pub text: String,
+    pub character_bounds: Vec<FfiTextRect>,
+}
+
+impl From<pdf_render::TextRun> for FfiTextRun {
+    fn from(run: pdf_render::TextRun) -> Self {
+        Self {
+            text: run.text,
+            character_bounds: run.character_bounds.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// One exact-text match with its 0-indexed page and per-character PDF-space
+/// rectangles. Empty queries return no matches.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiSearchResult {
+    pub page_index: u32,
+    pub text: String,
+    pub character_bounds: Vec<FfiTextRect>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
 pub struct FfiRect {
     pub x: f64,

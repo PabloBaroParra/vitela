@@ -187,6 +187,66 @@ pub fn build_multi_page_document(num_pages: u32, label_prefix: &str) -> Document
     doc
 }
 
+/// Builds a small, unencrypted, single-page PDF whose page carries several
+/// text lines at descending vertical positions — used to prove how pdfium's
+/// text extraction separates visual lines (Batch 3 text-run work). Each label
+/// in `lines` is drawn in its own text object at a distinct baseline.
+pub fn build_multi_line_page_document(lines: &[&str]) -> Document {
+    let mut doc = Document::with_version("1.5");
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+
+    let pages_id = doc.new_object_id();
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+    });
+    let resources_id = doc.add_object(dictionary! {
+        "Font" => dictionary! { "F1" => font_id },
+    });
+
+    let mut operations = Vec::new();
+    let mut baseline = 700;
+    for line in lines {
+        operations.push(Operation::new("BT", vec![]));
+        operations.push(Operation::new("Tf", vec!["F1".into(), 24.into()]));
+        operations.push(Operation::new("Td", vec![100.into(), baseline.into()]));
+        operations.push(Operation::new("Tj", vec![Object::string_literal(*line)]));
+        operations.push(Operation::new("ET", vec![]));
+        baseline -= 40;
+    }
+
+    let content_id = doc.add_object(Stream::new(
+        dictionary! {},
+        Content { operations }
+            .encode()
+            .expect("encode fixture content stream"),
+    ));
+
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+        "Resources" => resources_id,
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+    });
+
+    let pages = dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![page_id.into()],
+        "Count" => 1,
+    };
+    doc.objects.insert(pages_id, Object::Dictionary(pages));
+
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+
+    doc
+}
+
 /// Encrypts `doc` in place according to `spec`'s algorithm and passwords.
 pub fn encrypt_with_spec(doc: &mut Document, spec: &FixtureSpec) -> lopdf::Result<()> {
     let permissions = Permissions::PRINTABLE | Permissions::COPYABLE;

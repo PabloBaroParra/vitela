@@ -53,6 +53,91 @@ fn page_dimensions_match_the_page_count_and_carry_point_sizes() {
 }
 
 #[test]
+fn text_runs_expose_one_pdf_space_rectangle_per_character() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+
+    let runs = handle.text_runs(0).expect("text extraction should succeed");
+
+    assert!(runs
+        .iter()
+        .all(|run| run.text.chars().count() == run.character_bounds.len()));
+    assert!(runs
+        .iter()
+        .flat_map(|run| &run.character_bounds)
+        .any(|bounds| bounds.height_pt > 0.0));
+}
+
+#[test]
+fn search_returns_page_index_and_matching_pdf_space_geometry() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+
+    let results = handle
+        .search("Fixture".to_string())
+        .expect("search should succeed");
+
+    let result = results.first().expect("known fixture text should match");
+    assert_eq!(result.page_index, 0);
+    assert_eq!(result.character_bounds.len(), 7);
+}
+
+#[test]
+fn search_uses_render_side_page_indexes_until_structural_edits_are_saved() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+    apply_edit(
+        &handle,
+        FfiEditCommand::InsertBlankPage {
+            index: 0,
+            size: FfiPageSize::A4,
+            orientation: FfiOrientation::Portrait,
+        },
+    )
+    .expect("structural edit should succeed");
+
+    let results = handle
+        .search("Fixture".to_string())
+        .expect("search should succeed");
+
+    assert_eq!(
+        results
+            .first()
+            .expect("known fixture text should match")
+            .page_index,
+        0
+    );
+}
+
+#[test]
+fn search_does_not_match_across_a_line_break() {
+    // pdfium's text extraction emits a line separator between visually distinct
+    // lines, so concatenating per-run text can't fabricate a match that spans a
+    // line boundary: "alphabravo" is absent even though "alpha" and "bravo" are
+    // consecutive lines. Guards the shell search that scans concatenated run
+    // text (DocumentHandle::search).
+    let mut doc = gen_fixtures::build_multi_line_page_document(&["alpha", "bravo", "charlie"]);
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes)
+        .expect("serialize multi-line fixture");
+    let handle = open_from_bytes(bytes, None).unwrap();
+
+    assert!(
+        handle
+            .search("alphabravo".to_string())
+            .expect("search should succeed")
+            .is_empty(),
+        "a query spanning a line break must not match"
+    );
+
+    let single_line = handle
+        .search("bravo".to_string())
+        .expect("search should succeed");
+    assert_eq!(single_line.len(), 1, "a real single-line query should match once");
+    assert_eq!(single_line[0].page_index, 0);
+}
+
+#[test]
 fn opens_encrypted_fixture_from_bytes_and_renders_page_one() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
     let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string()))

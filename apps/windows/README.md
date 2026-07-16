@@ -5,9 +5,10 @@ generated UniFFI types are isolated in `Facade/GeneratedPdfCore.cs`.
 
 ## First vertical
 
-The current vertical opens a local PDF, renders one page, and navigates between
-pages. It intentionally does not include editing, saving, password UI, update
-logic, or CI workflows.
+The current vertical opens a local PDF, lazily renders its pages, and supports
+case-sensitive exact-text search. Selecting a result navigates to its page and highlights the
+matching PDF-space character geometry. It intentionally does not include
+editing, saving, password UI, update logic, or CI workflows.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:
