@@ -157,6 +157,12 @@ jobs:
       # tools/zero-network-guard's `real_world_egress.rs` for the assertion
       # that proves the isolation is actually in effect.
       #
+      # The namespace's loopback starts DOWN, which makes even 127.0.0.1
+      # unreachable — `ip link set lo up` restores it so loopback-only tests
+      # (zero-network-guard's `detects_reachable_local_listener_as_a_leak`)
+      # behave as on any real machine. External egress stays impossible
+      # either way: the namespace has no other interface and no route out.
+      #
       # `sudo` resets PATH via secure_path and drops the runner env, so
       # `env "PATH=$PATH"` re-injects the toolchain PATH and -E preserves
       # HOME/PDFIUM_DYNAMIC_LIB_PATH for rustup/cargo/pdfium resolution.
@@ -172,11 +178,11 @@ jobs:
       - name: Run the full test suite inside a network namespace
         run: |
           sudo -E env "PATH=$PATH" unshare --net \
-            cargo test --workspace --locked
+            sh -c 'ip link set lo up && exec cargo test --workspace --locked'
       - name: Run zero-network-guard's CI-only egress proof inside the namespace
         run: |
           sudo -E env "PATH=$PATH" unshare --net \
-            cargo test -p zero-network-guard --locked -- --ignored
+            sh -c 'ip link set lo up && exec cargo test -p zero-network-guard --locked -- --ignored'
 
   determinism:
     name: pdf-save deterministic-writer byte-identical check (T-038)
