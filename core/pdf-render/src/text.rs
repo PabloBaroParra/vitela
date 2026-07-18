@@ -26,6 +26,56 @@ pub struct TextRect {
     pub height_pt: f32,
 }
 
+/// One exact-text match: its 0-indexed page and one PDF-space rect per
+/// Unicode scalar in the matched text — enough for a shell to highlight it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextMatch {
+    pub page_index: u32,
+    pub text: String,
+    pub character_bounds: Vec<TextRect>,
+}
+
+/// Finds every exact, case-sensitive occurrence of `query` in one page's text
+/// runs. Empty queries match nothing.
+///
+/// Runs concatenate into the page's text, and `collect_text_runs` guarantees
+/// exactly one rect per Unicode scalar, so a match's rects are simply the
+/// character-indexed slice of the flattened bounds. `match_indices` yields
+/// byte offsets, hence the `chars().count()` conversion to a character index.
+///
+/// This is the single implementation of the match algorithm: it lives beside
+/// `TextRun` (the data it operates on) so every shell — the GTK client that
+/// links this crate directly and the `pdf-ffi` boundary that other shells
+/// cross — shares one behavior instead of keeping private copies.
+pub(crate) fn find_matches(runs: &[TextRun], query: &str, page_index: u32) -> Vec<TextMatch> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let page_text: String = runs.iter().map(|run| run.text.as_str()).collect();
+    let character_bounds: Vec<TextRect> = runs
+        .iter()
+        .flat_map(|run| run.character_bounds.iter().copied())
+        .collect();
+    let query_character_count = query.chars().count();
+
+    page_text
+        .match_indices(query)
+        .filter_map(|(byte_index, _)| {
+            let character_index = page_text[..byte_index].chars().count();
+            // `get`, not indexing: a run whose bounds are shorter than its
+            // text would otherwise panic the whole document's search.
+            let bounds =
+                character_bounds.get(character_index..character_index + query_character_count)?;
+            Some(TextMatch {
+                page_index,
+                text: query.to_string(),
+                character_bounds: bounds.to_vec(),
+            })
+        })
+        .collect()
+}
+
 /// Computes one character's [`TextRect`] from pdfium's per-glyph geometry.
 ///
 /// pdfium can't always compute loose bounds — certain whitespace or
@@ -123,6 +173,74 @@ mod tests {
     // pdfium exposes `loose_bounds`/`origin` as fallible FFI calls; the error
     // variant is opaque, so any unit variant stands in for "pdfium said no".
     const PDFIUM_ERR: PdfiumError = PdfiumError::PageIndexOutOfBounds;
+
+    /// A run whose bounds carry one rect per character, each tagged with its
+    /// character index via `x_pt` so tests can assert which slice was taken.
+    fn run(text: &str, first_index: usize) -> TextRun {
+        TextRun {
+            text: text.to_string(),
+            font_name: "Test".to_string(),
+            font_size_pt: 12.0,
+            character_bounds: (0..text.chars().count())
+                .map(|offset| TextRect {
+                    x_pt: (first_index + offset) as f32,
+                    y_pt: 0.0,
+                    width_pt: 1.0,
+                    height_pt: 1.0,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn find_matches_returns_nothing_for_an_empty_query() {
+        assert_eq!(find_matches(&[run("hello", 0)], "", 0), Vec::new());
+    }
+
+    #[test]
+    fn find_matches_is_case_sensitive() {
+        assert_eq!(find_matches(&[run("Hello", 0)], "hello", 0), Vec::new());
+    }
+
+    #[test]
+    fn find_matches_reports_every_occurrence_with_its_page_index() {
+        let matches = find_matches(&[run("abcabc", 0)], "bc", 3);
+
+        assert_eq!(matches.len(), 2);
+        assert!(matches.iter().all(|m| m.page_index == 3 && m.text == "bc"));
+        // Character bounds are the slice for each occurrence: chars 1..3 and 4..6.
+        assert_eq!(matches[0].character_bounds[0].x_pt, 1.0);
+        assert_eq!(matches[1].character_bounds[0].x_pt, 4.0);
+    }
+
+    #[test]
+    fn find_matches_spans_a_run_boundary() {
+        // "ab" + "cd" concatenate to "abcd": a match crossing the two runs
+        // must still resolve to the flattened bounds 1..3.
+        let matches = find_matches(&[run("ab", 0), run("cd", 2)], "bc", 0);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].character_bounds.len(), 2);
+        assert_eq!(matches[0].character_bounds[0].x_pt, 1.0);
+        assert_eq!(matches[0].character_bounds[1].x_pt, 2.0);
+    }
+
+    #[test]
+    fn find_matches_uses_character_indices_not_byte_offsets() {
+        // "ñ" is two bytes: a byte-indexed slice would take the wrong rects.
+        let matches = find_matches(&[run("ñab", 0)], "ab", 0);
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].character_bounds[0].x_pt, 1.0);
+    }
+
+    #[test]
+    fn find_matches_skips_a_match_whose_bounds_are_short_instead_of_panicking() {
+        let mut short = run("abc", 0);
+        short.character_bounds.pop();
+
+        assert_eq!(find_matches(&[short], "bc", 0), Vec::new());
+    }
 
     #[test]
     fn character_rect_uses_loose_bounds_when_available() {

@@ -15,7 +15,7 @@ use crate::inversion::invert_rgba_in_place;
 use crate::library::resolve_library_path;
 use crate::options::{Priority, Rect, RenderOptions};
 use crate::state::{DocHandle, PdfiumState};
-use crate::text::{collect_text_runs, TextRun};
+use crate::text::{collect_text_runs, find_matches, TextMatch, TextRun};
 
 pub use crate::state::DocHandle as DocumentHandle;
 
@@ -140,6 +140,34 @@ impl PdfiumRenderer {
             .wait()
     }
 
+    /// Returns the number of pages in an open document without rasterizing.
+    pub fn page_count(&self, doc: DocumentHandle, priority: Priority) -> JobHandle<u32> {
+        match global_actor() {
+            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
+                page_count_job(state, doc)
+            }),
+            Err(error) => JobHandle::failed(error),
+        }
+    }
+
+    /// Queries every page's size in PDF points in a single actor round-trip.
+    ///
+    /// Shells laying out a whole document need all page sizes up front; one
+    /// batched job avoids the N serialized submit/wait cycles that querying
+    /// [`page_size`](Self::page_size) per page would push through the actor.
+    pub fn page_sizes(
+        &self,
+        doc: DocumentHandle,
+        priority: Priority,
+    ) -> JobHandle<Vec<(f32, f32)>> {
+        match global_actor() {
+            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
+                page_sizes_job(state, doc)
+            }),
+            Err(error) => JobHandle::failed(error),
+        }
+    }
+
     /// Requests a page render at the given DPI. Returns immediately with a
     /// cancellable [`RenderHandle`]; call `.wait()` to block for the result.
     ///
@@ -199,6 +227,46 @@ impl PdfiumRenderer {
             Err(error) => JobHandle::failed(error),
         }
     }
+
+    /// Finds exact, case-sensitive matches of `query` across the whole
+    /// document, in render-side page order, in a single actor round-trip.
+    ///
+    /// This enforces no document permissions: like [`text_runs`](Self::text_runs)
+    /// it is the raw capability, and policy stays at the shell boundary (see
+    /// `pdf-ffi`'s `search`, which gates on the document's extraction
+    /// permission before delegating here).
+    pub fn search(
+        &self,
+        doc: DocumentHandle,
+        query: String,
+        priority: Priority,
+    ) -> JobHandle<Vec<TextMatch>> {
+        match global_actor() {
+            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
+                search_job(state, doc, &query)
+            }),
+            Err(error) => JobHandle::failed(error),
+        }
+    }
+}
+
+/// Hard ceiling on a single rasterized page, enforced for every shell that
+/// reaches the renderer. A degenerate MediaBox (e.g. 1pt wide × 50,000pt tall)
+/// scaled to a fit-to-width DPI would otherwise ask pdfium to allocate an
+/// unbounded bitmap on the shared actor thread, freezing the pipeline or
+/// exhausting memory. `MAX_RASTER_PIXELS` at 4 bytes/pixel also caps the
+/// allocation at 128 MiB.
+const MAX_RASTER_DIMENSION: i32 = 16_384;
+const MAX_RASTER_PIXELS: u64 = 32 * 1024 * 1024;
+
+fn ensure_raster_within_limits(width: i32, height: i32) -> Result<(), RenderError> {
+    let pixels = (width.max(0) as u64).saturating_mul(height.max(0) as u64);
+    if width > MAX_RASTER_DIMENSION || height > MAX_RASTER_DIMENSION || pixels > MAX_RASTER_PIXELS {
+        return Err(RenderError::RenderFailed(format!(
+            "requested raster {width}x{height} exceeds the maximum safe size"
+        )));
+    }
+    Ok(())
 }
 
 fn render_page_job(
@@ -224,6 +292,7 @@ fn render_page_job(
         None => {
             let target_width = (page.width().value * scale).round().max(1.0) as i32;
             let target_height = (page.height().value * scale).round().max(1.0) as i32;
+            ensure_raster_within_limits(target_width, target_height)?;
             PdfRenderConfig::new()
                 .set_target_width(target_width)
                 .set_target_height(target_height)
@@ -232,6 +301,7 @@ fn render_page_job(
         Some(rect) => {
             let full_width = (page.width().value * scale).round().max(1.0) as i32;
             let full_height = (page.height().value * scale).round().max(1.0) as i32;
+            ensure_raster_within_limits(full_width, full_height)?;
             let clip_left = (rect.left * scale).round() as i32;
             let clip_top = (rect.top * scale).round() as i32;
             let clip_right = (rect.right * scale).round() as i32;
@@ -299,6 +369,58 @@ fn page_size_job(
     Ok((page.width().value, page.height().value))
 }
 
+fn page_count_job(state: &mut PdfiumState, doc: DocHandle) -> Result<u32, RenderError> {
+    let document = state
+        .documents
+        .get(&doc.0)
+        .ok_or(RenderError::DocumentNotFound)?;
+    Ok(document.pages().len() as u32)
+}
+
+fn search_job(
+    state: &mut PdfiumState,
+    doc: DocHandle,
+    query: &str,
+) -> Result<Vec<TextMatch>, RenderError> {
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let document = state
+        .documents
+        .get(&doc.0)
+        .ok_or(RenderError::DocumentNotFound)?;
+    let pages = document.pages();
+    let count = pages.len() as u32;
+    let mut matches = Vec::new();
+    for page_index in 0..count {
+        let page = pages
+            .get(page_index as i32)
+            .map_err(|_| RenderError::PageIndexOutOfBounds(page_index))?;
+        let text = page
+            .text()
+            .map_err(|e| RenderError::RenderFailed(e.to_string()))?;
+        matches.extend(find_matches(&collect_text_runs(&text), query, page_index));
+    }
+    Ok(matches)
+}
+
+fn page_sizes_job(state: &mut PdfiumState, doc: DocHandle) -> Result<Vec<(f32, f32)>, RenderError> {
+    let document = state
+        .documents
+        .get(&doc.0)
+        .ok_or(RenderError::DocumentNotFound)?;
+    let pages = document.pages();
+    let count = pages.len() as u32;
+    let mut sizes = Vec::with_capacity(count as usize);
+    for page_index in 0..count {
+        let page = pages
+            .get(page_index as i32)
+            .map_err(|_| RenderError::PageIndexOutOfBounds(page_index))?;
+        sizes.push((page.width().value, page.height().value));
+    }
+    Ok(sizes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,6 +430,20 @@ mod tests {
         assert!(matches!(
             bind_actor("x".into()),
             Err(RenderError::LibraryLoad { .. })
+        ));
+    }
+
+    #[test]
+    fn raster_limit_accepts_a_normal_page() {
+        assert!(ensure_raster_within_limits(1_240, 1_754).is_ok());
+    }
+
+    #[test]
+    fn raster_limit_rejects_a_degenerate_page() {
+        // A 1pt × 50,000pt MediaBox at a fit-to-width DPI.
+        assert!(matches!(
+            ensure_raster_within_limits(600, 30_000_000),
+            Err(RenderError::RenderFailed(_))
         ));
     }
 }

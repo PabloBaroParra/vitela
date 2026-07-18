@@ -13,18 +13,6 @@
 //! time (actor round trip, including rasterization) and output paths are
 //! printed to stdout.
 //!
-//! ## Why probing for page count instead of querying it
-//!
-//! `PdfiumRenderer`'s public API has no `page_count`/`num_pages` accessor
-//! (see `src/renderer.rs`, `src/state.rs`) — page count is an internal
-//! `pdfium_render::PdfDocument` detail the crate doesn't surface, and this
-//! demo intentionally sticks to the crate's real public surface rather than
-//! reaching around it with a raw `pdfium-render` call. Instead, this probes
-//! by rendering pages in order and treating
-//! `RenderError::PageIndexOutOfBounds` as "no more pages" rather than a
-//! failure — a legitimate use of the documented error variant
-//! (`src/error.rs`), not a workaround.
-//!
 //! ## Pixel format note
 //!
 //! `PdfiumRenderer::render_page`'s `BitmapHandle::get_pixels()` already
@@ -35,7 +23,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use pdf_render::{PdfiumRenderer, Priority, RenderError, RenderOptions};
+use pdf_render::{PdfiumRenderer, Priority, RenderOptions};
 
 /// Render resolution. 150 DPI is a reasonable "on-screen preview" quality
 /// that keeps PNG files small while remaining clearly legible.
@@ -62,8 +50,13 @@ fn main() {
 
     println!("Opened {pdf_path}");
 
+    let page_count = renderer
+        .page_count(doc, Priority::Visible)
+        .wait()
+        .unwrap_or_else(|e| panic!("failed to read page count for {pdf_path:?}: {e}"));
+
     let mut pages_rendered = 0u32;
-    for page_index in 0..MAX_PAGES {
+    for page_index in 0..page_count.min(MAX_PAGES) {
         let start = Instant::now();
         let result = renderer
             .render_page(
@@ -79,10 +72,6 @@ fn main() {
 
         let bitmap = match result {
             Ok(bitmap) => bitmap,
-            Err(RenderError::PageIndexOutOfBounds(_)) => {
-                // Reached the end of the document — not an error.
-                break;
-            }
             Err(e) => panic!("failed to render page {page_index}: {e}"),
         };
 

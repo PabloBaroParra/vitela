@@ -221,6 +221,22 @@ pub struct JobHandle<T> {
     cancel: Arc<AtomicBool>,
 }
 
+/// A cloneable cancellation token for a queued actor job.
+///
+/// This lets callers keep cancellation control while a different worker waits
+/// for the one-shot result.
+#[derive(Clone)]
+pub struct CancellationHandle {
+    cancel: Arc<AtomicBool>,
+}
+
+impl CancellationHandle {
+    /// Requests cancellation before the actor dequeues the associated job.
+    pub fn cancel(&self) {
+        self.cancel.store(true, AtomicOrdering::SeqCst);
+    }
+}
+
 impl<T> JobHandle<T> {
     /// A handle that was never queued and already holds `error` — lets
     /// fire-and-forget APIs (`render_page`, `text_runs`) report an actor
@@ -240,6 +256,13 @@ impl<T> JobHandle<T> {
     /// optimization, not MVP behavior — see `spec.md`).
     pub fn cancel(&self) {
         self.cancel.store(true, AtomicOrdering::SeqCst);
+    }
+
+    /// Returns cancellation control without consuming this result handle.
+    pub fn cancellation_handle(&self) -> CancellationHandle {
+        CancellationHandle {
+            cancel: Arc::clone(&self.cancel),
+        }
     }
 
     /// Blocks until the job completes (or was cancelled), returning its
@@ -362,6 +385,36 @@ mod tests {
         let result = scrolled_past.wait();
         assert!(matches!(result, Err(RenderError::Cancelled)));
         assert_eq!(executed.load(AtomicOrdering::SeqCst), 0);
+    }
+
+    #[test]
+    fn cancellation_handle_cancels_a_job_while_another_thread_waits() {
+        let actor = Actor::spawn(());
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let gate_clone = Arc::clone(&gate);
+        let blocker = actor.submit(Priority::Visible, move |_state: &mut ()| {
+            let (lock, cvar) = &*gate_clone;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = cvar.wait(released).unwrap();
+            }
+            Ok::<_, RenderError>(())
+        });
+
+        let queued = actor.submit(Priority::Prefetch, |_state: &mut ()| {
+            Ok::<_, RenderError>(())
+        });
+        let cancellation = queued.cancellation_handle();
+        cancellation.cancel();
+
+        {
+            let (lock, cvar) = &*gate;
+            *lock.lock().unwrap() = true;
+            cvar.notify_one();
+        }
+        blocker.wait().unwrap();
+
+        assert!(matches!(queued.wait(), Err(RenderError::Cancelled)));
     }
 
     #[test]

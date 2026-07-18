@@ -26,8 +26,9 @@ pub mod renderer;
 pub mod state;
 pub mod text;
 
+pub use actor::CancellationHandle;
 pub use bitmap::{Bitmap, BitmapHandle, BitmapRegistry};
 pub use error::RenderError;
 pub use options::{Priority, Rect, RenderOptions};
 pub use renderer::{DocumentHandle, PdfiumActor, PdfiumRenderer, RenderHandle};
-pub use text::{TextRect, TextRun};
+pub use text::{TextMatch, TextRect, TextRun};

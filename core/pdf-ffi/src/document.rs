@@ -270,33 +270,31 @@ impl DocumentHandle {
 
     /// Finds exact, case-sensitive text matches in render-side page order.
     /// Search reflects the last-opened/saved bytes until pending edits are saved.
+    ///
+    /// The match algorithm itself lives in `pdf_render` (beside the text runs
+    /// it reads) so this boundary and the GTK shell — which links the render
+    /// core directly — share one implementation. What stays here is the policy
+    /// this layer owns: the document's text-extraction permission, which is
+    /// read from the lopdf security model the render core has no view of.
     pub fn search(&self, query: String) -> Result<Vec<FfiSearchResult>, FfiError> {
         if query.is_empty() {
             return Ok(Vec::new());
         }
 
-        let page_count = self.lock().base.page_dimensions().len() as u32;
-        let query_character_count = query.chars().count();
-        let mut results = Vec::new();
-        for page_index in 0..page_count {
-            let runs = self.text_runs(page_index)?;
-            let page_text: String = runs.iter().map(|run| run.text.as_str()).collect();
-            let character_bounds: Vec<_> = runs
-                .into_iter()
-                .flat_map(|run| run.character_bounds)
-                .collect();
-            for (byte_index, _) in page_text.match_indices(&query) {
-                let character_index = page_text[..byte_index].chars().count();
-                results.push(FfiSearchResult {
-                    page_index,
-                    text: query.clone(),
-                    character_bounds: character_bounds
-                        [character_index..character_index + query_character_count]
-                        .to_vec(),
+        let render_doc = {
+            let state = self.lock();
+            if !text_extraction_is_allowed(&state.document) {
+                return Err(FfiError::UnsupportedOperation {
+                    message: "text extraction is not permitted".to_string(),
                 });
             }
-        }
-        Ok(results)
+            state.render_doc.ok_or(FfiError::DocumentNotFound)?
+        };
+        pdf_render::PdfiumRenderer::new()
+            .search(render_doc, query, pdf_render::Priority::Visible)
+            .wait()
+            .map(|found| found.into_iter().map(Into::into).collect())
+            .map_err(Into::into)
     }
 }
 

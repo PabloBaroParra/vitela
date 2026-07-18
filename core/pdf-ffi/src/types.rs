@@ -118,6 +118,16 @@ pub struct FfiSearchResult {
     pub character_bounds: Vec<FfiTextRect>,
 }
 
+impl From<pdf_render::TextMatch> for FfiSearchResult {
+    fn from(found: pdf_render::TextMatch) -> Self {
+        Self {
+            page_index: found.page_index,
+            text: found.text,
+            character_bounds: found.character_bounds.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
 pub struct FfiRect {
     pub x: f64,

@@ -45,6 +45,13 @@ fn opens_document_and_renders_page_one_with_plausible_dimensions() {
     let renderer = PdfiumRenderer::new();
 
     let doc = renderer.open_document(&path, None).expect("open fixture");
+    assert_eq!(
+        renderer
+            .page_count(doc, Priority::Visible)
+            .wait()
+            .expect("count fixture pages"),
+        PAGE_COUNT
+    );
     let bitmap = renderer
         .render_page(
             doc,
