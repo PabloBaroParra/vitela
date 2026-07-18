@@ -806,9 +806,7 @@ mod app {
         match operation.run(PrintOperationAction::PrintDialog, Some(window)) {
             Ok(PrintOperationResult::Error) => viewer.status.set_text("Printing failed."),
             Ok(_) => {}
-            Err(error) => viewer
-                .status
-                .set_text(&format!("Could not print: {error}")),
+            Err(error) => viewer.status.set_text(&format!("Could not print: {error}")),
         }
     }
 
