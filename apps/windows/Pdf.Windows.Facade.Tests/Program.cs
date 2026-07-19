@@ -3,6 +3,7 @@ using Pdf.Windows.Facade;
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("maps typed password failures without diagnostics", MapsTypedPasswordFailureAsync),
+    ("flags password failures as recoverable, others not", FlagsPasswordFailuresAsRecoverableAsync),
     ("maps selected-file read failures to user-safe results", MapsReadFailureAsync),
     ("navigates after a page render failure", NavigatesAfterRenderFailureAsync),
     ("discards stale page render results", DiscardsStaleRenderResultAsync),
@@ -31,6 +32,19 @@ static async Task MapsTypedPasswordFailureAsync()
     Assert(!result.IsSuccess, "open should fail");
     Assert(result.Error!.Message == "This document requires a password.", "password error should be user safe");
     Assert(!result.Error.Message.Contains("WrongPassword", StringComparison.Ordinal), "error should not expose diagnostics");
+}
+
+static async Task FlagsPasswordFailuresAsRecoverableAsync()
+{
+    using var passwordFacade = new PdfDocumentFacade(new FakeCore { OpenError = PdfCoreError.PasswordRequired }, new RecordingLogger());
+    var passwordResult = await passwordFacade.OpenAsync(new DocumentSource("protected.pdf", [1]));
+    Assert(!passwordResult.IsSuccess, "encrypted open should fail");
+    Assert(passwordResult.Error!.RequiresPassword, "a password failure must be flagged so the UI can prompt");
+
+    using var brokenFacade = new PdfDocumentFacade(new FakeCore { OpenError = PdfCoreError.Io }, new RecordingLogger());
+    var brokenResult = await brokenFacade.OpenAsync(new DocumentSource("broken.pdf", [1]));
+    Assert(!brokenResult.IsSuccess, "a broken open should fail");
+    Assert(!brokenResult.Error!.RequiresPassword, "a non-password failure must not be flagged as a password prompt");
 }
 
 static Task MapsReadFailureAsync()

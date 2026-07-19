@@ -53,26 +53,49 @@ public sealed partial class MainWindow : Window
         }
 
         SetBusy(true);
-        OperationResult<DocumentSession> result;
+        byte[] bytes;
         try
         {
             var buffer = await FileIO.ReadBufferAsync(file);
-            CryptographicBuffer.CopyToByteArray(buffer, out var bytes);
-            result = await _facade.OpenAsync(new DocumentSource(file.Name, bytes));
+            CryptographicBuffer.CopyToByteArray(buffer, out bytes);
         }
         catch (Exception error)
         {
-            result = _facade.OpenReadFailure(error);
+            SetBusy(false);
+            ShowError(_facade.OpenReadFailure(error).Error!);
+            return;
         }
 
+        var result = await _facade.OpenAsync(new DocumentSource(file.Name, bytes));
         SetBusy(false);
+
+        // An encrypted document surfaces as a typed password failure rather
+        // than a dead-end error: prompt for the password and retry instead of
+        // stranding the user on the generic error state.
+        if (!result.IsSuccess && result.Error!.RequiresPassword)
+        {
+            var unlocked = await OpenWithPasswordAsync(file.Name, bytes);
+            if (unlocked is null)
+            {
+                // The user dismissed the prompt; leave the current view as-is.
+                return;
+            }
+
+            result = unlocked;
+        }
+
         if (!result.IsSuccess)
         {
             ShowError(result.Error!);
             return;
         }
 
-        _session = result.Value!;
+        ShowOpenedDocument(result.Value!);
+    }
+
+    private void ShowOpenedDocument(DocumentSession session)
+    {
+        _session = session;
         DocumentTitle.Text = _session.DisplayName;
         ClearSearchResults();
         if (_session.State == DocumentSessionState.Empty)
@@ -88,6 +111,66 @@ public sealed partial class MainWindow : Window
         ErrorState.Visibility = Visibility.Collapsed;
         PageScroller.UpdateLayout();
         UpdateViewport(intermediate: false);
+    }
+
+    /// <summary>
+    /// Prompts for the document password and retries opening until it
+    /// succeeds, the user cancels, or a non-password failure occurs. Returns
+    /// the successful (or terminally-failed) result, or null if the user
+    /// dismissed the prompt without unlocking the document.
+    /// </summary>
+    private async Task<OperationResult<DocumentSession>?> OpenWithPasswordAsync(string displayName, byte[] bytes)
+    {
+        var passwordBox = new PasswordBox { PlaceholderText = "Password" };
+        var errorText = new TextBlock
+        {
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson),
+            TextWrapping = TextWrapping.Wrap,
+            Visibility = Visibility.Collapsed,
+        };
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "This document is password protected.",
+            TextWrapping = TextWrapping.Wrap,
+        });
+        panel.Children.Add(passwordBox);
+        panel.Children.Add(errorText);
+
+        var dialog = new ContentDialog
+        {
+            Title = "Password required",
+            Content = panel,
+            PrimaryButtonText = "Open",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        while (true)
+        {
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return null;
+            }
+
+            var password = passwordBox.Password;
+            SetBusy(true);
+            var result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), password);
+            SetBusy(false);
+
+            if (result.IsSuccess || !result.Error!.RequiresPassword)
+            {
+                // Either it opened, or it failed for a reason retrying cannot
+                // fix — hand it back to the normal success/error handling.
+                return result;
+            }
+
+            // Wrong password: keep the prompt open with a clear message.
+            errorText.Text = "The password is incorrect. Try again.";
+            errorText.Visibility = Visibility.Visible;
+            passwordBox.Password = "";
+        }
     }
 
     private void PageScroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)

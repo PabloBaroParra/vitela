@@ -22,7 +22,14 @@ public sealed record SearchHit(uint PageIndex, string Text, IReadOnlyList<Search
 
 public sealed record SearchResults(string SessionId, ulong Sequence, string Query, IReadOnlyList<SearchHit> Hits);
 
-public sealed record UserSafeError(string Message, string CorrelationId);
+/// <summary>
+/// A failure the UI can show verbatim: <see cref="Message"/> never leaks
+/// diagnostics, and <see cref="CorrelationId"/> ties it back to the log.
+/// <see cref="RequiresPassword"/> is the one actionable bit the UI needs to
+/// tell an encrypted document (prompt for a password and retry) apart from a
+/// dead-end failure — it carries no sensitive detail.
+/// </summary>
+public sealed record UserSafeError(string Message, string CorrelationId, bool RequiresPassword = false);
 
 public sealed record OperationResult<T>(T? Value, UserSafeError? Error)
 {

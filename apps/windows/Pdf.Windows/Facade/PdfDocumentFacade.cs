@@ -428,7 +428,11 @@ public sealed class PdfDocumentFacade : IDisposable
     {
         var correlationId = Guid.NewGuid().ToString("N");
         _diagnostics.Failure(category, operation, correlationId, sessionId, pageIndex, sanitizedDetail);
-        return new UserSafeError(message, correlationId);
+        // Both categories mean "the document is encrypted and this password
+        // (or its absence) did not unlock it" — the UI treats them the same:
+        // prompt and retry. Everything else is a dead-end failure.
+        var requiresPassword = category is PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword;
+        return new UserSafeError(message, correlationId, requiresPassword);
     }
 
     private sealed class SessionEntry : IDisposable
