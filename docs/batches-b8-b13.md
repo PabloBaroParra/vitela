@@ -31,11 +31,13 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
 
 ### Tareas
 - [ ] T-044 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [OpenPDF, NavZoom]
-- [ ] T-045 Prompt de contraseña en apertura encriptada + UX de error. [PwdPDF]
+      **(2026-07-19 — parcial: viewer multipágina async + scroll continuo + fit-to-width hechos; zoom page/custom pendiente)**
+- [x] T-045 Prompt de contraseña en apertura encriptada + UX de error. [PwdPDF]
 - [ ] T-046 Selección de texto + búsqueda doc-wide con matches resaltados y navegables. [TextSelSearch]
+      **(2026-07-19 — parcial: búsqueda doc-wide + matches navegables hechos; selección de texto pendiente)**
 - [ ] T-047 Toolbar de anotaciones wired a pdf-annotate (7 tipos). [AnnoCreate, AnnoEditDelete]
 - [ ] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
-- [ ] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]
+- [x] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]
 - [ ] T-050 gdk::Clipboard paste → stamp_from_image_bytes; rechazar URL-texto, sin fetch. [Clipboard]
 - [ ] T-051 Drag-and-drop: abrir PDF / insertar imagen como stamp. [ShortcutsDnD]
 - [ ] T-052 Shortcuts estándar C/V/Z/Y/P/S/F/O/N. [ShortcutsDnD]
@@ -106,10 +108,13 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
 
 ### Tareas
 - [ ] T-060 App WinUI3 vía bindings C# de uniffi-bindgen-cs; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
+      **(2026-07-19 — parcial: abrir/render multipágina + scroll continuo hechos; zoom pendiente)**
 - [ ] T-061 Prompt de contraseña, selección/búsqueda, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
-- [ ] T-062 PrintDocument vía render_page. [Print]
+      **(2026-07-19 — parcial: prompt de contraseña + búsqueda con matches navegables hechos; anotaciones + undo/redo pendientes)**
+- [x] T-062 PrintDocument vía render_page. [Print]
 - [ ] T-063 WinRT Clipboard/DataPackage paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
 - [ ] T-064 Bundling .dll + firma Authenticode en windows.yml. [pdfium dist]
+      **(2026-07-19 — parcial: build del shell WinUI en CI; firma Authenticode pendiente)**
 
 ### Criterios de aceptación
 - Misma batería funcional que B8/B9 vía FFI.
