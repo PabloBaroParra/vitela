@@ -54,6 +54,93 @@ apps/            Platform shells (in progress). The Linux GTK4 shell consumes
 Key design decisions and per-batch acceptance criteria are documented in
 [docs/batches-b8-b13.md](docs/batches-b8-b13.md).
 
+## Tools & features
+
+This is the full set of tools Vitela targets. The core engine (`pdf-manip`,
+`pdf-save`, `pdf-annotate`, `pdf-render`) already implements the operations
+marked **Core ready**; those become available in each platform shell as the
+shells land. The rest are on the roadmap.
+
+Legend: ✅ **Core ready** — engine implemented and tested · 🚧 **In progress /
+next** — actively being built · 🔮 **Planned** — on the roadmap, not started.
+
+| Tool | What it does | Crate | Status |
+| ---- | ------------ | ----- | ------ |
+| Merge PDF | Combine several PDFs into one | `pdf-manip` | ✅ Core ready |
+| Split PDF | Split one PDF into multiple files | `pdf-manip` | ✅ Core ready |
+| Organize pages | Reorder pages by drag-and-drop | `pdf-manip` | ✅ Core ready |
+| Delete pages | Remove selected pages | `pdf-manip` | ✅ Core ready |
+| Extract pages | Pull pages out into a new PDF | `pdf-manip` | ✅ Core ready |
+| Rotate PDF | Rotate one or all pages | `pdf-manip` | ✅ Core ready |
+| Protect PDF | Encrypt with a password (RC4-128 / AES-128) | `pdf-save` | ✅ Core ready |
+| Unlock PDF | Remove a known password (decrypt-on-open) | `pdf-manip` | ✅ Core ready |
+| PDF to images | Export pages as PNG / JPEG | `pdf-save` | ✅ Core ready |
+| Sign PDF | Drawn signatures + PKCS#7/PAdES (offline, no TSA/OCSP) | `pdf-sign` | 🚧 In progress / next |
+| Create PDF | Author a new PDF, including fillable forms | `pdf-form` *(planned)* | 🚧 In progress / next |
+| Add watermark | Stamp text or image watermarks (alpha-aware) | `pdf-annotate` | 🚧 In progress / next |
+| Add page numbers | Overlay page numbering | `pdf-annotate` | 🚧 In progress / next |
+| PDF overlay | Stamp one PDF on top of another | `pdf-annotate` | 🚧 In progress / next |
+| Images to PDF | Build a PDF from image files | — | 🔮 Planned |
+| Extract images | Pull embedded images out of a PDF | — | 🔮 Planned |
+| Compress PDF | Reduce file size | — | 🔮 Planned |
+| Optimize for web | Linearize for fast web viewing | `pdf-save` | 🔮 Planned |
+| Convert PDF | Convert to/from other document formats | — | 🔮 Planned |
+| Compare PDF | Diff two PDFs side by side | — | 🔮 Planned |
+| Edit PDF | Edit page body content (text / images) | — | 🔮 Planned |
+| Redact PDF | Black out and remove sensitive content | — | 🔮 Planned |
+| PDF OCR | Make scanned PDFs searchable | — | 🔮 Planned |
+
+Note: rendering remote web pages to PDF is **deliberately excluded** — fetching
+a URL would break the offline-first, zero-network guarantee.
+
+### Fillable forms
+
+Vitela treats forms as a first-class authoring feature, not just form-filling.
+When you create a PDF, you can place **fillable fields** (text, checkbox,
+choice, and more) directly on the page. Those fields are then surfaced as a
+**form panel in a side rail**: fill an entry in the panel and the value is
+written straight into the corresponding field on the PDF, live. The same panel
+works for forms authored by other tools — Vitela reads existing AcroForm fields
+and lets you fill them the same way. Output is standard AcroForm, so the filled
+document renders correctly in Acrobat, Preview, and other spec-compliant
+viewers (see [docs/batch-forms.md](docs/batch-forms.md)).
+
+## Platform status
+
+Where each native shell stands today. The core engine is shared; these rows
+track what each shell has actually wired up and shipped, not what the engine
+can do. Linux (GTK4) links the core crates directly; the others consume the
+generated UniFFI bindings.
+
+Legend: ✅ done & tested · 🚧 in progress · — not yet.
+
+| Capability | Linux (GTK4) | Windows (WinUI 3) | macOS (SwiftUI) | Android (Compose) | iOS (SwiftUI) |
+| ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
+| Open a PDF | ✅ | ✅ | — | — | — |
+| Password-protected PDF | ✅ | — | — | — | — |
+| Multi-page view & scroll | ✅ | ✅ | — | — | — |
+| Fit-to-width rendering | ✅ | — | — | — | — |
+| Text search & navigate | ✅ | ✅ | — | — | — |
+| Print | ✅ | ✅ | — | — | — |
+| Annotate | — | — | — | — | — |
+| Save / export | — | — | — | — | — |
+| Sign | — | — | — | — | — |
+| Fillable forms | — | — | — | — | — |
+
+macOS is a SwiftUI stub (lands in Batch 9); Android and iOS have not been
+started. Windows deliberately omits editing, saving, and password UI in its
+first vertical.
+
+> **Keeping this table honest (for humans and AI):** when a capability ships in
+> a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the
+> same change. Never mark a cell `✅` before the feature is built and tested.
+>
+> CI backstops part of this: [`scripts/check_readme_tables.py`](scripts/check_readme_tables.py)
+> (run in the `docs` workflow) fails the build if the *Tools & features* table
+> names a crate that doesn't exist in `core/`, or if either table uses a status
+> symbol outside its legend. It can't verify that a `✅` cell truly has passing
+> tests — that part stays on you.
+
 ## Building
 
 Requires stable Rust (edition 2021).
@@ -96,7 +183,10 @@ are done. In progress / upcoming: the five platform shells, drawn signatures,
 PKCS#7/PAdES cryptographic signing (offline — no TSA/OCSP), and fillable
 AcroForm forms — create, style, and fill standard form fields, including forms
 authored by other tools (see [docs/batch-forms.md](docs/batch-forms.md)).
-Deliberately out of scope for the MVP: text/image body editing, OCR, redaction.
+Later, post-MVP: page-body editing (text/images), OCR, and redaction. See
+[Tools & features](#tools--features) for the full, per-tool status. Rendering
+remote web pages to PDF stays out of scope — it would break the offline-first,
+zero-network guarantee.
 
 ## License
 

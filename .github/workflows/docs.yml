@@ -1,0 +1,22 @@
+name: docs
+
+# Guards the README status tables against silent drift: every crate named in
+# the "Tools & features" table must exist, and both tables must use only the
+# documented status symbols. See scripts/check_readme_tables.py for what this
+# does and does not verify.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  readme-tables:
+    name: README status tables are consistent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Validate README status tables
+        run: python3 scripts/check_readme_tables.py
