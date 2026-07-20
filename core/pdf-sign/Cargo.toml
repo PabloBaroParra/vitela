@@ -12,13 +12,13 @@ publish = false
 # stores sign digests externally, so pdf-sign must not pull private-key
 # implementations into the core signing protocol.
 cms = { version = "0.2.3", default-features = false, features = ["std"] }
-der = { version = "0.7.10", features = ["alloc", "derive", "oid", "std"] }
+der = { version = "0.8.1", features = ["alloc", "derive", "oid", "std"] }
 lopdf = "0.44"
-sha2 = { version = "0.10.9", features = ["oid"] }
-signature = "2.2.0"
-spki = { version = "0.7.3", features = ["alloc", "std"] }
-thiserror = "1"
-x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
+sha2 = { version = "0.11.0", features = ["oid"] }
+signature = "3.0.0"
+spki = { version = "0.8.0", features = ["alloc", "std"] }
+thiserror = "2"
+x509-cert = { version = "0.3.0", default-features = false, features = ["std"] }
 
 # T-076 round-trip test only: production pdf-sign stays an isolated leaf and
 # must not pull the save/render dependency graph. Promote to [dependencies]
