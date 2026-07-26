@@ -5,8 +5,11 @@ generated UniFFI types are isolated in `Facade/GeneratedPdfCore.cs`.
 
 ## First vertical
 
-The current vertical opens a local PDF, lazily renders its pages, and supports
-case-sensitive exact-text search. Selecting a result navigates to its page and highlights the
+The current vertical opens a local PDF — either through the file picker or the
+**Open sample** button, which loads the shared sample document copied beside
+the executable as `Assets\vitela-sample.pdf` (see
+[`assets/README.md`](../../assets/README.md)) — lazily renders its pages, and
+supports case-sensitive exact-text search. Selecting a result navigates to its page and highlights the
 matching PDF-space character geometry. It intentionally does not include
 editing, saving, password UI, or update logic. CI runs in
 `.github/workflows/windows.yml`: the Rust workspace on a Windows runner, the

@@ -28,6 +28,13 @@ apps/windows/**/obj/
 apps/windows/Pdf.Windows/Generated/
 apps/windows/Pdf.Windows/Native/
 
+# Android shell build artifacts. PDFium stays an externally supplied runtime
+# prerequisite and is never committed.
+apps/android/.gradle/
+apps/android/**/build/
+apps/android/app/src/main/jniLibs/
+apps/android/local.properties
+
 # macOS shell (future) build artifacts
 apps/macos/.build/
 apps/macos/DerivedData/

@@ -22,7 +22,7 @@ use gtk::{
     Orientation, ScrolledWindow,
 };
 
-use document::show_file_chooser;
+use document::{open_sample, show_file_chooser};
 use layout::refresh_layout;
 use print::print_document;
 use render::update_viewport;
@@ -51,7 +51,10 @@ fn build_ui(application: &Application) {
         .build();
 
     let open_button = Button::with_label("Open PDF");
-    let status = Label::new(Some("Choose a PDF file to view."));
+    let sample_button = Button::with_label("Open sample");
+    let status = Label::new(Some(
+        "Choose a PDF file to view, or open the built-in sample.",
+    ));
     status.set_xalign(0.0);
 
     // Exact, case-sensitive search: the same matcher `pdf-ffi` uses, so
@@ -70,6 +73,7 @@ fn build_ui(application: &Application) {
 
     let toolbar = GtkBox::new(Orientation::Horizontal, 8);
     toolbar.append(&open_button);
+    toolbar.append(&sample_button);
     toolbar.append(&search_entry);
     toolbar.append(&find_previous);
     toolbar.append(&find_next);
@@ -123,6 +127,11 @@ fn build_ui(application: &Application) {
         let viewer = viewer.clone();
         let active_chooser = active_chooser.clone();
         move |_| show_file_chooser(&window, &viewer, &active_chooser)
+    });
+    sample_button.connect_clicked({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_| open_sample(&window, &viewer)
     });
 
     window.present();

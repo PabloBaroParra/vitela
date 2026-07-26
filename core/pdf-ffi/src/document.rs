@@ -256,7 +256,7 @@ impl DocumentHandle {
             let state = self.lock();
             if !text_extraction_is_allowed(&state.document) {
                 return Err(FfiError::UnsupportedOperation {
-                    message: "text extraction is not permitted".to_string(),
+                    detail: "text extraction is not permitted".to_string(),
                 });
             }
             state.render_doc.ok_or(FfiError::DocumentNotFound)?
@@ -285,7 +285,7 @@ impl DocumentHandle {
             let state = self.lock();
             if !text_extraction_is_allowed(&state.document) {
                 return Err(FfiError::UnsupportedOperation {
-                    message: "text extraction is not permitted".to_string(),
+                    detail: "text extraction is not permitted".to_string(),
                 });
             }
             state.render_doc.ok_or(FfiError::DocumentNotFound)?

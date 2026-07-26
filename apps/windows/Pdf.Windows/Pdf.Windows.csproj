@@ -17,4 +17,18 @@
   <ItemGroup>
     <None Include="Native\pdf_ffi.dll" CopyToOutputDirectory="PreserveNewest" TargetPath="pdf_ffi.dll" />
   </ItemGroup>
+
+  <!--
+    The sample document shipped with every shell. Linked from the shared
+    assets/ directory rather than copied here, so all platforms package the
+    byte-identical file produced by `cargo run -p gen-sample`.
+
+    Declared as None with a TargetPath, matching how pdf_ffi.dll is handled
+    above: this shell is unpackaged (WindowsPackageType=None) and reads the
+    file straight off disk next to the executable, so a plain copy-to-output
+    is all it needs — no resource indexing.
+  -->
+  <ItemGroup>
+    <None Include="..\..\..\assets\sample\vitela-sample.pdf" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-sample.pdf" />
+  </ItemGroup>
 </Project>

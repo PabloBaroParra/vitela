@@ -1,8 +1,8 @@
-//! Document lifecycle: the file chooser, the generation-guarded open flow,
-//! the encrypted-document password prompt, and background close.
+//! Document lifecycle: the file chooser, the built-in sample, the
+//! generation-guarded open flow, the encrypted-document password prompt, and
+//! background close.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use std::cell::RefCell;
@@ -17,7 +17,18 @@ use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 use super::layout::set_placeholder_size;
 use super::render::update_viewport;
 use super::search::update_search_controls;
-use super::state::{DocumentSession, FitRequest, OpenedDocument, PageSlot, PageState, Viewer};
+use super::state::{
+    DocumentSession, DocumentSource, FitRequest, OpenedDocument, PageSlot, PageState, Viewer,
+};
+
+/// The sample document, linked into the binary at compile time from the same
+/// `assets/sample/` file the Windows and Android shells package. Baking it in
+/// rather than reading it at runtime means "Open sample" works from any
+/// working directory and survives an install that only copies the executable.
+const SAMPLE_PDF: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/sample/vitela-sample.pdf"
+));
 
 pub(crate) fn show_file_chooser(
     window: &ApplicationWindow,
@@ -54,27 +65,33 @@ pub(crate) fn show_file_chooser(
                     .set_text("The selected location is not a local file.");
                 return;
             };
-            open_initial(&window, &viewer, path);
+            open_initial(&window, &viewer, DocumentSource::File(path));
         }
     });
     chooser.show();
     active_chooser.replace(Some(chooser));
 }
 
-fn open_initial(window: &ApplicationWindow, viewer: &Viewer, path: PathBuf) {
+/// Opens the sample document that ships inside the binary — the same file the
+/// Windows and Android shells package, so all three show identical content.
+pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer) {
+    open_initial(window, viewer, DocumentSource::Embedded(SAMPLE_PDF));
+}
+
+fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
     let generation = begin_loading(viewer);
     viewer.status.set_text("Opening PDF...");
     glib::spawn_future_local({
         let window = window.clone();
         let viewer = viewer.clone();
         async move {
-            match open_in_background(path.clone(), None).await {
+            match open_in_background(source.clone(), None).await {
                 Ok(document) if is_current(&viewer, generation) => {
                     show_document(&viewer, generation, document);
                 }
                 Ok(document) => close_document_in_background(document.document),
                 Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
-                    prompt_for_password(&window, &viewer, path, generation);
+                    prompt_for_password(&window, &viewer, source, generation);
                 }
                 Err(error) if is_current(&viewer, generation) => viewer
                     .status
@@ -103,17 +120,27 @@ pub(crate) fn is_current(viewer: &Viewer, generation: u64) -> bool {
 }
 
 async fn open_in_background(
-    path: PathBuf,
+    source: DocumentSource,
     password: Option<String>,
 ) -> Result<OpenedDocument, RenderError> {
-    gio::spawn_blocking(move || open_document(&path, password.as_deref()))
+    gio::spawn_blocking(move || open_document(&source, password.as_deref()))
         .await
         .expect("document-open task panicked")
 }
 
-fn open_document(path: &Path, password: Option<&str>) -> Result<OpenedDocument, RenderError> {
+fn open_document(
+    source: &DocumentSource,
+    password: Option<&str>,
+) -> Result<OpenedDocument, RenderError> {
     let renderer = PdfiumRenderer::new();
-    let document = renderer.open_document(path, password)?;
+    let document = match source {
+        DocumentSource::File(path) => renderer.open_document(path, password)?,
+        // pdfium takes ownership of the buffer for the document's lifetime,
+        // so the compiled-in slice has to be copied rather than borrowed.
+        DocumentSource::Embedded(bytes) => {
+            renderer.open_document_from_bytes(bytes.to_vec(), password)?
+        }
+    };
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
@@ -201,7 +228,7 @@ pub(crate) fn close_document_in_background(document: DocumentHandle) {
 fn prompt_for_password(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    path: PathBuf,
+    source: DocumentSource,
     generation: u64,
 ) {
     let dialog = Dialog::builder()
@@ -239,10 +266,10 @@ fn prompt_for_password(
                 let viewer = viewer.clone();
                 let password_entry = password_entry.clone();
                 let error_label = error_label.clone();
-                let path = path.clone();
+                let source = source.clone();
                 async move {
                     let password = password_entry.text().to_string();
-                    match open_in_background(path, Some(password)).await {
+                    match open_in_background(source, Some(password)).await {
                         Ok(document) if is_current(&viewer, generation) => {
                             show_document(&viewer, generation, document);
                             dialog.close();

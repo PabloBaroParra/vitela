@@ -220,22 +220,46 @@ Windows/C#). Paralelo con B9 y B10.
 
 ### Tareas
 - [ ] T-081 Scaffold Kotlin/Compose + generación de bindings UniFFI Kotlin en android.yml. [infra]
+      **(2026-07-26 — parcial: scaffold Gradle/Compose + `scripts/package-android.sh` genera los
+      bindings Kotlin desde el `libpdf_ffi.so` construido; android.yml solo corre los unit tests
+      JVM, no genera bindings)**
 - [ ] T-082 Cross-compile pdfium .so por ABI (arm64-v8a, armeabi-v7a, x86_64) + empaquetado. [pdfium dist]
+      **(2026-07-26 — parcial: cross-compile de pdf-ffi vía cargo-ndk para arm64-v8a y x86_64;
+      armeabi-v7a pendiente. PDFium sigue siendo un input externo — el repo no lo vendorea ni
+      lo descarga, ver apps/android/README.md)**
 - [ ] T-083 SAF: `ContentResolver.openInputStream()` → `open_from_bytes`; guardar vía
       `OutputStream` del mismo Uri → `save_to_bytes`. [ui-android, FileAccessPort]
+      **(2026-07-26 — parcial: apertura vía SAF (`OpenDocument`) → `open_from_bytes` hecha;
+      el guardado no existe todavía porque no hay edición en el shell)**
 - [ ] T-084 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [ui-android, OpenPDF, NavZoom]
+      **(2026-07-26 — parcial: lector de scroll continuo con ventana de render/caché,
+      placeholders dimensionados por media box y fit-to-width con techo de píxeles por
+      página + invalidación por rotación; zoom page/custom pendiente)**
 - [ ] T-085 Prompt de contraseña en apertura encriptada + manejo de error. [ui-android, PwdPDF]
+      **(2026-07-26 — parcial: diálogo de contraseña con reintento y mensaje de error
+      diferenciado; el diálogo todavía no se puede cancelar (`onDismissRequest` vacío y sin
+      botón de descarte), así que un cifrado sin contraseña conocida deja la app atrapada)**
 - [ ] T-086 Selección de texto + búsqueda doc-wide con matches navegables. [ui-android, TextSelSearch]
+      **(2026-07-26 — parcial: búsqueda doc-wide + matches navegables hechos; selección de
+      texto pendiente — mismo estado que T-046 en GTK4)**
 - [ ] T-087 Toolbar táctil wired a pdf-annotate (7 tipos incl. image stamp). [ui-android, AnnoCreate, AnnoEditDelete]
 - [ ] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
       el placement_rect. [FirmaDibujada]
 - [ ] T-089 Undo/redo vía botones táctiles → EditLog. [ui-android, UndoRedo]
 - [ ] T-090 Android PrintManager usando render_page a DPI de impresión. [ui-android, Print]
+      **(2026-07-26 — parcial: `PrintDocumentAdapter` wired a PrintManager, pero entrega los
+      bytes originales del PDF al spooler en vez de rasterizar con `render_page` a DPI de
+      impresión; tampoco honra el rango de páginas pedido. Vale mientras no haya edición —
+      en cuanto el shell edite, imprimiría el documento sin los cambios)**
 - [ ] T-091 Paste de bitmap desde portapapeles → stamp; rechazar URL-texto sin fetch. [ui-android, Clipboard]
 - [ ] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
       arrastre en split-screen. [ui-android, ShortcutsDnD]
 - [ ] T-093 .apk firmado + android.yml CI completo (bindings Kotlin + cross-compile por ABI +
       Gradle + firma). [ui-android, infra]
+      **(2026-07-26 — parcial: android.yml existe y corre `:app:testDebugUnitTest` (tests JVM
+      puros, sin PDFium); falta build del .apk, cross-compile por ABI y firma. OJO: el CI
+      pinea Gradle 8.11.1 mientras el wrapper commiteado pide 9.5.0 y el proyecto usa AGP
+      9.3.1 — hay que unificar antes de ampliar el workflow)**
 
 ### Criterios de aceptación (spec delta)
 - Acceso a archivos EXCLUSIVAMENTE vía Storage Access Framework: el core recibe

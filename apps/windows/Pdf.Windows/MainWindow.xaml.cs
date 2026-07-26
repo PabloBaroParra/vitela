@@ -19,6 +19,17 @@ public sealed partial class MainWindow : Window
 {
     private const uint RenderDpi = 144;
     private const uint PrintDpi = 300;
+    /// <summary>
+    /// The sample document, copied next to the executable by the csproj from
+    /// the shared <c>assets/sample/</c> directory. Read from the base
+    /// directory rather than an <c>ms-appx:///</c> URI because this shell is
+    /// unpackaged (<c>WindowsPackageType=None</c>), where that URI scheme is
+    /// unavailable.
+    /// </summary>
+    // System.IO.Path is fully qualified: `Microsoft.UI.Xaml.Shapes.Path` (a
+    // XAML shape) is in scope here and makes the bare name ambiguous.
+    private static readonly string SamplePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "vitela-sample.pdf");
+    private const string SampleDisplayName = "Vitela sample.pdf";
     private const double PointsToDips = RenderDpi / 72.0;
     private const double PageSpacing = 12;
     /// <summary>Rendered pages kept alive beyond the visible range, per side.</summary>
@@ -66,7 +77,40 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var result = await _facade.OpenAsync(new DocumentSource(file.Name, bytes));
+        await OpenDocumentAsync(file.Name, bytes);
+    }
+
+    /// <summary>
+    /// Opens the sample document that ships with the app, so a fresh install
+    /// has something to render without the user supplying a PDF first. Goes
+    /// through exactly the same open path as a picked file.
+    /// </summary>
+    private async void OpenSampleButton_Click(object sender, RoutedEventArgs e)
+    {
+        SetBusy(true);
+        byte[] bytes;
+        try
+        {
+            bytes = await File.ReadAllBytesAsync(SamplePath);
+        }
+        catch (Exception error)
+        {
+            SetBusy(false);
+            ShowError(_facade.OpenReadFailure(error).Error!);
+            return;
+        }
+
+        await OpenDocumentAsync(SampleDisplayName, bytes);
+    }
+
+    /// <summary>
+    /// The one open path both entry points share: open, retry on password,
+    /// then either show the document or report the failure.
+    /// </summary>
+    private async Task OpenDocumentAsync(string displayName, byte[] bytes)
+    {
+        SetBusy(true);
+        var result = await _facade.OpenAsync(new DocumentSource(displayName, bytes));
         SetBusy(false);
 
         // An encrypted document surfaces as a typed password failure rather
@@ -74,7 +118,7 @@ public sealed partial class MainWindow : Window
         // stranding the user on the generic error state.
         if (!result.IsSuccess && result.Error!.RequiresPassword)
         {
-            var unlocked = await OpenWithPasswordAsync(file.Name, bytes);
+            var unlocked = await OpenWithPasswordAsync(displayName, bytes);
             if (unlocked is null)
             {
                 // The user dismissed the prompt; leave the current view as-is.
@@ -640,6 +684,7 @@ public sealed partial class MainWindow : Window
         BusyIndicator.IsActive = isBusy;
         BusyIndicator.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
         OpenButton.IsEnabled = !isBusy;
+        OpenSampleButton.IsEnabled = !isBusy;
         PrintButton.IsEnabled = !isBusy;
         SearchButton.IsEnabled = !isBusy;
     }

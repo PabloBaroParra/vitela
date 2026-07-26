@@ -12,6 +12,7 @@ members = [
     "core/pdf-sign-pfx",
     "apps/linux-gtk",
     "tests/fixtures/gen-fixtures",
+    "tools/gen-sample",
     "tools/zero-network-guard",
 ]
 # spikes/uniffi-cs is a standalone crate/workspace (Batch 1 spike) — deliberately

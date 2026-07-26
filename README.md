@@ -49,6 +49,8 @@ core/
 apps/            Platform shells (in progress). The Linux GTK4 shell consumes
                  the core crates directly; macOS/Windows/Android/iOS consume
                  generated Swift/C#/Kotlin bindings.
+assets/          Product assets packaged into the shells — currently the
+                 built-in sample document (see assets/README.md).
 ```
 
 Key design decisions and per-batch acceptance criteria are documented in
@@ -116,20 +118,23 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 
 | Capability | Linux (GTK4) | Windows (WinUI 3) | macOS (SwiftUI) | Android (Compose) | iOS (SwiftUI) |
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
-| Open a PDF | ✅ | ✅ | — | — | — |
-| Password-protected PDF | ✅ | — | — | — | — |
-| Multi-page view & scroll | ✅ | ✅ | — | — | — |
-| Fit-to-width rendering | ✅ | — | — | — | — |
-| Text search & navigate | ✅ | ✅ | — | — | — |
-| Print | ✅ | ✅ | — | — | — |
+| Open a PDF | ✅ | ✅ | — | 🚧 | — |
+| Built-in sample document | ✅ | ✅ | — | ✅ | — |
+| Password-protected PDF | ✅ | — | — | 🚧 | — |
+| Multi-page view & scroll | ✅ | ✅ | — | 🚧 | — |
+| Fit-to-width rendering | ✅ | — | — | 🚧 | — |
+| Text search & navigate | ✅ | ✅ | — | 🚧 | — |
+| Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | — | — | — | — | — |
 | Save / export | — | — | — | — | — |
 | Sign | — | — | — | — | — |
 | Fillable forms | — | — | — | — | — |
 
-macOS is a SwiftUI stub (lands in Batch 9); Android and iOS have not been
-started. Windows deliberately omits editing, saving, and password UI in its
-first vertical.
+macOS is a SwiftUI stub (lands in Batch 9). Android has a Compose baseline;
+its native package still requires externally supplied PDFium Android libraries,
+so its capabilities remain in progress until that runtime is validated on
+devices. iOS has not been started. Windows deliberately omits editing, saving,
+and password UI in its first vertical.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the
@@ -162,6 +167,20 @@ cargo test --workspace
 
 Everything else — encrypted-PDF fixtures included — is generated or committed
 and works on a fresh checkout.
+
+### The built-in sample document
+
+Every shell packages `assets/sample/vitela-sample.pdf` and exposes it behind an
+**Open sample** button, so a fresh install has something to render without the
+user supplying a PDF first. All three shells package the same file; regenerate
+it (byte-reproducibly) with:
+
+```sh
+cargo run -p gen-sample
+```
+
+See [assets/README.md](assets/README.md) for how each shell packages and reads
+it.
 
 ### Generating FFI bindings
 

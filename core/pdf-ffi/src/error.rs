@@ -53,27 +53,27 @@ pub enum FfiError {
     AnnotationNotFound { annotation_id: u64 },
     /// Image bytes passed to `insert_image_stamp` (or an `AddStamp` edit
     /// command) could not be decoded as a supported format (PNG/JPEG).
-    #[error("invalid image bytes: {message}")]
-    InvalidImage { message: String },
+    #[error("invalid image bytes: {detail}")]
+    InvalidImage { detail: String },
     /// A save was requested that violates a `pdf-save` contract (e.g.
     /// incremental save with structural page changes, or strip-protection
     /// requested as an incremental update).
-    #[error("invalid save request: {message}")]
-    InvalidSaveRequest { message: String },
+    #[error("invalid save request: {detail}")]
+    InvalidSaveRequest { detail: String },
     /// The requested operation does not apply to the given annotation kind.
-    #[error("unsupported operation: {message}")]
-    UnsupportedOperation { message: String },
+    #[error("unsupported operation: {detail}")]
+    UnsupportedOperation { detail: String },
     /// Rendering failed for a reason surfaced by the render backend.
-    #[error("render failed: {message}")]
-    RenderFailed { message: String },
+    #[error("render failed: {detail}")]
+    RenderFailed { detail: String },
     /// I/O failure (reading a source path, writing a saved file).
-    #[error("I/O error: {message}")]
-    Io { message: String },
+    #[error("I/O error: {detail}")]
+    Io { detail: String },
     /// Any other failure not modeled above — still a typed variant (not a
     /// raw string return value), carrying the source error's `Display`
     /// output as diagnostic detail.
-    #[error("internal error: {message}")]
-    Internal { message: String },
+    #[error("internal error: {detail}")]
+    Internal { detail: String },
 }
 
 impl From<pdf_manip::ManipError> for FfiError {
@@ -88,7 +88,7 @@ impl From<pdf_manip::ManipError> for FfiError {
                 index: index as u32,
             },
             other => FfiError::Internal {
-                message: other.to_string(),
+                detail: other.to_string(),
             },
         }
     }
@@ -103,7 +103,7 @@ impl From<pdf_render::RenderError> for FfiError {
             E::BitmapNotFound => FfiError::BitmapNotFound,
             E::DocumentNotFound => FfiError::DocumentNotFound,
             other => FfiError::RenderFailed {
-                message: other.to_string(),
+                detail: other.to_string(),
             },
         }
     }
@@ -114,7 +114,7 @@ impl From<pdf_save::SaveError> for FfiError {
         use pdf_save::SaveError as E;
         match err {
             E::InvalidSaveRequest(message) => FfiError::InvalidSaveRequest {
-                message: message.to_string(),
+                detail: message.to_string(),
             },
             // Wrapper variants delegate to the wrapped error's own mapping so
             // a typed inner error (e.g. an out-of-bounds page during
@@ -124,7 +124,7 @@ impl From<pdf_save::SaveError> for FfiError {
             E::Render(inner) => inner.into(),
             E::Io(inner) => inner.into(),
             other => FfiError::Internal {
-                message: other.to_string(),
+                detail: other.to_string(),
             },
         }
     }
@@ -134,12 +134,12 @@ impl From<pdf_annotate::AnnotateError> for FfiError {
     fn from(err: pdf_annotate::AnnotateError) -> Self {
         use pdf_annotate::AnnotateError as E;
         match err {
-            E::InvalidImage(message) => FfiError::InvalidImage { message },
+            E::InvalidImage(message) => FfiError::InvalidImage { detail: message },
             E::UnsupportedOperation(op) => FfiError::UnsupportedOperation {
-                message: op.to_string(),
+                detail: op.to_string(),
             },
             other => FfiError::Internal {
-                message: other.to_string(),
+                detail: other.to_string(),
             },
         }
     }
@@ -148,7 +148,7 @@ impl From<pdf_annotate::AnnotateError> for FfiError {
 impl From<std::io::Error> for FfiError {
     fn from(err: std::io::Error) -> Self {
         FfiError::Io {
-            message: err.to_string(),
+            detail: err.to_string(),
         }
     }
 }
@@ -232,7 +232,7 @@ mod tests {
     fn save_invalid_save_request_carries_the_message() {
         let err: FfiError = pdf_save::SaveError::InvalidSaveRequest("bad request").into();
         match err {
-            FfiError::InvalidSaveRequest { message } => assert_eq!(message, "bad request"),
+            FfiError::InvalidSaveRequest { detail } => assert_eq!(detail, "bad request"),
             other => panic!("expected InvalidSaveRequest, got {other:?}"),
         }
     }
@@ -241,7 +241,7 @@ mod tests {
     fn annotate_invalid_image_carries_the_message() {
         let err: FfiError = pdf_annotate::AnnotateError::InvalidImage("bad png".into()).into();
         match err {
-            FfiError::InvalidImage { message } => assert_eq!(message, "bad png"),
+            FfiError::InvalidImage { detail } => assert_eq!(detail, "bad png"),
             other => panic!("expected InvalidImage, got {other:?}"),
         }
     }
@@ -250,7 +250,7 @@ mod tests {
     fn annotate_unsupported_operation_carries_the_message() {
         let err: FfiError = pdf_annotate::AnnotateError::UnsupportedOperation("resize ink").into();
         match err {
-            FfiError::UnsupportedOperation { message } => assert_eq!(message, "resize ink"),
+            FfiError::UnsupportedOperation { detail } => assert_eq!(detail, "resize ink"),
             other => panic!("expected UnsupportedOperation, got {other:?}"),
         }
     }

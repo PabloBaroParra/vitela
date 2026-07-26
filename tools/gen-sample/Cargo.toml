@@ -1,0 +1,23 @@
+[package]
+name = "gen-sample"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Generates the sample document shipped inside every Vitela platform shell."
+publish = false
+
+[lib]
+name = "gen_sample"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gen-sample"
+path = "src/main.rs"
+
+[dependencies]
+lopdf = "0.44"
+
+[dev-dependencies]
+# Opens the committed asset through the same code path the shells use, so a
+# stale or hand-edited sample fails the build instead of shipping.
+pdf-manip = { path = "../../core/pdf-manip" }

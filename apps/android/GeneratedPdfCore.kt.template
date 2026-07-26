@@ -1,0 +1,64 @@
+package dev.vitela.pdf.generated
+
+import dev.vitela.pdf.core.PdfCore
+import dev.vitela.pdf.core.PdfCoreError
+import dev.vitela.pdf.core.PdfCoreFactory
+import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.core.RenderedPage
+import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.uniffi.DocumentHandle
+import dev.vitela.pdf.uniffi.FfiException
+import dev.vitela.pdf.uniffi.FfiRenderOptions
+// Aliased on purpose. Kotlin resolves a member before an import, so a bare
+// `openFromBytes(bytes, password)` inside this class's own override of the
+// same signature binds to the override and recurses instead of calling the
+// binding. Aliasing makes the FFI call unambiguous and keeps it that way if
+// the interface grows more same-named methods.
+import dev.vitela.pdf.uniffi.openFromBytes as ffiOpenFromBytes
+import dev.vitela.pdf.uniffi.renderPage as ffiRenderPage
+
+class GeneratedPdfCoreFactory : PdfCoreFactory {
+    override fun create(): PdfCore = GeneratedPdfCore()
+}
+
+private class GeneratedPdfCore : PdfCore {
+    override fun openFromBytes(bytes: ByteArray, password: String?): PdfCoreResult<PdfDocument> = try {
+        PdfCoreResult.Success(GeneratedPdfDocument(ffiOpenFromBytes(bytes, password)))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+}
+
+private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocument {
+    override val pageCount: Int get() = handle.pageCount().toInt()
+
+    // Read once and cached: the reader asks for these on every layout pass and
+    // each call crosses the FFI boundary and locks the document.
+    override val pageSizes: List<PageSize> by lazy {
+        handle.pageDimensions().map { PageSize(it.widthPt, it.heightPt) }
+    }
+
+    override fun close() = handle.close()
+
+    override fun renderPage(pageIndex: Int, dpi: Int): PdfCoreResult<RenderedPage> = try {
+        val bitmap = ffiRenderPage(handle, pageIndex.toUInt(), dpi.toUInt(), FfiRenderOptions(false))
+        PdfCoreResult.Success(RenderedPage(bitmap.width().toInt(), bitmap.height().toInt(), bitmap.stride().toInt(), bitmap.getPixels()))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun search(query: String): PdfCoreResult<List<SearchHit>> = try {
+        PdfCoreResult.Success(handle.search(query).map { SearchHit(it.pageIndex.toInt(), it.text) })
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+}
+
+private fun Throwable.toPdfCoreError(): PdfCoreError = when (this) {
+    is FfiException.PasswordRequired -> PdfCoreError.PasswordRequired
+    is FfiException.WrongPassword -> PdfCoreError.WrongPassword
+    is FfiException.RenderFailed -> PdfCoreError.Failed("PDFium is unavailable. This package must include externally supplied compatible PDFium libraries.")
+    else -> PdfCoreError.Failed("The document could not be processed.")
+}

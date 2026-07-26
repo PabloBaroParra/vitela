@@ -3,11 +3,26 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Button, Entry, Label, Picture, ScrolledWindow};
 use pdf_render::{CancellationHandle, DocumentHandle, TextMatch};
+
+/// Where an open request's bytes come from.
+///
+/// The password-retry loop re-opens the *same* source, so this has to be
+/// cheap to clone and outlive the first attempt — hence an owned path rather
+/// than a borrow, and a `'static` slice for the compiled-in sample.
+#[derive(Clone)]
+pub(crate) enum DocumentSource {
+    /// A file the user picked. GTK4 is the one shell that can hand pdfium a
+    /// real filesystem path (see `PdfiumRenderer::open_document`).
+    File(PathBuf),
+    /// The sample document baked into the binary at compile time.
+    Embedded(&'static [u8]),
+}
 
 #[derive(Clone)]
 pub(crate) struct Viewer {

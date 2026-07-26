@@ -1,0 +1,4 @@
+[bindings.kotlin]
+package_name = "dev.vitela.pdf.uniffi"
+cdylib_name = "pdf_ffi"
+generate_immutable_records = true
