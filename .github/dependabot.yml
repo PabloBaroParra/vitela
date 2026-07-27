@@ -21,3 +21,12 @@ updates:
       github-actions:
         patterns:
           - "*"
+    ignore:
+      # gradle/actions v6 moved caching into `gradle-actions-caching`, a
+      # proprietary component governed by the gradle.com Terms of Use instead
+      # of MIT, and setup-gradle loads it whenever caching is enabled. The pin
+      # is held at v5 (already node24) on purpose; without this rule Dependabot
+      # would re-propose the major every week and quietly undo that decision.
+      # Patch and minor updates within v5 still come through.
+      - dependency-name: "gradle/actions"
+        update-types: ["version-update:semver-major"]
