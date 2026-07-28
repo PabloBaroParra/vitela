@@ -10,6 +10,31 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+    ignore:
+      # The RustCrypto DER family moves as a single unit: cms 0.2 pins
+      # der 0.7 / spki 0.7 / x509-cert 0.2 / const-oid 0.9. Bumping any of them
+      # without cms splits the graph into two incompatible versions of the same
+      # type, and pdf-sign fails to compile with "multiple different versions of
+      # crate `der`". cms 0.3 is still pre-release, so the jump waits — and cms
+      # is deliberately NOT ignored here, so its stable release still shows up
+      # as the signal to migrate the whole family at once. Minor and patch
+      # updates within the current series keep coming through.
+      - dependency-name: "der"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "spki"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "x509-cert"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "const-oid"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "sha2"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "signature"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "digest"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "p256"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
