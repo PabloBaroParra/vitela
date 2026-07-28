@@ -25,7 +25,10 @@ struct ViewerRootView: View {
             Button("−") { model.store.setZoom(model.store.zoom - Self.zoomStep) }
                 .accessibilityLabel("Zoom out")
             Text("\(Int((model.store.zoom * 100).rounded()))%")
-                .monospacedDigit()
+                // Not `.monospacedDigit()`: that is macOS 12+, and the
+                // deployment floor is 11.0. A monospaced face keeps the
+                // readout from jittering as the digit count changes.
+                .font(.system(.body, design: .monospaced))
             Button("+") { model.store.setZoom(model.store.zoom + Self.zoomStep) }
                 .accessibilityLabel("Zoom in")
         }
