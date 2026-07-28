@@ -96,4 +96,13 @@ assert_prepare_rejected 'an unknown platform' "unsupported iOS platform: 'androi
 # The macOS platform name is a plausible copy/paste from build-macos.sh.
 assert_prepare_rejected 'the macOS platform name' "unsupported iOS platform: 'macosx'" macosx
 
+# --verify-deployment is about the slice that actually ships. Pointing it at the
+# simulator has to be rejected rather than quietly answered, because a simulator
+# slice's minos is a CI-machine requirement, not a claim about which iPhones are
+# supported: the pinned PDFium 7763 simulator build declares iOS 26.0.
+if output=$(bash "$build_script" --verify-deployment iphonesimulator 2>&1); then
+  fail '--verify-deployment accepted the simulator slice'
+fi
+assert_contains 'applies to the shipped device slice' "$output"
+
 printf 'PASS: iOS deployment floor is exactly 15.0 in the real Xcode project, and absent, placeholder, higher, conflicting, and non-Xcode-key values fail closed\n'

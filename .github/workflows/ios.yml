@@ -37,7 +37,7 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
-          targets: aarch64-apple-ios-sim
+          targets: aarch64-apple-ios-sim,aarch64-apple-ios
       - name: Cache cargo registry and build artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -83,8 +83,30 @@ jobs:
           xcodebuild -project apps/ios/VitelaIOS.xcodeproj -scheme VitelaIOS \
             -destination "id=$SIMULATOR_UDID" test
 
-      - name: Fail closed on the deployment floor the binaries actually declare
-        run: bash scripts/build-ios.sh --verify-deployment iphonesimulator
+      # The floor is a promise about iPhones, so it is checked against the
+      # device slice — the only one that ever ships. The simulator slice is
+      # proven by the test run above, which cannot pass unless it loads.
+      - name: Cache pinned iOS device PDFium
+        id: pdfium-device-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: core/pdf-render/vendor/pdfium-iphoneos
+          key: pdfium-ios-device-arm64-${{ env.PDFIUM_RELEASE }}
+      - name: Download pinned iOS device PDFium (cache miss)
+        if: steps.pdfium-device-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p core/pdf-render/vendor/pdfium-iphoneos
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${PDFIUM_RELEASE}/pdfium-ios-device-arm64.tgz" \
+            | tar -xz -C core/pdf-render/vendor/pdfium-iphoneos
+
+      - name: Build the FFI for the device slice
+        env:
+          PDFIUM_DYLIB: ""
+        run: bash scripts/build-ios.sh --prepare iphoneos
+      - name: Fail closed on the deployment floor the device binaries declare
+        env:
+          PDFIUM_DYLIB: ""
+        run: bash scripts/build-ios.sh --verify-deployment iphoneos
 
       # No upload step, on purpose: a simulator build is not installable on a
-      # device, and anything that is would need signing this repo cannot do.
+      # device, and a device build would need signing this repo cannot do.

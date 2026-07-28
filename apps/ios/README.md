@@ -56,6 +56,14 @@ iOS 15.0, enforced in two independent ways:
 - `--validate-deployment-floor` checks that the Xcode project's
   `IPHONEOS_DEPLOYMENT_TARGET` and the CI workflow agree on 15.0. This is a
   check on *declarations*.
-- `--verify-deployment <platform>` reads the actual `minos` load command out of
+- `--verify-deployment iphoneos` reads the actual `minos` load command out of
   both dylibs the app loads at runtime. This is a check on *facts*, and it is
   the one that would catch a PDFium build that quietly requires a newer iOS.
+
+It is device-only, and that is not an oversight. The floor is a promise about
+which iPhones can run Vitela, and only the device slice ships. The pinned
+PDFium 7763 **simulator** build declares `minos 26.0` — a statement about which
+simulator runtimes can load it, not about supported iPhones — so gating the
+product floor on it would conflate a CI-machine requirement with a product
+claim. The simulator slice is proven instead by the test run, which cannot pass
+unless the library loads.

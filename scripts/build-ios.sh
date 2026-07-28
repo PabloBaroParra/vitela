@@ -28,7 +28,7 @@ usage() {
 Usage:
   scripts/build-ios.sh --validate-deployment-floor
   scripts/build-ios.sh --prepare <iphonesimulator|iphoneos>
-  scripts/build-ios.sh --verify-deployment <iphonesimulator|iphoneos>
+  scripts/build-ios.sh --verify-deployment iphoneos
 
 --validate-deployment-floor requires IOS_DEPLOYMENT_FLOOR=15.0 and checks that
 the Xcode project's IPHONEOS_DEPLOYMENT_TARGET and the Apple CI workflow declare
@@ -40,9 +40,10 @@ NOT invoke xcodebuild: the build and the test run stay separate steps so CI
 reports which of the two failed.
 
 --verify-deployment reads the actual `minos` load command out of both dylibs the
-app loads at runtime and fails when either requires a newer iOS than the
-approved floor. This is the check that makes the floor mean something; the
-declaration check only proves the project and CI agree with each other.
+device build loads at runtime and fails when either requires a newer iOS than
+the approved floor. This is the check that makes the floor mean something; the
+declaration check only proves the project and CI agree with each other. It is
+device-only by design — see the comment above verify_deployment().
 EOF
 }
 
@@ -208,9 +209,19 @@ check_binary_deployment() {
 # it: a build setting is a claim, a Mach-O load command is a fact. Both dylibs
 # the app loads at runtime are inspected, because the app can only claim the
 # floor its bundled renderer actually supports.
+#
+# Device only, on purpose. The deployment floor is a promise about which
+# iPhones can run Vitela, and only the device slice is ever shipped. A
+# simulator slice's `minos` says which *simulator runtimes* can load it — the
+# pinned PDFium 7763 simulator build declares iOS 26.0 while its device build
+# is what the floor is actually about. Gating the product floor on the
+# simulator slice conflates a CI-machine requirement with a product claim; the
+# simulator is instead proven by the test run itself, which cannot pass unless
+# the library loads.
 verify_deployment() {
   local platform=${1:-}
-  [[ -n "$platform" ]] || die '--verify-deployment requires a platform (iphonesimulator or iphoneos)'
+  [[ -n "$platform" ]] || die '--verify-deployment requires a platform (iphoneos)'
+  [[ "$platform" == "iphoneos" ]] || die "--verify-deployment applies to the shipped device slice; got '$platform'"
 
   local rust_target
   rust_target=$(rust_target_for "$platform")
