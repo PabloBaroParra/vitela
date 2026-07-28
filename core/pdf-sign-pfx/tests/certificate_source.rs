@@ -8,7 +8,7 @@ use p256::ecdsa::{
 };
 use pdf_sign::{CertificateSourcePort, DigestAlgorithm, DocumentDigest, SigningAlgorithm};
 use pdf_sign_pfx::PfxCertificateSource;
-use rand::rngs::OsRng;
+use rsa::rand_core::OsRng;
 use rsa::{
     pkcs1v15::{Signature, VerifyingKey},
     pkcs8::{EncodePrivateKey, EncodePublicKey},
