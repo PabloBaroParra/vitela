@@ -41,24 +41,28 @@ write_macho_fixture() {
 }
 
 write_vtool
+# A binary asking for an OLDER macOS than the floor is fine — the gate exists
+# to catch ones that demand a newer macOS than Vitela supports.
 write_macho_fixture compatible.dylib 11.0
+write_macho_fixture at_floor.dylib 12.0
 
-PATH="$fixture_root/bin:$PATH" bash "$build_script" --check-deployment "$fixture_root/compatible.dylib"
+PATH="$fixture_root/bin:$PATH" bash "$build_script" --check-deployment \
+  "$fixture_root/compatible.dylib" "$fixture_root/at_floor.dylib"
 
-write_macho_fixture incompatible.dylib 12.0
+write_macho_fixture incompatible.dylib 13.0
 if output=$(PATH="$fixture_root/bin:$PATH" bash "$build_script" --check-deployment "$fixture_root/incompatible.dylib" 2>&1); then
   fail "deployment gate accepted an incompatible Mach-O fixture"
 fi
-assert_contains "requires macOS 12.0" "$output"
+assert_contains "requires macOS 13.0" "$output"
 
-write_macho_fixture universal.dylib $'11.0\nminos 12.0'
+write_macho_fixture universal.dylib $'12.0\nminos 13.0'
 if output=$(PATH="$fixture_root/bin:$PATH" bash "$build_script" --check-deployment "$fixture_root/universal.dylib" 2>&1); then
   fail "deployment gate accepted an incompatible slice in a universal Mach-O fixture"
 fi
-assert_contains "requires macOS 12.0" "$output"
+assert_contains "requires macOS 13.0" "$output"
 
 project=$(cat "$project_file")
-assert_contains "MACOSX_DEPLOYMENT_TARGET = 11.0;" "$project"
+assert_contains "MACOSX_DEPLOYMENT_TARGET = 12.0;" "$project"
 assert_contains "VitelaTests" "$project"
 
 # The app target once compiled the generated bindings without linking or
@@ -86,4 +90,4 @@ scheme="$repo_root/apps/macos/Vitela.xcodeproj/xcshareddata/xcschemes/Vitela.xcs
 [[ -f "$scheme" ]] || fail "missing shared scheme: $scheme"
 assert_contains "VitelaTests.xctest" "$(cat "$scheme")"
 
-printf 'PASS: deployment gate accepts macOS 11.0, rejects macOS 12.0, and the project links, bundles, and tests what it declares\n'
+printf 'PASS: deployment gate accepts macOS 12.0 and older, rejects macOS 13.0, and the project links, bundles, and tests what it declares\n'

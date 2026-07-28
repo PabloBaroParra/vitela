@@ -100,6 +100,13 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
   sigue fallando si falta `pdf_ffi.swift`, `pdf_ffiFFI.h` o `pdf_ffiFFI.modulemap`.
 - T-055 está cubierto solo en su porción abrir/render/scroll/zoom. La UI real (contraseña,
   selección/búsqueda, anotaciones, undo/redo, print, clipboard) sigue sin empezar.
+- **Piso de macOS = 12.0, no 11.0.** El PDFium 7763 pinneado (el mismo que comparten Linux,
+  Windows y Android) declara `minos 12.0`. El gate fail-closed de `build-macos.sh` lo detectó
+  al verificar el bundle real. Bajarlo de nuevo implica pinnear un PDFium distinto solo para
+  macOS. Ningún doc del repo declaraba un piso antes de esto.
+- La app se compila para la arquitectura del host (`ARCHS = $(NATIVE_ARCH_ACTUAL)`) porque
+  cargo emite `libpdf_ffi.dylib` solo para el triple del host. Un `.app` universal exige
+  `lipo` sobre el dylib de Rust — va junto con firma de distribución en T-059.
 - Para guardar cifrado tras un edit estructural el shell DEBE ofrecer el flujo
   `openWithPasswords`/`openWithPasswordsFromBytes` (fix post-verify de B7); con una sola
   password solo hay save incremental — `save_to_bytes` devuelve `InvalidSaveRequest` tipado

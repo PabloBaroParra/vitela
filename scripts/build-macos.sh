@@ -5,7 +5,10 @@
 # increase.
 set -euo pipefail
 
-readonly minimum_macos_version="11.0"
+# Set by the floor of the pinned PDFium 7763 universal build, which declares
+# minos 12.0. Vitela cannot claim a floor its own bundled renderer does not
+# meet; lowering this means pinning a different PDFium for every platform.
+readonly minimum_macos_version="12.0"
 
 die() {
   printf 'error: %s\n' "$*" >&2

@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   macos-development-artifact:
-    name: macOS 11 development artifact
+    name: macOS 12 development artifact
     runs-on: macos-latest
     timeout-minutes: 45
     steps:

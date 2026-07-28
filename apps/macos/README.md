@@ -6,6 +6,11 @@ zoom to `0.5...4.0`. It is a development artifact only: it carries an ad-hoc
 signature so it can run on Apple Silicon, but it is not notarized, installable,
 or approved for distribution.
 
+**Minimum macOS is 12.0**, not 11.0: the pinned PDFium 7763 build declares
+`minos 12.0`, and Vitela cannot claim a floor its own bundled renderer does
+not meet. Lowering it again means pinning a different PDFium than the one
+Linux, Windows and Android share.
+
 ## Layout
 
 Per the repository's "no monolithic shells" rule, the target is split by
@@ -59,7 +64,7 @@ generates the Swift bindings (failing if `pdf_ffi.swift`, `pdf_ffiFFI.h`, or
 `pdf_ffiFFI.modulemap` is missing), runs Rust and Swift tests, and assembles
 `build/Vitela.app`. It then fails closed unless the bundle has an executable,
 an `Info.plist`, both dylibs, and every bundled Mach-O slice declares
-`minos <= 11.0`. No artifact uploads before that check succeeds.
+`minos <= 12.0`. No artifact uploads before that check succeeds.
 
 `xcodebuild` is driven through the shared scheme at
 `Vitela.xcodeproj/xcshareddata/xcschemes/Vitela.xcscheme`, so CI runs the same
