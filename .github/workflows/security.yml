@@ -7,12 +7,14 @@ on:
       - "**/Cargo.toml"
       - Cargo.lock
       - deny.toml
+      - .cargo/audit.toml
       - .github/workflows/security.yml
   pull_request:
     paths:
       - "**/Cargo.toml"
       - Cargo.lock
       - deny.toml
+      - .cargo/audit.toml
       - .github/workflows/security.yml
   schedule:
     - cron: "43 3 * * 1"
@@ -27,10 +29,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check RustSec advisories
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: stable
+      - name: Cache cargo registry and cargo-audit binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-audit
+          key: ${{ runner.os }}-cargo-audit-0.22.2
+      # The `rustsec/audit-check` action reports through the Checks API, which
+      # needs `checks: write`. Dependabot-triggered runs get a read-only
+      # GITHUB_TOKEN that no `permissions:` block can raise, so that action can
+      # never pass on a Dependabot pull request. The CLI reports through the
+      # exit code instead and runs identically for every actor.
+      #
+      # The tool version is pinned so a run is reproducible; the advisory
+      # database it checks against is still fetched fresh on every run, so
+      # pinning does not age the audit. Bump the version here and in the cache
+      # key together.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version 0.22.2
+      - name: Check RustSec advisories
+        run: cargo audit
 
   cargo-deny:
     name: Dependency policy
