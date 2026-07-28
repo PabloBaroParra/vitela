@@ -36,10 +36,17 @@ jobs:
       - name: Cache cargo registry and cargo-audit binary
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
+          # `.crates.toml` / `.crates2.json` are cargo's record of what it
+          # installed, and they have to travel with the binary. Restoring
+          # `cargo-audit` alone leaves cargo looking at a file it has no memory
+          # of writing, and the install below aborts with "binary `cargo-audit`
+          # already exists in destination" instead of the no-op it should be.
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/cargo-audit
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
           key: ${{ runner.os }}-cargo-audit-0.22.2
       # The `rustsec/audit-check` action reports through the Checks API, which
       # needs `checks: write`. Dependabot-triggered runs get a read-only
