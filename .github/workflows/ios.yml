@@ -1,0 +1,32 @@
+name: ios
+
+# Experimental, and deliberately narrow: this job proves only that the declared
+# iOS deployment floor is consistent between the Xcode project and this
+# workflow, and that the gate fails closed on drift. It does NOT build an iOS
+# app, run a simulator, or touch a device — there are no sources and no targets
+# yet, and signing/distribution stay unverified (see README "Platform status").
+# When an iOS target starts producing a binary, this must be upgraded to the
+# macOS standard: inspect the real Mach-O, as scripts/build-macos.sh does.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  IOS_DEPLOYMENT_FLOOR: "15.0"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-deployment-floor:
+    name: iOS 15 deployment floor
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run the portable deployment-floor tests
+        run: bash apps/ios/Tests/test-build-ios.sh
+      - name: Validate the approved iOS floor
+        run: bash scripts/build-ios.sh --validate-deployment-floor

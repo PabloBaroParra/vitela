@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+build_script="$repo_root/scripts/build-ios.sh"
+fixture_root=$(mktemp -d)
+trap 'rm -rf "$fixture_root"' EXIT
+
+fail() {
+  printf 'FAIL: %s\n' "$*" >&2
+  exit 1
+}
+
+assert_contains() {
+  local expected=$1
+  local actual=$2
+  [[ "$actual" == *"$expected"* ]] || fail "expected '$expected' in '$actual'"
+}
+
+write_project() {
+  printf '\t\t\t\tIPHONEOS_DEPLOYMENT_TARGET = %s;\n' "$1" > "$fixture_root/project.pbxproj"
+}
+
+write_ci() {
+  printf 'IOS_DEPLOYMENT_FLOOR: "%s"\n' "$1" > "$fixture_root/ios.yml"
+}
+
+assert_rejected() {
+  local description=$1
+  local expected=$2
+  shift 2
+
+  if output=$(IOS_PROJECT_FILE="$fixture_root/project.pbxproj" IOS_CI_FILE="$fixture_root/ios.yml" "$@" bash "$build_script" --validate-deployment-floor 2>&1); then
+    fail "deployment-floor gate accepted $description"
+  fi
+  assert_contains "$expected" "$output"
+}
+
+write_project '15.0'
+write_ci '15.0'
+IOS_DEPLOYMENT_FLOOR='15.0' bash "$build_script" --validate-deployment-floor
+
+assert_rejected 'an absent IOS_DEPLOYMENT_FLOOR' 'IOS_DEPLOYMENT_FLOOR is required' env -u IOS_DEPLOYMENT_FLOOR
+assert_rejected 'a placeholder IOS_DEPLOYMENT_FLOOR' 'IOS_DEPLOYMENT_FLOOR must be exactly 15.0' env IOS_DEPLOYMENT_FLOOR='${IOS_DEPLOYMENT_FLOOR}'
+assert_rejected 'a higher IOS_DEPLOYMENT_FLOOR' 'IOS_DEPLOYMENT_FLOOR must be exactly 15.0' env IOS_DEPLOYMENT_FLOOR='16.0'
+
+write_ci '16.0'
+assert_rejected 'a CI floor mismatch' 'iOS deployment floor mismatch: CI declares 16.0, expected 15.0' env IOS_DEPLOYMENT_FLOOR='15.0'
+
+write_ci '15.0'
+write_project '16.0'
+assert_rejected 'a project floor mismatch' 'iOS deployment floor mismatch: project declares 16.0, expected 15.0' env IOS_DEPLOYMENT_FLOOR='15.0'
+
+# Regression: the gate must read the REAL Xcode build setting. An earlier
+# revision matched an invented `IOS_DEPLOYMENT_FLOOR` key that Xcode ignores,
+# so the project side of the comparison could never reflect a real build.
+printf '\t\t\t\tIOS_DEPLOYMENT_FLOOR = 15.0;\n' > "$fixture_root/project.pbxproj"
+assert_rejected 'a project declaring only the non-Xcode IOS_DEPLOYMENT_FLOOR key' 'missing iOS deployment floor in Xcode project' env IOS_DEPLOYMENT_FLOOR='15.0'
+
+# Finally, the real files: the checked-in Xcode project and workflow must both
+# declare 15.0, not just the fixtures.
+IOS_DEPLOYMENT_FLOOR='15.0' bash "$build_script" --validate-deployment-floor
+
+printf 'PASS: iOS deployment floor is exactly 15.0 in the real Xcode project, and absent, placeholder, higher, conflicting, and non-Xcode-key values fail closed\n'

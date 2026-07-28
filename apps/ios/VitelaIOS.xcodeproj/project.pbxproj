@@ -1,0 +1,42 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+		000000000000000000000000 /* Project object */ = {
+			isa = PBXProject;
+			buildConfigurationList = 000000000000000000000001 /* Build configuration list */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base,);
+			mainGroup = 000000000000000000000002 /* Main group */;
+			productRefGroup = 000000000000000000000002 /* Main group */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = ();
+		};
+		000000000000000000000001 /* Build configuration list */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000003 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		000000000000000000000002 /* Main group */ = {
+			isa = PBXGroup;
+			children = ();
+			sourceTree = "<group>";
+		};
+		000000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+			};
+			name = Debug;
+		};
+	};
+	rootObject = 000000000000000000000000 /* Project object */;
+}

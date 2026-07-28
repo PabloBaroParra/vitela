@@ -130,11 +130,20 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Sign | — | — | — | — | — |
 | Fillable forms | — | — | — | — | — |
 
-macOS is a SwiftUI stub (lands in Batch 9). Android has a Compose baseline;
-its native package still requires externally supplied PDFium Android libraries,
-so its capabilities remain in progress until that runtime is validated on
-devices. iOS has not been started. Windows deliberately omits editing, saving,
-and password UI in its first vertical.
+GitHub Actions currently provides development-only evidence for macOS: it
+builds the shell, runs its Swift tests, and verifies its bundle. This does not
+establish complete runtime support. iOS has an experimental workflow, and it is
+narrower still: it only checks that the declared iOS 15 deployment floor agrees
+between the Xcode project and CI, and that the gate fails closed on drift. No
+iOS app is built, no simulator or device runs, and there is no Swift source
+yet. Neither Apple platform is fully supported; physical-device validation,
+signing and notarization, and public distribution remain unverified and
+deferred.
+
+Android has a Compose baseline; its native package still requires externally
+supplied PDFium Android libraries, so its capabilities remain in progress until
+that runtime is validated on devices. Windows deliberately omits editing,
+saving, and password UI in its first vertical.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the
