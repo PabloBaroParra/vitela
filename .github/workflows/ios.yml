@@ -6,10 +6,30 @@ name: ios
 # iPhone, signing, provisioning, or distribution — all of which need a paid
 # Apple Developer account and none of which are covered here. See README
 # "Platform status".
+#
+# Path-filtered on purpose. A macOS runner bills at 10x on a private repo, so an
+# unfiltered iOS job charged ~100 minutes for every push — including pushes that
+# only touched the README. Use workflow_dispatch to force a run.
 on:
   push:
     branches: [main]
+    # Duplicated rather than shared with a YAML anchor: the Actions workflow
+    # parser does not support anchors or aliases.
+    paths:
+      - "apps/ios/**"
+      - "apps/apple/**"
+      - "core/**"
+      - "Cargo.lock"
+      - "scripts/build-ios.sh"
+      - ".github/workflows/ios.yml"
   pull_request:
+    paths:
+      - "apps/ios/**"
+      - "apps/apple/**"
+      - "core/**"
+      - "Cargo.lock"
+      - "scripts/build-ios.sh"
+      - ".github/workflows/ios.yml"
   workflow_dispatch:
 
 env:
@@ -19,6 +39,12 @@ env:
 
 permissions:
   contents: read
+
+# Superseded runs are cancelled rather than left to finish: at 10x, a queue of
+# stale iOS runs is the single most expensive thing in this repo.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   simulator:

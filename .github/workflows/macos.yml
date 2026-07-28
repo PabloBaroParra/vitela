@@ -4,10 +4,30 @@ name: macos
 # notarized, not distributable, and deliberately NOT published: the job proves
 # the shell assembles and clears the deployment gate, nothing more. Uploading
 # an artifact waits for T-059's distribution signing and notarization.
+#
+# Path-filtered on purpose — see the same note in ios.yml. macOS runners bill at
+# 10x on a private repo. Use workflow_dispatch to force a run.
 on:
   push:
     branches: [main]
+    # Duplicated rather than shared with a YAML anchor: the Actions workflow
+    # parser does not support anchors or aliases.
+    paths:
+      - "apps/macos/**"
+      - "apps/apple/**"
+      - "core/**"
+      - "Cargo.lock"
+      - "scripts/build-macos.sh"
+      - ".github/workflows/macos.yml"
   pull_request:
+    paths:
+      - "apps/macos/**"
+      - "apps/apple/**"
+      - "core/**"
+      - "Cargo.lock"
+      - "scripts/build-macos.sh"
+      - ".github/workflows/macos.yml"
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,6 +35,10 @@ env:
 
 permissions:
   contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   macos-development-artifact:
