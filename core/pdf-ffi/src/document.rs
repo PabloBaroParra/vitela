@@ -558,9 +558,9 @@ pub fn save_to_bytes(handle: &DocumentHandle, intent: FfiSaveIntent) -> Result<V
     record_strip_consent_if_requested(&mut state.document, intent);
 
     let input = pdf_save::SaveInput {
-        document: state.document.clone(),
-        base: state.base.clone(),
-        original_bytes: state.original_bytes.clone(),
+        document: &state.document,
+        base: &state.base,
+        original_bytes: state.original_bytes.as_deref(),
         intent: intent.into(),
     };
     pdf_save::save_document(input).map_err(Into::into)
