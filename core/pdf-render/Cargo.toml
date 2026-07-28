@@ -17,4 +17,4 @@ pdfium-render = { version = "0.9.3", default-features = false, features = ["pdfi
 
 [dev-dependencies]
 gen-fixtures = { path = "../../tests/fixtures/gen-fixtures" }
-png = "0.17"
+png = "0.18"

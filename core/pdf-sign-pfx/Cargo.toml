@@ -13,10 +13,10 @@ p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8"] }
 rsa = { version = "0.9.8", features = ["sha2"] }
 sha2 = "0.10.9"
 signature = "2.2.0"
-thiserror = "1"
+thiserror = "2"
 x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 der = { version = "0.7.10", features = ["alloc", "derive", "oid", "std"] }
-rand = "0.8"
+rand = "0.10"
 spki = { version = "0.7.3", features = ["alloc", "std"] }
