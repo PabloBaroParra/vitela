@@ -4,7 +4,22 @@
 [advisories]
 unmaintained = "workspace"
 unsound = "all"
-ignore = []
+ignore = [
+  # RUSTSEC-2023-0071 — Marvin Attack: `rsa` leaks private-key information
+  # through timing sidechannels. There is no patched release: upstream
+  # (RustCrypto/RSA#19) has not landed a constant-time implementation, so no
+  # version bump can clear this. The advisory's own workaround is "avoid using
+  # the `rsa` crate in settings where attackers are able to observe timing
+  # information".
+  #
+  # Vitela's use is `core/pdf-sign-pfx`: RSA PKCS#1 v1.5 signing of a PDF with
+  # a key the user supplies locally from their own PFX file, on their own
+  # machine, with no network service on either side of the operation. There is
+  # no remote observer to time. Re-evaluate — and drop this entry — if `rsa`
+  # ships a constant-time release, or if signing ever moves behind a network
+  # boundary (a signing service, a remote HSM proxy).
+  "RUSTSEC-2023-0071",
+]
 
 [bans]
 # Transitive duplicate versions are common in an early Rust workspace. Surface
@@ -12,6 +27,13 @@ ignore = []
 # stabilizes.
 multiple-versions = "warn"
 wildcards = "deny"
+# `wildcards = "deny"` exists to stop an unbounded `"*"` requirement on a
+# crates.io dependency. It also flags this workspace's own `{ path = "..." }`
+# members, which carry no version requirement and resolve to `*` — but those
+# are `publish = false` crates resolved from the tree in front of us, not from
+# a registry, so there is nothing unbounded about them. This narrows the ban to
+# the case it was written for; registry wildcards stay denied.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
