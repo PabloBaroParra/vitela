@@ -1,0 +1,11 @@
+# cargo-audit policy. Kept in sync with the `[advisories]` section of
+# ../deny.toml — both tools read the same RustSec database, so an advisory
+# accepted for one must be accepted for the other or the two gates disagree.
+#
+# See deny.toml for the full justification of each entry.
+
+[advisories]
+# RUSTSEC-2023-0071 — Marvin Attack in `rsa`. No patched release exists.
+# Vitela signs locally with a user-supplied PFX key and exposes no network
+# timing surface. Justification and re-evaluation triggers: deny.toml.
+ignore = ["RUSTSEC-2023-0071"]
