@@ -105,4 +105,51 @@ if output=$(bash "$build_script" --verify-deployment iphonesimulator 2>&1); then
 fi
 assert_contains 'applies to the shipped device slice' "$output"
 
+# Mach-O parsing is pure text processing, so it can be pinned down off a Mac by
+# sourcing the script and feeding it recorded vtool output. Sourcing with no
+# arguments only prints usage.
+# shellcheck source=/dev/null
+source "$build_script" >/dev/null
+
+assert_versions() {
+  local description=$1
+  local expected=$2
+  local fixture=$3
+  local actual
+
+  actual=$(printf '%s\n' "$fixture" | extract_ios_versions | tr '\n' ' ')
+  actual=${actual% }
+  [[ "$actual" == "$expected" ]] || fail "$description: expected '$expected', got '$actual'"
+}
+
+assert_versions 'LC_BUILD_VERSION minos' '15.0' 'Load command 8
+      cmd LC_BUILD_VERSION
+  cmdsize 32
+ platform IOS
+    minos 15.0
+      sdk 18.0'
+
+# Regression: rustc's default deployment target for aarch64-apple-ios is low
+# enough that the linker emits the OLD load command, which has no minos field.
+# Reading only minos reported "could not determine the deployment target" on a
+# binary that was declaring one perfectly clearly.
+assert_versions 'LC_VERSION_MIN_IPHONEOS version' '10.0' 'Load command 8
+      cmd LC_VERSION_MIN_IPHONEOS
+  cmdsize 16
+  version 10.0
+      sdk 18.0'
+
+# LC_ID_DYLIB carries its own unrelated "version" fields; matching `version`
+# without tracking the enclosing command would read them as deployment targets.
+assert_versions 'LC_ID_DYLIB version fields are ignored' '15.0' 'Load command 2
+          cmd LC_ID_DYLIB
+      cmdsize 48
+         name @rpath/libpdf_ffi.dylib
+   time stamp 1
+      current version 0.0.0
+compatibility version 0.0.0
+Load command 8
+      cmd LC_BUILD_VERSION
+    minos 15.0'
+
 printf 'PASS: iOS deployment floor is exactly 15.0 in the real Xcode project, and absent, placeholder, higher, conflicting, and non-Xcode-key values fail closed\n'

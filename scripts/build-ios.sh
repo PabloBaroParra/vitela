@@ -99,7 +99,12 @@ prepare() {
   [[ -f "$pdfium_path" ]] || die "no libpdfium.dylib at '$pdfium_path' — set PDFIUM_DYLIB to the pinned $platform build"
 
   rustup target add "$rust_target"
-  cargo build -p pdf-ffi --release --locked --target "$rust_target"
+  # rustc otherwise picks its own (much older) default deployment target, so the
+  # FFI would declare a floor nobody chose — it came out as iOS 14.0 on the
+  # simulator slice. Pinning it here makes the Rust library declare exactly the
+  # floor the Xcode project and CI already agree on.
+  IPHONEOS_DEPLOYMENT_TARGET="$approved_ios_deployment_floor" \
+    cargo build -p pdf-ffi --release --locked --target "$rust_target"
 
   local ffi="$repo_root/target/$rust_target/release/libpdf_ffi.dylib"
   [[ -f "$ffi" ]] || die "cargo did not produce $ffi"
@@ -169,19 +174,39 @@ version_at_most() {
   }
 }
 
+# Reads every declared iOS deployment version out of a Mach-O.
+#
+# Two load commands have to be understood, not one. A modern toolchain emits
+# LC_BUILD_VERSION with a `minos` field, but a low deployment target still
+# produces the older LC_VERSION_MIN_IPHONEOS with a `version` field — which is
+# exactly what rustc's default for aarch64-apple-ios does. Reading only `minos`
+# made the gate report "could not determine the deployment target" on a binary
+# that was declaring one perfectly clearly.
+#
+# The `cmd` tracking matters: a bare `version` match would also pick up the
+# `current version` / `compatibility version` fields of LC_ID_DYLIB, which have
+# nothing to do with deployment.
+extract_ios_versions() {
+  awk '
+    $1 == "cmd" { command = $2 }
+    $1 == "minos" { print $2 }
+    $1 == "version" && command == "LC_VERSION_MIN_IPHONEOS" { print $2 }
+  '
+}
+
 minos_for() {
   local binary=$1
   local output
 
   if command -v vtool >/dev/null 2>&1; then
     output=$(vtool -show-build "$binary" 2>&1) || die "unable to inspect Mach-O '$binary' with vtool: $output"
-    printf '%s\n' "$output" | sed -nE 's/^[[:space:]]*minos[[:space:]]+([0-9]+(\.[0-9]+){0,2}).*/\1/p'
+    printf '%s\n' "$output" | extract_ios_versions
     return
   fi
 
   if command -v otool >/dev/null 2>&1; then
     output=$(otool -l "$binary" 2>&1) || die "unable to inspect Mach-O '$binary' with otool: $output"
-    printf '%s\n' "$output" | awk '/minos/ { print $2 }'
+    printf '%s\n' "$output" | extract_ios_versions
     return
   fi
 
