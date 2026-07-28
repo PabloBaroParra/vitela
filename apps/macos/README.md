@@ -64,7 +64,12 @@ generates the Swift bindings (failing if `pdf_ffi.swift`, `pdf_ffiFFI.h`, or
 `pdf_ffiFFI.modulemap` is missing), runs Rust and Swift tests, and assembles
 `build/Vitela.app`. It then fails closed unless the bundle has an executable,
 an `Info.plist`, both dylibs, and every bundled Mach-O slice declares
-`minos <= 12.0`. No artifact uploads before that check succeeds.
+`minos <= 12.0`.
+
+The job publishes nothing. The bundle exists only inside the run, as proof that
+the shell assembles and clears the gate — uploading it is held back until
+T-059 adds distribution signing and notarization, so no unnotarized build can
+be handed to anyone by accident.
 
 `xcodebuild` is driven through the shared scheme at
 `Vitela.xcodeproj/xcshareddata/xcschemes/Vitela.xcscheme`, so CI runs the same

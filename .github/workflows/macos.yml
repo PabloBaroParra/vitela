@@ -1,8 +1,9 @@
 name: macos
 
-# Builds an ad-hoc signed, development-only Vitela.app — not notarized, not
-# distributable (T-059 still owns sign + notarize). Publication is deliberately
-# downstream of the complete test, assembly, bundle-layout, and Mach-O gate.
+# Builds and verifies an ad-hoc signed, development-only Vitela.app — not
+# notarized, not distributable, and deliberately NOT published: the job proves
+# the shell assembles and clears the deployment gate, nothing more. Uploading
+# an artifact waits for T-059's distribution signing and notarization.
 on:
   push:
     branches: [main]
@@ -69,9 +70,7 @@ jobs:
         run: xcodebuild -project apps/macos/Vitela.xcodeproj -scheme Vitela -destination 'platform=macOS' test
       - name: Fail closed on actual Mach-O deployment and bundle linkage
         run: bash scripts/build-macos.sh --verify-bundle "$GITHUB_WORKSPACE/build/Vitela.app"
-      - name: Upload validated development artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: Vitela-macos-development
-          path: build/Vitela.app
-          if-no-files-found: error
+      # No upload step on purpose. The bundle is built and fully verified here,
+      # but nothing is published yet: publishing is what T-059 gates behind
+      # distribution signing and notarization. Restoring it is one
+      # actions/upload-artifact step against build/Vitela.app.

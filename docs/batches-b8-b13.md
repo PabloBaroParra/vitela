@@ -90,9 +90,10 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
 - La misma batería funcional de B8 (OpenPDF, PwdPDF, NavZoom, TextSelSearch, AnnoCreate,
   UndoRedo, Print, Clipboard, ShortcutsDnD), ejecutada a través de la superficie FFI real.
 - macos.yml produce una app firmada y notarizada.
-  - **Estado parcial:** hoy macos.yml produce un artefacto de desarrollo con firma
-    ad-hoc (necesaria para que corra en Apple Silicon), NO notarizado. La firma de
-    distribución + notarize sigue abierta en T-059; el criterio no está cumplido.
+  - **Estado parcial:** hoy macos.yml arma y verifica un artefacto de desarrollo con
+    firma ad-hoc (necesaria para que corra en Apple Silicon), NO notarizado, y
+    **no lo publica** — el bundle vive solo dentro del run. La firma de distribución
+    + notarize + el upload siguen abiertos en T-059; el criterio no está cumplido.
 
 ### Notas
 - macos.yml YA existe con el job `swift-bindings` (T-042) — B9 lo extiende, no crea workflow.
