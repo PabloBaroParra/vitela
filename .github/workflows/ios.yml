@@ -35,7 +35,16 @@ on:
 env:
   CARGO_TERM_COLOR: always
   IOS_DEPLOYMENT_FLOOR: "15.0"
-  PDFIUM_RELEASE: "7763"
+  # PDFium chromium/7763, rebuilt for iOS with ios_deployment_target = 15.0.
+  # Upstream never sets that GN argument, so its iOS builds inherit the SDK
+  # default and declare minos 26.0 — unusable at our floor. Same source
+  # revision as every other platform; only the deployment target differs.
+  # Assets are checksum-verified below, so this is a pinned artefact and not
+  # merely a pinned URL.
+  PDFIUM_REPO: "pablobaro/pdfium-binaries"
+  PDFIUM_RELEASE: "chromium/7763-ios15"
+  PDFIUM_SHA256_SIMULATOR: "eae808ad12a9019b894e7268a71ee02811406b2b480394dec9c75fc8575bca21"
+  PDFIUM_SHA256_DEVICE: "3ddb36f3a3ff2909efd1e830b933642c64c9d9d1682c05199c94e4d3311401a9"
 
 permissions:
   contents: read
@@ -78,13 +87,22 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: core/pdf-render/vendor/pdfium-iphonesimulator
-          key: pdfium-ios-simulator-arm64-${{ env.PDFIUM_RELEASE }}
+          # Keyed on the checksum, not the release name: the cache then expires
+          # exactly when the artefact changes, and never before.
+          key: pdfium-ios-simulator-arm64-${{ env.PDFIUM_SHA256_SIMULATOR }}
       - name: Download pinned iOS simulator PDFium (cache miss)
         if: steps.pdfium-cache.outputs.cache-hit != 'true'
         run: |
+          # Downloaded to a file rather than piped straight into tar: a pipe
+          # cannot be checksummed, and an unverified tarball is arbitrary
+          # content being unpacked into the build. `-f` also makes curl fail on
+          # an HTTP error instead of quietly handing tar an error page.
           mkdir -p core/pdf-render/vendor/pdfium-iphonesimulator
-          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${PDFIUM_RELEASE}/pdfium-ios-simulator-arm64.tgz" \
-            | tar -xz -C core/pdf-render/vendor/pdfium-iphonesimulator
+          curl -fsSL -o pdfium-simulator.tgz \
+            "https://github.com/${PDFIUM_REPO}/releases/download/${PDFIUM_RELEASE}/pdfium-ios-simulator-arm64.tgz"
+          echo "${PDFIUM_SHA256_SIMULATOR}  pdfium-simulator.tgz" | shasum -a 256 -c -
+          tar -xzf pdfium-simulator.tgz -C core/pdf-render/vendor/pdfium-iphonesimulator
+          rm -f pdfium-simulator.tgz
       - name: Resolve bundled PDFium
         run: |
           lib="$(find core/pdf-render/vendor/pdfium-iphonesimulator -name 'libpdfium.dylib' | head -n1)"
@@ -117,13 +135,16 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: core/pdf-render/vendor/pdfium-iphoneos
-          key: pdfium-ios-device-arm64-${{ env.PDFIUM_RELEASE }}
+          key: pdfium-ios-device-arm64-${{ env.PDFIUM_SHA256_DEVICE }}
       - name: Download pinned iOS device PDFium (cache miss)
         if: steps.pdfium-device-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p core/pdf-render/vendor/pdfium-iphoneos
-          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${PDFIUM_RELEASE}/pdfium-ios-device-arm64.tgz" \
-            | tar -xz -C core/pdf-render/vendor/pdfium-iphoneos
+          curl -fsSL -o pdfium-device.tgz \
+            "https://github.com/${PDFIUM_REPO}/releases/download/${PDFIUM_RELEASE}/pdfium-ios-device-arm64.tgz"
+          echo "${PDFIUM_SHA256_DEVICE}  pdfium-device.tgz" | shasum -a 256 -c -
+          tar -xzf pdfium-device.tgz -C core/pdf-render/vendor/pdfium-iphoneos
+          rm -f pdfium-device.tgz
 
       - name: Build the FFI for the device slice
         env:

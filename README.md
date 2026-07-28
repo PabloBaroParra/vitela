@@ -233,4 +233,7 @@ conditions.
 
 pdfium is used as a prebuilt binary from
 [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries)
-under its own BSD/Apache-derivative license.
+under its own BSD/Apache-derivative license. iOS is the one exception: it uses
+the same source revision rebuilt with `ios_deployment_target` pinned, because
+the upstream iOS builds inherit the SDK default and would force Vitela's iOS
+floor up to 26. See [apps/ios/README.md](apps/ios/README.md).

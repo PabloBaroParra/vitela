@@ -43,11 +43,26 @@ device names in the runner image change between releases:
 xcodebuild -project apps/ios/VitelaIOS.xcodeproj -scheme VitelaIOS -destination 'platform=iOS Simulator,name=iPhone 16' test
 ```
 
-PDFium comes from the pinned `bblanchon/pdfium-binaries` release. Device and
-simulator are **different binaries**; they live in
+Device and simulator are **different binaries**; they live in
 `core/pdf-render/vendor/pdfium-iphoneos/` and
 `core/pdf-render/vendor/pdfium-iphonesimulator/`, or are pointed at explicitly
 with `PDFIUM_DYLIB`.
+
+### Why iOS uses a rebuilt PDFium
+
+Every other platform takes PDFium straight from
+[`bblanchon/pdfium-binaries`](https://github.com/bblanchon/pdfium-binaries).
+iOS cannot: upstream never sets `ios_deployment_target`, so its iOS builds
+inherit the SDK default and the published `chromium/7763` binaries — device and
+simulator alike — declare `minos 26.0`. That would put Vitela's iOS floor at 26
+purely as an accident of how the dependency was built.
+
+iOS therefore uses the same source revision rebuilt with that one GN argument
+pinned, published at
+[`pablobaro/pdfium-binaries`](https://github.com/pablobaro/pdfium-binaries/releases/tag/chromium/7763-ios15)
+from a branch cut off the `chromium/7763` tag. Nothing else differs; V8 and XFA
+are off, matching the upstream non-V8 builds. CI verifies the download against
+a pinned SHA-256, so it is a pinned artefact and not merely a pinned URL.
 
 ## Deployment floor
 
@@ -60,10 +75,10 @@ iOS 15.0, enforced in two independent ways:
   both dylibs the app loads at runtime. This is a check on *facts*, and it is
   the one that would catch a PDFium build that quietly requires a newer iOS.
 
-It is device-only, and that is not an oversight. The floor is a promise about
-which iPhones can run Vitela, and only the device slice ships. The pinned
-PDFium 7763 **simulator** build declares `minos 26.0` — a statement about which
-simulator runtimes can load it, not about supported iPhones — so gating the
-product floor on it would conflate a CI-machine requirement with a product
-claim. The simulator slice is proven instead by the test run, which cannot pass
-unless the library loads.
+It is device-only, and that is not an oversight — it is about meaning, not
+about any particular version number. The floor is a promise about which iPhones
+can run Vitela, and only the device slice ships. A simulator slice's `minos`
+says which *simulator runtimes* can load it, which is a requirement on the CI
+machine rather than a claim about supported iPhones; gating the product floor
+on it would conflate the two. The simulator slice is proven instead by the test
+run, which cannot pass unless the library loads.
