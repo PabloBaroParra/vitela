@@ -35,9 +35,14 @@ apps/android/**/build/
 apps/android/app/src/main/jniLibs/
 apps/android/local.properties
 
-# macOS shell (future) build artifacts
+# macOS shell build artifacts. The shared scheme under xcshareddata/ IS tracked
+# — CI drives `xcodebuild -scheme Vitela` and must not depend on autocreation.
 apps/macos/.build/
 apps/macos/DerivedData/
+apps/macos/Generated/
+apps/macos/Vitela.xcodeproj/xcuserdata/
+apps/macos/Vitela.xcodeproj/project.xcworkspace/
+build/Vitela.app/
 
 # uniffi-bindgen-cs spike (Batch 1) — C# build output + regenerated bindings
 spikes/uniffi-cs/csharp-host/bin/

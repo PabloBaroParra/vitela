@@ -1,10 +1,8 @@
 name: macos
 
-# Batch 7 (T-042): proves the UniFFI Swift bindings generate cleanly from
-# the compiled pdf-ffi cdylib on a real macOS runner. Batch 9 extends this
-# workflow with the SwiftUI shell build, .dylib bundling and sign/notarize
-# (design.md "CI Sketch"); Batch 14 extends it again for the iOS target
-# (T-102) — no separate ios.yml.
+# Builds an ad-hoc signed, development-only Vitela.app — not notarized, not
+# distributable (T-059 still owns sign + notarize). Publication is deliberately
+# downstream of the complete test, assembly, bundle-layout, and Mach-O gate.
 on:
   push:
     branches: [main]
@@ -18,9 +16,10 @@ permissions:
   contents: read
 
 jobs:
-  swift-bindings:
-    name: UniFFI Swift bindings generation (T-042)
+  macos-development-artifact:
+    name: macOS 11 development artifact
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust (stable)
@@ -35,22 +34,44 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Build pdf-ffi cdylib
-        run: cargo build -p pdf-ffi --locked
-      # Library mode: uniffi introspects the compiled cdylib's embedded
-      # metadata (emitted by `uniffi::setup_scaffolding!()`), so the bindings
-      # can never drift from the Rust surface actually built. The bindgen CLI
-      # lives behind pdf-ffi's `bindgen` feature — see
-      # core/pdf-ffi/src/bin/uniffi-bindgen.rs.
-      - name: Generate Swift bindings (library mode)
+      - name: Cache pinned macOS PDFium
+        id: pdfium-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: core/pdf-render/vendor/pdfium
+          key: pdfium-mac-univ-7763
+      - name: Download pinned macOS PDFium (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
         run: |
-          cargo run -p pdf-ffi --features bindgen --locked --bin uniffi-bindgen -- \
-            generate --library target/debug/libpdf_ffi.dylib \
-            --language swift --out-dir target/bindings/swift
-      - name: Assert expected Swift binding artifacts exist
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-mac-univ.tgz" \
+            | tar -xz -C core/pdf-render/vendor/pdfium
+      - name: Resolve bundled PDFium
         run: |
-          set -euo pipefail
-          for f in pdf_ffi.swift pdf_ffiFFI.h pdf_ffiFFI.modulemap; do
-            test -f "target/bindings/swift/$f" \
-              || { echo "missing generated binding artifact: $f"; ls -la target/bindings/swift; exit 1; }
-          done
+          lib="$(find core/pdf-render/vendor/pdfium -name 'libpdfium.dylib' | head -n1)"
+          test -n "$lib" || { echo "libpdfium.dylib not found after extraction"; exit 1; }
+          echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
+          echo "PDFIUM_DYLIB=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
+      - name: Format, lint, and compile the FFI contract
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy -p pdf-ffi --all-targets --locked -- -D warnings
+          cargo test -p pdf-ffi --locked --no-run
+      - name: Run portable deployment and bundle tests
+        run: |
+          bash apps/macos/Tests/test-build-macos.sh
+          bash apps/macos/Tests/test-bundle-integrity.sh
+      # Also regenerates the Swift bindings and asserts all three generated
+      # artifacts exist — the app cannot link without the header and modulemap,
+      # not just pdf_ffi.swift.
+      - name: Assemble development bundle
+        run: bash scripts/build-macos.sh --assemble
+      - name: Run Swift unit and interaction tests
+        run: xcodebuild -project apps/macos/Vitela.xcodeproj -scheme Vitela -destination 'platform=macOS' test
+      - name: Fail closed on actual Mach-O deployment and bundle linkage
+        run: bash scripts/build-macos.sh --verify-bundle "$GITHUB_WORKSPACE/build/Vitela.app"
+      - name: Upload validated development artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Vitela-macos-development
+          path: build/Vitela.app
+          if-no-files-found: error

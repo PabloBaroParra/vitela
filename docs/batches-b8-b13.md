@@ -90,9 +90,16 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
 - La misma batería funcional de B8 (OpenPDF, PwdPDF, NavZoom, TextSelSearch, AnnoCreate,
   UndoRedo, Print, Clipboard, ShortcutsDnD), ejecutada a través de la superficie FFI real.
 - macos.yml produce una app firmada y notarizada.
+  - **Estado parcial:** hoy macos.yml produce un artefacto de desarrollo con firma
+    ad-hoc (necesaria para que corra en Apple Silicon), NO notarizado. La firma de
+    distribución + notarize sigue abierta en T-059; el criterio no está cumplido.
 
 ### Notas
 - macos.yml YA existe con el job `swift-bindings` (T-042) — B9 lo extiende, no crea workflow.
+  El job pasó a llamarse `macos-development-artifact` y absorbió la generación de bindings:
+  sigue fallando si falta `pdf_ffi.swift`, `pdf_ffiFFI.h` o `pdf_ffiFFI.modulemap`.
+- T-055 está cubierto solo en su porción abrir/render/scroll/zoom. La UI real (contraseña,
+  selección/búsqueda, anotaciones, undo/redo, print, clipboard) sigue sin empezar.
 - Para guardar cifrado tras un edit estructural el shell DEBE ofrecer el flujo
   `openWithPasswords`/`openWithPasswordsFromBytes` (fix post-verify de B7); con una sola
   password solo hay save incremental — `save_to_bytes` devuelve `InvalidSaveRequest` tipado
