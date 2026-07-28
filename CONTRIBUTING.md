@@ -16,6 +16,19 @@ Small, self-contained PRs get reviewed quickly. A PR that mixes a refactor, a
 bug fix and a new feature will be sent back to be split, because there is no
 honest way to review it as one unit.
 
+## AI-assisted contributions
+
+Most of this codebase was written with AI agents, so there is nothing to
+apologise for in using them — the project's own agent rules live in
+[CLAUDE.md](CLAUDE.md) and [AGENTS.md](AGENTS.md). What does not change is who
+is accountable: **you are, for every line in your PR.**
+
+That means you read the whole diff before opening it, you can explain why each
+change is there, and you ran the gates below yourself — a green CI run on
+generated code you have not read is not review, it is luck. Say in the PR
+description if a change is largely AI-generated. It is not held against you; it
+tells the reviewer where to look hardest.
+
 ## Ground rules
 
 These are not style preferences. A PR that breaks one of them cannot be merged,
