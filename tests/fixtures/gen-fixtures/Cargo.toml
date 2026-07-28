@@ -23,8 +23,7 @@ pdf-sign = { path = "../../../core/pdf-sign" }
 pdf-sign-pfx = { path = "../../../core/pdf-sign-pfx" }
 # T-078: self-signed test identities. ring (not the default aws-lc-rs) keeps
 # the native build dependency-free on all CI hosts.
-rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
-rand = "0.8"
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 rsa = { version = "0.9.8", features = ["sha2"] }
 
 [dev-dependencies]

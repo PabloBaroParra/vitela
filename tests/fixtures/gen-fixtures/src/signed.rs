@@ -22,9 +22,9 @@ use pdf_sign::{
     DEFAULT_SIGNATURE_CAPACITY,
 };
 use pdf_sign_pfx::PfxCertificateSource;
-use rand::rngs::OsRng;
 use rcgen::{CertificateParams, DnType, KeyPair, PKCS_ECDSA_P256_SHA256};
 use rsa::pkcs8::EncodePrivateKey;
+use rsa::rand_core::OsRng;
 use rsa::RsaPrivateKey;
 
 /// Password protecting every generated test PFX identity. Test-only.

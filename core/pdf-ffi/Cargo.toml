@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 # spikes/uniffi-cs/README.md "Version pinning" and design.md §6b. Any future
 # bump MUST update both together.
 uniffi = "=0.31.0"
-thiserror = "1"
+thiserror = "2"
 pdf-document = { path = "../pdf-document" }
 pdf-manip = { path = "../pdf-manip" }
 pdf-render = { path = "../pdf-render" }
