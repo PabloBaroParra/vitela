@@ -113,9 +113,9 @@ fn incremental_save_happy_path_rotates_and_annotates_real_file() {
     apply_command(&mut document, Command::AddAnnotation(highlight(1, page1.0)));
 
     let input = SaveInput {
-        document,
-        base,
-        original_bytes: Some(original_bytes.clone()),
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
     };
     // Incremental append must be strictly larger than the original (bytes
@@ -173,9 +173,9 @@ fn incremental_save_on_encrypted_document_reencrypts_with_same_credential() {
     apply_command(&mut document, Command::AddAnnotation(highlight(1, page0.0)));
 
     let input = SaveInput {
-        document,
-        base,
-        original_bytes: Some(original_bytes),
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
     };
     let saved = save_document(input).expect("save should succeed");
@@ -220,9 +220,9 @@ fn structural_edit_forces_full_rewrite_against_a_real_file() {
     );
 
     let input = SaveInput {
-        document,
-        base,
-        original_bytes: Some(original_bytes),
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
     };
     let saved = save_document(input).expect("save should succeed");
@@ -251,9 +251,9 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
     );
 
     let saved = save_document(SaveInput {
-        document,
-        base,
-        original_bytes: Some(original_bytes),
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
     })
     .expect("full rewrite should preserve encryption with both passwords");
@@ -302,10 +302,12 @@ fn explicit_strip_protection_removes_encryption_and_bypasses_edit_log() {
         .audit_log
         .record(AuditEvent::StripProtectionConsent, AuditActor::User);
 
+    // No clone needed to keep inspecting `document` after the save — the
+    // input only borrows it.
     let input = SaveInput {
-        document: document.clone(),
-        base,
-        original_bytes: Some(original_bytes),
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
         intent: SaveIntent::StripProtection,
     };
     let saved = save_document(input).expect("save should succeed");
