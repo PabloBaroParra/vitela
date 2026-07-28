@@ -57,8 +57,43 @@ assert_rejected 'a project floor mismatch' 'iOS deployment floor mismatch: proje
 printf '\t\t\t\tIOS_DEPLOYMENT_FLOOR = 15.0;\n' > "$fixture_root/project.pbxproj"
 assert_rejected 'a project declaring only the non-Xcode IOS_DEPLOYMENT_FLOOR key' 'missing iOS deployment floor in Xcode project' env IOS_DEPLOYMENT_FLOOR='15.0'
 
+# Regression: Xcode writes a target's whole `buildSettings` dictionary on one
+# line, so the gate has to match per occurrence. A line-anchored pattern found
+# nothing in the real project and reported it as a missing floor.
+write_ci '15.0'
+printf '\t\tE01 /* Debug */ = { isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 15.0; SDKROOT = iphoneos; }; name = Debug; };\n' > "$fixture_root/project.pbxproj"
+IOS_PROJECT_FILE="$fixture_root/project.pbxproj" IOS_CI_FILE="$fixture_root/ios.yml" \
+  IOS_DEPLOYMENT_FLOOR='15.0' bash "$build_script" --validate-deployment-floor
+
+# A project where only ONE target drifted must fail, not pass on whichever
+# declaration happens to be found first.
+{
+  printf '\t\tE01 = { buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 15.0; }; };\n'
+  printf '\t\tE02 = { buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 16.0; }; };\n'
+} > "$fixture_root/project.pbxproj"
+assert_rejected 'a single drifted target' 'ambiguous iOS deployment floor in Xcode project' env IOS_DEPLOYMENT_FLOOR='15.0'
+
 # Finally, the real files: the checked-in Xcode project and workflow must both
 # declare 15.0, not just the fixtures.
 IOS_DEPLOYMENT_FLOOR='15.0' bash "$build_script" --validate-deployment-floor
+
+# --prepare validates its platform argument before it checks the host, so these
+# two cases are the part of it that can be exercised anywhere. Everything past
+# that point needs a Mac and is covered by the build step in CI instead.
+assert_prepare_rejected() {
+  local description=$1
+  local expected=$2
+  shift 2
+
+  if output=$(bash "$build_script" --prepare "$@" 2>&1); then
+    fail "--prepare accepted $description"
+  fi
+  assert_contains "$expected" "$output"
+}
+
+assert_prepare_rejected 'a missing platform' '--prepare requires a platform'
+assert_prepare_rejected 'an unknown platform' "unsupported iOS platform: 'android'" android
+# The macOS platform name is a plausible copy/paste from build-macos.sh.
+assert_prepare_rejected 'the macOS platform name' "unsupported iOS platform: 'macosx'" macosx
 
 printf 'PASS: iOS deployment floor is exactly 15.0 in the real Xcode project, and absent, placeholder, higher, conflicting, and non-Xcode-key values fail closed\n'

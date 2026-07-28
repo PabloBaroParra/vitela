@@ -1,63 +1,29 @@
+// Shared by the macOS and iOS shells — see PdfCore.swift for the rule about
+// not importing AppKit or UIKit here.
 import Foundation
 
-struct PageDimensions: Equatable {
-    let width: Double
-    let height: Double
-}
-
-struct RenderedPage: Equatable {
-    let rgba: Data
-    let width: Int
-    let height: Int
-    let stride: Int
-
-    static let placeholder = RenderedPage(rgba: Data([0, 0, 0, 0]), width: 1, height: 1, stride: 4)
-}
-
-protocol PdfDocument {
-    var pages: [PageDimensions] { get }
-}
-
-/// Renders are issued from a background queue, so a conforming client must be
-/// safe to call from any thread. `UniFfiPdfCoreClient` is: it holds no mutable
-/// state and every handle it hands out is `Arc`/`Mutex`-guarded on the Rust side.
-protocol PdfCoreClient {
-    func open(bytes: Data) throws -> any PdfDocument
-    func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage
-}
-
-enum ViewerFailure: Error, Equatable {
-    /// The bytes never reached the core — the file could not be read from disk.
-    case readFailed(String)
-    case openFailed(String)
-    case renderFailed(page: Int, message: String)
-    case invalidImage(page: Int)
-}
-
-extension ViewerFailure: LocalizedError {
-    var errorDescription: String? { message }
-
-    /// Deliberately not named `localizedDescription`: that would shadow the
-    /// `Error` extension and silently change meaning at each call site.
-    var message: String {
-        switch self {
-        case let .readFailed(message): return message
-        case let .openFailed(message): return message
-        case let .renderFailed(_, message): return message
-        case let .invalidImage(page): return "Page \(page + 1) returned invalid image data."
-        }
-    }
-}
-
 /// The only Swift source that calls the generated UniFFI API. `pdf_ffi.swift`
-/// is generated into `apps/macos/Generated` before Xcode compiles this target.
+/// is generated into each shell's `Generated` directory before Xcode compiles
+/// the target.
 final class UniFfiPdfCoreClient: PdfCoreClient {
     /// `pdf-render` resolves `PDFIUM_DYNAMIC_LIB_PATH` lazily, on the first
     /// successful bind, and caches it from then on — so this must run before
     /// any FFI call, which construction order guarantees.
     init(bundle: Bundle = .main) {
+        setenv("PDFIUM_DYNAMIC_LIB_PATH", Self.pdfiumPath(in: bundle), 1)
+    }
+
+    /// The one genuine platform difference in the shared core. A macOS app
+    /// bundle nests its payload under `Contents/`; an iOS bundle is flat, so
+    /// the same `Frameworks` directory sits directly beside the executable.
+    /// Both shells' build phases copy `libpdfium.dylib` into that directory.
+    private static func pdfiumPath(in bundle: Bundle) -> String {
+        #if os(macOS)
         let frameworks = bundle.bundleURL.appendingPathComponent("Contents/Frameworks", isDirectory: true)
-        setenv("PDFIUM_DYNAMIC_LIB_PATH", frameworks.appendingPathComponent("libpdfium.dylib").path, 1)
+        #else
+        let frameworks = bundle.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
+        #endif
+        return frameworks.appendingPathComponent("libpdfium.dylib").path
     }
 
     func open(bytes: Data) throws -> any PdfDocument {

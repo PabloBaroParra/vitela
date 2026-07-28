@@ -4,39 +4,56 @@
 	classes = {};
 	objectVersion = 56;
 	objects = {
-		000000000000000000000000 /* Project object */ = {
-			isa = PBXProject;
-			buildConfigurationList = 000000000000000000000001 /* Build configuration list */;
-			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
-			hasScannedForEncodings = 0;
-			knownRegions = (en, Base,);
-			mainGroup = 000000000000000000000002 /* Main group */;
-			productRefGroup = 000000000000000000000002 /* Main group */;
-			projectDirPath = "";
-			projectRoot = "";
-			targets = ();
-		};
-		000000000000000000000001 /* Build configuration list */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				000000000000000000000003 /* Debug */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		000000000000000000000002 /* Main group */ = {
-			isa = PBXGroup;
-			children = ();
-			sourceTree = "<group>";
-		};
-		000000000000000000000003 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
-			};
-			name = Debug;
-		};
+		A10000000000000000000001 /* Vitela.app */ = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vitela.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000002 /* VitelaIOSTests.xctest */ = { isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VitelaIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000004 /* Vitela */ = { isa = PBXGroup; children = (A10000000000000000000013 /* ViewerViewModel.swift */, A10000000000000000000014 /* VitelaApp.swift */, A10000000000000000000018 /* Views */); path = Vitela; sourceTree = "<group>"; };
+		A10000000000000000000005 /* VitelaTests */ = { isa = PBXGroup; children = (A10000000000000000000016 /* ViewerViewModelTests.swift */); path = VitelaTests; sourceTree = "<group>"; };
+		A10000000000000000000007 /* Generated */ = { isa = PBXGroup; children = (A10000000000000000000017 /* pdf_ffi.swift */); path = Generated; sourceTree = "<group>"; };
+		A10000000000000000000008 /* Products */ = { isa = PBXGroup; children = (A10000000000000000000001 /* Vitela.app */, A10000000000000000000002 /* VitelaIOSTests.xctest */); name = Products; sourceTree = "<group>"; };
+		A10000000000000000000009 /* Main Group */ = { isa = PBXGroup; children = (A10000000000000000000022 /* Shared */, A10000000000000000000025 /* SharedTests */, A10000000000000000000004 /* Vitela */, A10000000000000000000005 /* VitelaTests */, A10000000000000000000007 /* Generated */, A10000000000000000000008 /* Products */); sourceTree = "<group>"; };
+		A10000000000000000000011 /* PdfCore.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfCore.swift; sourceTree = "<group>"; };
+		A10000000000000000000012 /* ViewerStore.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerStore.swift; sourceTree = "<group>"; };
+		A10000000000000000000013 /* ViewerViewModel.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerViewModel.swift; sourceTree = "<group>"; };
+		A10000000000000000000014 /* VitelaApp.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitelaApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000015 /* ViewerStoreTests.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerStoreTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000016 /* ViewerViewModelTests.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerViewModelTests.swift; sourceTree = "<group>"; };
+		A10000000000000000000017 /* pdf_ffi.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = pdf_ffi.swift; sourceTree = "<group>"; };
+		A10000000000000000000018 /* Views */ = { isa = PBXGroup; children = (A10000000000000000000019 /* ViewerRootView.swift */, A10000000000000000000020 /* PageView.swift */, A10000000000000000000021 /* RenderedPage+Image.swift */); path = Views; sourceTree = "<group>"; };
+		A10000000000000000000019 /* ViewerRootView.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerRootView.swift; sourceTree = "<group>"; };
+		A10000000000000000000020 /* PageView.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageView.swift; sourceTree = "<group>"; };
+		A10000000000000000000021 /* RenderedPage+Image.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RenderedPage+Image.swift"; sourceTree = "<group>"; };
+		A10000000000000000000022 /* Shared */ = { isa = PBXGroup; children = (A10000000000000000000011 /* PdfCore.swift */, A10000000000000000000023 /* UniFfiPdfCoreClient.swift */, A10000000000000000000012 /* ViewerStore.swift */, A10000000000000000000024 /* RenderedPage+CGImage.swift */); name = Shared; path = "../apple/Shared"; sourceTree = "<group>"; };
+		A10000000000000000000023 /* UniFfiPdfCoreClient.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UniFfiPdfCoreClient.swift; sourceTree = "<group>"; };
+		A10000000000000000000024 /* RenderedPage+CGImage.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RenderedPage+CGImage.swift"; sourceTree = "<group>"; };
+		A10000000000000000000025 /* SharedTests */ = { isa = PBXGroup; children = (A10000000000000000000015 /* ViewerStoreTests.swift */); name = SharedTests; path = "../apple/SharedTests"; sourceTree = "<group>"; };
+		B10000000000000000000001 /* PdfCore.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000011 /* PdfCore.swift */; };
+		B10000000000000000000002 /* ViewerStore.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000012 /* ViewerStore.swift */; };
+		B10000000000000000000003 /* ViewerViewModel.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000013 /* ViewerViewModel.swift */; };
+		B10000000000000000000004 /* VitelaApp.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000014 /* VitelaApp.swift */; };
+		B10000000000000000000005 /* pdf_ffi.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000017 /* pdf_ffi.swift */; };
+		B10000000000000000000006 /* ViewerStoreTests.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000015 /* ViewerStoreTests.swift */; };
+		B10000000000000000000007 /* ViewerViewModelTests.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000016 /* ViewerViewModelTests.swift */; };
+		B10000000000000000000008 /* ViewerRootView.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000019 /* ViewerRootView.swift */; };
+		B10000000000000000000009 /* PageView.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000020 /* PageView.swift */; };
+		B10000000000000000000010 /* RenderedPage+Image.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000021 /* RenderedPage+Image.swift */; };
+		B10000000000000000000011 /* UniFfiPdfCoreClient.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000023 /* UniFfiPdfCoreClient.swift */; };
+		B10000000000000000000012 /* RenderedPage+CGImage.swift in Sources */ = { isa = PBXBuildFile; fileRef = A10000000000000000000024 /* RenderedPage+CGImage.swift */; };
+		C10000000000000000000001 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000001 /* PdfCore.swift in Sources */, B10000000000000000000011 /* UniFfiPdfCoreClient.swift in Sources */, B10000000000000000000002 /* ViewerStore.swift in Sources */, B10000000000000000000012 /* RenderedPage+CGImage.swift in Sources */, B10000000000000000000003 /* ViewerViewModel.swift in Sources */, B10000000000000000000004 /* VitelaApp.swift in Sources */, B10000000000000000000008 /* ViewerRootView.swift in Sources */, B10000000000000000000009 /* PageView.swift in Sources */, B10000000000000000000010 /* RenderedPage+Image.swift in Sources */, B10000000000000000000005 /* pdf_ffi.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+		C10000000000000000000002 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (B10000000000000000000006 /* ViewerStoreTests.swift in Sources */, B10000000000000000000007 /* ViewerViewModelTests.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+		C10000000000000000000004 /* Bundle Rust dylibs */ = { isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Bundle Rust dylibs"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/bash; shellScript = "# Bundles the two dylibs the app loads at runtime, choosing the Rust target\n# triple that matches the SDK being built. This runs inside the Xcode build,\n# not only in scripts/build-ios.sh, so that `xcodebuild test` also produces a\n# test host that can actually launch.\n#\n# Unlike macOS there is no universal slice to fall back on: a simulator build\n# links a different triple than a device build, and mixing them fails at load\n# time with an unhelpful \"image not found\".\nset -euo pipefail\nrepo_root=\"$SRCROOT/../..\"\n\ncase \"$PLATFORM_NAME\" in\n  iphonesimulator) rust_target=\"aarch64-apple-ios-sim\" ;;\n  iphoneos) rust_target=\"aarch64-apple-ios\" ;;\n  *) echo \"error: unsupported iOS platform '$PLATFORM_NAME'\" >&2; exit 1 ;;\nesac\n\nframeworks=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH\"\nmkdir -p \"$frameworks\"\n\nffi=\"$repo_root/target/$rust_target/release/libpdf_ffi.dylib\"\nif [ ! -f \"$ffi\" ]; then\n  echo \"error: $ffi is missing - run 'scripts/build-ios.sh --assemble' first\" >&2\n  exit 1\nfi\ncp -f \"$ffi\" \"$frameworks/libpdf_ffi.dylib\"\n\n# Resolution order mirrors core/pdf-render/src/library.rs: explicit override\n# first, vendored dev copy second. The vendor directory is per-platform because\n# the device and simulator builds are different binaries.\npdfium=\"${PDFIUM_DYLIB:-$repo_root/core/pdf-render/vendor/pdfium-$PLATFORM_NAME/lib/libpdfium.dylib}\"\nif [ ! -f \"$pdfium\" ]; then\n  echo \"error: no libpdfium.dylib at '$pdfium' - set PDFIUM_DYLIB to the pinned iOS build\" >&2\n  exit 1\nfi\ncp -f \"$pdfium\" \"$frameworks/libpdfium.dylib\"\n"; };
+		D10000000000000000000001 /* VitelaIOS */ = { isa = PBXNativeTarget; buildConfigurationList = E10000000000000000000001 /* Build configuration list for PBXNativeTarget "VitelaIOS" */; buildPhases = (C10000000000000000000001 /* Sources */, C10000000000000000000004 /* Bundle Rust dylibs */); buildRules = (); dependencies = (); name = VitelaIOS; productName = Vitela; productReference = A10000000000000000000001 /* Vitela.app */; productType = "com.apple.product-type.application"; };
+		D10000000000000000000002 /* VitelaIOSTests */ = { isa = PBXNativeTarget; buildConfigurationList = E10000000000000000000002 /* Build configuration list for PBXNativeTarget "VitelaIOSTests" */; buildPhases = (C10000000000000000000002 /* Sources */); buildRules = (); dependencies = (F10000000000000000000001 /* PBXTargetDependency */); name = VitelaIOSTests; productName = VitelaIOSTests; productReference = A10000000000000000000002 /* VitelaIOSTests.xctest */; productType = "com.apple.product-type.bundle.unit-test"; };
+		F10000000000000000000001 /* PBXTargetDependency */ = { isa = PBXTargetDependency; target = D10000000000000000000001 /* VitelaIOS */; };
+		A10000000000000000000010 /* Project object */ = { isa = PBXProject; attributes = { BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1600; }; buildConfigurationList = E10000000000000000000004 /* Build configuration list for PBXProject "VitelaIOS" */; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; mainGroup = A10000000000000000000009 /* Main Group */; productRefGroup = A10000000000000000000008 /* Products */; projectDirPath = ""; projectRoot = ""; targets = (D10000000000000000000001 /* VitelaIOS */, D10000000000000000000002 /* VitelaIOSTests */); };
+		E10000000000000000000011 /* Debug */ = { isa = XCBuildConfiguration; buildSettings = { CODE_SIGNING_ALLOWED = NO; CODE_SIGNING_REQUIRED = NO; CURRENT_PROJECT_VERSION = 1; ENABLE_TESTABILITY = YES; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = Vitela; INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks"; "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/aarch64-apple-ios/release"; "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/aarch64-apple-ios-sim/release"; MARKETING_VERSION = 0.1.0; OTHER_LDFLAGS = "-lpdf_ffi"; PRODUCT_BUNDLE_IDENTIFIER = dev.vitela.viewer; PRODUCT_NAME = Vitela; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Generated"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_VERSION = 5.7; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		E10000000000000000000012 /* Release */ = { isa = XCBuildConfiguration; buildSettings = { CODE_SIGNING_ALLOWED = NO; CODE_SIGNING_REQUIRED = NO; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = Vitela; INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks"; "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/aarch64-apple-ios/release"; "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/aarch64-apple-ios-sim/release"; MARKETING_VERSION = 0.1.0; OTHER_LDFLAGS = "-lpdf_ffi"; PRODUCT_BUNDLE_IDENTIFIER = dev.vitela.viewer; PRODUCT_NAME = Vitela; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Generated"; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_VERSION = 5.7; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+		E10000000000000000000001 /* Build configuration list for PBXNativeTarget "VitelaIOS" */ = { isa = XCConfigurationList; buildConfigurations = (E10000000000000000000011 /* Debug */, E10000000000000000000012 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		E10000000000000000000013 /* Debug */ = { isa = XCBuildConfiguration; buildSettings = { BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGNING_ALLOWED = NO; CODE_SIGNING_REQUIRED = NO; ENABLE_TESTABILITY = YES; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks @loader_path/Frameworks"; "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/aarch64-apple-ios/release"; "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/aarch64-apple-ios-sim/release"; OTHER_LDFLAGS = "-lpdf_ffi"; PRODUCT_BUNDLE_IDENTIFIER = dev.vitela.viewer.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Generated"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_VERSION = 5.7; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Vitela.app/Vitela"; }; name = Debug; };
+		E10000000000000000000014 /* Release */ = { isa = XCBuildConfiguration; buildSettings = { BUNDLE_LOADER = "$(TEST_HOST)"; CODE_SIGNING_ALLOWED = NO; CODE_SIGNING_REQUIRED = NO; ENABLE_TESTABILITY = YES; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 15.0; LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks @loader_path/Frameworks"; "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/../../target/aarch64-apple-ios/release"; "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/../../target/aarch64-apple-ios-sim/release"; OTHER_LDFLAGS = "-lpdf_ffi"; PRODUCT_BUNDLE_IDENTIFIER = dev.vitela.viewer.tests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Generated"; SWIFT_VERSION = 5.7; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Vitela.app/Vitela"; }; name = Release; };
+		E10000000000000000000002 /* Build configuration list for PBXNativeTarget "VitelaIOSTests" */ = { isa = XCConfigurationList; buildConfigurations = (E10000000000000000000013 /* Debug */, E10000000000000000000014 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		E10000000000000000000017 /* Debug */ = { isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 15.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; }; name = Debug; };
+		E10000000000000000000018 /* Release */ = { isa = XCBuildConfiguration; buildSettings = { IPHONEOS_DEPLOYMENT_TARGET = 15.0; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; }; name = Release; };
+		E10000000000000000000004 /* Build configuration list for PBXProject "VitelaIOS" */ = { isa = XCConfigurationList; buildConfigurations = (E10000000000000000000017 /* Debug */, E10000000000000000000018 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 	};
-	rootObject = 000000000000000000000000 /* Project object */;
+	rootObject = A10000000000000000000010 /* Project object */;
 }

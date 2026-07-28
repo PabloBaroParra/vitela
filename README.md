@@ -118,10 +118,10 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 
 | Capability | Linux (GTK4) | Windows (WinUI 3) | macOS (SwiftUI) | Android (Compose) | iOS (SwiftUI) |
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
-| Open a PDF | ✅ | ✅ | — | 🚧 | — |
+| Open a PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Built-in sample document | ✅ | ✅ | — | ✅ | — |
 | Password-protected PDF | ✅ | — | — | 🚧 | — |
-| Multi-page view & scroll | ✅ | ✅ | — | 🚧 | — |
+| Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Fit-to-width rendering | ✅ | — | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
@@ -130,15 +130,16 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Sign | — | — | — | — | — |
 | Fillable forms | — | — | — | — | — |
 
-GitHub Actions currently provides development-only evidence for macOS: it
-builds the shell, runs its Swift tests, and verifies its bundle. This does not
-establish complete runtime support. iOS has an experimental workflow, and it is
-narrower still: it only checks that the declared iOS 15 deployment floor agrees
-between the Xcode project and CI, and that the gate fails closed on drift. No
-iOS app is built, no simulator or device runs, and there is no Swift source
-yet. Neither Apple platform is fully supported; physical-device validation,
-signing and notarization, and public distribution remain unverified and
-deferred.
+Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
+Actions provides development-only evidence: for macOS it builds the shell, runs
+its Swift tests and verifies the bundle; for iOS (still marked experimental) it
+builds the shell, runs its unit tests on a simulator, and fails closed on the
+iOS 15 floor the produced binaries actually declare. That is real automated
+evidence, but it is not the same as a validated product — no test has yet run
+on a physical Mac or iPhone, and signing, notarization, provisioning and public
+distribution all remain unverified and deferred behind a paid Apple Developer
+account. The two shells share their model layer (`apps/apple/Shared`); only the
+app entry point, document picking and views are per-platform.
 
 Android has a Compose baseline; its native package still requires externally
 supplied PDFium Android libraries, so its capabilities remain in progress until

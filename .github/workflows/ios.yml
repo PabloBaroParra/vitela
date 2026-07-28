@@ -1,12 +1,11 @@
 name: ios
 
-# Experimental, and deliberately narrow: this job proves only that the declared
-# iOS deployment floor is consistent between the Xcode project and this
-# workflow, and that the gate fails closed on drift. It does NOT build an iOS
-# app, run a simulator, or touch a device — there are no sources and no targets
-# yet, and signing/distribution stay unverified (see README "Platform status").
-# When an iOS target starts producing a binary, this must be upgraded to the
-# macOS standard: inspect the real Mach-O, as scripts/build-macos.sh does.
+# Experimental. This builds the iOS shell and runs its unit tests on a
+# simulator, then fails closed on the deployment floor the produced binaries
+# actually declare. What it still does NOT establish: behaviour on a physical
+# iPhone, signing, provisioning, or distribution — all of which need a paid
+# Apple Developer account and none of which are covered here. See README
+# "Platform status".
 on:
   push:
     branches: [main]
@@ -14,19 +13,78 @@ on:
   workflow_dispatch:
 
 env:
+  CARGO_TERM_COLOR: always
   IOS_DEPLOYMENT_FLOOR: "15.0"
+  PDFIUM_RELEASE: "7763"
 
 permissions:
   contents: read
 
 jobs:
-  validate-deployment-floor:
-    name: iOS 15 deployment floor
+  simulator:
+    name: iOS 15 simulator build and tests
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Run the portable deployment-floor tests
         run: bash apps/ios/Tests/test-build-ios.sh
       - name: Validate the approved iOS floor
         run: bash scripts/build-ios.sh --validate-deployment-floor
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-ios-sim
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-ios-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache pinned iOS simulator PDFium
+        id: pdfium-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: core/pdf-render/vendor/pdfium-iphonesimulator
+          key: pdfium-ios-simulator-arm64-${{ env.PDFIUM_RELEASE }}
+      - name: Download pinned iOS simulator PDFium (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p core/pdf-render/vendor/pdfium-iphonesimulator
+          curl -sL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${PDFIUM_RELEASE}/pdfium-ios-simulator-arm64.tgz" \
+            | tar -xz -C core/pdf-render/vendor/pdfium-iphonesimulator
+      - name: Resolve bundled PDFium
+        run: |
+          lib="$(find core/pdf-render/vendor/pdfium-iphonesimulator -name 'libpdfium.dylib' | head -n1)"
+          test -n "$lib" || { echo "libpdfium.dylib not found after extraction"; exit 1; }
+          echo "PDFIUM_DYLIB=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
+
+      - name: Build the FFI for the simulator and regenerate Swift bindings
+        run: bash scripts/build-ios.sh --prepare iphonesimulator
+
+      # Selecting by UDID rather than by device name: the set of preinstalled
+      # simulators changes with every runner image, and a hardcoded name is the
+      # usual reason an Apple CI job starts failing without a code change.
+      - name: Select an available iPhone simulator
+        run: |
+          udid="$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next((x['udid'] for r,ds in d.items() if 'iOS' in r for x in ds if 'iPhone' in x['name']), ''))")"
+          test -n "$udid" || { echo "no available iPhone simulator on this runner"; exit 1; }
+          echo "SIMULATOR_UDID=$udid" >> "$GITHUB_ENV"
+
+      - name: Run Swift unit tests on the simulator
+        run: |
+          xcodebuild -project apps/ios/VitelaIOS.xcodeproj -scheme VitelaIOS \
+            -destination "id=$SIMULATOR_UDID" test
+
+      - name: Fail closed on the deployment floor the binaries actually declare
+        run: bash scripts/build-ios.sh --verify-deployment iphonesimulator
+
+      # No upload step, on purpose: a simulator build is not installable on a
+      # device, and anything that is would need signing this repo cannot do.
