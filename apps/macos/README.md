@@ -41,6 +41,11 @@ regenerating the Swift bindings, then `xcodebuild`. The Xcode target links
 `Contents/Frameworks`, so `xcodebuild test` also produces a test host that can
 launch.
 
+`ARCHS` is pinned to `$(NATIVE_ARCH_ACTUAL)`, because cargo builds
+`libpdf_ffi.dylib` for the host triple only — a universal app would fail to
+link its second slice. Shipping a universal app means `lipo`-ing the Rust
+dylib first, and belongs with distribution signing in T-059.
+
 ```sh
 export PDFIUM_DYLIB=/absolute/path/to/libpdfium.dylib
 bash scripts/build-macos.sh --assemble

@@ -69,6 +69,12 @@ assert_contains "SWIFT_INCLUDE_PATHS = \"\$(SRCROOT)/Generated\";" "$project"
 assert_contains "LD_RUNPATH_SEARCH_PATHS = \"@executable_path/../Frameworks\";" "$project"
 assert_contains "GENERATE_INFOPLIST_FILE = YES;" "$project"
 
+# cargo builds libpdf_ffi.dylib for the host triple only. Letting Xcode go
+# universal makes the x86_64 slice fail to link against an arm64-only dylib, so
+# the app arch must stay pinned to the host until the Rust side is lipo'd
+# (T-059).
+assert_contains "ARCHS = \"\$(NATIVE_ARCH_ACTUAL)\";" "$project"
+
 # A test bundle that cannot be loaded into its host is a test that never runs.
 assert_contains "com.apple.product-type.bundle.unit-test" "$project"
 [[ "$project" != *"bundle.ui-testing"* ]] \
