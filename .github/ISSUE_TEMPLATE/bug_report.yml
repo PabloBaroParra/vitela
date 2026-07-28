@@ -1,0 +1,97 @@
+name: Bug report
+description: Something behaves incorrectly, crashes, or damages a document
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Found a security issue?** Do not file it here — see
+        [SECURITY.md](https://github.com/PabloBaroParra/vitela/blob/main/SECURITY.md).
+        That includes anything that drops encryption, invalidates a signature,
+        leaks a password, or makes a network call.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: This is not a security vulnerability (those go through SECURITY.md)
+          required: true
+
+  - type: dropdown
+    id: shell
+    attributes:
+      label: Where does it happen?
+      options:
+        - Linux (GTK4)
+        - Windows (WinUI 3)
+        - macOS (SwiftUI)
+        - Android (Compose)
+        - iOS (SwiftUI)
+        - Core crates / Rust API
+        - Build or CI
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: How reliably does it reproduce?
+      options:
+        - Every time
+        - Often, but not always
+        - Happened once
+        - Only with one specific document
+    validations:
+      required: true
+
+  - type: textarea
+    id: document
+    attributes:
+      label: The document involved
+      description: |
+        If a specific PDF triggers it, that file is usually the whole report.
+        Attach it if you can share it — but **redact or synthesise anything
+        private first**. We do not want your real documents. If you cannot
+        share it, describe it: producer, page count, encrypted, signed,
+        annotated by another tool, scanned.
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS and version, Vitela commit, and the PDFium build if rendering is involved.
+      value: |
+        - OS:
+        - Vitela commit:
+        - PDFium build:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Errors or logs
+      description: Paste any error output. It is formatted automatically.
+      render: shell

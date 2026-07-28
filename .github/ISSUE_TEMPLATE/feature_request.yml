@@ -1,0 +1,73 @@
+name: Feature request
+description: Propose a capability or an improvement
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the **Tools & features** and **Platform status** tables in the
+        [README](https://github.com/PabloBaroParra/vitela/blob/main/README.md)
+        first — a capability may already be implemented in the core and simply
+        not wired into your shell yet, which is a much smaller ask.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and the README status tables
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What are you trying to do that you cannot do today? Describe the
+        situation, not the solution — the best fix is often not the one the
+        reporter had in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. If you already have a design, describe it.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Where would this live?
+      options:
+        - Core crates (all shells benefit)
+        - A single platform shell
+        - Build, CI or tooling
+        - Not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Project constraints
+      description: |
+        Vitela is offline-first with zero telemetry. Anything requiring a
+        network call is out of scope by design — rendering remote web pages to
+        PDF, for example, is deliberately excluded.
+      options:
+        - label: This can be done entirely offline, with no network calls
+          required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including other tools that solve it, and what they get right or wrong.
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Would you like to implement it?
+      options:
+        - label: I am willing to open a PR for this

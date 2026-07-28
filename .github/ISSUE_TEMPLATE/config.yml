@@ -1,0 +1,13 @@
+# Blank issues are disabled so that security reports cannot arrive as an
+# untriaged public issue by accident.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/PabloBaroParra/vitela/security/advisories/new
+    about: Never file a security issue publicly. Open a private draft advisory instead.
+  # A "Questions and ideas" link to /discussions belongs here, but Discussions
+  # is not enabled on this repository yet and the link would 404 on day one.
+  # Enable it in Settings > General > Features, then add it back.
+  - name: PDFium rendering bugs
+    url: https://pdfium.googlesource.com/pdfium/
+    about: Vitela renders through PDFium. Upstream rendering defects belong there — tell us too if Vitela's usage makes it reachable.

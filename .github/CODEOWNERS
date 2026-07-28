@@ -1,0 +1,32 @@
+# Code owners are requested for review automatically, and — with the branch
+# ruleset on `main` requiring CODEOWNERS review — their approval is required
+# before a pull request can merge.
+#
+# Last matching pattern wins, so the catch-all goes first.
+
+*                           @PabloBaroParra
+
+# Anything that can weaken the guarantees in SECURITY.md: signing, encryption,
+# password handling, the FFI boundary, and the dependency audit configuration.
+/core/pdf-sign/             @PabloBaroParra
+/core/pdf-sign-pfx/         @PabloBaroParra
+/core/pdf-sign-pkcs11/      @PabloBaroParra
+/core/pdf-save/             @PabloBaroParra
+/core/pdf-ffi/              @PabloBaroParra
+/deny.toml                  @PabloBaroParra
+
+# Supply chain and release surface. A change here can compromise every build,
+# so it is reviewed as carefully as the code it builds.
+/.github/                   @PabloBaroParra
+/scripts/                   @PabloBaroParra
+/Cargo.lock                 @PabloBaroParra
+
+# Project-wide contracts: licences, governance, and the conventions every agent
+# and contributor is expected to follow.
+/LICENSE-APACHE             @PabloBaroParra
+/LICENSE-MIT                @PabloBaroParra
+/SECURITY.md                @PabloBaroParra
+/CONTRIBUTING.md            @PabloBaroParra
+/CODE_OF_CONDUCT.md         @PabloBaroParra
+/AGENTS.md                  @PabloBaroParra
+/CLAUDE.md                  @PabloBaroParra
