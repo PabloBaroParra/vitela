@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+# Always invoked through `bash`: every script in this repo is committed
+# mode 100644, so exec-ing it directly is a "Permission denied" on macOS.
 build_script="$repo_root/scripts/build-macos.sh"
 fixture_root=$(mktemp -d)
 trap 'rm -rf "$fixture_root"' EXIT
@@ -32,14 +34,14 @@ assert_rejects_missing() {
 
   write_complete_bundle
   rm "$app/$removed"
-  if output=$("$build_script" --validate-bundle-layout "$app" 2>&1); then
+  if output=$(bash "$build_script" --validate-bundle-layout "$app" 2>&1); then
     fail "bundle validation accepted a bundle missing $removed"
   fi
   [[ "$output" == *"$expected"* ]] || fail "expected '$expected' for missing $removed, got: $output"
 }
 
 write_complete_bundle
-"$build_script" --validate-bundle-layout "$app"
+bash "$build_script" --validate-bundle-layout "$app"
 
 assert_rejects_missing "Contents/Frameworks/libpdfium.dylib" "missing bundled libpdfium.dylib"
 assert_rejects_missing "Contents/Frameworks/libpdf_ffi.dylib" "missing bundled libpdf_ffi.dylib"

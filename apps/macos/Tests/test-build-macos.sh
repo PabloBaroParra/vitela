@@ -2,6 +2,8 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+# Always invoked through `bash`: every script in this repo is committed
+# mode 100644, so exec-ing it directly is a "Permission denied" on macOS.
 build_script="$repo_root/scripts/build-macos.sh"
 project_file="$repo_root/apps/macos/Vitela.xcodeproj/project.pbxproj"
 fixture_root=$(mktemp -d)
@@ -41,16 +43,16 @@ write_macho_fixture() {
 write_vtool
 write_macho_fixture compatible.dylib 11.0
 
-PATH="$fixture_root/bin:$PATH" "$build_script" --check-deployment "$fixture_root/compatible.dylib"
+PATH="$fixture_root/bin:$PATH" bash "$build_script" --check-deployment "$fixture_root/compatible.dylib"
 
 write_macho_fixture incompatible.dylib 12.0
-if output=$(PATH="$fixture_root/bin:$PATH" "$build_script" --check-deployment "$fixture_root/incompatible.dylib" 2>&1); then
+if output=$(PATH="$fixture_root/bin:$PATH" bash "$build_script" --check-deployment "$fixture_root/incompatible.dylib" 2>&1); then
   fail "deployment gate accepted an incompatible Mach-O fixture"
 fi
 assert_contains "requires macOS 12.0" "$output"
 
 write_macho_fixture universal.dylib $'11.0\nminos 12.0'
-if output=$(PATH="$fixture_root/bin:$PATH" "$build_script" --check-deployment "$fixture_root/universal.dylib" 2>&1); then
+if output=$(PATH="$fixture_root/bin:$PATH" bash "$build_script" --check-deployment "$fixture_root/universal.dylib" 2>&1); then
   fail "deployment gate accepted an incompatible slice in a universal Mach-O fixture"
 fi
 assert_contains "requires macOS 12.0" "$output"
