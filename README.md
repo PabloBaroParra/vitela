@@ -13,6 +13,22 @@ page operations, annotations, encrypted save, FFI surface) is complete and
 tested; the platform shells (Linux, macOS, Windows, Android, iOS) are in
 progress. There are no releases yet.
 
+## Built with AI
+
+Vitela is written with heavy AI assistance. Most of the code, the tests and this
+documentation were produced by AI coding agents working from the architecture,
+conventions and reviews of a human maintainer, who owns every change that lands.
+The rules those agents follow are checked into the repository — see
+[CLAUDE.md](CLAUDE.md) for the architectural constraints and
+[AGENTS.md](AGENTS.md) for the workflow.
+
+That is a statement about *how* the project is built, not an excuse for what it
+does. Every change passes the same gates regardless of who or what wrote it:
+`cargo fmt`, `clippy -D warnings`, the full workspace test suite, and the CI job
+that runs the tests inside a network namespace with no routes. No capability is
+marked `✅` in the tables below until its tests pass. If something is wrong, it
+is an ordinary bug — please open an issue.
+
 ## Principles
 
 - **Offline-first, zero telemetry.** No network calls, ever. CI enforces this
