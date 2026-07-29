@@ -478,30 +478,6 @@ pub fn render_page(
     Ok(Arc::new(BitmapHandle::new(bitmap)))
 }
 
-/// Renders one bounded output-pixel page tile at `dpi`. Tile coordinates are
-/// top-left aligned in the same output space as a full-page render.
-#[uniffi::export]
-pub fn render_page_tile(
-    handle: &DocumentHandle,
-    page_index: u32,
-    dpi: u32,
-    tile: FfiRenderTile,
-    options: FfiRenderOptions,
-) -> Result<Arc<BitmapHandle>, FfiError> {
-    let render_doc = handle.lock().render_doc.ok_or(FfiError::DocumentNotFound)?;
-    let bitmap = pdf_render::PdfiumRenderer::new()
-        .render_page_tile(
-            render_doc,
-            page_index,
-            dpi,
-            tile.into(),
-            options.into(),
-            pdf_render::Priority::Visible,
-        )
-        .wait()?;
-    Ok(Arc::new(BitmapHandle::new(bitmap)))
-}
-
 /// Renders every tile of one page in a single call, in the order given.
 ///
 /// A viewer at deep zoom needs several tiles to cover one screen. Asking for
@@ -509,6 +485,9 @@ pub fn render_page_tile(
 /// full FFI round-trip between them; this loads the page once and returns the
 /// whole set. The batch fails as a unit — a half-covered viewport is not a
 /// useful result.
+///
+/// A single tile is this call with a one-element `tiles`; there is no separate
+/// single-tile export.
 #[uniffi::export]
 pub fn render_page_tiles(
     handle: &DocumentHandle,

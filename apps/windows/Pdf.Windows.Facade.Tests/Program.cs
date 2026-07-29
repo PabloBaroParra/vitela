@@ -52,8 +52,6 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("anchors viewport tiles to a fixed page grid", AnchorsViewportTilesToAFixedPageGrid)
     ,("keeps the tile set stable while scrolling inside one tile", KeepsTileSetStableWhileScrollingInsideOneTile)
     ,("does not schedule offscreen tiles while a visible tile is outstanding", DoesNotScheduleOffscreenTilesBeforeVisibleTile)
-    ,("discards a region render after the document session changes", DiscardsRegionRenderAfterSessionSwapAsync)
-    ,("discards a stale region render after the viewport retargets", DiscardsSupersededRegionRenderAsync)
     ,("covers a viewport of tiles in a single core call", CoversAViewportOfTilesInOneCoreCallAsync)
     ,("keeps a tile batch from cancelling the page render", KeepsTileBatchFromCancellingThePageRenderAsync)
     ,("discards a tile batch the viewport superseded", DiscardsSupersededTileBatchAsync)
@@ -700,30 +698,6 @@ static async Task DiscardsTileBatchAfterSessionSwapAsync()
     Assert((await batch.WaitAsync(TimeSpan.FromSeconds(5))).IsDiscarded, "a tile batch from a retired document session must not publish");
 }
 
-static async Task DiscardsRegionRenderAfterSessionSwapAsync()
-{
-    var core = new FakeCore { PageCount = 1, BlockFirstRender = true };
-    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
-    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
-    var tile = facade.RenderPageRegionAsync(session.SessionId, 0, 576, new PageRegion(0, 0, 100, 100), false);
-    await core.FirstRenderStarted.Task;
-    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
-    core.ReleaseFirstRender.Set();
-    Assert((await tile.WaitAsync(TimeSpan.FromSeconds(5))).IsDiscarded, "a tile from a retired document session must not publish");
-}
-
-static async Task DiscardsSupersededRegionRenderAsync()
-{
-    var core = new FakeCore { PageCount = 1, BlockFirstRender = true };
-    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
-    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
-    var first = facade.RenderPageRegionAsync(session.SessionId, 0, 576, new PageRegion(0, 0, 100, 100), false);
-    await core.FirstRenderStarted.Task;
-    var second = facade.RenderPageRegionAsync(session.SessionId, 0, 576, new PageRegion(100, 0, 100, 100), false);
-    core.ReleaseFirstRender.Set();
-    Assert((await first).IsDiscarded && (await second).IsSuccess, "a viewport retarget must publish only its newest tile");
-}
-
 static List<PageSpan> Stack(int count, double height)
 {
     var pages = new List<PageSpan>(count);
@@ -828,16 +802,13 @@ sealed class FakeCore : IPdfCore
         return new PdfCoreBitmap(1, 1, 4, [0, 0, 0, 255]);
     }
 
-    public PdfCoreBitmap RenderPageRegion(IPdfCoreDocument document, uint pageIndex, uint dpi, PageRegion region, bool invertContentColors) =>
-        RenderPage(document, pageIndex, dpi, invertContentColors);
-
     /// <summary>How many tiles each batch asked for — one entry per core call.</summary>
     public System.Collections.Concurrent.ConcurrentQueue<int> TileBatchSizes { get; } = new();
 
     public IReadOnlyList<PdfCoreBitmap> RenderPageTiles(IPdfCoreDocument document, uint pageIndex, uint dpi, IReadOnlyList<PageRegion> tiles, bool invertContentColors)
     {
         TileBatchSizes.Enqueue(tiles.Count);
-        return [.. tiles.Select(tile => RenderPageRegion(document, pageIndex, dpi, tile, invertContentColors))];
+        return [.. tiles.Select(_ => RenderPage(document, pageIndex, dpi, invertContentColors))];
     }
 
     public IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query)

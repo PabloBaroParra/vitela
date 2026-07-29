@@ -112,20 +112,6 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
-    /// <summary>Renders one bounded output-space page tile for the continuous viewer.</summary>
-    public Task<RenderResult> RenderPageRegionAsync(string sessionId, uint pageIndex, uint dpi, PageRegion region, bool invertContentColors)
-    {
-        lock (_gate)
-        {
-            if (!TryGetCurrentSession(sessionId, out var session))
-            {
-                return Task.FromResult(RenderResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "render_region", sessionId, pageIndex)));
-            }
-
-            return QueueRenderLocked(session, pageIndex, dpi, invertContentColors, region);
-        }
-    }
-
     /// <summary>
     /// Renders every tile covering the viewport on one page, as a single core
     /// call.
@@ -321,10 +307,10 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
-    private Task<RenderResult> QueueRenderLocked(SessionEntry session, uint pageIndex, uint dpi, bool invertContentColors, PageRegion? region = null)
+    private Task<RenderResult> QueueRenderLocked(SessionEntry session, uint pageIndex, uint dpi, bool invertContentColors)
     {
         var page = session.GetPage(pageIndex);
-        var request = new RenderRequest(++page.Sequence, dpi, invertContentColors, region, new TaskCompletionSource<RenderResult>(TaskCreationOptions.RunContinuationsAsynchronously));
+        var request = new RenderRequest(++page.Sequence, dpi, invertContentColors, new TaskCompletionSource<RenderResult>(TaskCreationOptions.RunContinuationsAsynchronously));
         page.Pending?.Completion.TrySetResult(RenderResult.Discarded());
         page.Pending = request;
         if (!page.DispatchScheduled)
@@ -359,9 +345,7 @@ public sealed class PdfDocumentFacade : IDisposable
         RenderResult result;
         try
         {
-            var bitmap = await Task.Run(() => request.Region is { } region
-                ? _core.RenderPageRegion(session.Document, pageIndex, request.Dpi, region, request.InvertContentColors)
-                : _core.RenderPage(session.Document, pageIndex, request.Dpi, request.InvertContentColors)).ConfigureAwait(false);
+            var bitmap = await Task.Run(() => _core.RenderPage(session.Document, pageIndex, request.Dpi, request.InvertContentColors)).ConfigureAwait(false);
             result = RenderResult.Success(new RenderedPage(session.Id, pageIndex, request.Sequence, bitmap.Width, bitmap.Height, bitmap.Stride, bitmap.Rgba));
         }
         catch (PdfCoreException error) when (error.Category == PdfCoreError.DocumentNotFound && session.Document.PageCount == 0)
@@ -631,7 +615,7 @@ public sealed class PdfDocumentFacade : IDisposable
         public TileBatchRequest? PendingTiles { get; set; }
     }
 
-    private sealed record RenderRequest(ulong Sequence, uint Dpi, bool InvertContentColors, PageRegion? Region, TaskCompletionSource<RenderResult> Completion);
+    private sealed record RenderRequest(ulong Sequence, uint Dpi, bool InvertContentColors, TaskCompletionSource<RenderResult> Completion);
 
     private sealed record TileBatchRequest(ulong Sequence, uint Dpi, bool InvertContentColors, IReadOnlyList<PageRegion> Tiles, TaskCompletionSource<TileBatchResult> Completion);
     private sealed class SearchState

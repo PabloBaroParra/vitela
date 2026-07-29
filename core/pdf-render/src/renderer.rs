@@ -194,28 +194,11 @@ impl PdfiumRenderer {
         }
     }
 
-    /// Renders a bounded, output-pixel-aligned tile without allocating a
-    /// full-page bitmap. `tile` uses the same top-left pixel space as a normal
-    /// render at `dpi`, including pdfium's CropBox and page rotation handling.
-    pub fn render_page_tile(
-        &self,
-        doc: DocumentHandle,
-        page_index: u32,
-        dpi: u32,
-        tile: Tile,
-        options: RenderOptions,
-        priority: Priority,
-    ) -> RenderHandle {
-        match global_actor() {
-            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
-                render_page_tile_job(state, doc, page_index, dpi, tile, options)
-            }),
-            Err(error) => JobHandle::failed(error),
-        }
-    }
-
-    /// Renders several tiles of one page in a single actor job, in the order
-    /// given.
+    /// Renders several bounded, output-pixel-aligned tiles of one page in a
+    /// single actor job, in the order given. Each `tile` uses the same
+    /// top-left pixel space as a normal render at `dpi`, including pdfium's
+    /// CropBox and page rotation handling, and no full-page bitmap is
+    /// allocated.
     ///
     /// This exists because loading a page is not free: pdfium parses the
     /// page's content stream on `FPDF_LoadPage`, and on a text-heavy page at
@@ -382,19 +365,6 @@ fn render_page_job(
         stride,
         pixels,
     }))
-}
-
-fn render_page_tile_job(
-    state: &mut PdfiumState,
-    doc: DocHandle,
-    page_index: u32,
-    dpi: u32,
-    tile: Tile,
-    options: RenderOptions,
-) -> Result<BitmapHandle, RenderError> {
-    render_page_tiles_job(state, doc, page_index, dpi, &[tile], options)?
-        .pop()
-        .ok_or_else(|| RenderError::RenderFailed("tile batch produced no bitmap".to_string()))
 }
 
 fn render_page_tiles_job(

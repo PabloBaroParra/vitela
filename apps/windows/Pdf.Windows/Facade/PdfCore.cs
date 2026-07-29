@@ -21,12 +21,11 @@ internal interface IPdfCore
 
     PdfCoreBitmap RenderPage(IPdfCoreDocument document, uint pageIndex, uint dpi, bool invertContentColors);
 
-    PdfCoreBitmap RenderPageRegion(IPdfCoreDocument document, uint pageIndex, uint dpi, PageRegion region, bool invertContentColors);
-
     /// <summary>
     /// Renders every tile of one page in a single core call. The page is loaded
     /// — and its content stream parsed — once for the whole batch, which is
-    /// what makes covering a deep-zoom viewport affordable.
+    /// what makes covering a deep-zoom viewport affordable. A single tile is
+    /// this call with a one-element <paramref name="tiles"/>.
     /// </summary>
     IReadOnlyList<PdfCoreBitmap> RenderPageTiles(IPdfCoreDocument document, uint pageIndex, uint dpi, IReadOnlyList<PageRegion> tiles, bool invertContentColors);
 

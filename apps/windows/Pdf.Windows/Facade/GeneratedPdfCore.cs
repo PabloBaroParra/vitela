@@ -45,23 +45,6 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
-    public PdfCoreBitmap RenderPageRegion(IPdfCoreDocument document, uint pageIndex, uint dpi, PageRegion region, bool invertContentColors)
-    {
-        try
-        {
-            var generated = ((GeneratedDocument)document).Handle;
-            using var bitmap = PdfFfiMethods.RenderPageTile(generated, pageIndex, dpi, new FfiRenderTile(region.LeftPx, region.TopPx, region.WidthPx, region.HeightPx), new FfiRenderOptions(invertContentColors));
-            var width = bitmap.Width();
-            var height = bitmap.Height();
-            var rgba = PdfBitmapRows.TightlyPacked(bitmap.GetPixels(), width, height, bitmap.Stride());
-            return new PdfCoreBitmap(width, height, width * 4, rgba);
-        }
-        catch (FfiException error)
-        {
-            throw Translate(error);
-        }
-    }
-
     public IReadOnlyList<PdfCoreBitmap> RenderPageTiles(IPdfCoreDocument document, uint pageIndex, uint dpi, IReadOnlyList<PageRegion> tiles, bool invertContentColors)
     {
         try
