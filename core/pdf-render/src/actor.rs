@@ -18,7 +18,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::mpsc::{self, Receiver};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
 use crate::error::RenderError;
@@ -82,11 +82,35 @@ impl<S> Ord for QueuedJob<S> {
     }
 }
 
+/// Everything the worker inspects before deciding to park, behind one lock.
+///
+/// `shutdown` lives here rather than in an atomic beside the mutex on purpose:
+/// the worker reads it and the heap in the *same* guarded block, immediately
+/// before waiting on the condvar. Any predicate consulted there must be
+/// published under the same lock, otherwise a writer can flip it — and signal —
+/// in the window between the worker's read and its park, and the wakeup is
+/// lost forever. An atomic makes the write visible, not correctly *ordered*
+/// against the park, which is the property this needs.
+struct Queue<S> {
+    heap: BinaryHeap<QueuedJob<S>>,
+    shutdown: bool,
+}
+
 struct Shared<S> {
-    heap: Mutex<BinaryHeap<QueuedJob<S>>>,
+    queue: Mutex<Queue<S>>,
     condvar: Condvar,
-    shutdown: AtomicBool,
     next_sequence: std::sync::atomic::AtomicU64,
+}
+
+impl<S> Shared<S> {
+    /// A poisoned queue only means some job panicked; the heap itself is still
+    /// structurally sound, and the worker must keep draining it so pending
+    /// `JobHandle`s resolve instead of hanging their callers.
+    fn lock_queue(&self) -> MutexGuard<'_, Queue<S>> {
+        self.queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 /// A single dedicated-OS-thread priority-queue actor over shared state `S`.
@@ -100,9 +124,11 @@ impl<S: Send + 'static> Actor<S> {
     /// lifetime of the actor.
     pub fn spawn(initial_state: S) -> Self {
         let shared: Arc<Shared<S>> = Arc::new(Shared {
-            heap: Mutex::new(BinaryHeap::new()),
+            queue: Mutex::new(Queue {
+                heap: BinaryHeap::new(),
+                shutdown: false,
+            }),
             condvar: Condvar::new(),
-            shutdown: AtomicBool::new(false),
             next_sequence: std::sync::atomic::AtomicU64::new(0),
         });
 
@@ -121,20 +147,17 @@ impl<S: Send + 'static> Actor<S> {
     fn worker_loop(shared: Arc<Shared<S>>, mut state: S) {
         loop {
             let job = {
-                let mut heap = shared
-                    .heap
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let mut queue = shared.lock_queue();
                 loop {
-                    if let Some(job) = heap.pop() {
+                    if let Some(job) = queue.heap.pop() {
                         break Some(job);
                     }
-                    if shared.shutdown.load(AtomicOrdering::SeqCst) {
+                    if queue.shutdown {
                         break None;
                     }
-                    heap = shared
+                    queue = shared
                         .condvar
-                        .wait(heap)
+                        .wait(queue)
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                 }
             };
@@ -174,18 +197,11 @@ impl<S: Send + 'static> Actor<S> {
             .next_sequence
             .fetch_add(1, AtomicOrdering::SeqCst);
 
-        {
-            let mut heap = self
-                .shared
-                .heap
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            heap.push(QueuedJob {
-                priority,
-                sequence,
-                run,
-            });
-        }
+        self.shared.lock_queue().heap.push(QueuedJob {
+            priority,
+            sequence,
+            run,
+        });
         self.shared.condvar.notify_one();
 
         JobHandle {
@@ -197,17 +213,17 @@ impl<S: Send + 'static> Actor<S> {
     /// Number of jobs currently queued (not yet dequeued). Test/diagnostic
     /// helper for scheduling assertions.
     pub fn queue_len(&self) -> usize {
-        self.shared
-            .heap
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .len()
+        self.shared.lock_queue().heap.len()
     }
 }
 
 impl<S> Drop for Actor<S> {
     fn drop(&mut self) {
-        self.shared.shutdown.store(true, AtomicOrdering::SeqCst);
+        // Taking the queue lock to flip `shutdown` is what makes the handshake
+        // below sound: it forces this thread to wait until the worker either
+        // has yet to look at the flag or is genuinely parked on the condvar, so
+        // `notify_all` can never arrive early and strand it (see `Queue`).
+        self.shared.lock_queue().shutdown = true;
         self.shared.condvar.notify_all();
         if let Some(worker) = self.worker.lock().unwrap().take() {
             let _ = worker.join();
@@ -278,6 +294,7 @@ impl<T> JobHandle<T> {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicU32;
+    use std::time::Duration;
 
     fn spawn_recording_actor() -> (Actor<()>, Arc<Mutex<Vec<u32>>>) {
         let actor = Actor::spawn(());
@@ -415,6 +432,63 @@ mod tests {
         blocker.wait().unwrap();
 
         assert!(matches!(queued.wait(), Err(RenderError::Cancelled)));
+    }
+
+    /// Regression test for the lost-wakeup deadlock in [`Actor::drop`] that
+    /// [`Queue`]'s doc comment describes.
+    ///
+    /// This one is shaped defensively, because the bug did not produce a wrong
+    /// answer — it produced a *hang*. The worker parked on the condvar after
+    /// the shutdown signal had already been sent, and `Drop`'s `join` then
+    /// waited on it forever. A test that merely exercised the path would
+    /// therefore wedge the entire suite on a regression instead of failing it,
+    /// which is strictly worse than having no test at all. So the churn runs
+    /// on its own threads and the test thread watches them through a channel
+    /// with a deadline: a regression reports a real failure, with a diagnosis,
+    /// in bounded time.
+    ///
+    /// The window is only a few instructions wide, so `CHURNERS` matters as
+    /// much as `LIFETIMES`: a single-threaded loop, however long, never
+    /// reproduces the bug at all. The worker always reaches its park before a
+    /// lone dropping thread wakes from `recv`. It takes oversubscription —
+    /// more churning threads than cores — for the scheduler to preempt a
+    /// worker in the gap between reading the flag and parking, which is why
+    /// the original hang only ever surfaced under `--test-threads 8`. Both
+    /// counts are tuned against the pre-fix code: 8×2500 caught it 8 runs out
+    /// of 8, where 8×500 caught it only 3 out of 5. Do not lower them.
+    ///
+    /// Healthy code finishes in well under a second, so `DEADLINE` is pure
+    /// slack for a loaded CI box and trips only on a genuine hang.
+    #[test]
+    fn dropping_an_actor_never_deadlocks_a_worker_that_is_about_to_park() {
+        const CHURNERS: usize = 8;
+        const LIFETIMES: usize = 2_500;
+        const DEADLINE: Duration = Duration::from_secs(30);
+
+        let (finished_tx, finished_rx) = mpsc::channel();
+        for _ in 0..CHURNERS {
+            let finished_tx = finished_tx.clone();
+            std::thread::spawn(move || {
+                for _ in 0..LIFETIMES {
+                    let actor = Actor::spawn(());
+                    let handle =
+                        actor.submit(Priority::Visible, |_state: &mut ()| Ok::<_, RenderError>(7));
+                    assert_eq!(handle.wait().unwrap(), 7);
+                    drop(actor);
+                }
+                let _ = finished_tx.send(());
+            });
+        }
+        drop(finished_tx);
+
+        for _ in 0..CHURNERS {
+            assert!(
+                finished_rx.recv_timeout(DEADLINE).is_ok(),
+                "Actor::drop deadlocked: a worker parked on the condvar after \
+                 shutdown had been signalled, so join() never returned. The \
+                 shutdown flag must be published while holding the queue lock."
+            );
+        }
     }
 
     #[test]
