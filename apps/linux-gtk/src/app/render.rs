@@ -409,21 +409,25 @@ fn schedule_tiles(
             .expect("tile-render task panicked");
             apply_tile_result(
                 &viewer,
-                document,
-                page_index,
-                render_id,
-                generation,
-                dpi,
-                tile_generation,
-                tiles,
+                TileBatch {
+                    document,
+                    page_index,
+                    render_id,
+                    generation,
+                    dpi,
+                    tile_generation,
+                    tiles,
+                },
                 result,
             );
         }
     });
 }
 
-fn apply_tile_result(
-    viewer: &Viewer,
+/// Identity of one dispatched tile batch. It rides across the async hop so
+/// the result can be matched against the state the batch was scheduled from:
+/// anything that moved on in the meantime makes the batch stale.
+struct TileBatch {
     document: DocumentHandle,
     page_index: usize,
     render_id: u64,
@@ -431,8 +435,22 @@ fn apply_tile_result(
     dpi: u32,
     tile_generation: u64,
     tiles: Vec<super::layout::TileRect>,
+}
+
+fn apply_tile_result(
+    viewer: &Viewer,
+    batch: TileBatch,
     result: Result<Vec<RenderedPage>, RenderError>,
 ) {
+    let TileBatch {
+        document,
+        page_index,
+        render_id,
+        generation,
+        dpi,
+        tile_generation,
+        tiles,
+    } = batch;
     let mut state = viewer.state.borrow_mut();
     let Some(session) = state.session.as_mut() else {
         return;
