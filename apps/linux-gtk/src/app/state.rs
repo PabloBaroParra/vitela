@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Entry, Label, Picture, ScrolledWindow};
+use gtk::{Box as GtkBox, Button, Entry, Label, Overlay, Picture, ScrolledWindow};
 use pdf_render::{CancellationHandle, DocumentHandle, TextMatch};
 
 /// Where an open request's bytes come from.
@@ -63,6 +63,9 @@ pub(crate) struct DocumentSession {
     pub(crate) next_search_id: u64,
     pub(crate) active: HashMap<usize, ActiveRender>,
     pub(crate) next_render_id: u64,
+    pub(crate) zoom: super::layout::Zoom,
+    pub(crate) zoom_generation: u64,
+    pub(crate) active_tiles: HashMap<usize, ActiveRender>,
 }
 
 pub(crate) struct SearchState {
@@ -73,14 +76,24 @@ pub(crate) struct SearchState {
 
 pub(crate) struct ActiveRender {
     pub(crate) id: u64,
+    pub(crate) generation: u64,
     pub(crate) cancellation: CancellationHandle,
 }
 
 pub(crate) struct PageSlot {
+    pub(crate) overlay: Overlay,
     pub(crate) picture: Picture,
     pub(crate) width_pt: f32,
     pub(crate) height_pt: f32,
     pub(crate) state: PageState,
+    pub(crate) target_dpi: u32,
+    pub(crate) budget: super::layout::TileBudget,
+    pub(crate) tiles: HashMap<super::layout::TileRect, Picture>,
+    pub(crate) tile_dpi: u32,
+    pub(crate) tile_generation: u64,
+    /// DPI whose tile batch failed, or 0. Terminal for that DPI so a doomed
+    /// batch isn't re-queued on every scroll tick; a new zoom clears it.
+    pub(crate) tile_failed_dpi: u32,
 }
 
 /// Render lifecycle of a single page slot. `Skipped`/`Failed` are terminal

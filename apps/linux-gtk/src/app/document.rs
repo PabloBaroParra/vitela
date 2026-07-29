@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use gtk::prelude::*;
 use gtk::{
     gio, glib, ApplicationWindow, Dialog, Entry, FileChooserAction, FileChooserNative, FileFilter,
-    Label, Picture, ResponseType,
+    Label, Overlay, Picture, ResponseType,
 };
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 
@@ -171,6 +171,9 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             for active in session.active.values() {
                 active.cancellation.cancel();
             }
+            for active in session.active_tiles.values() {
+                active.cancellation.cancel();
+            }
             close_document_in_background(session.document);
         }
     }
@@ -186,12 +189,28 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         picture.set_can_shrink(true);
         picture.set_keep_aspect_ratio(true);
         let logical_height = set_placeholder_size(&picture, width_pt, height_pt, fit);
-        viewer.pages.append(&picture);
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&picture));
+        viewer.pages.append(&overlay);
+        let box_ = super::layout::resolve_page_box(
+            super::layout::Zoom::FitWidth,
+            width_pt,
+            height_pt,
+            f64::from(fit.available_width / fit.scale_factor as u32),
+            f64::from(fit.scale_factor),
+        );
         slots.push(PageSlot {
+            overlay,
             picture,
             width_pt,
             height_pt,
             state: PageState::Idle,
+            target_dpi: box_.base_dpi,
+            budget: box_.budget(),
+            tiles: HashMap::new(),
+            tile_dpi: 0,
+            tile_generation: 0,
+            tile_failed_dpi: 0,
         });
         page_heights.push(logical_height);
     }
@@ -208,6 +227,9 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         next_search_id: 0,
         active: HashMap::new(),
         next_render_id: 0,
+        zoom: super::layout::Zoom::FitWidth,
+        zoom_generation: 0,
+        active_tiles: HashMap::new(),
     });
     // A new document invalidates the previous document's matches.
     update_search_controls(viewer);
