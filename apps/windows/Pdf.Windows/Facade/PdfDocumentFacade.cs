@@ -113,6 +113,35 @@ public sealed class PdfDocumentFacade : IDisposable
     }
 
     /// <summary>
+    /// Renders every tile covering the viewport on one page, as a single core
+    /// call.
+    ///
+    /// Tile batches run in their own lane, not the page's full-page render
+    /// slot: the two describe different things about the same page, and making
+    /// them supersede each other would mean a page could never hold both a
+    /// coarse base bitmap and sharp tiles over it. A newer batch for the same
+    /// page still discards the older one — a new batch means the viewport
+    /// moved, so the old one is answering a question nobody is asking.
+    /// </summary>
+    public Task<TileBatchResult> RenderPageTilesAsync(string sessionId, uint pageIndex, uint dpi, IReadOnlyList<PageRegion> tiles, bool invertContentColors)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(TileBatchResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "render_tiles", sessionId, pageIndex)));
+            }
+
+            if (tiles.Count == 0)
+            {
+                return Task.FromResult(TileBatchResult.Success([]));
+            }
+
+            return QueueTileBatchLocked(session, pageIndex, dpi, tiles, invertContentColors);
+        }
+    }
+
+    /// <summary>
     /// Renders one page at print quality, deliberately independent of the
     /// coalesced viewer render queue so a scrolling page cannot supersede it.
     /// Callers render a document one page at a time and release each page's
@@ -366,6 +395,85 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+    private Task<TileBatchResult> QueueTileBatchLocked(SessionEntry session, uint pageIndex, uint dpi, IReadOnlyList<PageRegion> tiles, bool invertContentColors)
+    {
+        var page = session.GetPage(pageIndex);
+        var request = new TileBatchRequest(++page.TileSequence, dpi, invertContentColors, tiles, new TaskCompletionSource<TileBatchResult>(TaskCreationOptions.RunContinuationsAsynchronously));
+        page.PendingTiles?.Completion.TrySetResult(TileBatchResult.Discarded());
+        page.PendingTiles = request;
+        if (!page.TileDispatchScheduled)
+        {
+            page.TileDispatchScheduled = true;
+            _ = DispatchTileBatchAsync(session, pageIndex, page);
+        }
+
+        return request.Completion.Task;
+    }
+
+    private async Task DispatchTileBatchAsync(SessionEntry session, uint pageIndex, PageRenderState page)
+    {
+        await Task.Yield();
+
+        TileBatchRequest request;
+        lock (_gate)
+        {
+            if (_currentSession != session || page.PendingTiles is null)
+            {
+                page.PendingTiles?.Completion.TrySetResult(TileBatchResult.Discarded());
+                page.PendingTiles = null;
+                page.TileDispatchScheduled = false;
+                return;
+            }
+
+            request = page.PendingTiles;
+            page.PendingTiles = null;
+            session.InFlightRenders++;
+        }
+
+        TileBatchResult result;
+        try
+        {
+            var bitmaps = await Task.Run(() => _core.RenderPageTiles(session.Document, pageIndex, request.Dpi, request.Tiles, request.InvertContentColors)).ConfigureAwait(false);
+            result = TileBatchResult.Success([.. bitmaps.Select(bitmap => new RenderedPage(session.Id, pageIndex, request.Sequence, bitmap.Width, bitmap.Height, bitmap.Stride, bitmap.Rgba))]);
+        }
+        catch (PdfCoreException error)
+        {
+            result = TileBatchResult.Failure(MapError(error, "render_tiles", session.Id, pageIndex));
+        }
+        catch (Exception error)
+        {
+            result = TileBatchResult.Failure(MapUnexpected(error, "render_tiles", session.Id, pageIndex));
+        }
+
+        lock (_gate)
+        {
+            session.InFlightRenders--;
+            if (session.Retired)
+            {
+                page.TileDispatchScheduled = false;
+                if (session.HasNoInFlightOperations)
+                {
+                    session.Dispose();
+                }
+
+                request.Completion.TrySetResult(TileBatchResult.Discarded());
+                return;
+            }
+
+            var stillCurrent = _currentSession == session && page.TileSequence == request.Sequence;
+            request.Completion.TrySetResult(stillCurrent ? result : TileBatchResult.Discarded());
+
+            if (page.PendingTiles is not null)
+            {
+                _ = DispatchTileBatchAsync(session, pageIndex, page);
+            }
+            else
+            {
+                page.TileDispatchScheduled = false;
+            }
+        }
+    }
+
     private async Task<RenderResult> RenderPageForPrintAsync(SessionEntry session, uint pageIndex, uint dpi, bool invertContentColors)
     {
         RenderResult result;
@@ -463,6 +571,8 @@ public sealed class PdfDocumentFacade : IDisposable
             {
                 page.Pending?.Completion.TrySetResult(RenderResult.Discarded());
                 page.Pending = null;
+                page.PendingTiles?.Completion.TrySetResult(TileBatchResult.Discarded());
+                page.PendingTiles = null;
             }
         }
 
@@ -499,9 +609,15 @@ public sealed class PdfDocumentFacade : IDisposable
         public ulong Sequence { get; set; }
         public bool DispatchScheduled { get; set; }
         public RenderRequest? Pending { get; set; }
+        /// <summary>Tile batches are sequenced apart from full-page renders — see <c>RenderPageTilesAsync</c>.</summary>
+        public ulong TileSequence { get; set; }
+        public bool TileDispatchScheduled { get; set; }
+        public TileBatchRequest? PendingTiles { get; set; }
     }
 
     private sealed record RenderRequest(ulong Sequence, uint Dpi, bool InvertContentColors, TaskCompletionSource<RenderResult> Completion);
+
+    private sealed record TileBatchRequest(ulong Sequence, uint Dpi, bool InvertContentColors, IReadOnlyList<PageRegion> Tiles, TaskCompletionSource<TileBatchResult> Completion);
     private sealed class SearchState
     {
         public ulong Sequence { get; set; }

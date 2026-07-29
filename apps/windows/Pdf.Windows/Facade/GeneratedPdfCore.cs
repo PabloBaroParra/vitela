@@ -45,6 +45,41 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
+    public IReadOnlyList<PdfCoreBitmap> RenderPageTiles(IPdfCoreDocument document, uint pageIndex, uint dpi, IReadOnlyList<PageRegion> tiles, bool invertContentColors)
+    {
+        try
+        {
+            var generated = ((GeneratedDocument)document).Handle;
+            var requested = tiles.Select(tile => new FfiRenderTile(tile.LeftPx, tile.TopPx, tile.WidthPx, tile.HeightPx)).ToArray();
+            var bitmaps = PdfFfiMethods.RenderPageTiles(generated, pageIndex, dpi, requested, new FfiRenderOptions(invertContentColors));
+            var copied = new List<PdfCoreBitmap>(bitmaps.Length);
+            try
+            {
+                foreach (var bitmap in bitmaps)
+                {
+                    var width = bitmap.Width();
+                    var height = bitmap.Height();
+                    copied.Add(new PdfCoreBitmap(width, height, width * 4, PdfBitmapRows.TightlyPacked(bitmap.GetPixels(), width, height, bitmap.Stride())));
+                }
+            }
+            finally
+            {
+                // Every handle in the batch owns a core-side registry entry, so
+                // they are released even when a later tile's copy throws.
+                foreach (var bitmap in bitmaps)
+                {
+                    bitmap.Dispose();
+                }
+            }
+
+            return copied;
+        }
+        catch (FfiException error)
+        {
+            throw Translate(error);
+        }
+    }
+
     public IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query)
     {
         try

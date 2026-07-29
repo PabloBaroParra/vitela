@@ -10,6 +10,11 @@
             <Button x:Name="PrintButton" Click="PrintButton_Click">Print</Button>
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
+            <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
+            <TextBlock x:Name="ZoomLevel" VerticalAlignment="Center" MinWidth="110" />
+            <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" ToolTipService.ToolTip="Zoom in">&#x002B;</Button>
+            <Button x:Name="FitWidthButton" Click="FitWidthButton_Click">Fit width</Button>
+            <Button x:Name="FitPageButton" Click="FitPageButton_Click">Fit page</Button>
             <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" />
             <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
             <TextBlock x:Name="PrintStatus" VerticalAlignment="Center" TextWrapping="Wrap" />
@@ -17,7 +22,10 @@
 
         <Grid Grid.Row="1" ColumnSpacing="16" ColumnDefinitions="*,260">
             <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="2" IsActive="False" Visibility="Collapsed" />
-            <TextBlock x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Text="Open a PDF to begin, or try the built-in sample." />
+            <StackPanel x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
+                <TextBlock x:Name="EmptyStateMessage" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="Open a PDF to begin, or try the built-in sample." />
+            </StackPanel>
             <TextBlock x:Name="ErrorState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
             <ScrollViewer
                 x:Name="PageScroller"

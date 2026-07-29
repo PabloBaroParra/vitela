@@ -122,8 +122,16 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
 **Dependencias:** B7 ✓ + T-010 spike uniffi-bindgen-cs = GO ✓. Paralelo con B9.
 
 ### Tareas
-- [ ] T-060 App WinUI3 vía bindings C# de uniffi-bindgen-cs; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
-      **(2026-07-19 — parcial: abrir/render multipágina + scroll continuo hechos; zoom pendiente)**
+- [x] T-060 App WinUI3 vía bindings C# de uniffi-bindgen-cs; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
+      **(2026-07-28 — completo: zoom fit-width/fit-page/custom en `Pdf.Windows/Viewer/PageZoom.cs`,
+      con escalera de pasos, techo de píxeles por página y anclaje del scroll al recomponer.
+      La matemática es WinUI-free y está cubierta por 9 tests de la suite de facade)**
+      **(2026-07-29 — zoom profundo por tiles: `Viewer/ViewportTilePlan.cs` ancla los tiles
+      a una grilla fija en el espacio de píxeles de la página, `pdf_render::render_page_tiles`
+      rasteriza todo el viewport en un solo job del actor con la página cargada una vez, y
+      `PageZoom.BridgeDpi` le da a la página tileada un bitmap base puente (2 MP) en lugar de
+      dejarla con el render del zoom anterior. Carril propio para los lotes de tiles en
+      `PdfDocumentFacade`, para que no se cancelen contra el render de página completa)**
 - [ ] T-061 Prompt de contraseña, selección/búsqueda, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
       **(2026-07-19 — parcial: prompt de contraseña + búsqueda con matches navegables hechos; anotaciones + undo/redo pendientes)**
 - [x] T-062 PrintDocument vía render_page. [Print]
@@ -143,6 +151,14 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
   (ver spikes/uniffi-cs/README.md).
 - El round-trip de buffers ≥8MB cuesta ~20ms de marshaling (p50, hardware real del spike),
   NO "single-digit ms": presupuestarlo en el render loop (~1.5% del budget de 1.5s).
+- Cargar una página NO es gratis: `document.pages().get()` es un `FPDF_LoadPage` que parsea
+  el content stream. En una página con mucho texto a zoom profundo eso cuesta más que
+  rasterizar un tile, así que los tiles de un viewport van SIEMPRE en un solo job del actor
+  (`render_page_tiles`) — pedirlos de a uno paga el parseo N veces.
+- El shell WinUI no compila con `dotnet build`: las tareas de empaquetado PRI que necesita
+  solo las carga el MSBuild de Visual Studio (la CI lo resuelve con `vswhere`, ver
+  windows.yml). Además el build falla con MSB3021/MSB3027 si hay una instancia de la app
+  abierta bloqueando `bin/`.
 
 ---
 

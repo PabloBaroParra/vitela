@@ -5,7 +5,8 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
 use pdfium_render::prelude::{
-    PdfPageRenderRotation, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError,
+    PdfBitmap, PdfBitmapFormat, PdfPageRenderRotation, PdfRenderConfig, Pdfium, PdfiumError,
+    PdfiumInternalError,
 };
 
 use crate::actor::{Actor, JobHandle};
@@ -13,7 +14,7 @@ use crate::bitmap::{Bitmap, BitmapHandle};
 use crate::error::RenderError;
 use crate::inversion::invert_rgba_in_place;
 use crate::library::resolve_library_path;
-use crate::options::{Priority, Rect, RenderOptions};
+use crate::options::{Priority, Rect, RenderOptions, Tile};
 use crate::state::{DocHandle, PdfiumState};
 use crate::text::{collect_text_runs, find_matches, TextMatch, TextRun};
 
@@ -193,6 +194,38 @@ impl PdfiumRenderer {
         }
     }
 
+    /// Renders several bounded, output-pixel-aligned tiles of one page in a
+    /// single actor job, in the order given. Each `tile` uses the same
+    /// top-left pixel space as a normal render at `dpi`, including pdfium's
+    /// CropBox and page rotation handling, and no full-page bitmap is
+    /// allocated.
+    ///
+    /// This exists because loading a page is not free: pdfium parses the
+    /// page's content stream on `FPDF_LoadPage`, and on a text-heavy page at
+    /// deep zoom that parse costs more than rasterizing one tile. Requesting
+    /// tiles one at a time pays it once per tile *and* forces a full
+    /// submit/wait round-trip between them; batching pays it once for the
+    /// whole viewport.
+    ///
+    /// Every tile must lie inside the page at `dpi` — a batch fails as a unit
+    /// rather than returning a partially filled viewport.
+    pub fn render_page_tiles(
+        &self,
+        doc: DocumentHandle,
+        page_index: u32,
+        dpi: u32,
+        tiles: Vec<Tile>,
+        options: RenderOptions,
+        priority: Priority,
+    ) -> JobHandle<Vec<BitmapHandle>> {
+        match global_actor() {
+            Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
+                render_page_tiles_job(state, doc, page_index, dpi, &tiles, options)
+            }),
+            Err(error) => JobHandle::failed(error),
+        }
+    }
+
     /// Queries a page's size in PDF points without rasterizing it — the
     /// cheap preflight shells need to compute a fit-to-width DPI before the
     /// one real `render_page` call.
@@ -334,6 +367,92 @@ fn render_page_job(
     }))
 }
 
+fn render_page_tiles_job(
+    state: &mut PdfiumState,
+    doc: DocHandle,
+    page_index: u32,
+    dpi: u32,
+    tiles: &[Tile],
+    options: RenderOptions,
+) -> Result<Vec<BitmapHandle>, RenderError> {
+    let document = state
+        .documents
+        .get(&doc.0)
+        .ok_or(RenderError::DocumentNotFound)?;
+    // Loaded once and held across every tile: this is the whole point of the
+    // batch. `pages().get()` is an `FPDF_LoadPage`, which parses the content
+    // stream — repeating it per tile is what made deep zoom crawl.
+    let page = document
+        .pages()
+        .get(page_index as i32)
+        .map_err(|_| RenderError::PageIndexOutOfBounds(page_index))?;
+    let scale = dpi as f32 / 72.0;
+    let full_width = (page.width().value * scale).round().max(1.0) as i32;
+    let full_height = (page.height().value * scale).round().max(1.0) as i32;
+
+    let mut handles = Vec::with_capacity(tiles.len());
+    for tile in tiles {
+        let (left, top, tile_width, tile_height) = tile_bounds(*tile, full_width, full_height)?;
+        ensure_raster_within_limits(tile_width, tile_height)?;
+
+        // Pdfium-render's origin contract is explicitly stitchable: render the
+        // full page transform into the tile-sized destination at a negative
+        // offset.
+        let config = PdfRenderConfig::new()
+            .set_fixed_size(full_width, full_height)
+            .set_origin(-left, -top);
+        let mut bitmap = PdfBitmap::empty(tile_width, tile_height, PdfBitmapFormat::default())
+            .map_err(|error| RenderError::RenderFailed(error.to_string()))?;
+        page.render_into_bitmap_with_config(&mut bitmap, &config)
+            .map_err(|error| RenderError::RenderFailed(error.to_string()))?;
+
+        let width = bitmap.width() as u32;
+        let height = bitmap.height() as u32;
+        let mut pixels = bitmap.as_rgba_bytes();
+        if options.invert_content_colors {
+            invert_rgba_in_place(&mut pixels);
+        }
+        handles.push(state.bitmaps.insert(Bitmap {
+            width,
+            height,
+            stride: width * 4,
+            pixels,
+        }));
+    }
+
+    Ok(handles)
+}
+
+/// Validates one tile against the page's raster size, returning it as
+/// `(left, top, width, height)` in signed output pixels.
+fn tile_bounds(
+    tile: Tile,
+    full_width: i32,
+    full_height: i32,
+) -> Result<(i32, i32, i32, i32), RenderError> {
+    let tile_width = i32::try_from(tile.width)
+        .map_err(|_| RenderError::RenderFailed("tile width exceeds i32".to_string()))?;
+    let tile_height = i32::try_from(tile.height)
+        .map_err(|_| RenderError::RenderFailed("tile height exceeds i32".to_string()))?;
+    let left = i32::try_from(tile.left)
+        .map_err(|_| RenderError::RenderFailed("tile left exceeds i32".to_string()))?;
+    let top = i32::try_from(tile.top)
+        .map_err(|_| RenderError::RenderFailed("tile top exceeds i32".to_string()))?;
+    if tile_width <= 0
+        || tile_height <= 0
+        || left < 0
+        || top < 0
+        || left.saturating_add(tile_width) > full_width
+        || top.saturating_add(tile_height) > full_height
+    {
+        return Err(RenderError::RenderFailed(
+            "tile lies outside the rendered page".to_string(),
+        ));
+    }
+
+    Ok((left, top, tile_width, tile_height))
+}
+
 fn text_runs_job(
     state: &mut PdfiumState,
     doc: DocHandle,
@@ -445,5 +564,46 @@ mod tests {
             ensure_raster_within_limits(600, 30_000_000),
             Err(RenderError::RenderFailed(_))
         ));
+    }
+
+    #[test]
+    fn tile_raster_limit_accepts_a_one_megapixel_tile() {
+        assert!(ensure_raster_within_limits(1024, 1024).is_ok());
+    }
+
+    #[test]
+    fn tile_bounds_accepts_a_grid_cell_clipped_by_the_page() {
+        let tile = Tile {
+            left: 1024,
+            top: 2048,
+            width: 300,
+            height: 1024,
+        };
+        assert_eq!(
+            tile_bounds(tile, 1324, 4096).unwrap(),
+            (1024, 2048, 300, 1024)
+        );
+    }
+
+    #[test]
+    fn tile_bounds_rejects_a_tile_past_the_page_edge() {
+        let tile = Tile {
+            left: 1024,
+            top: 0,
+            width: 1024,
+            height: 512,
+        };
+        assert!(tile_bounds(tile, 1500, 512).is_err());
+    }
+
+    #[test]
+    fn tile_bounds_rejects_an_empty_tile() {
+        let tile = Tile {
+            left: 0,
+            top: 0,
+            width: 0,
+            height: 512,
+        };
+        assert!(tile_bounds(tile, 1024, 1024).is_err());
     }
 }

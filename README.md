@@ -138,7 +138,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Built-in sample document | ✅ | ✅ | — | ✅ | — |
 | Password-protected PDF | ✅ | — | — | 🚧 | — |
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Fit-to-width rendering | ✅ | — | — | 🚧 | — |
+| Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | — | — | — | — | — |

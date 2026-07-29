@@ -32,6 +32,7 @@ These are **proposed facade methods**, not additions to `pdf-ffi`.
 | `CreateBlank(request)` | `create_blank_document(pageSize, orientation)` | Create an empty session and publish empty UI state. |
 | `GetSession(sessionId)` | `DocumentHandle.page_count()` | Return facade-owned session metadata, never the raw handle. |
 | `RenderPage(request)` | `render_page`, bitmap metadata, `get_pixels` | Dispatch off the UI thread, materialize a UI bitmap DTO, discard stale results. |
+| `RenderPageTiles(request)` | `render_page_tiles`, bitmap metadata, `get_pixels` | Dispatch one batch per page off the UI thread, materialize a UI bitmap DTO per tile, discard stale batches. Runs in its own lane, so a tile batch and the page's full-page render never supersede each other. |
 | `Search(request)` | `DocumentHandle.search(query)` | Dispatch off the UI thread, translate page-space matches, and discard stale query results. |
 | `ApplyEdit(request)` / `InsertImageStamp(request)` | `apply_edit` / `insert_image_stamp` | Translate validated UI commands to FFI DTOs; mark session render state stale. |
 | `Undo(sessionId)` / `Redo(sessionId)` | `undo` / `redo` | Return whether state changed and refresh session metadata. |
@@ -39,6 +40,8 @@ These are **proposed facade methods**, not additions to `pdf-ffi`.
 | `ReopenSaved(sessionId, bytes, credentials)` | `open_from_bytes` or `open_with_passwords_from_bytes` | Replace the session handle so rendering reflects saved edits. |
 
 Path-based FFI helpers are not the Windows contract. The facade uses the bytes-based open/save operations, which are the canonical cross-platform entry points.
+
+Deep-zoom tiles are a batch-only FFI capability: `render_page_tiles` takes the whole set of tiles covering a viewport, and there is no single-tile export. A single tile is that call with a one-element list. The short-lived `render_page_tile` export was removed once the batch landed — it delegated to the batch with a one-element slice, so keeping it meant maintaining a second public FFI signature, its generated binding, and its facade method for a capability the batch already covered. Any shell needing one tile calls `render_page_tiles`.
 
 Evidence: [`core/pdf-ffi/src/document.rs`](../../core/pdf-ffi/src/document.rs), [`core/pdf-ffi/src/types.rs`](../../core/pdf-ffi/src/types.rs).
 
