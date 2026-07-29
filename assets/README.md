@@ -25,7 +25,7 @@ image: pdfium's text extraction backs the search feature, and the word
 `vellum` appears on every page so "next/previous match" has something to step
 through out of the box.
 
-## Regenerating
+### Regenerating
 
 The file is generated, not hand-authored. Output is byte-reproducible — a run
 on an unchanged tree leaves `git status` clean:
@@ -38,3 +38,20 @@ The generator lives in [`tools/gen-sample/`](../tools/gen-sample). Its
 integration test (`tests/committed_sample.rs`) fails if the committed file
 drifts from the generator, or stops opening through `pdf-manip`, so a stale
 sample cannot reach three platforms unnoticed.
+
+## brand/ — the application mark
+
+`brand/vitela-app-mark.svg` and `brand/vitela-app-mark-dark.svg` are the
+isotype a shell shows in the page area while no document is open. Two files
+rather than one tinted at runtime: the navy reads on a light theme and
+vanishes on a dark one, and the paths carry a literal fill rather than
+`currentColor`, which neither shell's SVG pipeline would resolve anyway.
+
+Unlike the sample, these are hand-authored — there is no generator to re-run.
+
+| Shell | How it is packaged | How it is drawn |
+| ----- | ------------------ | --------------- |
+| Linux (GTK4) | `include_bytes!` at compile time (`apps/linux-gtk/src/app/brand.rs`) | rasterised through gdk-pixbuf's SVG loader into a `GdkTexture`, overlaid on the scroller |
+| Windows (WinUI 3) | `None` items copied to `Assets\` beside the executable (`Pdf.Windows.csproj`) | `SvgImageSource` picked per theme in `App.xaml` |
+
+The Android shell does not show the mark yet.

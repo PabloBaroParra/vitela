@@ -28,6 +28,9 @@ pub(crate) enum DocumentSource {
 pub(crate) struct Viewer {
     pub(crate) scroll: ScrolledWindow,
     pub(crate) pages: GtkBox,
+    /// Brand mark overlaid on the page area. Visible exactly while there is
+    /// nothing to show — see `brand::build_app_mark`.
+    pub(crate) app_mark: Picture,
     pub(crate) status: Label,
     pub(crate) search_entry: Entry,
     pub(crate) find_previous: Button,
