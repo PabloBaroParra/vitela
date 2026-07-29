@@ -23,7 +23,7 @@ use gtk::{
 };
 
 use document::{open_sample, show_file_chooser};
-use layout::refresh_layout;
+use layout::{refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
 use search::{run_search, step_match};
@@ -70,6 +70,9 @@ fn build_ui(application: &Application) {
 
     let print_button = Button::with_label("Print");
     print_button.set_sensitive(false);
+    let zoom_out = Button::with_label("Zoom out");
+    let fit_width = Button::with_label("Fit width");
+    let zoom_in = Button::with_label("Zoom in");
 
     let toolbar = GtkBox::new(Orientation::Horizontal, 8);
     toolbar.append(&open_button);
@@ -77,6 +80,9 @@ fn build_ui(application: &Application) {
     toolbar.append(&search_entry);
     toolbar.append(&find_previous);
     toolbar.append(&find_next);
+    toolbar.append(&zoom_out);
+    toolbar.append(&fit_width);
+    toolbar.append(&zoom_in);
     toolbar.append(&print_button);
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
@@ -112,6 +118,18 @@ fn build_ui(application: &Application) {
     };
     connect_viewport_updates(&viewer);
     connect_search(&viewer);
+    zoom_out.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| step_zoom(&viewer, false)
+    });
+    zoom_in.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| step_zoom(&viewer, true)
+    });
+    fit_width.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| set_zoom(&viewer, Zoom::FitWidth)
+    });
     viewer.print_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
@@ -135,6 +153,42 @@ fn build_ui(application: &Application) {
     });
 
     window.present();
+}
+
+fn step_zoom(viewer: &Viewer, increase: bool) {
+    const LADDER: [f64; 12] = [
+        0.10, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00, 6.00, 8.00,
+    ];
+    let current = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| {
+            // Under FitWidth every page carries a factor derived from its own
+            // width, so the ladder has to step from the page on screen rather
+            // than from page 0, which may be a different size entirely.
+            let anchor = session.last_visible.map_or(0, |(first, _)| first);
+            session
+                .pages
+                .get(anchor)
+                .or_else(|| session.pages.first())
+                .map(|page| page.budget.factor)
+        })
+        .unwrap_or(1.0);
+    let factor = if increase {
+        LADDER
+            .into_iter()
+            .find(|rung| *rung > current + 1e-9)
+            .unwrap_or(8.0)
+    } else {
+        LADDER
+            .into_iter()
+            .rev()
+            .find(|rung| *rung < current - 1e-9)
+            .unwrap_or(0.10)
+    };
+    set_zoom(viewer, Zoom::Custom(factor));
 }
 
 fn connect_search(viewer: &Viewer) {
