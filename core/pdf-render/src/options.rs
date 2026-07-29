@@ -36,6 +36,17 @@ pub struct Rect {
     pub bottom: f32,
 }
 
+/// A bounded rectangle in the page's rendered top-left pixel coordinate
+/// space. Unlike [`Rect`], this is already quantized to output pixels so
+/// neighboring tiles share exact edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tile {
+    pub left: u32,
+    pub top: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 impl Rect {
     pub fn width(&self) -> f32 {
         self.right - self.left
@@ -88,5 +99,16 @@ mod tests {
         };
         assert_eq!(rect.width(), 100.0);
         assert_eq!(rect.height(), 200.0);
+    }
+
+    #[test]
+    fn tile_keeps_integer_output_edges() {
+        let tile = Tile {
+            left: 1024,
+            top: 0,
+            width: 1024,
+            height: 768,
+        };
+        assert_eq!(tile.left + tile.width, 2048);
     }
 }

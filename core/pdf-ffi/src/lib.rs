@@ -39,13 +39,13 @@ mod types;
 pub use bitmap::BitmapHandle;
 pub use document::{
     apply_edit, create_blank_document, insert_image_stamp, open, open_from_bytes,
-    open_with_passwords, open_with_passwords_from_bytes, redo, render_page, save_to_bytes,
-    save_to_path, undo, DocumentHandle,
+    open_with_passwords, open_with_passwords_from_bytes, redo, render_page, render_page_tile,
+    render_page_tiles, save_to_bytes, save_to_path, undo, DocumentHandle,
 };
 pub use error::FfiError;
 pub use types::{
     FfiColor, FfiEditCommand, FfiOrientation, FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect,
-    FfiRenderOptions, FfiSaveIntent, FfiSearchResult, FfiTextRect, FfiTextRun,
+    FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiTextRect, FfiTextRun,
 };
 
 uniffi::setup_scaffolding!();

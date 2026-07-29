@@ -180,6 +180,26 @@ pub struct FfiRenderOptions {
     pub invert_content_colors: bool,
 }
 
+/// A bounded page tile in the output pixel coordinate space at the requested DPI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct FfiRenderTile {
+    pub left_px: u32,
+    pub top_px: u32,
+    pub width_px: u32,
+    pub height_px: u32,
+}
+
+impl From<FfiRenderTile> for pdf_render::Tile {
+    fn from(tile: FfiRenderTile) -> Self {
+        Self {
+            left: tile.left_px,
+            top: tile.top_px,
+            width: tile.width_px,
+            height: tile.height_px,
+        }
+    }
+}
+
 impl From<FfiRenderOptions> for pdf_render::RenderOptions {
     fn from(options: FfiRenderOptions) -> Self {
         pdf_render::RenderOptions {

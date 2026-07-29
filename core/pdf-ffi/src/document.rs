@@ -42,7 +42,7 @@ use pdf_manip::LopdfDocument;
 use crate::error::FfiError;
 use crate::types::{
     FfiEditCommand, FfiOrientation, FfiPageDimensions, FfiPageSize, FfiRect, FfiRenderOptions,
-    FfiSaveIntent, FfiSearchResult, FfiTextRun,
+    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -476,6 +476,62 @@ pub fn render_page(
         .wait()?;
 
     Ok(Arc::new(BitmapHandle::new(bitmap)))
+}
+
+/// Renders one bounded output-pixel page tile at `dpi`. Tile coordinates are
+/// top-left aligned in the same output space as a full-page render.
+#[uniffi::export]
+pub fn render_page_tile(
+    handle: &DocumentHandle,
+    page_index: u32,
+    dpi: u32,
+    tile: FfiRenderTile,
+    options: FfiRenderOptions,
+) -> Result<Arc<BitmapHandle>, FfiError> {
+    let render_doc = handle.lock().render_doc.ok_or(FfiError::DocumentNotFound)?;
+    let bitmap = pdf_render::PdfiumRenderer::new()
+        .render_page_tile(
+            render_doc,
+            page_index,
+            dpi,
+            tile.into(),
+            options.into(),
+            pdf_render::Priority::Visible,
+        )
+        .wait()?;
+    Ok(Arc::new(BitmapHandle::new(bitmap)))
+}
+
+/// Renders every tile of one page in a single call, in the order given.
+///
+/// A viewer at deep zoom needs several tiles to cover one screen. Asking for
+/// them one at a time reloads (and re-parses) the page per tile and pays a
+/// full FFI round-trip between them; this loads the page once and returns the
+/// whole set. The batch fails as a unit — a half-covered viewport is not a
+/// useful result.
+#[uniffi::export]
+pub fn render_page_tiles(
+    handle: &DocumentHandle,
+    page_index: u32,
+    dpi: u32,
+    tiles: Vec<FfiRenderTile>,
+    options: FfiRenderOptions,
+) -> Result<Vec<Arc<BitmapHandle>>, FfiError> {
+    let render_doc = handle.lock().render_doc.ok_or(FfiError::DocumentNotFound)?;
+    let bitmaps = pdf_render::PdfiumRenderer::new()
+        .render_page_tiles(
+            render_doc,
+            page_index,
+            dpi,
+            tiles.into_iter().map(Into::into).collect(),
+            options.into(),
+            pdf_render::Priority::Visible,
+        )
+        .wait()?;
+    Ok(bitmaps
+        .into_iter()
+        .map(|bitmap| Arc::new(BitmapHandle::new(bitmap)))
+        .collect())
 }
 
 /// Applies a single undoable edit command to `handle`'s in-memory document
