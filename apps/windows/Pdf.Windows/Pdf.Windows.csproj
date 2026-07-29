@@ -31,4 +31,19 @@
   <ItemGroup>
     <None Include="..\..\..\assets\sample\vitela-sample.pdf" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-sample.pdf" />
   </ItemGroup>
+
+  <!--
+    Brand mark, one file per theme. The navy reads on the light theme and
+    vanishes on the dark one, so App.xaml swaps them through a
+    ThemeDictionaries entry rather than tinting at runtime: SvgImageSource
+    rasterises the file as authored and honours neither currentColor nor
+    ThemeResource, so the fill has to be baked per variant.
+
+    Copied to output like the sample above — same reason, this shell is
+    unpackaged and loads them off disk next to the executable.
+  -->
+  <ItemGroup>
+    <None Include="Assets\vitela-app-mark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark.svg" />
+    <None Include="Assets\vitela-app-mark-dark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark-dark.svg" />
+  </ItemGroup>
 </Project>

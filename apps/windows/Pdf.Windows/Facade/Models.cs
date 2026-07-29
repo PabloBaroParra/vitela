@@ -15,6 +15,9 @@ public enum DocumentSessionState
 
 public sealed record RenderedPage(string SessionId, uint PageIndex, ulong Sequence, uint Width, uint Height, uint Stride, byte[] Rgba);
 
+/// <summary>A top-left page pixel rectangle at the render DPI.</summary>
+public sealed record PageRegion(uint LeftPx, uint TopPx, uint WidthPx, uint HeightPx);
+
 /// <summary>PDF-space geometry with a bottom-left origin, in points.</summary>
 public sealed record SearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
 
@@ -51,6 +54,23 @@ public sealed record RenderResult(RenderedPage? Value, UserSafeError? Error, boo
     public static RenderResult Discarded() => new(null, null, false, true);
 
     public static RenderResult Failure(UserSafeError error) => new(null, error, false, false);
+}
+
+/// <summary>
+/// The result of one viewport-covering tile batch. A batch succeeds or fails
+/// whole: a half-covered viewport is worse than none, because the reader would
+/// see sharp text next to the stretched base bitmap with no way to tell the
+/// difference from a rendering bug.
+/// </summary>
+public sealed record TileBatchResult(IReadOnlyList<RenderedPage>? Value, UserSafeError? Error, bool IsDiscarded)
+{
+    public bool IsSuccess => Error is null && !IsDiscarded;
+
+    public static TileBatchResult Success(IReadOnlyList<RenderedPage> value) => new(value, null, false);
+
+    public static TileBatchResult Discarded() => new(null, null, true);
+
+    public static TileBatchResult Failure(UserSafeError error) => new(null, error, false);
 }
 
 public sealed record SearchResult(SearchResults? Value, UserSafeError? Error, bool IsDiscarded)
