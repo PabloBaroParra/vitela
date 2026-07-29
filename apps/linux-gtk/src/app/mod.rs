@@ -6,6 +6,7 @@
 //! reads geometry from `layout`, and `print` reuses `render`'s rasterizer.
 //! Cyclic references between sibling modules are fine — it is all one crate.
 
+mod brand;
 mod document;
 mod layout;
 mod print;
@@ -19,9 +20,10 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     glib, Application, ApplicationWindow, Box as GtkBox, Button, Entry, FileChooserNative, Label,
-    Orientation, ScrolledWindow,
+    Orientation, Overlay, ScrolledWindow,
 };
 
+use brand::build_app_mark;
 use document::{open_sample, show_file_chooser};
 use layout::{refresh_layout, set_zoom, Zoom};
 use print::print_document;
@@ -93,6 +95,15 @@ fn build_ui(application: &Application) {
         .child(&pages)
         .build();
 
+    // The mark rides above the scroller instead of replacing it, so the view
+    // keeps its allocation while the empty state is up: the fit width the
+    // layout module measures from `scroll` is right on the first paint of a
+    // document rather than one resize behind it.
+    let app_mark = build_app_mark();
+    let page_area = Overlay::new();
+    page_area.set_child(Some(&scroll));
+    page_area.add_overlay(&app_mark);
+
     let content = GtkBox::new(Orientation::Vertical, 8);
     content.set_margin_top(12);
     content.set_margin_bottom(12);
@@ -100,12 +111,13 @@ fn build_ui(application: &Application) {
     content.set_margin_end(12);
     content.append(&toolbar);
     content.append(&status);
-    content.append(&scroll);
+    content.append(&page_area);
     window.set_child(Some(&content));
 
     let viewer = Viewer {
         scroll,
         pages,
+        app_mark,
         status,
         search_entry,
         find_previous,

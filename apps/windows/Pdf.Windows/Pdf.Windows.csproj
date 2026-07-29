@@ -39,11 +39,13 @@
     rasterises the file as authored and honours neither currentColor nor
     ThemeResource, so the fill has to be baked per variant.
 
-    Copied to output like the sample above — same reason, this shell is
-    unpackaged and loads them off disk next to the executable.
+    Linked from the shared assets/ directory for the same reason as the sample
+    above — the GTK4 shell draws the same two files — and copied to output
+    because this shell is unpackaged and loads them off disk next to the
+    executable. TargetPath keeps them at Assets\, where App.xaml expects them.
   -->
   <ItemGroup>
-    <None Include="Assets\vitela-app-mark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark.svg" />
-    <None Include="Assets\vitela-app-mark-dark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark-dark.svg" />
+    <None Include="..\..\..\assets\brand\vitela-app-mark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark.svg" />
+    <None Include="..\..\..\assets\brand\vitela-app-mark-dark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark-dark.svg" />
   </ItemGroup>
 </Project>

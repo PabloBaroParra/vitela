@@ -234,6 +234,10 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     // A new document invalidates the previous document's matches.
     update_search_controls(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
+    // A document with no pages leaves the page area empty, so the mark stays
+    // up — the same call the WinUI shell makes when it re-shows its empty
+    // state for a pageless document.
+    viewer.app_mark.set_visible(page_count == 0);
     if page_count == 0 {
         viewer.status.set_text("The PDF contains no pages.");
     } else {
