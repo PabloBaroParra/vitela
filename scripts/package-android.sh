@@ -22,8 +22,69 @@ require_file() {
     [[ -f "$1" ]] || { echo "Missing $2: $1" >&2; exit 1; }
 }
 
+find_llvm_readelf() {
+    local ndk_home="${ANDROID_NDK_HOME:-}"
+    local candidate
+    local candidates=()
+
+    if [[ -z "$ndk_home" ]]; then
+        echo "ANDROID_NDK_HOME must point to an Android NDK containing llvm-readelf." >&2
+        exit 1
+    fi
+
+    shopt -s nullglob
+    candidates=(
+        "$ndk_home"/toolchains/llvm/prebuilt/*/bin/llvm-readelf
+        "$ndk_home"/toolchains/llvm/prebuilt/*/bin/llvm-readelf.exe
+    )
+    shopt -u nullglob
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -f "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+    done
+
+    echo "Could not find llvm-readelf under ANDROID_NDK_HOME: $ndk_home" >&2
+    echo "Expected toolchains/llvm/prebuilt/<host>/bin/llvm-readelf." >&2
+    exit 1
+}
+
+require_16kb_load_alignment() {
+    local library="$1"
+    local description="$2"
+    local alignment
+    local found_load=false
+    local all_loads_16kb_aligned=true
+    local load_alignments
+
+    require_file "$library" "$description"
+    load_alignments=$("$llvm_readelf" -lW "$library" | awk '$1 == "LOAD" { print $NF }')
+
+    while IFS= read -r alignment; do
+        [[ -n "$alignment" ]] || continue
+        found_load=true
+        if ! [[ "$alignment" =~ ^0[xX][0-9A-Fa-f]+$ ]] || ((16#${alignment:2} < 0x4000)); then
+            all_loads_16kb_aligned=false
+        fi
+    done <<< "$load_alignments"
+
+    if [[ "$found_load" != true || "$all_loads_16kb_aligned" != true ]]; then
+        echo "16-KB ELF alignment check failed for $description: $library" >&2
+        echo "Every Android native library must have a PT_LOAD alignment of at least 0x4000." >&2
+        echo "PT_LOAD segments reported by $llvm_readelf:" >&2
+        "$llvm_readelf" -lW "$library" | awk '$1 == "LOAD" { print }' >&2
+        echo "Rebuild this library with 16-KB page-size support before running Gradle." >&2
+        exit 1
+    fi
+
+    printf 'Verified 16-KB PT_LOAD alignment for %s: %s\n' "$description" "$library"
+}
+
 require_command cargo
 require_command cargo-ndk
+llvm_readelf="$(find_llvm_readelf)"
 
 for abi in "${abis[@]}"; do
     variable="PDFIUM_ANDROID_${abi^^}"
@@ -50,8 +111,12 @@ for abi in "${abis[@]}"; do
     cp "${!variable}" "$jni_root/$abi/libpdfium.so"
 done
 
+for abi in "${abis[@]}"; do
+    require_16kb_load_alignment "$jni_root/$abi/libpdf_ffi.so" "cargo-ndk libpdf_ffi.so for $abi"
+    require_16kb_load_alignment "$jni_root/$abi/libpdfium.so" "supplied libpdfium.so for $abi"
+done
+
 library="$jni_root/arm64-v8a/libpdf_ffi.so"
-require_file "$library" "cargo-ndk output"
 cargo run -p pdf-ffi --features bindgen --bin uniffi-bindgen -- generate --library "$library" --language kotlin --out-dir "$generated_root"
 
 adapter_root="$generated_root/dev/vitela/pdf/generated"
