@@ -268,10 +268,7 @@ Windows/C#). Paralelo con B9 y B10.
       página + invalidación por rotación; zoom custom por botones, con escalera discreta,
       re-render a DPI escalado, límite de píxeles y scroll horizontal, hecho; zoom fit-page
       y pinch siguen pendientes)**
-- [ ] T-085 Prompt de contraseña en apertura encriptada + manejo de error. [ui-android, PwdPDF]
-      **(2026-07-26 — parcial: diálogo de contraseña con reintento y mensaje de error
-      diferenciado; el diálogo todavía no se puede cancelar (`onDismissRequest` vacío y sin
-      botón de descarte), así que un cifrado sin contraseña conocida deja la app atrapada)**
+- [x] T-085 Prompt de contraseña en apertura encriptada + manejo de error. [ui-android, PwdPDF]
 - [ ] T-086 Selección de texto + búsqueda doc-wide con matches navegables. [ui-android, TextSelSearch]
       **(2026-07-26 — parcial: búsqueda doc-wide + matches navegables hechos; selección de
       texto pendiente — mismo estado que T-046 en GTK4)**

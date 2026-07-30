@@ -53,6 +53,7 @@ internal fun ViewerScreen(
     onPreviousMatch: () -> Unit,
     onNextMatch: () -> Unit,
     onPassword: (String) -> Unit,
+    onPasswordCancel: () -> Unit,
     onPrint: () -> Unit,
     onPositionChanged: (ReaderPosition) -> Unit,
     onScrollTargetConsumed: () -> Unit,
@@ -137,8 +138,9 @@ internal fun ViewerScreen(
     }
     if (state.needsPassword) {
         var passwordVisible by remember { mutableStateOf(false) }
+        val cancel = { onPasswordCancel(); password = "" }
         AlertDialog(
-            onDismissRequest = {},
+            onDismissRequest = cancel,
             title = { Text("Password required") },
             text = {
                 Column {
@@ -157,6 +159,7 @@ internal fun ViewerScreen(
                 }
             },
             confirmButton = { Button(onClick = { onPassword(password); password = "" }) { Text("Open") } },
+            dismissButton = { TextButton(onClick = cancel) { Text("Cancel") } },
         )
     }
 }

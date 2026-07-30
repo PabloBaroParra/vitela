@@ -93,6 +93,23 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         open(_state.value.title, bytes, password)
     }
 
+    /**
+     * Dismisses the password prompt without retrying. Without this, an
+     * encrypted PDF whose password is unknown had no way out of the prompt
+     * (T-085): [sourceBytes] is dropped so a stray retry cannot fire once the
+     * user has given up on it.
+     */
+    fun cancelPassword() {
+        if (!_state.value.needsPassword) return
+        sourceBytes = null
+        _state.value = _state.value.copy(
+            isLoading = false,
+            needsPassword = false,
+            passwordMessage = null,
+            status = "Password entry cancelled.",
+        )
+    }
+
     fun reportReadFailure() {
         _state.value = _state.value.copy(status = "Could not read the selected PDF.")
     }

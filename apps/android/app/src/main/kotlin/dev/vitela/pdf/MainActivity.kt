@@ -72,6 +72,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onPreviousMatch = { viewModel.stepSearch(-1) },
         onNextMatch = { viewModel.stepSearch(1) },
         onPassword = viewModel::retryPassword,
+        onPasswordCancel = viewModel::cancelPassword,
         onPrint = {
             viewModel.printBytes()?.let { bytes ->
                 (context.getSystemService(Context.PRINT_SERVICE) as PrintManager).print(state.title, PdfPrintDocumentAdapter(bytes, state.title), null)
