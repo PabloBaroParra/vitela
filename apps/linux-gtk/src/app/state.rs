@@ -149,4 +149,31 @@ impl FitRequest {
             scale_factor,
         }
     }
+
+    /// The same measurement expressed the way the layout math wants it:
+    /// logical pixels, with the display scale alongside.
+    pub(crate) fn viewport(self) -> Viewport {
+        let scale = self.scale_factor.max(1) as u32;
+        Viewport {
+            logical_width: f64::from(self.available_width / scale),
+            logical_height: f64::from(self.available_height / scale),
+            scale_factor: f64::from(self.scale_factor),
+        }
+    }
+}
+
+/// The area pages are fitted into, in logical pixels, plus the display scale
+/// their bitmaps are rasterised at.
+///
+/// These three travel together everywhere, so they travel as one value. Passed
+/// separately they were three bare `f64`s in a row at every call site, where
+/// nothing but argument order stops width and height being swapped — a
+/// mix-up the compiler cannot catch and that silently mis-fits every page. The
+/// Windows shell carries the same measurement in `ViewportSize` for the same
+/// reason.
+#[derive(Clone, Copy)]
+pub(crate) struct Viewport {
+    pub(crate) logical_width: f64,
+    pub(crate) logical_height: f64,
+    pub(crate) scale_factor: f64,
 }

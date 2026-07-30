@@ -5,7 +5,7 @@ use gtk::prelude::*;
 use gtk::Picture;
 
 use super::render::update_viewport;
-use super::state::{FitRequest, PageState, Viewer};
+use super::state::{FitRequest, PageState, Viewer, Viewport};
 use super::PAGE_GAP;
 
 pub(crate) const MIN_RENDER_DPI: u32 = 24;
@@ -85,10 +85,13 @@ pub(crate) fn resolve_page_box(
     zoom: Zoom,
     width_pt: f32,
     height_pt: f32,
-    available_logical_width: f64,
-    available_logical_height: f64,
-    scale_factor: f64,
+    viewport: Viewport,
 ) -> PageBox {
+    let Viewport {
+        logical_width: available_logical_width,
+        logical_height: available_logical_height,
+        scale_factor,
+    } = viewport;
     if !usable(width_pt) || !usable(height_pt) {
         return PageBox {
             logical_width: 1,
@@ -251,14 +254,7 @@ pub(crate) fn set_placeholder_size(
     height_pt: f32,
     fit: FitRequest,
 ) -> i32 {
-    let box_ = resolve_page_box(
-        Zoom::FitWidth,
-        width_pt,
-        height_pt,
-        f64::from(fit.available_width / fit.scale_factor as u32),
-        f64::from(fit.available_height / fit.scale_factor as u32),
-        f64::from(fit.scale_factor),
-    );
+    let box_ = resolve_page_box(Zoom::FitWidth, width_pt, height_pt, fit.viewport());
     picture.set_width_request(box_.logical_width);
     picture.set_height_request(box_.logical_height);
     box_.logical_height
@@ -266,6 +262,7 @@ pub(crate) fn set_placeholder_size(
 
 pub(crate) fn refresh_layout(viewer: &Viewer) {
     let fit = FitRequest::measure(viewer);
+    let viewport = fit.viewport();
     {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
@@ -293,17 +290,10 @@ pub(crate) fn refresh_layout(viewer: &Viewer) {
         for index in 0..session.pages.len() {
             let page = &mut session.pages[index];
             page.state = PageState::Idle;
-            let box_ = resolve_page_box(
-                session.zoom,
-                page.width_pt,
-                page.height_pt,
-                f64::from(fit.available_width / fit.scale_factor as u32),
-                f64::from(fit.available_height / fit.scale_factor as u32),
-                f64::from(fit.scale_factor),
-            );
+            let box_ = resolve_page_box(session.zoom, page.width_pt, page.height_pt, viewport);
             page.picture.set_width_request(box_.logical_width);
             page.picture.set_height_request(box_.logical_height);
-            page.target_dpi = if would_use_tiles(box_.budget(), f64::from(fit.scale_factor)) {
+            page.target_dpi = if would_use_tiles(box_.budget(), viewport.scale_factor) {
                 bridge_dpi(page.width_pt, page.height_pt, box_.base_dpi)
             } else {
                 box_.base_dpi
@@ -393,16 +383,25 @@ mod tests {
     /// `tile_plan`, not a budget `tile_plan` consults.
     const MAX_TILE_PIXELS: u64 = TILE_EDGE_PX as u64 * TILE_EDGE_PX as u64;
 
+    /// Every case below renders at 1x; only the fitted area varies.
+    fn viewport(logical_width: f64, logical_height: f64) -> Viewport {
+        Viewport {
+            logical_width,
+            logical_height,
+            scale_factor: 1.0,
+        }
+    }
+
     #[test]
     fn tile_plan_activates_only_when_physical_dpi_exceeds_the_base_budget() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, viewport(1_600.0, 1_000.0));
 
         assert!(would_use_tiles(page.budget(), 1.0));
     }
 
     #[test]
     fn fit_page_uses_viewport_height_when_it_is_the_limiting_dimension() {
-        let page = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 1_000.0, 500.0, 1.0);
+        let page = resolve_page_box(Zoom::FitPage, 612.0, 792.0, viewport(1_000.0, 500.0));
 
         assert_eq!(page.logical_width, 386);
         assert_eq!(page.logical_height, 500);
@@ -411,7 +410,7 @@ mod tests {
 
     #[test]
     fn fit_page_uses_viewport_width_when_it_is_the_limiting_dimension() {
-        let page = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 400.0, 1_000.0, 1.0);
+        let page = resolve_page_box(Zoom::FitPage, 612.0, 792.0, viewport(400.0, 1_000.0));
 
         assert_eq!(page.logical_width, 400);
         assert_eq!(page.logical_height, 518);
@@ -420,8 +419,8 @@ mod tests {
 
     #[test]
     fn fit_page_recomputes_when_only_viewport_height_changes() {
-        let before = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 1_000.0, 700.0, 1.0);
-        let after = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 1_000.0, 350.0, 1.0);
+        let before = resolve_page_box(Zoom::FitPage, 612.0, 792.0, viewport(1_000.0, 700.0));
+        let after = resolve_page_box(Zoom::FitPage, 612.0, 792.0, viewport(1_000.0, 350.0));
 
         assert_eq!(before.logical_height, 700);
         assert_eq!(after.logical_height, 350);
@@ -430,7 +429,7 @@ mod tests {
 
     #[test]
     fn tile_plan_uses_a_fixed_page_local_grid_with_shared_integer_edges() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, viewport(1_600.0, 1_000.0));
         let plan = tile_plan(
             page.budget(),
             612.0,
@@ -450,7 +449,7 @@ mod tests {
 
     #[test]
     fn tile_plan_is_stable_for_scrolls_inside_the_same_grid_row() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, viewport(1_600.0, 1_000.0));
         let at_rest = tile_plan(
             page.budget(),
             612.0,
@@ -471,7 +470,7 @@ mod tests {
 
     #[test]
     fn tiled_page_uses_a_bounded_base_bridge() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, viewport(1_600.0, 1_000.0));
         let bridge = bridge_dpi(612.0, 792.0, page.base_dpi);
 
         assert!(bridge < page.base_dpi && bridge >= MIN_RENDER_DPI);

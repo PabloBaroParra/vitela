@@ -234,9 +234,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             super::layout::Zoom::FitWidth,
             width_pt,
             height_pt,
-            f64::from(fit.available_width / fit.scale_factor as u32),
-            f64::from(fit.available_height / fit.scale_factor as u32),
-            f64::from(fit.scale_factor),
+            fit.viewport(),
         );
         slots.push(PageSlot {
             overlay,
