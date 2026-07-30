@@ -19,9 +19,20 @@ object SampleDocument {
     const val DISPLAY_NAME: String = "Vitela sample.pdf"
 
     /**
-     * Reads the packaged sample. Does blocking I/O off the asset manager, so
-     * callers must invoke it from a background dispatcher — the same rule the
-     * Storage Access Framework read path already follows.
+     * Encrypted samples for exercising the password prompt, sourced from the
+     * same `tests/fixtures/encrypted/` corpus `pdf-manip`'s decrypt tests use
+     * (see `tests/fixtures/README.md`). User passwords: `user-aes-pass` /
+     * `user-rc4-pass`.
      */
-    fun read(assets: AssetManager): ByteArray = assets.open(ASSET_NAME).use { it.readBytes() }
+    const val AES128_ASSET_NAME: String = "aes_128_user_and_owner.pdf"
+    const val AES128_DISPLAY_NAME: String = "AES-128 sample.pdf"
+    const val RC4_128_ASSET_NAME: String = "rc4_128_user_and_owner.pdf"
+    const val RC4_128_DISPLAY_NAME: String = "RC4-128 sample.pdf"
+
+    /**
+     * Reads a packaged sample by its asset name. Does blocking I/O off the
+     * asset manager, so callers must invoke it from a background dispatcher —
+     * the same rule the Storage Access Framework read path already follows.
+     */
+    fun read(assets: AssetManager, assetName: String = ASSET_NAME): ByteArray = assets.open(assetName).use { it.readBytes() }
 }

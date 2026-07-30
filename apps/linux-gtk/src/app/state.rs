@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Entry, Label, Overlay, Picture, ScrolledWindow};
+use gtk::{Box as GtkBox, Button, Dialog, Entry, Label, Overlay, Picture, ScrolledWindow};
 use pdf_render::{CancellationHandle, DocumentHandle, TextMatch};
 
 /// Where an open request's bytes come from.
@@ -42,6 +42,12 @@ pub(crate) struct Viewer {
 pub(crate) struct ViewerState {
     pub(crate) generation: u64,
     pub(crate) session: Option<DocumentSession>,
+    /// The password prompt for the in-flight open attempt, if any. Tracked so
+    /// a new open request (which may supersede this one before the user has
+    /// answered) can tear down the stale prompt instead of leaving it
+    /// stacked underneath a second one — see `document::begin_loading` and
+    /// `document::dismiss_password_dialog`.
+    pub(crate) password_dialog: Option<Dialog>,
 }
 
 pub(crate) struct DocumentSession {

@@ -6,7 +6,15 @@
     <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,*">
         <StackPanel Orientation="Horizontal" Spacing="12">
             <Button x:Name="OpenButton" Click="OpenButton_Click">Open</Button>
-            <Button x:Name="OpenSampleButton" Click="OpenSampleButton_Click">Open sample</Button>
+            <Button x:Name="OpenSampleButton" Content="Open sample">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Vitela sample" Click="OpenSamplePlain_Click" />
+                        <MenuFlyoutItem Text="AES-128 sample (user-aes-pass)" Click="OpenSampleAes128_Click" />
+                        <MenuFlyoutItem Text="RC4-128 sample (user-rc4-pass)" Click="OpenSampleRc4128_Click" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
             <Button x:Name="PrintButton" Click="PrintButton_Click">Print</Button>
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />

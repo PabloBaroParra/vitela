@@ -29,6 +29,17 @@ public sealed partial class MainWindow : Window
     private static readonly string SamplePath = Path.Combine(AppContext.BaseDirectory, "Assets", "vitela-sample.pdf");
     private const string SampleDisplayName = "Vitela sample.pdf";
 
+    /// <summary>
+    /// Encrypted samples for exercising the password prompt, sourced from the
+    /// same <c>tests/fixtures/encrypted/</c> corpus <c>pdf-manip</c>'s decrypt
+    /// tests use (see <c>tests/fixtures/README.md</c>). User passwords:
+    /// <c>user-aes-pass</c> / <c>user-rc4-pass</c>.
+    /// </summary>
+    private static readonly string Aes128SamplePath = Path.Combine(AppContext.BaseDirectory, "Assets", "aes_128_user_and_owner.pdf");
+    private const string Aes128SampleDisplayName = "AES-128 sample.pdf";
+    private static readonly string Rc4128SamplePath = Path.Combine(AppContext.BaseDirectory, "Assets", "rc4_128_user_and_owner.pdf");
+    private const string Rc4128SampleDisplayName = "RC4-128 sample.pdf";
+
     private readonly PdfDocumentFacade _facade = new(new GeneratedPdfCore(), new DebugDiagnosticLogger());
     private DocumentSession? _session;
 
@@ -79,17 +90,24 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Opens the sample document that ships with the app, so a fresh install
-    /// has something to render without the user supplying a PDF first. Goes
-    /// through exactly the same open path as a picked file.
+    /// Opens one of the samples that ship with the app, so a fresh install
+    /// has something to render without the user supplying a PDF first, and a
+    /// tester can reach the password prompt without hunting for an encrypted
+    /// file. Goes through exactly the same open path as a picked file.
     /// </summary>
-    private async void OpenSampleButton_Click(object sender, RoutedEventArgs e)
+    private async void OpenSamplePlain_Click(object sender, RoutedEventArgs e) => await OpenSampleFileAsync(SamplePath, SampleDisplayName);
+
+    private async void OpenSampleAes128_Click(object sender, RoutedEventArgs e) => await OpenSampleFileAsync(Aes128SamplePath, Aes128SampleDisplayName);
+
+    private async void OpenSampleRc4128_Click(object sender, RoutedEventArgs e) => await OpenSampleFileAsync(Rc4128SamplePath, Rc4128SampleDisplayName);
+
+    private async Task OpenSampleFileAsync(string path, string displayName)
     {
         SetBusy(true);
         byte[] bytes;
         try
         {
-            bytes = await File.ReadAllBytesAsync(SamplePath);
+            bytes = await File.ReadAllBytesAsync(path);
         }
         catch (Exception error)
         {
@@ -98,7 +116,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await OpenDocumentAsync(SampleDisplayName, bytes);
+        await OpenDocumentAsync(displayName, bytes);
     }
 
     /// <summary>
@@ -159,7 +177,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task<OperationResult<DocumentSession>?> OpenWithPasswordAsync(string displayName, byte[] bytes)
     {
-        var passwordBox = new PasswordBox { PlaceholderText = "Password" };
+        var passwordBox = new PasswordBox { PlaceholderText = "Password", PasswordRevealMode = PasswordRevealMode.Peek };
         var errorText = new TextBlock
         {
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson),

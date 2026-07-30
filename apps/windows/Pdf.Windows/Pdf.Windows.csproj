@@ -30,6 +30,8 @@
   -->
   <ItemGroup>
     <None Include="..\..\..\assets\sample\vitela-sample.pdf" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-sample.pdf" />
+    <None Include="..\..\..\assets\sample\aes_128_user_and_owner.pdf" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\aes_128_user_and_owner.pdf" />
+    <None Include="..\..\..\assets\sample\rc4_128_user_and_owner.pdf" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\rc4_128_user_and_owner.pdf" />
   </ItemGroup>
 
   <!--
