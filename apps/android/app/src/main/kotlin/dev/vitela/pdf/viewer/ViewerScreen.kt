@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -26,8 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.R
+import dev.vitela.pdf.sample.SampleDocument
 
 /**
  * Reader chrome around the continuous [PageList]. The controls are a fixed
@@ -39,7 +44,7 @@ import dev.vitela.pdf.R
 internal fun ViewerScreen(
     state: ViewerState,
     onOpen: () -> Unit,
-    onOpenSample: () -> Unit,
+    onOpenSample: (assetName: String, displayName: String) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onZoomOut: () -> Unit,
@@ -54,6 +59,7 @@ internal fun ViewerScreen(
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var sampleMenuExpanded by remember { mutableStateOf(false) }
     val zoomPercentage = (state.zoomFactor * 100).toInt()
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -62,7 +68,32 @@ internal fun ViewerScreen(
         Text(state.title, style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onOpen, enabled = state.canOpen) { Text("Open PDF") }
-            Button(onClick = onOpenSample, enabled = state.canOpen) { Text("Open sample") }
+            Box {
+                Button(onClick = { sampleMenuExpanded = true }, enabled = state.canOpen) { Text("Open sample") }
+                DropdownMenu(expanded = sampleMenuExpanded, onDismissRequest = { sampleMenuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Vitela sample") },
+                        onClick = {
+                            sampleMenuExpanded = false
+                            onOpenSample(SampleDocument.ASSET_NAME, SampleDocument.DISPLAY_NAME)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("AES-128 sample (user-aes-pass)") },
+                        onClick = {
+                            sampleMenuExpanded = false
+                            onOpenSample(SampleDocument.AES128_ASSET_NAME, SampleDocument.AES128_DISPLAY_NAME)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("RC4-128 sample (user-rc4-pass)") },
+                        onClick = {
+                            sampleMenuExpanded = false
+                            onOpenSample(SampleDocument.RC4_128_ASSET_NAME, SampleDocument.RC4_128_DISPLAY_NAME)
+                        },
+                    )
+                }
+            }
             Button(onClick = onPrint, enabled = state.canPrint) { Text("Print") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -105,13 +136,24 @@ internal fun ViewerScreen(
         Text(state.status, style = MaterialTheme.typography.bodyMedium)
     }
     if (state.needsPassword) {
+        var passwordVisible by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = {},
             title = { Text("Password required") },
             text = {
                 Column {
                     state.passwordMessage?.let { Text(it) }
-                    OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Password") })
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Password") },
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            TextButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Text(if (passwordVisible) "Hide" else "Show")
+                            }
+                        },
+                    )
                 }
             },
             confirmButton = { Button(onClick = { onPassword(password); password = "" }) { Text("Open") } },

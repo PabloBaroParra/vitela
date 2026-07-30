@@ -9,8 +9,8 @@ use std::cell::RefCell;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, ApplicationWindow, Dialog, Entry, FileChooserAction, FileChooserNative, FileFilter,
-    Label, Overlay, Picture, ResponseType,
+    gio, glib, ApplicationWindow, Dialog, FileChooserAction, FileChooserNative, FileFilter, Label,
+    Overlay, PasswordEntry, Picture, ResponseType,
 };
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 
@@ -29,6 +29,27 @@ const SAMPLE_PDF: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../assets/sample/vitela-sample.pdf"
 ));
+
+/// Encrypted samples for exercising the password-prompt flow, sourced from
+/// the same `tests/fixtures/encrypted/` corpus `pdf-manip`'s decrypt tests
+/// use (see `tests/fixtures/README.md`). User passwords: `user-aes-pass` /
+/// `user-rc4-pass`.
+const AES128_SAMPLE_PDF: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/sample/aes_128_user_and_owner.pdf"
+));
+const RC4_128_SAMPLE_PDF: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../assets/sample/rc4_128_user_and_owner.pdf"
+));
+
+/// Which built-in sample "Open sample" should load.
+#[derive(Clone, Copy)]
+pub(crate) enum SampleKind {
+    Plain,
+    Aes128,
+    Rc4128,
+}
 
 pub(crate) fn show_file_chooser(
     window: &ApplicationWindow,
@@ -72,10 +93,15 @@ pub(crate) fn show_file_chooser(
     active_chooser.replace(Some(chooser));
 }
 
-/// Opens the sample document that ships inside the binary — the same file the
+/// Opens one of the samples that ship inside the binary — the same files the
 /// Windows and Android shells package, so all three show identical content.
-pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer) {
-    open_initial(window, viewer, DocumentSource::Embedded(SAMPLE_PDF));
+pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer, kind: SampleKind) {
+    let bytes = match kind {
+        SampleKind::Plain => SAMPLE_PDF,
+        SampleKind::Aes128 => AES128_SAMPLE_PDF,
+        SampleKind::Rc4128 => RC4_128_SAMPLE_PDF,
+    };
+    open_initial(window, viewer, DocumentSource::Embedded(bytes));
 }
 
 fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
@@ -110,9 +136,21 @@ fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSou
 /// [`show_document`]. The bumped generation lets [`is_current`] discard the
 /// results of any open this one supersedes.
 fn begin_loading(viewer: &Viewer) -> u64 {
-    let mut state = viewer.state.borrow_mut();
-    state.generation += 1;
-    state.generation
+    // A new open attempt supersedes any password prompt still waiting on the
+    // previous one — tear it down here rather than leaving it stacked
+    // underneath a second prompt if this attempt also turns out encrypted
+    // (observed when a single click somehow re-fires the menu action: two
+    // `prompt_for_password` dialogs stack exactly on top of each other, and
+    // dismissing the front one "reveals" the back one a moment later).
+    let stale_dialog = {
+        let mut state = viewer.state.borrow_mut();
+        state.generation += 1;
+        state.password_dialog.take()
+    };
+    if let Some(dialog) = stale_dialog {
+        dialog.destroy();
+    }
+    viewer.state.borrow().generation
 }
 
 pub(crate) fn is_current(viewer: &Viewer, generation: u64) -> bool {
@@ -266,8 +304,8 @@ fn prompt_for_password(
     dialog.add_button("Open", ResponseType::Accept);
     dialog.set_default_response(ResponseType::Accept);
 
-    let password_entry = Entry::builder()
-        .visibility(false)
+    let password_entry = PasswordEntry::builder()
+        .show_peek_icon(true)
         .activates_default(true)
         .build();
     let error_label = Label::new(None);
@@ -276,12 +314,20 @@ fn prompt_for_password(
     dialog.content_area().append(&error_label);
     password_entry.grab_focus();
 
+    // Tracked so a later, superseding open attempt can tear this dialog down
+    // instead of leaving it stacked behind a second prompt — see
+    // `begin_loading` and `dismiss_password_dialog`.
+    viewer.state.borrow_mut().password_dialog = Some(dialog.clone());
+
     dialog.connect_response({
         let viewer = viewer.clone();
         move |dialog, response| {
             if response != ResponseType::Accept {
                 viewer.status.set_text("Password entry cancelled.");
-                dialog.close();
+                // `destroy`, not `close`: closing a `GtkDialog` re-emits
+                // `response` with `DeleteEvent`, which would re-enter this
+                // same handler right after we just set the status above.
+                dismiss_password_dialog(&viewer, dialog);
                 return;
             }
 
@@ -298,7 +344,10 @@ fn prompt_for_password(
                     match open_in_background(source, Some(password)).await {
                         Ok(document) if is_current(&viewer, generation) => {
                             show_document(&viewer, generation, document);
-                            dialog.close();
+                            // See the comment on the cancel branch above:
+                            // `close` would re-emit `response(DeleteEvent)`
+                            // and stomp the status `show_document` just set.
+                            dismiss_password_dialog(&viewer, &dialog);
                         }
                         Ok(document) => close_document_in_background(document.document),
                         Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
@@ -312,7 +361,7 @@ fn prompt_for_password(
                             viewer
                                 .status
                                 .set_text(&format!("Could not open PDF: {error}"));
-                            dialog.close();
+                            dismiss_password_dialog(&viewer, &dialog);
                         }
                         Err(_) => {}
                     }
@@ -321,4 +370,17 @@ fn prompt_for_password(
         }
     });
     dialog.present();
+}
+
+/// Clears the tracked password dialog and tears it down — but only if it
+/// still points at `dialog`. A later open attempt may have already
+/// superseded and destroyed this same dialog via `begin_loading`; comparing
+/// identity keeps this from clobbering a newer dialog's slot.
+fn dismiss_password_dialog(viewer: &Viewer, dialog: &Dialog) {
+    let mut state = viewer.state.borrow_mut();
+    if state.password_dialog.as_ref() == Some(dialog) {
+        state.password_dialog = None;
+    }
+    drop(state);
+    dialog.destroy();
 }

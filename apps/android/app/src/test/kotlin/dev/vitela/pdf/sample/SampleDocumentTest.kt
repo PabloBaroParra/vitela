@@ -30,4 +30,24 @@ class SampleDocumentTest {
         val header = File(packagedAssetDir, SampleDocument.ASSET_NAME).readBytes().take(5)
         assertTrue("the packaged sample must be a PDF", header == "%PDF-".toByteArray().toList())
     }
+
+    @Test
+    fun packagedAssetDirectoryContainsTheAes128Sample() {
+        val sample = File(packagedAssetDir, SampleDocument.AES128_ASSET_NAME)
+        assertTrue(
+            "expected the AES-128 encrypted sample at ${sample.absolutePath}; " +
+                "copy it from tests/fixtures/encrypted/",
+            sample.isFile(),
+        )
+    }
+
+    @Test
+    fun packagedAssetDirectoryContainsTheRc4128Sample() {
+        val sample = File(packagedAssetDir, SampleDocument.RC4_128_ASSET_NAME)
+        assertTrue(
+            "expected the RC4-128 encrypted sample at ${sample.absolutePath}; " +
+                "copy it from tests/fixtures/encrypted/",
+            sample.isFile(),
+        )
+    }
 }

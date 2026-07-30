@@ -19,12 +19,12 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    glib, Application, ApplicationWindow, Box as GtkBox, Button, Entry, FileChooserNative, Label,
-    Orientation, Overlay, ScrolledWindow,
+    gio, glib, Application, ApplicationWindow, Box as GtkBox, Button, Entry, FileChooserNative,
+    Label, MenuButton, Orientation, Overlay, ScrolledWindow,
 };
 
 use brand::build_app_mark;
-use document::{open_sample, show_file_chooser};
+use document::{open_sample, show_file_chooser, SampleKind};
 use layout::{refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
@@ -53,7 +53,24 @@ fn build_ui(application: &Application) {
         .build();
 
     let open_button = Button::with_label("Open PDF");
-    let sample_button = Button::with_label("Open sample");
+    // A `gio::Menu` bound through `menu-model` (rather than a hand-built
+    // `Popover` of `Button`s) so GTK owns the popup/dismiss/keyboard-nav
+    // state machine — a manually-toggled Popover left the button needing a
+    // second click to reopen after a selection.
+    let sample_button = MenuButton::builder().label("Open sample").build();
+    let sample_actions = gio::SimpleActionGroup::new();
+    let sample_menu = gio::Menu::new();
+    sample_menu.append(Some("Vitela sample"), Some("sample.plain"));
+    sample_menu.append(
+        Some("AES-128 sample (user-aes-pass)"),
+        Some("sample.aes128"),
+    );
+    sample_menu.append(
+        Some("RC4-128 sample (user-rc4-pass)"),
+        Some("sample.rc4128"),
+    );
+    sample_button.set_menu_model(Some(&sample_menu));
+    sample_button.insert_action_group("sample", Some(&sample_actions));
     let status = Label::new(Some(
         "Choose a PDF file to view, or open the built-in sample.",
     ));
@@ -126,6 +143,7 @@ fn build_ui(application: &Application) {
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session: None,
+            password_dialog: None,
         })),
     };
     connect_viewport_updates(&viewer);
@@ -158,11 +176,27 @@ fn build_ui(application: &Application) {
         let active_chooser = active_chooser.clone();
         move |_| show_file_chooser(&window, &viewer, &active_chooser)
     });
-    sample_button.connect_clicked({
+    let action_sample_plain = gio::SimpleAction::new("plain", None);
+    action_sample_plain.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
-        move |_| open_sample(&window, &viewer)
+        move |_, _| open_sample(&window, &viewer, SampleKind::Plain)
     });
+    sample_actions.add_action(&action_sample_plain);
+    let action_sample_aes128 = gio::SimpleAction::new("aes128", None);
+    action_sample_aes128.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_, _| open_sample(&window, &viewer, SampleKind::Aes128)
+    });
+    sample_actions.add_action(&action_sample_aes128);
+    let action_sample_rc4128 = gio::SimpleAction::new("rc4128", None);
+    action_sample_rc4128.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_, _| open_sample(&window, &viewer, SampleKind::Rc4128)
+    });
+    sample_actions.add_action(&action_sample_rc4128);
 
     window.present();
 }

@@ -54,14 +54,14 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
     ViewerScreen(
         state = state,
         onOpen = { openPdf.launch(arrayOf("application/pdf")) },
-        onOpenSample = {
+        onOpenSample = { assetName, displayName ->
             scope.launch {
-                val bytes = withContext(Dispatchers.IO) { runCatching { SampleDocument.read(context.assets) }.getOrNull() }
+                val bytes = withContext(Dispatchers.IO) { runCatching { SampleDocument.read(context.assets, assetName) }.getOrNull() }
                 if (bytes == null) {
                     viewModel.reportReadFailure()
                     return@launch
                 }
-                viewModel.open(SampleDocument.DISPLAY_NAME, bytes)
+                viewModel.open(displayName, bytes)
             }
         },
         onPrevious = { viewModel.navigate(-1) },
