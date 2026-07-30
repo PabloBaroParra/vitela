@@ -92,10 +92,32 @@ final class ViewerViewModelTests: XCTestCase {
         // The failed open must not have closed the document already on screen.
         XCTAssertEqual(model.store.pageSlots.count, 1)
     }
+
+    func testSubmitPasswordReopensTheSameDocumentAndSucceedsWithTheRightOne() throws {
+        let client = PasswordGatedClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+        XCTAssertEqual(model.store.state, .error(.passwordRequired))
+
+        model.submitPassword("right-password")
+
+        XCTAssertEqual(model.store.state, .loaded)
+        XCTAssertEqual(model.title, "PDF open")
+    }
+
+    func testSubmitPasswordWithTheWrongValueReportsWrongPasswordRatherThanReprompting() throws {
+        let client = PasswordGatedClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+
+        model.submitPassword("guess")
+
+        XCTAssertEqual(model.store.state, .error(.wrongPassword))
+    }
 }
 
 private struct EmptyClient: PdfCoreClient {
-    func open(bytes: Data) throws -> any PdfDocument {
+    func open(bytes: Data, password: String?) throws -> any PdfDocument {
         throw ViewerFailure.openFailed("invalid PDF")
     }
 
@@ -107,8 +129,24 @@ private struct EmptyClient: PdfCoreClient {
 private struct FakePagesClient: PdfCoreClient {
     let pages: [PageDimensions]
 
-    func open(bytes: Data) throws -> any PdfDocument {
+    func open(bytes: Data, password: String?) throws -> any PdfDocument {
         FakeDocument(pages: pages)
+    }
+
+    func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage {
+        RenderedPage.placeholder
+    }
+}
+
+/// Requires `"right-password"` and otherwise mirrors the FFI's two-stage
+/// failure: no password yet vs. a password that was tried and did not match.
+private struct PasswordGatedClient: PdfCoreClient {
+    let pages: [PageDimensions]
+
+    func open(bytes: Data, password: String?) throws -> any PdfDocument {
+        guard let password else { throw ViewerFailure.passwordRequired }
+        guard password == "right-password" else { throw ViewerFailure.wrongPassword }
+        return FakeDocument(pages: pages)
     }
 
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage {

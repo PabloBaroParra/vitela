@@ -51,6 +51,9 @@ final class ViewerStore: ObservableObject {
     private let client: PdfCoreClient
     private var document: (any PdfDocument)?
     private var generation: UInt = 0
+    /// The bytes behind the most recent `open` attempt, kept around so a
+    /// password prompt can retry without asking the user to re-pick the file.
+    private var pendingBytes: Data?
 
     init(client: PdfCoreClient) {
         self.client = client
@@ -58,12 +61,13 @@ final class ViewerStore: ObservableObject {
 
     func selectionCancelled() {}
 
-    func open(bytes: Data) {
+    func open(bytes: Data, password: String? = nil) {
         generation += 1
         let attemptedGeneration = generation
+        pendingBytes = bytes
         state = .loading
         do {
-            let opened = try client.open(bytes: bytes)
+            let opened = try client.open(bytes: bytes, password: password)
             guard attemptedGeneration == generation else { return }
             document = opened
             pageSlots = opened.pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
@@ -75,6 +79,14 @@ final class ViewerStore: ObservableObject {
             guard attemptedGeneration == generation else { return }
             state = .error(.openFailed(String(describing: error)))
         }
+    }
+
+    /// Retries the last `open` attempt with a password, e.g. after the user
+    /// answers a `.passwordRequired`/`.wrongPassword` prompt. A no-op if no
+    /// document has been opened yet in this store's lifetime.
+    func retryPassword(_ password: String) {
+        guard let bytes = pendingBytes else { return }
+        open(bytes: bytes, password: password)
     }
 
     /// Reports a failure that happened before any bytes reached the core (a
