@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ViewerRootView: View {
     @ObservedObject var model: ViewerViewModel
+    @State private var passwordInput = ""
 
     private static let zoomStep = 0.1
 
@@ -16,6 +17,34 @@ struct ViewerRootView: View {
             }
         }
         .accessibilityIdentifier("viewer-root")
+        .alert("Password required", isPresented: isPresentingPasswordPrompt) {
+            SecureField("Password", text: $passwordInput)
+            Button("Open") {
+                model.submitPassword(passwordInput)
+                passwordInput = ""
+            }
+            Button("Cancel", role: .cancel) { passwordInput = "" }
+        } message: {
+            if case .error(.wrongPassword) = model.store.state {
+                Text(ViewerFailure.wrongPassword.message)
+            }
+        }
+    }
+
+    /// True while the store is waiting on a password — covers both the first
+    /// ask (`.passwordRequired`) and a retry after a wrong one
+    /// (`.wrongPassword`), so the prompt reappears until the user cancels or
+    /// gets it right.
+    private var isPresentingPasswordPrompt: Binding<Bool> {
+        Binding(
+            get: {
+                switch model.store.state {
+                case .error(.passwordRequired), .error(.wrongPassword): return true
+                default: return false
+                }
+            },
+            set: { _ in }
+        )
     }
 
     private var toolbar: some View {
