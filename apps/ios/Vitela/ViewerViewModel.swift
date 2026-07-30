@@ -87,6 +87,12 @@ final class ViewerViewModel: ObservableObject {
         enqueue(store.retry(page: page))
     }
 
+    /// Reopens the document last selected, this time with a password the
+    /// user just typed into the prompt.
+    func submitPassword(_ password: String) {
+        store.retryPassword(password)
+    }
+
     private func enqueue(_ request: RenderRequest?) {
         guard let request else { return }
         operationQueue.addOperation { [weak self] in

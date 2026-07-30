@@ -33,7 +33,7 @@ final class ViewerViewModelTests: XCTestCase {
 }
 
 private struct EmptyClient: PdfCoreClient {
-    func open(bytes: Data) throws -> any PdfDocument {
+    func open(bytes: Data, password: String?) throws -> any PdfDocument {
         throw ViewerFailure.openFailed("invalid PDF")
     }
 
@@ -45,7 +45,7 @@ private struct EmptyClient: PdfCoreClient {
 private struct FakePagesClient: PdfCoreClient {
     let pages: [PageDimensions]
 
-    func open(bytes: Data) throws -> any PdfDocument {
+    func open(bytes: Data, password: String?) throws -> any PdfDocument {
         FakeDocument(pages: pages)
     }
 

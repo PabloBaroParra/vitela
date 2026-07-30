@@ -26,13 +26,17 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
         return frameworks.appendingPathComponent("libpdfium.dylib").path
     }
 
-    func open(bytes: Data) throws -> any PdfDocument {
+    func open(bytes: Data, password: String?) throws -> any PdfDocument {
         do {
-            let handle = try openFromBytes(bytes: bytes, password: nil)
+            let handle = try openFromBytes(bytes: bytes, password: password)
             let pages = handle.pageDimensions().map {
                 PageDimensions(width: $0.widthPt, height: $0.heightPt)
             }
             return UniFfiDocument(handle: handle, pages: pages)
+        } catch FfiError.PasswordRequired {
+            throw ViewerFailure.passwordRequired
+        } catch FfiError.WrongPassword {
+            throw ViewerFailure.wrongPassword
         } catch {
             // `String(describing:)`, not `localizedDescription`: the generated
             // errors are plain Swift enums, whose localized description is the

@@ -133,6 +133,45 @@ final class ViewerStoreTests: XCTestCase {
         XCTAssertEqual(store.pageSlots[0].renderZoom, 2)
     }
 
+    func testPasswordRequiredCanBeRetriedWithTheSameBytesAndSucceeds() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+        client.openError = .passwordRequired
+
+        store.open(bytes: Data([1]))
+        XCTAssertEqual(store.state, .error(.passwordRequired))
+
+        client.openError = nil
+        store.retryPassword("correct-horse")
+
+        XCTAssertEqual(store.state, .loaded)
+        XCTAssertEqual(client.openedBytes, [Data([1]), Data([1])])
+        XCTAssertEqual(client.openedPasswords, [nil, "correct-horse"])
+    }
+
+    func testWrongPasswordKeepsPromptingWithoutForgettingTheOriginalBytes() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+        client.openError = .passwordRequired
+        store.open(bytes: Data([9]))
+
+        client.openError = .wrongPassword
+        store.retryPassword("nope")
+
+        XCTAssertEqual(store.state, .error(.wrongPassword))
+        XCTAssertEqual(client.openedBytes, [Data([9]), Data([9])])
+    }
+
+    func testRetryPasswordWithoutAPriorOpenIsANoOp() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+
+        store.retryPassword("anything")
+
+        XCTAssertEqual(store.state, .empty)
+        XCTAssertTrue(client.openedBytes.isEmpty)
+    }
+
     func testRenderResultShorterThanItsStrideIsRejectedWithoutClosingTheDocument() throws {
         let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
         let store = ViewerStore(client: client)
@@ -153,6 +192,7 @@ final class ViewerStoreTests: XCTestCase {
 private final class FakePdfCoreClient: PdfCoreClient {
     let pages: [PageDimensions]
     var openedBytes: [Data] = []
+    var openedPasswords: [String?] = []
     var requestedDpi: [Int] = []
     var openError: ViewerFailure?
 
@@ -160,8 +200,9 @@ private final class FakePdfCoreClient: PdfCoreClient {
         self.pages = pages
     }
 
-    func open(bytes: Data) throws -> any PdfDocument {
+    func open(bytes: Data, password: String?) throws -> any PdfDocument {
         openedBytes.append(bytes)
+        openedPasswords.append(password)
         if let openError {
             throw openError
         }
