@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,9 +23,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 
 /**
  * Reader chrome around the continuous [PageList]. The controls are a fixed
@@ -80,12 +84,24 @@ internal fun ViewerScreen(
             TextButton(onClick = onNextMatch, enabled = state.searchHits.isNotEmpty()) { Text("Next match") }
         }
         if (state.isLoading) CircularProgressIndicator(modifier = Modifier.size(28.dp))
-        PageList(
-            state = state,
-            onPositionChanged = onPositionChanged,
-            onScrollTargetConsumed = onScrollTargetConsumed,
-            modifier = Modifier.fillMaxWidth().weight(1f),
-        )
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            PageList(
+                state = state,
+                onPositionChanged = onPositionChanged,
+                onScrollTargetConsumed = onScrollTargetConsumed,
+                modifier = Modifier.fillMaxSize(),
+            )
+            // Mirrors the WinUI empty state and the GTK4 shell's overlay mark:
+            // shown while the page area has nothing to display, hidden once a
+            // document with pages is open.
+            if (state.pageCount == 0) {
+                Image(
+                    painter = painterResource(R.drawable.ic_app_mark),
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.Center).size(96.dp),
+                )
+            }
+        }
         Text(state.status, style = MaterialTheme.typography.bodyMedium)
     }
     if (state.needsPassword) {
