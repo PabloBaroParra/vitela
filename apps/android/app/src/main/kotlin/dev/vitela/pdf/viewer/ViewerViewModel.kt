@@ -36,6 +36,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
 
     /** Slot width every cached bitmap was rasterized for. Zero until the reader is laid out. */
     private var renderWidthPx = 0
+    private var renderZoomFactor = DEFAULT_ZOOM_FACTOR
 
     /**
      * Bumped whenever [renderWidthPx] changes. Fit-to-width ties a bitmap to
@@ -79,7 +80,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                     // already parked at page 0 reports an unchanged position,
                     // which the reader's distinctUntilChanged would swallow.
                     if (pageCount > 0) {
-                        onReaderPositionChanged(ReaderPosition(0, 0, 0, renderWidthPx))
+                        onReaderPositionChanged(ReaderPosition(0, 0, 0, renderWidthPx, _state.value.zoomFactor))
                     }
                 }
                 is PdfCoreResult.Failure -> handleOpenFailure(result.error)
@@ -105,27 +106,27 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         if (document == null) return
         val pageCount = _state.value.pageCount
         if (pageCount == 0) return
-        if (position.viewportWidthPx > 0 && position.viewportWidthPx != renderWidthPx) {
-            // A rotation or a window resize. Every cached bitmap was fit to the
-            // old width, so it is now either blurry or oversized — drop the lot
-            // and re-render at the new one. This is the GTK shell's
-            // `refresh_layout`, and it is why fit-to-width needs a generation.
+        // Effects from the old composition may report once while a zoom
+        // recomposes. They must not restore its retired render parameters.
+        if (position.zoomFactor != _state.value.zoomFactor) return
+        if (position.viewportWidthPx > 0 && (position.viewportWidthPx != renderWidthPx || position.zoomFactor != renderZoomFactor)) {
+            // A rotation, resize, or zoom creates a new bitmap generation. The
+            // old cache remains only as a temporary, cache-window-bound bridge.
             renderWidthPx = position.viewportWidthPx
+            renderZoomFactor = position.zoomFactor
             layoutGeneration += 1
             inFlight.clear()
-            _state.value = _state.value.copy(pages = emptyMap())
+            _state.value = _state.value.withInvalidatedPageBitmaps(cacheWindow)
         }
         cacheWindow = pageWindow(position.first, position.last, pageCount, CACHE_PAGES)
-        val renderWindow = pageWindow(position.first, position.last, pageCount, PREFETCH_PAGES)
         _state.value = _state.value.copy(
             pageIndex = boundedPageIndex(position.current, pageCount),
-            pages = retainWindow(_state.value.pages, cacheWindow),
             status = visibleRangeStatus(position.first, position.last, pageCount),
-        )
+        ).withRetainedPageBitmaps(cacheWindow)
         // Nothing has been measured yet, so there is no width to fit to.
         // The reader's first layout pass calls back with a real one.
         if (renderWidthPx <= 0) return
-        for (pageIndex in renderWindow) {
+        for (pageIndex in renderOrder(position.first, position.last, pageCount)) {
             if (pageIndex !in _state.value.pages) renderPage(pageIndex)
         }
     }
@@ -139,6 +140,10 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         if (_state.value.pageCount == 0) return
         _state.value = _state.value.copy(scrollTarget = boundedPageIndex(_state.value.pageIndex + delta, _state.value.pageCount))
     }
+
+    fun zoomIn() = changeZoom(zoomIn(_state.value.zoomFactor))
+
+    fun zoomOut() = changeZoom(zoomOut(_state.value.zoomFactor))
 
     fun search(query: String) {
         val openDocument = document ?: return
@@ -173,19 +178,18 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         val generation = layoutGeneration
         if (inFlight[pageIndex] == generation) return
         inFlight[pageIndex] = generation
-        val dpi = renderDpi(_state.value.pageSizes.getOrNull(pageIndex), renderWidthPx)
+        val dpi = renderDpi(_state.value.pageSizes.getOrNull(pageIndex), renderWidthPx, renderZoomFactor)
         viewModelScope.launch {
             val result = withContext(Dispatchers.Default) { openDocument.renderPage(pageIndex, dpi) }
             if (inFlight[pageIndex] == generation) inFlight.remove(pageIndex)
             // A render outlives the document that started it when the user
             // opens another file mid-scroll, and outlives its own layout when
             // the device rotates. Either way the bitmap belongs to nobody.
-            if (document !== openDocument || generation != layoutGeneration) return@launch
+            if (document !== openDocument || !acceptsRenderCompletion(generation, layoutGeneration, pageIndex, cacheWindow)) return@launch
             when (result) {
                 is PdfCoreResult.Success -> {
                     val bitmap = result.value.toImageBitmap() ?: return@launch
-                    if (pageIndex !in cacheWindow) return@launch
-                    _state.value = _state.value.copy(pages = _state.value.pages + (pageIndex to bitmap))
+                    _state.value = _state.value.withReplacementPage(pageIndex, bitmap)
                 }
                 is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
             }
@@ -195,6 +199,31 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private fun handleOpenFailure(error: PdfCoreError) {
         _state.value = _state.value.copy(isLoading = false, needsPassword = error is PdfCoreError.PasswordRequired || error is PdfCoreError.WrongPassword, passwordMessage = if (error is PdfCoreError.WrongPassword) "The password is incorrect. Try again." else null, status = userMessage(error))
     }
+
+    private fun changeZoom(zoomFactor: Double) {
+        if (document == null || zoomFactor == _state.value.zoomFactor) return
+        // Page geometry changes immediately. Keep cache-window pages beneath the
+        // next generation until their sharp replacements arrive.
+        layoutGeneration += 1
+        inFlight.clear()
+        renderWidthPx = 0
+        _state.value = _state.value.copy(zoomFactor = zoomFactor).withInvalidatedPageBitmaps(cacheWindow)
+    }
+}
+
+private fun ViewerState.withInvalidatedPageBitmaps(window: IntRange): ViewerState {
+    val bitmaps = invalidatePageBitmaps(PageBitmaps(pages, bridgePages), window)
+    return copy(pages = bitmaps.pages, bridgePages = bitmaps.bridges)
+}
+
+private fun ViewerState.withRetainedPageBitmaps(window: IntRange): ViewerState {
+    val bitmaps = retainPageBitmaps(PageBitmaps(pages, bridgePages), window)
+    return copy(pages = bitmaps.pages, bridgePages = bitmaps.bridges)
+}
+
+private fun ViewerState.withReplacementPage(pageIndex: Int, page: androidx.compose.ui.graphics.ImageBitmap): ViewerState {
+    val bitmaps = replacePageBitmap(PageBitmaps(pages, bridgePages), pageIndex, page)
+    return copy(pages = bitmaps.pages, bridgePages = bitmaps.bridges)
 }
 
 private fun availabilityMessage(core: PdfCore?): String = if (core == null) "Native PDF support is not packaged. Build with scripts/package-android.sh and externally supplied PDFium libraries." else "Select a PDF to begin."

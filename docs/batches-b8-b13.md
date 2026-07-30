@@ -265,7 +265,9 @@ Windows/C#). Paralelo con B9 y B10.
 - [ ] T-084 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [ui-android, OpenPDF, NavZoom]
       **(2026-07-26 — parcial: lector de scroll continuo con ventana de render/caché,
       placeholders dimensionados por media box y fit-to-width con techo de píxeles por
-      página + invalidación por rotación; zoom page/custom pendiente)**
+      página + invalidación por rotación; zoom custom por botones, con escalera discreta,
+      re-render a DPI escalado, límite de píxeles y scroll horizontal, hecho; zoom fit-page
+      y pinch siguen pendientes)**
 - [ ] T-085 Prompt de contraseña en apertura encriptada + manejo de error. [ui-android, PwdPDF]
       **(2026-07-26 — parcial: diálogo de contraseña con reintento y mensaje de error
       diferenciado; el diálogo todavía no se puede cancelar (`onDismissRequest` vacío y sin
