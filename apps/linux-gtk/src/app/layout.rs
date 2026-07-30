@@ -17,6 +17,7 @@ pub(crate) const TILE_EDGE_PX: u32 = 1024;
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Zoom {
     FitWidth,
+    FitPage,
     Custom(f64),
 }
 
@@ -85,6 +86,7 @@ pub(crate) fn resolve_page_box(
     width_pt: f32,
     height_pt: f32,
     available_logical_width: f64,
+    available_logical_height: f64,
     scale_factor: f64,
 ) -> PageBox {
     if !usable(width_pt) || !usable(height_pt) {
@@ -100,6 +102,16 @@ pub(crate) fn resolve_page_box(
             available_logical_width / f64::from(width_pt)
         }
         Zoom::FitWidth => 1.0,
+        Zoom::FitPage
+            if available_logical_width.is_finite()
+                && available_logical_width > 0.0
+                && available_logical_height.is_finite()
+                && available_logical_height > 0.0 =>
+        {
+            (available_logical_width / f64::from(width_pt))
+                .min(available_logical_height / f64::from(height_pt))
+        }
+        Zoom::FitPage => 1.0,
         Zoom::Custom(factor) => factor,
     }
     .clamp(0.10, 8.0);
@@ -244,6 +256,7 @@ pub(crate) fn set_placeholder_size(
         width_pt,
         height_pt,
         f64::from(fit.available_width / fit.scale_factor as u32),
+        f64::from(fit.available_height / fit.scale_factor as u32),
         f64::from(fit.scale_factor),
     );
     picture.set_width_request(box_.logical_width);
@@ -258,11 +271,14 @@ pub(crate) fn refresh_layout(viewer: &Viewer) {
         let Some(session) = state.session.as_mut() else {
             return;
         };
-        if session.physical_width == fit.available_width && session.scale_factor == fit.scale_factor
+        if session.physical_width == fit.available_width
+            && session.physical_height == fit.available_height
+            && session.scale_factor == fit.scale_factor
         {
             return;
         }
         session.physical_width = fit.available_width;
+        session.physical_height = fit.available_height;
         session.scale_factor = fit.scale_factor;
         for active in session.active.values() {
             active.cancellation.cancel();
@@ -282,6 +298,7 @@ pub(crate) fn refresh_layout(viewer: &Viewer) {
                 page.width_pt,
                 page.height_pt,
                 f64::from(fit.available_width / fit.scale_factor as u32),
+                f64::from(fit.available_height / fit.scale_factor as u32),
                 f64::from(fit.scale_factor),
             );
             page.picture.set_width_request(box_.logical_width);
@@ -318,14 +335,11 @@ pub(crate) fn set_zoom(viewer: &Viewer, zoom: Zoom) {
         }
     };
     if changed {
-        // Reset the cached fit width so the shared layout path retargets pages.
-        viewer
-            .state
-            .borrow_mut()
-            .session
-            .as_mut()
-            .unwrap()
-            .physical_width = 0;
+        // Reset cached viewport dimensions so the shared layout path retargets pages.
+        if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
+            session.physical_width = 0;
+            session.physical_height = 0;
+        }
         refresh_layout(viewer);
     }
 }
@@ -381,14 +395,42 @@ mod tests {
 
     #[test]
     fn tile_plan_activates_only_when_physical_dpi_exceeds_the_base_budget() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
 
         assert!(would_use_tiles(page.budget(), 1.0));
     }
 
     #[test]
+    fn fit_page_uses_viewport_height_when_it_is_the_limiting_dimension() {
+        let page = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 1_000.0, 500.0, 1.0);
+
+        assert_eq!(page.logical_width, 386);
+        assert_eq!(page.logical_height, 500);
+        assert!((page.factor - 500.0 / 792.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_page_uses_viewport_width_when_it_is_the_limiting_dimension() {
+        let page = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 400.0, 1_000.0, 1.0);
+
+        assert_eq!(page.logical_width, 400);
+        assert_eq!(page.logical_height, 518);
+        assert!((page.factor - 400.0 / 612.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_page_recomputes_when_only_viewport_height_changes() {
+        let before = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 1_000.0, 700.0, 1.0);
+        let after = resolve_page_box(Zoom::FitPage, 612.0, 792.0, 1_000.0, 350.0, 1.0);
+
+        assert_eq!(before.logical_height, 700);
+        assert_eq!(after.logical_height, 350);
+        assert!(after.factor < before.factor);
+    }
+
+    #[test]
     fn tile_plan_uses_a_fixed_page_local_grid_with_shared_integer_edges() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
         let plan = tile_plan(
             page.budget(),
             612.0,
@@ -408,7 +450,7 @@ mod tests {
 
     #[test]
     fn tile_plan_is_stable_for_scrolls_inside_the_same_grid_row() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
         let at_rest = tile_plan(
             page.budget(),
             612.0,
@@ -429,7 +471,7 @@ mod tests {
 
     #[test]
     fn tiled_page_uses_a_bounded_base_bridge() {
-        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1.0);
+        let page = resolve_page_box(Zoom::Custom(6.0), 612.0, 792.0, 1_600.0, 1_000.0, 1.0);
         let bridge = bridge_dpi(612.0, 792.0, page.base_dpi);
 
         assert!(bridge < page.base_dpi && bridge >= MIN_RENDER_DPI);

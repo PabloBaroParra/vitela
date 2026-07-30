@@ -91,6 +91,7 @@ fn build_ui(application: &Application) {
     print_button.set_sensitive(false);
     let zoom_out = Button::with_label("Zoom out");
     let fit_width = Button::with_label("Fit width");
+    let fit_page = Button::with_label("Fit page");
     let zoom_in = Button::with_label("Zoom in");
 
     let toolbar = GtkBox::new(Orientation::Horizontal, 8);
@@ -101,6 +102,7 @@ fn build_ui(application: &Application) {
     toolbar.append(&find_next);
     toolbar.append(&zoom_out);
     toolbar.append(&fit_width);
+    toolbar.append(&fit_page);
     toolbar.append(&zoom_in);
     toolbar.append(&print_button);
 
@@ -159,6 +161,10 @@ fn build_ui(application: &Application) {
     fit_width.connect_clicked({
         let viewer = viewer.clone();
         move |_| set_zoom(&viewer, Zoom::FitWidth)
+    });
+    fit_page.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| set_zoom(&viewer, Zoom::FitPage)
     });
     viewer.print_button.connect_clicked({
         let window = window.clone();
@@ -262,10 +268,15 @@ fn connect_viewport_updates(viewer: &Viewer) {
         let viewer = viewer.clone();
         move |_| update_viewport(&viewer)
     });
+    adjustment.connect_page_size_notify({
+        let viewer = viewer.clone();
+        move |_| refresh_layout(&viewer)
+    });
     // GtkWidget has no "width" GObject property, so `notify::width` would
     // never fire. The horizontal adjustment's page size tracks the
-    // viewport width and changes on every horizontal resize — the correct
-    // signal to re-fit pages to the new available width.
+    // viewport width and changes on every horizontal resize. The vertical
+    // adjustment similarly signals height changes; `refresh_layout` reads the
+    // ScrolledWindow allocation rather than either adjustment's page size.
     let hadjustment = viewer.scroll.hadjustment();
     hadjustment.connect_page_size_notify({
         let viewer = viewer.clone();
