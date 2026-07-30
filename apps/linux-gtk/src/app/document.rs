@@ -235,6 +235,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             width_pt,
             height_pt,
             f64::from(fit.available_width / fit.scale_factor as u32),
+            f64::from(fit.available_height / fit.scale_factor as u32),
             f64::from(fit.scale_factor),
         );
         slots.push(PageSlot {
@@ -257,6 +258,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     viewer.state.borrow_mut().session = Some(DocumentSession {
         document: document.document,
         physical_width: fit.available_width,
+        physical_height: fit.available_height,
         scale_factor: fit.scale_factor,
         pages: slots,
         page_heights,

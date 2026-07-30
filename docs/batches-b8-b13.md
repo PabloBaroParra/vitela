@@ -30,8 +30,9 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
 ([batch-forms.md](batch-forms.md)); el resto de B8 no está gateado por él.
 
 ### Tareas
-- [ ] T-044 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [OpenPDF, NavZoom]
-      **(2026-07-19 — parcial: viewer multipágina async + scroll continuo + fit-to-width hechos; zoom page/custom pendiente)**
+- [x] T-044 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [OpenPDF, NavZoom]
+      **(2026-07-30 — completo: viewer multipágina async, scroll continuo, fit-width,
+      fit-page y los controles de zoom custom existentes.)**
 - [x] T-045 Prompt de contraseña en apertura encriptada + UX de error. [PwdPDF]
 - [ ] T-046 Selección de texto + búsqueda doc-wide con matches resaltados y navegables. [TextSelSearch]
       **(2026-07-19 — parcial: búsqueda doc-wide + matches navegables hechos; selección de texto pendiente)**

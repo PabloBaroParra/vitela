@@ -53,6 +53,7 @@ pub(crate) struct ViewerState {
 pub(crate) struct DocumentSession {
     pub(crate) document: DocumentHandle,
     pub(crate) physical_width: u32,
+    pub(crate) physical_height: u32,
     pub(crate) scale_factor: i32,
     pub(crate) pages: Vec<PageSlot>,
     /// Cached logical heights, one per page — recomputed only when the fit
@@ -135,6 +136,7 @@ pub(crate) struct OpenedDocument {
 #[derive(Clone, Copy)]
 pub(crate) struct FitRequest {
     pub(crate) available_width: u32,
+    pub(crate) available_height: u32,
     pub(crate) scale_factor: i32,
 }
 
@@ -143,6 +145,7 @@ impl FitRequest {
         let scale_factor = viewer.scroll.scale_factor().max(1);
         FitRequest {
             available_width: (viewer.scroll.width().max(1) * scale_factor) as u32,
+            available_height: (viewer.scroll.height().max(1) * scale_factor) as u32,
             scale_factor,
         }
     }
