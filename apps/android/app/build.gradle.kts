@@ -69,7 +69,7 @@ dependencies {
     // UniFFI's generated Kotlin bindings call into the native library through
     // JNA (`com.sun.jna.*`). The `@aar` classifier is required: the plain jar
     // does not ship the Android native dispatch libraries.
-    implementation("net.java.dev.jna:jna:5.14.0@aar")
+    implementation("net.java.dev.jna:jna:5.17.0@aar")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

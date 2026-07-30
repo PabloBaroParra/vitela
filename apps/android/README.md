@@ -101,6 +101,13 @@ Verify the PDFium build before packaging: its `VERSION` file must report
 `pdf_enable_v8 = false`. A mismatched build fails at runtime, not at build
 time.
 
+Android distribution APKs must support 16-KB memory pages. Every packaged
+`arm64-v8a` and `x86_64` native library needs a `PT_LOAD` alignment of at least
+`0x4000`. `package-android.sh` finds `llvm-readelf` from `ANDROID_NDK_HOME` and
+fails before Gradle if either generated `libpdf_ffi.so` or supplied
+`libpdfium.so` does not meet that requirement. This check also applies to the
+actual external PDFium binary, not only its build configuration.
+
 It builds `pdf-ffi` with `cargo-ndk`, copies each externally supplied PDFium
 library into `app/src/main/jniLibs/<abi>/`, and generates matching Kotlin
 bindings from that exact `libpdf_ffi.so`. The copied libraries and generated
@@ -129,6 +136,17 @@ After packaging, use an installed Android Gradle distribution:
 ```sh
 gradle -p apps/android :app:assembleDebug
 ```
+
+Before distributing an APK, verify both ELF and APK alignment. The packaging
+script performs the ELF verification; its output names every checked library.
+Then use the Android SDK Build Tools `zipalign` on the release APK:
+
+```sh
+zipalign -c -P 16 -v 4 apps/android/app/build/outputs/apk/release/app-release.apk
+```
+
+The command must succeed. Do not use compressed JNI libraries or legacy
+packaging modes as a workaround for a library that fails the ELF check.
 
 The focused JVM tests intentionally do not need native libraries:
 
