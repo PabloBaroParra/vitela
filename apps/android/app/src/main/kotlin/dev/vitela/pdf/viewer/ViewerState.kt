@@ -9,6 +9,8 @@ data class ViewerState(
     val pageCount: Int = 0,
     /** The page filling most of the viewport — what the page counter reports. */
     val pageIndex: Int = 0,
+    /** Explicit zoom relative to the reader width: 1.0 is the existing fit-to-width layout. */
+    val zoomFactor: Double = DEFAULT_ZOOM_FACTOR,
     /** Every page's media box, so unrendered slots still lay out at the right height. */
     val pageSizes: List<PageSize> = emptyList(),
     /**
@@ -17,6 +19,11 @@ data class ViewerState(
      * once, and everything outside that window is evicted on scroll.
      */
     val pages: Map<Int, ImageBitmap> = emptyMap(),
+    /**
+     * Bitmaps from the previous layout generation, drawn beneath replacement
+     * pages so a zoom or resize has no blank intermediate frame.
+     */
+    val bridgePages: Map<Int, ImageBitmap> = emptyMap(),
     /**
      * A page the reader should scroll to — set by Previous/Next and by search
      * navigation, cleared once the list has consumed it. Null means "the user
@@ -56,6 +63,7 @@ data class ReaderPosition(
     val last: Int,
     val current: Int,
     val viewportWidthPx: Int,
+    val zoomFactor: Double,
 )
 
 internal fun boundedPageIndex(pageIndex: Int, pageCount: Int): Int =
@@ -64,4 +72,26 @@ internal fun boundedPageIndex(pageIndex: Int, pageCount: Int): Int =
 internal fun nextSearchIndex(current: Int, count: Int, delta: Int): Int {
     if (count == 0) return 0
     return Math.floorMod(current + delta, count)
+}
+
+internal const val MIN_ZOOM_FACTOR = 0.10
+internal const val MAX_ZOOM_FACTOR = 8.0
+internal const val DEFAULT_ZOOM_FACTOR = 1.0
+
+private val ZOOM_LADDER = doubleArrayOf(0.10, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00, 6.00, 8.00)
+private const val ZOOM_EPSILON = 1e-9
+
+internal fun clampZoomFactor(factor: Double): Double =
+    if (factor.isFinite()) factor.coerceIn(MIN_ZOOM_FACTOR, MAX_ZOOM_FACTOR) else DEFAULT_ZOOM_FACTOR
+
+/** Returns the next explicit zoom-in rung, including when the current factor is between rungs. */
+internal fun zoomIn(factor: Double): Double {
+    val current = clampZoomFactor(factor)
+    return ZOOM_LADDER.firstOrNull { it > current + ZOOM_EPSILON } ?: MAX_ZOOM_FACTOR
+}
+
+/** Returns the next explicit zoom-out rung, including when the current factor is between rungs. */
+internal fun zoomOut(factor: Double): Double {
+    val current = clampZoomFactor(factor)
+    return ZOOM_LADDER.lastOrNull { it < current - ZOOM_EPSILON } ?: MIN_ZOOM_FACTOR
 }

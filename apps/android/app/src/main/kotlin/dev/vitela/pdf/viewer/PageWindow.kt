@@ -60,6 +60,31 @@ internal fun pageWindow(first: Int, last: Int, pageCount: Int, radius: Int): Int
 internal fun <T> retainWindow(pages: Map<Int, T>, window: IntRange): Map<Int, T> =
     pages.filterKeys { it in window }
 
+/** Current and transitional bitmaps, each constrained to the cache window. */
+internal data class PageBitmaps<T>(val pages: Map<Int, T> = emptyMap(), val bridges: Map<Int, T> = emptyMap())
+
+/** Moves the current generation under the next one without extending the cache window. */
+internal fun <T> invalidatePageBitmaps(bitmaps: PageBitmaps<T>, window: IntRange): PageBitmaps<T> =
+    PageBitmaps(bridges = retainWindow(bitmaps.bridges + bitmaps.pages, window))
+
+/** Evicts both matching-generation pages and transitional bridges together. */
+internal fun <T> retainPageBitmaps(bitmaps: PageBitmaps<T>, window: IntRange): PageBitmaps<T> =
+    PageBitmaps(retainWindow(bitmaps.pages, window), retainWindow(bitmaps.bridges, window))
+
+/** A matching-generation bitmap replaces, and releases, its temporary bridge. */
+internal fun <T> replacePageBitmap(bitmaps: PageBitmaps<T>, pageIndex: Int, page: T): PageBitmaps<T> =
+    PageBitmaps(bitmaps.pages + (pageIndex to page), bitmaps.bridges - pageIndex)
+
+/** Visible pages are rendered before neighbours queued only for prefetch. */
+internal fun renderOrder(first: Int, last: Int, pageCount: Int): List<Int> {
+    val visible = pageWindow(first, last, pageCount, radius = 0).toList()
+    return visible + pageWindow(first, last, pageCount, PREFETCH_PAGES).filter { it !in visible }
+}
+
+/** A completion can only update the layout generation that requested it. */
+internal fun acceptsRenderCompletion(startedGeneration: Int, currentGeneration: Int, pageIndex: Int, window: IntRange): Boolean =
+    startedGeneration == currentGeneration && pageIndex in window
+
 /**
  * Width-to-height ratio for a page's placeholder. Falls back to
  * [DEFAULT_PAGE_ASPECT_RATIO] on a degenerate page box, which would otherwise
@@ -72,17 +97,17 @@ internal fun PageSize?.aspectRatio(): Float {
 
 /**
  * Fit-to-width density: how densely [size] must rasterize for the page to
- * exactly fill [availableWidthPx], capped by [MAX_PAGE_PIXELS].
+ * exactly fill [availableWidthPx] at [zoomFactor], capped by [MAX_PAGE_PIXELS].
  *
  * The cap is the whole reason this is not a one-line division — see
  * [MAX_PAGE_PIXELS]. It trades a little sharpness on very wide viewports for a
  * peak heap that does not depend on the size of the screen.
  */
-internal fun renderDpi(size: PageSize?, availableWidthPx: Int): Int {
+internal fun renderDpi(size: PageSize?, availableWidthPx: Int, zoomFactor: Double = DEFAULT_ZOOM_FACTOR): Int {
     if (size == null || size.widthPt <= 0.0 || size.heightPt <= 0.0 || availableWidthPx <= 0) {
         return FALLBACK_RENDER_DPI
     }
-    val fitToWidth = availableWidthPx / size.widthPt * POINTS_PER_INCH
+    val fitToWidth = availableWidthPx / size.widthPt * POINTS_PER_INCH * clampZoomFactor(zoomFactor)
     val budget = sqrt(
         MAX_PAGE_PIXELS * POINTS_PER_INCH * POINTS_PER_INCH / (size.widthPt * size.heightPt),
     )

@@ -36,11 +36,11 @@ counter reports the page covering most of the viewport, not the first one
 visible: at the bottom of a document the previous page keeps a sliver on
 screen, so "first visible" could never say "3 of 3".
 
-## Fit-to-width
+## Fit-to-width and button zoom
 
 Pages rasterize at the density that makes them exactly fill their slot —
-`renderDpi(pageSize, viewportWidthPx)` — instead of a fixed DPI, so a page is
-sharp on a phone without being wastefully oversized on a small screen.
+`renderDpi(pageSize, viewportWidthPx, zoomFactor)` — instead of a fixed DPI, so
+a page is sharp on a phone without being wastefully oversized on a small screen.
 
 Two consequences the code has to handle, and both are easy to get wrong:
 
@@ -51,12 +51,24 @@ Two consequences the code has to handle, and both are easy to get wrong:
   per page, trading a little sharpness on very wide viewports for a bound that
   holds on every device. A degenerate MediaBox is separately clamped by
   `MAX_RENDER_DPI`, mirroring the GTK shell.
-- **A rotation invalidates everything.** Each bitmap is tied to the width it
-  was fit to, so a width change drops the whole cache *and* every render
-  already in flight. `ViewerViewModel.layoutGeneration` is how a finished
-  render knows it is answering a question nobody is asking any more.
+- **A layout change keeps a bounded visual bridge.** Each bitmap is tied to the
+  width and zoom it was fit to, so a layout change starts a new generation and
+  invalidates every render already in flight. Cached pages in the existing
+  cache window remain underneath the sharp replacement, avoiding a blank or
+  spinner frame; they are removed when replaced or evicted with the same
+  window. `ViewerViewModel.layoutGeneration` is how a finished render knows it
+  is answering a question nobody is asking any more.
 
-Zoom (fit-page and custom/pinch) is still open — see T-084.
+The reader starts at 100% fit-to-width. Its accessible **Zoom out** and
+**Zoom in** controls move through this bounded custom scale: 10%, 25%, 50%,
+75%, 100%, 125%, 150%, 200%, 300%, 400%, 600%, and 800%. The visible percentage
+reports the active level. Zoom changes page-slot geometry and starts sharp
+ replacements at the scaled DPI, retaining the previous full-page bitmap only
+ as that temporary bridge. It does not use `graphicsLayer` bitmap scaling or
+ region tiles. Pages wider than the viewport use one horizontal scroll position
+ for the continuous reader.
+
+Pinch gestures and fit-page remain out of scope — see T-084.
 
 **Open sample** loads the shared sample document instead of going through the
 picker. The file is not stored in this module: `app/build.gradle.kts` adds the

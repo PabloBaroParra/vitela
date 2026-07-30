@@ -34,6 +34,28 @@ class PageWindowTest {
     }
 
     @Test
+    fun pageBitmaps_keepBridgesBoundedAndRemoveThemWhenReplaced() {
+        val invalidated = invalidatePageBitmaps(
+            PageBitmaps(pages = mapOf(1 to "current", 4 to "outside"), bridges = mapOf(0 to "older")),
+            0..2,
+        )
+        assertEquals(emptyMap<Int, String>(), invalidated.pages)
+        assertEquals(mapOf(0 to "older", 1 to "current"), invalidated.bridges)
+
+        val replaced = replacePageBitmap(invalidated, pageIndex = 1, page = "sharp")
+        assertEquals(mapOf(1 to "sharp"), replaced.pages)
+        assertEquals(mapOf(0 to "older"), replaced.bridges)
+        assertEquals(PageBitmaps(mapOf(1 to "sharp"), emptyMap()), retainPageBitmaps(replaced, 1..1))
+    }
+
+    @Test
+    fun renderOrder_prioritizesVisiblePagesAndRejectsStaleCompletions() {
+        assertEquals(listOf(4, 5, 3, 6), renderOrder(first = 4, last = 5, pageCount = 20))
+        assertTrue(acceptsRenderCompletion(startedGeneration = 3, currentGeneration = 3, pageIndex = 4, window = 2..6))
+        assertTrue(!acceptsRenderCompletion(startedGeneration = 3, currentGeneration = 4, pageIndex = 4, window = 2..6))
+    }
+
+    @Test
     fun cacheWindowIsWiderThanTheRenderWindow() {
         // Prefetch decides what gets rasterized ahead of the scroll; the cache
         // window decides what survives once it scrolls off. A cache narrower
@@ -60,6 +82,19 @@ class PageWindowTest {
         assertEquals(144, renderDpi(PageSize(612.0, 792.0), availableWidthPx = 1224))
         // Half as wide a viewport asks for half the density, not a fixed one.
         assertEquals(72, renderDpi(PageSize(612.0, 792.0), availableWidthPx = 612))
+    }
+
+    @Test
+    fun renderDpi_scalesWithCustomZoomBeforeApplyingTheCaps() {
+        val size = PageSize(612.0, 792.0)
+        // 144 dpi fit-to-width (see renderDpi_fitsThePageToTheAvailableWidth)
+        // scaled by 1.25x zoom. 180 dpi stays under this page's ~206.8 dpi
+        // pixel-budget ceiling, so the cap is not what produces this number.
+        assertEquals(180, renderDpi(size, availableWidthPx = 1224, zoomFactor = 1.25))
+
+        val dpi = renderDpi(size, availableWidthPx = 1224, zoomFactor = MAX_ZOOM_FACTOR)
+        val pixels = (612.0 * dpi / 72.0).toLong() * (792.0 * dpi / 72.0).toLong()
+        assertTrue("$dpi dpi rasterizes $pixels px, over the budget", pixels <= MAX_PAGE_PIXELS)
     }
 
     @Test

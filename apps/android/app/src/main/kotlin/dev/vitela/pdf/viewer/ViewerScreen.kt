@@ -21,6 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
@@ -36,6 +38,8 @@ internal fun ViewerScreen(
     onOpenSample: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onZoomOut: () -> Unit,
+    onZoomIn: () -> Unit,
     onSearch: (String) -> Unit,
     onPreviousMatch: () -> Unit,
     onNextMatch: () -> Unit,
@@ -46,6 +50,7 @@ internal fun ViewerScreen(
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    val zoomPercentage = (state.zoomFactor * 100).toInt()
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -60,6 +65,11 @@ internal fun ViewerScreen(
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
             Button(onClick = onNext, enabled = state.pageIndex + 1 < state.pageCount) { Text("Next") }
             Text(if (state.pageCount == 0) "No pages" else "Page ${state.pageIndex + 1} of ${state.pageCount}")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onZoomOut, enabled = state.pageCount > 0 && state.zoomFactor > MIN_ZOOM_FACTOR) { Text("Zoom out") }
+            Text("$zoomPercentage%", modifier = Modifier.semantics { contentDescription = "Zoom level: $zoomPercentage%" })
+            TextButton(onClick = onZoomIn, enabled = state.pageCount > 0 && state.zoomFactor < MAX_ZOOM_FACTOR) { Text("Zoom in") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Find text") }, modifier = Modifier.weight(1f))

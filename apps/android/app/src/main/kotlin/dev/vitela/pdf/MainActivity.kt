@@ -66,6 +66,8 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         },
         onPrevious = { viewModel.navigate(-1) },
         onNext = { viewModel.navigate(1) },
+        onZoomOut = viewModel::zoomOut,
+        onZoomIn = viewModel::zoomIn,
         onSearch = viewModel::search,
         onPreviousMatch = { viewModel.stepSearch(-1) },
         onNextMatch = { viewModel.stepSearch(1) },
