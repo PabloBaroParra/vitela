@@ -142,7 +142,7 @@ fn search_does_not_match_across_a_line_break() {
 }
 
 #[test]
-fn opens_encrypted_fixture_from_bytes_and_renders_page_one() {
+fn open_from_bytes_with_valid_password_returns_a_render_capable_document() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
     let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string()))
         .expect("should open with the correct user password");

@@ -333,17 +333,10 @@ fn apply_command(document: &mut Document, command: Command) {
 fn open_render_doc_from_bytes(
     bytes: Vec<u8>,
     password: Option<&str>,
-) -> Result<Option<pdf_render::DocumentHandle>, FfiError> {
-    match pdf_render::PdfiumRenderer::new().open_document_from_bytes(bytes, password) {
-        Ok(handle) => Ok(Some(handle)),
-        // A missing/unloadable pdfium library must surface at open time —
-        // degrading it to `None` would misreport every later render call as
-        // `DocumentNotFound`. Any other render-side open failure (e.g. a
-        // zero-page blank document pdfium can't load) stays non-fatal:
-        // manipulation and save still work without a render doc.
-        Err(error @ pdf_render::RenderError::LibraryLoad { .. }) => Err(error.into()),
-        Err(_) => Ok(None),
-    }
+) -> Result<pdf_render::DocumentHandle, FfiError> {
+    pdf_render::PdfiumRenderer::new()
+        .open_document_from_bytes(bytes, password)
+        .map_err(Into::into)
 }
 
 /// Opens the PDF at `path` (GTK4-style convenience — reads the file, then
@@ -365,7 +358,10 @@ pub fn open_from_bytes(
     let (base, security) = pdf_manip::open_document_from_bytes(&bytes, password.as_deref())?;
     let document = pdf_save::document_from_lopdf(&base, security)?;
     let next_page_id = PageId(document.pages.len() as u32);
-    let render_doc = open_render_doc_from_bytes(bytes.clone(), password.as_deref())?;
+    let render_doc = Some(open_render_doc_from_bytes(
+        bytes.clone(),
+        password.as_deref(),
+    )?);
 
     Ok(DocumentHandle::new(DocumentState {
         document,
@@ -411,7 +407,10 @@ pub fn open_with_passwords_from_bytes(
     )?;
     let document = pdf_save::document_from_lopdf(&base, security)?;
     let next_page_id = PageId(document.pages.len() as u32);
-    let render_doc = open_render_doc_from_bytes(bytes.clone(), Some(&owner_password))?;
+    let render_doc = Some(open_render_doc_from_bytes(
+        bytes.clone(),
+        Some(&owner_password),
+    )?);
 
     Ok(DocumentHandle::new(DocumentState {
         document,
@@ -437,10 +436,14 @@ pub fn create_blank_document(
 
     let mut bytes = Vec::new();
     base.as_lopdf().clone().save_to(&mut bytes)?;
-    // A zero-page document may not be renderable by pdfium; that's fine —
-    // `render_page` reports `DocumentNotFound` until a page exists (see
-    // module docs). Only a pdfium library-load failure is fatal here.
-    let render_doc = open_render_doc_from_bytes(bytes, None)?;
+    // A zero-page document may not be renderable by pdfium; that is the one
+    // intentional optional rendering case. Opened documents must always have
+    // a render-side handle.
+    let render_doc = match pdf_render::PdfiumRenderer::new().open_document_from_bytes(bytes, None) {
+        Ok(handle) => Some(handle),
+        Err(error @ pdf_render::RenderError::LibraryLoad { .. }) => return Err(error.into()),
+        Err(_) => None,
+    };
 
     Ok(DocumentHandle::new(DocumentState {
         document,
