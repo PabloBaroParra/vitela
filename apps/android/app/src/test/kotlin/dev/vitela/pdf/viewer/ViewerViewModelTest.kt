@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -25,5 +26,15 @@ class ViewerViewModelTest {
         // The default must err towards a disabled button: a state that forgot
         // to decide should never advertise an action that cannot run.
         assertFalse(ViewerState().canOpen)
+    }
+
+    @Test
+    fun cancelPasswordIsANoOpWhenNoPromptIsShowing() {
+        // T-085: cancelling must never clobber unrelated state — it only
+        // acts while the password prompt is actually up.
+        val viewModel = ViewerViewModel(core = null)
+        val before = viewModel.state.value
+        viewModel.cancelPassword()
+        assertEquals(before, viewModel.state.value)
     }
 }
