@@ -87,7 +87,10 @@ class PageWindowTest {
     @Test
     fun renderDpi_scalesWithCustomZoomBeforeApplyingTheCaps() {
         val size = PageSize(612.0, 792.0)
-        assertEquals(216, renderDpi(size, availableWidthPx = 1224, zoomFactor = 1.5))
+        // 144 dpi fit-to-width (see renderDpi_fitsThePageToTheAvailableWidth)
+        // scaled by 1.25x zoom. 180 dpi stays under this page's ~206.8 dpi
+        // pixel-budget ceiling, so the cap is not what produces this number.
+        assertEquals(180, renderDpi(size, availableWidthPx = 1224, zoomFactor = 1.25))
 
         val dpi = renderDpi(size, availableWidthPx = 1224, zoomFactor = MAX_ZOOM_FACTOR)
         val pixels = (612.0 * dpi / 72.0).toLong() * (792.0 * dpi / 72.0).toLong()
