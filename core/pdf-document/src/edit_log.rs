@@ -28,6 +28,14 @@ pub enum Command {
     /// moment the command is recorded, since it no longer exists in the
     /// `AnnotationSet` after this command is applied.
     RemoveAnnotation(Annotation),
+    /// Replaces an annotation while retaining its previous value so the edit
+    /// remains reversible. Used for move, resize, and restyle operations,
+    /// which all keep the annotation's id — `before.id` and `after.id` are
+    /// expected to match, and the annotation keeps its position in the set.
+    ReplaceAnnotation {
+        before: Annotation,
+        after: Annotation,
+    },
     RotatePage {
         page: PageId,
         delta_degrees: i32,
@@ -56,6 +64,17 @@ impl Command {
             Command::RemoveAnnotation(annotation) => {
                 document.annotations.remove(annotation.id);
             }
+            Command::ReplaceAnnotation { before, after } => {
+                // In place, not remove-then-insert: the latter would move the
+                // annotation to the end of the set on every move/resize/
+                // restyle, changing paint order and leaving undo unable to put
+                // it back. The fallback covers the degenerate case where the
+                // id did change, so an edit is never silently dropped.
+                if document.annotations.replace(after.clone()).is_none() {
+                    document.annotations.remove(before.id);
+                    document.annotations.insert(after.clone());
+                }
+            }
             Command::RotatePage {
                 page,
                 delta_degrees,
@@ -78,6 +97,10 @@ impl Command {
         match self {
             Command::AddAnnotation(annotation) => Command::RemoveAnnotation(annotation.clone()),
             Command::RemoveAnnotation(annotation) => Command::AddAnnotation(annotation.clone()),
+            Command::ReplaceAnnotation { before, after } => Command::ReplaceAnnotation {
+                before: after.clone(),
+                after: before.clone(),
+            },
             Command::RotatePage {
                 page,
                 delta_degrees,
@@ -215,6 +238,101 @@ mod tests {
         log.undo(&mut document);
         assert_eq!(document.annotations.len(), 1);
         assert_eq!(document.annotations.get(AnnotationId(7)), Some(&annotation));
+    }
+
+    #[test]
+    fn undo_restores_annotation_before_an_edit() {
+        let mut document = Document::blank();
+        let before = sample_annotation(8, PageId(0));
+        let mut after = before.clone();
+        if let AnnotationKind::Highlight { rect, .. } = &mut after.kind {
+            rect.x = 42.0;
+        }
+        document.annotations.insert(before.clone());
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::ReplaceAnnotation {
+                before: before.clone(),
+                after: after.clone(),
+            },
+        );
+        assert_eq!(document.annotations.get(before.id), Some(&after));
+
+        log.undo(&mut document);
+        assert_eq!(document.annotations.get(before.id), Some(&before));
+
+        log.redo(&mut document);
+        assert_eq!(document.annotations.get(before.id), Some(&after));
+    }
+
+    /// An edit must not reorder the set: `AnnotationSet` guarantees ordering
+    /// for deterministic save output, and the shells paint in set order.
+    #[test]
+    fn an_edit_and_its_undo_both_keep_the_annotation_in_place() {
+        let mut document = Document::blank();
+        let before = sample_annotation(8, PageId(0));
+        let mut after = before.clone();
+        if let AnnotationKind::Highlight { rect, .. } = &mut after.kind {
+            rect.x = 42.0;
+        }
+        document.annotations.insert(sample_annotation(7, PageId(0)));
+        document.annotations.insert(before.clone());
+        document.annotations.insert(sample_annotation(9, PageId(0)));
+        let order: Vec<_> = document.annotations.iter().map(|a| a.id).collect();
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::ReplaceAnnotation {
+                before: before.clone(),
+                after,
+            },
+        );
+        assert_eq!(
+            document
+                .annotations
+                .iter()
+                .map(|a| a.id)
+                .collect::<Vec<_>>(),
+            order,
+            "applying an edit must not move the annotation"
+        );
+
+        log.undo(&mut document);
+        assert_eq!(
+            document
+                .annotations
+                .iter()
+                .map(|a| a.id)
+                .collect::<Vec<_>>(),
+            order,
+            "undoing an edit must not move the annotation either"
+        );
+    }
+
+    #[test]
+    fn the_inverse_of_an_edit_swaps_its_before_and_after() {
+        let before = sample_annotation(8, PageId(0));
+        let mut after = before.clone();
+        if let AnnotationKind::Highlight { rect, .. } = &mut after.kind {
+            rect.x = 42.0;
+        }
+
+        let inverse = Command::ReplaceAnnotation {
+            before: before.clone(),
+            after: after.clone(),
+        }
+        .inverse();
+
+        assert_eq!(
+            inverse,
+            Command::ReplaceAnnotation {
+                before: after,
+                after: before,
+            }
+        );
     }
 
     #[test]

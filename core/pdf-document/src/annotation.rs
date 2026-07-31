@@ -120,6 +120,24 @@ impl AnnotationSet {
         Some(self.annotations.remove(index))
     }
 
+    /// Swaps in a new value for the annotation that already carries
+    /// `annotation`'s id, **keeping its position**, and returns the previous
+    /// value. Returns `None` and leaves the set untouched when no annotation
+    /// has that id.
+    ///
+    /// A remove-then-insert pair would move the annotation to the end of the
+    /// set, which this type's ordering guarantee (see the type doc) does not
+    /// allow: it changes paint order and makes apply-then-undo stop being an
+    /// identity on the set. Edits that keep an annotation's identity — move,
+    /// resize, restyle — go through here.
+    pub fn replace(&mut self, annotation: Annotation) -> Option<Annotation> {
+        let slot = self
+            .annotations
+            .iter_mut()
+            .find(|existing| existing.id == annotation.id)?;
+        Some(std::mem::replace(slot, annotation))
+    }
+
     pub fn get(&self, id: AnnotationId) -> Option<&Annotation> {
         self.annotations.iter().find(|a| a.id == id)
     }
@@ -185,5 +203,34 @@ mod tests {
     fn remove_missing_id_returns_none() {
         let mut set = AnnotationSet::new();
         assert!(set.remove(AnnotationId(42)).is_none());
+    }
+
+    #[test]
+    fn replace_keeps_the_annotation_in_place() {
+        let mut set = AnnotationSet::new();
+        set.insert(sample_annotation(1));
+        set.insert(sample_annotation(2));
+        set.insert(sample_annotation(3));
+        let mut edited = sample_annotation(2);
+        edited.page = PageId(7);
+
+        let previous = set.replace(edited).expect("id 2 is present");
+
+        assert_eq!(previous.page, PageId(0));
+        assert_eq!(
+            set.iter().map(|a| a.id).collect::<Vec<_>>(),
+            vec![AnnotationId(1), AnnotationId(2), AnnotationId(3)],
+            "an edit must not move the annotation to the end of the set"
+        );
+        assert_eq!(set.get(AnnotationId(2)).expect("present").page, PageId(7));
+    }
+
+    #[test]
+    fn replace_missing_id_returns_none_and_adds_nothing() {
+        let mut set = AnnotationSet::new();
+        set.insert(sample_annotation(1));
+
+        assert!(set.replace(sample_annotation(42)).is_none());
+        assert_eq!(set.len(), 1);
     }
 }
