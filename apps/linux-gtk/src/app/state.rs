@@ -12,6 +12,7 @@ use gtk::{
     ScrolledWindow, ToggleButton,
 };
 use pdf_document::{AnnotationId, Document};
+use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
 /// Where an open request's bytes come from.
@@ -40,6 +41,9 @@ pub(crate) struct Viewer {
     pub(crate) find_previous: Button,
     pub(crate) find_next: Button,
     pub(crate) print_button: Button,
+    pub(crate) save_button: Button,
+    pub(crate) undo_action: gio::SimpleAction,
+    pub(crate) redo_action: gio::SimpleAction,
     pub(crate) annotation_buttons: AnnotationToolbar,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
@@ -85,6 +89,27 @@ pub(crate) struct ViewerState {
     /// stacked underneath a second one — see `document::begin_loading` and
     /// `document::dismiss_password_dialog`.
     pub(crate) password_dialog: Option<Dialog>,
+}
+
+/// Inputs that must remain paired with the editable model for a valid save.
+#[derive(Clone)]
+pub(crate) struct SaveBacking {
+    pub(crate) base: LopdfDocument,
+    pub(crate) original_bytes: Vec<u8>,
+    pub(crate) password: Option<String>,
+}
+
+/// Identifies the exact model revision from which asynchronous work started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SessionToken {
+    pub(crate) generation: u64,
+    pub(crate) edit_revision: u64,
+}
+
+impl SessionToken {
+    pub(crate) fn matches(self, generation: u64, edit_revision: u64) -> bool {
+        self.generation == generation && self.edit_revision == edit_revision
+    }
 }
 
 /// Whether this document's text may be extracted — read once at open time
@@ -332,6 +357,8 @@ pub(crate) struct DocumentSession {
     /// future save/reopen refresh, but every annotation command is recorded in
     /// this model's EditLog immediately.
     pub(crate) document_model: Option<Document>,
+    pub(crate) save_backing: Option<SaveBacking>,
+    pub(crate) edit_revision: u64,
     pub(crate) next_annotation_id: u64,
     pub(crate) selected_annotation: Option<AnnotationId>,
     /// The annotation being drawn right now, if a placement drag is in flight.
@@ -450,11 +477,24 @@ pub(crate) struct OpenedDocument {
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
     pub(crate) document_model: Option<Document>,
+    pub(crate) save_backing: Option<SaveBacking>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AnnotationAccess, TextAccess, ANNOTATION_MODEL_UNAVAILABLE};
+    use super::{AnnotationAccess, SessionToken, TextAccess, ANNOTATION_MODEL_UNAVAILABLE};
+
+    #[test]
+    fn a_session_token_rejects_a_newer_generation_or_edit_revision() {
+        let captured = SessionToken {
+            generation: 4,
+            edit_revision: 2,
+        };
+
+        assert!(captured.matches(4, 2));
+        assert!(!captured.matches(5, 2));
+        assert!(!captured.matches(4, 3));
+    }
 
     #[test]
     fn only_allowed_access_skips_the_refusal() {

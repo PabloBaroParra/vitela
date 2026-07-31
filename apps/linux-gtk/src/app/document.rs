@@ -2,7 +2,11 @@
 //! generation-guarded open flow, the encrypted-document password prompt, and
 //! background close.
 
+use std::any::Any;
 use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use std::cell::RefCell;
@@ -96,6 +100,150 @@ pub(crate) fn show_file_chooser(
     active_chooser.replace(Some(chooser));
 }
 
+/// Lets the user choose a destination, then persists a snapshot of the current
+/// model. The live session remains untouched until the worker has completed.
+pub(crate) fn show_save_chooser(window: &ApplicationWindow, viewer: &Viewer) {
+    let chooser = FileChooserNative::new(
+        Some("Save PDF"),
+        Some(window),
+        FileChooserAction::Save,
+        Some("Save"),
+        Some("Cancel"),
+    );
+    chooser.connect_response({
+        let viewer = viewer.clone();
+        move |chooser, response| {
+            if response != ResponseType::Accept {
+                viewer.status.set_text("Save cancelled.");
+                return;
+            }
+            let Some(path) = chooser.file().and_then(|file| file.path()) else {
+                viewer
+                    .status
+                    .set_text("The selected location is not a local file.");
+                return;
+            };
+            save_current_to(&viewer, path);
+        }
+    });
+    chooser.show();
+}
+
+fn save_current_to(viewer: &Viewer, destination: PathBuf) {
+    let (token, document, backing) = {
+        let state = viewer.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            viewer.status.set_text("Open a PDF before saving.");
+            return;
+        };
+        let Some(document) = session.document_model.clone() else {
+            viewer
+                .status
+                .set_text("This document cannot be saved as an editable PDF.");
+            return;
+        };
+        let Some(backing) = session.save_backing.clone() else {
+            viewer.status.set_text("This document has no save backing.");
+            return;
+        };
+        (
+            super::state::SessionToken {
+                generation: state.generation,
+                edit_revision: session.edit_revision,
+            },
+            document,
+            backing,
+        )
+    };
+    viewer.status.set_text("Saving PDF...");
+    glib::spawn_future_local({
+        let viewer = viewer.clone();
+        async move {
+            let result =
+                gio::spawn_blocking(move || save_snapshot(&document, &backing, &destination)).await;
+            let result = save_worker_result(result);
+            let current = {
+                let state = viewer.state.borrow();
+                state
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| token.matches(state.generation, session.edit_revision))
+            };
+            if !current {
+                return;
+            }
+            match result {
+                Ok(()) => viewer
+                    .status
+                    .set_text("PDF saved. Rendering will refresh when reopened."),
+                Err(error) => viewer
+                    .status
+                    .set_text(&format!("Could not save PDF: {error}")),
+            }
+        }
+    });
+}
+
+fn save_worker_result(
+    result: Result<Result<(), String>, Box<dyn Any + Send>>,
+) -> Result<(), String> {
+    result.map_err(|_| "Save worker stopped unexpectedly.".to_owned())?
+}
+
+fn save_snapshot(
+    document: &Document,
+    backing: &super::state::SaveBacking,
+    destination: &Path,
+) -> Result<(), String> {
+    let bytes = pdf_save::save_document(pdf_save::SaveInput {
+        document,
+        base: &backing.base,
+        original_bytes: Some(&backing.original_bytes),
+        intent: pdf_save::SaveIntent::Default,
+    })
+    .map_err(|error| error.to_string())?;
+    // Validate before replacing a destination: persisted bytes must be usable
+    // by the same renderer path that will display them.
+    PdfiumRenderer::new()
+        .open_document_from_bytes(bytes.clone(), backing.password.as_deref())
+        .map_err(|error| error.to_string())
+        .and_then(|handle| {
+            PdfiumRenderer::new()
+                .close_document(handle)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })?;
+    atomic_write(destination, &bytes)
+}
+
+fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), String> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "destination has no parent directory".to_string())?;
+    let temporary = parent.join(format!(
+        ".{}.{}.tmp",
+        destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("document.pdf"),
+        std::process::id()
+    ));
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|error| error.to_string())?;
+        file.write_all(bytes).map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        fs::rename(&temporary, destination).map_err(|error| error.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
 /// Opens one of the samples that ship inside the binary — the same files the
 /// Windows and Android shells package, so all three show identical content.
 pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer, kind: SampleKind) {
@@ -184,7 +332,10 @@ fn open_document(
     };
     let security = read_security_context(source, password);
     let text_access = text_access_from(&security);
-    let document_model = read_editable_model(source, password, &security);
+    let (document_model, save_backing) = read_editable_model(source, password, &security)
+        .map_or((None, None), |(model, backing)| {
+            (Some(model), Some(backing))
+        });
     let annotation_access = annotation_access_from(&security, document_model.is_some());
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
@@ -196,6 +347,7 @@ fn open_document(
             text_access,
             annotation_access,
             document_model,
+            save_backing,
         }),
         Err(error) => {
             let _ = renderer.close_document(document);
@@ -282,14 +434,27 @@ fn read_editable_model(
     source: &DocumentSource,
     password: Option<&str>,
     security: &Result<Option<SecurityContext>, ManipError>,
-) -> Option<Document> {
+) -> Option<(Document, super::state::SaveBacking)> {
     let security = security.as_ref().ok()?.clone();
-    let (base, _) = match source {
-        DocumentSource::File(path) => pdf_manip::open_document(path, password),
-        DocumentSource::Embedded(bytes) => pdf_manip::open_document_from_bytes(bytes, password),
-    }
-    .ok()?;
-    pdf_save::document_from_lopdf(&base, security).ok()
+    let (base, original_bytes) = match source {
+        DocumentSource::File(path) => (
+            pdf_manip::open_document(path, password).ok()?.0,
+            fs::read(path).ok()?,
+        ),
+        DocumentSource::Embedded(bytes) => (
+            pdf_manip::open_document_from_bytes(bytes, password).ok()?.0,
+            bytes.to_vec(),
+        ),
+    };
+    let model = pdf_save::document_from_lopdf(&base, security).ok()?;
+    Some((
+        model,
+        super::state::SaveBacking {
+            base,
+            original_bytes,
+            password: password.map(str::to_owned),
+        },
+    ))
 }
 
 fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
@@ -371,6 +536,8 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         text_access: document.text_access,
         annotation_access: document.annotation_access,
         document_model: document.document_model,
+        save_backing: document.save_backing,
+        edit_revision: 0,
         next_annotation_id: 0,
         selected_annotation: None,
         placement: None,
@@ -524,4 +691,29 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Dialog) {
     }
     drop(state);
     dialog.destroy();
+}
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use super::save_worker_result;
+
+    #[test]
+    fn a_panicked_save_worker_returns_a_typed_save_error() {
+        let worker_failure: Box<dyn Any + Send> = Box::new("save worker panic");
+
+        assert_eq!(
+            save_worker_result(Err(worker_failure)),
+            Err("Save worker stopped unexpectedly.".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_save_snapshot_error_is_preserved() {
+        assert_eq!(
+            save_worker_result(Ok(Err("destination is read-only".to_owned()))),
+            Err("destination is read-only".to_owned())
+        );
+    }
 }
