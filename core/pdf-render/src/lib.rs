@@ -23,6 +23,7 @@ pub mod inversion;
 pub mod library;
 pub mod options;
 pub mod renderer;
+pub mod selection;
 pub mod state;
 pub mod text;
 
@@ -31,4 +32,7 @@ pub use bitmap::{Bitmap, BitmapHandle, BitmapRegistry};
 pub use error::RenderError;
 pub use options::{Priority, Rect, RenderOptions, Tile};
 pub use renderer::{DocumentHandle, PdfiumActor, PdfiumRenderer, RenderHandle};
+pub use selection::{
+    caret_range, line_rects, place_rect, point_to_pdf, Caret, PageCharacters, PlacedRect,
+};
 pub use text::{TextMatch, TextRect, TextRun};
