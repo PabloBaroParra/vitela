@@ -38,6 +38,11 @@ const PLACEHOLDER_ANNOTATION_RGB: (f64, f64, f64) = (0.20, 0.40, 0.80);
 /// zoom-independent: a hairline that scales away is worse than one that stays
 /// visible.
 const RULE_THICKNESS: f64 = 2.0;
+/// Side of a selection handle, in device pixels.
+const HANDLE_PX: f64 = 8.0;
+/// Handle fill. Solid, unlike the annotations, so a handle reads as chrome the
+/// user can grab rather than as part of the mark.
+const HANDLE_RGB: (f64, f64, f64) = (0.10, 0.35, 0.85);
 
 /// Builds the transparent layer that paints one page's highlights and
 /// receives its drag gestures.
@@ -66,9 +71,12 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
     });
     drag.connect_drag_end({
         let viewer = viewer.clone();
-        // A no-op unless this drag was placing an annotation; a text selection
-        // is already complete by the time the button comes up.
-        move |_, _, _| annotations::finish_placement(&viewer)
+        // No-ops unless this drag was placing or reshaping an annotation; a
+        // text selection is already complete by the time the button comes up.
+        move |_, _, _| {
+            annotations::finish_placement(&viewer);
+            annotations::finish_annotation_drag(&viewer);
+        }
     });
     area.add_controller(drag);
     area
@@ -126,7 +134,19 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         .filter(|annotation| annotation.page.0 as usize == page_index)
     {
         let selected = session.selected_annotation == Some(annotation.id);
-        draw_annotation(context, annotation, page.height_pt, scale, selected);
+        // While an annotation is being dragged, paint where it is heading
+        // rather than where it still sits in the model — nothing reaches the
+        // model until the pointer comes up.
+        let live = session
+            .annotation_drag
+            .as_ref()
+            .filter(|drag| drag.id == annotation.id)
+            .and_then(|drag| annotations::dragged(annotation, drag));
+        let painted = live.as_ref().unwrap_or(annotation);
+        draw_annotation(context, painted, page.height_pt, scale, selected);
+        if selected {
+            draw_handles(context, painted, page.height_pt, scale);
+        }
     }
 
     // The annotation being dragged right now, painted through the same
@@ -244,6 +264,56 @@ fn draw_annotation(
     }
 }
 
+/// Paints the four corner handles of the selected annotation.
+///
+/// Drawn at a fixed size in device pixels rather than scaled with the page:
+/// a handle that shrank with the zoom would become impossible to hit exactly
+/// when the user has zoomed out to see the whole page.
+fn draw_handles(
+    context: &cairo::Context,
+    annotation: &Annotation,
+    page_height_pt: f32,
+    scale: f64,
+) {
+    let Some(rect) = annotations::bounds(annotation) else {
+        return;
+    };
+    let placed = place_annotation(rect, page_height_pt, scale);
+    let (red, green, blue) = HANDLE_RGB;
+    context.set_source_rgb(red, green, blue);
+    for (x, y) in [
+        (placed.left, placed.top),
+        (placed.left + placed.width, placed.top),
+        (placed.left, placed.top + placed.height),
+        (placed.left + placed.width, placed.top + placed.height),
+    ] {
+        context.rectangle(
+            x - HANDLE_PX / 2.0,
+            y - HANDLE_PX / 2.0,
+            HANDLE_PX,
+            HANDLE_PX,
+        );
+    }
+    let _ = context.fill();
+}
+
+/// How far, in PDF points, a press may land from a corner and still count as
+/// grabbing its handle. Derived from the zoom so the grab area matches the
+/// handle the user can see.
+pub(crate) fn handle_reach(viewer: &Viewer, page_index: usize) -> f64 {
+    let state = viewer.state.borrow();
+    let scale = state
+        .session
+        .as_ref()
+        .and_then(|session| session.pages.get(page_index))
+        .map_or(1.0, |page| page.budget.factor);
+    if scale.is_finite() && scale > 0.0 {
+        HANDLE_PX / scale
+    } else {
+        HANDLE_PX
+    }
+}
+
 /// The annotation twin of [`place_rect`]: the same PDF→screen transform, for
 /// the `f64` [`Rect`] the document model uses rather than pdfium's `f32`
 /// [`TextRect`].
@@ -277,6 +347,29 @@ fn set_annotation_color(context: &cairo::Context, color: Color, alpha: f64) {
         f64::from(color.b) / 255.0,
         alpha,
     );
+}
+
+/// The current text selection as one rect per line, in PDF page space,
+/// alongside the page it is on.
+///
+/// One rect per line rather than one box around the lot: a selection spanning
+/// three lines is three bands of text, and a single bounding box would swallow
+/// the margins and both ragged ends. `line_rects` is the same union the search
+/// highlighter uses, so a marked-up selection lines up with a search hit over
+/// the same words.
+///
+/// `None` when nothing is selected, when the page's text has not loaded yet,
+/// or when the selection is empty — a click that selected no characters must
+/// not become a zero-width annotation.
+pub(crate) fn selected_line_rects(viewer: &Viewer) -> Option<(usize, Vec<TextRect>)> {
+    let state = viewer.state.borrow();
+    let session = state.session.as_ref()?;
+    let selection = session.selection.as_ref()?;
+    let page = session.pages.get(selection.page_index)?;
+    let characters = page.characters.as_ref()?;
+    let rects = line_rects(&characters.rects_in(resolve_range(characters, selection)?));
+
+    (!rects.is_empty()).then_some((selection.page_index, rects))
 }
 
 /// Resolves a selection's two PDF-space points into a caret range.
@@ -321,6 +414,18 @@ fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
         if annotations::begin_placement(viewer, page_index, point) {
             return;
         }
+        // Then an annotation already on the page: its corner handles resize
+        // it, its body moves it, and any other one becomes the selection.
+        // Ahead of text selection, because a press that lands on an
+        // annotation is aimed at the annotation.
+        if annotations::begin_annotation_drag(
+            viewer,
+            page_index,
+            point,
+            handle_reach(viewer, page_index),
+        ) {
+            return;
+        }
     }
     // A document that withholds extraction gets no selection at all: loading
     // its text runs is itself extraction, so the refusal belongs here rather
@@ -357,7 +462,9 @@ fn extend_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
     // The gesture belongs to the page the drag started on, so the placement
     // stays in that page's space even if the pointer wanders past its edge.
     if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
-        if annotations::extend_placement(viewer, point) {
+        if annotations::extend_placement(viewer, point)
+            || annotations::extend_annotation_drag(viewer, point)
+        {
             return;
         }
     }

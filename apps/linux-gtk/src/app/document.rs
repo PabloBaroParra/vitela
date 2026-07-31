@@ -374,6 +374,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         next_annotation_id: 0,
         selected_annotation: None,
         placement: None,
+        annotation_drag: None,
         physical_width: fit.available_width,
         physical_height: fit.available_height,
         scale_factor: fit.scale_factor,

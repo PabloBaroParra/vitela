@@ -165,6 +165,7 @@ fn build_ui(application: &Application) {
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);
+    annotations::connect_delete_shortcut(application, &window, &viewer);
     zoom_out.connect_clicked({
         let viewer = viewer.clone();
         move |_| step_zoom(&viewer, false)

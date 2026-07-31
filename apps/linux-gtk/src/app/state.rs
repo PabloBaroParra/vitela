@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    Box as GtkBox, Button, Dialog, DrawingArea, Entry, Label, Overlay, Picture, ScrolledWindow,
-    ToggleButton,
+    gio, Box as GtkBox, Button, Dialog, DrawingArea, Entry, Label, Overlay, Picture,
+    ScrolledWindow, ToggleButton,
 };
 use pdf_document::{AnnotationId, Document};
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
@@ -164,6 +164,30 @@ impl Tool {
         }
     }
 
+    /// Whether this tool marks up existing text rather than drawing a shape.
+    ///
+    /// These three are the PDF text-markup kinds, and they are the ones that
+    /// can be applied straight to a text selection: the user has already said
+    /// which words they mean, so asking them to re-trace the same words with a
+    /// drag would be busywork.
+    pub(crate) fn marks_up_text(self) -> bool {
+        matches!(self, Tool::Highlight | Tool::Underline | Tool::Strikeout)
+    }
+
+    /// Whether a freehand drag of this tool produces a straight rule rather
+    /// than a region.
+    ///
+    /// An underline and a strikeout *are* lines, so how far the pointer
+    /// drifted vertically says nothing about them — only how far it travelled
+    /// along the line does. A highlight is a band and does use both axes.
+    ///
+    /// This is about the freehand drag only. Applied to a text selection these
+    /// same tools take the selected line's own rect, and the rule is placed
+    /// relative to it.
+    pub(crate) fn draws_a_rule(self) -> bool {
+        matches!(self, Tool::Underline | Tool::Strikeout)
+    }
+
     /// Whether this tool is drawn as a freehand path rather than a rectangle.
     /// Ink is the one kind `pdf-annotate` models as a polyline, so it is the
     /// one kind whose placement drag records every point the pointer visited.
@@ -188,6 +212,54 @@ pub(crate) struct AnnotationToolbar {
     pub(crate) resize_selection: Button,
     pub(crate) restyle_selection: Button,
     pub(crate) delete_selection: Button,
+    /// The Delete-key half of the delete button. Kept here so the same place
+    /// that decides whether the button is usable decides whether the
+    /// accelerator is live — see `annotations::update_annotation_controls`.
+    pub(crate) delete_action: gio::SimpleAction,
+}
+
+/// Which corner of a selected annotation a resize drag has hold of.
+///
+/// Named by PDF-space position, where `y` grows upward — so `BottomLeft` is
+/// the corner at the rect's own `(x, y)`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Corner {
+    BottomLeft,
+    BottomRight,
+    TopLeft,
+    TopRight,
+}
+
+impl Corner {
+    pub(crate) const ALL: [Corner; 4] = [
+        Corner::BottomLeft,
+        Corner::BottomRight,
+        Corner::TopLeft,
+        Corner::TopRight,
+    ];
+}
+
+/// What a drag on an already-selected annotation is doing to it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum AnnotationDragMode {
+    /// Sliding the whole annotation, body grabbed anywhere inside it.
+    Move,
+    /// Pulling one corner, with the opposite one held still.
+    Resize(Corner),
+}
+
+/// A selected annotation being moved or resized right now.
+///
+/// Like [`Placement`], it lives on the session and reaches the `EditLog` only
+/// when the pointer comes up: a drag in progress is not an edit yet, and an
+/// abandoned one must leave no trace.
+pub(crate) struct AnnotationDrag {
+    pub(crate) id: AnnotationId,
+    pub(crate) mode: AnnotationDragMode,
+    /// Where the pointer went down, in PDF page space.
+    pub(crate) origin: (f64, f64),
+    /// Where the pointer is now, in PDF page space.
+    pub(crate) current: (f64, f64),
 }
 
 /// An annotation being drawn on a page right now, between the pointer going
@@ -264,6 +336,8 @@ pub(crate) struct DocumentSession {
     pub(crate) selected_annotation: Option<AnnotationId>,
     /// The annotation being drawn right now, if a placement drag is in flight.
     pub(crate) placement: Option<Placement>,
+    /// The selected annotation being moved or resized right now, if any.
+    pub(crate) annotation_drag: Option<AnnotationDrag>,
     pub(crate) physical_width: u32,
     pub(crate) physical_height: u32,
     pub(crate) scale_factor: i32,
