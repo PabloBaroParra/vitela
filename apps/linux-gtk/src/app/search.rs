@@ -100,6 +100,9 @@ fn apply_search_result(
     if found {
         scroll_to_current_match(viewer);
     }
+    // The match set changed, so every page's highlight layer is stale —
+    // including the pages that just lost their matches.
+    super::selection::redraw(viewer);
     viewer.status.set_text(&status);
 }
 
@@ -120,6 +123,9 @@ pub(crate) fn step_match(viewer: &Viewer, delta: i32) {
     };
 
     scroll_to_current_match(viewer);
+    // Only the accent moved, but it moved on two pages at once when the step
+    // crossed a page boundary.
+    super::selection::redraw(viewer);
     viewer.status.set_text(&status);
 }
 
@@ -152,6 +158,7 @@ fn clear_search(viewer: &Viewer) {
         }
     }
     update_search_controls(viewer);
+    super::selection::redraw(viewer);
 }
 
 pub(crate) fn update_search_controls(viewer: &Viewer) {

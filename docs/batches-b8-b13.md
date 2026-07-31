@@ -34,8 +34,25 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
       **(2026-07-30 — completo: viewer multipágina async, scroll continuo, fit-width,
       fit-page y los controles de zoom custom existentes.)**
 - [x] T-045 Prompt de contraseña en apertura encriptada + UX de error. [PwdPDF]
-- [ ] T-046 Selección de texto + búsqueda doc-wide con matches resaltados y navegables. [TextSelSearch]
+- [x] T-046 Selección de texto + búsqueda doc-wide con matches resaltados y navegables. [TextSelSearch]
       **(2026-07-19 — parcial: búsqueda doc-wide + matches navegables hechos; selección de texto pendiente)**
+      **(2026-07-30 — completo y verificado a mano bajo WSLg. La geometría vive en
+      `pdf_render::selection` (caret hit-test línea-primero, unión de rects por línea,
+      transformación PDF↔pantalla) con 22 tests que corren en cualquier host, porque los
+      cuatro shells la comparten — T-086 de Android NO debe reimplementarla. El shell aporta
+      `app/selection.rs`: capa `DrawingArea` por página con `GestureDrag`, carga async de
+      `text_runs`, y copia al portapapeles. El resaltado de matches no existía —la búsqueda
+      solo hacía scroll— y se cierra con la misma capa vía `line_rects`.
+      Gate en Linux: build + `clippy -D warnings` + suite completa del workspace, todo verde.**
+
+      **Dos gotchas que costaron tiempo y valen para el resto de B8:**
+      **(1) Ctrl+C NO puede colgar de un `EventControllerKey` en la ventana: corre en fase
+      bubble, así que el `Entry` de búsqueda se lo come cuando tiene el foco. Va como
+      `gio::SimpleAction` + `set_accels_for_action("win.copy", ["<Control>c"])`, resuelto por
+      el shortcut manager y no por la cadena de foco. T-052 debe extender ESE mecanismo.
+      (2) `Overlay` pinta en orden de agregado y el pipeline de tiles agrega bitmaps opacos al
+      hacer zoom, así que la capa de resaltado se re-eleva tras cada lote
+      (`selection::raise_highlights`) o los resaltados desaparecen en páginas tileadas.)**
 - [ ] T-047 Toolbar de anotaciones wired a pdf-annotate (7 tipos). [AnnoCreate, AnnoEditDelete]
 - [ ] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
 - [x] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]
@@ -273,6 +290,9 @@ Windows/C#). Paralelo con B9 y B10.
 - [ ] T-086 Selección de texto + búsqueda doc-wide con matches navegables. [ui-android, TextSelSearch]
       **(2026-07-26 — parcial: búsqueda doc-wide + matches navegables hechos; selección de
       texto pendiente — mismo estado que T-046 en GTK4)**
+      **(2026-07-30 — la matemática de selección ya está resuelta y testeada en
+      `pdf_render::selection`; falta exponerla por `pdf-ffi` y escribir la mitad Compose.
+      NO reimplementar el hit-test acá.)**
 - [ ] T-087 Toolbar táctil wired a pdf-annotate (7 tipos incl. image stamp). [ui-android, AnnoCreate, AnnoEditDelete]
 - [ ] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
       el placement_rect. [FirmaDibujada]
