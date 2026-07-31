@@ -15,3 +15,6 @@ gtk = { package = "gtk4", version = "0.9.5" }
 # other shells cross.
 pdf-manip = { path = "../../core/pdf-manip" }
 pdf-render = { path = "../../core/pdf-render" }
+pdf-annotate = { path = "../../core/pdf-annotate" }
+pdf-document = { path = "../../core/pdf-document" }
+pdf-save = { path = "../../core/pdf-save" }

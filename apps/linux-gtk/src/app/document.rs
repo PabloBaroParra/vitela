@@ -12,14 +12,16 @@ use gtk::{
     gio, glib, ApplicationWindow, Dialog, FileChooserAction, FileChooserNative, FileFilter, Label,
     Overlay, PasswordEntry, Picture, ResponseType,
 };
+use pdf_document::{Document, SecurityContext};
+use pdf_manip::ManipError;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 
 use super::layout::set_placeholder_size;
 use super::render::update_viewport;
 use super::search::update_search_controls;
 use super::state::{
-    DocumentSession, DocumentSource, FitRequest, OpenedDocument, PageSlot, PageState, TextAccess,
-    Viewer,
+    AnnotationAccess, DocumentSession, DocumentSource, FitRequest, OpenedDocument, PageSlot,
+    PageState, TextAccess, Viewer,
 };
 
 /// The sample document, linked into the binary at compile time from the same
@@ -180,7 +182,10 @@ fn open_document(
             renderer.open_document_from_bytes(bytes.to_vec(), password)?
         }
     };
-    let text_access = read_text_access(source, password);
+    let security = read_security_context(source, password);
+    let text_access = text_access_from(&security);
+    let document_model = read_editable_model(source, password, &security);
+    let annotation_access = annotation_access_from(&security, document_model.is_some());
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
@@ -189,6 +194,8 @@ fn open_document(
             document,
             page_sizes,
             text_access,
+            annotation_access,
+            document_model,
         }),
         Err(error) => {
             let _ = renderer.close_document(document);
@@ -197,27 +204,41 @@ fn open_document(
     }
 }
 
-/// Reads the document's text-extraction permission (spec "Open
-/// Password-Protected PDF").
+/// Reads the document's permissions, once, for every gate that needs them
+/// (spec "Open Password-Protected PDF").
 ///
 /// pdfium renders the document but has no view of the lopdf security model
-/// the permission lives in, so this asks `pdf-manip` for the same
-/// `SecurityContext` the `pdf-ffi` boundary gates on and applies the same
-/// rule to it. Only the probe runs — no second decrypting load, no lopdf
-/// document model — so this costs one unauthenticated parse on the open
-/// worker thread, less than the full open every other shell already performs
-/// through `pdf-ffi`.
+/// the permissions live in, so this asks `pdf-manip` for the same
+/// `SecurityContext` the `pdf-ffi` boundary gates on. Only the probe runs — no
+/// decrypting load — so it costs one unauthenticated parse on the open worker
+/// thread.
 ///
-/// A document pdfium opens but lopdf cannot read is [`TextAccess::Unreadable`]:
-/// it still renders, and only text extraction is withheld.
-fn read_text_access(source: &DocumentSource, password: Option<&str>) -> TextAccess {
-    let security = match source {
+/// **This must stay the only source of permissions in this shell.** The
+/// obvious-looking alternative, reading the context that `open_document`
+/// returns alongside the model, is wrong: a document whose *user password is
+/// empty* is decrypted in place by lopdf's unauthenticated load, which drops
+/// `/Encrypt` from the trailer, so `open_document` sees an unencrypted file
+/// and reports **no** context at all — and no context means "unrestricted" to
+/// every gate. "Opens with no prompt, yet still restricts" is the single most
+/// common shape of restricted PDF in the wild. `read_security_context`
+/// recovers the real permissions from lopdf's decoded encryption state
+/// instead; `core/pdf-manip/tests/annotation_permission.rs` pins the
+/// difference.
+fn read_security_context(
+    source: &DocumentSource,
+    password: Option<&str>,
+) -> Result<Option<SecurityContext>, ManipError> {
+    match source {
         DocumentSource::File(path) => pdf_manip::read_security_context(path, password),
         DocumentSource::Embedded(bytes) => {
             pdf_manip::read_security_context_from_bytes(bytes, password)
         }
-    };
+    }
+}
 
+/// A document pdfium opens but lopdf cannot read is [`TextAccess::Unreadable`]:
+/// it still renders, and only text extraction is withheld.
+fn text_access_from(security: &Result<Option<SecurityContext>, ManipError>) -> TextAccess {
     match security {
         Ok(security) if pdf_manip::text_extraction_is_allowed(security.as_ref()) => {
             TextAccess::Allowed
@@ -227,11 +248,63 @@ fn read_text_access(source: &DocumentSource, password: Option<&str>) -> TextAcce
     }
 }
 
+/// Combines the document's *permission* to be annotated with this shell's
+/// *ability* to annotate it.
+///
+/// The two are reported separately on purpose. A document that withholds the
+/// annotate bit is [`AnnotationAccess::Forbidden`] and says so; one that
+/// permits it but whose editable model could not be built is
+/// [`AnnotationAccess::Unavailable`]. Collapsing the second into the first
+/// would have the shell claim a restriction the document never declared.
+fn annotation_access_from(
+    security: &Result<Option<SecurityContext>, ManipError>,
+    has_model: bool,
+) -> AnnotationAccess {
+    match security {
+        // Permission is decided first: a document that says no gets that
+        // answer whether or not the model happened to build.
+        Ok(security) if !pdf_manip::annotation_editing_is_allowed(security.as_ref()) => {
+            AnnotationAccess::Forbidden
+        }
+        Ok(_) if has_model => AnnotationAccess::Allowed,
+        _ => AnnotationAccess::Unavailable,
+    }
+}
+
+/// Builds the editable core model that annotation commands are recorded
+/// against, or `None` when this document cannot be modelled.
+///
+/// Unlike the permission probe this performs the full decrypting load, because
+/// the model needs the actual objects. The `SecurityContext` stored on the
+/// model comes from the probe, not from the loader, for the reason spelled out
+/// on [`read_security_context`].
+fn read_editable_model(
+    source: &DocumentSource,
+    password: Option<&str>,
+    security: &Result<Option<SecurityContext>, ManipError>,
+) -> Option<Document> {
+    let security = security.as_ref().ok()?.clone();
+    let (base, _) = match source {
+        DocumentSource::File(path) => pdf_manip::open_document(path, password),
+        DocumentSource::Embedded(bytes) => pdf_manip::open_document_from_bytes(bytes, password),
+    }
+    .ok()?;
+    pdf_save::document_from_lopdf(&base, security).ok()
+}
+
 fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     if !is_current(viewer, generation) {
         close_document_in_background(document.document);
         return;
     }
+
+    // Captured before the outgoing session is dropped just below. Replacing
+    // the document is currently the *only* exit from a pending annotation
+    // edit — this shell has no save (and no undo until T-048) — so refusing
+    // the open would strand the user with no way out at all. It proceeds and
+    // says what it cost instead. Once saving exists this becomes a
+    // save/discard/cancel prompt.
+    let discarded_edits = has_pending_annotation_edits(viewer);
 
     // The new document opened successfully: only now replace the previous
     // one. Cancel its in-flight renders and close it, then clear its page
@@ -296,6 +369,11 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     viewer.state.borrow_mut().session = Some(DocumentSession {
         document: document.document,
         text_access: document.text_access,
+        annotation_access: document.annotation_access,
+        document_model: document.document_model,
+        next_annotation_id: 0,
+        selected_annotation: None,
+        placement: None,
         physical_width: fit.available_width,
         physical_height: fit.available_height,
         scale_factor: fit.scale_factor,
@@ -313,6 +391,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     });
     // A new document invalidates the previous document's matches.
     update_search_controls(viewer);
+    super::annotations::update_annotation_controls(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
     // A document with no pages leaves the page area empty, so the mark stays
     // up — the same call the WinUI shell makes when it re-shows its empty
@@ -323,6 +402,25 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     } else {
         update_viewport(viewer);
     }
+    // Last, so it outlives the visible-range text `update_viewport` just set.
+    if discarded_edits {
+        viewer
+            .status
+            .set_text("Discarded the previous document's unsaved annotation changes.");
+    }
+}
+
+/// Whether the open document carries annotation edits that have not been
+/// written anywhere. Read before the session is replaced — see
+/// [`show_document`].
+fn has_pending_annotation_edits(viewer: &Viewer) -> bool {
+    viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.document_model.as_ref())
+        .is_some_and(|document| document.pending_edits.can_undo())
 }
 
 pub(crate) fn close_document_in_background(document: DocumentHandle) {

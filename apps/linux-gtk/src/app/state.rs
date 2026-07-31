@@ -9,7 +9,9 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     Box as GtkBox, Button, Dialog, DrawingArea, Entry, Label, Overlay, Picture, ScrolledWindow,
+    ToggleButton,
 };
+use pdf_document::{AnnotationId, Document};
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
 /// Where an open request's bytes come from.
@@ -38,6 +40,7 @@ pub(crate) struct Viewer {
     pub(crate) find_previous: Button,
     pub(crate) find_next: Button,
     pub(crate) print_button: Button,
+    pub(crate) annotation_buttons: AnnotationToolbar,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -56,11 +59,26 @@ impl Viewer {
             .as_ref()
             .and_then(|session| session.text_access.refusal())
     }
+
+    pub(crate) fn annotation_editing_refusal(&self) -> Option<&'static str> {
+        self.state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.annotation_access.refusal())
+    }
 }
 
 pub(crate) struct ViewerState {
     pub(crate) generation: u64,
     pub(crate) session: Option<DocumentSession>,
+    /// The creation tool armed on the toolbar, if any. A drag on a page while
+    /// this is set draws an annotation instead of selecting text.
+    ///
+    /// Shell mode rather than document state: it deliberately outlives the
+    /// open document, so opening a second PDF does not silently disarm the
+    /// tool the user just picked.
+    pub(crate) active_tool: Option<Tool>,
     /// The password prompt for the in-flight open attempt, if any. Tracked so
     /// a new open request (which may supersede this one before the user has
     /// answered) can tear down the stale prompt instead of leaving it
@@ -106,10 +124,146 @@ impl TextAccess {
     }
 }
 
+/// One annotation type the toolbar can create.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Tool {
+    Highlight,
+    Underline,
+    Strikeout,
+    Ink,
+    TextNote,
+    Shape,
+    Stamp,
+}
+
+impl Tool {
+    /// Every creation tool — the single source of truth for the buttons that
+    /// get built and the handlers wired to them, so the two cannot drift.
+    pub(crate) const ALL: [Tool; 7] = [
+        Tool::Highlight,
+        Tool::Underline,
+        Tool::Strikeout,
+        Tool::Ink,
+        Tool::TextNote,
+        Tool::Shape,
+        Tool::Stamp,
+    ];
+
+    /// The tool's button label, also used to name it in status messages. A
+    /// `match` rather than a lookup table so adding a variant fails to
+    /// compile until it is named.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Tool::Highlight => "Highlight",
+            Tool::Underline => "Underline",
+            Tool::Strikeout => "Strikeout",
+            Tool::Ink => "Ink",
+            Tool::TextNote => "Note",
+            Tool::Shape => "Shape",
+            Tool::Stamp => "Stamp",
+        }
+    }
+
+    /// Whether this tool is drawn as a freehand path rather than a rectangle.
+    /// Ink is the one kind `pdf-annotate` models as a polyline, so it is the
+    /// one kind whose placement drag records every point the pointer visited.
+    pub(crate) fn is_freehand(self) -> bool {
+        matches!(self, Tool::Ink)
+    }
+}
+
+/// The annotation toolbar's buttons, held by name rather than by position.
+///
+/// An earlier shape was a flat `Vec<Button>` indexed with literals at three
+/// separate call sites; inserting a button in the middle would have silently
+/// rewired every handler after it, with nothing for the compiler to catch.
+#[derive(Clone)]
+pub(crate) struct AnnotationToolbar {
+    /// One creation button per tool, paired with the tool it arms. These are
+    /// toggles, not push buttons: creating an annotation takes two steps —
+    /// arm the tool here, then draw it on the page.
+    pub(crate) create: Vec<(Tool, ToggleButton)>,
+    pub(crate) select_previous: Button,
+    pub(crate) move_selection: Button,
+    pub(crate) resize_selection: Button,
+    pub(crate) restyle_selection: Button,
+    pub(crate) delete_selection: Button,
+}
+
+/// An annotation being drawn on a page right now, between the pointer going
+/// down and coming back up.
+///
+/// Held on the session rather than committed immediately because it is not an
+/// edit yet: nothing reaches the `EditLog` until the drag ends. Replacing the
+/// document drops any half-drawn annotation with it.
+pub(crate) struct Placement {
+    pub(crate) tool: Tool,
+    pub(crate) page_index: usize,
+    /// Where the pointer went down, in PDF page space.
+    pub(crate) origin: (f64, f64),
+    /// Where the pointer is now, in PDF page space.
+    pub(crate) current: (f64, f64),
+    /// Every position the pointer has visited, in PDF page space. Recorded
+    /// only for freehand tools (see [`Tool::is_freehand`]); a rectangular tool
+    /// needs nothing but `origin` and `current`.
+    pub(crate) points: Vec<(f64, f64)>,
+}
+
+/// Shown when the document allows annotation changes but this shell could not
+/// build an editable model for it. Lives here as a constant because both
+/// [`AnnotationAccess::refusal`] and the model unwrap in `app::annotations`
+/// report it, and a document that says two different things about why its
+/// toolbar is dead is worse than one that says nothing.
+pub(crate) const ANNOTATION_MODEL_UNAVAILABLE: &str =
+    "This document could not be prepared for annotation changes.";
+
+/// Whether this document's annotations may be edited — the annotation twin of
+/// [`TextAccess`], read once at open time and cached for the session.
+///
+/// Kept separate from `document_model.is_some()` on purpose: "the document
+/// forbids this" and "this shell could not load it" are different facts, and
+/// collapsing them makes the shell claim a permission restriction the document
+/// never declared.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum AnnotationAccess {
+    /// Unencrypted, or the permissions (or an owner credential) allow it, and
+    /// the editable model was built.
+    Allowed,
+    /// The document's `/P` withholds the annotate permission.
+    Forbidden,
+    /// The permission question could not be answered, or the editable model
+    /// could not be built. Refused rather than assumed permissive, for the
+    /// same reason as [`TextAccess::Unreadable`]; the document still renders.
+    Unavailable,
+}
+
+impl AnnotationAccess {
+    /// The message to show instead of editing annotations, or `None` when
+    /// editing is allowed.
+    pub(crate) fn refusal(self) -> Option<&'static str> {
+        match self {
+            AnnotationAccess::Allowed => None,
+            AnnotationAccess::Forbidden => {
+                Some("This document does not permit annotation changes.")
+            }
+            AnnotationAccess::Unavailable => Some(ANNOTATION_MODEL_UNAVAILABLE),
+        }
+    }
+}
+
 pub(crate) struct DocumentSession {
     pub(crate) document: DocumentHandle,
     /// Whether search and text selection may read this document's text.
     pub(crate) text_access: TextAccess,
+    pub(crate) annotation_access: AnnotationAccess,
+    /// The editable core model. Rendering remains backed by pdfium until a
+    /// future save/reopen refresh, but every annotation command is recorded in
+    /// this model's EditLog immediately.
+    pub(crate) document_model: Option<Document>,
+    pub(crate) next_annotation_id: u64,
+    pub(crate) selected_annotation: Option<AnnotationId>,
+    /// The annotation being drawn right now, if a placement drag is in flight.
+    pub(crate) placement: Option<Placement>,
     pub(crate) physical_width: u32,
     pub(crate) physical_height: u32,
     pub(crate) scale_factor: i32,
@@ -220,11 +374,13 @@ pub(crate) struct OpenedDocument {
     pub(crate) document: DocumentHandle,
     pub(crate) page_sizes: Vec<(f32, f32)>,
     pub(crate) text_access: TextAccess,
+    pub(crate) annotation_access: AnnotationAccess,
+    pub(crate) document_model: Option<Document>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::TextAccess;
+    use super::{AnnotationAccess, TextAccess, ANNOTATION_MODEL_UNAVAILABLE};
 
     #[test]
     fn only_allowed_access_skips_the_refusal() {
@@ -244,6 +400,34 @@ mod tests {
         assert_ne!(
             TextAccess::Forbidden.refusal(),
             TextAccess::Unreadable.refusal()
+        );
+    }
+
+    #[test]
+    fn only_allowed_annotation_access_skips_the_refusal() {
+        assert!(AnnotationAccess::Allowed.refusal().is_none());
+    }
+
+    #[test]
+    fn an_unavailable_model_refuses_just_like_a_forbidding_document() {
+        // Fail closed, for the same reason `TextAccess::Unreadable` does.
+        assert!(AnnotationAccess::Forbidden.refusal().is_some());
+        assert!(AnnotationAccess::Unavailable.refusal().is_some());
+    }
+
+    /// A document that withholds the annotate permission and one this shell
+    /// merely failed to model are different facts, and the user is told which
+    /// one they hit. Collapsing them would have the shell report a restriction
+    /// the document never declared.
+    #[test]
+    fn a_permission_refusal_never_reads_like_a_load_failure() {
+        assert_ne!(
+            AnnotationAccess::Forbidden.refusal(),
+            AnnotationAccess::Unavailable.refusal()
+        );
+        assert_eq!(
+            AnnotationAccess::Unavailable.refusal(),
+            Some(ANNOTATION_MODEL_UNAVAILABLE)
         );
     }
 }
