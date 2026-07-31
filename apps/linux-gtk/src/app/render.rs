@@ -523,6 +523,9 @@ fn apply_tile_result(
         page.overlay.add_overlay(&picture);
         page.tiles.insert(tile, picture);
     }
+    // The tiles just went on top of the highlight layer; put it back above
+    // them or this page's selection and matches vanish under the sharp bitmaps.
+    super::selection::raise_highlights(&page.overlay, &page.highlights);
 }
 
 #[cfg(test)]

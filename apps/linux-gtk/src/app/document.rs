@@ -222,13 +222,17 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     let fit = FitRequest::measure(viewer);
     let mut slots = Vec::with_capacity(document.page_sizes.len());
     let mut page_heights = Vec::with_capacity(document.page_sizes.len());
-    for (width_pt, height_pt) in document.page_sizes {
+    for (page_index, (width_pt, height_pt)) in document.page_sizes.into_iter().enumerate() {
         let picture = Picture::new();
         picture.set_can_shrink(true);
         picture.set_keep_aspect_ratio(true);
         let logical_height = set_placeholder_size(&picture, width_pt, height_pt, fit);
         let overlay = Overlay::new();
         overlay.set_child(Some(&picture));
+        // Added after the child, so it sits above the rendered page. The tile
+        // pipeline keeps it there with `selection::raise_highlights`.
+        let highlights = super::selection::build_highlight_layer(viewer, page_index);
+        overlay.add_overlay(&highlights);
         viewer.pages.append(&overlay);
         let box_ = super::layout::resolve_page_box(
             super::layout::Zoom::FitWidth,
@@ -239,6 +243,9 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         slots.push(PageSlot {
             overlay,
             picture,
+            highlights,
+            characters: None,
+            characters_requested: false,
             width_pt,
             height_pt,
             state: PageState::Idle,
@@ -263,6 +270,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         last_visible: None,
         search: None,
         next_search_id: 0,
+        selection: None,
         active: HashMap::new(),
         next_render_id: 0,
         zoom: super::layout::Zoom::FitWidth,

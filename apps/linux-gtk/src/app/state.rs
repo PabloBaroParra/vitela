@@ -7,8 +7,10 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Dialog, Entry, Label, Overlay, Picture, ScrolledWindow};
-use pdf_render::{CancellationHandle, DocumentHandle, TextMatch};
+use gtk::{
+    Box as GtkBox, Button, Dialog, DrawingArea, Entry, Label, Overlay, Picture, ScrolledWindow,
+};
+use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
 /// Where an open request's bytes come from.
 ///
@@ -71,6 +73,9 @@ pub(crate) struct DocumentSession {
     /// longer current has been superseded by a later query and must not
     /// overwrite its results.
     pub(crate) next_search_id: u64,
+    /// The current drag-selection, if any. Lives in the session so replacing
+    /// the document drops it with the text it addressed.
+    pub(crate) selection: Option<Selection>,
     pub(crate) active: HashMap<usize, ActiveRender>,
     pub(crate) next_render_id: u64,
     pub(crate) zoom: super::layout::Zoom,
@@ -84,6 +89,24 @@ pub(crate) struct SearchState {
     pub(crate) current: usize,
 }
 
+/// A drag-selection on one page, stored as the two PDF-space points the
+/// pointer touched rather than as resolved carets.
+///
+/// Points, because a page's characters load asynchronously: a drag that
+/// starts before its text arrives still records where it began, and the
+/// carets resolve on the first paint after the load lands. Resolved carets
+/// would have to be back-filled by the load handler instead, which then has
+/// to know whether the drag it is completing is still the current one.
+///
+/// One page, not a document-wide range: a selection is only ever consumed
+/// per page — by the paint below and by the text-markup annotations of T-047,
+/// whose `/Rect` lives on a single page by construction.
+pub(crate) struct Selection {
+    pub(crate) page_index: usize,
+    pub(crate) anchor: (f32, f32),
+    pub(crate) focus: (f32, f32),
+}
+
 pub(crate) struct ActiveRender {
     pub(crate) id: u64,
     pub(crate) generation: u64,
@@ -93,6 +116,15 @@ pub(crate) struct ActiveRender {
 pub(crate) struct PageSlot {
     pub(crate) overlay: Overlay,
     pub(crate) picture: Picture,
+    /// Transparent layer painting this page's selection and search matches.
+    /// It is also the drag target — being the topmost overlay child, it is
+    /// what the pointer lands on.
+    pub(crate) highlights: DrawingArea,
+    /// This page's characters, loaded on first use. `None` means "not loaded
+    /// yet", which `characters_requested` disambiguates from "load in
+    /// flight" so a drag over a page cannot queue one job per motion event.
+    pub(crate) characters: Option<PageCharacters>,
+    pub(crate) characters_requested: bool,
     pub(crate) width_pt: f32,
     pub(crate) height_pt: f32,
     pub(crate) state: PageState,
