@@ -141,7 +141,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
-| Annotate | — | — | — | — | — |
+| Annotate | 🚧 | — | — | — | — |
 | Save / export | — | — | — | — | — |
 | Sign | — | — | — | — | — |
 | Fillable forms | — | — | — | — | — |

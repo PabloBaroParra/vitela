@@ -61,7 +61,49 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
       esto Linux copiaba texto de documentos que lo prohíben mientras macOS/Windows/Android lo
       rechazaban. Un `/P` ilegible NO se asume permisivo, pero tampoco impide *ver* el
       documento.)**
-- [ ] T-047 Toolbar de anotaciones wired a pdf-annotate (7 tipos). [AnnoCreate, AnnoEditDelete]
+- [x] T-047 Toolbar de anotaciones wired a pdf-annotate (7 tipos). [AnnoCreate, AnnoEditDelete]
+      **(2026-07-31 — completo: los 7 tipos se crean por puntero, se editan y se borran contra
+      el `EditLog`, con permisos respetados. La creación es en dos pasos —armar la herramienta
+      (`ToggleButton`, una sola a la vez) y después dibujarla sobre la página—; el arrastre lo
+      capta el mismo `GestureDrag` que ya hacía selección de texto, y una herramienta armada se
+      queda con el gesto. La geometría sale de donde el usuario efectivamente arrastró: rect
+      normalizado en las cuatro direcciones, polilínea completa para Ink, y un click (arrastre
+      < 8pt en cualquier eje) cae a un tamaño por defecto anclado en el punto — nunca una
+      astilla de tamaño cero, que sería irrecuperable porque borrarla exige seleccionarla.
+      El preview durante el arrastre pasa por el MISMO `draw_annotation` que una anotación ya
+      commiteada, así que lo que se arrastra es lo que queda. `app/annotations.rs` +
+      `app/selection.rs`. Gate en Linux (WSL): `fmt --check` + `clippy --workspace
+      --all-targets -D warnings` + `cargo test --workspace` (391 tests, 0 fallos).)**
+
+      **Queda fuera, y a propósito:** seleccionar una anotación clickeándola en el canvas (hoy
+      se cicla con "Previous annotation", que las alcanza todas) y los handles de arrastre para
+      move/resize (hoy son botones con incremento fijo). Ninguna de las dos bloquea el criterio
+      de aceptación de este batch.
+
+      **El bug que casi se escapa, y que vale para los otros tres shells: `pdf_manip::open_document`
+      NO sirve como fuente de permisos.** Un documento con **user password vacío** —el famoso
+      "abre sin prompt pero restringe"— es descifrado in-place por la carga no autenticada de
+      lopdf, que además borra `/Encrypt` del trailer. `open_document` lo ve como no cifrado y
+      devuelve `SecurityContext: None`, y `None` significa "sin restricciones" para todos los
+      gates. Es exactamente la clase de regresión que aecac3f arregló para copiar texto,
+      reintroducida para anotaciones. La única fuente válida es `read_security_context`
+      (el probe), que recupera los `/P` reales desde el `EncryptionState` decodificado.
+      `core/pdf-manip/tests/annotation_permission.rs` clava las dos mitades del contrato.
+
+      **Otros dos aprendizajes de la revisión:**
+      **(1) `AnnotationSet` garantiza orden** (lo dice su propio doc: output determinista para
+      el check byte-idéntico de CI). `ReplaceAnnotation` hacía remove+insert, o sea mandaba la
+      anotación al final en cada move/resize/restyle: cambiaba el orden de pintado y dejaba el
+      undo sin poder restaurar la posición. Ahora hay `AnnotationSet::replace` in-place —
+      cualquier comando futuro que preserve identidad debe usarlo.
+      **(2) "Prohibido" y "no se pudo cargar" son hechos distintos.** `AnnotationAccess` tiene
+      `Forbidden` y `Unavailable` separados por eso, igual que `TextAccess::Unreadable`:
+      colapsarlos hace que el shell le atribuya al documento una restricción que nunca declaró.
+
+      **Pendiente de UX que este batch NO puede cerrar solo:** el shell todavía no tiene save,
+      y undo/redo es T-048. Abrir otro PDF descarta los edits pendientes y lo informa por la
+      barra de estado. En cuanto exista guardado, eso tiene que pasar a ser un prompt
+      save/discard/cancel — hoy bloquear la apertura dejaría al usuario sin ninguna salida.
 - [ ] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
 - [x] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]
 - [ ] T-050 gdk::Clipboard paste → stamp_from_image_bytes; rechazar URL-texto, sin fetch. [Clipboard]

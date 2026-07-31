@@ -13,13 +13,9 @@
 #[allow(dead_code)]
 mod support;
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
-use lopdf::xref::XrefType;
-use lopdf::{EncryptionState, EncryptionVersion, Object, Permissions};
+use lopdf::Permissions;
 use pdf_document::Credential;
 use pdf_manip::{read_security_context, read_security_context_from_bytes, ManipError};
 
@@ -67,33 +63,7 @@ impl Drop for TempDir {
 /// produces the very common "opens with no prompt at all, yet forbids
 /// copying" document.
 fn no_copy_pdf(user_password: &str) -> Vec<u8> {
-    let mut doc = support::build_pdf_with_pages(&["restricted"]);
-    // Classic xref table, matching `gen-fixtures`: lopdf cannot re-hydrate
-    // objects out of an encrypted cross-reference stream at load time.
-    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
-    // The standard security handler derives its key from the first element of
-    // the trailer's /ID array (PDF 32000-1:2008 §7.6.3.3); without it lopdf
-    // refuses to build the encryption state at all.
-    let file_id = Object::string_literal("no-copy-fixture-id");
-    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
-
-    let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
-    let version = EncryptionVersion::V4 {
-        document: &doc,
-        encrypt_metadata: true,
-        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
-        stream_filter: b"StdCF".to_vec(),
-        string_filter: b"StdCF".to_vec(),
-        owner_password: OWNER_PASSWORD,
-        user_password,
-        permissions: Permissions::PRINTABLE,
-    };
-    let state = EncryptionState::try_from(version).expect("build encryption state");
-    doc.encrypt(&state).expect("encrypt fixture");
-
-    let mut bytes = Vec::new();
-    doc.save_to(&mut bytes).expect("save fixture");
-    bytes
+    support::restricted_pdf(user_password, OWNER_PASSWORD, Permissions::PRINTABLE)
 }
 
 #[test]

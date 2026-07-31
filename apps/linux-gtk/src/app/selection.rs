@@ -9,11 +9,13 @@
 
 use gtk::prelude::*;
 use gtk::{cairo, gio, glib, DrawingArea, GestureDrag};
+use pdf_document::{Annotation, AnnotationKind, Color, Rect};
 use pdf_render::{
     caret_range, line_rects, place_rect, point_to_pdf, DocumentHandle, PageCharacters,
     PdfiumRenderer, PlacedRect, Priority, RenderError, TextRect, TextRun,
 };
 
+use super::annotations;
 use super::state::{Selection, Viewer};
 
 /// Selection fill. Alpha rather than an opaque box because the glyphs have to
@@ -23,6 +25,24 @@ const SELECTION_RGBA: (f64, f64, f64, f64) = (0.20, 0.45, 0.90, 0.35);
 const MATCH_RGBA: (f64, f64, f64, f64) = (0.95, 0.80, 0.20, 0.40);
 /// The current match, distinct so Next/Previous visibly moves something.
 const CURRENT_MATCH_RGBA: (f64, f64, f64, f64) = (0.95, 0.55, 0.10, 0.60);
+/// An annotation the user is not standing on. Translucent for the same reason
+/// the selection is: the page underneath has to stay readable.
+const ANNOTATION_ALPHA: f64 = 0.45;
+/// The selected annotation, distinct so the edit buttons visibly target it.
+const SELECTED_ANNOTATION_ALPHA: f64 = 0.75;
+/// Outline colour for annotation kinds this preview cannot draw faithfully
+/// (text notes and image stamps) — deliberately not one of their real colours.
+/// Alpha comes from the selection state, like every other annotation.
+const PLACEHOLDER_ANNOTATION_RGB: (f64, f64, f64) = (0.20, 0.40, 0.80);
+/// Thickness of an underline/strikeout rule, in device pixels. Deliberately
+/// zoom-independent: a hairline that scales away is worse than one that stays
+/// visible.
+const RULE_THICKNESS: f64 = 2.0;
+/// Side of a selection handle, in device pixels.
+const HANDLE_PX: f64 = 8.0;
+/// Handle fill. Solid, unlike the annotations, so a handle reads as chrome the
+/// user can grab rather than as part of the mark.
+const HANDLE_RGB: (f64, f64, f64) = (0.10, 0.35, 0.85);
 
 /// Builds the transparent layer that paints one page's highlights and
 /// receives its drag gestures.
@@ -46,11 +66,31 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
             let Some((start_x, start_y)) = gesture.start_point() else {
                 return;
             };
-            extend_selection(&viewer, start_x + offset_x, start_y + offset_y);
+            extend_selection(&viewer, page_index, start_x + offset_x, start_y + offset_y);
+        }
+    });
+    drag.connect_drag_end({
+        let viewer = viewer.clone();
+        // No-ops unless this drag was placing or reshaping an annotation; a
+        // text selection is already complete by the time the button comes up.
+        move |_, _, _| {
+            annotations::finish_placement(&viewer);
+            annotations::finish_annotation_drag(&viewer);
         }
     });
     area.add_controller(drag);
     area
+}
+
+/// A pointer position on a drawn page, in PDF page space.
+///
+/// `None` when the page is not laid out yet — there is no page-space answer to
+/// give, and guessing one would place an annotation somewhere arbitrary.
+fn pointer_to_pdf(viewer: &Viewer, page_index: usize, x: f64, y: f64) -> Option<(f64, f64)> {
+    let state = viewer.state.borrow();
+    let page = state.session.as_ref()?.pages.get(page_index)?;
+    let (x, y) = point_to_pdf(x, y, page.height_pt, page.budget.factor);
+    Some((f64::from(x), f64::from(y)))
 }
 
 /// Paints one page's search matches and selection, in that order, so a
@@ -87,6 +127,40 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         }
     }
 
+    for annotation in session
+        .document_model
+        .iter()
+        .flat_map(|document| document.annotations.iter())
+        .filter(|annotation| annotation.page.0 as usize == page_index)
+    {
+        let selected = session.selected_annotation == Some(annotation.id);
+        // While an annotation is being dragged, paint where it is heading
+        // rather than where it still sits in the model — nothing reaches the
+        // model until the pointer comes up.
+        let live = session
+            .annotation_drag
+            .as_ref()
+            .filter(|drag| drag.id == annotation.id)
+            .and_then(|drag| annotations::dragged(annotation, drag));
+        let painted = live.as_ref().unwrap_or(annotation);
+        draw_annotation(context, painted, page.height_pt, scale, selected);
+        if selected {
+            draw_handles(context, painted, page.height_pt, scale);
+        }
+    }
+
+    // The annotation being dragged right now, painted through the same
+    // function as a committed one — what the user drags is what they get.
+    // Drawn selected, because it is about to become the selection.
+    if let Some(preview) = session
+        .placement
+        .as_ref()
+        .filter(|placement| placement.page_index == page_index)
+        .and_then(super::annotations::placement_preview)
+    {
+        draw_annotation(context, &preview, page.height_pt, scale, true);
+    }
+
     // A selection whose page has no text loaded yet paints nothing; the load
     // it kicked off calls `redraw` when it lands.
     let Some(selection) = session
@@ -109,6 +183,193 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         scale,
         SELECTION_RGBA,
     );
+}
+
+/// Paints one annotation from the editable model onto its page's layer.
+///
+/// These annotations are *not* in pdfium's raster of the page: they live only
+/// in the document model's pending `EditLog` until a save writes them out, so
+/// the shell previews them itself. A kind this preview cannot draw is skipped
+/// rather than approximated with a wrong shape.
+fn draw_annotation(
+    context: &cairo::Context,
+    annotation: &Annotation,
+    page_height_pt: f32,
+    scale: f64,
+    selected: bool,
+) {
+    let alpha = if selected {
+        SELECTED_ANNOTATION_ALPHA
+    } else {
+        ANNOTATION_ALPHA
+    };
+    match &annotation.kind {
+        AnnotationKind::Highlight { rect, color } => {
+            let placed = place_annotation(*rect, page_height_pt, scale);
+            set_annotation_color(context, *color, alpha);
+            context.rectangle(placed.left, placed.top, placed.width, placed.height);
+            let _ = context.fill();
+        }
+        AnnotationKind::Underline { rect, color } => {
+            let placed = place_annotation(*rect, page_height_pt, scale);
+            set_annotation_color(context, *color, alpha);
+            context.rectangle(
+                placed.left,
+                placed.top + placed.height - RULE_THICKNESS,
+                placed.width,
+                RULE_THICKNESS,
+            );
+            let _ = context.fill();
+        }
+        AnnotationKind::Strikeout { rect, color } => {
+            let placed = place_annotation(*rect, page_height_pt, scale);
+            set_annotation_color(context, *color, alpha);
+            context.rectangle(
+                placed.left,
+                placed.top + (placed.height - RULE_THICKNESS) / 2.0,
+                placed.width,
+                RULE_THICKNESS,
+            );
+            let _ = context.fill();
+        }
+        AnnotationKind::Shape { rect, color } => {
+            let placed = place_annotation(*rect, page_height_pt, scale);
+            set_annotation_color(context, *color, alpha);
+            context.rectangle(placed.left, placed.top, placed.width, placed.height);
+            let _ = context.stroke();
+        }
+        AnnotationKind::Ink { points, color } => {
+            let Some(&first) = points.first() else {
+                return;
+            };
+            set_annotation_color(context, *color, alpha);
+            let (x, y) = place_annotation_point(first, page_height_pt, scale);
+            context.move_to(x, y);
+            for &point in &points[1..] {
+                let (x, y) = place_annotation_point(point, page_height_pt, scale);
+                context.line_to(x, y);
+            }
+            let _ = context.stroke();
+        }
+        // No preview appearance yet: outlined so the user can see where the
+        // annotation landed and that it is selected.
+        AnnotationKind::TextNote { rect, .. } | AnnotationKind::Stamp { rect, .. } => {
+            let placed = place_annotation(*rect, page_height_pt, scale);
+            let (red, green, blue) = PLACEHOLDER_ANNOTATION_RGB;
+            context.set_source_rgba(red, green, blue, alpha);
+            context.rectangle(placed.left, placed.top, placed.width, placed.height);
+            let _ = context.stroke();
+        }
+        _ => {}
+    }
+}
+
+/// Paints the four corner handles of the selected annotation.
+///
+/// Drawn at a fixed size in device pixels rather than scaled with the page:
+/// a handle that shrank with the zoom would become impossible to hit exactly
+/// when the user has zoomed out to see the whole page.
+fn draw_handles(
+    context: &cairo::Context,
+    annotation: &Annotation,
+    page_height_pt: f32,
+    scale: f64,
+) {
+    let Some(rect) = annotations::bounds(annotation) else {
+        return;
+    };
+    let placed = place_annotation(rect, page_height_pt, scale);
+    let (red, green, blue) = HANDLE_RGB;
+    context.set_source_rgb(red, green, blue);
+    for (x, y) in [
+        (placed.left, placed.top),
+        (placed.left + placed.width, placed.top),
+        (placed.left, placed.top + placed.height),
+        (placed.left + placed.width, placed.top + placed.height),
+    ] {
+        context.rectangle(
+            x - HANDLE_PX / 2.0,
+            y - HANDLE_PX / 2.0,
+            HANDLE_PX,
+            HANDLE_PX,
+        );
+    }
+    let _ = context.fill();
+}
+
+/// How far, in PDF points, a press may land from a corner and still count as
+/// grabbing its handle. Derived from the zoom so the grab area matches the
+/// handle the user can see.
+pub(crate) fn handle_reach(viewer: &Viewer, page_index: usize) -> f64 {
+    let state = viewer.state.borrow();
+    let scale = state
+        .session
+        .as_ref()
+        .and_then(|session| session.pages.get(page_index))
+        .map_or(1.0, |page| page.budget.factor);
+    if scale.is_finite() && scale > 0.0 {
+        HANDLE_PX / scale
+    } else {
+        HANDLE_PX
+    }
+}
+
+/// The annotation twin of [`place_rect`]: the same PDF→screen transform, for
+/// the `f64` [`Rect`] the document model uses rather than pdfium's `f32`
+/// [`TextRect`].
+///
+/// Delegates rather than re-deriving, so the transform stays defined exactly
+/// once — in `pdf_render::selection`, which all four shells share.
+fn place_annotation(rect: Rect, page_height_pt: f32, scale: f64) -> PlacedRect {
+    place_rect(
+        TextRect {
+            x_pt: rect.x as f32,
+            y_pt: rect.y as f32,
+            width_pt: rect.width as f32,
+            height_pt: rect.height as f32,
+        },
+        page_height_pt,
+        scale,
+    )
+}
+
+/// [`place_annotation`] for a bare point (an ink polyline vertex), which has
+/// no height to subtract.
+fn place_annotation_point(point: (f64, f64), page_height_pt: f32, scale: f64) -> (f64, f64) {
+    let (x, y) = point;
+    (x * scale, (f64::from(page_height_pt) - y) * scale)
+}
+
+fn set_annotation_color(context: &cairo::Context, color: Color, alpha: f64) {
+    context.set_source_rgba(
+        f64::from(color.r) / 255.0,
+        f64::from(color.g) / 255.0,
+        f64::from(color.b) / 255.0,
+        alpha,
+    );
+}
+
+/// The current text selection as one rect per line, in PDF page space,
+/// alongside the page it is on.
+///
+/// One rect per line rather than one box around the lot: a selection spanning
+/// three lines is three bands of text, and a single bounding box would swallow
+/// the margins and both ragged ends. `line_rects` is the same union the search
+/// highlighter uses, so a marked-up selection lines up with a search hit over
+/// the same words.
+///
+/// `None` when nothing is selected, when the page's text has not loaded yet,
+/// or when the selection is empty — a click that selected no characters must
+/// not become a zero-width annotation.
+pub(crate) fn selected_line_rects(viewer: &Viewer) -> Option<(usize, Vec<TextRect>)> {
+    let state = viewer.state.borrow();
+    let session = state.session.as_ref()?;
+    let selection = session.selection.as_ref()?;
+    let page = session.pages.get(selection.page_index)?;
+    let characters = page.characters.as_ref()?;
+    let rects = line_rects(&characters.rects_in(resolve_range(characters, selection)?));
+
+    (!rects.is_empty()).then_some((selection.page_index, rects))
 }
 
 /// Resolves a selection's two PDF-space points into a caret range.
@@ -145,6 +406,27 @@ fn fill_all(
 }
 
 fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
+    // An armed creation tool claims the drag: the user is drawing an
+    // annotation, not selecting text. Checked before the extraction refusal
+    // below, because placing an annotation extracts nothing — a document may
+    // forbid copying its text and still permit being annotated.
+    if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
+        if annotations::begin_placement(viewer, page_index, point) {
+            return;
+        }
+        // Then an annotation already on the page: its corner handles resize
+        // it, its body moves it, and any other one becomes the selection.
+        // Ahead of text selection, because a press that lands on an
+        // annotation is aimed at the annotation.
+        if annotations::begin_annotation_drag(
+            viewer,
+            page_index,
+            point,
+            handle_reach(viewer, page_index),
+        ) {
+            return;
+        }
+    }
     // A document that withholds extraction gets no selection at all: loading
     // its text runs is itself extraction, so the refusal belongs here rather
     // than only at the clipboard. Reporting it on the first drag also tells
@@ -176,7 +458,16 @@ fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
     redraw(viewer);
 }
 
-fn extend_selection(viewer: &Viewer, x: f64, y: f64) {
+fn extend_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
+    // The gesture belongs to the page the drag started on, so the placement
+    // stays in that page's space even if the pointer wanders past its edge.
+    if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
+        if annotations::extend_placement(viewer, point)
+            || annotations::extend_annotation_drag(viewer, point)
+        {
+            return;
+        }
+    }
     {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {

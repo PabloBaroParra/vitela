@@ -5,8 +5,15 @@
 //! `gen-fixtures` crate is reserved for the encrypted corpus consumed by
 //! `tests/encrypted_open.rs`, T-025/T-026).
 
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, Document, Object, Stream};
+use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
+use lopdf::xref::XrefType;
+use lopdf::{
+    dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions, Stream,
+};
 
 /// Builds a minimal, valid, unencrypted PDF with one page per label in
 /// `labels`, each page's content stream containing a single `Tj` operation
@@ -64,6 +71,46 @@ pub fn build_pdf_with_pages(labels: &[&str]) -> Document {
     doc.trailer.set("Root", catalog_id);
 
     doc
+}
+
+/// Builds an AES-128 encrypted single-page PDF whose `/P` is exactly
+/// `permissions` — the shape of document a permission gate must refuse.
+///
+/// `user_password` is what the reader has to supply to open it; passing `""`
+/// produces the very common "opens with no prompt at all, yet still restricts"
+/// document, which is the case every permission gate gets wrong first.
+pub fn restricted_pdf(
+    user_password: &str,
+    owner_password: &str,
+    permissions: Permissions,
+) -> Vec<u8> {
+    let mut doc = build_pdf_with_pages(&["restricted"]);
+    // Classic xref table, matching `gen-fixtures`: lopdf cannot re-hydrate
+    // objects out of an encrypted cross-reference stream at load time.
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    // The standard security handler derives its key from the first element of
+    // the trailer's /ID array (PDF 32000-1:2008 §7.6.3.3); without it lopdf
+    // refuses to build the encryption state at all.
+    let file_id = Object::string_literal("restricted-fixture-id");
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+
+    let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+    let version = EncryptionVersion::V4 {
+        document: &doc,
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password,
+        user_password,
+        permissions,
+    };
+    let state = EncryptionState::try_from(version).expect("build encryption state");
+    doc.encrypt(&state).expect("encrypt fixture");
+
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).expect("save fixture");
+    bytes
 }
 
 /// Reads a page's decoded content-stream label back out, for asserting page

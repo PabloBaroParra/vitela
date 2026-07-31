@@ -6,6 +6,7 @@
 //! reads geometry from `layout`, and `print` reuses `render`'s rasterizer.
 //! Cyclic references between sibling modules are fine — it is all one crate.
 
+mod annotations;
 mod brand;
 mod document;
 mod layout;
@@ -24,6 +25,7 @@ use gtk::{
     Label, MenuButton, Orientation, Overlay, ScrolledWindow,
 };
 
+use annotations::add_annotation_toolbar;
 use brand::build_app_mark;
 use document::{open_sample, show_file_chooser, SampleKind};
 use layout::{refresh_layout, set_zoom, Zoom};
@@ -106,6 +108,11 @@ fn build_ui(application: &Application) {
     toolbar.append(&fit_page);
     toolbar.append(&zoom_in);
     toolbar.append(&print_button);
+    // Its own row rather than more widgets on this one: twelve annotation
+    // controls do not belong in the same horizontal budget as open/zoom/
+    // search/print, and stacking them there pushed the window's minimum width
+    // past the screen (see `annotations::add_annotation_toolbar`).
+    let (annotation_toolbar, annotation_row) = add_annotation_toolbar();
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
@@ -130,6 +137,7 @@ fn build_ui(application: &Application) {
     content.set_margin_start(12);
     content.set_margin_end(12);
     content.append(&toolbar);
+    content.append(&annotation_row);
     content.append(&status);
     content.append(&page_area);
     window.set_child(Some(&content));
@@ -143,17 +151,21 @@ fn build_ui(application: &Application) {
         find_previous,
         find_next,
         print_button,
+        annotation_buttons: annotation_toolbar,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session: None,
+            active_tool: None,
             password_dialog: None,
         })),
     };
     connect_viewport_updates(&viewer);
     connect_search(&viewer);
+    annotations::connect_annotation_toolbar(&viewer);
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);
+    annotations::connect_delete_shortcut(application, &window, &viewer);
     zoom_out.connect_clicked({
         let viewer = viewer.clone();
         move |_| step_zoom(&viewer, false)
