@@ -145,6 +145,14 @@ fn fill_all(
 }
 
 fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
+    // A document that withholds extraction gets no selection at all: loading
+    // its text runs is itself extraction, so the refusal belongs here rather
+    // than only at the clipboard. Reporting it on the first drag also tells
+    // the user why the pointer appears to do nothing.
+    if let Some(refusal) = viewer.text_extraction_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
     let needs_text = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
@@ -254,6 +262,15 @@ fn apply_page_text(
 
 /// Copies the selected text, reporting through the status label either way.
 pub(crate) fn copy_selection(viewer: &Viewer) {
+    // Checked again even though `begin_selection` already refuses, so there
+    // should be nothing selected to copy. This is the call that actually hands
+    // the document's text to the user, and the one place the permission most
+    // needs to hold; it must not depend on another function having held the
+    // line earlier.
+    if let Some(refusal) = viewer.text_extraction_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
     let text = {
         let state = viewer.state.borrow();
         let selected = state.session.as_ref().and_then(|session| {

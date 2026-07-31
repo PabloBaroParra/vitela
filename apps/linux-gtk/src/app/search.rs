@@ -15,6 +15,16 @@ pub(crate) fn run_search(viewer: &Viewer) {
         viewer.status.set_text("Enter text to find.");
         return;
     }
+    // Search reads the document's text, so it answers to the same
+    // extraction permission a copy does — refused before any work is
+    // queued, and before a match count could leak what the document
+    // withholds. `PdfiumRenderer::search` itself enforces nothing (it is
+    // the raw capability); this is the shell's half of the contract.
+    if let Some(refusal) = viewer.text_extraction_refusal() {
+        clear_search(viewer);
+        viewer.status.set_text(refusal);
+        return;
+    }
     let Some((document, search_id)) = begin_search(viewer) else {
         viewer.status.set_text("Open a PDF before searching.");
         return;

@@ -53,6 +53,14 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
       (2) `Overlay` pinta en orden de agregado y el pipeline de tiles agrega bitmaps opacos al
       hacer zoom, así que la capa de resaltado se re-eleva tras cada lote
       (`selection::raise_highlights`) o los resaltados desaparecen en páginas tileadas.)**
+
+      **(2026-07-31 — permiso de extracción respetado. Ambos caminos que entregan texto al
+      usuario —búsqueda y copia de la selección— consultan `Viewer::text_extraction_refusal()`
+      antes de trabajar. La regla vive una sola vez, en `pdf_manip::security`, y la comparten
+      este shell y la frontera `pdf-ffi` que cruzan los demás; B8 bypasea FFI, así que sin
+      esto Linux copiaba texto de documentos que lo prohíben mientras macOS/Windows/Android lo
+      rechazaban. Un `/P` ilegible NO se asume permisivo, pero tampoco impide *ver* el
+      documento.)**
 - [ ] T-047 Toolbar de anotaciones wired a pdf-annotate (7 tipos). [AnnoCreate, AnnoEditDelete]
 - [ ] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
 - [x] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]

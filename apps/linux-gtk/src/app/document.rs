@@ -18,7 +18,8 @@ use super::layout::set_placeholder_size;
 use super::render::update_viewport;
 use super::search::update_search_controls;
 use super::state::{
-    DocumentSession, DocumentSource, FitRequest, OpenedDocument, PageSlot, PageState, Viewer,
+    DocumentSession, DocumentSource, FitRequest, OpenedDocument, PageSlot, PageState, TextAccess,
+    Viewer,
 };
 
 /// The sample document, linked into the binary at compile time from the same
@@ -179,6 +180,7 @@ fn open_document(
             renderer.open_document_from_bytes(bytes.to_vec(), password)?
         }
     };
+    let text_access = read_text_access(source, password);
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
@@ -186,11 +188,42 @@ fn open_document(
         Ok(page_sizes) => Ok(OpenedDocument {
             document,
             page_sizes,
+            text_access,
         }),
         Err(error) => {
             let _ = renderer.close_document(document);
             Err(error)
         }
+    }
+}
+
+/// Reads the document's text-extraction permission (spec "Open
+/// Password-Protected PDF").
+///
+/// pdfium renders the document but has no view of the lopdf security model
+/// the permission lives in, so this asks `pdf-manip` for the same
+/// `SecurityContext` the `pdf-ffi` boundary gates on and applies the same
+/// rule to it. Only the probe runs — no second decrypting load, no lopdf
+/// document model — so this costs one unauthenticated parse on the open
+/// worker thread, less than the full open every other shell already performs
+/// through `pdf-ffi`.
+///
+/// A document pdfium opens but lopdf cannot read is [`TextAccess::Unreadable`]:
+/// it still renders, and only text extraction is withheld.
+fn read_text_access(source: &DocumentSource, password: Option<&str>) -> TextAccess {
+    let security = match source {
+        DocumentSource::File(path) => pdf_manip::read_security_context(path, password),
+        DocumentSource::Embedded(bytes) => {
+            pdf_manip::read_security_context_from_bytes(bytes, password)
+        }
+    };
+
+    match security {
+        Ok(security) if pdf_manip::text_extraction_is_allowed(security.as_ref()) => {
+            TextAccess::Allowed
+        }
+        Ok(_) => TextAccess::Forbidden,
+        Err(_) => TextAccess::Unreadable,
     }
 }
 
@@ -262,6 +295,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     let page_count = slots.len();
     viewer.state.borrow_mut().session = Some(DocumentSession {
         document: document.document,
+        text_access: document.text_access,
         physical_width: fit.available_width,
         physical_height: fit.available_height,
         scale_factor: fit.scale_factor,

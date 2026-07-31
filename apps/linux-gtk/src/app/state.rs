@@ -41,6 +41,23 @@ pub(crate) struct Viewer {
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
+impl Viewer {
+    /// The message to show instead of extracting the open document's text, or
+    /// `None` when extraction is allowed.
+    ///
+    /// The single place the shell asks the permission question. Search asks it
+    /// before querying pdfium; text selection asks it before putting a run on
+    /// the clipboard. With no document open there is nothing to refuse — the
+    /// caller reports that case in its own words.
+    pub(crate) fn text_extraction_refusal(&self) -> Option<&'static str> {
+        self.state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.text_access.refusal())
+    }
+}
+
 pub(crate) struct ViewerState {
     pub(crate) generation: u64,
     pub(crate) session: Option<DocumentSession>,
@@ -52,8 +69,47 @@ pub(crate) struct ViewerState {
     pub(crate) password_dialog: Option<Dialog>,
 }
 
+/// Whether this document's text may be extracted — read once at open time
+/// and cached for the session, because it cannot change while the document
+/// stays open.
+///
+/// The shell links `pdf-render` directly and so never crosses the `pdf-ffi`
+/// boundary where the other shells' gate lives; this is that gate. Anything
+/// that would hand the user the document's text — search, and the selection
+/// clipboard — must ask [`TextAccess::refusal`] first.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum TextAccess {
+    /// Unencrypted, or the permissions (or an owner credential) allow it.
+    Allowed,
+    /// The document's `/P` withholds the copy-or-extract permission.
+    Forbidden,
+    /// The document's security could not be read at all. Refused rather than
+    /// assumed permissive: an unreadable policy is not a permissive one. The
+    /// document still renders — failing to classify it must not cost the user
+    /// the ability to *view* it.
+    Unreadable,
+}
+
+impl TextAccess {
+    /// The message to show instead of extracting text, or `None` when
+    /// extraction is allowed.
+    pub(crate) fn refusal(self) -> Option<&'static str> {
+        match self {
+            TextAccess::Allowed => None,
+            TextAccess::Forbidden => {
+                Some("This document does not permit copying or extracting its text.")
+            }
+            TextAccess::Unreadable => Some(
+                "This document's permissions could not be read, so its text cannot be extracted.",
+            ),
+        }
+    }
+}
+
 pub(crate) struct DocumentSession {
     pub(crate) document: DocumentHandle,
+    /// Whether search and text selection may read this document's text.
+    pub(crate) text_access: TextAccess,
     pub(crate) physical_width: u32,
     pub(crate) physical_height: u32,
     pub(crate) scale_factor: i32,
@@ -163,6 +219,33 @@ pub(crate) struct RenderedPage {
 pub(crate) struct OpenedDocument {
     pub(crate) document: DocumentHandle,
     pub(crate) page_sizes: Vec<(f32, f32)>,
+    pub(crate) text_access: TextAccess,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TextAccess;
+
+    #[test]
+    fn only_allowed_access_skips_the_refusal() {
+        assert!(TextAccess::Allowed.refusal().is_none());
+    }
+
+    #[test]
+    fn an_unreadable_policy_refuses_just_like_a_forbidding_one() {
+        // Fail closed: a document whose security could not be read is not a
+        // document that granted permission.
+        assert!(TextAccess::Forbidden.refusal().is_some());
+        assert!(TextAccess::Unreadable.refusal().is_some());
+    }
+
+    #[test]
+    fn each_refusal_explains_its_own_cause() {
+        assert_ne!(
+            TextAccess::Forbidden.refusal(),
+            TextAccess::Unreadable.refusal()
+        );
+    }
 }
 
 #[derive(Clone, Copy)]

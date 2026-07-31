@@ -1,6 +1,10 @@
 //! Decrypt-on-open (T-025/T-026): opens a PDF, returning a decrypted
 //! `LopdfDocument` plus the `SecurityContext` used, or a clean error for a
 //! missing/wrong password (spec "Open Password-Protected PDF").
+//!
+//! [`read_security_context`] exposes the security half on its own, for a
+//! caller that holds the document open through another backend and needs the
+//! permissions but not the model — see [`crate::text_extraction_is_allowed`].
 
 use std::path::Path;
 
@@ -46,36 +50,10 @@ pub fn open_document(
     }
 
     let password = credential.ok_or(ManipError::PasswordRequired)?;
-
-    let encrypt_dict = probe
-        .get_encrypted()
-        .map_err(|_| ManipError::UnsupportedSecurityHandler)?
-        .clone();
-    let handler = security_handler_from_dict(&encrypt_dict)?;
-    let permissions = permissions_from_dict(&encrypt_dict);
-
-    let credential_kind = if probe.authenticate_owner_password(password).is_ok() {
-        Credential::Owner
-    } else if probe.authenticate_user_password(password).is_ok() {
-        Credential::User
-    } else {
-        return Err(ManipError::WrongPassword);
-    };
-
+    let security = security_from_encrypt_dict(&probe, password)?;
     let doc = load_decrypted(path, password)?;
 
-    Ok((
-        LopdfDocument(doc),
-        Some(SecurityContext {
-            handler,
-            credential: credential_kind,
-            credentials: match credential_kind {
-                Credential::User => EncryptionCredentials::user(password),
-                Credential::Owner => EncryptionCredentials::owner(password),
-            },
-            permissions,
-        }),
-    ))
+    Ok((LopdfDocument(doc), Some(security)))
 }
 
 /// Opens an encrypted PDF after independently verifying both its user and
@@ -102,12 +80,7 @@ pub fn open_document_with_passwords(
         return Err(ManipError::WrongPassword);
     }
 
-    let encrypt_dict = probe
-        .get_encrypted()
-        .map_err(|_| ManipError::UnsupportedSecurityHandler)?
-        .clone();
-    let handler = security_handler_from_dict(&encrypt_dict)?;
-    let permissions = permissions_from_dict(&encrypt_dict);
+    let (handler, permissions) = encryption_settings(&probe)?;
     let doc = load_decrypted(path, owner_password)?;
 
     Ok((
@@ -118,6 +91,140 @@ pub fn open_document_with_passwords(
             credentials: EncryptionCredentials::both(user_password, owner_password),
             permissions,
         }),
+    ))
+}
+
+/// Reads a document's [`SecurityContext`] without decrypting it — the probe
+/// half of [`open_document`], on its own.
+///
+/// This exists for a caller that already has the document open through
+/// another backend and needs nothing from lopdf but the security policy: the
+/// GTK4 shell renders through pdfium and never builds an lopdf model, yet
+/// still has to honour the text-extraction permission (see
+/// [`crate::text_extraction_is_allowed`]). It skips the second, fully
+/// decrypting load that [`open_document`] performs, so an encrypted document
+/// costs only the cheap unauthenticated probe.
+///
+/// Unlike [`open_document`], a `None` credential is not an error: an
+/// encrypted document is probed with the empty user password, which is
+/// exactly how the common "opens without any prompt, but forbids copying"
+/// document authenticates. A document that genuinely needs a password still
+/// reports [`ManipError::WrongPassword`] — pass the same password the
+/// document was opened with.
+pub fn read_security_context(
+    path: &Path,
+    credential: Option<&str>,
+) -> Result<Option<SecurityContext>, ManipError> {
+    let probe = LopdfRawDocument::load(path)?;
+    security_from_probe(&probe, credential)
+}
+
+/// Bytes-based equivalent of [`read_security_context`] — for a shell holding
+/// a byte buffer (Android/iOS, or the GTK4 shell's compiled-in samples)
+/// rather than a path.
+pub fn read_security_context_from_bytes(
+    bytes: &[u8],
+    credential: Option<&str>,
+) -> Result<Option<SecurityContext>, ManipError> {
+    let probe = LopdfRawDocument::load_mem(bytes)?;
+    security_from_probe(&probe, credential)
+}
+
+/// Resolves a loaded probe's security state, whichever of lopdf's two shapes
+/// it arrived in.
+///
+/// A probe of an encrypted document normally still carries its `/Encrypt`
+/// dictionary, because the unauthenticated load stops before decrypting
+/// anything. There is one exception: when the document's **user password is
+/// empty**, that load already succeeds, so lopdf decrypts the whole document
+/// in place, records the derived state in `Document::encryption_state`, and
+/// *removes* `/Encrypt` from the trailer (see `reader.rs`'s
+/// `load_encrypted_document`). Such a document then looks unencrypted to
+/// `is_encrypted()` while still carrying real permissions — and "opens
+/// without a prompt, but forbids copying" is the single most common shape of
+/// restricted PDF in the wild, so the gate reads the recovered state instead
+/// of waving it through.
+fn security_from_probe(
+    probe: &LopdfRawDocument,
+    credential: Option<&str>,
+) -> Result<Option<SecurityContext>, ManipError> {
+    if probe.is_encrypted() {
+        return security_from_encrypt_dict(probe, credential.unwrap_or("")).map(Some);
+    }
+
+    probe
+        .encryption_state
+        .as_ref()
+        .map(security_from_unlocked_state)
+        .transpose()
+}
+
+/// Builds the context for a document lopdf already unlocked with the empty
+/// user password (see [`security_from_probe`]): its `/Encrypt` dictionary is
+/// gone, but the decoded state carries the same handler and `/P` bits.
+///
+/// The credential is `User` because that is what an open with no password
+/// supplied *is* — the same access level pdfium grants such a document. An
+/// owner-password holder who wants the owner's bypass has to present it, in
+/// which case the document reaches [`security_from_encrypt_dict`] instead.
+fn security_from_unlocked_state(
+    state: &lopdf::EncryptionState,
+) -> Result<SecurityContext, ManipError> {
+    let crypt_filter_method = state
+        .crypt_filters()
+        .get(state.default_string_filter())
+        .map(|filter| filter.method().to_vec());
+
+    Ok(SecurityContext {
+        handler: security_handler(state.version(), crypt_filter_method.as_deref())?,
+        credential: Credential::User,
+        credentials: EncryptionCredentials::user(""),
+        permissions: Permissions(state.permissions().bits() as u32),
+    })
+}
+
+/// Reads an already-loaded, still-encrypted probe's `/Encrypt` dictionary and
+/// resolves which credential role `password` authenticates.
+///
+/// Every open path and [`read_security_context`] share this, so the mapping
+/// from a raw `/Encrypt` dictionary to a `SecurityContext` exists exactly
+/// once. The caller must have established that `probe` is encrypted.
+fn security_from_encrypt_dict(
+    probe: &LopdfRawDocument,
+    password: &str,
+) -> Result<SecurityContext, ManipError> {
+    let (handler, permissions) = encryption_settings(probe)?;
+
+    let credential = if probe.authenticate_owner_password(password).is_ok() {
+        Credential::Owner
+    } else if probe.authenticate_user_password(password).is_ok() {
+        Credential::User
+    } else {
+        return Err(ManipError::WrongPassword);
+    };
+
+    Ok(SecurityContext {
+        handler,
+        credential,
+        credentials: match credential {
+            Credential::User => EncryptionCredentials::user(password),
+            Credential::Owner => EncryptionCredentials::owner(password),
+        },
+        permissions,
+    })
+}
+
+/// Reads the handler and raw permission bitmask out of an encrypted probe's
+/// `/Encrypt` dictionary.
+fn encryption_settings(
+    probe: &LopdfRawDocument,
+) -> Result<(SecurityHandler, Permissions), ManipError> {
+    let encrypt_dict = probe
+        .get_encrypted()
+        .map_err(|_| ManipError::UnsupportedSecurityHandler)?;
+    Ok((
+        security_handler_from_dict(encrypt_dict)?,
+        permissions_from_dict(encrypt_dict),
     ))
 }
 
@@ -155,36 +262,10 @@ pub fn open_document_from_bytes(
     }
 
     let password = credential.ok_or(ManipError::PasswordRequired)?;
-
-    let encrypt_dict = probe
-        .get_encrypted()
-        .map_err(|_| ManipError::UnsupportedSecurityHandler)?
-        .clone();
-    let handler = security_handler_from_dict(&encrypt_dict)?;
-    let permissions = permissions_from_dict(&encrypt_dict);
-
-    let credential_kind = if probe.authenticate_owner_password(password).is_ok() {
-        Credential::Owner
-    } else if probe.authenticate_user_password(password).is_ok() {
-        Credential::User
-    } else {
-        return Err(ManipError::WrongPassword);
-    };
-
+    let security = security_from_encrypt_dict(&probe, password)?;
     let doc = load_decrypted_from_bytes(bytes, password)?;
 
-    Ok((
-        LopdfDocument(doc),
-        Some(SecurityContext {
-            handler,
-            credential: credential_kind,
-            credentials: match credential_kind {
-                Credential::User => EncryptionCredentials::user(password),
-                Credential::Owner => EncryptionCredentials::owner(password),
-            },
-            permissions,
-        }),
-    ))
+    Ok((LopdfDocument(doc), Some(security)))
 }
 
 /// Bytes-based equivalent of [`open_document_with_passwords`] — see that
@@ -208,12 +289,7 @@ pub fn open_document_with_passwords_from_bytes(
         return Err(ManipError::WrongPassword);
     }
 
-    let encrypt_dict = probe
-        .get_encrypted()
-        .map_err(|_| ManipError::UnsupportedSecurityHandler)?
-        .clone();
-    let handler = security_handler_from_dict(&encrypt_dict)?;
-    let permissions = permissions_from_dict(&encrypt_dict);
+    let (handler, permissions) = encryption_settings(&probe)?;
     let doc = load_decrypted_from_bytes(bytes, owner_password)?;
 
     Ok((
@@ -251,24 +327,33 @@ fn security_handler_from_dict(encrypt: &Dictionary) -> Result<SecurityHandler, M
         .and_then(|o| o.as_i64())
         .map_err(|_| ManipError::UnsupportedSecurityHandler)?;
 
+    let crypt_filter_method = encrypt
+        .get(b"CF")
+        .and_then(|o| o.as_dict())
+        .and_then(|cf| cf.get(b"StdCF"))
+        .and_then(|o| o.as_dict())
+        .and_then(|std_cf| std_cf.get(b"CFM"))
+        .and_then(|o| o.as_name())
+        .ok();
+
+    security_handler(version, crypt_filter_method)
+}
+
+/// Maps an `/Encrypt` `/V` (plus, for `/V 4`, its crypt filter's `/CFM`) to a
+/// [`SecurityHandler`]. Shared by the dictionary reader above and the
+/// already-unlocked path, which recovers the same two facts from lopdf's
+/// decoded `EncryptionState`.
+fn security_handler(
+    version: i64,
+    crypt_filter_method: Option<&[u8]>,
+) -> Result<SecurityHandler, ManipError> {
     match version {
         1 | 2 => Ok(SecurityHandler::Rc4_128),
-        4 => {
-            let cfm = encrypt
-                .get(b"CF")
-                .and_then(|o| o.as_dict())
-                .and_then(|cf| cf.get(b"StdCF"))
-                .and_then(|o| o.as_dict())
-                .and_then(|std_cf| std_cf.get(b"CFM"))
-                .and_then(|o| o.as_name())
-                .map_err(|_| ManipError::UnsupportedSecurityHandler)?;
-
-            match cfm {
-                b"AESV2" => Ok(SecurityHandler::Aes128),
-                b"V2" => Ok(SecurityHandler::Rc4_128),
-                _ => Err(ManipError::UnsupportedSecurityHandler),
-            }
-        }
+        4 => match crypt_filter_method {
+            Some(b"AESV2") => Ok(SecurityHandler::Aes128),
+            Some(b"V2") => Ok(SecurityHandler::Rc4_128),
+            _ => Err(ManipError::UnsupportedSecurityHandler),
+        },
         5 => Ok(SecurityHandler::Aes256),
         _ => Err(ManipError::UnsupportedSecurityHandler),
     }
