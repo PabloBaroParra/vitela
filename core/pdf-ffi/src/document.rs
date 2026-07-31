@@ -36,7 +36,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pdf_document::{AnnotationId, Command, Credential, Document, PageId};
+use pdf_document::{AnnotationId, Command, Document, PageId};
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
@@ -218,13 +218,14 @@ impl DocumentHandle {
     }
 }
 
+/// Applies `pdf-manip`'s permission rule to this handle's document.
+///
+/// The rule itself lives in `pdf_manip::text_extraction_is_allowed` — the
+/// layer that owns `/P` bit semantics — so this boundary and the GTK4 shell,
+/// which links the core crates directly instead of crossing UniFFI, refuse
+/// the same documents.
 fn text_extraction_is_allowed(document: &Document) -> bool {
-    match document.security.as_ref() {
-        Some(security) => {
-            security.credential == Credential::Owner || security.permissions.0 & (1 << 4) != 0
-        }
-        None => true,
-    }
+    pdf_manip::text_extraction_is_allowed(document.security.as_ref())
 }
 
 #[uniffi::export]
@@ -273,9 +274,11 @@ impl DocumentHandle {
     ///
     /// The match algorithm itself lives in `pdf_render` (beside the text runs
     /// it reads) so this boundary and the GTK shell — which links the render
-    /// core directly — share one implementation. What stays here is the policy
-    /// this layer owns: the document's text-extraction permission, which is
-    /// read from the lopdf security model the render core has no view of.
+    /// core directly — share one implementation. The permission gate is shared
+    /// the same way: the rule is `pdf_manip::text_extraction_is_allowed`,
+    /// applied here to the lopdf security model the render core has no view
+    /// of, and applied by the GTK shell to the context it reads with
+    /// `pdf_manip::read_security_context`.
     pub fn search(&self, query: String) -> Result<Vec<FfiSearchResult>, FfiError> {
         if query.is_empty() {
             return Ok(Vec::new());
@@ -301,8 +304,12 @@ impl DocumentHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pdf_document::{EncryptionCredentials, Permissions, SecurityContext, SecurityHandler};
+    use pdf_document::{
+        Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
+    };
 
+    /// The rule's own cases live with the rule (`pdf_manip::security`); what
+    /// this asserts is that the boundary is actually wired to it.
     #[test]
     fn text_extraction_respects_user_copy_permission_and_owner_bypass() {
         let mut document = Document::blank();

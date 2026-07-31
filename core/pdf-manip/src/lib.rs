@@ -18,6 +18,7 @@ mod error;
 mod merge_split;
 mod open;
 mod page_ops;
+mod security;
 
 pub use create_blank::{create_blank_document, insert_blank_page, remove_page};
 pub use document::{LopdfDocument, PageDimensions};
@@ -25,6 +26,8 @@ pub use error::ManipError;
 pub use merge_split::{merge, split};
 pub use open::{
     open_document, open_document_from_bytes, open_document_with_passwords,
-    open_document_with_passwords_from_bytes,
+    open_document_with_passwords_from_bytes, read_security_context,
+    read_security_context_from_bytes,
 };
 pub use page_ops::{delete_pages, extract_pages, reorder_pages, rotate_page};
+pub use security::text_extraction_is_allowed;

@@ -8,4 +8,10 @@ publish = false
 
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = { package = "gtk4", version = "0.9.5" }
+# Rendering comes from pdfium; the document's *permissions* do not — pdfium
+# has no view of the lopdf security model. `pdf-manip` supplies both the
+# security context and the rule applied to it, so a document that forbids
+# copying is refused here exactly as it is at the `pdf-ffi` boundary the
+# other shells cross.
+pdf-manip = { path = "../../core/pdf-manip" }
 pdf-render = { path = "../../core/pdf-render" }
