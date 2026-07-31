@@ -8,7 +8,10 @@
 //! select text.
 
 use gtk::prelude::*;
-use gtk::{gio, Box as GtkBox, Button, Orientation, PolicyType, ScrolledWindow, ToggleButton};
+use gtk::{
+    gdk, gio, Box as GtkBox, Button, ColorChooserDialog, Orientation, PolicyType, ResponseType,
+    ScrolledWindow, ToggleButton,
+};
 use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, Color, Command, Document, PageId, Rect,
 };
@@ -17,7 +20,7 @@ use pdf_render::TextRect;
 use super::selection;
 use super::state::{
     AnnotationDrag, AnnotationDragMode, AnnotationToolbar, Corner, DocumentSession, Placement,
-    Tool, Viewer, ANNOTATION_MODEL_UNAVAILABLE,
+    SessionToken, Tool, Viewer, ANNOTATION_MODEL_UNAVAILABLE,
 };
 
 /// Fallback rect for the one operation that can still need one without a
@@ -32,11 +35,6 @@ const DEFAULT_COLOR: Color = Color {
     r: 255,
     g: 220,
     b: 0,
-};
-const RESTYLE_COLOR: Color = Color {
-    r: 220,
-    g: 40,
-    b: 40,
 };
 /// How far the Nudge button shifts the selected annotation, in PDF points.
 const NUDGE_PT: f64 = 12.0;
@@ -151,7 +149,7 @@ pub(crate) fn connect_annotation_toolbar(viewer: &Viewer) {
     connect(viewer, &buttons.select_previous, select_previous);
     connect(viewer, &buttons.move_selection, edit_move);
     connect(viewer, &buttons.resize_selection, edit_resize);
-    connect(viewer, &buttons.restyle_selection, edit_restyle);
+    connect(viewer, &buttons.restyle_selection, choose_restyle_color);
     connect(viewer, &buttons.delete_selection, delete);
 }
 
@@ -345,6 +343,85 @@ pub(crate) fn update_annotation_controls(viewer: &Viewer) {
     buttons
         .delete_action
         .set_enabled(has_selection && !search_has_focus(viewer));
+    let history = session
+        .document_model
+        .as_ref()
+        .map(|document| &document.pending_edits);
+    viewer
+        .undo_action
+        .set_enabled(history.is_some_and(|log| log.can_undo()));
+    viewer
+        .redo_action
+        .set_enabled(history.is_some_and(|log| log.can_redo()));
+    viewer
+        .save_button
+        .set_sensitive(history.is_some_and(|log| log.can_undo()));
+}
+
+/// Connects model-native history to the window actions and standard shortcuts.
+pub(crate) fn connect_history_shortcuts(
+    application: &gtk::Application,
+    window: &gtk::ApplicationWindow,
+    viewer: &Viewer,
+) {
+    viewer.undo_action.connect_activate({
+        let viewer = viewer.clone();
+        move |_, _| undo(&viewer)
+    });
+    viewer.redo_action.connect_activate({
+        let viewer = viewer.clone();
+        move |_, _| redo(&viewer)
+    });
+    window.add_action(&viewer.undo_action);
+    window.add_action(&viewer.redo_action);
+    application.set_accels_for_action("win.undo", &["<Control>z"]);
+    application.set_accels_for_action("win.redo", &["<Control>y"]);
+}
+
+pub(crate) fn undo(viewer: &Viewer) {
+    history(viewer, true);
+}
+
+pub(crate) fn redo(viewer: &Viewer) {
+    history(viewer, false);
+}
+
+fn history(viewer: &Viewer, undo: bool) {
+    let changed = {
+        let mut state = viewer.state.borrow_mut();
+        let Some(session) = state.session.as_mut() else {
+            return;
+        };
+        let Some(document) = session.document_model.as_mut() else {
+            return;
+        };
+        let mut log = std::mem::take(&mut document.pending_edits);
+        let changed = if undo {
+            log.undo(document)
+        } else {
+            log.redo(document)
+        };
+        document.pending_edits = log;
+        if changed {
+            session.edit_revision += 1;
+            if session
+                .selected_annotation
+                .is_some_and(|id| document.annotations.get(id).is_none())
+            {
+                session.selected_annotation = None;
+            }
+        }
+        changed
+    };
+    if changed {
+        viewer.status.set_text(if undo {
+            "Edit undone. Changes are pending save."
+        } else {
+            "Edit redone. Changes are pending save."
+        });
+        update_annotation_controls(viewer);
+        selection::redraw(viewer);
+    }
 }
 
 /// Runs one annotation command against the open document, then reports the
@@ -371,7 +448,12 @@ fn command(
         }
     };
     match result {
-        Ok(message) => viewer.status.set_text(&message),
+        Ok(message) => {
+            if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
+                session.edit_revision += 1;
+            }
+            viewer.status.set_text(&message);
+        }
         Err(error) => viewer.status.set_text(&error),
     }
     // Both outcomes, not just success: a rejected placement has already been
@@ -402,6 +484,125 @@ fn apply_command(document: &mut Document, command: Command) {
     let mut log = std::mem::take(&mut document.pending_edits);
     log.apply(document, command);
     document.pending_edits = log;
+}
+
+/// Converts GTK's normalized RGB representation to the model's RGB-only color.
+fn color_from_rgba(red: f64, green: f64, blue: f64, _alpha: f64) -> Option<Color> {
+    fn channel(value: f64) -> Option<u8> {
+        value
+            .is_finite()
+            .then(|| (value.clamp(0.0, 1.0) * 255.0).round() as u8)
+    }
+
+    Some(Color {
+        r: channel(red)?,
+        g: channel(green)?,
+        b: channel(blue)?,
+    })
+}
+
+fn selected_color(annotation: &Annotation) -> Option<Color> {
+    match annotation.kind {
+        AnnotationKind::Highlight { color, .. }
+        | AnnotationKind::Underline { color, .. }
+        | AnnotationKind::Strikeout { color, .. }
+        | AnnotationKind::Ink { color, .. }
+        | AnnotationKind::Shape { color, .. } => Some(color),
+        _ => None,
+    }
+}
+
+fn choose_restyle_color(viewer: &Viewer) {
+    let (token, id, before, initial) = {
+        let state = viewer.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return;
+        };
+        let Some(id) = session.selected_annotation else {
+            return;
+        };
+        let Some(before) = session
+            .document_model
+            .as_ref()
+            .and_then(|document| document.annotations.get(id))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(initial) = selected_color(&before) else {
+            return;
+        };
+        (
+            SessionToken {
+                generation: state.generation,
+                edit_revision: session.edit_revision,
+            },
+            id,
+            before,
+            initial,
+        )
+    };
+    let parent = viewer
+        .status
+        .root()
+        .and_then(|root| root.downcast::<gtk::Window>().ok());
+    let dialog = ColorChooserDialog::new(Some("Choose annotation color"), parent.as_ref());
+    dialog.set_use_alpha(false);
+    dialog.set_rgba(&gdk::RGBA::new(
+        f32::from(initial.r) / 255.0,
+        f32::from(initial.g) / 255.0,
+        f32::from(initial.b) / 255.0,
+        1.0,
+    ));
+    dialog.connect_response({
+        let viewer = viewer.clone();
+        move |dialog, response| {
+            let chosen = dialog.rgba();
+            dialog.destroy();
+            if response != ResponseType::Ok {
+                return;
+            }
+            let Some(color) = color_from_rgba(
+                f64::from(chosen.red()),
+                f64::from(chosen.green()),
+                f64::from(chosen.blue()),
+                f64::from(chosen.alpha()),
+            ) else {
+                return;
+            };
+            // The dialog is modeless as far as the model is concerned: anything
+            // could have replaced the document or edited it while it was open.
+            let current = {
+                let state = viewer.state.borrow();
+                state
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| token.matches(state.generation, session.edit_revision))
+            };
+            if !current {
+                return;
+            }
+            // `connect_response` is an `Fn`, so the command below cannot consume
+            // the captured annotation — it works from a clone per response.
+            let before = before.clone();
+            command(&viewer, move |session| {
+                let current = session
+                    .document_model
+                    .as_ref()
+                    .and_then(|document| document.annotations.get(id));
+                if current != Some(&before) {
+                    return Ok("Color selection is no longer current.".to_string());
+                }
+                let mut after = before.clone();
+                pdf_annotate::restyle_annotation(&mut after, color)
+                    .map_err(|error| error.to_string())?;
+                let document = model(session)?;
+                apply_command(document, Command::ReplaceAnnotation { before, after });
+                Ok("Annotation restyled. Changes are pending save.".to_string())
+            });
+        }
+    });
+    dialog.present();
 }
 
 /// Builds the annotation a finished [`Placement`] describes.
@@ -935,12 +1136,6 @@ fn edit_resize(viewer: &Viewer) {
     });
 }
 
-fn edit_restyle(viewer: &Viewer) {
-    edit(viewer, |annotation| {
-        pdf_annotate::restyle_annotation(annotation, RESTYLE_COLOR)
-    });
-}
-
 fn delete(viewer: &Viewer) {
     command(viewer, |session| {
         let id = session
@@ -1038,6 +1233,25 @@ fn supports_restyle(annotation: &Annotation) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rgba_conversion_rounds_rgb_and_ignores_alpha() {
+        let converted = color_from_rgba(0.0, 0.5, 1.0, 0.05).expect("finite RGB converts");
+
+        assert_eq!(
+            converted,
+            Color {
+                r: 0,
+                g: 128,
+                b: 255
+            }
+        );
+    }
+
+    #[test]
+    fn rgba_conversion_rejects_non_finite_channels() {
+        assert_eq!(color_from_rgba(f64::NAN, 0.5, 1.0, 1.0), None);
+    }
 
     /// A placement drag from `origin` to `end` on page 0, recording every
     /// point the way the gesture does for freehand tools.

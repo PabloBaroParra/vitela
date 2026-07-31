@@ -27,7 +27,7 @@ use gtk::{
 
 use annotations::add_annotation_toolbar;
 use brand::build_app_mark;
-use document::{open_sample, show_file_chooser, SampleKind};
+use document::{open_sample, show_file_chooser, show_save_chooser, SampleKind};
 use layout::{refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
@@ -92,6 +92,10 @@ fn build_ui(application: &Application) {
 
     let print_button = Button::with_label("Print");
     print_button.set_sensitive(false);
+    let save_button = Button::with_label("Save as");
+    save_button.set_sensitive(false);
+    let undo_button = Button::with_label("Undo");
+    let redo_button = Button::with_label("Redo");
     let zoom_out = Button::with_label("Zoom out");
     let fit_width = Button::with_label("Fit width");
     let fit_page = Button::with_label("Fit page");
@@ -108,6 +112,9 @@ fn build_ui(application: &Application) {
     toolbar.append(&fit_page);
     toolbar.append(&zoom_in);
     toolbar.append(&print_button);
+    toolbar.append(&save_button);
+    toolbar.append(&undo_button);
+    toolbar.append(&redo_button);
     // Its own row rather than more widgets on this one: twelve annotation
     // controls do not belong in the same horizontal budget as open/zoom/
     // search/print, and stacking them there pushed the window's minimum width
@@ -151,6 +158,9 @@ fn build_ui(application: &Application) {
         find_previous,
         find_next,
         print_button,
+        save_button,
+        undo_action: gio::SimpleAction::new("undo", None),
+        redo_action: gio::SimpleAction::new("redo", None),
         annotation_buttons: annotation_toolbar,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
@@ -166,6 +176,7 @@ fn build_ui(application: &Application) {
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
+    annotations::connect_history_shortcuts(application, &window, &viewer);
     zoom_out.connect_clicked({
         let viewer = viewer.clone();
         move |_| step_zoom(&viewer, false)
@@ -186,6 +197,19 @@ fn build_ui(application: &Application) {
         let window = window.clone();
         let viewer = viewer.clone();
         move |_| print_document(&window, &viewer)
+    });
+    viewer.save_button.connect_clicked({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_| show_save_chooser(&window, &viewer)
+    });
+    undo_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| annotations::undo(&viewer)
+    });
+    redo_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| annotations::redo(&viewer)
     });
 
     // `FileChooserNative` is not a widget: GTK holds no reference to it
