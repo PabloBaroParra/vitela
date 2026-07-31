@@ -30,4 +30,4 @@ pub use open::{
     read_security_context_from_bytes,
 };
 pub use page_ops::{delete_pages, extract_pages, reorder_pages, rotate_page};
-pub use security::text_extraction_is_allowed;
+pub use security::{annotation_editing_is_allowed, text_extraction_is_allowed};

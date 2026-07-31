@@ -2,6 +2,9 @@
 //! shared test-support helper. See spec.md "Merge Documents" / "Split
 //! Document".
 
+// Only the page builders are needed here; the encrypted-fixture builder
+// belongs to the permission tests that share this helper module.
+#[allow(dead_code)]
 mod support;
 
 use pdf_manip::{merge, split, LopdfDocument};

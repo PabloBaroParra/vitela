@@ -1,6 +1,9 @@
 //! Integration tests (T-023, TDD): rotate/reorder/extract/delete page ops.
 //! See spec.md "Rotate, Reorder, Extract, Delete Pages".
 
+// Only the page builders are needed here; the encrypted-fixture builder
+// belongs to the permission tests that share this helper module.
+#[allow(dead_code)]
 mod support;
 
 use pdf_manip::{delete_pages, extract_pages, reorder_pages, rotate_page, LopdfDocument};

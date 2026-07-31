@@ -20,6 +20,7 @@ use pdf_document::{Credential, SecurityContext};
 /// grants that while forbidding plain copying, so gating on bit 10 would let
 /// exactly the documents this check exists for through.
 const COPY_OR_EXTRACT: u32 = 1 << 4;
+const ANNOTATE: u32 = 1 << 5;
 
 /// Whether the document permits copying/extracting its text.
 ///
@@ -31,6 +32,21 @@ pub fn text_extraction_is_allowed(security: Option<&SecurityContext>) -> bool {
         Some(security) => {
             security.credential == Credential::Owner
                 || security.permissions.0 & COPY_OR_EXTRACT != 0
+        }
+        None => true,
+    }
+}
+
+/// Whether the document permits changes to annotation objects.
+///
+/// PDF `/P` bit 6 grants adding or modifying annotations. This is distinct
+/// from bit 4's general document-modification permission. As with text
+/// extraction, an owner credential bypasses the user permission bitmask and
+/// unencrypted documents permit it.
+pub fn annotation_editing_is_allowed(security: Option<&SecurityContext>) -> bool {
+    match security {
+        Some(security) => {
+            security.credential == Credential::Owner || security.permissions.0 & ANNOTATE != 0
         }
         None => true,
     }
@@ -82,6 +98,38 @@ mod tests {
         assert!(!text_extraction_is_allowed(Some(&context(
             Credential::User,
             1 << 9
+        ))));
+    }
+
+    #[test]
+    fn a_user_open_follows_the_annotation_bit_for_annotation_edits() {
+        assert!(!annotation_editing_is_allowed(Some(&context(
+            Credential::User,
+            0
+        ))));
+        assert!(annotation_editing_is_allowed(Some(&context(
+            Credential::User,
+            ANNOTATE
+        ))));
+    }
+
+    #[test]
+    fn a_user_open_requires_the_annotation_bit_not_the_modify_bit() {
+        assert!(!annotation_editing_is_allowed(Some(&context(
+            Credential::User,
+            1 << 3
+        ))));
+        assert!(annotation_editing_is_allowed(Some(&context(
+            Credential::User,
+            ANNOTATE
+        ))));
+    }
+
+    #[test]
+    fn an_owner_open_may_edit_annotations_without_the_modify_bit() {
+        assert!(annotation_editing_is_allowed(Some(&context(
+            Credential::Owner,
+            0
         ))));
     }
 }
