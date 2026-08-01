@@ -74,11 +74,19 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onPassword = viewModel::retryPassword,
         onPasswordCancel = viewModel::cancelPassword,
         onPrint = {
-            viewModel.printBytes()?.let { bytes ->
-                (context.getSystemService(Context.PRINT_SERVICE) as PrintManager).print(state.title, PdfPrintDocumentAdapter(bytes, state.title), null)
+            scope.launch {
+                viewModel.printBytes()?.let { bytes ->
+                    (context.getSystemService(Context.PRINT_SERVICE) as PrintManager).print(state.title, PdfPrintDocumentAdapter(bytes, state.title), null)
+                }
             }
         },
         onPositionChanged = viewModel::onReaderPositionChanged,
         onScrollTargetConsumed = viewModel::consumeScrollTarget,
+        onAnnotationTool = viewModel::setAnnotationTool,
+        onAnnotationGesture = viewModel::handlePageGesture,
+        onAnnotationColor = viewModel::restyleSelected,
+        onAnnotationGrow = viewModel::growSelected,
+        onAnnotationUndo = viewModel::undoAnnotations,
+        onAnnotationRedo = viewModel::redoAnnotations,
     )
 }

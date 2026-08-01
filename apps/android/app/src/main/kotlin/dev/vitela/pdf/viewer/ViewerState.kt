@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import androidx.compose.ui.graphics.ImageBitmap
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.core.Annotation
 
 data class ViewerState(
     val title: String = "No document open",
@@ -45,6 +46,13 @@ data class ViewerState(
      * without deciding this errs on the side of an honest, disabled button.
      */
     val canOpen: Boolean = false,
+    val annotations: List<Annotation> = emptyList(),
+    val annotationEditingAllowed: Boolean = false,
+    val selectedAnnotationId: Long? = null,
+    val activeAnnotationTool: AnnotationTool = AnnotationTool.Pointer,
+    val textSelection: TextSelection? = null,
+    val canUndoAnnotations: Boolean = false,
+    val canRedoAnnotations: Boolean = false,
 )
 
 /**

@@ -57,6 +57,12 @@ internal fun ViewerScreen(
     onPrint: () -> Unit,
     onPositionChanged: (ReaderPosition) -> Unit,
     onScrollTargetConsumed: () -> Unit,
+    onAnnotationTool: (AnnotationTool) -> Unit,
+    onAnnotationGesture: (Int, dev.vitela.pdf.core.AnnotationPoint, dev.vitela.pdf.core.AnnotationPoint, List<dev.vitela.pdf.core.AnnotationPoint>) -> Unit,
+    onAnnotationColor: (dev.vitela.pdf.core.AnnotationColor) -> Unit,
+    onAnnotationGrow: () -> Unit,
+    onAnnotationUndo: () -> Unit,
+    onAnnotationRedo: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -102,6 +108,22 @@ internal fun ViewerScreen(
             Button(onClick = onNext, enabled = state.pageIndex + 1 < state.pageCount) { Text("Next") }
             Text(if (state.pageCount == 0) "No pages" else "Page ${state.pageIndex + 1} of ${state.pageCount}")
         }
+        val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
+        val annotationControls = annotationControls(state.annotationEditingAllowed, selected, state.canUndoAnnotations, state.canRedoAnnotations)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { onAnnotationTool(AnnotationTool.Pointer) }, enabled = annotationControls.canCreate) { Text("Select") }
+            TextButton(onClick = { onAnnotationTool(AnnotationTool.Highlight) }, enabled = annotationControls.canCreate) { Text("Highlight") }
+            TextButton(onClick = { onAnnotationTool(AnnotationTool.Underline) }, enabled = annotationControls.canCreate) { Text("Underline") }
+            TextButton(onClick = { onAnnotationTool(AnnotationTool.Strikeout) }, enabled = annotationControls.canCreate) { Text("Strikeout") }
+            TextButton(onClick = { onAnnotationTool(AnnotationTool.Ink) }, enabled = annotationControls.canCreate) { Text("Ink") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onAnnotationGrow, enabled = annotationControls.canGrow) { Text("Grow") }
+            TextButton(onClick = { onAnnotationColor(dev.vitela.pdf.core.AnnotationColor(220, 40, 40)) }, enabled = annotationControls.canRestyle) { Text("Red") }
+            TextButton(onClick = { onAnnotationColor(DEFAULT_ANNOTATION_COLOR) }, enabled = annotationControls.canRestyle) { Text("Gold") }
+            TextButton(onClick = onAnnotationUndo, enabled = annotationControls.canUndo) { Text("Undo") }
+            TextButton(onClick = onAnnotationRedo, enabled = annotationControls.canRedo) { Text("Redo") }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onZoomOut, enabled = state.pageCount > 0 && state.zoomFactor > MIN_ZOOM_FACTOR) { Text("Zoom out") }
             Text("$zoomPercentage%", modifier = Modifier.semantics { contentDescription = "Zoom level: $zoomPercentage%" })
@@ -121,6 +143,7 @@ internal fun ViewerScreen(
                 state = state,
                 onPositionChanged = onPositionChanged,
                 onScrollTargetConsumed = onScrollTargetConsumed,
+                onAnnotationGesture = onAnnotationGesture,
                 modifier = Modifier.fillMaxSize(),
             )
             // Mirrors the WinUI empty state and the GTK4 shell's overlay mark:
