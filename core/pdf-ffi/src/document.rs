@@ -268,6 +268,19 @@ fn annotation_editing_is_allowed(document: &Document) -> bool {
     pdf_manip::annotation_editing_is_allowed(document.security.as_ref())
 }
 
+/// Whether `command` edits an annotation rather than page structure — the
+/// annotate permission bit (`/P` bit 6) has no say over `RotatePage`,
+/// `InsertBlankPage` or `RemovePage`, which are gated by the general modify
+/// permission the same as any other structural edit.
+fn is_annotation_command(command: &FfiEditCommand) -> bool {
+    !matches!(
+        command,
+        FfiEditCommand::RotatePage { .. }
+            | FfiEditCommand::InsertBlankPage { .. }
+            | FfiEditCommand::RemovePage { .. }
+    )
+}
+
 fn ffi_annotation(annotation: &Annotation) -> FfiAnnotation {
     let kind = match &annotation.kind {
         AnnotationKind::Highlight { rect, color } => FfiAnnotationKind::Highlight {
@@ -657,7 +670,7 @@ pub fn render_page_tiles(
 #[uniffi::export]
 pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<(), FfiError> {
     let mut state = handle.lock();
-    if !annotation_editing_is_allowed(&state.document) {
+    if is_annotation_command(&command) && !annotation_editing_is_allowed(&state.document) {
         return Err(FfiError::UnsupportedOperation {
             detail: "annotation editing is not permitted".to_string(),
         });
