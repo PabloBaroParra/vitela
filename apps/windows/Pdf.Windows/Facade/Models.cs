@@ -25,6 +25,14 @@ public sealed record SearchHit(uint PageIndex, string Text, IReadOnlyList<Search
 
 public sealed record SearchResults(string SessionId, ulong Sequence, string Query, IReadOnlyList<SearchHit> Hits);
 
+public enum AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
+public sealed record AnnotationRect(double X, double Y, double Width, double Height);
+public sealed record AnnotationColor(byte R, byte G, byte B);
+public sealed record AnnotationPoint(double X, double Y);
+public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points);
+public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo);
+public sealed record SavedDocument(byte[] Bytes, ulong EditRevision);
+
 /// <summary>
 /// A failure the UI can show verbatim: <see cref="Message"/> never leaks
 /// diagnostics, and <see cref="CorrelationId"/> ties it back to the log.

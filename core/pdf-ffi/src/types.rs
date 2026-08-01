@@ -147,6 +147,17 @@ impl From<FfiRect> for Rect {
     }
 }
 
+impl From<Rect> for FfiRect {
+    fn from(rect: Rect) -> Self {
+        Self {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+        }
+    }
+}
+
 /// Mirrors `pdf_document::Color`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct FfiColor {
@@ -165,6 +176,16 @@ impl From<FfiColor> for pdf_document::Color {
     }
 }
 
+impl From<pdf_document::Color> for FfiColor {
+    fn from(color: pdf_document::Color) -> Self {
+        Self {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+        }
+    }
+}
+
 /// A single point of an ink/freehand stroke (mirrors the `(f64, f64)` tuple
 /// `pdf_document::AnnotationKind::Ink` stores — UniFFI records need named
 /// fields, tuples don't cross the boundary directly).
@@ -172,6 +193,46 @@ impl From<FfiColor> for pdf_document::Color {
 pub struct FfiPoint {
     pub x: f64,
     pub y: f64,
+}
+
+/// A persisted annotation exposed to shells for hit testing and local preview.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiAnnotation {
+    pub id: u64,
+    pub page: u32,
+    pub kind: FfiAnnotationKind,
+}
+
+/// The editable annotation shapes supported by the cross-platform shell API.
+#[derive(Debug, Clone, PartialEq, uniffi::Enum)]
+pub enum FfiAnnotationKind {
+    Highlight {
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    Underline {
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    Strikeout {
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    Ink {
+        points: Vec<FfiPoint>,
+        color: FfiColor,
+    },
+    Shape {
+        rect: FfiRect,
+        color: FfiColor,
+    },
+    TextNote {
+        rect: FfiRect,
+        contents: String,
+    },
+    Stamp {
+        rect: FfiRect,
+    },
 }
 
 /// Mirrors `pdf_render::RenderOptions`.
@@ -281,5 +342,18 @@ pub enum FfiEditCommand {
     },
     RemoveAnnotation {
         annotation_id: u64,
+    },
+    MoveAnnotation {
+        annotation_id: u64,
+        dx: f64,
+        dy: f64,
+    },
+    ResizeAnnotation {
+        annotation_id: u64,
+        rect: FfiRect,
+    },
+    RestyleAnnotation {
+        annotation_id: u64,
+        color: FfiColor,
     },
 }

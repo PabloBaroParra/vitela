@@ -44,8 +44,9 @@ pub use document::{
 };
 pub use error::FfiError;
 pub use types::{
-    FfiColor, FfiEditCommand, FfiOrientation, FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect,
-    FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiTextRect, FfiTextRun,
+    FfiAnnotation, FfiAnnotationKind, FfiColor, FfiEditCommand, FfiOrientation, FfiPageDimensions,
+    FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
+    FfiSearchResult, FfiTextRect, FfiTextRun,
 };
 
 uniffi::setup_scaffolding!();

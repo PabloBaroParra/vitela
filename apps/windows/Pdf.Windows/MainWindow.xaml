@@ -3,8 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="PDF">
-    <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,*">
-        <StackPanel Orientation="Horizontal" Spacing="12">
+    <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,Auto,Auto,*">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
             <Button x:Name="OpenButton" Click="OpenButton_Click">Open</Button>
             <Button x:Name="OpenSampleButton" Content="Open sample">
                 <Button.Flyout>
@@ -16,6 +16,7 @@
                 </Button.Flyout>
             </Button>
             <Button x:Name="PrintButton" Click="PrintButton_Click">Print</Button>
+            <Button x:Name="SaveButton" Click="SaveButton_Click">Save</Button>
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
             <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
@@ -23,12 +24,43 @@
             <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" ToolTipService.ToolTip="Zoom in">&#x002B;</Button>
             <Button x:Name="FitWidthButton" Click="FitWidthButton_Click">Fit width</Button>
             <Button x:Name="FitPageButton" Click="FitPageButton_Click">Fit page</Button>
+            <Button x:Name="UndoButton" Click="UndoButton_Click">
+                Undo
+                <Button.KeyboardAccelerators><KeyboardAccelerator Key="Z" Modifiers="Control" /></Button.KeyboardAccelerators>
+            </Button>
+            <Button x:Name="RedoButton" Click="RedoButton_Click">
+                Redo
+                <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
+            </Button>
             <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" />
             <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
             <TextBlock x:Name="PrintStatus" VerticalAlignment="Center" TextWrapping="Wrap" />
         </StackPanel>
 
-        <Grid Grid.Row="1" ColumnSpacing="16" ColumnDefinitions="*,260">
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
+            <Button x:Name="HighlightButton" Click="HighlightButton_Click">Highlight</Button>
+            <Button x:Name="UnderlineButton" Click="UnderlineButton_Click">Underline</Button>
+            <Button x:Name="StrikeoutButton" Click="StrikeoutButton_Click">Strikeout</Button>
+            <Button x:Name="ShapeButton" Click="ShapeButton_Click">Shape</Button>
+            <Button x:Name="InkButton" Click="InkButton_Click">Ink</Button>
+            <Button x:Name="NoteButton" Click="NoteButton_Click">Note</Button>
+            <Button x:Name="StampButton" Click="StampButton_Click">Stamp</Button>
+            <Button x:Name="PointerButton" Click="PointerButton_Click">Pointer</Button>
+            <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="Shift the selected annotation">Nudge</Button>
+            <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
+            <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color">Color
+                <Button.Flyout>
+                    <Flyout x:Name="AnnotationColorFlyout" Closed="AnnotationColorFlyout_Closed">
+                        <ColorPicker x:Name="AnnotationColorPicker" ColorChanged="AnnotationColorPicker_ColorChanged" IsAlphaEnabled="False" Orientation="Horizontal" />
+                    </Flyout>
+                </Button.Flyout>
+            </Button>
+            <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click">Delete</Button>
+        </StackPanel>
+
+        <TextBlock x:Name="AnnotationStatus" Grid.Row="2" TextWrapping="Wrap" />
+
+        <Grid Grid.Row="3" ColumnSpacing="16" ColumnDefinitions="*,260">
             <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="2" IsActive="False" Visibility="Collapsed" />
             <StackPanel x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />

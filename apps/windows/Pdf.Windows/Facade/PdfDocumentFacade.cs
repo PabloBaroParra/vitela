@@ -5,6 +5,7 @@ public sealed class PdfDocumentFacade : IDisposable
     private readonly IPdfCore _core;
     private readonly IDiagnosticLogger _diagnostics;
     private readonly object _gate = new();
+    private readonly SemaphoreSlim _documentChangeGate = new(1, 1);
     private SessionEntry? _currentSession;
 
     internal PdfDocumentFacade(IPdfCore core, IDiagnosticLogger diagnostics)
@@ -15,8 +16,17 @@ public sealed class PdfDocumentFacade : IDisposable
 
     public async Task<OperationResult<DocumentSession>> OpenAsync(DocumentSource source, string? password = null)
     {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         try
         {
+            lock (_gate)
+            {
+                if (_currentSession is { HasUnsavedEdits: true })
+                {
+                    return OperationResult<DocumentSession>.Failure(CreateError("Save or discard annotation changes before opening another document.", PdfCoreError.UnsavedChanges, "open", _currentSession.Id, null));
+                }
+            }
+
             var document = await Task.Run(() => _core.OpenFromBytes(source.Bytes, password)).ConfigureAwait(false);
             var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document);
             lock (_gate)
@@ -35,6 +45,10 @@ public sealed class PdfDocumentFacade : IDisposable
         {
             return OperationResult<DocumentSession>.Failure(MapUnexpected(error, "open", null, null));
         }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
     }
 
     public OperationResult<DocumentSession> OpenReadFailure(Exception error)
@@ -42,10 +56,24 @@ public sealed class PdfDocumentFacade : IDisposable
         return OperationResult<DocumentSession>.Failure(MapUnexpected(error, "open", null, null));
     }
 
+    public OperationResult<SavedDocument> SaveWriteFailure(Exception error)
+    {
+        return OperationResult<SavedDocument>.Failure(MapUnexpected(error, "save", null, null));
+    }
+
     public async Task<OperationResult<DocumentSession>> CreateBlankAsync()
     {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         try
         {
+            lock (_gate)
+            {
+                if (_currentSession is { HasUnsavedEdits: true })
+                {
+                    return OperationResult<DocumentSession>.Failure(CreateError("Save or discard annotation changes before creating another document.", PdfCoreError.UnsavedChanges, "create_blank", _currentSession.Id, null));
+                }
+            }
+
             var document = await Task.Run(_core.CreateBlank).ConfigureAwait(false);
             var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document);
             lock (_gate)
@@ -63,6 +91,10 @@ public sealed class PdfDocumentFacade : IDisposable
         catch (Exception error)
         {
             return OperationResult<DocumentSession>.Failure(MapUnexpected(error, "create_blank", null, null));
+        }
+        finally
+        {
+            _documentChangeGate.Release();
         }
     }
 
@@ -196,6 +228,155 @@ public sealed class PdfDocumentFacade : IDisposable
 
             session.PageIndex = hit.PageIndex;
             return Task.FromResult(OperationResult<DocumentSession>.Success(session.ToDto()));
+        }
+    }
+
+    public Task<OperationResult<AnnotationState>> AnnotationStateAsync(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "annotation_state", sessionId, null)));
+            }
+
+            return Task.FromResult(OperationResult<AnnotationState>.Success(session.AnnotationState(_core)));
+        }
+    }
+
+    internal async Task<OperationResult<AnnotationState>> EditAnnotationAsync(string sessionId, PdfCoreEdit edit)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out var session))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "annotation_edit", sessionId, null));
+                }
+                try
+                {
+                    _core.ApplyEdit(session.Document, edit);
+                    session.EditRevision++;
+                    return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, "annotation_edit", sessionId, null));
+                }
+            }
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Inserts a Stamp annotation — kept separate from <see cref="EditAnnotationAsync"/>
+    /// because <c>insert_image_stamp</c> is its own FFI entrypoint (image bytes,
+    /// not a <c>PdfCoreEdit</c> value), but otherwise follows the same
+    /// gate-lock-apply-bump-revision shape.
+    /// </summary>
+    internal async Task<OperationResult<AnnotationState>> InsertStampAsync(string sessionId, uint pageIndex, byte[] imageBytes, PdfCoreRect rect)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out var session))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "annotation_edit", sessionId, null));
+                }
+                try
+                {
+                    _core.InsertImageStamp(session.Document, pageIndex, imageBytes, rect);
+                    session.EditRevision++;
+                    return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, "annotation_edit", sessionId, pageIndex));
+                }
+            }
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    public Task<OperationResult<AnnotationState>> UndoAsync(string sessionId) => HistoryAsync(sessionId, undo: true);
+    public Task<OperationResult<AnnotationState>> RedoAsync(string sessionId) => HistoryAsync(sessionId, undo: false);
+
+    public async Task<OperationResult<SavedDocument>> SaveToDestinationAsync(string sessionId, Func<byte[], Task> replaceDestination)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        SessionEntry session;
+        ulong revision;
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<SavedDocument>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "save", sessionId, null));
+                }
+                revision = session.EditRevision;
+            }
+
+            var bytes = await Task.Run(() => _core.SaveToBytes(session.Document)).ConfigureAwait(false);
+            await replaceDestination(bytes).ConfigureAwait(false);
+            lock (_gate)
+            {
+                session.SavedRevision = revision;
+                return OperationResult<SavedDocument>.Success(new SavedDocument(bytes, revision));
+            }
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<SavedDocument>.Failure(MapError(error, "save", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<SavedDocument>.Failure(MapUnexpected(error, "save", sessionId, null));
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    private async Task<OperationResult<AnnotationState>> HistoryAsync(string sessionId, bool undo)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out var session))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, undo ? "undo" : "redo", sessionId, null));
+                }
+                try
+                {
+                    if (undo ? _core.Undo(session.Document) : _core.Redo(session.Document))
+                    {
+                        session.EditRevision++;
+                    }
+                    return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, undo ? "undo" : "redo", sessionId, null));
+                }
+            }
+        }
+        finally
+        {
+            _documentChangeGate.Release();
         }
     }
 
@@ -562,6 +743,9 @@ public sealed class PdfDocumentFacade : IDisposable
         public int InFlightSearches { get; set; }
         public int InFlightPrints { get; set; }
         public bool Retired { get; set; }
+        public ulong EditRevision { get; set; }
+        public ulong SavedRevision { get; set; }
+        public bool HasUnsavedEdits => EditRevision != SavedRevision;
         public SearchState Search { get; } = new();
         public bool HasNoInFlightOperations => InFlightRenders == 0 && InFlightSearches == 0 && InFlightPrints == 0;
 
@@ -600,6 +784,19 @@ public sealed class PdfDocumentFacade : IDisposable
             PageIndex,
             Document.PageCount == 0 ? DocumentSessionState.Empty : DocumentSessionState.Ready,
             [.. Document.PageDimensions.Select(page => new PageDimensions(page.WidthPt, page.HeightPt))]);
+
+        public AnnotationState AnnotationState(IPdfCore core) => new(
+            Id,
+            [.. core.Annotations(Document).Select(annotation => new Annotation(
+                annotation.Id,
+                annotation.PageIndex,
+                (AnnotationKind)annotation.Kind,
+                annotation.Rect is null ? null : new AnnotationRect(annotation.Rect.X, annotation.Rect.Y, annotation.Rect.Width, annotation.Rect.Height),
+                annotation.Color is null ? null : new AnnotationColor(annotation.Color.R, annotation.Color.G, annotation.Color.B),
+                [.. annotation.Points.Select(point => new AnnotationPoint(point.X, point.Y))]))],
+            core.AnnotationEditingAllowed(Document),
+            core.CanUndo(Document),
+            core.CanRedo(Document));
 
         public void Dispose() => Document.Dispose();
     }

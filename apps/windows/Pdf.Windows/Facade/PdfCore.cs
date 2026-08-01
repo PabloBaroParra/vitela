@@ -30,11 +30,48 @@ internal interface IPdfCore
     IReadOnlyList<PdfCoreBitmap> RenderPageTiles(IPdfCoreDocument document, uint pageIndex, uint dpi, IReadOnlyList<PageRegion> tiles, bool invertContentColors);
 
     IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query);
+
+    IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document);
+
+    bool AnnotationEditingAllowed(IPdfCoreDocument document);
+
+    bool CanUndo(IPdfCoreDocument document);
+
+    bool CanRedo(IPdfCoreDocument document);
+
+    void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit);
+
+    /// <summary>
+    /// Inserts a Stamp annotation from raw image bytes — separate from
+    /// <see cref="ApplyEdit"/> because it is the one annotation edit that does
+    /// not fit <see cref="PdfCoreEdit"/>'s value-type shape (image bytes, not a
+    /// small struct).
+    /// </summary>
+    void InsertImageStamp(IPdfCoreDocument document, uint pageIndex, byte[] imageBytes, PdfCoreRect rect);
+
+    bool Undo(IPdfCoreDocument document);
+
+    bool Redo(IPdfCoreDocument document);
+
+    byte[] SaveToBytes(IPdfCoreDocument document);
 }
 
 internal sealed record PdfCoreBitmap(uint Width, uint Height, uint Stride, byte[] Rgba);
 internal sealed record PdfCoreSearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
 internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyList<PdfCoreSearchRect> CharacterBounds);
+internal sealed record PdfCoreRect(double X, double Y, double Width, double Height);
+internal sealed record PdfCoreColor(byte R, byte G, byte B);
+internal sealed record PdfCorePoint(double X, double Y);
+internal enum PdfCoreAnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
+internal sealed record PdfCoreAnnotation(ulong Id, uint PageIndex, PdfCoreAnnotationKind Kind, PdfCoreRect? Rect, PdfCoreColor? Color, IReadOnlyList<PdfCorePoint> Points);
+internal abstract record PdfCoreEdit
+{
+    public sealed record Add(PdfCoreAnnotationKind Kind, uint PageIndex, PdfCoreRect Rect, PdfCoreColor Color, IReadOnlyList<PdfCorePoint>? Points = null, string? Contents = null) : PdfCoreEdit;
+    public sealed record Remove(ulong AnnotationId) : PdfCoreEdit;
+    public sealed record Move(ulong AnnotationId, double Dx, double Dy) : PdfCoreEdit;
+    public sealed record Resize(ulong AnnotationId, PdfCoreRect Rect) : PdfCoreEdit;
+    public sealed record Restyle(ulong AnnotationId, PdfCoreColor Color) : PdfCoreEdit;
+}
 
 /// <summary>
 /// The renderer may pad each pixel row to a stride wider than width * 4;
@@ -75,6 +112,7 @@ internal enum PdfCoreError
     UnsupportedOperation,
     RenderFailed,
     Io,
+    UnsavedChanges,
     Internal
 }
 

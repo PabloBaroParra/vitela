@@ -36,13 +36,14 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pdf_document::{AnnotationId, Command, Document, PageId};
+use pdf_document::{Annotation, AnnotationId, AnnotationKind, Command, Document, PageId};
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
 use crate::types::{
-    FfiEditCommand, FfiOrientation, FfiPageDimensions, FfiPageSize, FfiRect, FfiRenderOptions,
-    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiTextRun,
+    FfiAnnotation, FfiAnnotationKind, FfiEditCommand, FfiOrientation, FfiPageDimensions,
+    FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
+    FfiSearchResult, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -183,7 +184,42 @@ impl DocumentState {
                     .ok_or(FfiError::AnnotationNotFound { annotation_id })?;
                 Command::RemoveAnnotation(annotation)
             }
+            FfiEditCommand::MoveAnnotation {
+                annotation_id,
+                dx,
+                dy,
+            } => self.replace_annotation(annotation_id, |annotation| {
+                pdf_annotate::move_annotation(annotation, dx, dy)
+            })?,
+            FfiEditCommand::ResizeAnnotation {
+                annotation_id,
+                rect,
+            } => self.replace_annotation(annotation_id, |annotation| {
+                pdf_annotate::resize_annotation(annotation, rect.into())
+            })?,
+            FfiEditCommand::RestyleAnnotation {
+                annotation_id,
+                color,
+            } => self.replace_annotation(annotation_id, |annotation| {
+                pdf_annotate::restyle_annotation(annotation, color.into())
+            })?,
         })
+    }
+
+    fn replace_annotation(
+        &self,
+        annotation_id: u64,
+        operation: impl FnOnce(&mut Annotation) -> Result<(), pdf_annotate::AnnotateError>,
+    ) -> Result<Command, FfiError> {
+        let before = self
+            .document
+            .annotations
+            .get(AnnotationId(annotation_id))
+            .cloned()
+            .ok_or(FfiError::AnnotationNotFound { annotation_id })?;
+        let mut after = before.clone();
+        operation(&mut after).map_err(FfiError::from)?;
+        Ok(Command::ReplaceAnnotation { before, after })
     }
 }
 
@@ -226,6 +262,57 @@ impl DocumentHandle {
 /// the same documents.
 fn text_extraction_is_allowed(document: &Document) -> bool {
     pdf_manip::text_extraction_is_allowed(document.security.as_ref())
+}
+
+fn annotation_editing_is_allowed(document: &Document) -> bool {
+    pdf_manip::annotation_editing_is_allowed(document.security.as_ref())
+}
+
+fn ffi_annotation(annotation: &Annotation) -> FfiAnnotation {
+    let kind = match &annotation.kind {
+        AnnotationKind::Highlight { rect, color } => FfiAnnotationKind::Highlight {
+            rect: (*rect).into(),
+            color: (*color).into(),
+        },
+        AnnotationKind::Underline { rect, color } => FfiAnnotationKind::Underline {
+            rect: (*rect).into(),
+            color: (*color).into(),
+        },
+        AnnotationKind::Strikeout { rect, color } => FfiAnnotationKind::Strikeout {
+            rect: (*rect).into(),
+            color: (*color).into(),
+        },
+        AnnotationKind::Ink { points, color } => FfiAnnotationKind::Ink {
+            points: points.iter().map(|&(x, y)| FfiPoint { x, y }).collect(),
+            color: (*color).into(),
+        },
+        AnnotationKind::Shape { rect, color } => FfiAnnotationKind::Shape {
+            rect: (*rect).into(),
+            color: (*color).into(),
+        },
+        AnnotationKind::TextNote { rect, contents, .. } => FfiAnnotationKind::TextNote {
+            rect: (*rect).into(),
+            contents: contents.clone(),
+        },
+        AnnotationKind::Stamp { rect, .. } => FfiAnnotationKind::Stamp {
+            rect: (*rect).into(),
+        },
+        _ => FfiAnnotationKind::TextNote {
+            rect: pdf_document::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 0.0,
+                height: 0.0,
+            }
+            .into(),
+            contents: String::new(),
+        },
+    };
+    FfiAnnotation {
+        id: annotation.id.0,
+        page: annotation.page.0,
+        kind,
+    }
 }
 
 #[uniffi::export]
@@ -299,6 +386,31 @@ impl DocumentHandle {
             .map(|found| found.into_iter().map(Into::into).collect())
             .map_err(Into::into)
     }
+
+    /// Annotation snapshots in paint order. Querying is read-only and remains
+    /// available when editing permission is withheld.
+    pub fn annotations(&self) -> Vec<FfiAnnotation> {
+        self.lock()
+            .document
+            .annotations
+            .iter()
+            .map(ffi_annotation)
+            .collect()
+    }
+
+    /// Reports whether a new annotation edit would be allowed by the PDF's
+    /// security context.
+    pub fn annotation_editing_allowed(&self) -> bool {
+        annotation_editing_is_allowed(&self.lock().document)
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.lock().document.pending_edits.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.lock().document.pending_edits.can_redo()
+    }
 }
 
 #[cfg(test)]
@@ -324,6 +436,22 @@ mod tests {
 
         document.security.as_mut().unwrap().credential = Credential::Owner;
         assert!(text_extraction_is_allowed(&document));
+    }
+
+    #[test]
+    fn annotation_editing_respects_user_annotation_permission_and_owner_bypass() {
+        let mut document = Document::blank();
+        document.security = Some(SecurityContext {
+            handler: SecurityHandler::Rc4_128,
+            credential: Credential::User,
+            credentials: EncryptionCredentials::default(),
+            permissions: Permissions(0),
+        });
+
+        assert!(!annotation_editing_is_allowed(&document));
+
+        document.security.as_mut().unwrap().credential = Credential::Owner;
+        assert!(annotation_editing_is_allowed(&document));
     }
 }
 
@@ -529,6 +657,11 @@ pub fn render_page_tiles(
 #[uniffi::export]
 pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<(), FfiError> {
     let mut state = handle.lock();
+    if !annotation_editing_is_allowed(&state.document) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "annotation editing is not permitted".to_string(),
+        });
+    }
     let core_command = state.build_core_command(command)?;
     apply_command(&mut state.document, core_command);
     Ok(())
@@ -568,6 +701,11 @@ pub fn insert_image_stamp(
     rect: FfiRect,
 ) -> Result<(), FfiError> {
     let mut state = handle.lock();
+    if !annotation_editing_is_allowed(&state.document) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "annotation editing is not permitted".to_string(),
+        });
+    }
     let id = state.allocate_annotation_id();
     let annotation =
         pdf_annotate::stamp_from_image_bytes(id, PageId(page_index), &image_bytes, rect.into())?;

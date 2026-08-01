@@ -89,6 +89,56 @@ public sealed partial class MainWindow : Window
         await OpenDocumentAsync(file.Name, bytes);
     }
 
+    private async void SaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is null) return;
+        var picker = new FileSavePicker();
+        picker.FileTypeChoices.Add("PDF", [".pdf"]);
+        picker.SuggestedFileName = Path.GetFileNameWithoutExtension(_session.DisplayName);
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        var file = await picker.PickSaveFileAsync();
+        if (file is null) return;
+        SetBusy(true);
+        StorageFile? temporary = null;
+        try
+        {
+            var result = await _facade.SaveToDestinationAsync(_session.SessionId, async bytes =>
+            {
+                var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(file.Path)!);
+                temporary = await folder.CreateFileAsync($".{file.Name}.{Guid.NewGuid():N}.tmp", CreationCollisionOption.GenerateUniqueName);
+                await FileIO.WriteBytesAsync(temporary, bytes);
+                await temporary.MoveAndReplaceAsync(file);
+                temporary = null;
+            });
+            if (!result.IsSuccess)
+            {
+                AnnotationStatus.Text = result.Error!.Message;
+                return;
+            }
+
+            AnnotationStatus.Text = "PDF saved. Annotations remain editable in this session.";
+        }
+        catch (Exception error)
+        {
+            AnnotationStatus.Text = _facade.SaveWriteFailure(error).Error!.Message;
+        }
+        finally
+        {
+            try
+            {
+                if (temporary is not null) await temporary.DeleteAsync();
+            }
+            catch (Exception error)
+            {
+                AnnotationStatus.Text = _facade.SaveWriteFailure(error).Error!.Message;
+            }
+            finally
+            {
+                SetBusy(false);
+            }
+        }
+    }
+
     /// <summary>
     /// Opens one of the samples that ship with the app, so a fresh install
     /// has something to render without the user supplying a PDF first, and a
@@ -155,6 +205,10 @@ public sealed partial class MainWindow : Window
 
     private void ShowOpenedDocument(DocumentSession session)
     {
+        _armedAnnotation = null;
+        _selectedAnnotationId = null;
+        _annotationState = null;
+        _pointerDrag = null;
         _session = session;
         DocumentTitle.Text = _session.DisplayName;
         ClearSearchResults();
@@ -167,6 +221,7 @@ public sealed partial class MainWindow : Window
         EmptyState.Visibility = Visibility.Collapsed;
         ErrorState.Visibility = Visibility.Collapsed;
         ShowDocumentPages(_session);
+        _ = RefreshAnnotationStateAsync();
     }
 
     /// <summary>
@@ -285,10 +340,12 @@ public sealed partial class MainWindow : Window
         OpenButton.IsEnabled = !isBusy;
         OpenSampleButton.IsEnabled = !isBusy;
         PrintButton.IsEnabled = !isBusy;
+        SaveButton.IsEnabled = !isBusy && _session is not null;
         SearchButton.IsEnabled = !isBusy;
         ZoomInButton.IsEnabled = !isBusy;
         ZoomOutButton.IsEnabled = !isBusy;
         FitWidthButton.IsEnabled = !isBusy;
         FitPageButton.IsEnabled = !isBusy;
+        UpdateAnnotationControls(null);
     }
 }
