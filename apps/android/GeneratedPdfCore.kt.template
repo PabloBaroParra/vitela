@@ -8,9 +8,24 @@ import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.core.Annotation
+import dev.vitela.pdf.core.AnnotationColor
+import dev.vitela.pdf.core.AnnotationEdit
+import dev.vitela.pdf.core.AnnotationKind
+import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.TextRect
+import dev.vitela.pdf.core.TextRun
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
+import dev.vitela.pdf.uniffi.FfiAnnotationKind
+import dev.vitela.pdf.uniffi.FfiColor
+import dev.vitela.pdf.uniffi.FfiEditCommand
+import dev.vitela.pdf.uniffi.FfiPoint
+import dev.vitela.pdf.uniffi.FfiRect
 import dev.vitela.pdf.uniffi.FfiRenderOptions
+import dev.vitela.pdf.uniffi.FfiSaveIntent
 // Aliased on purpose. Kotlin resolves a member before an import, so a bare
 // `openFromBytes(bytes, password)` inside this class's own override of the
 // same signature binds to the override and recurses instead of calling the
@@ -18,6 +33,10 @@ import dev.vitela.pdf.uniffi.FfiRenderOptions
 // the interface grows more same-named methods.
 import dev.vitela.pdf.uniffi.openFromBytes as ffiOpenFromBytes
 import dev.vitela.pdf.uniffi.renderPage as ffiRenderPage
+import dev.vitela.pdf.uniffi.redo as ffiRedo
+import dev.vitela.pdf.uniffi.undo as ffiUndo
+import dev.vitela.pdf.uniffi.applyEdit as ffiApplyEdit
+import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -50,11 +69,79 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     override fun search(query: String): PdfCoreResult<List<SearchHit>> = try {
-        PdfCoreResult.Success(handle.search(query).map { SearchHit(it.pageIndex.toInt(), it.text) })
+        PdfCoreResult.Success(handle.search(query).map { SearchHit(it.pageIndex.toInt(), it.text, it.characterBounds.map { rect -> TextRect(rect.xPt, rect.yPt, rect.widthPt, rect.heightPt) }) })
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun annotations(): PdfCoreResult<AnnotationSnapshot> = try {
+        PdfCoreResult.Success(AnnotationSnapshot(handle.annotations().map { it.toAnnotation() }, handle.annotationEditingAllowed(), handle.canUndo(), handle.canRedo()))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, edit.toFfi())
+        PdfCoreResult.Success(Unit)
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun undoAnnotations(): PdfCoreResult<Boolean> = try {
+        PdfCoreResult.Success(ffiUndo(handle))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun redoAnnotations(): PdfCoreResult<Boolean> = try {
+        PdfCoreResult.Success(ffiRedo(handle))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun textRuns(pageIndex: Int): PdfCoreResult<List<TextRun>> = try {
+        PdfCoreResult.Success(handle.textRuns(pageIndex.toUInt()).map { TextRun(it.text, it.characterBounds.map { rect -> TextRect(rect.xPt, rect.yPt, rect.widthPt, rect.heightPt) }) })
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun saveToBytes(): PdfCoreResult<ByteArray> = try {
+        PdfCoreResult.Success(ffiSaveToBytes(handle, FfiSaveIntent.DEFAULT))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 }
+
+private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation = when (val value = kind) {
+    is FfiAnnotationKind.Highlight -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Highlight, value.rect.toRect(), value.color.toColor())
+    is FfiAnnotationKind.Underline -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Underline, value.rect.toRect(), value.color.toColor())
+    is FfiAnnotationKind.Strikeout -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Strikeout, value.rect.toRect(), value.color.toColor())
+    is FfiAnnotationKind.Ink -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Ink, null, value.color.toColor(), value.points.map { AnnotationPoint(it.x, it.y) })
+    is FfiAnnotationKind.Shape -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Shape, value.rect.toRect(), value.color.toColor())
+    is FfiAnnotationKind.TextNote -> Annotation(id.toLong(), page.toInt(), AnnotationKind.TextNote, value.rect.toRect(), null)
+    is FfiAnnotationKind.Stamp -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Stamp, value.rect.toRect(), null)
+}
+
+private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
+    is AnnotationEdit.Add -> when (annotation.kind) {
+        AnnotationKind.Highlight -> FfiEditCommand.AddHighlight(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
+        AnnotationKind.Underline -> FfiEditCommand.AddUnderline(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
+        AnnotationKind.Strikeout -> FfiEditCommand.AddStrikeout(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
+        AnnotationKind.Ink -> FfiEditCommand.AddInk(annotation.pageIndex.toUInt(), annotation.points.map { FfiPoint(it.x, it.y) }, requireNotNull(annotation.color).toFfi())
+        AnnotationKind.Shape -> FfiEditCommand.AddShape(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
+        AnnotationKind.TextNote -> FfiEditCommand.AddTextNote(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), "Note")
+        AnnotationKind.Stamp -> error("Stamp insertion requires image bytes")
+    }
+    is AnnotationEdit.Move -> FfiEditCommand.MoveAnnotation(id.toULong(), dx, dy)
+    is AnnotationEdit.Resize -> FfiEditCommand.ResizeAnnotation(id.toULong(), rect.toFfi())
+    is AnnotationEdit.Restyle -> FfiEditCommand.RestyleAnnotation(id.toULong(), color.toFfi())
+    is AnnotationEdit.Remove -> FfiEditCommand.RemoveAnnotation(id.toULong())
+}
+
+private fun FfiRect.toRect() = AnnotationRect(x, y, width, height)
+private fun AnnotationRect.toFfi() = FfiRect(x, y, width, height)
+private fun FfiColor.toColor() = AnnotationColor(r.toInt(), g.toInt(), b.toInt())
+private fun AnnotationColor.toFfi() = FfiColor(red.toUByte(), green.toUByte(), blue.toUByte())
 
 private fun Throwable.toPdfCoreError(): PdfCoreError = when (this) {
     is FfiException.PasswordRequired -> PdfCoreError.PasswordRequired

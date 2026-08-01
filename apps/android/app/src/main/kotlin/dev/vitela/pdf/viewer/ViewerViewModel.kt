@@ -6,6 +6,10 @@ import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.core.AnnotationEdit
+import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.core.TextRect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -75,6 +79,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                         canPrint = pageCount > 0,
                         canOpen = true,
                     )
+                    refreshAnnotations(result.value)
                     // Drive the first window from here rather than waiting for
                     // the reader: opening a second document while the list is
                     // already parked at page 0 reports an unchanged position,
@@ -188,7 +193,90 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         _state.value = _state.value.copy(searchIndex = index, scrollTarget = hit.pageIndex, status = "Match ${index + 1} of ${hits.size}.")
     }
 
-    fun printBytes(): ByteArray? = sourceBytes
+    /** Bytes for printing/sharing, recomputed to include every applied annotation edit. */
+    suspend fun printBytes(): ByteArray? {
+        val openDocument = document ?: return sourceBytes
+        return when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
+            is PdfCoreResult.Success -> result.value
+            is PdfCoreResult.Failure -> sourceBytes
+        }
+    }
+
+    fun setAnnotationTool(tool: AnnotationTool) {
+        if (!_state.value.annotationEditingAllowed) return
+        val selection = _state.value.textSelection
+        if (selection != null && tool in setOf(AnnotationTool.Highlight, AnnotationTool.Underline, AnnotationTool.Strikeout)) {
+            markupTextSelection(tool, selection).forEach { applyAnnotationEdit(AnnotationEdit.Add(it)) }
+            _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Pointer, textSelection = null)
+        } else {
+            _state.value = _state.value.copy(activeAnnotationTool = tool)
+        }
+    }
+
+    fun selectAnnotation(pageIndex: Int, point: AnnotationPoint) {
+        val selected = _state.value.annotations.lastOrNull { it.pageIndex == pageIndex && it.bounds?.let { bounds -> point.x in bounds.x..(bounds.x + bounds.width) && point.y in bounds.y..(bounds.y + bounds.height) } == true }
+        _state.value = _state.value.copy(selectedAnnotationId = selected?.id)
+    }
+
+    fun handlePageGesture(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint>) {
+        if (_state.value.activeAnnotationTool != AnnotationTool.Pointer) {
+            placeAnnotation(pageIndex, origin, current, points)
+            return
+        }
+        val selected = selectedAnnotation()?.takeIf { it.pageIndex == pageIndex }
+        when (val mode = selected?.let { dragModeAt(it, origin, HANDLE_REACH_PT) }) {
+            DragMode.Move -> moveSelected(origin, current)
+            is DragMode.Resize -> resizeSelected(mode.corner, current)
+            null -> {
+                val hit = _state.value.annotations.lastOrNull { it.pageIndex == pageIndex && it.bounds?.let { bounds -> origin.x in bounds.x..(bounds.x + bounds.width) && origin.y in bounds.y..(bounds.y + bounds.height) } == true }
+                if (hit != null) _state.value = _state.value.copy(selectedAnnotationId = hit.id, textSelection = null) else selectText(pageIndex, origin, current)
+            }
+        }
+    }
+
+    fun placeAnnotation(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint> = emptyList()) {
+        val tool = _state.value.activeAnnotationTool
+        if (!_state.value.annotationEditingAllowed || tool == AnnotationTool.Pointer || (tool == AnnotationTool.Ink && points.size < 2)) return
+        applyAnnotationEdit(AnnotationEdit.Add(placementAnnotation(tool, pageIndex, origin, current, points)))
+        _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Pointer)
+    }
+
+    fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) {
+        val selected = selectedAnnotation() ?: return
+        applyAnnotationEdit(AnnotationEdit.Move(selected.id, current.x - origin.x, current.y - origin.y))
+    }
+
+    fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) {
+        val selected = selectedAnnotation() ?: return
+        val rect = selected.rect ?: return
+        applyAnnotationEdit(AnnotationEdit.Resize(selected.id, resizedRect(rect, corner, point)))
+    }
+
+    fun growSelected() {
+        val selected = selectedAnnotation() ?: return
+        selected.rect?.let { applyAnnotationEdit(AnnotationEdit.Resize(selected.id, grownRect(it))) }
+    }
+
+    fun restyleSelected(color: dev.vitela.pdf.core.AnnotationColor) {
+        selectedAnnotation()?.takeIf { it.supportsRestyle }?.let { applyAnnotationEdit(AnnotationEdit.Restyle(it.id, color)) }
+    }
+
+    fun undoAnnotations() = applyHistory(undo = true)
+    fun redoAnnotations() = applyHistory(undo = false)
+
+    fun selectText(pageIndex: Int, start: AnnotationPoint, end: AnnotationPoint) {
+        val openDocument = document ?: return
+        viewModelScope.launch {
+            when (val result = withContext(Dispatchers.Default) { openDocument.textRuns(pageIndex) }) {
+                is PdfCoreResult.Success -> {
+                    val selection = AnnotationRect(minOf(start.x, end.x), minOf(start.y, end.y), kotlin.math.abs(end.x - start.x), kotlin.math.abs(end.y - start.y))
+                    val lines = result.value.flatMap { it.characterBounds }.filter { it.overlaps(selection) }.mergeLines()
+                    _state.value = _state.value.copy(textSelection = TextSelection(pageIndex, lines).takeIf { it.rects.isNotEmpty() })
+                }
+                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+            }
+        }
+    }
 
     private fun renderPage(pageIndex: Int) {
         val openDocument = document ?: return
@@ -226,6 +314,51 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         renderWidthPx = 0
         _state.value = _state.value.copy(zoomFactor = zoomFactor).withInvalidatedPageBitmaps(cacheWindow)
     }
+
+    private fun selectedAnnotation() = _state.value.selectedAnnotationId?.let { id -> _state.value.annotations.lastOrNull { it.id == id } }
+
+    private fun applyAnnotationEdit(edit: AnnotationEdit) {
+        val openDocument = document ?: return
+        if (!_state.value.annotationEditingAllowed) return
+        viewModelScope.launch {
+            when (val result = withContext(Dispatchers.Default) { openDocument.applyAnnotationEdit(edit) }) {
+                is PdfCoreResult.Success -> refreshAnnotations(openDocument)
+                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+            }
+        }
+    }
+
+    private fun applyHistory(undo: Boolean) {
+        val openDocument = document ?: return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.Default) { if (undo) openDocument.undoAnnotations() else openDocument.redoAnnotations() }
+            when (result) {
+                is PdfCoreResult.Success -> if (result.value) refreshAnnotations(openDocument)
+                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+            }
+        }
+    }
+
+    private fun refreshAnnotations(openDocument: PdfDocument) {
+        when (val result = openDocument.annotations()) {
+            is PdfCoreResult.Success -> _state.value = _state.value.copy(
+                annotations = result.value.annotations,
+                annotationEditingAllowed = result.value.editingAllowed,
+                canUndoAnnotations = result.value.canUndo,
+                canRedoAnnotations = result.value.canRedo,
+                selectedAnnotationId = _state.value.selectedAnnotationId?.takeIf { id -> result.value.annotations.any { it.id == id } },
+            )
+            is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+        }
+    }
+}
+
+private fun TextRect.overlaps(selection: AnnotationRect): Boolean =
+    x + width >= selection.x && x <= selection.x + selection.width && y + height >= selection.y && y <= selection.y + selection.height
+
+private fun List<TextRect>.mergeLines(): List<TextRect> = groupBy { kotlin.math.round(it.y * 10) / 10 }.values.map { line ->
+    val left = line.minOf { it.x }; val right = line.maxOf { it.x + it.width }
+    TextRect(left, line.minOf { it.y }, right - left, line.maxOf { it.y + it.height } - line.minOf { it.y })
 }
 
 private fun ViewerState.withInvalidatedPageBitmaps(window: IntRange): ViewerState {

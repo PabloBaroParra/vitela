@@ -2,7 +2,7 @@ package dev.vitela.pdf.core
 
 data class RenderedPage(val width: Int, val height: Int, val stride: Int, val rgba: ByteArray)
 
-data class SearchHit(val pageIndex: Int, val text: String)
+data class SearchHit(val pageIndex: Int, val text: String, val characterBounds: List<TextRect> = emptyList())
 
 /** A page's media box, in PDF points. */
 data class PageSize(val widthPt: Double, val heightPt: Double)
@@ -31,6 +31,14 @@ interface PdfDocument : AutoCloseable {
 
     fun renderPage(pageIndex: Int, dpi: Int): PdfCoreResult<RenderedPage>
     fun search(query: String): PdfCoreResult<List<SearchHit>>
+    fun annotations(): PdfCoreResult<AnnotationSnapshot> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
+    fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
+    fun undoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
+    fun redoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
+    fun textRuns(pageIndex: Int): PdfCoreResult<List<TextRun>> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
+
+    /** Recomputes a full PDF snapshot including every applied annotation edit. */
+    fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
 }
 
 interface PdfCore {
