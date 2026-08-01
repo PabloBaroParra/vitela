@@ -137,7 +137,7 @@ public sealed partial class MainWindow
         {
             var image = new Image { Stretch = Stretch.Fill };
             var tiles = new Canvas { IsHitTestVisible = false };
-            var highlights = new Canvas { IsHitTestVisible = false };
+            var highlights = new Canvas { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
             var pageLayer = new Grid();
             pageLayer.Children.Add(image);
             pageLayer.Children.Add(tiles);
@@ -150,7 +150,9 @@ public sealed partial class MainWindow
                 Background = new SolidColorBrush(Microsoft.UI.Colors.White),
                 Child = pageLayer,
             };
-            _slots.Add(new PageSlot(container, image, tiles, highlights));
+            var slot = new PageSlot(container, image, tiles, highlights);
+            ConnectAnnotationPointer(slot, _slots.Count);
+            _slots.Add(slot);
             PageStack.Children.Add(container);
         }
 

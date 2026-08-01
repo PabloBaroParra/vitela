@@ -100,6 +100,67 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
+    public IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document)
+    {
+        try
+        {
+            return [.. ((GeneratedDocument)document).Handle.Annotations().Select(ConvertAnnotation)];
+        }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.AnnotationEditingAllowed();
+    public bool CanUndo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanUndo();
+    public bool CanRedo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanRedo();
+
+    public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
+    {
+        try { PdfFfiMethods.ApplyEdit(((GeneratedDocument)document).Handle, ConvertEdit(edit)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public void InsertImageStamp(IPdfCoreDocument document, uint pageIndex, byte[] imageBytes, PdfCoreRect rect)
+    {
+        try { PdfFfiMethods.InsertImageStamp(((GeneratedDocument)document).Handle, pageIndex, imageBytes, Rect(rect)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public bool Undo(IPdfCoreDocument document) => PdfFfiMethods.Undo(((GeneratedDocument)document).Handle);
+    public bool Redo(IPdfCoreDocument document) => PdfFfiMethods.Redo(((GeneratedDocument)document).Handle);
+    public byte[] SaveToBytes(IPdfCoreDocument document) => PdfFfiMethods.SaveToBytes(((GeneratedDocument)document).Handle, FfiSaveIntent.Default);
+
+    private static PdfCoreAnnotation ConvertAnnotation(FfiAnnotation annotation) => annotation.Kind switch
+    {
+        FfiAnnotationKind.Highlight value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Highlight, Rect(value.Rect), Color(value.Color), []),
+        FfiAnnotationKind.Underline value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Underline, Rect(value.Rect), Color(value.Color), []),
+        FfiAnnotationKind.Strikeout value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Strikeout, Rect(value.Rect), Color(value.Color), []),
+        FfiAnnotationKind.Ink value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Ink, null, Color(value.Color), [.. value.Points.Select(point => new PdfCorePoint(point.X, point.Y))]),
+        FfiAnnotationKind.Shape value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Shape, Rect(value.Rect), Color(value.Color), []),
+        FfiAnnotationKind.TextNote value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.TextNote, Rect(value.Rect), null, []),
+        FfiAnnotationKind.Stamp value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Stamp, Rect(value.Rect), null, []),
+        _ => throw new InvalidOperationException("Unsupported annotation kind."),
+    };
+
+    private static FfiEditCommand ConvertEdit(PdfCoreEdit edit) => edit switch
+    {
+        PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.Highlight } value => new FfiEditCommand.AddHighlight(value.PageIndex, Rect(value.Rect), Color(value.Color)),
+        PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.Underline } value => new FfiEditCommand.AddUnderline(value.PageIndex, Rect(value.Rect), Color(value.Color)),
+        PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.Strikeout } value => new FfiEditCommand.AddStrikeout(value.PageIndex, Rect(value.Rect), Color(value.Color)),
+        PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.Shape } value => new FfiEditCommand.AddShape(value.PageIndex, Rect(value.Rect), Color(value.Color)),
+        PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.Ink } value => new FfiEditCommand.AddInk(value.PageIndex, [.. (value.Points ?? []).Select(point => new FfiPoint(point.X, point.Y))], Color(value.Color)),
+        PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.TextNote } value => new FfiEditCommand.AddTextNote(value.PageIndex, Rect(value.Rect), value.Contents ?? "Note"),
+        PdfCoreEdit.Remove value => new FfiEditCommand.RemoveAnnotation(value.AnnotationId),
+        PdfCoreEdit.Move value => new FfiEditCommand.MoveAnnotation(value.AnnotationId, value.Dx, value.Dy),
+        PdfCoreEdit.Resize value => new FfiEditCommand.ResizeAnnotation(value.AnnotationId, Rect(value.Rect)),
+        PdfCoreEdit.Restyle value => new FfiEditCommand.RestyleAnnotation(value.AnnotationId, Color(value.Color)),
+        _ => throw new InvalidOperationException("Unsupported annotation edit."),
+    };
+
+    private static FfiRect Rect(PdfCoreRect rect) => new(rect.X, rect.Y, rect.Width, rect.Height);
+    private static PdfCoreRect Rect(FfiRect rect) => new(rect.X, rect.Y, rect.Width, rect.Height);
+    private static FfiColor Color(PdfCoreColor color) => new(color.R, color.G, color.B);
+    private static PdfCoreColor Color(FfiColor color) => new(color.R, color.G, color.B);
+
     private static PdfCoreException Translate(FfiException error)
     {
         var category = error switch

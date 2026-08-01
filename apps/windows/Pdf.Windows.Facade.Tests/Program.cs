@@ -56,6 +56,12 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("keeps a tile batch from cancelling the page render", KeepsTileBatchFromCancellingThePageRenderAsync)
     ,("discards a tile batch the viewport superseded", DiscardsSupersededTileBatchAsync)
     ,("discards a tile batch after the document session changes", DiscardsTileBatchAfterSessionSwapAsync)
+    ,("records annotation edits in core history", RecordsAnnotationEditsInCoreHistoryAsync)
+    ,("publishes restyled annotation colors", PublishesRestyledAnnotationColorAsync)
+    ,("refuses annotation edits when permissions deny them", RefusesForbiddenAnnotationEditsAsync)
+    ,("holds annotation edits until destination replacement completes", HoldsEditsUntilDestinationReplacementCompletesAsync)
+    ,("blocks opening another document with unsaved annotations", BlocksOpenWithUnsavedAnnotationsAsync)
+    ,("maps unexpected save failures to user-safe results", MapsUnexpectedSaveFailureAsync)
 };
 
 foreach (var test in tests)
@@ -698,6 +704,79 @@ static async Task DiscardsTileBatchAfterSessionSwapAsync()
     Assert((await batch.WaitAsync(TimeSpan.FromSeconds(5))).IsDiscarded, "a tile batch from a retired document session must not publish");
 }
 
+static async Task RecordsAnnotationEditsInCoreHistoryAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var added = await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    Assert(added.IsSuccess && added.Value!.Annotations.Count == 1, "adding an annotation must publish the core snapshot");
+    Assert(added.Value!.CanUndo && !added.Value.CanRedo, "a new edit enables undo and clears redo");
+    var undone = await facade.UndoAsync(session.SessionId);
+    Assert(undone.IsSuccess && !undone.Value!.CanUndo && undone.Value.CanRedo, "undo must publish its updated history state");
+}
+
+static async Task PublishesRestyledAnnotationColorAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var added = await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    var restyled = await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Restyle(added.Value!.Annotations[0].Id, new PdfCoreColor(0, 128, 255)));
+
+    Assert(restyled.IsSuccess, "restyling a selected annotation should succeed");
+    Assert(restyled.Value!.Annotations[0].Color == new AnnotationColor(0, 128, 255), "the updated annotation state must expose the selected color");
+}
+
+static async Task RefusesForbiddenAnnotationEditsAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("restricted.pdf", [1]))).Value!;
+    core.LastDocument!.EditingAllowed = false;
+    var result = await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    Assert(!result.IsSuccess, "a permission-denied document must reject annotation edits");
+    Assert(result.Error!.Message == "This document or action is not supported.", "permission refusal must remain user safe");
+}
+
+static async Task HoldsEditsUntilDestinationReplacementCompletesAsync()
+{
+    var core = new FakeCore { BlockSave = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var replacementStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var releaseReplacement = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var save = facade.SaveToDestinationAsync(session.SessionId, async _ =>
+    {
+        replacementStarted.SetResult();
+        await releaseReplacement.Task;
+    });
+    await core.SaveStarted.Task;
+    core.ReleaseSave.Set();
+    await replacementStarted.Task;
+    var edit = facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    Assert(!edit.IsCompleted, "an annotation edit must wait until the destination replacement completes");
+    releaseReplacement.SetResult();
+    Assert((await save).IsSuccess, "a save should publish only after destination replacement succeeds");
+    Assert((await edit).IsSuccess, "the queued annotation edit should run after the save boundary");
+}
+
+static async Task BlocksOpenWithUnsavedAnnotationsAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    var open = await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+    Assert(!open.IsSuccess, "opening another document must not discard unsaved annotation edits");
+    Assert(open.Error!.Message == "Save or discard annotation changes before opening another document.", "the user must be told how to resolve unsaved annotation edits");
+}
+
+static async Task MapsUnexpectedSaveFailureAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore { SaveThrowsUnexpected = true }, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var result = await facade.SaveToDestinationAsync(session.SessionId, _ => Task.CompletedTask);
+    Assert(!result.IsSuccess && result.Error!.Message == "The document could not be processed.", "unexpected save failures must be user safe");
+}
+
 static List<PageSpan> Stack(int count, double height)
 {
     var pages = new List<PageSpan>(count);
@@ -764,10 +843,14 @@ sealed class FakeCore : IPdfCore
     public PdfCoreError? RenderError { get; init; }
     public bool BlockFirstRender { get; init; }
     public bool BlockFirstSearch { get; init; }
+    public bool BlockSave { get; init; }
+    public bool SaveThrowsUnexpected { get; init; }
     public TaskCompletionSource FirstRenderStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public ManualResetEventSlim ReleaseFirstRender { get; } = new(false);
     public TaskCompletionSource FirstSearchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public ManualResetEventSlim ReleaseFirstSearch { get; } = new(false);
+    public TaskCompletionSource SaveStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public ManualResetEventSlim ReleaseSave { get; } = new(false);
     public System.Collections.Concurrent.ConcurrentQueue<uint> RenderDpis { get; } = new();
     public FakeDocument? LastDocument { get; private set; }
     private int _renderCount;
@@ -821,6 +904,35 @@ sealed class FakeCore : IPdfCore
 
         return [new PdfCoreSearchHit(0, query, [new PdfCoreSearchRect(100, 700, 24, 24)])];
     }
+
+    public IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document) => ((FakeDocument)document).Annotations;
+    public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document).EditingAllowed;
+    public bool CanUndo(IPdfCoreDocument document) => ((FakeDocument)document).CanUndo;
+    public bool CanRedo(IPdfCoreDocument document) => ((FakeDocument)document).CanRedo;
+    public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
+    {
+        var fake = (FakeDocument)document;
+        if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "annotation editing is not permitted");
+        fake.Apply(edit);
+    }
+    public void InsertImageStamp(IPdfCoreDocument document, uint pageIndex, byte[] imageBytes, PdfCoreRect rect)
+    {
+        var fake = (FakeDocument)document;
+        if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "annotation editing is not permitted");
+        fake.InsertStamp(pageIndex, rect);
+    }
+    public bool Undo(IPdfCoreDocument document) => ((FakeDocument)document).Undo();
+    public bool Redo(IPdfCoreDocument document) => ((FakeDocument)document).Redo();
+    public byte[] SaveToBytes(IPdfCoreDocument document)
+    {
+        if (BlockSave)
+        {
+            SaveStarted.SetResult();
+            ReleaseSave.Wait(TimeSpan.FromSeconds(5));
+        }
+        if (SaveThrowsUnexpected) throw new InvalidOperationException("save failed");
+        return [1];
+    }
 }
 
 sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt = 842) : IPdfCoreDocument
@@ -829,6 +941,40 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
     public IReadOnlyList<PdfCorePageDimensions> PageDimensions { get; } =
         [.. Enumerable.Range(0, (int)pageCount).Select(_ => new PdfCorePageDimensions(widthPt, heightPt))];
     public bool Disposed { get; private set; }
+    public bool EditingAllowed { get; set; } = true;
+    public List<PdfCoreAnnotation> Annotations { get; } = [];
+    public bool CanUndo { get; private set; }
+    public bool CanRedo { get; private set; }
+    private ulong _nextAnnotationId;
+
+    public void Apply(PdfCoreEdit edit)
+    {
+        switch (edit)
+        {
+            case PdfCoreEdit.Add add:
+                Annotations.Add(new PdfCoreAnnotation(_nextAnnotationId++, add.PageIndex, add.Kind, add.Rect, add.Color, add.Points ?? []));
+                break;
+            case PdfCoreEdit.Remove remove:
+                Annotations.RemoveAll(annotation => annotation.Id == remove.AnnotationId);
+                break;
+            case PdfCoreEdit.Restyle restyle:
+                var index = Annotations.FindIndex(annotation => annotation.Id == restyle.AnnotationId);
+                if (index < 0) throw new PdfCoreException(PdfCoreError.AnnotationNotFound, "annotation not found");
+                var annotation = Annotations[index];
+                Annotations[index] = annotation with { Color = restyle.Color };
+                break;
+        }
+        CanUndo = true;
+        CanRedo = false;
+    }
+    public void InsertStamp(uint pageIndex, PdfCoreRect rect)
+    {
+        Annotations.Add(new PdfCoreAnnotation(_nextAnnotationId++, pageIndex, PdfCoreAnnotationKind.Stamp, rect, null, []));
+        CanUndo = true;
+        CanRedo = false;
+    }
+    public bool Undo() { if (!CanUndo) return false; CanUndo = false; CanRedo = true; return true; }
+    public bool Redo() { if (!CanRedo) return false; CanRedo = false; CanUndo = true; return true; }
     public void Dispose() => Disposed = true;
 }
 
