@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, Box as GtkBox, Button, Dialog, DrawingArea, Entry, Label, Overlay, Picture,
+    cairo, gio, Box as GtkBox, Button, Dialog, DrawingArea, Entry, Label, Overlay, Picture,
     ScrolledWindow, ToggleButton,
 };
 use pdf_document::{AnnotationId, Document};
@@ -27,6 +27,8 @@ pub(crate) enum DocumentSource {
     File(PathBuf),
     /// The sample document baked into the binary at compile time.
     Embedded(&'static [u8]),
+    /// A PDF created in memory, such as Ctrl+N's new blank document.
+    Bytes(Vec<u8>),
 }
 
 #[derive(Clone)]
@@ -75,6 +77,8 @@ impl Viewer {
 
 pub(crate) struct ViewerState {
     pub(crate) generation: u64,
+    /// Changes only when `show_document` replaces the visible document.
+    pub(crate) session_id: u64,
     pub(crate) session: Option<DocumentSession>,
     /// The creation tool armed on the toolbar, if any. A drag on a page while
     /// this is set draws an annotation instead of selecting text.
@@ -361,6 +365,18 @@ pub(crate) struct DocumentSession {
     pub(crate) edit_revision: u64,
     pub(crate) next_annotation_id: u64,
     pub(crate) selected_annotation: Option<AnnotationId>,
+    /// Decoded stamp images stay in the GTK session, never in the editable PDF
+    /// model, so the pending-save representation remains toolkit-independent.
+    ///
+    /// Cairo surfaces rather than `gdk::Texture`: the draw function runs on
+    /// every frame, and downloading a texture there would copy the whole
+    /// bitmap out of the GPU per redraw — visible as stutter while dragging a
+    /// screenshot-sized stamp. Decoding once on insert makes painting a blit.
+    ///
+    /// Entries are never removed. Deleting an annotation is undoable, so the
+    /// surface has to outlive it; ids are allocated monotonically per session,
+    /// so a stale entry can never be matched by a later annotation.
+    pub(crate) stamp_surfaces: HashMap<AnnotationId, cairo::ImageSurface>,
     /// The annotation being drawn right now, if a placement drag is in flight.
     pub(crate) placement: Option<Placement>,
     /// The selected annotation being moved or resized right now, if any.

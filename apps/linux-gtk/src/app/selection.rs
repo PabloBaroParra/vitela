@@ -8,7 +8,7 @@
 //! asynchronous text load the two depend on.
 
 use gtk::prelude::*;
-use gtk::{cairo, gio, glib, DrawingArea, GestureDrag};
+use gtk::{cairo, gdk, gio, glib, DrawingArea, GestureDrag};
 use pdf_document::{Annotation, AnnotationKind, Color, Rect};
 use pdf_render::{
     caret_range, line_rects, place_rect, point_to_pdf, DocumentHandle, PageCharacters,
@@ -79,6 +79,7 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         }
     });
     area.add_controller(drag);
+    super::input::connect_file_drop(&area, viewer, page_index);
     area
 }
 
@@ -86,7 +87,12 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
 ///
 /// `None` when the page is not laid out yet — there is no page-space answer to
 /// give, and guessing one would place an annotation somewhere arbitrary.
-fn pointer_to_pdf(viewer: &Viewer, page_index: usize, x: f64, y: f64) -> Option<(f64, f64)> {
+pub(crate) fn pointer_to_pdf(
+    viewer: &Viewer,
+    page_index: usize,
+    x: f64,
+    y: f64,
+) -> Option<(f64, f64)> {
     let state = viewer.state.borrow();
     let page = state.session.as_ref()?.pages.get(page_index)?;
     let (x, y) = point_to_pdf(x, y, page.height_pt, page.budget.factor);
@@ -143,7 +149,14 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
             .filter(|drag| drag.id == annotation.id)
             .and_then(|drag| annotations::dragged(annotation, drag));
         let painted = live.as_ref().unwrap_or(annotation);
-        draw_annotation(context, painted, page.height_pt, scale, selected);
+        draw_annotation(
+            context,
+            painted,
+            session.stamp_surfaces.get(&painted.id),
+            page.height_pt,
+            scale,
+            selected,
+        );
         if selected {
             draw_handles(context, painted, page.height_pt, scale);
         }
@@ -158,7 +171,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         .filter(|placement| placement.page_index == page_index)
         .and_then(super::annotations::placement_preview)
     {
-        draw_annotation(context, &preview, page.height_pt, scale, true);
+        draw_annotation(context, &preview, None, page.height_pt, scale, true);
     }
 
     // A selection whose page has no text loaded yet paints nothing; the load
@@ -194,6 +207,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
 fn draw_annotation(
     context: &cairo::Context,
     annotation: &Annotation,
+    stamp: Option<&cairo::ImageSurface>,
     page_height_pt: f32,
     scale: f64,
     selected: bool,
@@ -251,17 +265,95 @@ fn draw_annotation(
             }
             let _ = context.stroke();
         }
+        AnnotationKind::Stamp { rect, .. } => {
+            let placed = place_annotation(*rect, page_height_pt, scale);
+            if let Some(surface) = stamp {
+                draw_stamp_surface(context, surface, placed, alpha);
+            } else {
+                draw_annotation_outline(context, placed, alpha);
+            }
+        }
         // No preview appearance yet: outlined so the user can see where the
         // annotation landed and that it is selected.
-        AnnotationKind::TextNote { rect, .. } | AnnotationKind::Stamp { rect, .. } => {
-            let placed = place_annotation(*rect, page_height_pt, scale);
-            let (red, green, blue) = PLACEHOLDER_ANNOTATION_RGB;
-            context.set_source_rgba(red, green, blue, alpha);
-            context.rectangle(placed.left, placed.top, placed.width, placed.height);
-            let _ = context.stroke();
+        AnnotationKind::TextNote { rect, .. } => {
+            draw_annotation_outline(
+                context,
+                place_annotation(*rect, page_height_pt, scale),
+                alpha,
+            );
         }
         _ => {}
     }
+}
+
+/// Decodes stamp image bytes into a Cairo surface once, when the stamp is
+/// created.
+///
+/// Deliberately not stored as a `gdk::Texture`: the draw function below runs
+/// on every frame, so downloading the texture there would copy the entire
+/// bitmap out of the GPU per redraw. Paying that once makes each later paint a
+/// blit.
+///
+/// `None` when GTK cannot decode the bytes. The caller keeps the valid PDF
+/// annotation and falls back to the outline preview.
+pub(crate) fn stamp_surface(image_bytes: Vec<u8>) -> Option<cairo::ImageSurface> {
+    let texture = gdk::Texture::from_bytes(&glib::Bytes::from_owned(image_bytes)).ok()?;
+    let (width, height) = (texture.width(), texture.height());
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    let stride = width.checked_mul(4)?;
+    let mut pixels = vec![0; (stride as usize).checked_mul(height as usize)?];
+    texture.download(&mut pixels, stride as usize);
+    // `Texture::download` produces Cairo ARGB32 premultiplied pixels. Giving
+    // them to Cairo directly preserves both native channel order and alpha.
+    downloaded_texture_surface(pixels, width, height, stride)
+}
+
+/// Paints a decoded stamp into the current PDF-space annotation rect. The clip
+/// prevents source pixels leaking beyond a resized rect, while the current
+/// placement geometry makes move, resize, and zoom updates automatic.
+fn draw_stamp_surface(
+    context: &cairo::Context,
+    surface: &cairo::ImageSurface,
+    placed: PlacedRect,
+    alpha: f64,
+) {
+    let (width, height) = (surface.width(), surface.height());
+    if width <= 0 || height <= 0 || placed.width <= 0.0 || placed.height <= 0.0 {
+        draw_annotation_outline(context, placed, alpha);
+        return;
+    }
+
+    let _ = context.save();
+    context.rectangle(placed.left, placed.top, placed.width, placed.height);
+    context.clip();
+    context.translate(placed.left, placed.top);
+    context.scale(
+        placed.width / f64::from(width),
+        placed.height / f64::from(height),
+    );
+    let _ = context.set_source_surface(surface, 0.0, 0.0);
+    let _ = context.paint();
+    let _ = context.restore();
+}
+
+/// Wraps GTK's Cairo-native downloaded pixels without reinterpreting them as
+/// straight RGBA data.
+fn downloaded_texture_surface(
+    pixels: Vec<u8>,
+    width: i32,
+    height: i32,
+    stride: i32,
+) -> Option<cairo::ImageSurface> {
+    cairo::ImageSurface::create_for_data(pixels, cairo::Format::ARgb32, width, height, stride).ok()
+}
+
+fn draw_annotation_outline(context: &cairo::Context, placed: PlacedRect, alpha: f64) {
+    let (red, green, blue) = PLACEHOLDER_ANNOTATION_RGB;
+    context.set_source_rgba(red, green, blue, alpha);
+    context.rectangle(placed.left, placed.top, placed.width, placed.height);
+    let _ = context.stroke();
 }
 
 /// Paints the four corner handles of the selected annotation.
@@ -632,4 +724,30 @@ pub(crate) fn connect_copy(
     });
     window.add_action(&copy);
     application.set_accels_for_action("win.copy", &["<Control>c"]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn downloaded_texture_surface_preserves_premultiplied_orange_alpha() {
+        let source = downloaded_texture_surface(0x8080_4000_u32.to_ne_bytes().to_vec(), 1, 1, 4)
+            .expect("valid ARGB32 source surface");
+        let mut destination =
+            cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1).expect("destination surface");
+        let context = cairo::Context::new(&destination).expect("destination context");
+
+        context
+            .set_source_surface(&source, 0.0, 0.0)
+            .expect("source surface");
+        context.paint().expect("paint source");
+        drop(context);
+
+        let pixels = destination.data().expect("destination pixels");
+        assert_eq!(
+            u32::from_ne_bytes(pixels[..4].try_into().unwrap()),
+            0x8080_4000
+        );
+    }
 }
