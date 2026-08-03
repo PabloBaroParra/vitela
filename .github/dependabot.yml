@@ -57,6 +57,14 @@ updates:
       github-actions:
         patterns:
           - "*"
+        # gradle/actions is kept OUT of the group so the `ignore` rule below
+        # actually binds. Grouped updates do not honour per-dependency ignores:
+        # PR #39 shipped `gradle/actions/setup-gradle` v5.0.2 -> v6.2.0 inside
+        # the group even though the rule had been in place since 802cf61, six
+        # days earlier. Ungrouped, gradle/actions gets its own PR, where the
+        # ignore is applied and the major never reaches one.
+        exclude-patterns:
+          - "gradle/actions"
     ignore:
       # gradle/actions v6 moved caching into `gradle-actions-caching`, a
       # proprietary component governed by the gradle.com Terms of Use instead
