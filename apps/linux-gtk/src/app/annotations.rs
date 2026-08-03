@@ -714,6 +714,48 @@ fn click_rect(placement: &Placement) -> Rect {
     }
 }
 
+/// Inserts an image stamp at a PDF-space point through the same command path
+/// as every toolbar annotation, preserving permission checks, undo, redraw,
+/// and control state.
+pub(crate) fn stamp_from_image_bytes(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    image_bytes: Vec<u8>,
+) {
+    command(viewer, move |session| {
+        let id = AnnotationId(session.next_annotation_id);
+        let page = PageId(page_index as u32);
+        let rect = stamp_rect(point);
+        let annotation = pdf_annotate::stamp_from_image_bytes(id, page, &image_bytes, rect)
+            .map_err(|error| format!("Could not use the image: {error}"))?;
+        {
+            let document = model(session)?;
+            apply_command(document, Command::AddAnnotation(annotation));
+        }
+        // The surface is GTK-only session state: PDF save keeps using the
+        // annotation's core image data, while this gives the pending edit a
+        // live shell preview. A failed shell decode still leaves the valid PDF
+        // annotation in place and uses the outline fallback when painted.
+        if let Some(surface) = selection::stamp_surface(image_bytes) {
+            session.stamp_surfaces.insert(id, surface);
+        }
+        session.next_annotation_id += 1;
+        session.selected_annotation = Some(id);
+        Ok("Image stamp added. Changes are pending save.".to_string())
+    });
+}
+
+/// Default stamp placement anchored at the pointer's top-left corner.
+fn stamp_rect(point: (f64, f64)) -> Rect {
+    Rect {
+        x: point.0,
+        y: point.1 - CLICK_SIZE_PT.1,
+        width: CLICK_SIZE_PT.0,
+        height: CLICK_SIZE_PT.1,
+    }
+}
+
 /// Whether the pointer travelled far enough for this to be a drag rather than
 /// a click.
 ///
@@ -1382,6 +1424,13 @@ mod tests {
         assert_eq!((rect.width, rect.height), (width, height));
         // Anchored by its top-left corner, which in PDF space is `y - height`.
         assert_eq!((rect.x, rect.y), (200.0, 500.0 - height));
+    }
+
+    #[test]
+    fn an_image_stamp_is_anchored_at_its_drop_point() {
+        let rect = stamp_rect((200.0, 500.0));
+
+        assert_eq!((rect.x, rect.y), (200.0, 500.0 - CLICK_SIZE_PT.1));
     }
 
     #[test]

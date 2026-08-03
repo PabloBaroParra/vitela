@@ -9,6 +9,7 @@
 mod annotations;
 mod brand;
 mod document;
+mod input;
 mod layout;
 mod print;
 mod render;
@@ -27,7 +28,7 @@ use gtk::{
 
 use annotations::add_annotation_toolbar;
 use brand::build_app_mark;
-use document::{open_sample, show_file_chooser, show_save_chooser, SampleKind};
+use document::{new_blank_document, open_sample, show_file_chooser, show_save_chooser, SampleKind};
 use layout::{refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
@@ -164,6 +165,7 @@ fn build_ui(application: &Application) {
         annotation_buttons: annotation_toolbar,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
+            session_id: 0,
             session: None,
             active_tool: None,
             password_dialog: None,
@@ -175,6 +177,8 @@ fn build_ui(application: &Application) {
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);
+    input::connect_paste(application, &window, &viewer);
+    input::connect_window_file_drop(&page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
     annotations::connect_history_shortcuts(application, &window, &viewer);
     zoom_out.connect_clicked({
@@ -198,11 +202,17 @@ fn build_ui(application: &Application) {
         let viewer = viewer.clone();
         move |_| print_document(&window, &viewer)
     });
+    // `FileChooserNative` is not a widget: GTK holds no reference to it
+    // while it is shown, so the shell must keep it alive here until the
+    // response arrives or the dialog is destroyed before it can be used.
+    let active_chooser: Rc<RefCell<Option<FileChooserNative>>> = Rc::new(RefCell::new(None));
     viewer.save_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
-        move |_| show_save_chooser(&window, &viewer)
+        let active_chooser = active_chooser.clone();
+        move |_| show_save_chooser(&window, &viewer, &active_chooser)
     });
+    connect_standard_shortcuts(application, &window, &viewer, &active_chooser);
     undo_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| annotations::undo(&viewer)
@@ -212,10 +222,6 @@ fn build_ui(application: &Application) {
         move |_| annotations::redo(&viewer)
     });
 
-    // `FileChooserNative` is not a widget: GTK holds no reference to it
-    // while it is shown, so the shell must keep it alive here until the
-    // response arrives or the dialog is destroyed before it can be used.
-    let active_chooser: Rc<RefCell<Option<FileChooserNative>>> = Rc::new(RefCell::new(None));
     open_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
@@ -245,6 +251,64 @@ fn build_ui(application: &Application) {
     sample_actions.add_action(&action_sample_rc4128);
 
     window.present();
+}
+
+/// Adds the standard window commands that already have shell handlers. Copy,
+/// undo, and redo are installed by their feature modules because their enabled
+/// state is owned there.
+fn connect_standard_shortcuts(
+    application: &gtk::Application,
+    window: &gtk::ApplicationWindow,
+    viewer: &Viewer,
+    active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
+) {
+    let open = gio::SimpleAction::new("open", None);
+    open.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        let active_chooser = active_chooser.clone();
+        move |_, _| show_file_chooser(&window, &viewer, &active_chooser)
+    });
+    window.add_action(&open);
+    application.set_accels_for_action("win.open", &["<Control>o"]);
+
+    let save = gio::SimpleAction::new("save", None);
+    save.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        let active_chooser = active_chooser.clone();
+        move |_, _| show_save_chooser(&window, &viewer, &active_chooser)
+    });
+    window.add_action(&save);
+    application.set_accels_for_action("win.save", &["<Control>s"]);
+
+    let print = gio::SimpleAction::new("print", None);
+    print.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_, _| print_document(&window, &viewer)
+    });
+    window.add_action(&print);
+    application.set_accels_for_action("win.print", &["<Control>p"]);
+
+    let find = gio::SimpleAction::new("find", None);
+    find.connect_activate({
+        let entry = viewer.search_entry.clone();
+        move |_, _| {
+            entry.grab_focus();
+        }
+    });
+    window.add_action(&find);
+    application.set_accels_for_action("win.find", &["<Control>f"]);
+
+    let new = gio::SimpleAction::new("new", None);
+    new.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_, _| new_blank_document(&window, &viewer)
+    });
+    window.add_action(&new);
+    application.set_accels_for_action("win.new", &["<Control>n"]);
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {

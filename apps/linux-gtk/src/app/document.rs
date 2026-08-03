@@ -16,7 +16,7 @@ use gtk::{
     gio, glib, ApplicationWindow, Dialog, FileChooserAction, FileChooserNative, FileFilter, Label,
     Overlay, PasswordEntry, Picture, ResponseType,
 };
-use pdf_document::{Document, SecurityContext};
+use pdf_document::{Document, Orientation, PageSize, SecurityContext};
 use pdf_manip::ManipError;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 
@@ -102,7 +102,17 @@ pub(crate) fn show_file_chooser(
 
 /// Lets the user choose a destination, then persists a snapshot of the current
 /// model. The live session remains untouched until the worker has completed.
-pub(crate) fn show_save_chooser(window: &ApplicationWindow, viewer: &Viewer) {
+pub(crate) fn show_save_chooser(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
+) {
+    let filter = FileFilter::new();
+    filter.set_name(Some("PDF files"));
+    filter.add_mime_type("application/pdf");
+    filter.add_pattern("*.pdf");
+    filter.add_pattern("*.PDF");
+
     let chooser = FileChooserNative::new(
         Some("Save PDF"),
         Some(window),
@@ -110,9 +120,14 @@ pub(crate) fn show_save_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         Some("Save"),
         Some("Cancel"),
     );
+    chooser.add_filter(&filter);
+    chooser.set_current_name("document.pdf");
     chooser.connect_response({
+        let window = window.clone();
         let viewer = viewer.clone();
+        let active_chooser = active_chooser.clone();
         move |chooser, response| {
+            active_chooser.replace(None);
             if response != ResponseType::Accept {
                 viewer.status.set_text("Save cancelled.");
                 return;
@@ -123,10 +138,58 @@ pub(crate) fn show_save_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                     .set_text("The selected location is not a local file.");
                 return;
             };
-            save_current_to(&viewer, path);
+            confirm_save_destination(&window, &viewer, pdf_destination(path));
         }
     });
     chooser.show();
+    active_chooser.replace(Some(chooser));
+}
+
+fn pdf_destination(mut path: PathBuf) -> PathBuf {
+    if !path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+    {
+        path.set_extension("pdf");
+    }
+    path
+}
+
+/// Guards every overwrite behind the same prompt.
+///
+/// The native chooser raises its own overwrite warning, but only for the name
+/// the user typed — appending `.pdf` can land on a file it never checked. One
+/// prompt here covers both cases, so a collision is always a question rather
+/// than sometimes a dead end the user has to reopen the chooser to escape.
+fn confirm_save_destination(window: &ApplicationWindow, viewer: &Viewer, destination: PathBuf) {
+    match destination.try_exists() {
+        Ok(false) => save_current_to(viewer, destination),
+        Err(error) => viewer.status.set_text(&format!(
+            "Could not check whether {} already exists: {error}",
+            destination.display()
+        )),
+        Ok(true) => {
+            let dialog = Dialog::builder()
+                .transient_for(window)
+                .modal(true)
+                .title("Replace existing PDF?")
+                .build();
+            dialog.add_button("Cancel", ResponseType::Cancel);
+            dialog.add_button("Replace", ResponseType::Accept);
+            dialog.connect_response({
+                let viewer = viewer.clone();
+                move |dialog, response| {
+                    dialog.destroy();
+                    if response == ResponseType::Accept {
+                        save_current_to(&viewer, destination.clone());
+                    } else {
+                        viewer.status.set_text("Save cancelled.");
+                    }
+                }
+            });
+            dialog.present();
+        }
+    }
 }
 
 fn save_current_to(viewer: &Viewer, destination: PathBuf) {
@@ -162,26 +225,54 @@ fn save_current_to(viewer: &Viewer, destination: PathBuf) {
             let result =
                 gio::spawn_blocking(move || save_snapshot(&document, &backing, &destination)).await;
             let result = save_worker_result(result);
-            let current = {
-                let state = viewer.state.borrow();
-                state
-                    .session
-                    .as_ref()
-                    .is_some_and(|session| token.matches(state.generation, session.edit_revision))
-            };
-            if !current {
-                return;
-            }
             match result {
-                Ok(()) => viewer
-                    .status
-                    .set_text("PDF saved. Rendering will refresh when reopened."),
-                Err(error) => viewer
+                Ok(()) if mark_saved_session_clean(&viewer, token) => {
+                    super::annotations::update_annotation_controls(&viewer);
+                    viewer
+                        .status
+                        .set_text("PDF saved. Rendering will refresh when reopened.");
+                }
+                Ok(()) => {}
+                Err(error) if session_matches(&viewer, token) => viewer
                     .status
                     .set_text(&format!("Could not save PDF: {error}")),
+                Err(_) => {}
             }
         }
     });
+}
+
+fn session_matches(viewer: &Viewer, token: super::state::SessionToken) -> bool {
+    let state = viewer.state.borrow();
+    state
+        .session
+        .as_ref()
+        .is_some_and(|session| token.matches(state.generation, session.edit_revision))
+}
+
+fn mark_saved_session_clean(viewer: &Viewer, token: super::state::SessionToken) -> bool {
+    let mut state = viewer.state.borrow_mut();
+    let generation = state.generation;
+    let Some(session) = state.session.as_mut() else {
+        return false;
+    };
+    let Some(document) = session.document_model.as_mut() else {
+        return false;
+    };
+    clear_saved_edits_if_current(document, token, generation, session.edit_revision)
+}
+
+fn clear_saved_edits_if_current(
+    document: &mut Document,
+    token: super::state::SessionToken,
+    generation: u64,
+    edit_revision: u64,
+) -> bool {
+    if !token.matches(generation, edit_revision) {
+        return false;
+    }
+    document.pending_edits = Default::default();
+    true
 }
 
 fn save_worker_result(
@@ -253,6 +344,62 @@ pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer, kind: Sam
         SampleKind::Rc4128 => RC4_128_SAMPLE_PDF,
     };
     open_initial(window, viewer, DocumentSource::Embedded(bytes));
+}
+
+/// Opens a local file dropped over a page. A drop has no direct window
+/// parameter, so recover the shell window from the status widget.
+pub(crate) fn open_file(viewer: &Viewer, path: PathBuf) {
+    if refuses_to_discard_edits(viewer, "opening a dropped PDF") {
+        return;
+    }
+    let Some(window) = viewer
+        .status
+        .root()
+        .and_then(|root| root.downcast::<ApplicationWindow>().ok())
+    else {
+        viewer
+            .status
+            .set_text("The application window is unavailable.");
+        return;
+    };
+    open_initial(&window, viewer, DocumentSource::File(path));
+}
+
+/// Refuses an action that would silently drop unsaved annotation work, naming
+/// the action so the status line says what was declined.
+///
+/// Used by the two entry points that replace the document without the user
+/// having picked a file to replace it with — a stray drag and Ctrl+N. Both are
+/// easy to hit by accident, and neither has a step where the user could notice
+/// the cost in time to stop.
+fn refuses_to_discard_edits(viewer: &Viewer, action: &str) -> bool {
+    if !has_pending_annotation_edits(viewer) {
+        return false;
+    }
+    viewer.status.set_text(&format!(
+        "Save or undo the pending annotation changes before {action}."
+    ));
+    true
+}
+
+/// Creates a conventional one-page A4 document, then opens it through the same
+/// bytes-based lifecycle used for every other document source.
+pub(crate) fn new_blank_document(window: &ApplicationWindow, viewer: &Viewer) {
+    if refuses_to_discard_edits(viewer, "starting a new document") {
+        return;
+    }
+    let base = pdf_manip::create_blank_document(PageSize::A4, Orientation::Portrait);
+    let Ok(base) = pdf_manip::insert_blank_page(&base, 0, PageSize::A4, Orientation::Portrait)
+    else {
+        viewer.status.set_text("Could not create a blank PDF.");
+        return;
+    };
+    let mut bytes = Vec::new();
+    if base.as_lopdf().clone().save_to(&mut bytes).is_err() {
+        viewer.status.set_text("Could not create a blank PDF.");
+        return;
+    }
+    open_initial(window, viewer, DocumentSource::Bytes(bytes));
 }
 
 fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
@@ -329,6 +476,9 @@ fn open_document(
         DocumentSource::Embedded(bytes) => {
             renderer.open_document_from_bytes(bytes.to_vec(), password)?
         }
+        DocumentSource::Bytes(bytes) => {
+            renderer.open_document_from_bytes(bytes.clone(), password)?
+        }
     };
     let security = read_security_context(source, password);
     let text_access = text_access_from(&security);
@@ -383,6 +533,9 @@ fn read_security_context(
     match source {
         DocumentSource::File(path) => pdf_manip::read_security_context(path, password),
         DocumentSource::Embedded(bytes) => {
+            pdf_manip::read_security_context_from_bytes(bytes, password)
+        }
+        DocumentSource::Bytes(bytes) => {
             pdf_manip::read_security_context_from_bytes(bytes, password)
         }
     }
@@ -445,6 +598,10 @@ fn read_editable_model(
             pdf_manip::open_document_from_bytes(bytes, password).ok()?.0,
             bytes.to_vec(),
         ),
+        DocumentSource::Bytes(bytes) => (
+            pdf_manip::open_document_from_bytes(bytes, password).ok()?.0,
+            bytes.clone(),
+        ),
     };
     let model = pdf_save::document_from_lopdf(&base, security).ok()?;
     Some((
@@ -463,12 +620,13 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         return;
     }
 
-    // Captured before the outgoing session is dropped just below. Replacing
-    // the document is currently the *only* exit from a pending annotation
-    // edit — this shell has no save (and no undo until T-048) — so refusing
-    // the open would strand the user with no way out at all. It proceeds and
-    // says what it cost instead. Once saving exists this becomes a
-    // save/discard/cancel prompt.
+    // Captured before the outgoing session is dropped just below.
+    //
+    // The drop and Ctrl+N paths refuse outright rather than reach here, because
+    // both are easy to trigger by accident. Picking a file in the chooser is
+    // deliberate enough to proceed on, so this path still replaces the document
+    // and reports what it cost. Unifying the three behind one
+    // save/discard/cancel prompt is the real fix and is not this change.
     let discarded_edits = has_pending_annotation_edits(viewer);
 
     // The new document opened successfully: only now replace the previous
@@ -531,32 +689,37 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     }
 
     let page_count = slots.len();
-    viewer.state.borrow_mut().session = Some(DocumentSession {
-        document: document.document,
-        text_access: document.text_access,
-        annotation_access: document.annotation_access,
-        document_model: document.document_model,
-        save_backing: document.save_backing,
-        edit_revision: 0,
-        next_annotation_id: 0,
-        selected_annotation: None,
-        placement: None,
-        annotation_drag: None,
-        physical_width: fit.available_width,
-        physical_height: fit.available_height,
-        scale_factor: fit.scale_factor,
-        pages: slots,
-        page_heights,
-        last_visible: None,
-        search: None,
-        next_search_id: 0,
-        selection: None,
-        active: HashMap::new(),
-        next_render_id: 0,
-        zoom: super::layout::Zoom::FitWidth,
-        zoom_generation: 0,
-        active_tiles: HashMap::new(),
-    });
+    {
+        let mut state = viewer.state.borrow_mut();
+        state.session_id += 1;
+        state.session = Some(DocumentSession {
+            document: document.document,
+            text_access: document.text_access,
+            annotation_access: document.annotation_access,
+            document_model: document.document_model,
+            save_backing: document.save_backing,
+            edit_revision: 0,
+            next_annotation_id: 0,
+            selected_annotation: None,
+            stamp_surfaces: HashMap::new(),
+            placement: None,
+            annotation_drag: None,
+            physical_width: fit.available_width,
+            physical_height: fit.available_height,
+            scale_factor: fit.scale_factor,
+            pages: slots,
+            page_heights,
+            last_visible: None,
+            search: None,
+            next_search_id: 0,
+            selection: None,
+            active: HashMap::new(),
+            next_render_id: 0,
+            zoom: super::layout::Zoom::FitWidth,
+            zoom_generation: 0,
+            active_tiles: HashMap::new(),
+        });
+    }
     // A new document invalidates the previous document's matches.
     update_search_controls(viewer);
     super::annotations::update_annotation_controls(viewer);
@@ -696,8 +859,26 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Dialog) {
 #[cfg(test)]
 mod tests {
     use std::any::Any;
+    use std::path::PathBuf;
 
-    use super::save_worker_result;
+    use pdf_document::{Command, Document, Orientation, Page, PageId, PageSize};
+
+    use super::{clear_saved_edits_if_current, pdf_destination, save_worker_result};
+    use crate::app::state::SessionToken;
+
+    fn document_with_pending_edit() -> Document {
+        let mut document = Document::blank();
+        let mut edits = std::mem::take(&mut document.pending_edits);
+        edits.apply(
+            &mut document,
+            Command::InsertPage {
+                index: 0,
+                page: Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            },
+        );
+        document.pending_edits = edits;
+        document
+    }
 
     #[test]
     fn a_panicked_save_worker_returns_a_typed_save_error() {
@@ -714,6 +895,64 @@ mod tests {
         assert_eq!(
             save_worker_result(Ok(Err("destination is read-only".to_owned()))),
             Err("destination is read-only".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_matching_save_token_clears_pending_edits() {
+        let mut document = document_with_pending_edit();
+
+        let cleared = clear_saved_edits_if_current(
+            &mut document,
+            SessionToken {
+                generation: 4,
+                edit_revision: 2,
+            },
+            4,
+            2,
+        );
+
+        assert!(cleared && !document.pending_edits.can_undo());
+    }
+
+    #[test]
+    fn a_stale_save_token_preserves_pending_edits() {
+        let mut document = document_with_pending_edit();
+
+        let cleared = clear_saved_edits_if_current(
+            &mut document,
+            SessionToken {
+                generation: 4,
+                edit_revision: 2,
+            },
+            4,
+            3,
+        );
+
+        assert!(!cleared && document.pending_edits.can_undo());
+    }
+
+    #[test]
+    fn a_destination_without_an_extension_gets_a_pdf_suffix() {
+        assert_eq!(
+            pdf_destination(PathBuf::from("signed-document")),
+            PathBuf::from("signed-document.pdf")
+        );
+    }
+
+    #[test]
+    fn a_non_pdf_destination_extension_is_replaced() {
+        assert_eq!(
+            pdf_destination(PathBuf::from("preview.png")),
+            PathBuf::from("preview.pdf")
+        );
+    }
+
+    #[test]
+    fn an_existing_pdf_suffix_is_preserved() {
+        assert_eq!(
+            pdf_destination(PathBuf::from("signed.PDF")),
+            PathBuf::from("signed.PDF")
         );
     }
 }
