@@ -36,11 +36,14 @@ public sealed record SavedDocument(byte[] Bytes, ulong EditRevision);
 /// <summary>
 /// A failure the UI can show verbatim: <see cref="Message"/> never leaks
 /// diagnostics, and <see cref="CorrelationId"/> ties it back to the log.
-/// <see cref="RequiresPassword"/> is the one actionable bit the UI needs to
-/// tell an encrypted document (prompt for a password and retry) apart from a
-/// dead-end failure — it carries no sensitive detail.
+///
+/// Two flags mark the failures a reader can act on rather than only read.
+/// <see cref="RequiresPassword"/> means an encrypted document: prompt and
+/// retry. <see cref="RequiresPendingEditDecision"/> means the open was refused
+/// to protect unsaved annotation work: ask what to do with it and retry.
+/// Neither carries sensitive detail; everything else is a dead end.
 /// </summary>
-public sealed record UserSafeError(string Message, string CorrelationId, bool RequiresPassword = false);
+public sealed record UserSafeError(string Message, string CorrelationId, bool RequiresPassword = false, bool RequiresPendingEditDecision = false);
 
 public sealed record OperationResult<T>(T? Value, UserSafeError? Error)
 {

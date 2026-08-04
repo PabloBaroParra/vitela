@@ -64,6 +64,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("blocks opening another document with unsaved annotations", BlocksOpenWithUnsavedAnnotationsAsync)
     ,("releases the guard once the edits are undone", ReleasesTheGuardOnceEditsAreUndoneAsync)
     ,("releases the guard once the edits are saved", ReleasesTheGuardOnceEditsAreSavedAsync)
+    ,("flags the refused open as a decision the reader can make", FlagsPendingEditDecisionAsync)
+    ,("opens over pending edits once the reader chose to discard them", DiscardsPendingEditsOnRequestAsync)
     ,("keeps stamp previews scoped to their document session", KeepsStampPreviewsScopedToSession)
     ,("reconciles one inserted stamp from an annotation snapshot", ReconcilesInsertedStamp)
     ,("rejects stale stamp input sessions", RejectsStaleStampInputSession)
@@ -965,6 +967,40 @@ static Task SwallowsDiagnosticWriteFailures()
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
     }
     return Task.CompletedTask;
+}
+
+/// <summary>
+/// The flag is what tells the shell to prompt rather than report a dead end;
+/// without it the refusal is indistinguishable from a corrupt file.
+/// </summary>
+static async Task FlagsPendingEditDecisionAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+
+    var refused = await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+    Assert(!refused.IsSuccess, "the open must still be refused by default");
+    Assert(refused.Error!.RequiresPendingEditDecision, "the shell must be able to tell this refusal from a dead end");
+    Assert(!refused.Error.RequiresPassword, "a pending-edit refusal is not a password prompt");
+
+    using var other = new PdfDocumentFacade(new FakeCore { OpenError = PdfCoreError.Io }, new RecordingLogger());
+    var broken = await other.OpenAsync(new DocumentSource("broken.pdf", [1]));
+    Assert(!broken.Error!.RequiresPendingEditDecision, "an unrelated failure must not offer to discard anything");
+}
+
+static async Task DiscardsPendingEditsOnRequestAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+
+    var opened = await facade.OpenAsync(new DocumentSource("second.pdf", [2]), discardPendingEdits: true);
+    Assert(opened.IsSuccess, "an explicit discard must get past the guard");
+    Assert(opened.Value!.SessionId != session.SessionId, "the replacement document must be a new session");
+
+    var edits = await facade.AnnotationStateAsync(opened.Value.SessionId);
+    Assert(edits.IsSuccess && edits.Value!.Annotations.Count == 0, "the discarded work must not follow the reader into the new document");
 }
 
 static async Task MapsUnexpectedSaveFailureAsync()

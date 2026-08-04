@@ -57,64 +57,47 @@ public sealed partial class MainWindow
     {
         args.Handled = true;
         if (_isBusy) return;
-        var deferral = args.GetDeferral();
-        try
+
+        if (await ClaimDroppedFileAsync(args) is not { } dropped)
         {
-            if (await FirstActionableFileAsync(args.DataView) is not { } dropped)
-            {
-                AnnotationStatus.Text = UnsupportedDropMessage;
-            }
-            else if (dropped.Kind == DroppedFileKind.Document)
-            {
-                await OpenStorageFileAsync(dropped.Item);
-            }
-            else
-            {
-                AnnotationStatus.Text = _session is null
-                    ? "Open a PDF first, then drop an image onto a page to stamp it."
-                    : "Drop the image onto a page to place it as a stamp.";
-            }
+            AnnotationStatus.Text = UnsupportedDropMessage;
         }
-        finally
+        else if (dropped.Kind == DroppedFileKind.Document)
         {
-            deferral.Complete();
+            await OpenStorageFileAsync(dropped.Item);
+        }
+        else
+        {
+            AnnotationStatus.Text = _session is null
+                ? "Open a PDF first, then drop an image onto a page to stamp it."
+                : "Drop the image onto a page to place it as a stamp.";
         }
     }
 
     /// <summary>
-    /// A drop that landed on a page. Reading the file outlives the handler, so
-    /// the drop is held open with a deferral — without one the source is free
-    /// to tear the <see cref="DragEventArgs.DataView"/> down the moment this
-    /// returns. The drop point is read before the first await, while the event
-    /// still knows where the pointer was.
+    /// A drop that landed on a page. The drop point is read before the first
+    /// await, while the event still knows where the pointer was.
     /// </summary>
     private async Task DropOnPageAsync(PageSlot slot, int pageIndex, DragEventArgs args)
     {
         args.Handled = true;
         if (_isBusy) return;
-        var deferral = args.GetDeferral();
-        try
+
+        var point = ToPdf(slot, pageIndex, args.GetPosition(slot.Annotations));
+        if (await ClaimDroppedFileAsync(args) is not { } dropped)
         {
-            var point = ToPdf(slot, pageIndex, args.GetPosition(slot.Annotations));
-            if (await FirstActionableFileAsync(args.DataView) is not { } dropped)
-            {
-                AnnotationStatus.Text = UnsupportedDropMessage;
-            }
-            else if (dropped.Kind == DroppedFileKind.Document)
-            {
-                // Dropping a PDF onto an open page means "open this instead",
-                // not "stamp it" — so it takes the same route as the picker,
-                // unsaved-changes guard included.
-                await OpenStorageFileAsync(dropped.Item);
-            }
-            else
-            {
-                await StampDroppedImageAsync(dropped.Item, pageIndex, point);
-            }
+            AnnotationStatus.Text = UnsupportedDropMessage;
         }
-        finally
+        else if (dropped.Kind == DroppedFileKind.Document)
         {
-            deferral.Complete();
+            // Dropping a PDF onto an open page means "open this instead",
+            // not "stamp it" — so it takes the same route as the picker,
+            // unsaved-changes guard included.
+            await OpenStorageFileAsync(dropped.Item);
+        }
+        else
+        {
+            await StampDroppedImageAsync(dropped.Item, pageIndex, point);
         }
     }
 
@@ -145,20 +128,36 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// The one file out of the drop the shell will act on, or null when the
-    /// payload holds no files at all — dragged text, a link, a folder.
+    /// Takes the one file out of the drop the shell will act on, and closes the
+    /// drop behind it. Null when the payload holds no files at all — dragged
+    /// text, a link, a folder.
+    ///
+    /// The deferral covers reading the <see cref="DragEventArgs.DataView"/> and
+    /// nothing more. It has to exist, because the source is free to tear the
+    /// view down the moment the handler returns, and it has to end here: the
+    /// drag is not over for the system until the deferral completes, so holding
+    /// it across the work that follows leaves the drag image stuck to the
+    /// cursor. Opening a document can now stop on a modal prompt, which turned
+    /// that from a brief delay into an image pinned to the screen until the
+    /// reader answered. A <see cref="StorageFile"/> outlives the view it came
+    /// from, so the caller loses nothing by being handed one.
     /// </summary>
-    private static async Task<(StorageFile Item, DroppedFileKind Kind)?> FirstActionableFileAsync(DataPackageView data)
+    private static async Task<(StorageFile Item, DroppedFileKind Kind)?> ClaimDroppedFileAsync(DragEventArgs args)
     {
-        if (!data.Contains(StandardDataFormats.StorageItems)) return null;
+        if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return null;
+        var deferral = args.GetDeferral();
         try
         {
-            var items = await data.GetStorageItemsAsync();
+            var items = await args.DataView.GetStorageItemsAsync();
             return FileDropRouting.FirstActionable(items.OfType<StorageFile>(), file => file.Path);
         }
         catch (Exception)
         {
             return null;
+        }
+        finally
+        {
+            deferral.Complete();
         }
     }
 
