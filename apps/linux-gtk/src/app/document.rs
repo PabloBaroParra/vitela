@@ -107,6 +107,18 @@ pub(crate) fn show_save_chooser(
     viewer: &Viewer,
     active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
 ) {
+    show_save_chooser_then(window, viewer, active_chooser, None);
+}
+
+/// The save chooser, with an optional continuation that runs only once the
+/// bytes are on disk — how the unsaved-changes prompt's Save button gets from
+/// "keep this work" to the open it was blocking.
+fn show_save_chooser_then(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
+    after_save: Option<Rc<dyn Fn()>>,
+) {
     let filter = FileFilter::new();
     filter.set_name(Some("PDF files"));
     filter.add_mime_type("application/pdf");
@@ -138,7 +150,7 @@ pub(crate) fn show_save_chooser(
                     .set_text("The selected location is not a local file.");
                 return;
             };
-            confirm_save_destination(&window, &viewer, pdf_destination(path));
+            confirm_save_destination(&window, &viewer, pdf_destination(path), after_save.clone());
         }
     });
     chooser.show();
@@ -161,9 +173,14 @@ fn pdf_destination(mut path: PathBuf) -> PathBuf {
 /// the user typed — appending `.pdf` can land on a file it never checked. One
 /// prompt here covers both cases, so a collision is always a question rather
 /// than sometimes a dead end the user has to reopen the chooser to escape.
-fn confirm_save_destination(window: &ApplicationWindow, viewer: &Viewer, destination: PathBuf) {
+fn confirm_save_destination(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    destination: PathBuf,
+    after_save: Option<Rc<dyn Fn()>>,
+) {
     match destination.try_exists() {
-        Ok(false) => save_current_to(viewer, destination),
+        Ok(false) => save_current_to(viewer, destination, after_save),
         Err(error) => viewer.status.set_text(&format!(
             "Could not check whether {} already exists: {error}",
             destination.display()
@@ -181,7 +198,7 @@ fn confirm_save_destination(window: &ApplicationWindow, viewer: &Viewer, destina
                 move |dialog, response| {
                     dialog.destroy();
                     if response == ResponseType::Accept {
-                        save_current_to(&viewer, destination.clone());
+                        save_current_to(&viewer, destination.clone(), after_save.clone());
                     } else {
                         viewer.status.set_text("Save cancelled.");
                     }
@@ -192,7 +209,7 @@ fn confirm_save_destination(window: &ApplicationWindow, viewer: &Viewer, destina
     }
 }
 
-fn save_current_to(viewer: &Viewer, destination: PathBuf) {
+fn save_current_to(viewer: &Viewer, destination: PathBuf, after_save: Option<Rc<dyn Fn()>>) {
     let (token, document, backing) = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
@@ -231,6 +248,11 @@ fn save_current_to(viewer: &Viewer, destination: PathBuf) {
                     viewer
                         .status
                         .set_text("PDF saved. Rendering will refresh when reopened.");
+                    // Last: the continuation may replace this document, and
+                    // its own status text should be what remains on screen.
+                    if let Some(after_save) = after_save {
+                        after_save();
+                    }
                 }
                 Ok(()) => {}
                 Err(error) if session_matches(&viewer, token) => viewer
@@ -349,9 +371,6 @@ pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer, kind: Sam
 /// Opens a local file dropped over a page. A drop has no direct window
 /// parameter, so recover the shell window from the status widget.
 pub(crate) fn open_file(viewer: &Viewer, path: PathBuf) {
-    if refuses_to_discard_edits(viewer, "opening a dropped PDF") {
-        return;
-    }
     let Some(window) = viewer
         .status
         .root()
@@ -365,29 +384,9 @@ pub(crate) fn open_file(viewer: &Viewer, path: PathBuf) {
     open_initial(&window, viewer, DocumentSource::File(path));
 }
 
-/// Refuses an action that would silently drop unsaved annotation work, naming
-/// the action so the status line says what was declined.
-///
-/// Used by the two entry points that replace the document without the user
-/// having picked a file to replace it with — a stray drag and Ctrl+N. Both are
-/// easy to hit by accident, and neither has a step where the user could notice
-/// the cost in time to stop.
-fn refuses_to_discard_edits(viewer: &Viewer, action: &str) -> bool {
-    if !has_pending_annotation_edits(viewer) {
-        return false;
-    }
-    viewer.status.set_text(&format!(
-        "Save or undo the pending annotation changes before {action}."
-    ));
-    true
-}
-
 /// Creates a conventional one-page A4 document, then opens it through the same
 /// bytes-based lifecycle used for every other document source.
 pub(crate) fn new_blank_document(window: &ApplicationWindow, viewer: &Viewer) {
-    if refuses_to_discard_edits(viewer, "starting a new document") {
-        return;
-    }
     let base = pdf_manip::create_blank_document(PageSize::A4, Orientation::Portrait);
     let Ok(base) = pdf_manip::insert_blank_page(&base, 0, PageSize::A4, Orientation::Portrait)
     else {
@@ -402,7 +401,90 @@ pub(crate) fn new_blank_document(window: &ApplicationWindow, viewer: &Viewer) {
     open_initial(window, viewer, DocumentSource::Bytes(bytes));
 }
 
+/// Every path that replaces the open document funnels through here, so the
+/// prompt guarding unsaved annotation work only has to exist once.
 fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
+    confirm_replacing_edits(window, viewer, {
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move || start_open(&window, &viewer, source.clone())
+    });
+}
+
+/// Save, Discard or Cancel for annotation work the open would replace.
+///
+/// This unifies three behaviours that used to disagree: a drop and Ctrl+N
+/// refused outright, while the file chooser replaced the document and reported
+/// the loss afterwards. Refusing was a dead end — the counter it consulted
+/// could not return to clean — and reporting after the fact was worse, because
+/// by then the work was gone. Asking is the answer both were reaching for.
+///
+/// Cancel is every exit that is not a deliberate choice: the button, Escape,
+/// and closing the window. Work is lost only when someone picks Discard.
+fn confirm_replacing_edits(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    proceed: impl Fn() + 'static,
+) {
+    if !has_pending_annotation_edits(viewer) {
+        proceed();
+        return;
+    }
+
+    let dialog = Dialog::builder()
+        .transient_for(window)
+        .modal(true)
+        .title("Unsaved annotation changes")
+        .build();
+    dialog.add_button("Cancel", ResponseType::Cancel);
+    dialog.add_button("Discard", ResponseType::Reject);
+    dialog.add_button("Save", ResponseType::Accept);
+    dialog.set_default_response(ResponseType::Accept);
+
+    let message = Label::new(Some(
+        "The open document has annotation changes that are not saved. \
+         Opening another document will discard them.",
+    ));
+    message.set_wrap(true);
+    message.set_xalign(0.0);
+    dialog.content_area().append(&message);
+
+    let proceed: Rc<dyn Fn()> = Rc::new(proceed);
+    dialog.connect_response({
+        let viewer = viewer.clone();
+        let window = window.clone();
+        move |dialog, response| {
+            // `destroy`, not `close`: closing a `GtkDialog` re-emits `response`
+            // with `DeleteEvent` and re-enters this handler — the same reason
+            // `prompt_for_password` destroys.
+            dialog.destroy();
+            match response {
+                ResponseType::Reject => proceed(),
+                ResponseType::Accept => {
+                    save_then(&window, &viewer, proceed.clone());
+                }
+                _ => viewer
+                    .status
+                    .set_text("Kept the unsaved annotation changes."),
+            }
+        }
+    });
+    dialog.present();
+}
+
+/// Runs the save chooser and, only if the bytes reach disk, continues.
+///
+/// A cancelled chooser or a failed write must not continue: the reader chose
+/// Save precisely to keep the work, and opening anyway would discard exactly
+/// what they asked to preserve.
+fn save_then(window: &ApplicationWindow, viewer: &Viewer, after_save: Rc<dyn Fn()>) {
+    // Owned here rather than shared with the toolbar's chooser slot: this one
+    // lives exactly as long as the prompt that opened it.
+    let holder: Rc<RefCell<Option<FileChooserNative>>> = Rc::new(RefCell::new(None));
+    show_save_chooser_then(window, viewer, &holder, Some(after_save));
+}
+
+fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
     let generation = begin_loading(viewer);
     viewer.status.set_text("Opening PDF...");
     glib::spawn_future_local({
@@ -620,15 +702,6 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         return;
     }
 
-    // Captured before the outgoing session is dropped just below.
-    //
-    // The drop and Ctrl+N paths refuse outright rather than reach here, because
-    // both are easy to trigger by accident. Picking a file in the chooser is
-    // deliberate enough to proceed on, so this path still replaces the document
-    // and reports what it cost. Unifying the three behind one
-    // save/discard/cancel prompt is the real fix and is not this change.
-    let discarded_edits = has_pending_annotation_edits(viewer);
-
     // The new document opened successfully: only now replace the previous
     // one. Cancel its in-flight renders and close it, then clear its page
     // widgets before building the new layout.
@@ -732,12 +805,6 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         viewer.status.set_text("The PDF contains no pages.");
     } else {
         update_viewport(viewer);
-    }
-    // Last, so it outlives the visible-range text `update_viewport` just set.
-    if discarded_edits {
-        viewer
-            .status
-            .set_text("Discarded the previous document's unsaved annotation changes.");
     }
 }
 
