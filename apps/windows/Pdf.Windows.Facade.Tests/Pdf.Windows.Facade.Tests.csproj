@@ -14,5 +14,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\PageRenderPlan.cs" Link="Viewer\PageRenderPlan.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageWindow.cs" Link="Viewer\PageWindow.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ViewportTilePlan.cs" Link="Viewer\ViewportTilePlan.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\StampPreviewCache.cs" Link="Viewer\StampPreviewCache.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\ImageStampInput.cs" Link="Viewer\ImageStampInput.cs" />
   </ItemGroup>
 </Project>

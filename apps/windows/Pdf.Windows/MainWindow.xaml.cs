@@ -232,6 +232,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowOpenedDocument(DocumentSession session)
     {
+        _stampPreviews.BeginSession(session.SessionId);
         _armedAnnotation = null;
         _selectedAnnotationId = null;
         _annotationState = null;
