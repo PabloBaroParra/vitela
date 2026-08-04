@@ -101,17 +101,27 @@ public sealed partial class MainWindow : Window
         await OpenDocumentAsync(file.Name, bytes);
     }
 
-    private async void SaveButton_Click(object sender, RoutedEventArgs e)
+    private async void SaveButton_Click(object sender, RoutedEventArgs e) => await SaveToPickedFileAsync();
+
+    /// <summary>
+    /// Saves through the file picker and reports whether the document reached
+    /// disk. The answer matters to <see cref="OpenDocumentAsync"/>: when the
+    /// reader chose Save to get past the pending-edit prompt, a cancelled
+    /// picker or a failed write has to abandon the open too, or the work they
+    /// just asked to keep would be dropped anyway.
+    /// </summary>
+    private async Task<bool> SaveToPickedFileAsync()
     {
-        if (_session is null) return;
+        if (_session is null) return false;
         var picker = new FileSavePicker();
         picker.FileTypeChoices.Add("PDF", [".pdf"]);
         picker.SuggestedFileName = Path.GetFileNameWithoutExtension(_session.DisplayName);
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         var file = await picker.PickSaveFileAsync();
-        if (file is null) return;
+        if (file is null) return false;
         SetBusy(true);
         StorageFile? temporary = null;
+        var saved = false;
         try
         {
             var result = await _facade.SaveToDestinationAsync(_session.SessionId, async bytes =>
@@ -125,9 +135,10 @@ public sealed partial class MainWindow : Window
             if (!result.IsSuccess)
             {
                 AnnotationStatus.Text = result.Error!.Message;
-                return;
+                return false;
             }
 
+            saved = true;
             AnnotationStatus.Text = "PDF saved. Annotations remain editable in this session.";
         }
         catch (Exception error)
@@ -149,6 +160,8 @@ public sealed partial class MainWindow : Window
                 SetBusy(false);
             }
         }
+
+        return saved;
     }
 
     /// <summary>
@@ -206,6 +219,28 @@ public sealed partial class MainWindow : Window
             result = unlocked;
         }
 
+        // Unsaved annotation work is not a dead end either: the guard exists to
+        // make losing it a decision rather than an accident, so ask, then act
+        // on the answer instead of leaving the reader to work it out.
+        if (!result.IsSuccess && result.Error!.RequiresPendingEditDecision)
+        {
+            switch (await AskPendingEditDecisionAsync())
+            {
+                case PendingEditDecision.Cancel:
+                    return;
+                case PendingEditDecision.Save when !await SaveToPickedFileAsync():
+                    // A cancelled picker or a failed write means the work they
+                    // asked to keep is still unsaved; opening now would drop it.
+                    return;
+                case PendingEditDecision.Save:
+                    result = await _facade.OpenAsync(new DocumentSource(displayName, bytes));
+                    break;
+                case PendingEditDecision.Discard:
+                    result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), discardPendingEdits: true);
+                    break;
+            }
+        }
+
         if (!result.IsSuccess)
         {
             ReportFailedOpen(result.Error!);
@@ -213,6 +248,38 @@ public sealed partial class MainWindow : Window
         }
 
         ShowOpenedDocument(result.Value!);
+    }
+
+    private enum PendingEditDecision { Cancel, Save, Discard }
+
+    /// <summary>
+    /// Save, Discard or Cancel for the annotation work the open would replace.
+    /// Cancel is both the close button and the dismissed-dialog default, so
+    /// every way out that is not a deliberate choice keeps the work.
+    /// </summary>
+    private async Task<PendingEditDecision> AskPendingEditDecisionAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Unsaved annotation changes",
+            Content = new TextBlock
+            {
+                Text = $"\"{_session?.DisplayName}\" has annotation changes that are not saved. Opening another document will discard them.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = "Save",
+            SecondaryButtonText = "Discard",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        return await dialog.ShowAsync() switch
+        {
+            ContentDialogResult.Primary => PendingEditDecision.Save,
+            ContentDialogResult.Secondary => PendingEditDecision.Discard,
+            _ => PendingEditDecision.Cancel,
+        };
     }
 
     /// <summary>

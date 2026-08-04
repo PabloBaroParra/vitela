@@ -14,14 +14,20 @@ public sealed class PdfDocumentFacade : IDisposable
         _diagnostics = diagnostics;
     }
 
-    public async Task<OperationResult<DocumentSession>> OpenAsync(DocumentSource source, string? password = null)
+    /// <summary>
+    /// Opens a document, refusing while the current one holds unsaved
+    /// annotation work. <paramref name="discardPendingEdits"/> is how the shell
+    /// says the reader was asked and chose to lose it: the guard exists to make
+    /// that loss deliberate, not to make it impossible.
+    /// </summary>
+    public async Task<OperationResult<DocumentSession>> OpenAsync(DocumentSource source, string? password = null, bool discardPendingEdits = false)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         try
         {
             lock (_gate)
             {
-                if (_currentSession is { } current && current.HasUnsavedEdits(_core))
+                if (!discardPendingEdits && _currentSession is { } current && current.HasUnsavedEdits(_core))
                 {
                     return OperationResult<DocumentSession>.Failure(CreateError("Save or undo the pending annotation changes before opening another document.", PdfCoreError.UnsavedChanges, "open", current.Id, null));
                 }
@@ -722,7 +728,7 @@ public sealed class PdfDocumentFacade : IDisposable
         // (or its absence) did not unlock it" — the UI treats them the same:
         // prompt and retry. Everything else is a dead-end failure.
         var requiresPassword = category is PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword;
-        return new UserSafeError(message, correlationId, requiresPassword);
+        return new UserSafeError(message, correlationId, requiresPassword, category is PdfCoreError.UnsavedChanges);
     }
 
     private sealed class SessionEntry : IDisposable
