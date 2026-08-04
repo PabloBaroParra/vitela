@@ -21,9 +21,9 @@ public sealed class PdfDocumentFacade : IDisposable
         {
             lock (_gate)
             {
-                if (_currentSession is { HasUnsavedEdits: true })
+                if (_currentSession is { } current && current.HasUnsavedEdits(_core))
                 {
-                    return OperationResult<DocumentSession>.Failure(CreateError("Save or discard annotation changes before opening another document.", PdfCoreError.UnsavedChanges, "open", _currentSession.Id, null));
+                    return OperationResult<DocumentSession>.Failure(CreateError("Save or undo the pending annotation changes before opening another document.", PdfCoreError.UnsavedChanges, "open", current.Id, null));
                 }
             }
 
@@ -68,9 +68,9 @@ public sealed class PdfDocumentFacade : IDisposable
         {
             lock (_gate)
             {
-                if (_currentSession is { HasUnsavedEdits: true })
+                if (_currentSession is { } current && current.HasUnsavedEdits(_core))
                 {
-                    return OperationResult<DocumentSession>.Failure(CreateError("Save or discard annotation changes before creating another document.", PdfCoreError.UnsavedChanges, "create_blank", _currentSession.Id, null));
+                    return OperationResult<DocumentSession>.Failure(CreateError("Save or undo the pending annotation changes before creating another document.", PdfCoreError.UnsavedChanges, "create_blank", current.Id, null));
                 }
             }
 
@@ -745,7 +745,22 @@ public sealed class PdfDocumentFacade : IDisposable
         public bool Retired { get; set; }
         public ulong EditRevision { get; set; }
         public ulong SavedRevision { get; set; }
-        public bool HasUnsavedEdits => EditRevision != SavedRevision;
+
+        /// <summary>
+        /// Whether replacing this document would throw away annotation work.
+        ///
+        /// Both halves are needed, and neither is enough alone. The revision
+        /// counter only ever climbs — undo bumps it too, being an operation
+        /// like any other — so on its own it could never return to clean and
+        /// the reader had no way out but to save. The edit log's undo stack
+        /// answers that half: emptied, there is nothing left to lose. But the
+        /// stack alone would keep reporting work after a save, when the file
+        /// on disk already holds every edit still sitting in it.
+        ///
+        /// Mirrors the Linux shell's <c>has_pending_annotation_edits</c>,
+        /// which asks the same <c>pending_edits.can_undo()</c> question.
+        /// </summary>
+        public bool HasUnsavedEdits(IPdfCore core) => EditRevision != SavedRevision && core.CanUndo(Document);
         public SearchState Search { get; } = new();
         public bool HasNoInFlightOperations => InFlightRenders == 0 && InFlightSearches == 0 && InFlightPrints == 0;
 
