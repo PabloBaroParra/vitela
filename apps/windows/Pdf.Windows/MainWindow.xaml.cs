@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
 
     private readonly PdfDocumentFacade _facade = new(new GeneratedPdfCore(), new DebugDiagnosticLogger());
     private DocumentSession? _session;
+    private bool _isBusy;
 
     public MainWindow()
     {
@@ -82,7 +83,7 @@ public sealed partial class MainWindow : Window
         catch (Exception error)
         {
             SetBusy(false);
-            ShowError(_facade.OpenReadFailure(error).Error!);
+            ReportFailedOpen(_facade.OpenReadFailure(error).Error!);
             return;
         }
 
@@ -162,7 +163,7 @@ public sealed partial class MainWindow : Window
         catch (Exception error)
         {
             SetBusy(false);
-            ShowError(_facade.OpenReadFailure(error).Error!);
+            ReportFailedOpen(_facade.OpenReadFailure(error).Error!);
             return;
         }
 
@@ -196,11 +197,37 @@ public sealed partial class MainWindow : Window
 
         if (!result.IsSuccess)
         {
-            ShowError(result.Error!);
+            ReportFailedOpen(result.Error!);
             return;
         }
 
         ShowOpenedDocument(result.Value!);
+    }
+
+    /// <summary>
+    /// Reports an open that did not happen. The facade retires the current
+    /// session only once a replacement has actually opened —
+    /// <c>RetireCurrentSessionLocked</c> runs on the success path alone — so on
+    /// any failure the document already on screen is still live and still
+    /// editable, and the terminal error state would be a lie about it.
+    ///
+    /// The unsaved-changes guard is the case that makes this sharp: it asks the
+    /// reader to save or undo first, and <see cref="ShowError"/> answered by
+    /// hiding the pages, the pending edits, and Undo — every means of doing
+    /// either. Only a failure with nothing left on screen is a dead end.
+    /// </summary>
+    private void ReportFailedOpen(UserSafeError error)
+    {
+        if (_session is null)
+        {
+            ShowError(error);
+            return;
+        }
+
+        // SetBusy blanked the annotation toolbar on the way in and only
+        // ShowOpenedDocument ever restores it, which this path never reaches.
+        AnnotationStatus.Text = error.Message;
+        UpdateAnnotationControls(_annotationState);
     }
 
     private void ShowOpenedDocument(DocumentSession session)
@@ -210,6 +237,7 @@ public sealed partial class MainWindow : Window
         _annotationState = null;
         _pointerDrag = null;
         _session = session;
+        RefreshSessionCommands();
         DocumentTitle.Text = _session.DisplayName;
         ClearSearchResults();
         if (_session.State == DocumentSessionState.Empty)
@@ -335,17 +363,34 @@ public sealed partial class MainWindow : Window
 
     private void SetBusy(bool isBusy)
     {
+        _isBusy = isBusy;
         BusyIndicator.IsActive = isBusy;
         BusyIndicator.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
         OpenButton.IsEnabled = !isBusy;
         OpenSampleButton.IsEnabled = !isBusy;
         PrintButton.IsEnabled = !isBusy;
-        SaveButton.IsEnabled = !isBusy && _session is not null;
         SearchButton.IsEnabled = !isBusy;
         ZoomInButton.IsEnabled = !isBusy;
         ZoomOutButton.IsEnabled = !isBusy;
         FitWidthButton.IsEnabled = !isBusy;
         FitPageButton.IsEnabled = !isBusy;
+        RefreshSessionCommands();
         UpdateAnnotationControls(null);
+    }
+
+    /// <summary>
+    /// Save needs both halves of its condition, and the two are set at
+    /// different moments: <see cref="OpenDocumentAsync"/> clears busy while
+    /// <c>_session</c> is still null, and only assigns it afterwards in
+    /// <see cref="ShowOpenedDocument"/>. Deciding this inside
+    /// <see cref="SetBusy"/> alone left Save disabled for the entire session,
+    /// because nothing in the open path calls <see cref="SetBusy"/> again. The
+    /// annotation toolbar escaped the same fate only because
+    /// <see cref="RefreshAnnotationStateAsync"/> gives it a second pass — so
+    /// this runs from both places instead of trusting one of them.
+    /// </summary>
+    private void RefreshSessionCommands()
+    {
+        SaveButton.IsEnabled = !_isBusy && _session is not null;
     }
 }

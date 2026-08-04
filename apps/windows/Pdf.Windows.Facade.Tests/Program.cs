@@ -61,6 +61,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refuses annotation edits when permissions deny them", RefusesForbiddenAnnotationEditsAsync)
     ,("holds annotation edits until destination replacement completes", HoldsEditsUntilDestinationReplacementCompletesAsync)
     ,("blocks opening another document with unsaved annotations", BlocksOpenWithUnsavedAnnotationsAsync)
+    ,("releases the guard once the edits are undone", ReleasesTheGuardOnceEditsAreUndoneAsync)
+    ,("releases the guard once the edits are saved", ReleasesTheGuardOnceEditsAreSavedAsync)
     ,("maps unexpected save failures to user-safe results", MapsUnexpectedSaveFailureAsync)
 };
 
@@ -766,7 +768,40 @@ static async Task BlocksOpenWithUnsavedAnnotationsAsync()
     await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
     var open = await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
     Assert(!open.IsSuccess, "opening another document must not discard unsaved annotation edits");
-    Assert(open.Error!.Message == "Save or discard annotation changes before opening another document.", "the user must be told how to resolve unsaved annotation edits");
+    Assert(open.Error!.Message == "Save or undo the pending annotation changes before opening another document.", "the user must be told a way out that the shell actually offers");
+}
+
+/// <summary>
+/// The revision counter climbs on undo as well, so it can never fall back to
+/// the saved revision on its own — before the edit log was consulted, undoing
+/// every change left the reader permanently unable to open anything else.
+/// </summary>
+static async Task ReleasesTheGuardOnceEditsAreUndoneAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    var undone = await facade.UndoAsync(session.SessionId);
+    Assert(undone.IsSuccess && !undone.Value!.CanUndo, "the edit log must be empty for this to prove anything");
+    var open = await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+    Assert(open.IsSuccess, "with nothing left to undo there is no work to lose, so the open must proceed");
+}
+
+/// <summary>
+/// The other half of the pair: the undo stack survives a save, so asking it
+/// alone would keep refusing long after the file on disk held every edit.
+/// </summary>
+static async Task ReleasesTheGuardOnceEditsAreSavedAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    var saved = await facade.SaveToDestinationAsync(session.SessionId, _ => Task.CompletedTask);
+    Assert(saved.IsSuccess, "the save must land for this to prove anything");
+    var state = await facade.AnnotationStateAsync(session.SessionId);
+    Assert(state.Value!.CanUndo, "the edit log must still hold the saved edit for this to prove anything");
+    var open = await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+    Assert(open.IsSuccess, "a saved document has no pending work, however full its undo stack");
 }
 
 static async Task MapsUnexpectedSaveFailureAsync()
