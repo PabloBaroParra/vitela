@@ -49,6 +49,16 @@ internal interface IPdfCore
     /// </summary>
     void InsertImageStamp(IPdfCoreDocument document, uint pageIndex, byte[] imageBytes, PdfCoreRect rect);
 
+    /// <summary>
+    /// The rect a dropped or pasted image gets, sized from the image's own
+    /// proportions. Takes no document because it is pure geometry.
+    ///
+    /// The shell asks the core rather than computing it, so this shell and the
+    /// GTK one cannot disagree about where the same image lands — the size
+    /// policy has exactly one home, in <c>pdf_annotate::placement</c>.
+    /// </summary>
+    PdfCoreRect StampPlacement(byte[] imageBytes, double anchorX, double anchorY);
+
     bool Undo(IPdfCoreDocument document);
 
     bool Redo(IPdfCoreDocument document);

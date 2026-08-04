@@ -40,7 +40,7 @@ pub use bitmap::BitmapHandle;
 pub use document::{
     apply_edit, create_blank_document, insert_image_stamp, open, open_from_bytes,
     open_with_passwords, open_with_passwords_from_bytes, redo, render_page, render_page_tiles,
-    save_to_bytes, save_to_path, undo, DocumentHandle,
+    save_to_bytes, save_to_path, stamp_placement, undo, DocumentHandle,
 };
 pub use error::FfiError;
 pub use types::{

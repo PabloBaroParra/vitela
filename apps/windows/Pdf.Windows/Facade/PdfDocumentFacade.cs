@@ -280,6 +280,28 @@ public sealed class PdfDocumentFacade : IDisposable
     }
 
     /// <summary>
+    /// Where a dropped or pasted image should land, anchored by its top-left
+    /// corner at (<paramref name="anchorX"/>, <paramref name="anchorY"/>) in
+    /// PDF space.
+    ///
+    /// Takes no session and no lock: <c>stamp_placement</c> reads the image
+    /// bytes and nothing else, so it cannot observe or disturb a document. It
+    /// exists so the shell never sizes a stamp itself — the image's own
+    /// proportions decide, in the core, for every shell alike.
+    /// </summary>
+    internal OperationResult<PdfCoreRect> StampPlacement(byte[] imageBytes, double anchorX, double anchorY)
+    {
+        try
+        {
+            return OperationResult<PdfCoreRect>.Success(_core.StampPlacement(imageBytes, anchorX, anchorY));
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<PdfCoreRect>.Failure(MapError(error, "annotation_edit", null, null));
+        }
+    }
+
+    /// <summary>
     /// Inserts a Stamp annotation — kept separate from <see cref="EditAnnotationAsync"/>
     /// because <c>insert_image_stamp</c> is its own FFI entrypoint (image bytes,
     /// not a <c>PdfCoreEdit</c> value), but otherwise follows the same

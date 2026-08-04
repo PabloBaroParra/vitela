@@ -125,6 +125,12 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public PdfCoreRect StampPlacement(byte[] imageBytes, double anchorX, double anchorY)
+    {
+        try { return Rect(PdfFfiMethods.StampPlacement(imageBytes, anchorX, anchorY)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     public bool Undo(IPdfCoreDocument document) => PdfFfiMethods.Undo(((GeneratedDocument)document).Handle);
     public bool Redo(IPdfCoreDocument document) => PdfFfiMethods.Redo(((GeneratedDocument)document).Handle);
     public byte[] SaveToBytes(IPdfCoreDocument document) => PdfFfiMethods.SaveToBytes(((GeneratedDocument)document).Handle, FfiSaveIntent.Default);

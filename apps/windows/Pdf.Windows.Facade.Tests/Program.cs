@@ -72,6 +72,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("routes PNG and JPEG image signatures", RoutesSupportedStampSignatures)
     ,("rejects non-image files before stamp insertion", RejectsUnsupportedStampInput)
     ,("reports the core image validation failure clearly", ReportsInvalidStampImageAsync)
+    ,("asks the core where a dropped stamp goes instead of sizing it", AsksTheCoreWhereAStampGoesAsync)
+    ,("reports an image that cannot be measured for placement", ReportsAnUnplaceableStampImage)
     ,("routes a dropped PDF to open and a dropped image to stamp", RoutesDroppedFilesByKind)
     ,("acts on one file out of a multi-file drop", ActsOnOneDroppedFile)
     ,("writes a failure where its correlation id can be looked up", WritesRetrievableDiagnosticsAsync)
@@ -878,6 +880,32 @@ static async Task ReportsInvalidStampImageAsync()
     Assert(result.Error!.Message == "The image is corrupt or unsupported.", "core image failures must have clear user feedback");
 }
 
+static Task AsksTheCoreWhereAStampGoesAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+
+    var result = facade.StampPlacement([137, 80, 78, 71, 13, 10, 26, 10], 200, 500);
+
+    Assert(result.IsSuccess, "placement is pure geometry and needs no open session");
+    Assert(core.StampPlacementAnchors.TryDequeue(out var anchor) && anchor == (200, 500), "the drop point must reach the core unchanged");
+    // The size is whatever the core says. A shell that sized stamps itself
+    // would produce its own constant here and drift from the GTK shell.
+    Assert(result.Value! == new PdfCoreRect(200, 500 - 77, 77, 77), "the core's rect must be used as-is");
+    return Task.CompletedTask;
+}
+
+static Task ReportsAnUnplaceableStampImage()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore { StampPlacementError = PdfCoreError.InvalidImage }, new RecordingLogger());
+
+    var result = facade.StampPlacement("not an image"u8.ToArray(), 0, 0);
+
+    Assert(!result.IsSuccess, "bytes that cannot be measured cannot be placed");
+    Assert(result.Error!.Message == "The image is corrupt or unsupported.", "placement failures must read the same as insert failures");
+    return Task.CompletedTask;
+}
+
 static Task RoutesDroppedFilesByKind()
 {
     Assert(FileDropRouting.Classify("report.pdf") == DroppedFileKind.Document, "a dropped PDF must open as the document");
@@ -1080,6 +1108,8 @@ sealed class FakeCore : IPdfCore
     public bool BlockSave { get; init; }
     public bool SaveThrowsUnexpected { get; init; }
     public PdfCoreError? InsertStampError { get; init; }
+    public PdfCoreError? StampPlacementError { get; init; }
+    public System.Collections.Concurrent.ConcurrentQueue<(double X, double Y)> StampPlacementAnchors { get; } = new();
     public TaskCompletionSource FirstRenderStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public ManualResetEventSlim ReleaseFirstRender { get; } = new(false);
     public TaskCompletionSource FirstSearchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1157,6 +1187,20 @@ sealed class FakeCore : IPdfCore
         if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "annotation editing is not permitted");
         fake.InsertStamp(pageIndex, rect);
     }
+    /// <summary>
+    /// Stands in for the core's aspect-ratio sizing. The real arithmetic is
+    /// tested in `pdf_annotate::placement` — what matters on this side is that
+    /// the shell asks for a rect instead of inventing one, so the fake returns
+    /// a shape no shell-side constant would ever produce and records what it
+    /// was asked.
+    /// </summary>
+    public PdfCoreRect StampPlacement(byte[] imageBytes, double anchorX, double anchorY)
+    {
+        if (StampPlacementError is { } error) throw new PdfCoreException(error, "invalid image");
+        StampPlacementAnchors.Enqueue((anchorX, anchorY));
+        return new PdfCoreRect(anchorX, anchorY - 77.0, 77.0, 77.0);
+    }
+
     public bool Undo(IPdfCoreDocument document) => ((FakeDocument)document).Undo();
     public bool Redo(IPdfCoreDocument document) => ((FakeDocument)document).Redo();
     public byte[] SaveToBytes(IPdfCoreDocument document)

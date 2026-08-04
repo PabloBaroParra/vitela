@@ -6,8 +6,8 @@
 
 use pdf_ffi::{
     apply_edit, create_blank_document, insert_image_stamp, open_from_bytes,
-    open_with_passwords_from_bytes, redo, render_page, save_to_bytes, undo, FfiColor,
-    FfiEditCommand, FfiError, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions,
+    open_with_passwords_from_bytes, redo, render_page, save_to_bytes, stamp_placement, undo,
+    FfiColor, FfiEditCommand, FfiError, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions,
     FfiSaveIntent,
 };
 
@@ -369,6 +369,31 @@ fn insert_image_stamp_rejects_garbage_bytes_with_a_typed_error() {
             height: 10.0,
         },
     );
+    assert!(matches!(result, Err(FfiError::InvalidImage { .. })));
+}
+
+#[test]
+fn stamp_placement_keeps_the_image_proportions_and_hangs_below_the_anchor() {
+    use image::{ImageFormat, RgbImage};
+    use std::io::Cursor;
+
+    let wide = RgbImage::from_pixel(400, 100, image::Rgb([10, 20, 30]));
+    let mut buf = Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(wide)
+        .write_to(&mut buf, ImageFormat::Png)
+        .expect("encode wide png");
+
+    let rect = stamp_placement(buf.into_inner(), 200.0, 500.0).expect("placement should succeed");
+
+    // 4:1 in, 4:1 out — never the fixed box the shells used to pass in.
+    assert_eq!((rect.width, rect.height), (144.0, 36.0));
+    assert_eq!((rect.x, rect.y), (200.0, 500.0 - 36.0));
+}
+
+#[test]
+fn stamp_placement_rejects_garbage_bytes_with_a_typed_error() {
+    let result = stamp_placement(b"not an image".to_vec(), 0.0, 0.0);
+
     assert!(matches!(result, Err(FfiError::InvalidImage { .. })));
 }
 

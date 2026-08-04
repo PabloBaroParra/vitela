@@ -24,13 +24,29 @@ namespace Pdf.Windows;
 /// </summary>
 public sealed partial class MainWindow
 {
-    private const double DefaultStampWidthPt = 144.0;
-    private const double DefaultStampHeightPt = 36.0;
     private const string UnsupportedDropMessage = "Vitela opens PDF files. Drop a PNG or JPEG onto a page to add it as a stamp.";
 
-    /// <summary>Default placement anchored at the drop point's top-left corner, matching the Linux shell's <c>stamp_rect</c>.</summary>
-    private static PdfCoreRect DefaultStampRect(AnnotationPoint point) =>
-        new(point.X, point.Y - DefaultStampHeightPt, DefaultStampWidthPt, DefaultStampHeightPt);
+    /// <summary>
+    /// Default placement anchored at the drop point's top-left corner, sized
+    /// by the core from the image's own proportions.
+    ///
+    /// There is deliberately no width/height constant here. This shell used to
+    /// carry one — 144×36pt, borrowed from the size a *text* annotation gets
+    /// when it is clicked rather than dragged — and it flattened every image
+    /// into a 4:1 strip regardless of shape. The Linux shell carried the same
+    /// pair, so the two agreed only because someone kept them in step by hand.
+    /// Now both ask <c>pdf_annotate::placement</c> and agree by construction.
+    ///
+    /// Null when the bytes will not decode; the caller reports it, because the
+    /// insert that would follow is going to fail on the same bytes anyway.
+    /// </summary>
+    private PdfCoreRect? DefaultStampRect(byte[] imageBytes, AnnotationPoint point)
+    {
+        var placement = _facade.StampPlacement(imageBytes, point.X, point.Y);
+        if (placement.IsSuccess) return placement.Value;
+        AnnotationStatus.Text = placement.Error!.Message;
+        return null;
+    }
 
     private void ConnectFileDrop(PageSlot slot, int pageIndex)
     {
@@ -119,7 +135,8 @@ public sealed partial class MainWindow
         {
             var buffer = await FileIO.ReadBufferAsync(file);
             CryptographicBuffer.CopyToByteArray(buffer, out byte[] imageBytes);
-            await InsertStampFromImageBytesAsync(session.SessionId, (uint)pageIndex, DefaultStampRect(point), imageBytes);
+            if (DefaultStampRect(imageBytes, point) is not { } rect) return;
+            await InsertStampFromImageBytesAsync(session.SessionId, (uint)pageIndex, rect, imageBytes);
         }
         catch (Exception)
         {
@@ -199,7 +216,9 @@ public sealed partial class MainWindow
             var imageBytes = await ReadClipboardBitmapAsPngAsync(content);
             var pageIndex = (uint)Math.Clamp(_firstVisiblePage, 0, session.Pages.Count - 1);
             var page = session.Pages[(int)pageIndex];
-            await InsertStampFromImageBytesAsync(session.SessionId, pageIndex, DefaultStampRect(new AnnotationPoint(page.WidthPt / 2, page.HeightPt / 2)), imageBytes);
+            var centre = new AnnotationPoint(page.WidthPt / 2, page.HeightPt / 2);
+            if (DefaultStampRect(imageBytes, centre) is not { } rect) return;
+            await InsertStampFromImageBytesAsync(session.SessionId, pageIndex, rect, imageBytes);
         }
         catch (Exception)
         {

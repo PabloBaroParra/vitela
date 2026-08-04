@@ -726,6 +726,30 @@ pub fn insert_image_stamp(
     Ok(())
 }
 
+/// Rect for a stamp the app places at (`anchor_x`, `anchor_y`) — a drop or a
+/// clipboard paste — rather than one the user traced.
+///
+/// The size is the core's policy, not the shell's: the image keeps its own
+/// proportions instead of being squashed into a fixed box, and every shell
+/// gets the same rect for the same bytes because none of them computes it.
+/// Pair it with [`insert_image_stamp`], which takes the rect this returns.
+///
+/// Takes no document handle — it is pure geometry over the image bytes, and
+/// is safe to call before deciding whether the insert can go ahead.
+#[uniffi::export]
+pub fn stamp_placement(
+    image_bytes: Vec<u8>,
+    anchor_x: f64,
+    anchor_y: f64,
+) -> Result<FfiRect, FfiError> {
+    let rect = pdf_annotate::stamp_placement(
+        &image_bytes,
+        (anchor_x, anchor_y),
+        pdf_annotate::DEFAULT_STAMP_MAX_SIDE_PT,
+    )?;
+    Ok(rect.into())
+}
+
 /// Records the explicit-strip audit event (spec "Explicit strip with
 /// consent") when `intent` is `StripProtection` — `pdf-save` itself never
 /// touches `EditLog`/`AuditLog`; the FFI boundary is exactly where the
