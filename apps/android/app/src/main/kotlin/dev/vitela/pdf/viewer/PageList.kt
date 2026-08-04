@@ -1,8 +1,11 @@
 package dev.vitela.pdf.viewer
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -183,25 +186,36 @@ private fun PageSlot(
                         }
                     }
                     .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId) {
-                        detectDragGestures(
-                            onDragStart = { offset ->
-                                origin = point(offset)
+                        val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downPoint = point(down.position)
+                            val selected = state.annotations.firstOrNull { it.id == state.selectedAnnotationId && it.pageIndex == pageIndex }
+                            // A drawing tool always claims the gesture; the pointer
+                            // tool only claims it on a hit against the selected
+                            // annotation's body or a resize handle. Anything else
+                            // in pointer mode is left unconsumed so the enclosing
+                            // LazyColumn can still claim it as a scroll.
+                            val claimsGesture = state.activeAnnotationTool != AnnotationTool.Pointer ||
+                                (selected != null && dragModeAt(selected, downPoint, reach) != null)
+                            if (!claimsGesture) return@awaitEachGesture
+
+                            val slopChange = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                            if (slopChange != null) {
+                                origin = point(slopChange.position)
                                 current = origin
                                 stroke = listOf(requireNotNull(origin))
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                current = point(change.position)
-                                if (state.activeAnnotationTool == AnnotationTool.Ink) stroke = stroke + requireNotNull(current)
-                            },
-                            onDragEnd = {
+                                val completed = drag(slopChange.id) { change ->
+                                    change.consume()
+                                    current = point(change.position)
+                                    if (state.activeAnnotationTool == AnnotationTool.Ink) stroke = stroke + requireNotNull(current)
+                                }
                                 val start = origin
                                 val end = current
-                                if (start != null && end != null) onAnnotationGesture(pageIndex, start, end, stroke, handleReachPoints(HANDLE_REACH_DP, density, scale))
+                                if (completed && start != null && end != null) onAnnotationGesture(pageIndex, start, end, stroke, reach)
                                 origin = null; current = null; stroke = emptyList()
-                            },
-                            onDragCancel = { origin = null; current = null; stroke = emptyList() },
-                        )
+                            }
+                        }
                     },
             ) {
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->
