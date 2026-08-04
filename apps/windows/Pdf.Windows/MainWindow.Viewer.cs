@@ -121,6 +121,12 @@ public sealed partial class MainWindow
         var span = _spans[Math.Clamp(anchor.PageIndex, 0, _spans.Count - 1)];
         PageScroller.ChangeView(null, span.Top + (anchor.Fraction * span.Height), null, disableAnimation: true);
         UpdateViewport(intermediate: false);
+        // Annotation visuals are sized in screen pixels from `slot.Scale`, which
+        // `LayoutPages` just moved. Unlike the page bitmap — which the Image
+        // stretches into its new box on its own — the overlay is rebuilt from
+        // PDF points on every paint, so without this the previous zoom's
+        // geometry stays on screen until some unrelated edit repaints it.
+        RedrawAnnotations();
     }
 
     /// <summary>

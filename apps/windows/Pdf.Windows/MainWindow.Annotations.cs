@@ -3,8 +3,12 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Viewer;
+using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.Storage.Streams;
 
 namespace Pdf.Windows;
 
@@ -40,6 +44,7 @@ public sealed partial class MainWindow
     private AnnotationState? _annotationState;
     private ulong? _selectedAnnotationId;
     private PointerDrag? _pointerDrag;
+    private readonly StampPreviewCache<BitmapImage> _stampPreviews = new();
 
     private void HighlightButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Highlight);
     private void UnderlineButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Underline);
@@ -249,7 +254,7 @@ public sealed partial class MainWindow
         var rect = NormalizedRect(completed.Origin, completed.Current, tool);
         if (tool == AnnotationKind.Stamp)
         {
-            await ApplyStampAsync((uint)pageIndex, rect);
+            await InsertStampFromImageBytesAsync(_session!.SessionId, (uint)pageIndex, rect, PlaceholderStampPng);
             return;
         }
         var contents = tool == AnnotationKind.TextNote ? "Note" : null;
@@ -261,15 +266,48 @@ public sealed partial class MainWindow
     /// is its own FFI entrypoint because it carries image bytes, not a small
     /// value type.
     /// </summary>
-    private async Task ApplyStampAsync(uint pageIndex, PdfCoreRect rect)
+    private async Task InsertStampFromImageBytesAsync(string sessionId, uint pageIndex, PdfCoreRect rect, byte[] imageBytes)
     {
-        if (_session is null) return;
-        var result = await _facade.InsertStampAsync(_session.SessionId, pageIndex, PlaceholderStampPng, rect);
+        if (!ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) return;
+        if (_annotationState?.EditingAllowed != true) return;
+
+        var before = _annotationState.Annotations;
+        var result = await _facade.InsertStampAsync(sessionId, pageIndex, imageBytes, rect);
         if (!result.IsSuccess) { AnnotationStatus.Text = result.Error!.Message; return; }
+        if (!ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) return;
         _annotationState = result.Value!;
-        AnnotationStatus.Text = "Annotation edited. Changes are pending save.";
+        if (StampPreviewReconciliation.InsertedStampId(before, _annotationState.Annotations) is { } annotationId)
+        {
+            // A stamp arrives where the user pointed, at a default size they
+            // will usually want to move or resize — so it lands selected, with
+            // handles up and Nudge/Grow/Delete live, exactly as the Linux shell
+            // does in `stamp_from_image_bytes`. Set before the controls refresh
+            // below, which reads the selection.
+            _selectedAnnotationId = annotationId;
+            try
+            {
+                var preview = await DecodeStampPreviewAsync(imageBytes);
+                if (ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) _stampPreviews.Set(sessionId, annotationId, preview);
+            }
+            catch (Exception)
+            {
+                // A valid PDF stamp can still lack a local preview; keep the rect fallback.
+            }
+        }
+        if (!ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) return;
+        AnnotationStatus.Text = "Image stamp added. Changes are pending save.";
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
+    }
+
+    private static async Task<BitmapImage> DecodeStampPreviewAsync(byte[] imageBytes)
+    {
+        using var stream = new InMemoryRandomAccessStream();
+        await stream.WriteAsync(imageBytes.AsBuffer());
+        stream.Seek(0);
+        var preview = new BitmapImage();
+        await preview.SetSourceAsync(stream);
+        return preview;
     }
 
     private async Task ApplyEditAsync(PdfCoreEdit edit)
@@ -500,6 +538,21 @@ public sealed partial class MainWindow
 
     private void DrawAnnotationShape(PageSlot slot, uint pageIndex, Annotation annotation, AnnotationRect rect, AnnotationColor color, bool selected)
     {
+        // The rect arrives from the caller rather than from the annotation, so
+        // a stamp being dragged or resized is painted at the geometry under the
+        // pointer, and every paint re-reads slot.Scale — which is what keeps
+        // the image in step with a zoom.
+        if (annotation.Kind == AnnotationKind.Stamp
+            && _session is { } session
+            && _stampPreviews.IsCurrent(session.SessionId)
+            && _stampPreviews.TryGet(annotation.Id, out var preview))
+        {
+            var image = new Image { Source = preview, Width = rect.Width * slot.Scale, Height = rect.Height * slot.Scale, Stretch = Stretch.Fill };
+            Canvas.SetLeft(image, rect.X * slot.Scale);
+            Canvas.SetTop(image, (session.Pages[(int)pageIndex].HeightPt - rect.Y - rect.Height) * slot.Scale);
+            slot.Highlights.Children.Add(image);
+            return;
+        }
         var isRule = annotation.Kind is AnnotationKind.Underline or AnnotationKind.Strikeout;
         var brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(220, color.R, color.G, color.B));
         var shape = new Rectangle { Width = rect.Width * slot.Scale, Height = Math.Max(2, rect.Height * slot.Scale), Stroke = isRule ? null : brush, Fill = annotation.Kind == AnnotationKind.Highlight ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(100, color.R, color.G, color.B)) : isRule ? brush : null, StrokeThickness = selected ? 3 : 2 };

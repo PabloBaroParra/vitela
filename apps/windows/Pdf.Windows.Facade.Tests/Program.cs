@@ -1,5 +1,6 @@
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
+using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
@@ -63,6 +64,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("blocks opening another document with unsaved annotations", BlocksOpenWithUnsavedAnnotationsAsync)
     ,("releases the guard once the edits are undone", ReleasesTheGuardOnceEditsAreUndoneAsync)
     ,("releases the guard once the edits are saved", ReleasesTheGuardOnceEditsAreSavedAsync)
+    ,("keeps stamp previews scoped to their document session", KeepsStampPreviewsScopedToSession)
+    ,("reconciles one inserted stamp from an annotation snapshot", ReconcilesInsertedStamp)
+    ,("rejects stale stamp input sessions", RejectsStaleStampInputSession)
     ,("maps unexpected save failures to user-safe results", MapsUnexpectedSaveFailureAsync)
 };
 
@@ -802,6 +806,40 @@ static async Task ReleasesTheGuardOnceEditsAreSavedAsync()
     Assert(state.Value!.CanUndo, "the edit log must still hold the saved edit for this to prove anything");
     var open = await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
     Assert(open.IsSuccess, "a saved document has no pending work, however full its undo stack");
+}
+
+static Task KeepsStampPreviewsScopedToSession()
+{
+    var previews = new StampPreviewCache<string>();
+    Assert(previews.BeginSession("first"), "the first document session must initialize the cache");
+    previews.Set("first", 7, "preview");
+    Assert(previews.TryGet(7, out var preview) && preview == "preview", "a preview must be available during its session");
+    previews.Set("stale", 8, "ignored");
+    Assert(!previews.TryGet(8, out _), "a stale operation must not publish into the current cache");
+    Assert(!previews.BeginSession("first"), "reusing a session must preserve undo/redo previews");
+    Assert(previews.TryGet(7, out _), "the same session must retain its preview");
+    Assert(previews.BeginSession("second"), "a replacement document must start a new cache");
+    Assert(!previews.TryGet(7, out _), "a replacement document must clear the old previews");
+    return Task.CompletedTask;
+}
+
+static Task ReconcilesInsertedStamp()
+{
+    var existing = new Annotation(1, 0, AnnotationKind.Shape, new AnnotationRect(0, 0, 10, 10), null, []);
+    var stamp = new Annotation(2, 0, AnnotationKind.Stamp, new AnnotationRect(10, 10, 20, 20), null, []);
+    Assert(StampPreviewReconciliation.InsertedStampId([existing], [existing, stamp]) == stamp.Id, "the new stamp ID must receive the decoded preview");
+    Assert(StampPreviewReconciliation.InsertedStampId([existing], [existing]) is null, "a non-insertion snapshot must not claim a preview");
+    var secondStamp = new Annotation(3, 0, AnnotationKind.Stamp, new AnnotationRect(20, 20, 20, 20), null, []);
+    Assert(StampPreviewReconciliation.InsertedStampId([existing], [existing, stamp, secondStamp]) is null, "an ambiguous snapshot must keep the rectangle fallback");
+    return Task.CompletedTask;
+}
+
+static Task RejectsStaleStampInputSession()
+{
+    Assert(ImageStampInput.SessionMatches("active", "active"), "the current session may insert a stamp");
+    Assert(!ImageStampInput.SessionMatches("retired", "active"), "a replaced session must not mutate the current document");
+    Assert(!ImageStampInput.SessionMatches("retired", null), "a closed document must not accept in-flight input");
+    return Task.CompletedTask;
 }
 
 static async Task MapsUnexpectedSaveFailureAsync()
