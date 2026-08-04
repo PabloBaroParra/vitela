@@ -95,8 +95,17 @@ fn build_ui(application: &Application) {
     print_button.set_sensitive(false);
     let save_button = Button::with_label("Save as");
     save_button.set_sensitive(false);
+    // Bound to the actions rather than wired to a handler, so GTK greys them
+    // out whenever `win.undo`/`win.redo` are disabled. Offering Redo when the
+    // history has nothing to redo is a promise the toolbar cannot keep: the
+    // click is accepted, nothing changes, and the status line has to explain
+    // it after the fact. The accelerators were already gated on `can_undo`/
+    // `can_redo`; this is the same gate reaching the buttons, from the same
+    // source, instead of a second copy of the rule kept in step by hand.
     let undo_button = Button::with_label("Undo");
+    undo_button.set_action_name(Some("win.undo"));
     let redo_button = Button::with_label("Redo");
+    redo_button.set_action_name(Some("win.redo"));
     let zoom_out = Button::with_label("Zoom out");
     let fit_width = Button::with_label("Fit width");
     let fit_page = Button::with_label("Fit page");
@@ -150,6 +159,16 @@ fn build_ui(application: &Application) {
     content.append(&page_area);
     window.set_child(Some(&content));
 
+    // A `SimpleAction` starts enabled, and `update_annotation_controls` — the
+    // one place that maintains these — returns early when no document is open.
+    // Without this the toolbar would offer Undo and Redo on an empty window,
+    // before any history exists to act on. `print_button` and `save_button`
+    // start closed for the same reason, a few lines above.
+    let undo_action = gio::SimpleAction::new("undo", None);
+    let redo_action = gio::SimpleAction::new("redo", None);
+    undo_action.set_enabled(false);
+    redo_action.set_enabled(false);
+
     let viewer = Viewer {
         scroll,
         pages,
@@ -160,8 +179,8 @@ fn build_ui(application: &Application) {
         find_next,
         print_button,
         save_button,
-        undo_action: gio::SimpleAction::new("undo", None),
-        redo_action: gio::SimpleAction::new("redo", None),
+        undo_action,
+        redo_action,
         annotation_buttons: annotation_toolbar,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
@@ -213,14 +232,6 @@ fn build_ui(application: &Application) {
         move |_| show_save_chooser(&window, &viewer, &active_chooser)
     });
     connect_standard_shortcuts(application, &window, &viewer, &active_chooser);
-    undo_button.connect_clicked({
-        let viewer = viewer.clone();
-        move |_| annotations::undo(&viewer)
-    });
-    redo_button.connect_clicked({
-        let viewer = viewer.clone();
-        move |_| annotations::redo(&viewer)
-    });
 
     open_button.connect_clicked({
         let window = window.clone();
