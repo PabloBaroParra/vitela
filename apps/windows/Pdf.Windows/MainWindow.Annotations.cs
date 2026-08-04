@@ -117,13 +117,34 @@ public sealed partial class MainWindow
         await ApplyEditAsync(new PdfCoreEdit.Resize(id, grown));
     }
 
-    private async void DeleteAnnotationButton_Click(object sender, RoutedEventArgs e)
+    private async void DeleteAnnotationButton_Click(object sender, RoutedEventArgs e) => await DeleteSelectedAnnotationAsync();
+
+    /// <summary>
+    /// Delete removes the selected annotation, mirroring the Linux shell's
+    /// <c>win.delete-annotation</c> accel. Two things keep it from stealing the
+    /// key from the search box: the accelerator hangs off
+    /// <see cref="DeleteAnnotationButton"/>, which is disabled whenever nothing
+    /// is selected — the same guard the Linux comment relies on — and
+    /// <see cref="TextInputHasFocus"/> covers what that leaves open, an
+    /// annotation selected while the caret sits in a text field.
+    /// </summary>
+    private async void DeleteAnnotation_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_selectedAnnotationId is { } id)
+        if (TextInputHasFocus())
         {
-            await ApplyEditAsync(new PdfCoreEdit.Remove(id));
-            _selectedAnnotationId = null;
+            args.Handled = false;
+            return;
         }
+
+        args.Handled = true;
+        await DeleteSelectedAnnotationAsync();
+    }
+
+    private async Task DeleteSelectedAnnotationAsync()
+    {
+        if (_annotationState?.EditingAllowed != true || _selectedAnnotationId is not { } id) return;
+        await ApplyEditAsync(new PdfCoreEdit.Remove(id));
+        _selectedAnnotationId = null;
     }
 
     private void Arm(AnnotationKind? kind)

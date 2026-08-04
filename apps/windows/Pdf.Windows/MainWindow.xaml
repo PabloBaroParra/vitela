@@ -11,7 +11,14 @@
         toolbar buttons whose shortcut tooltip is worth showing set Auto back
         locally; dropping that override silently mutes Ctrl+Z and Ctrl+Y too.
     -->
-    <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,Auto,Auto,*" KeyboardAcceleratorPlacementMode="Hidden">
+    <!--
+        Background=Transparent so the window is hit-testable for drag and drop
+        over its empty areas — a Panel with no brush is not, and dropping a PDF
+        onto the empty state is the whole point. Same reason the page overlay
+        Canvas carries one.
+    -->
+    <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,Auto,Auto,*" KeyboardAcceleratorPlacementMode="Hidden"
+          Background="Transparent" AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteImage_Invoked" />
         </Grid.KeyboardAccelerators>
@@ -66,7 +73,9 @@
                     </Flyout>
                 </Button.Flyout>
             </Button>
-            <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click">Delete</Button>
+            <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click" KeyboardAcceleratorPlacementMode="Auto">Delete
+                <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteAnnotation_Invoked" /></Button.KeyboardAccelerators>
+            </Button>
         </StackPanel>
 
         <TextBlock x:Name="AnnotationStatus" Grid.Row="2" TextWrapping="Wrap" />
@@ -75,7 +84,7 @@
             <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="2" IsActive="False" Visibility="Collapsed" />
             <StackPanel x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
-                <TextBlock x:Name="EmptyStateMessage" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="Open a PDF to begin, or try the built-in sample." />
+                <TextBlock x:Name="EmptyStateMessage" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="Drop a PDF here to open it, or try the built-in sample." />
             </StackPanel>
             <TextBlock x:Name="ErrorState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
             <ScrollViewer

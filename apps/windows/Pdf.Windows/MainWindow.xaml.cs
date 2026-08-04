@@ -73,6 +73,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        await OpenStorageFileAsync(file);
+    }
+
+    /// <summary>
+    /// Reads a PDF the user chose and hands it to the shared open path. Both
+    /// ways in — the picker and a drop on the window — go through here, so
+    /// neither can drift from the other on read failures, the unsaved-changes
+    /// guard, or the password retry.
+    /// </summary>
+    private async Task OpenStorageFileAsync(StorageFile file)
+    {
         SetBusy(true);
         byte[] bytes;
         try

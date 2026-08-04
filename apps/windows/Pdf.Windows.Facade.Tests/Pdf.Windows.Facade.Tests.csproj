@@ -16,5 +16,6 @@
     <Compile Include="..\Pdf.Windows\Viewer\ViewportTilePlan.cs" Link="Viewer\ViewportTilePlan.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\StampPreviewCache.cs" Link="Viewer\StampPreviewCache.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ImageStampInput.cs" Link="Viewer\ImageStampInput.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\FileDropRouting.cs" Link="Viewer\FileDropRouting.cs" />
   </ItemGroup>
 </Project>
