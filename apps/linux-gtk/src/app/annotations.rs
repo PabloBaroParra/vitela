@@ -726,7 +726,8 @@ pub(crate) fn stamp_from_image_bytes(
     command(viewer, move |session| {
         let id = AnnotationId(session.next_annotation_id);
         let page = PageId(page_index as u32);
-        let rect = stamp_rect(point);
+        let rect = stamp_rect(&image_bytes, point)
+            .map_err(|error| format!("Could not use the image: {error}"))?;
         let annotation = pdf_annotate::stamp_from_image_bytes(id, page, &image_bytes, rect)
             .map_err(|error| format!("Could not use the image: {error}"))?;
         {
@@ -747,13 +748,13 @@ pub(crate) fn stamp_from_image_bytes(
 }
 
 /// Default stamp placement anchored at the pointer's top-left corner.
-fn stamp_rect(point: (f64, f64)) -> Rect {
-    Rect {
-        x: point.0,
-        y: point.1 - CLICK_SIZE_PT.1,
-        width: CLICK_SIZE_PT.0,
-        height: CLICK_SIZE_PT.1,
-    }
+///
+/// The size comes from the core, not from here: a dropped or pasted image
+/// keeps its own proportions, so the WinUI shell — which reaches the same
+/// function through `pdf_ffi::stamp_placement` — cannot disagree with this one
+/// about where a given image lands.
+fn stamp_rect(image_bytes: &[u8], point: (f64, f64)) -> Result<Rect, pdf_annotate::AnnotateError> {
+    pdf_annotate::stamp_placement(image_bytes, point, pdf_annotate::DEFAULT_STAMP_MAX_SIDE_PT)
 }
 
 /// Whether the pointer travelled far enough for this to be a drag rather than
@@ -1426,11 +1427,55 @@ mod tests {
         assert_eq!((rect.x, rect.y), (200.0, 500.0 - height));
     }
 
+    /// A wide RGB PNG at 3:1 — deliberately *not* `CLICK_SIZE_PT`'s own 4:1
+    /// ratio, which is the one shape where the old fixed rect happened to be
+    /// right and so proves nothing.
+    fn wide_png() -> Vec<u8> {
+        use image::{DynamicImage, ImageFormat, RgbImage};
+        use std::io::Cursor;
+
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(300, 100, image::Rgb([10, 20, 30])))
+            .write_to(&mut buf, ImageFormat::Png)
+            .expect("encoding a test png should succeed");
+        buf.into_inner()
+    }
+
     #[test]
     fn an_image_stamp_is_anchored_at_its_drop_point() {
-        let rect = stamp_rect((200.0, 500.0));
+        let rect = stamp_rect(&wide_png(), (200.0, 500.0)).expect("valid png");
 
-        assert_eq!((rect.x, rect.y), (200.0, 500.0 - CLICK_SIZE_PT.1));
+        assert_eq!((rect.x, rect.y), (200.0, 500.0 - rect.height));
+    }
+
+    #[test]
+    fn an_image_stamp_keeps_its_own_proportions_rather_than_the_click_size() {
+        let rect = stamp_rect(&wide_png(), (200.0, 500.0)).expect("valid png");
+
+        // 3:1 in, 3:1 out. The old behaviour squashed every image into
+        // `CLICK_SIZE_PT`, which is a text-annotation size, not an image one.
+        assert_eq!((rect.width, rect.height), (144.0, 48.0));
+        assert_ne!((rect.width, rect.height), CLICK_SIZE_PT);
+    }
+
+    #[test]
+    fn a_square_image_is_not_flattened_into_a_strip() {
+        use image::{DynamicImage, ImageFormat, RgbImage};
+        use std::io::Cursor;
+
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(64, 64, image::Rgb([10, 20, 30])))
+            .write_to(&mut buf, ImageFormat::Png)
+            .expect("encoding a test png should succeed");
+
+        let rect = stamp_rect(&buf.into_inner(), (200.0, 500.0)).expect("valid png");
+
+        assert_eq!(rect.width, rect.height);
+    }
+
+    #[test]
+    fn an_image_that_cannot_be_decoded_yields_no_rect() {
+        assert!(stamp_rect(b"not an image", (200.0, 500.0)).is_err());
     }
 
     #[test]
