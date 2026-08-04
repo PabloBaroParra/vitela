@@ -34,9 +34,9 @@ public sealed partial class MainWindow
 
     private void ConnectFileDrop(PageSlot slot, int pageIndex)
     {
-        slot.Highlights.AllowDrop = true;
-        slot.Highlights.DragOver += (_, args) => AcceptFileDrop(args);
-        slot.Highlights.Drop += async (_, args) => await DropOnPageAsync(slot, pageIndex, args);
+        slot.Annotations.AllowDrop = true;
+        slot.Annotations.DragOver += (_, args) => AcceptFileDrop(args);
+        slot.Annotations.Drop += async (_, args) => await DropOnPageAsync(slot, pageIndex, args);
     }
 
     private static void AcceptFileDrop(DragEventArgs args)
@@ -95,7 +95,7 @@ public sealed partial class MainWindow
         var deferral = args.GetDeferral();
         try
         {
-            var point = ToPdf(slot, pageIndex, args.GetPosition(slot.Highlights));
+            var point = ToPdf(slot, pageIndex, args.GetPosition(slot.Annotations));
             if (await FirstActionableFileAsync(args.DataView) is not { } dropped)
             {
                 AnnotationStatus.Text = UnsupportedDropMessage;

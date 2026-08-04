@@ -73,27 +73,43 @@ public sealed partial class MainWindow
         ShowSearchHighlight(pageIndex, hit.CharacterBounds);
     }
 
+    /// <summary>
+    /// The hit currently painted, kept so a zoom can repaint it. The geometry
+    /// is in PDF points and the paint multiplies by <c>slot.Scale</c>, so a
+    /// highlight drawn once and left alone would keep the scale it was drawn
+    /// at — the same defect the annotation overlay had.
+    /// </summary>
+    private (int PageIndex, IReadOnlyList<SearchRect> Bounds)? _searchHighlight;
+
     private void ClearSearchResults()
     {
         SearchResultsList.Items.Clear();
         SearchStatus.Text = "";
+        _searchHighlight = null;
         foreach (var slot in _slots)
         {
-            slot.Highlights.Children.Clear();
+            slot.SearchHighlights.Children.Clear();
         }
     }
 
     private void ShowSearchHighlight(int pageIndex, IReadOnlyList<SearchRect> bounds)
     {
+        _searchHighlight = (pageIndex, bounds);
+        RedrawSearchHighlight();
+    }
+
+    private void RedrawSearchHighlight()
+    {
         foreach (var slot in _slots)
         {
-            slot.Highlights.Children.Clear();
+            slot.SearchHighlights.Children.Clear();
         }
 
-        var page = _session!.Pages[pageIndex];
+        if (_searchHighlight is not (var pageIndex, var bounds)) return;
+        if (_session is null || pageIndex >= _slots.Count || pageIndex >= _session.Pages.Count) return;
+
+        var page = _session.Pages[pageIndex];
         var target = _slots[pageIndex];
-        // Highlights follow the page they sit on, so they track the current
-        // zoom instead of a scale fixed at build time.
         var scale = target.Scale;
         foreach (var boundsRect in bounds)
         {
@@ -107,7 +123,7 @@ public sealed partial class MainWindow
             };
             Canvas.SetLeft(rectangle, boundsRect.XPt * scale);
             Canvas.SetTop(rectangle, (page.HeightPt - boundsRect.YPt - boundsRect.HeightPt) * scale);
-            target.Highlights.Children.Add(rectangle);
+            target.SearchHighlights.Children.Add(rectangle);
         }
     }
 }
