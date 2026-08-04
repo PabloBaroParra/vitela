@@ -72,6 +72,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("reports the core image validation failure clearly", ReportsInvalidStampImageAsync)
     ,("routes a dropped PDF to open and a dropped image to stamp", RoutesDroppedFilesByKind)
     ,("acts on one file out of a multi-file drop", ActsOnOneDroppedFile)
+    ,("writes a failure where its correlation id can be looked up", WritesRetrievableDiagnosticsAsync)
+    ,("caps the diagnostic log and keeps one generation back", CapsTheDiagnosticLog)
+    ,("never lets diagnostics throw into the operation", SwallowsDiagnosticWriteFailures)
     ,("maps unexpected save failures to user-safe results", MapsUnexpectedSaveFailureAsync)
 };
 
@@ -892,6 +895,75 @@ static Task ActsOnOneDroppedFile()
     Assert(chosen is { Item: "first.pdf", Kind: DroppedFileKind.Document }, "unsupported entries are skipped and the first actionable file wins");
     Assert(FileDropRouting.FirstActionable(["a.txt", "b.zip"], path => path) is null, "a drop with nothing actionable must report no choice");
     Assert(FileDropRouting.FirstActionable(Array.Empty<string>(), path => path) is null, "an empty drop must report no choice");
+    return Task.CompletedTask;
+}
+
+/// <summary>
+/// The whole point of the correlation id: the user reports it, and somebody
+/// can find the entry it refers to. Before the log existed, the detail went
+/// only to `Debug.WriteLine` — invisible without a debugger, and absent from a
+/// Release build.
+/// </summary>
+static async Task WritesRetrievableDiagnosticsAsync()
+{
+    var path = Path.Combine(Path.GetTempPath(), $"vitela-diag-{Guid.NewGuid():N}", "diagnostics.log");
+    try
+    {
+        using var facade = new PdfDocumentFacade(new FakeCore { OpenError = PdfCoreError.Io }, new FileDiagnosticLogger(path));
+        var result = await facade.OpenAsync(new DocumentSource("broken.pdf", [1]));
+        Assert(!result.IsSuccess, "the open must fail for this to prove anything");
+
+        var written = await File.ReadAllTextAsync(path);
+        Assert(written.Contains(result.Error!.CorrelationId, StringComparison.Ordinal), "the reference shown to the user must appear in the log");
+        Assert(written.Contains("Io", StringComparison.Ordinal), "the failure category must be recoverable from the log");
+        Assert(written.Contains("open", StringComparison.Ordinal), "the operation must be recoverable from the log");
+        Assert(!written.Contains("broken.pdf", StringComparison.Ordinal), "the document name must not reach the log");
+    }
+    finally
+    {
+        if (Path.GetDirectoryName(path) is { } directory && Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+    }
+}
+
+static Task CapsTheDiagnosticLog()
+{
+    var directory = Path.Combine(Path.GetTempPath(), $"vitela-diag-{Guid.NewGuid():N}");
+    var path = Path.Combine(directory, "diagnostics.log");
+    try
+    {
+        var logger = new FileDiagnosticLogger(path, maxBytes: 512);
+        for (var i = 0; i < 40; i++)
+        {
+            logger.Failure(PdfCoreError.Internal, "render", $"correlation{i}", "session", 0, "typed_failure");
+        }
+
+        Assert(new FileInfo(path).Length < 512, "the live log must stay under its cap");
+        Assert(File.Exists(path + ".1"), "one generation back must survive rotation");
+        Assert(File.ReadAllText(path).Contains("correlation39", StringComparison.Ordinal), "the most recent failure must be in the live log");
+    }
+    finally
+    {
+        if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+    }
+    return Task.CompletedTask;
+}
+
+/// <summary>A log that cannot be written must not become the failure it exists to explain.</summary>
+static Task SwallowsDiagnosticWriteFailures()
+{
+    // An existing *directory* where the log file should go: creating the
+    // parent succeeds, appending to it cannot.
+    var directory = Path.Combine(Path.GetTempPath(), $"vitela-diag-{Guid.NewGuid():N}");
+    var path = Path.Combine(directory, "diagnostics.log");
+    Directory.CreateDirectory(path);
+    try
+    {
+        new FileDiagnosticLogger(path).Failure(PdfCoreError.Internal, "save", "correlation", null, null, "typed_failure");
+    }
+    finally
+    {
+        if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+    }
     return Task.CompletedTask;
 }
 

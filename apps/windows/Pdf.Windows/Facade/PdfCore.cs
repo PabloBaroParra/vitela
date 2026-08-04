@@ -131,10 +131,3 @@ internal interface IDiagnosticLogger
     void Failure(PdfCoreError category, string operation, string correlationId, string? sessionId, uint? pageIndex, string sanitizedDetail);
 }
 
-internal sealed class DebugDiagnosticLogger : IDiagnosticLogger
-{
-    public void Failure(PdfCoreError category, string operation, string correlationId, string? sessionId, uint? pageIndex, string sanitizedDetail)
-    {
-        System.Diagnostics.Debug.WriteLine($"PDF failure {category} {operation} {correlationId} {sessionId} {pageIndex} {sanitizedDetail}");
-    }
-}

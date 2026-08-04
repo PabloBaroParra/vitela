@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="..\Pdf.Windows\Facade\Models.cs" Link="Facade\Models.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfCore.cs" Link="Facade\PdfCore.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\DiagnosticLog.cs" Link="Facade\DiagnosticLog.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.cs" Link="Facade\PdfDocumentFacade.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageZoom.cs" Link="Viewer\PageZoom.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageRenderPlan.cs" Link="Viewer\PageRenderPlan.cs" />

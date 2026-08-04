@@ -40,7 +40,7 @@ public sealed partial class MainWindow : Window
     private static readonly string Rc4128SamplePath = Path.Combine(AppContext.BaseDirectory, "Assets", "rc4_128_user_and_owner.pdf");
     private const string Rc4128SampleDisplayName = "RC4-128 sample.pdf";
 
-    private readonly PdfDocumentFacade _facade = new(new GeneratedPdfCore(), new DebugDiagnosticLogger());
+    private readonly PdfDocumentFacade _facade = new(new GeneratedPdfCore(), new FileDiagnosticLogger(FileDiagnosticLogger.DefaultPath));
     private DocumentSession? _session;
     private bool _isBusy;
 
