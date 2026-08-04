@@ -67,6 +67,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("keeps stamp previews scoped to their document session", KeepsStampPreviewsScopedToSession)
     ,("reconciles one inserted stamp from an annotation snapshot", ReconcilesInsertedStamp)
     ,("rejects stale stamp input sessions", RejectsStaleStampInputSession)
+    ,("routes PNG and JPEG image signatures", RoutesSupportedStampSignatures)
+    ,("rejects non-image files before stamp insertion", RejectsUnsupportedStampInput)
+    ,("reports the core image validation failure clearly", ReportsInvalidStampImageAsync)
     ,("maps unexpected save failures to user-safe results", MapsUnexpectedSaveFailureAsync)
 };
 
@@ -842,6 +845,32 @@ static Task RejectsStaleStampInputSession()
     return Task.CompletedTask;
 }
 
+static Task RoutesSupportedStampSignatures()
+{
+    Assert(ImageStampInput.HasSupportedFileExtension("stamp.PNG"), "PNG extensions must be accepted case-insensitively");
+    Assert(ImageStampInput.HasSupportedFileExtension("stamp.jpeg"), "JPEG extensions must be accepted");
+    Assert(ImageStampInput.HasSupportedSignature([137, 80, 78, 71, 13, 10, 26, 10]), "a PNG signature must route to insertion");
+    Assert(ImageStampInput.HasSupportedSignature([0xff, 0xd8, 0xff, 0xe0]), "a JPEG signature must route to insertion");
+    return Task.CompletedTask;
+}
+
+static Task RejectsUnsupportedStampInput()
+{
+    Assert(!ImageStampInput.HasSupportedFileExtension("stamp.gif"), "only PNG and JPEG local files are accepted");
+    Assert(!ImageStampInput.HasSupportedSignature("not an image"u8), "non-image bytes must not reach the core");
+    Assert(ImageStampInput.HasSupportedSignature([137, 80, 78, 71, 13, 10, 26, 10, 1]), "recognized but corrupt images must reach the core validator");
+    return Task.CompletedTask;
+}
+
+static async Task ReportsInvalidStampImageAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore { InsertStampError = PdfCoreError.InvalidImage }, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var result = await facade.InsertStampAsync(session.SessionId, 0, [137, 80, 78, 71, 13, 10, 26, 10], new PdfCoreRect(10, 20, 30, 40));
+    Assert(!result.IsSuccess, "the core must reject corrupt image content");
+    Assert(result.Error!.Message == "The image is corrupt or unsupported.", "core image failures must have clear user feedback");
+}
+
 static async Task MapsUnexpectedSaveFailureAsync()
 {
     using var facade = new PdfDocumentFacade(new FakeCore { SaveThrowsUnexpected = true }, new RecordingLogger());
@@ -918,6 +947,7 @@ sealed class FakeCore : IPdfCore
     public bool BlockFirstSearch { get; init; }
     public bool BlockSave { get; init; }
     public bool SaveThrowsUnexpected { get; init; }
+    public PdfCoreError? InsertStampError { get; init; }
     public TaskCompletionSource FirstRenderStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public ManualResetEventSlim ReleaseFirstRender { get; } = new(false);
     public TaskCompletionSource FirstSearchStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -990,6 +1020,7 @@ sealed class FakeCore : IPdfCore
     }
     public void InsertImageStamp(IPdfCoreDocument document, uint pageIndex, byte[] imageBytes, PdfCoreRect rect)
     {
+        if (InsertStampError is { } error) throw new PdfCoreException(error, "invalid image");
         var fake = (FakeDocument)document;
         if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "annotation editing is not permitted");
         fake.InsertStamp(pageIndex, rect);
