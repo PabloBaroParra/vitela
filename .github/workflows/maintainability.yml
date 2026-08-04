@@ -1,0 +1,21 @@
+name: maintainability
+
+# Advisory review prompts for maintained source only. This workflow deliberately
+# uses a repository script and the runner's Python standard library instead of
+# downloading an unpinned complexity or duplication binary.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  advisory:
+    name: size, complexity, and duplication review prompts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Report maintainability warnings
+        run: python3 scripts/check_maintainability.py

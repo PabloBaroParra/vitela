@@ -43,3 +43,41 @@ State plainly what was verified and what was not. "Tests pass" is not a result;
 name the command and paste the outcome. If a workflow never ran — because it was
 skipped, cancelled, or the account was blocked — then that commit has **no CI
 evidence**, and it must be described that way rather than as green.
+
+## Architecture and maintainability protocol
+
+### Before changing code
+
+1. State the responsibility of the area you intend to change and the behaviour
+   it owns.
+2. Trace its direct dependencies and callers, including platform and FFI
+   boundaries. Do not infer a shared contract from similarly named code.
+3. Define the boundary of the change: what remains UI, use-case orchestration,
+   I/O or FFI, and state. Keep unrelated cleanup out of the same change.
+
+### Structure and ownership
+
+- Keep UI rendering and event wiring separate from use cases. Use cases own
+  application decisions; I/O, native APIs, and FFI remain at explicit adapters
+  or boundaries; state has a single clear owner.
+- Cross-platform behaviour belongs in the Rust core or an intentionally shared
+  module. Do not copy it between platform shells. A platform-specific adapter is
+  acceptable only when the platform API or presentation genuinely differs; say
+  why in the PR.
+- File and function size are review signals, not arbitrary quotas. When a unit
+  is large or branch-heavy, either split by a real responsibility or justify why
+  the unit is cohesive. Do not create tiny forwarding modules, one-use wrappers,
+  or artificial layers solely to satisfy a metric.
+
+### Controlled refactoring
+
+- Refactor separately from behaviour changes whenever practical. If they must
+  be together, identify the preserved behaviour and why separating the work
+  would make the change less safe.
+- Preserve observable behaviour, public contracts, error handling, and platform
+  parity unless the change explicitly intends otherwise. Add or retain tests
+  that demonstrate the preserved behaviour, then run the relevant platform and
+  core gates.
+- Treat maintainability findings as review prompts. Record any accepted
+  exception in the PR description and commit body, with scope, reason, and the
+  removal or review condition. See `docs/maintainability.md`.

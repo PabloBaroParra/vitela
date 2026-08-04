@@ -31,6 +31,13 @@ The PR title becomes the squashed commit message. Use Conventional Commits:
 
 <!-- e.g. "macOS and iOS — no Mac available; relying on CI." Delete if none. -->
 
+## Maintainability exceptions
+
+<!-- If the maintainability workflow reports a finding you are retaining, state
+     the path/finding, narrow scope, reason it remains cohesive or is a justified
+     adapter, and its review/removal condition. Also document exclusions changed
+     in .maintainabilityignore. Delete if none. -->
+
 ## Guarantees
 
 Tick only what applies, and explain in one line if any is unticked.
