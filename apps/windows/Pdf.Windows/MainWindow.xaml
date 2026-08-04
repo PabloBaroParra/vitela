@@ -3,7 +3,18 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="PDF">
-    <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,Auto,Auto,*">
+    <!--
+        KeyboardAcceleratorPlacementMode=Hidden because the paste accelerator
+        sits on the root Grid to catch Ctrl+V anywhere in the window, and Auto
+        would advertise it as a tooltip over that whole surface — a "Ctrl+V"
+        label floating in the middle of the page. The property INHERITS, so the
+        toolbar buttons whose shortcut tooltip is worth showing set Auto back
+        locally; dropping that override silently mutes Ctrl+Z and Ctrl+Y too.
+    -->
+    <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,Auto,Auto,*" KeyboardAcceleratorPlacementMode="Hidden">
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteImage_Invoked" />
+        </Grid.KeyboardAccelerators>
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
             <Button x:Name="OpenButton" Click="OpenButton_Click">Open</Button>
             <Button x:Name="OpenSampleButton" Content="Open sample">
@@ -24,11 +35,11 @@
             <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" ToolTipService.ToolTip="Zoom in">&#x002B;</Button>
             <Button x:Name="FitWidthButton" Click="FitWidthButton_Click">Fit width</Button>
             <Button x:Name="FitPageButton" Click="FitPageButton_Click">Fit page</Button>
-            <Button x:Name="UndoButton" Click="UndoButton_Click">
+            <Button x:Name="UndoButton" Click="UndoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
                 Undo
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Z" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
-            <Button x:Name="RedoButton" Click="RedoButton_Click">
+            <Button x:Name="RedoButton" Click="RedoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
                 Redo
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>

@@ -701,7 +701,8 @@ public sealed class PdfDocumentFacade : IDisposable
         {
             PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword => "This document requires a password.",
             PdfCoreError.UnsupportedSecurityHandler or PdfCoreError.UnsupportedOperation => "This document or action is not supported.",
-            PdfCoreError.InvalidImage or PdfCoreError.InvalidSaveRequest => "The requested action could not be completed.",
+            PdfCoreError.InvalidImage => "The image is corrupt or unsupported.",
+            PdfCoreError.InvalidSaveRequest => "The requested action could not be completed.",
             PdfCoreError.PageIndexOutOfBounds or PdfCoreError.AnnotationNotFound or PdfCoreError.BitmapNotFound => "The document changed. Please try again.",
             _ => "The document could not be processed."
         };

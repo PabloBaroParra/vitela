@@ -138,6 +138,7 @@ public sealed partial class MainWindow
         slot.Highlights.PointerPressed += (_, args) => BeginAnnotationPointer(slot, pageIndex, args);
         slot.Highlights.PointerMoved += (_, args) => ContinueAnnotationPointer(slot, pageIndex, args);
         slot.Highlights.PointerReleased += async (_, args) => await EndAnnotationPointerAsync(slot, pageIndex, args);
+        ConnectFileDrop(slot, pageIndex);
     }
 
     private void BeginAnnotationPointer(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
@@ -270,6 +271,11 @@ public sealed partial class MainWindow
     {
         if (!ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) return;
         if (_annotationState?.EditingAllowed != true) return;
+        if (!ImageStampInput.HasSupportedSignature(imageBytes))
+        {
+            AnnotationStatus.Text = "The image is not a supported PNG or JPEG.";
+            return;
+        }
 
         var before = _annotationState.Annotations;
         var result = await _facade.InsertStampAsync(sessionId, pageIndex, imageBytes, rect);
