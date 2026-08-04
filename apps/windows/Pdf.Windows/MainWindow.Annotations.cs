@@ -156,16 +156,16 @@ public sealed partial class MainWindow
 
     private void ConnectAnnotationPointer(PageSlot slot, int pageIndex)
     {
-        slot.Highlights.PointerPressed += (_, args) => BeginAnnotationPointer(slot, pageIndex, args);
-        slot.Highlights.PointerMoved += (_, args) => ContinueAnnotationPointer(slot, pageIndex, args);
-        slot.Highlights.PointerReleased += async (_, args) => await EndAnnotationPointerAsync(slot, pageIndex, args);
+        slot.Annotations.PointerPressed += (_, args) => BeginAnnotationPointer(slot, pageIndex, args);
+        slot.Annotations.PointerMoved += (_, args) => ContinueAnnotationPointer(slot, pageIndex, args);
+        slot.Annotations.PointerReleased += async (_, args) => await EndAnnotationPointerAsync(slot, pageIndex, args);
         ConnectFileDrop(slot, pageIndex);
     }
 
     private void BeginAnnotationPointer(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
         if (_session is null || _annotationState?.EditingAllowed != true) return;
-        var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Highlights).Position);
+        var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
 
         if (_armedAnnotation is { } kind)
         {
@@ -187,7 +187,7 @@ public sealed partial class MainWindow
 
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
-        slot.Highlights.CapturePointer(args.Pointer);
+        slot.Annotations.CapturePointer(args.Pointer);
     }
 
     /// <summary>
@@ -221,7 +221,7 @@ public sealed partial class MainWindow
     private void ContinueAnnotationPointer(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
         if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return;
-        var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Highlights).Position);
+        var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _pointerDrag = drag with { Current = point };
         drag.Points?.Add(point);
         RedrawAnnotations();
@@ -230,10 +230,10 @@ public sealed partial class MainWindow
     private async Task EndAnnotationPointerAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
         if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return;
-        var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Highlights).Position);
+        var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _pointerDrag = drag with { Current = point };
         drag.Points?.Add(point);
-        slot.Highlights.ReleasePointerCapture(args.Pointer);
+        slot.Annotations.ReleasePointerCapture(args.Pointer);
         var completed = _pointerDrag.Value;
         _pointerDrag = null;
         if (completed.Tool is { } tool)
@@ -483,7 +483,7 @@ public sealed partial class MainWindow
 
     private void RedrawAnnotations()
     {
-        foreach (var slot in _slots) slot.Highlights.Children.Clear();
+        foreach (var slot in _slots) slot.Annotations.Children.Clear();
         if (_annotationState is null) return;
 
         var draggedId = _pointerDrag is { Tool: null, Annotation: { } dragged } ? dragged.Id : (ulong?)null;
@@ -538,7 +538,7 @@ public sealed partial class MainWindow
                 var preview = new Rectangle { Width = rect.Width * slot.Scale, Height = Math.Max(2, rect.Height * slot.Scale), Stroke = isRule ? null : new SolidColorBrush(Colors.Goldenrod), Fill = isRule ? new SolidColorBrush(Colors.Goldenrod) : null, StrokeThickness = 2 };
                 Canvas.SetLeft(preview, rect.X * slot.Scale);
                 Canvas.SetTop(preview, (_session!.Pages[toolDrag.PageIndex].HeightPt - rect.Y - rect.Height) * slot.Scale);
-                slot.Highlights.Children.Add(preview);
+                slot.Annotations.Children.Add(preview);
             }
         }
     }
@@ -577,7 +577,7 @@ public sealed partial class MainWindow
             var image = new Image { Source = preview, Width = rect.Width * slot.Scale, Height = rect.Height * slot.Scale, Stretch = Stretch.Fill };
             Canvas.SetLeft(image, rect.X * slot.Scale);
             Canvas.SetTop(image, (session.Pages[(int)pageIndex].HeightPt - rect.Y - rect.Height) * slot.Scale);
-            slot.Highlights.Children.Add(image);
+            slot.Annotations.Children.Add(image);
             return;
         }
         var isRule = annotation.Kind is AnnotationKind.Underline or AnnotationKind.Strikeout;
@@ -585,7 +585,7 @@ public sealed partial class MainWindow
         var shape = new Rectangle { Width = rect.Width * slot.Scale, Height = Math.Max(2, rect.Height * slot.Scale), Stroke = isRule ? null : brush, Fill = annotation.Kind == AnnotationKind.Highlight ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(100, color.R, color.G, color.B)) : isRule ? brush : null, StrokeThickness = selected ? 3 : 2 };
         Canvas.SetLeft(shape, rect.X * slot.Scale);
         Canvas.SetTop(shape, (_session!.Pages[(int)pageIndex].HeightPt - rect.Y - rect.Height) * slot.Scale);
-        slot.Highlights.Children.Add(shape);
+        slot.Annotations.Children.Add(shape);
     }
 
     /// <summary>A freehand stroke as a polyline — <c>Ink</c> has no rect, only the traced points.</summary>
@@ -605,7 +605,7 @@ public sealed partial class MainWindow
         {
             polyline.Points.Add(new global::Windows.Foundation.Point(point.X * slot.Scale, (pageHeightPt - point.Y) * slot.Scale));
         }
-        slot.Highlights.Children.Add(polyline);
+        slot.Annotations.Children.Add(polyline);
     }
 
     /// <summary>
@@ -621,7 +621,7 @@ public sealed partial class MainWindow
             var handle = new Rectangle { Width = HandleReachPx, Height = HandleReachPx, Fill = HandleBrush };
             Canvas.SetLeft(handle, point.X * slot.Scale - HandleReachPx / 2);
             Canvas.SetTop(handle, (_session!.Pages[(int)pageIndex].HeightPt - point.Y) * slot.Scale - HandleReachPx / 2);
-            slot.Highlights.Children.Add(handle);
+            slot.Annotations.Children.Add(handle);
         }
     }
 
