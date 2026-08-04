@@ -12,15 +12,21 @@ using Windows.Storage.Streams;
 namespace Pdf.Windows;
 
 /// <summary>
-/// Images arriving from outside the app — dragged onto a page, or pasted from
-/// the clipboard. Both land on the shared insertion path in
-/// <c>MainWindow.Annotations.cs</c>, so a stamp behaves the same however it got
-/// here, preview and undo entry included.
+/// Files and images arriving from outside the app, and the meanings a drop can
+/// have: a PDF opens as the document, an image lands on a page as a stamp.
+/// Ctrl+V takes the clipboard down the same stamp path.
+///
+/// There are two drop targets rather than one. The page canvases claim their
+/// own drops because a stamp has to know which page and which point it was
+/// aimed at; the window claims everything else, which is what lets a PDF be
+/// dropped when nothing is open yet and there is no page to aim at. A page
+/// drop marks itself handled so a single gesture never reaches both.
 /// </summary>
 public sealed partial class MainWindow
 {
     private const double DefaultStampWidthPt = 144.0;
     private const double DefaultStampHeightPt = 36.0;
+    private const string UnsupportedDropMessage = "Vitela opens PDF files. Drop a PNG or JPEG onto a page to add it as a stamp.";
 
     /// <summary>Default placement anchored at the drop point's top-left corner, matching the Linux shell's <c>stamp_rect</c>.</summary>
     private static PdfCoreRect DefaultStampRect(AnnotationPoint point) =>
@@ -30,7 +36,7 @@ public sealed partial class MainWindow
     {
         slot.Highlights.AllowDrop = true;
         slot.Highlights.DragOver += (_, args) => AcceptFileDrop(args);
-        slot.Highlights.Drop += async (_, args) => await DropImageStampAsync(slot, pageIndex, args);
+        slot.Highlights.Drop += async (_, args) => await DropOnPageAsync(slot, pageIndex, args);
     }
 
     private static void AcceptFileDrop(DragEventArgs args)
@@ -40,29 +46,94 @@ public sealed partial class MainWindow
         args.Handled = true;
     }
 
+    private void Window_DragOver(object sender, DragEventArgs args) => AcceptFileDrop(args);
+
     /// <summary>
-    /// Reading the dropped file outlives the handler, so the drop is held open
-    /// with a deferral — without one the source is free to tear the
-    /// <see cref="DragEventArgs.DataView"/> down the moment this returns. The
-    /// drop point is read before the first await, while the event still knows
-    /// where the pointer was.
+    /// A drop that missed every page. Only a PDF has an unambiguous meaning
+    /// here — and it is the case that has to work with nothing open at all,
+    /// where no page exists to receive a stamp.
     /// </summary>
-    private async Task DropImageStampAsync(PageSlot slot, int pageIndex, DragEventArgs args)
+    private async void Window_Drop(object sender, DragEventArgs args)
     {
         args.Handled = true;
-        if (_session is not { } session || _annotationState?.EditingAllowed != true) return;
+        if (_isBusy) return;
+        var deferral = args.GetDeferral();
+        try
+        {
+            if (await FirstActionableFileAsync(args.DataView) is not { } dropped)
+            {
+                AnnotationStatus.Text = UnsupportedDropMessage;
+            }
+            else if (dropped.Kind == DroppedFileKind.Document)
+            {
+                await OpenStorageFileAsync(dropped.Item);
+            }
+            else
+            {
+                AnnotationStatus.Text = _session is null
+                    ? "Open a PDF first, then drop an image onto a page to stamp it."
+                    : "Drop the image onto a page to place it as a stamp.";
+            }
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    /// <summary>
+    /// A drop that landed on a page. Reading the file outlives the handler, so
+    /// the drop is held open with a deferral — without one the source is free
+    /// to tear the <see cref="DragEventArgs.DataView"/> down the moment this
+    /// returns. The drop point is read before the first await, while the event
+    /// still knows where the pointer was.
+    /// </summary>
+    private async Task DropOnPageAsync(PageSlot slot, int pageIndex, DragEventArgs args)
+    {
+        args.Handled = true;
+        if (_isBusy) return;
         var deferral = args.GetDeferral();
         try
         {
             var point = ToPdf(slot, pageIndex, args.GetPosition(slot.Highlights));
-            var items = await args.DataView.GetStorageItemsAsync();
-            var file = items.OfType<StorageFile>().FirstOrDefault();
-            if (file is null || string.IsNullOrWhiteSpace(file.Path) || !ImageStampInput.HasSupportedFileExtension(file.Path))
+            if (await FirstActionableFileAsync(args.DataView) is not { } dropped)
             {
-                ReportDropFailure(session.SessionId, "Only local PNG and JPEG files can be dropped onto a page.");
-                return;
+                AnnotationStatus.Text = UnsupportedDropMessage;
             }
+            else if (dropped.Kind == DroppedFileKind.Document)
+            {
+                // Dropping a PDF onto an open page means "open this instead",
+                // not "stamp it" — so it takes the same route as the picker,
+                // unsaved-changes guard included.
+                await OpenStorageFileAsync(dropped.Item);
+            }
+            else
+            {
+                await StampDroppedImageAsync(dropped.Item, pageIndex, point);
+            }
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
 
+    /// <summary>
+    /// Reads the dropped image and hands it to the shared stamp path. The
+    /// permission check lives here rather than at the drop, because a read-only
+    /// document still accepts a dropped PDF — it just cannot be annotated.
+    /// </summary>
+    private async Task StampDroppedImageAsync(StorageFile file, int pageIndex, AnnotationPoint point)
+    {
+        if (_session is not { } session) return;
+        if (_annotationState?.EditingAllowed != true)
+        {
+            AnnotationStatus.Text = "This document does not allow annotation edits.";
+            return;
+        }
+
+        try
+        {
             var buffer = await FileIO.ReadBufferAsync(file);
             CryptographicBuffer.CopyToByteArray(buffer, out byte[] imageBytes);
             await InsertStampFromImageBytesAsync(session.SessionId, (uint)pageIndex, DefaultStampRect(point), imageBytes);
@@ -71,9 +142,23 @@ public sealed partial class MainWindow
         {
             ReportDropFailure(session.SessionId, "The dropped image could not be read.");
         }
-        finally
+    }
+
+    /// <summary>
+    /// The one file out of the drop the shell will act on, or null when the
+    /// payload holds no files at all — dragged text, a link, a folder.
+    /// </summary>
+    private static async Task<(StorageFile Item, DroppedFileKind Kind)?> FirstActionableFileAsync(DataPackageView data)
+    {
+        if (!data.Contains(StandardDataFormats.StorageItems)) return null;
+        try
         {
-            deferral.Complete();
+            var items = await data.GetStorageItemsAsync();
+            return FileDropRouting.FirstActionable(items.OfType<StorageFile>(), file => file.Path);
+        }
+        catch (Exception)
+        {
+            return null;
         }
     }
 

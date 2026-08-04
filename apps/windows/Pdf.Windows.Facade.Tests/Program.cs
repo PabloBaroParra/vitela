@@ -70,6 +70,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("routes PNG and JPEG image signatures", RoutesSupportedStampSignatures)
     ,("rejects non-image files before stamp insertion", RejectsUnsupportedStampInput)
     ,("reports the core image validation failure clearly", ReportsInvalidStampImageAsync)
+    ,("routes a dropped PDF to open and a dropped image to stamp", RoutesDroppedFilesByKind)
+    ,("acts on one file out of a multi-file drop", ActsOnOneDroppedFile)
     ,("maps unexpected save failures to user-safe results", MapsUnexpectedSaveFailureAsync)
 };
 
@@ -869,6 +871,28 @@ static async Task ReportsInvalidStampImageAsync()
     var result = await facade.InsertStampAsync(session.SessionId, 0, [137, 80, 78, 71, 13, 10, 26, 10], new PdfCoreRect(10, 20, 30, 40));
     Assert(!result.IsSuccess, "the core must reject corrupt image content");
     Assert(result.Error!.Message == "The image is corrupt or unsupported.", "core image failures must have clear user feedback");
+}
+
+static Task RoutesDroppedFilesByKind()
+{
+    Assert(FileDropRouting.Classify("report.pdf") == DroppedFileKind.Document, "a dropped PDF must open as the document");
+    Assert(FileDropRouting.Classify("REPORT.PDF") == DroppedFileKind.Document, "extensions must be matched case-insensitively");
+    Assert(FileDropRouting.Classify(@"C:\stamps\signature.png") == DroppedFileKind.ImageStamp, "a dropped image must be placed as a stamp");
+    Assert(FileDropRouting.Classify("scan.jpeg") == DroppedFileKind.ImageStamp, "JPEG shares the image stamp route");
+    Assert(FileDropRouting.Classify("notes.txt") == DroppedFileKind.Unsupported, "an unrelated file must be refused rather than guessed at");
+    Assert(FileDropRouting.Classify("") == DroppedFileKind.Unsupported, "a path-less drop entry must be refused");
+    Assert(FileDropRouting.Classify(null) == DroppedFileKind.Unsupported, "a path-less drop entry must be refused");
+    return Task.CompletedTask;
+}
+
+static Task ActsOnOneDroppedFile()
+{
+    string[] paths = ["README.md", "first.pdf", "second.pdf", "logo.png"];
+    var chosen = FileDropRouting.FirstActionable(paths, path => path);
+    Assert(chosen is { Item: "first.pdf", Kind: DroppedFileKind.Document }, "unsupported entries are skipped and the first actionable file wins");
+    Assert(FileDropRouting.FirstActionable(["a.txt", "b.zip"], path => path) is null, "a drop with nothing actionable must report no choice");
+    Assert(FileDropRouting.FirstActionable(Array.Empty<string>(), path => path) is null, "an empty drop must report no choice");
+    return Task.CompletedTask;
 }
 
 static async Task MapsUnexpectedSaveFailureAsync()
