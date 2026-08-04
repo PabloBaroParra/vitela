@@ -67,3 +67,21 @@ Facade behavior is checked without a WinUI runtime dependency:
 ```powershell
 dotnet run --project Pdf.Windows.Facade.Tests/Pdf.Windows.Facade.Tests.csproj
 ```
+
+## Diagnosing a reported failure
+
+Failures shown to the user are deliberately vague — the shell never puts a
+document's path, contents, or a decryption result on screen — and instead carry
+a correlation id: *"The document could not be processed. Reference: fab46b34…"*.
+
+Look that id up in
+
+```
+%LOCALAPPDATA%\Vitela\diagnostics.log
+```
+
+Each line carries a UTC timestamp, the failure category, the operation, the
+correlation id, the session and page it happened on, and a sanitized detail —
+usually the exception type. Document names, paths and contents are deliberately
+absent, so the log can be attached to a bug report as-is. It is capped at 256 KB
+with one previous generation kept beside it as `diagnostics.log.1`.
