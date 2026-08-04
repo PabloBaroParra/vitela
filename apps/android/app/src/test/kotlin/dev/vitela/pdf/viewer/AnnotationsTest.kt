@@ -64,4 +64,28 @@ class AnnotationsTest {
         assertTrue(controls.canCreate && controls.canMove && controls.canResize && controls.canRestyle && controls.canGrow && controls.canUndo)
         assertFalse(controls.canRedo)
     }
+
+    @Test
+    fun hitReach_isScreenStableAcrossZoomLevels() {
+        assertEquals(24.0, handleReachPoints(screenReachDp = 24.0, density = 1.0, pageScale = 1.0), 0.0)
+        assertEquals(12.0, handleReachPoints(screenReachDp = 24.0, density = 1.0, pageScale = 2.0), 0.0)
+    }
+
+    @Test
+    fun annotationAt_returnsTheTopmostMatchingAnnotation() {
+        val bottom = Annotation(1, 0, AnnotationKind.Shape, AnnotationRect(0.0, 0.0, 10.0, 10.0), DEFAULT_ANNOTATION_COLOR)
+        val top = Annotation(2, 0, AnnotationKind.TextNote, AnnotationRect(0.0, 0.0, 10.0, 10.0), null)
+        assertEquals(top, annotationAt(listOf(bottom, top), 0, AnnotationPoint(5.0, 5.0)))
+    }
+
+    @Test
+    fun placement_createsShapeAndTextNoteWithTheirCoreSupportedProperties() {
+        val shape = placementAnnotation(AnnotationTool.Shape, 0, AnnotationPoint(10.0, 20.0), AnnotationPoint(30.0, 50.0))
+        val note = placementAnnotation(AnnotationTool.TextNote, 0, AnnotationPoint(10.0, 20.0), AnnotationPoint(30.0, 50.0))
+
+        assertEquals(AnnotationKind.Shape, shape.kind)
+        assertEquals(DEFAULT_ANNOTATION_COLOR, shape.color)
+        assertEquals(AnnotationKind.TextNote, note.kind)
+        assertEquals(null, note.color)
+    }
 }

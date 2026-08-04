@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
@@ -22,6 +24,11 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     val state: StateFlow<ViewerState> = _state.asStateFlow()
     private var sourceBytes: ByteArray? = null
     private var document: PdfDocument? = null
+    private var pendingReplacement: PendingReplacement? = null
+    private var stampBytes: ByteArray? = null
+    private var nextDocumentId = 1L
+    /** Serializes mutation, save, and replacement snapshots for this ViewModel's lifecycle. */
+    private val documentLane = Mutex()
 
     /**
      * Pages with a render in flight, mapped to the [layoutGeneration] they
@@ -51,12 +58,41 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private var layoutGeneration = 0
 
     fun open(displayName: String, bytes: ByteArray, password: String? = null) {
+        if (_state.value.isDirty && document != null) {
+            pendingReplacement = PendingReplacement(displayName, bytes, password)
+            _state.value = _state.value.copy(pendingReplacementTitle = displayName)
+            return
+        }
+        replaceDocument(displayName, bytes, password)
+    }
+
+    fun confirmReplacement() {
+        val replacement = pendingReplacement ?: return
+        pendingReplacement = null
+        _state.value = _state.value.copy(pendingReplacementTitle = null)
+        replaceDocument(replacement.displayName, replacement.bytes, replacement.password, discardUnsaved = true)
+    }
+
+    fun cancelReplacement() {
+        pendingReplacement = null
+        if (_state.value.pendingReplacementTitle != null) _state.value = _state.value.copy(pendingReplacementTitle = null)
+    }
+
+    private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, discardUnsaved: Boolean = false) {
         val availableCore = core ?: return
         // Retain only the selected bytes while the session is active. SAF URIs
         // are not paths and passwords are never retained after this call.
-        sourceBytes = bytes
-        _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
         viewModelScope.launch {
+            documentLane.withLock {
+            // An edit may have acquired this lane after open() checked state.
+            // Check again before replacing the document it just modified.
+            if (!discardUnsaved && _state.value.isDirty && document != null) {
+                pendingReplacement = PendingReplacement(displayName, bytes, password)
+                _state.value = _state.value.copy(pendingReplacementTitle = displayName)
+                return@withLock
+            }
+            sourceBytes = bytes
+            _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
             when (val result = withContext(Dispatchers.Default) { availableCore.openFromBytes(bytes, password) }) {
                 is PdfCoreResult.Success -> {
                     document?.close()
@@ -78,6 +114,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                         status = visibleRangeStatus(0, 0, pageCount),
                         canPrint = pageCount > 0,
                         canOpen = true,
+                        documentId = nextDocumentId++,
                     )
                     refreshAnnotations(result.value)
                     // Drive the first window from here rather than waiting for
@@ -90,12 +127,13 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                 }
                 is PdfCoreResult.Failure -> handleOpenFailure(result.error)
             }
+            }
         }
     }
 
     fun retryPassword(password: String) {
         val bytes = sourceBytes ?: return
-        open(_state.value.title, bytes, password)
+        replaceDocument(_state.value.title, bytes, password)
     }
 
     /**
@@ -195,18 +233,45 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
 
     /** Bytes for printing/sharing, recomputed to include every applied annotation edit. */
     suspend fun printBytes(): ByteArray? {
-        val openDocument = document ?: return sourceBytes
-        return when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
-            is PdfCoreResult.Success -> result.value
-            is PdfCoreResult.Failure -> sourceBytes
+        return documentLane.withLock {
+            val openDocument = document ?: return@withLock sourceBytes
+            when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
+                is PdfCoreResult.Success -> result.value
+                is PdfCoreResult.Failure -> sourceBytes
+            }
         }
+    }
+
+    suspend fun saveSnapshot(): dev.vitela.pdf.core.SaveSnapshot? = documentLane.withLock {
+        val openDocument = document ?: return@withLock null
+        when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
+            is PdfCoreResult.Success -> dev.vitela.pdf.core.SaveSnapshot(result.value, _state.value.documentId, _state.value.revision)
+            is PdfCoreResult.Failure -> {
+                _state.value = _state.value.copy(status = userMessage(result.error))
+                null
+            }
+        }
+    }
+
+    fun confirmSaved(snapshot: dev.vitela.pdf.core.SaveSnapshot) {
+        viewModelScope.launch {
+            documentLane.withLock {
+                if (_state.value.matches(snapshot)) {
+                    _state.value = _state.value.copy(isDirty = false, status = "Saved.")
+                }
+            }
+        }
+    }
+
+    fun reportSaveFailure() {
+        _state.value = _state.value.copy(status = "Could not save the PDF.")
     }
 
     fun setAnnotationTool(tool: AnnotationTool) {
         if (!_state.value.annotationEditingAllowed) return
         val selection = _state.value.textSelection
         if (selection != null && tool in setOf(AnnotationTool.Highlight, AnnotationTool.Underline, AnnotationTool.Strikeout)) {
-            markupTextSelection(tool, selection).forEach { applyAnnotationEdit(AnnotationEdit.Add(it)) }
+            applyAnnotationEdits(markupTextSelection(tool, selection).map(AnnotationEdit::Add))
             _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Pointer, textSelection = null)
         } else {
             _state.value = _state.value.copy(activeAnnotationTool = tool)
@@ -214,21 +279,21 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     }
 
     fun selectAnnotation(pageIndex: Int, point: AnnotationPoint) {
-        val selected = _state.value.annotations.lastOrNull { it.pageIndex == pageIndex && it.bounds?.let { bounds -> point.x in bounds.x..(bounds.x + bounds.width) && point.y in bounds.y..(bounds.y + bounds.height) } == true }
+        val selected = annotationAt(_state.value.annotations, pageIndex, point)
         _state.value = _state.value.copy(selectedAnnotationId = selected?.id)
     }
 
-    fun handlePageGesture(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint>) {
+    fun handlePageGesture(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint>, handleReach: Double) {
         if (_state.value.activeAnnotationTool != AnnotationTool.Pointer) {
             placeAnnotation(pageIndex, origin, current, points)
             return
         }
         val selected = selectedAnnotation()?.takeIf { it.pageIndex == pageIndex }
-        when (val mode = selected?.let { dragModeAt(it, origin, HANDLE_REACH_PT) }) {
+        when (val mode = selected?.let { dragModeAt(it, origin, handleReach) }) {
             DragMode.Move -> moveSelected(origin, current)
             is DragMode.Resize -> resizeSelected(mode.corner, current)
             null -> {
-                val hit = _state.value.annotations.lastOrNull { it.pageIndex == pageIndex && it.bounds?.let { bounds -> origin.x in bounds.x..(bounds.x + bounds.width) && origin.y in bounds.y..(bounds.y + bounds.height) } == true }
+                val hit = annotationAt(_state.value.annotations, pageIndex, origin)
                 if (hit != null) _state.value = _state.value.copy(selectedAnnotationId = hit.id, textSelection = null) else selectText(pageIndex, origin, current)
             }
         }
@@ -237,12 +302,27 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     fun placeAnnotation(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint> = emptyList()) {
         val tool = _state.value.activeAnnotationTool
         if (!_state.value.annotationEditingAllowed || tool == AnnotationTool.Pointer || (tool == AnnotationTool.Ink && points.size < 2)) return
-        applyAnnotationEdit(AnnotationEdit.Add(placementAnnotation(tool, pageIndex, origin, current, points)))
+        if (tool == AnnotationTool.Stamp) {
+            val image = stampBytes ?: run {
+                _state.value = _state.value.copy(status = "Choose an image before placing a stamp.")
+                return
+            }
+            insertImageStamp(pageIndex, image, origin)
+        } else {
+            applyAnnotationEdit(AnnotationEdit.Add(placementAnnotation(tool, pageIndex, origin, current, points)))
+        }
         _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Pointer)
+    }
+
+    fun selectImageStamp(bytes: ByteArray) {
+        if (!_state.value.annotationEditingAllowed) return
+        stampBytes = bytes
+        _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Stamp, status = "Tap a page to place the image stamp.")
     }
 
     fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) {
         val selected = selectedAnnotation() ?: return
+        if (origin == current) return
         applyAnnotationEdit(AnnotationEdit.Move(selected.id, current.x - origin.x, current.y - origin.y))
     }
 
@@ -259,6 +339,13 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
 
     fun restyleSelected(color: dev.vitela.pdf.core.AnnotationColor) {
         selectedAnnotation()?.takeIf { it.supportsRestyle }?.let { applyAnnotationEdit(AnnotationEdit.Restyle(it.id, color)) }
+    }
+
+    fun deleteSelected() {
+        selectedAnnotation()?.let { annotation ->
+            applyAnnotationEdit(AnnotationEdit.Remove(annotation.id))
+            _state.value = _state.value.copy(selectedAnnotationId = null)
+        }
     }
 
     fun undoAnnotations() = applyHistory(undo = true)
@@ -317,13 +404,30 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
 
     private fun selectedAnnotation() = _state.value.selectedAnnotationId?.let { id -> _state.value.annotations.lastOrNull { it.id == id } }
 
-    private fun applyAnnotationEdit(edit: AnnotationEdit) {
+    private fun applyAnnotationEdit(edit: AnnotationEdit) = applyAnnotationEdits(listOf(edit))
+
+    private fun applyAnnotationEdits(edits: List<AnnotationEdit>) {
         val openDocument = document ?: return
-        if (!_state.value.annotationEditingAllowed) return
+        if (!_state.value.annotationEditingAllowed || edits.isEmpty()) return
         viewModelScope.launch {
-            when (val result = withContext(Dispatchers.Default) { openDocument.applyAnnotationEdit(edit) }) {
-                is PdfCoreResult.Success -> refreshAnnotations(openDocument)
-                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+            documentLane.withLock {
+                if (document !== openDocument) return@withLock
+                var applied = false
+                for (edit in edits) {
+                    when (val result = withContext(Dispatchers.Default) { openDocument.applyAnnotationEdit(edit) }) {
+                        is PdfCoreResult.Success -> applied = true
+                        is PdfCoreResult.Failure -> {
+                            if (applied) {
+                                _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
+                                refreshAnnotations(openDocument)
+                            }
+                            _state.value = _state.value.copy(status = userMessage(result.error))
+                            return@withLock
+                        }
+                    }
+                }
+                _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
+                refreshAnnotations(openDocument)
             }
         }
     }
@@ -331,16 +435,22 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private fun applyHistory(undo: Boolean) {
         val openDocument = document ?: return
         viewModelScope.launch {
-            val result = withContext(Dispatchers.Default) { if (undo) openDocument.undoAnnotations() else openDocument.redoAnnotations() }
-            when (result) {
-                is PdfCoreResult.Success -> if (result.value) refreshAnnotations(openDocument)
-                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+            documentLane.withLock {
+                if (document !== openDocument) return@withLock
+                val result = withContext(Dispatchers.Default) { if (undo) openDocument.undoAnnotations() else openDocument.redoAnnotations() }
+                when (result) {
+                    is PdfCoreResult.Success -> if (result.value) {
+                        _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
+                        refreshAnnotations(openDocument)
+                    }
+                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+                }
             }
         }
     }
 
-    private fun refreshAnnotations(openDocument: PdfDocument) {
-        when (val result = openDocument.annotations()) {
+    private suspend fun refreshAnnotations(openDocument: PdfDocument) {
+        when (val result = withContext(Dispatchers.Default) { openDocument.annotations() }) {
             is PdfCoreResult.Success -> _state.value = _state.value.copy(
                 annotations = result.value.annotations,
                 annotationEditingAllowed = result.value.editingAllowed,
@@ -351,6 +461,33 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
             is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
         }
     }
+
+    private fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, anchor: AnnotationPoint) {
+        val openDocument = document ?: return
+        viewModelScope.launch {
+            documentLane.withLock {
+                if (document !== openDocument) return@withLock
+                when (val placement = withContext(Dispatchers.Default) { openDocument.stampPlacement(imageBytes, anchor) }) {
+                    is PdfCoreResult.Success -> when (val result = withContext(Dispatchers.Default) { openDocument.insertImageStamp(pageIndex, imageBytes, placement.value) }) {
+                        is PdfCoreResult.Success -> {
+                            _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
+                            refreshAnnotations(openDocument)
+                        }
+                        is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+                    }
+                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(placement.error))
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        document?.close()
+        document = null
+        super.onCleared()
+    }
+
+    private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?)
 }
 
 private fun TextRect.overlaps(selection: AnnotationRect): Boolean =

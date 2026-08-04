@@ -55,12 +55,17 @@ internal fun ViewerScreen(
     onPassword: (String) -> Unit,
     onPasswordCancel: () -> Unit,
     onPrint: () -> Unit,
+    onSave: () -> Unit,
+    onChooseStamp: () -> Unit,
+    onReplacementConfirmed: () -> Unit,
+    onReplacementCancelled: () -> Unit,
     onPositionChanged: (ReaderPosition) -> Unit,
     onScrollTargetConsumed: () -> Unit,
     onAnnotationTool: (AnnotationTool) -> Unit,
-    onAnnotationGesture: (Int, dev.vitela.pdf.core.AnnotationPoint, dev.vitela.pdf.core.AnnotationPoint, List<dev.vitela.pdf.core.AnnotationPoint>) -> Unit,
+    onAnnotationGesture: (Int, dev.vitela.pdf.core.AnnotationPoint, dev.vitela.pdf.core.AnnotationPoint, List<dev.vitela.pdf.core.AnnotationPoint>, Double) -> Unit,
     onAnnotationColor: (dev.vitela.pdf.core.AnnotationColor) -> Unit,
     onAnnotationGrow: () -> Unit,
+    onAnnotationDelete: () -> Unit,
     onAnnotationUndo: () -> Unit,
     onAnnotationRedo: () -> Unit,
 ) {
@@ -102,6 +107,7 @@ internal fun ViewerScreen(
                 }
             }
             Button(onClick = onPrint, enabled = state.canPrint) { Text("Print") }
+            Button(onClick = onSave, enabled = state.isDirty) { Text("Save copy") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -116,9 +122,13 @@ internal fun ViewerScreen(
             TextButton(onClick = { onAnnotationTool(AnnotationTool.Underline) }, enabled = annotationControls.canCreate) { Text("Underline") }
             TextButton(onClick = { onAnnotationTool(AnnotationTool.Strikeout) }, enabled = annotationControls.canCreate) { Text("Strikeout") }
             TextButton(onClick = { onAnnotationTool(AnnotationTool.Ink) }, enabled = annotationControls.canCreate) { Text("Ink") }
+            TextButton(onClick = { onAnnotationTool(AnnotationTool.Shape) }, enabled = annotationControls.canCreate) { Text("Shape") }
+            TextButton(onClick = { onAnnotationTool(AnnotationTool.TextNote) }, enabled = annotationControls.canCreate) { Text("Note") }
+            TextButton(onClick = onChooseStamp, enabled = annotationControls.canCreate) { Text("Stamp") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onAnnotationGrow, enabled = annotationControls.canGrow) { Text("Grow") }
+            TextButton(onClick = onAnnotationDelete, enabled = selected != null && state.annotationEditingAllowed) { Text("Delete") }
             TextButton(onClick = { onAnnotationColor(dev.vitela.pdf.core.AnnotationColor(220, 40, 40)) }, enabled = annotationControls.canRestyle) { Text("Red") }
             TextButton(onClick = { onAnnotationColor(DEFAULT_ANNOTATION_COLOR) }, enabled = annotationControls.canRestyle) { Text("Gold") }
             TextButton(onClick = onAnnotationUndo, enabled = annotationControls.canUndo) { Text("Undo") }
@@ -183,6 +193,15 @@ internal fun ViewerScreen(
             },
             confirmButton = { Button(onClick = { onPassword(password); password = "" }) { Text("Open") } },
             dismissButton = { TextButton(onClick = cancel) { Text("Cancel") } },
+        )
+    }
+    state.pendingReplacementTitle?.let { title ->
+        AlertDialog(
+            onDismissRequest = onReplacementCancelled,
+            title = { Text("Discard unsaved changes?") },
+            text = { Text("Open $title and discard the current unsaved annotation changes?") },
+            confirmButton = { Button(onClick = onReplacementConfirmed) { Text("Discard and open") } },
+            dismissButton = { TextButton(onClick = onReplacementCancelled) { Text("Keep editing") } },
         )
     }
 }

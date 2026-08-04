@@ -2,6 +2,7 @@ package dev.vitela.pdf.viewer
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -61,7 +62,7 @@ internal fun PageList(
     state: ViewerState,
     onPositionChanged: (ReaderPosition) -> Unit,
     onScrollTargetConsumed: () -> Unit,
-    onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>) -> Unit,
+    onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -132,13 +133,15 @@ private fun PageSlot(
     bridge: ImageBitmap?,
     size: PageSize?,
     state: ViewerState,
-    onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>) -> Unit,
+    onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
 ) {
     var origin by remember { mutableStateOf<AnnotationPoint?>(null) }
     var current by remember { mutableStateOf<AnnotationPoint?>(null) }
     var stroke by remember { mutableStateOf(emptyList<AnnotationPoint>()) }
     var pageWidthPx by remember { mutableStateOf(0) }
-    Box(
+        val density = LocalDensity.current.density.toDouble()
+        val pageIndex = pageNumber - 1
+        Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(size.aspectRatio())
@@ -174,6 +177,12 @@ private fun PageSlot(
                     .fillMaxSize()
                     .onSizeChanged { pageWidthPx = it.width }
                     .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId) {
+                        detectTapGestures { offset ->
+                            val tap = point(offset)
+                            onAnnotationGesture(pageIndex, tap, tap, emptyList(), handleReachPoints(HANDLE_REACH_DP, density, scale))
+                        }
+                    }
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId) {
                         detectDragGestures(
                             onDragStart = { offset ->
                                 origin = point(offset)
@@ -188,14 +197,13 @@ private fun PageSlot(
                             onDragEnd = {
                                 val start = origin
                                 val end = current
-                                if (start != null && end != null) onAnnotationGesture(pageNumber - 1, start, end, stroke)
+                                if (start != null && end != null) onAnnotationGesture(pageIndex, start, end, stroke, handleReachPoints(HANDLE_REACH_DP, density, scale))
                                 origin = null; current = null; stroke = emptyList()
                             },
                             onDragCancel = { origin = null; current = null; stroke = emptyList() },
                         )
                     },
             ) {
-                val pageIndex = pageNumber - 1
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->
                     drawRect(
                         Color(0x553373E6),
@@ -219,7 +227,7 @@ private fun PageSlot(
                 // annotation: without this, dragging it showed no feedback
                 // until release actually applied the edit.
                 val draggedAnnotation = if (state.activeAnnotationTool == AnnotationTool.Pointer && selectedAnnotation != null && previewOrigin != null && previewCurrent != null) {
-                    when (val mode = dragModeAt(selectedAnnotation, previewOrigin, HANDLE_REACH_PT)) {
+                    when (val mode = dragModeAt(selectedAnnotation, previewOrigin, handleReachPoints(HANDLE_REACH_DP, density, scale))) {
                         DragMode.Move -> selectedAnnotation.translated(previewCurrent.x - previewOrigin.x, previewCurrent.y - previewOrigin.y)
                         is DragMode.Resize -> selectedAnnotation.rect?.let { rect -> selectedAnnotation.copy(rect = resizedRect(rect, mode.corner, previewCurrent)) }
                         null -> null
