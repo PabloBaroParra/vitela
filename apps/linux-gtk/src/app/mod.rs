@@ -22,8 +22,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, Application, ApplicationWindow, Box as GtkBox, Button, Entry, FileChooserNative,
-    Label, MenuButton, Orientation, Overlay, ScrolledWindow,
+    gio, glib, Application, ApplicationWindow, Box as GtkBox, Button, Entry, Label, MenuButton,
+    Orientation, Overlay, ScrolledWindow,
 };
 
 use annotations::add_annotation_toolbar;
@@ -221,23 +221,17 @@ fn build_ui(application: &Application) {
         let viewer = viewer.clone();
         move |_| print_document(&window, &viewer)
     });
-    // `FileChooserNative` is not a widget: GTK holds no reference to it
-    // while it is shown, so the shell must keep it alive here until the
-    // response arrives or the dialog is destroyed before it can be used.
-    let active_chooser: Rc<RefCell<Option<FileChooserNative>>> = Rc::new(RefCell::new(None));
     viewer.save_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
-        let active_chooser = active_chooser.clone();
-        move |_| show_save_chooser(&window, &viewer, &active_chooser)
+        move |_| show_save_chooser(&window, &viewer)
     });
-    connect_standard_shortcuts(application, &window, &viewer, &active_chooser);
+    connect_standard_shortcuts(application, &window, &viewer);
 
     open_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
-        let active_chooser = active_chooser.clone();
-        move |_| show_file_chooser(&window, &viewer, &active_chooser)
+        move |_| show_file_chooser(&window, &viewer)
     });
     let action_sample_plain = gio::SimpleAction::new("plain", None);
     action_sample_plain.connect_activate({
@@ -271,14 +265,12 @@ fn connect_standard_shortcuts(
     application: &gtk::Application,
     window: &gtk::ApplicationWindow,
     viewer: &Viewer,
-    active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
 ) {
     let open = gio::SimpleAction::new("open", None);
     open.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
-        let active_chooser = active_chooser.clone();
-        move |_, _| show_file_chooser(&window, &viewer, &active_chooser)
+        move |_, _| show_file_chooser(&window, &viewer)
     });
     window.add_action(&open);
     application.set_accels_for_action("win.open", &["<Control>o"]);
@@ -287,8 +279,7 @@ fn connect_standard_shortcuts(
     save.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
-        let active_chooser = active_chooser.clone();
-        move |_, _| show_save_chooser(&window, &viewer, &active_chooser)
+        move |_, _| show_save_chooser(&window, &viewer)
     });
     window.add_action(&save);
     application.set_accels_for_action("win.save", &["<Control>s"]);

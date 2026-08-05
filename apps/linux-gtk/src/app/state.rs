@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    cairo, gio, Box as GtkBox, Button, Dialog, DrawingArea, Entry, Label, Overlay, Picture,
-    ScrolledWindow, ToggleButton,
+    cairo, gio, Box as GtkBox, Button, DrawingArea, Entry, Label, Overlay, Picture, ScrolledWindow,
+    ToggleButton, Window,
 };
 use pdf_document::{AnnotationId, Document};
 use pdf_manip::LopdfDocument;
@@ -92,7 +92,7 @@ pub(crate) struct ViewerState {
     /// answered) can tear down the stale prompt instead of leaving it
     /// stacked underneath a second one — see `document::begin_loading` and
     /// `document::dismiss_password_dialog`.
-    pub(crate) password_dialog: Option<Dialog>,
+    pub(crate) password_dialog: Option<Window>,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.

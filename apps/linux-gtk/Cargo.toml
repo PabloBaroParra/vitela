@@ -7,9 +7,8 @@ description = "Linux GTK4 shell (dogfood client) that links core Rust crates dir
 publish = false
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# GTK 4.6 provides `Texture::save_to_png_bytes`, used to pass clipboard
-# bitmaps into the core stamp builder without a temporary file.
-gtk = { package = "gtk4", version = "0.9.5", features = ["v4_6"] }
+# GTK 4.10 provides asynchronous ColorDialog and FileDialog APIs.
+gtk = { package = "gtk4", version = "0.9.5", features = ["v4_10"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # Rendering comes from pdfium; the document's *permissions* do not — pdfium
 # has no view of the lopdf security model. `pdf-manip` supplies both the
