@@ -68,8 +68,9 @@ pub(crate) fn extend_placement(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// Commits the placement in flight, if any, and disarms the tool.
 ///
 /// Disarming after one annotation is deliberate: a tool that stays armed turns
-/// the next stray drag into another annotation, and this shell has no undo yet
-/// (T-048) to take it back.
+/// the next stray drag into another annotation. Ctrl+Z takes that back, but
+/// only after the user notices — not arming the trap in the first place is
+/// cheaper than undoing it.
 pub(crate) fn finish_placement(viewer: &Viewer) {
     let placement = {
         let mut state = viewer.state.borrow_mut();

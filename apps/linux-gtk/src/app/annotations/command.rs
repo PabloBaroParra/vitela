@@ -5,7 +5,7 @@
 //! from the other end.
 
 use gtk::prelude::*;
-use pdf_document::{Command, Document};
+use pdf_document::{AnnotationId, Command, Document};
 
 use crate::app::selection;
 use crate::app::state::{DocumentSession, Viewer, ANNOTATION_MODEL_UNAVAILABLE};
@@ -51,23 +51,14 @@ fn history(viewer: &Viewer, undo: bool) {
         let Some(document) = session.document_model.as_mut() else {
             return;
         };
-        let mut log = std::mem::take(&mut document.pending_edits);
-        let changed = if undo {
-            log.undo(document)
-        } else {
-            log.redo(document)
-        };
-        document.pending_edits = log;
-        if changed {
-            session.edit_revision += 1;
-            if session
-                .selected_annotation
-                .is_some_and(|id| document.annotations.get(id).is_none())
-            {
-                session.selected_annotation = None;
+        match step_history(document, session.selected_annotation, undo) {
+            Some(surviving) => {
+                session.selected_annotation = surviving;
+                session.edit_revision += 1;
+                true
             }
+            None => false,
         }
-        changed
     };
     if changed {
         viewer.status.set_text(if undo {
@@ -78,6 +69,36 @@ fn history(viewer: &Viewer, undo: bool) {
         update_annotation_controls(viewer);
         selection::redraw(viewer);
     }
+}
+
+/// Replays one step of `document`'s edit history and reports the selection
+/// that survives it.
+///
+/// `None` means the log had nothing to replay in that direction, and the
+/// caller must leave the session alone — no revision bump, no repaint.
+///
+/// `Some(surviving)` carries the selection after the step, which is `None`
+/// when the step took the selected annotation out of the document: a
+/// selection that outlived its annotation would aim the next edit at an id
+/// the document no longer holds.
+///
+/// Split out of [`history`] because everything above it is widget work and
+/// everything here is not — this half is the part worth testing.
+fn step_history(
+    document: &mut Document,
+    selected: Option<AnnotationId>,
+    undo: bool,
+) -> Option<Option<AnnotationId>> {
+    // Moved out and put back for the same reason as `apply_command`: the log
+    // lives inside the document that `undo`/`redo` need to borrow mutably.
+    let mut log = std::mem::take(&mut document.pending_edits);
+    let changed = if undo {
+        log.undo(document)
+    } else {
+        log.redo(document)
+    };
+    document.pending_edits = log;
+    changed.then(|| selected.filter(|id| document.annotations.get(*id).is_some()))
 }
 
 /// Runs one annotation command against the open document, then reports the
@@ -140,4 +161,123 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
     let mut log = std::mem::take(&mut document.pending_edits);
     log.apply(document, command);
     document.pending_edits = log;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::annotations::test_support::{built, drag};
+    use crate::app::state::Tool;
+    use pdf_document::{Annotation, AnnotationId};
+
+    /// A real built annotation, re-identified so a test can hold two.
+    fn annotation(id: u64) -> Annotation {
+        let mut annotation = built(&drag(Tool::Highlight, (10.0, 10.0), (60.0, 40.0)));
+        annotation.id = AnnotationId(id);
+        annotation
+    }
+
+    /// A document whose log already records adding `annotation` — seeded
+    /// through `apply_command`, so the tests replay what the shell records.
+    fn with_added(annotation: &Annotation) -> Document {
+        let mut document = Document::blank();
+        apply_command(&mut document, Command::AddAnnotation(annotation.clone()));
+        document
+    }
+
+    #[test]
+    fn undo_then_redo_round_trips_the_recorded_command() {
+        let annotation = annotation(1);
+        let mut document = with_added(&annotation);
+
+        assert!(step_history(&mut document, None, true).is_some());
+        assert!(document.annotations.is_empty());
+
+        assert!(step_history(&mut document, None, false).is_some());
+        assert_eq!(document.annotations.get(AnnotationId(1)), Some(&annotation));
+    }
+
+    #[test]
+    fn undo_on_an_empty_log_reports_no_step() {
+        let mut document = Document::blank();
+
+        assert_eq!(step_history(&mut document, None, true), None);
+    }
+
+    #[test]
+    fn redo_without_a_prior_undo_reports_no_step() {
+        let mut document = with_added(&annotation(1));
+
+        assert_eq!(step_history(&mut document, None, false), None);
+    }
+
+    /// The log lives inside the document it mutates and is moved out for the
+    /// call — if it were not put back, the next step would find nothing.
+    #[test]
+    fn the_log_stays_on_the_document_across_a_step() {
+        let mut document = with_added(&annotation(1));
+
+        step_history(&mut document, None, true);
+
+        assert!(document.pending_edits.can_redo());
+        assert!(!document.pending_edits.can_undo());
+    }
+
+    #[test]
+    fn undoing_an_add_drops_the_selection_it_pointed_at() {
+        let annotation = annotation(1);
+        let mut document = with_added(&annotation);
+
+        let surviving = step_history(&mut document, Some(annotation.id), true);
+
+        // A selection that outlived its annotation would let the next edit
+        // target an id the document no longer holds.
+        assert_eq!(surviving, Some(None));
+    }
+
+    #[test]
+    fn redoing_a_removal_drops_the_selection_it_pointed_at() {
+        let annotation = annotation(7);
+        let mut document = Document::blank();
+        document.annotations.insert(annotation.clone());
+        apply_command(&mut document, Command::RemoveAnnotation(annotation.clone()));
+        step_history(&mut document, None, true);
+
+        let surviving = step_history(&mut document, Some(annotation.id), false);
+
+        assert_eq!(surviving, Some(None));
+    }
+
+    #[test]
+    fn undoing_a_removal_keeps_the_restored_selection() {
+        let annotation = annotation(7);
+        let mut document = Document::blank();
+        document.annotations.insert(annotation.clone());
+        apply_command(&mut document, Command::RemoveAnnotation(annotation.clone()));
+
+        let surviving = step_history(&mut document, Some(annotation.id), true);
+
+        assert_eq!(surviving, Some(Some(AnnotationId(7))));
+        assert_eq!(document.annotations.get(AnnotationId(7)), Some(&annotation));
+    }
+
+    #[test]
+    fn a_step_elsewhere_leaves_an_untouched_selection_alone() {
+        let kept = annotation(1);
+        let undone = annotation(2);
+        let mut document = Document::blank();
+        document.annotations.insert(kept.clone());
+        apply_command(&mut document, Command::AddAnnotation(undone.clone()));
+
+        let surviving = step_history(&mut document, Some(kept.id), true);
+
+        assert_eq!(surviving, Some(Some(AnnotationId(1))));
+    }
+
+    #[test]
+    fn a_step_with_no_selection_reports_none_surviving() {
+        let mut document = with_added(&annotation(1));
+
+        assert_eq!(step_history(&mut document, None, true), Some(None));
+    }
 }
