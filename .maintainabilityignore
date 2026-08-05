@@ -1,0 +1,25 @@
+# Root-relative glob patterns for scripts/check_maintainability.py.
+# Exclusions are narrow by design. Every addition requires the justification and
+# review described in docs/maintainability.md.
+
+# Version-control and build output.
+.git/**
+target/**
+**/target/**
+**/build/**
+
+# Third-party and experimental code are outside this repository's maintained
+# application surface.
+vendor/**
+spikes/**
+
+# The handwritten FFI boundary is reviewed as an integration contract, not by
+# generic size, complexity, or duplication heuristics.
+core/pdf-ffi/**
+
+# Generated bindings and their source templates are intentionally repetitive.
+apps/android/GeneratedPdfCore.kt.template
+apps/windows/Pdf.Windows/Facade/GeneratedPdfCore.cs
+apps/windows/Pdf.Windows/Generated/**
+apps/macos/Generated/**
+apps/ios/Generated/**

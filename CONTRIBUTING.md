@@ -82,6 +82,16 @@ If you touched the README status tables:
 python3 scripts/check_readme_tables.py
 ```
 
+For advisory size, control-flow, and duplication review prompts:
+
+```bash
+python3 scripts/check_maintainability.py
+```
+
+See [Maintainability review prompts](docs/maintainability.md) for how to
+justify a retained warning or change a narrowly scoped exclusion. These prompts
+inform review; they are not a substitute for preserving behaviour with tests.
+
 Shell-specific gates, when you touched that shell:
 
 ```bash
