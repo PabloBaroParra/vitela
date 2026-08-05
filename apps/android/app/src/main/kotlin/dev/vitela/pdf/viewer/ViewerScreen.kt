@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,7 +80,10 @@ internal fun ViewerScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(state.title, style = MaterialTheme.typography.headlineSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
             Button(onClick = onOpen, enabled = state.canOpen) { Text("Open PDF") }
             Box {
                 Button(onClick = { sampleMenuExpanded = true }, enabled = state.canOpen) { Text("Open sample") }
@@ -116,7 +121,11 @@ internal fun ViewerScreen(
         }
         val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
         val annotationControls = annotationControls(state.annotationEditingAllowed, selected, state.canUndoAnnotations, state.canRedoAnnotations)
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
             TextButton(onClick = { onAnnotationTool(AnnotationTool.Pointer) }, enabled = annotationControls.canCreate) { Text("Select") }
             TextButton(onClick = { onAnnotationTool(AnnotationTool.Highlight) }, enabled = annotationControls.canCreate) { Text("Highlight") }
             TextButton(onClick = { onAnnotationTool(AnnotationTool.Underline) }, enabled = annotationControls.canCreate) { Text("Underline") }
@@ -126,7 +135,11 @@ internal fun ViewerScreen(
             TextButton(onClick = { onAnnotationTool(AnnotationTool.TextNote) }, enabled = annotationControls.canCreate) { Text("Note") }
             TextButton(onClick = onChooseStamp, enabled = annotationControls.canCreate) { Text("Stamp") }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
             TextButton(onClick = onAnnotationGrow, enabled = annotationControls.canGrow) { Text("Grow") }
             TextButton(onClick = onAnnotationDelete, enabled = selected != null && state.annotationEditingAllowed) { Text("Delete") }
             TextButton(onClick = { onAnnotationColor(dev.vitela.pdf.core.AnnotationColor(220, 40, 40)) }, enabled = annotationControls.canRestyle) { Text("Red") }
