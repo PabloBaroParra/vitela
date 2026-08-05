@@ -7,6 +7,9 @@ data class SearchHit(val pageIndex: Int, val text: String, val characterBounds: 
 /** A page's media box, in PDF points. */
 data class PageSize(val widthPt: Double, val heightPt: Double)
 
+/** A bytes snapshot paired with the document revision it represents. */
+data class SaveSnapshot(val bytes: ByteArray, val documentId: Long, val revision: Long)
+
 sealed interface PdfCoreError {
     data object PasswordRequired : PdfCoreError
     data object WrongPassword : PdfCoreError
@@ -36,6 +39,10 @@ interface PdfDocument : AutoCloseable {
     fun undoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
     fun redoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
     fun textRuns(pageIndex: Int): PdfCoreResult<List<TextRun>> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
+    /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */
+    fun stampPlacement(imageBytes: ByteArray, anchor: AnnotationPoint): PdfCoreResult<AnnotationRect> = PdfCoreResult.Failure(PdfCoreError.Failed("Image stamps are unavailable in this PDF core."))
+    /** Inserts an image-backed stamp using a placement returned by [stampPlacement]. */
+    fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, rect: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Image stamps are unavailable in this PDF core."))
 
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))

@@ -37,6 +37,8 @@ import dev.vitela.pdf.uniffi.redo as ffiRedo
 import dev.vitela.pdf.uniffi.undo as ffiUndo
 import dev.vitela.pdf.uniffi.applyEdit as ffiApplyEdit
 import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
+import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
+import dev.vitela.pdf.uniffi.insertImageStamp as ffiInsertImageStamp
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -110,6 +112,19 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
+
+    override fun stampPlacement(imageBytes: ByteArray, anchor: AnnotationPoint): PdfCoreResult<AnnotationRect> = try {
+        PdfCoreResult.Success(ffiStampPlacement(imageBytes, anchor.x, anchor.y).toRect())
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, rect: AnnotationRect): PdfCoreResult<Unit> = try {
+        ffiInsertImageStamp(handle, pageIndex.toUInt(), imageBytes, rect.toFfi())
+        PdfCoreResult.Success(Unit)
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
 }
 
 private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation = when (val value = kind) {
@@ -130,7 +145,7 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
         AnnotationKind.Ink -> FfiEditCommand.AddInk(annotation.pageIndex.toUInt(), annotation.points.map { FfiPoint(it.x, it.y) }, requireNotNull(annotation.color).toFfi())
         AnnotationKind.Shape -> FfiEditCommand.AddShape(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
         AnnotationKind.TextNote -> FfiEditCommand.AddTextNote(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), "Note")
-        AnnotationKind.Stamp -> error("Stamp insertion requires image bytes")
+        AnnotationKind.Stamp -> error("Use insertImageStamp for image-backed stamps")
     }
     is AnnotationEdit.Move -> FfiEditCommand.MoveAnnotation(id.toULong(), dx, dy)
     is AnnotationEdit.Resize -> FfiEditCommand.ResizeAnnotation(id.toULong(), rect.toFfi())

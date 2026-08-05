@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.Annotation
+import dev.vitela.pdf.core.SaveSnapshot
 
 data class ViewerState(
     val title: String = "No document open",
@@ -53,6 +54,13 @@ data class ViewerState(
     val textSelection: TextSelection? = null,
     val canUndoAnnotations: Boolean = false,
     val canRedoAnnotations: Boolean = false,
+    /** True after an edit and until a matching SAF write succeeds. */
+    val isDirty: Boolean = false,
+    /** Identifies the active document so an older save can never clear newer work. */
+    val documentId: Long = 0,
+    val revision: Long = 0,
+    /** A loaded replacement held in the ViewModel pending user confirmation. */
+    val pendingReplacementTitle: String? = null,
 )
 
 /**
@@ -81,6 +89,10 @@ internal fun nextSearchIndex(current: Int, count: Int, delta: Int): Int {
     if (count == 0) return 0
     return Math.floorMod(current + delta, count)
 }
+
+/** A write can clear dirty state only when it still represents this document revision. */
+internal fun ViewerState.matches(snapshot: SaveSnapshot): Boolean =
+    documentId == snapshot.documentId && revision == snapshot.revision
 
 internal const val MIN_ZOOM_FACTOR = 0.10
 internal const val MAX_ZOOM_FACTOR = 8.0

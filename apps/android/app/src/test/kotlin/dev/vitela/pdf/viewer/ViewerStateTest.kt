@@ -1,6 +1,9 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.SaveSnapshot
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ViewerStateTest {
@@ -31,5 +34,14 @@ class ViewerStateTest {
         assertEquals(MIN_ZOOM_FACTOR, clampZoomFactor(0.001), 0.0)
         assertEquals(MAX_ZOOM_FACTOR, clampZoomFactor(99.0), 0.0)
         assertEquals(DEFAULT_ZOOM_FACTOR, clampZoomFactor(Double.NaN), 0.0)
+    }
+
+    @Test
+    fun saveSnapshot_matchesOnlyTheDocumentRevisionThatCreatedIt() {
+        val snapshot = SaveSnapshot(byteArrayOf(1), documentId = 7, revision = 3)
+
+        assertTrue(ViewerState(documentId = 7, revision = 3).matches(snapshot))
+        assertFalse(ViewerState(documentId = 8, revision = 3).matches(snapshot))
+        assertFalse(ViewerState(documentId = 7, revision = 4).matches(snapshot))
     }
 }

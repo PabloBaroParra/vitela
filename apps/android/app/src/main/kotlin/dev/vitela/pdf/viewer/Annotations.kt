@@ -11,11 +11,12 @@ internal val DEFAULT_ANNOTATION_COLOR = AnnotationColor(255, 220, 0)
 private const val MIN_RECT_PT = 4.0
 private const val RULE_HEIGHT_PT = 2.0
 private const val GROW_FACTOR = 1.25
-internal const val HANDLE_REACH_PT = 16.0
+internal const val HANDLE_REACH_DP = 24.0
 
 enum class AnnotationTool(val kind: AnnotationKind) {
     Pointer(AnnotationKind.Highlight), Highlight(AnnotationKind.Highlight), Underline(AnnotationKind.Underline),
-    Strikeout(AnnotationKind.Strikeout), Ink(AnnotationKind.Ink),
+    Strikeout(AnnotationKind.Strikeout), Ink(AnnotationKind.Ink), Shape(AnnotationKind.Shape),
+    TextNote(AnnotationKind.TextNote), Stamp(AnnotationKind.Stamp),
 }
 
 enum class HandleCorner { BottomLeft, BottomRight, TopLeft, TopRight }
@@ -41,7 +42,7 @@ internal fun placementAnnotation(tool: AnnotationTool, pageIndex: Int, origin: A
         maxOf(MIN_RECT_PT, kotlin.math.abs(current.x - origin.x)),
         if (tool == AnnotationTool.Underline || tool == AnnotationTool.Strikeout) RULE_HEIGHT_PT else maxOf(MIN_RECT_PT, kotlin.math.abs(current.y - origin.y)),
     )
-    return Annotation(0, pageIndex, tool.kind, if (tool == AnnotationTool.Ink) null else rect, DEFAULT_ANNOTATION_COLOR, points)
+    return Annotation(0, pageIndex, tool.kind, if (tool == AnnotationTool.Ink) null else rect, if (tool == AnnotationTool.TextNote || tool == AnnotationTool.Stamp) null else DEFAULT_ANNOTATION_COLOR, points)
 }
 
 internal fun markupTextSelection(tool: AnnotationTool, selection: TextSelection): List<Annotation> =
@@ -58,6 +59,16 @@ internal val Annotation.bounds: AnnotationRect?
 
 internal val Annotation.supportsResize get() = rect != null
 internal val Annotation.supportsRestyle get() = kind in setOf(AnnotationKind.Highlight, AnnotationKind.Underline, AnnotationKind.Strikeout, AnnotationKind.Ink, AnnotationKind.Shape)
+
+internal fun handleReachPoints(screenReachDp: Double, density: Double, pageScale: Double): Double =
+    screenReachDp * density / pageScale
+
+internal fun annotationAt(annotations: List<Annotation>, pageIndex: Int, point: AnnotationPoint): Annotation? =
+    annotations.lastOrNull { annotation ->
+        annotation.pageIndex == pageIndex && annotation.bounds?.let { bounds ->
+            point.x in bounds.x..(bounds.x + bounds.width) && point.y in bounds.y..(bounds.y + bounds.height)
+        } == true
+    }
 
 internal fun dragModeAt(annotation: Annotation, point: AnnotationPoint, reach: Double): DragMode? {
     val rect = annotation.bounds ?: return null

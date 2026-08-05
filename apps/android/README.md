@@ -70,6 +70,23 @@ reports the active level. Zoom changes page-slot geometry and starts sharp
 
 Pinch gestures and fit-page remain out of scope — see T-084.
 
+## Annotation editing and save copies
+
+When a document permits annotation editing, the reader exposes highlight,
+underline, strikeout, ink, shape, text-note, and image-stamp tools. Selecting
+an existing annotation enables move, resize, delete, and supported color
+restyling actions. A tap selects or places; an editing drag moves, resizes, or
+draws, while an unselected pointer drag remains available to scroll the page
+list. Image stamps are picked through SAF and use the core's placement policy,
+so Android does not invent its own aspect-ratio or anchor rules.
+
+All annotation mutations, undo/redo, byte snapshots, and document replacement
+are serialized by `ViewerViewModel`. **Save copy** writes a complete annotated
+snapshot through SAF's create-document flow. The dirty state is cleared only if
+that write reports success for the same document revision; an older save cannot
+clear edits made while it was being written. Opening another document while the
+current one is dirty requires confirmation before replacement.
+
 **Open sample** loads the shared sample document instead of going through the
 picker. The file is not stored in this module: `app/build.gradle.kts` adds the
 repository's `assets/sample/` directory as an asset source, so the APK ships

@@ -38,10 +38,33 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val snapshot = viewModel.saveSnapshot() ?: return@launch
+            val written = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { output -> output.write(snapshot.bytes) } ?: error("No output stream")
+                }.isSuccess
+            }
+            if (written) viewModel.confirmSaved(snapshot) else viewModel.reportSaveFailure()
+        }
+    }
+    val chooseStamp = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null) viewModel.reportReadFailure() else viewModel.selectImageStamp(bytes)
+        }
+    }
     val openPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
             if (bytes == null) {
                 viewModel.reportReadFailure()
                 return@launch
@@ -80,12 +103,17 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 }
             }
         },
+        onSave = { savePdf.launch(state.title.ifBlank { "Document.pdf" }) },
+        onChooseStamp = { chooseStamp.launch("image/*") },
+        onReplacementConfirmed = viewModel::confirmReplacement,
+        onReplacementCancelled = viewModel::cancelReplacement,
         onPositionChanged = viewModel::onReaderPositionChanged,
         onScrollTargetConsumed = viewModel::consumeScrollTarget,
         onAnnotationTool = viewModel::setAnnotationTool,
         onAnnotationGesture = viewModel::handlePageGesture,
         onAnnotationColor = viewModel::restyleSelected,
         onAnnotationGrow = viewModel::growSelected,
+        onAnnotationDelete = viewModel::deleteSelected,
         onAnnotationUndo = viewModel::undoAnnotations,
         onAnnotationRedo = viewModel::redoAnnotations,
     )
