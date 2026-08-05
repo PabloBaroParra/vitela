@@ -9,12 +9,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use std::cell::RefCell;
-
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, ApplicationWindow, Dialog, FileChooserAction, FileChooserNative, FileFilter, Label,
-    Overlay, PasswordEntry, Picture, ResponseType,
+    gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, ContentFit, FileDialog,
+    FileFilter, Label, Orientation as GtkOrientation, Overlay, PasswordEntry, Picture, Window,
 };
 use pdf_document::{Document, Orientation, PageSize, SecurityContext};
 use pdf_manip::ManipError;
@@ -58,36 +56,26 @@ pub(crate) enum SampleKind {
     Rc4128,
 }
 
-pub(crate) fn show_file_chooser(
-    window: &ApplicationWindow,
-    viewer: &Viewer,
-    active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
-) {
+pub(crate) fn show_file_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     let filter = FileFilter::new();
     filter.set_name(Some("PDF files"));
     filter.add_mime_type("application/pdf");
     filter.add_pattern("*.pdf");
     filter.add_pattern("*.PDF");
 
-    let chooser = FileChooserNative::new(
-        Some("Open PDF"),
-        Some(window),
-        FileChooserAction::Open,
-        Some("Open"),
-        Some("Cancel"),
-    );
-    chooser.add_filter(&filter);
-    chooser.connect_response({
+    let chooser = FileDialog::builder()
+        .title("Open PDF")
+        .accept_label("Open")
+        .default_filter(&filter)
+        .build();
+    chooser.open(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
-        let active_chooser = active_chooser.clone();
-        move |chooser, response| {
-            active_chooser.replace(None);
-            if response != ResponseType::Accept {
+        move |result| {
+            let Ok(file) = result else {
                 return;
-            }
-
-            let Some(path) = chooser.file().and_then(|file| file.path()) else {
+            };
+            let Some(path) = file.path() else {
                 viewer
                     .status
                     .set_text("The selected location is not a local file.");
@@ -96,18 +84,12 @@ pub(crate) fn show_file_chooser(
             open_initial(&window, &viewer, DocumentSource::File(path));
         }
     });
-    chooser.show();
-    active_chooser.replace(Some(chooser));
 }
 
 /// Lets the user choose a destination, then persists a snapshot of the current
 /// model. The live session remains untouched until the worker has completed.
-pub(crate) fn show_save_chooser(
-    window: &ApplicationWindow,
-    viewer: &Viewer,
-    active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
-) {
-    show_save_chooser_then(window, viewer, active_chooser, None);
+pub(crate) fn show_save_chooser(window: &ApplicationWindow, viewer: &Viewer) {
+    show_save_chooser_then(window, viewer, None);
 }
 
 /// The save chooser, with an optional continuation that runs only once the
@@ -116,7 +98,6 @@ pub(crate) fn show_save_chooser(
 fn show_save_chooser_then(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    active_chooser: &Rc<RefCell<Option<FileChooserNative>>>,
     after_save: Option<Rc<dyn Fn()>>,
 ) {
     let filter = FileFilter::new();
@@ -125,26 +106,21 @@ fn show_save_chooser_then(
     filter.add_pattern("*.pdf");
     filter.add_pattern("*.PDF");
 
-    let chooser = FileChooserNative::new(
-        Some("Save PDF"),
-        Some(window),
-        FileChooserAction::Save,
-        Some("Save"),
-        Some("Cancel"),
-    );
-    chooser.add_filter(&filter);
-    chooser.set_current_name("document.pdf");
-    chooser.connect_response({
+    let chooser = FileDialog::builder()
+        .title("Save PDF")
+        .accept_label("Save")
+        .default_filter(&filter)
+        .initial_name("document.pdf")
+        .build();
+    chooser.save(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
-        let active_chooser = active_chooser.clone();
-        move |chooser, response| {
-            active_chooser.replace(None);
-            if response != ResponseType::Accept {
+        move |result| {
+            let Ok(file) = result else {
                 viewer.status.set_text("Save cancelled.");
                 return;
-            }
-            let Some(path) = chooser.file().and_then(|file| file.path()) else {
+            };
+            let Some(path) = file.path() else {
                 viewer
                     .status
                     .set_text("The selected location is not a local file.");
@@ -153,8 +129,6 @@ fn show_save_chooser_then(
             confirm_save_destination(&window, &viewer, pdf_destination(path), after_save.clone());
         }
     });
-    chooser.show();
-    active_chooser.replace(Some(chooser));
 }
 
 fn pdf_destination(mut path: PathBuf) -> PathBuf {
@@ -186,25 +160,23 @@ fn confirm_save_destination(
             destination.display()
         )),
         Ok(true) => {
-            let dialog = Dialog::builder()
-                .transient_for(window)
+            let dialog = AlertDialog::builder()
+                .message("Replace existing PDF?")
+                .buttons(["Cancel", "Replace"])
+                .cancel_button(0)
+                .default_button(1)
                 .modal(true)
-                .title("Replace existing PDF?")
                 .build();
-            dialog.add_button("Cancel", ResponseType::Cancel);
-            dialog.add_button("Replace", ResponseType::Accept);
-            dialog.connect_response({
+            dialog.choose(Some(window), None::<&gio::Cancellable>, {
                 let viewer = viewer.clone();
-                move |dialog, response| {
-                    dialog.destroy();
-                    if response == ResponseType::Accept {
+                move |response| {
+                    if response == Ok(1) {
                         save_current_to(&viewer, destination.clone(), after_save.clone());
                     } else {
                         viewer.status.set_text("Save cancelled.");
                     }
                 }
             });
-            dialog.present();
         }
     }
 }
@@ -239,22 +211,22 @@ fn save_current_to(viewer: &Viewer, destination: PathBuf, after_save: Option<Rc<
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
-            let result =
-                gio::spawn_blocking(move || save_snapshot(&document, &backing, &destination)).await;
+            let result = gio::spawn_blocking(move || {
+                save_snapshot_and_reopen(&document, &backing, &destination)
+            })
+            .await;
             let result = save_worker_result(result);
             match result {
-                Ok(()) if mark_saved_session_clean(&viewer, token) => {
-                    super::annotations::update_annotation_controls(&viewer);
-                    viewer
-                        .status
-                        .set_text("PDF saved. Rendering will refresh when reopened.");
+                Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
+                    show_document(&viewer, generation, reopened);
+                    viewer.status.set_text("PDF saved and reopened.");
                     // Last: the continuation may replace this document, and
                     // its own status text should be what remains on screen.
                     if let Some(after_save) = after_save {
                         after_save();
                     }
                 }
-                Ok(()) => {}
+                Ok(reopened) => close_document_in_background(reopened.document),
                 Err(error) if session_matches(&viewer, token) => viewer
                     .status
                     .set_text(&format!("Could not save PDF: {error}")),
@@ -272,42 +244,35 @@ fn session_matches(viewer: &Viewer, token: super::state::SessionToken) -> bool {
         .is_some_and(|session| token.matches(state.generation, session.edit_revision))
 }
 
-fn mark_saved_session_clean(viewer: &Viewer, token: super::state::SessionToken) -> bool {
+fn prepare_reopened_session(viewer: &Viewer, token: super::state::SessionToken) -> Option<u64> {
     let mut state = viewer.state.borrow_mut();
-    let generation = state.generation;
-    let Some(session) = state.session.as_mut() else {
-        return false;
-    };
-    let Some(document) = session.document_model.as_mut() else {
-        return false;
-    };
-    clear_saved_edits_if_current(document, token, generation, session.edit_revision)
+    let edit_revision = state.session.as_ref()?.edit_revision;
+    let generation = next_generation_if_current(token, state.generation, edit_revision)?;
+    state.generation = generation;
+    Some(generation)
 }
 
-fn clear_saved_edits_if_current(
-    document: &mut Document,
+fn next_generation_if_current(
     token: super::state::SessionToken,
     generation: u64,
     edit_revision: u64,
-) -> bool {
-    if !token.matches(generation, edit_revision) {
-        return false;
-    }
-    document.pending_edits = Default::default();
-    true
+) -> Option<u64> {
+    token
+        .matches(generation, edit_revision)
+        .then(|| generation.saturating_add(1))
 }
 
-fn save_worker_result(
-    result: Result<Result<(), String>, Box<dyn Any + Send>>,
-) -> Result<(), String> {
+fn save_worker_result<T>(
+    result: Result<Result<T, String>, Box<dyn Any + Send>>,
+) -> Result<T, String> {
     result.map_err(|_| "Save worker stopped unexpectedly.".to_owned())?
 }
 
-fn save_snapshot(
+fn save_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
     destination: &Path,
-) -> Result<(), String> {
+) -> Result<OpenedDocument, String> {
     let bytes = pdf_save::save_document(pdf_save::SaveInput {
         document,
         base: &backing.base,
@@ -326,7 +291,12 @@ fn save_snapshot(
                 .map(|_| ())
                 .map_err(|error| error.to_string())
         })?;
-    atomic_write(destination, &bytes)
+    atomic_write(destination, &bytes)?;
+    open_document(
+        &DocumentSource::File(destination.to_path_buf()),
+        backing.password.as_deref(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -341,17 +311,19 @@ fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), String> {
             .unwrap_or("document.pdf"),
         std::process::id()
     ));
+    let mut created_temporary = false;
     let result = (|| {
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&temporary)
             .map_err(|error| error.to_string())?;
+        created_temporary = true;
         file.write_all(bytes).map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
         fs::rename(&temporary, destination).map_err(|error| error.to_string())
     })();
-    if result.is_err() {
+    if result.is_err() && created_temporary {
         let _ = fs::remove_file(&temporary);
     }
     result
@@ -431,45 +403,31 @@ fn confirm_replacing_edits(
         return;
     }
 
-    let dialog = Dialog::builder()
-        .transient_for(window)
+    let dialog = AlertDialog::builder()
+        .message("Unsaved annotation changes")
+        .detail(
+            "The open document has annotation changes that are not saved. Opening another document will discard them.",
+        )
+        .buttons(["Cancel", "Discard", "Save"])
+        .cancel_button(0)
+        .default_button(2)
         .modal(true)
-        .title("Unsaved annotation changes")
         .build();
-    dialog.add_button("Cancel", ResponseType::Cancel);
-    dialog.add_button("Discard", ResponseType::Reject);
-    dialog.add_button("Save", ResponseType::Accept);
-    dialog.set_default_response(ResponseType::Accept);
-
-    let message = Label::new(Some(
-        "The open document has annotation changes that are not saved. \
-         Opening another document will discard them.",
-    ));
-    message.set_wrap(true);
-    message.set_xalign(0.0);
-    dialog.content_area().append(&message);
 
     let proceed: Rc<dyn Fn()> = Rc::new(proceed);
-    dialog.connect_response({
+    dialog.choose(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         let window = window.clone();
-        move |dialog, response| {
-            // `destroy`, not `close`: closing a `GtkDialog` re-emits `response`
-            // with `DeleteEvent` and re-enters this handler — the same reason
-            // `prompt_for_password` destroys.
-            dialog.destroy();
-            match response {
-                ResponseType::Reject => proceed(),
-                ResponseType::Accept => {
-                    save_then(&window, &viewer, proceed.clone());
-                }
-                _ => viewer
-                    .status
-                    .set_text("Kept the unsaved annotation changes."),
+        move |response| match response {
+            Ok(1) => proceed(),
+            Ok(2) => {
+                save_then(&window, &viewer, proceed.clone());
             }
+            _ => viewer
+                .status
+                .set_text("Kept the unsaved annotation changes."),
         }
     });
-    dialog.present();
 }
 
 /// Runs the save chooser and, only if the bytes reach disk, continues.
@@ -478,10 +436,7 @@ fn confirm_replacing_edits(
 /// Save precisely to keep the work, and opening anyway would discard exactly
 /// what they asked to preserve.
 fn save_then(window: &ApplicationWindow, viewer: &Viewer, after_save: Rc<dyn Fn()>) {
-    // Owned here rather than shared with the toolbar's chooser slot: this one
-    // lives exactly as long as the prompt that opened it.
-    let holder: Rc<RefCell<Option<FileChooserNative>>> = Rc::new(RefCell::new(None));
-    show_save_chooser_then(window, viewer, &holder, Some(after_save));
+    show_save_chooser_then(window, viewer, Some(after_save));
 }
 
 fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
@@ -727,7 +682,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     for (page_index, (width_pt, height_pt)) in document.page_sizes.into_iter().enumerate() {
         let picture = Picture::new();
         picture.set_can_shrink(true);
-        picture.set_keep_aspect_ratio(true);
+        picture.set_content_fit(ContentFit::Contain);
         let logical_height = set_placeholder_size(&picture, width_pt, height_pt, fit);
         let overlay = Overlay::new();
         overlay.set_child(Some(&picture));
@@ -833,23 +788,29 @@ fn prompt_for_password(
     source: DocumentSource,
     generation: u64,
 ) {
-    let dialog = Dialog::builder()
+    let content = GtkBox::new(GtkOrientation::Vertical, 8);
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(12);
+    content.set_margin_end(12);
+    let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
         .title("Password required")
+        .child(&content)
         .build();
-    dialog.add_button("Cancel", ResponseType::Cancel);
-    dialog.add_button("Open", ResponseType::Accept);
-    dialog.set_default_response(ResponseType::Accept);
 
-    let password_entry = PasswordEntry::builder()
-        .show_peek_icon(true)
-        .activates_default(true)
-        .build();
+    let password_entry = PasswordEntry::builder().show_peek_icon(true).build();
     let error_label = Label::new(None);
     error_label.set_xalign(0.0);
-    dialog.content_area().append(&password_entry);
-    dialog.content_area().append(&error_label);
+    let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
+    let cancel = Button::with_label("Cancel");
+    let open = Button::with_label("Open");
+    buttons.append(&cancel);
+    buttons.append(&open);
+    content.append(&password_entry);
+    content.append(&error_label);
+    content.append(&buttons);
     password_entry.grab_focus();
 
     // Tracked so a later, superseding open attempt can tear this dialog down
@@ -857,18 +818,13 @@ fn prompt_for_password(
     // `begin_loading` and `dismiss_password_dialog`.
     viewer.state.borrow_mut().password_dialog = Some(dialog.clone());
 
-    dialog.connect_response({
+    let submit: Rc<dyn Fn()> = Rc::new({
         let viewer = viewer.clone();
-        move |dialog, response| {
-            if response != ResponseType::Accept {
-                viewer.status.set_text("Password entry cancelled.");
-                // `destroy`, not `close`: closing a `GtkDialog` re-emits
-                // `response` with `DeleteEvent`, which would re-enter this
-                // same handler right after we just set the status above.
-                dismiss_password_dialog(&viewer, dialog);
-                return;
-            }
-
+        let dialog = dialog.clone();
+        let password_entry = password_entry.clone();
+        let error_label = error_label.clone();
+        let source = source.clone();
+        move || {
             viewer.status.set_text("Opening password-protected PDF...");
             dialog.set_sensitive(false);
             glib::spawn_future_local({
@@ -907,6 +863,19 @@ fn prompt_for_password(
             });
         }
     });
+    open.connect_clicked({
+        let submit = submit.clone();
+        move |_| submit()
+    });
+    password_entry.connect_activate(move |_| submit());
+    cancel.connect_clicked({
+        let viewer = viewer.clone();
+        let dialog = dialog.clone();
+        move |_| {
+            viewer.status.set_text("Password entry cancelled.");
+            dismiss_password_dialog(&viewer, &dialog);
+        }
+    });
     dialog.present();
 }
 
@@ -914,7 +883,7 @@ fn prompt_for_password(
 /// still points at `dialog`. A later open attempt may have already
 /// superseded and destroyed this same dialog via `begin_loading`; comparing
 /// identity keeps this from clobbering a newer dialog's slot.
-fn dismiss_password_dialog(viewer: &Viewer, dialog: &Dialog) {
+fn dismiss_password_dialog(viewer: &Viewer, dialog: &Window) {
     let mut state = viewer.state.borrow_mut();
     if state.password_dialog.as_ref() == Some(dialog) {
         state.password_dialog = None;
@@ -926,33 +895,19 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Dialog) {
 #[cfg(test)]
 mod tests {
     use std::any::Any;
+    use std::fs;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use pdf_document::{Command, Document, Orientation, Page, PageId, PageSize};
-
-    use super::{clear_saved_edits_if_current, pdf_destination, save_worker_result};
+    use super::{atomic_write, next_generation_if_current, pdf_destination, save_worker_result};
     use crate::app::state::SessionToken;
-
-    fn document_with_pending_edit() -> Document {
-        let mut document = Document::blank();
-        let mut edits = std::mem::take(&mut document.pending_edits);
-        edits.apply(
-            &mut document,
-            Command::InsertPage {
-                index: 0,
-                page: Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
-            },
-        );
-        document.pending_edits = edits;
-        document
-    }
 
     #[test]
     fn a_panicked_save_worker_returns_a_typed_save_error() {
         let worker_failure: Box<dyn Any + Send> = Box::new("save worker panic");
 
         assert_eq!(
-            save_worker_result(Err(worker_failure)),
+            save_worker_result::<()>(Err(worker_failure)),
             Err("Save worker stopped unexpectedly.".to_owned())
         );
     }
@@ -960,43 +915,29 @@ mod tests {
     #[test]
     fn a_save_snapshot_error_is_preserved() {
         assert_eq!(
-            save_worker_result(Ok(Err("destination is read-only".to_owned()))),
+            save_worker_result::<()>(Ok(Err("destination is read-only".to_owned()))),
             Err("destination is read-only".to_owned())
         );
     }
 
     #[test]
-    fn a_matching_save_token_clears_pending_edits() {
-        let mut document = document_with_pending_edit();
+    fn a_matching_save_token_can_install_the_reopened_session_at_the_next_generation() {
+        let token = SessionToken {
+            generation: 4,
+            edit_revision: 2,
+        };
 
-        let cleared = clear_saved_edits_if_current(
-            &mut document,
-            SessionToken {
-                generation: 4,
-                edit_revision: 2,
-            },
-            4,
-            2,
-        );
-
-        assert!(cleared && !document.pending_edits.can_undo());
+        assert_eq!(next_generation_if_current(token, 4, 2), Some(5));
     }
 
     #[test]
-    fn a_stale_save_token_preserves_pending_edits() {
-        let mut document = document_with_pending_edit();
+    fn a_stale_save_token_cannot_install_a_reopened_session() {
+        let token = SessionToken {
+            generation: 4,
+            edit_revision: 2,
+        };
 
-        let cleared = clear_saved_edits_if_current(
-            &mut document,
-            SessionToken {
-                generation: 4,
-                edit_revision: 2,
-            },
-            4,
-            3,
-        );
-
-        assert!(!cleared && document.pending_edits.can_undo());
+        assert_eq!(next_generation_if_current(token, 4, 3), None);
     }
 
     #[test]
@@ -1021,5 +962,50 @@ mod tests {
             pdf_destination(PathBuf::from("signed.PDF")),
             PathBuf::from("signed.PDF")
         );
+    }
+
+    #[test]
+    fn a_failed_atomic_write_does_not_delete_a_preexisting_temporary_file() {
+        let directory = std::env::temp_dir().join(format!(
+            "linux-gtk-atomic-write-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock is after the Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).expect("create isolated temporary directory");
+        let destination = directory.join("document.pdf");
+        let temporary = directory.join(format!(".document.pdf.{}.tmp", std::process::id()));
+        fs::write(&temporary, b"another save owns this file").expect("seed colliding temporary");
+
+        let result = atomic_write(&destination, b"new PDF bytes");
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read(&temporary).expect("preexisting temporary remains"),
+            b"another save owns this file"
+        );
+        fs::remove_dir_all(&directory).expect("remove isolated temporary directory");
+    }
+
+    #[test]
+    fn an_atomic_write_persists_the_complete_destination_bytes() {
+        let directory = std::env::temp_dir().join(format!(
+            "linux-gtk-atomic-write-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock is after the Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).expect("create isolated temporary directory");
+        let destination = directory.join("document.pdf");
+
+        atomic_write(&destination, b"complete PDF bytes").expect("persist destination");
+
+        assert_eq!(
+            fs::read(&destination).expect("read persisted destination"),
+            b"complete PDF bytes"
+        );
+        fs::remove_dir_all(&directory).expect("remove isolated temporary directory");
     }
 }

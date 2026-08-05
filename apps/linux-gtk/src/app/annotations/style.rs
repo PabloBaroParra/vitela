@@ -2,7 +2,7 @@
 //! RGB-only `Color`, and the dialog that asks for one.
 
 use gtk::prelude::*;
-use gtk::{gdk, ColorChooserDialog, ResponseType};
+use gtk::{gdk, ColorDialog};
 use pdf_document::{Annotation, AnnotationKind, Color, Command};
 
 use crate::app::state::{SessionToken, Viewer};
@@ -69,63 +69,67 @@ pub(super) fn choose_restyle_color(viewer: &Viewer) {
         .status
         .root()
         .and_then(|root| root.downcast::<gtk::Window>().ok());
-    let dialog = ColorChooserDialog::new(Some("Choose annotation color"), parent.as_ref());
-    dialog.set_use_alpha(false);
-    dialog.set_rgba(&gdk::RGBA::new(
+    let dialog = ColorDialog::builder()
+        .title("Choose annotation color")
+        .modal(true)
+        .with_alpha(false)
+        .build();
+    let initial = gdk::RGBA::new(
         f32::from(initial.r) / 255.0,
         f32::from(initial.g) / 255.0,
         f32::from(initial.b) / 255.0,
         1.0,
-    ));
-    dialog.connect_response({
-        let viewer = viewer.clone();
-        move |dialog, response| {
-            let chosen = dialog.rgba();
-            dialog.destroy();
-            if response != ResponseType::Ok {
-                return;
-            }
-            let Some(color) = color_from_rgba(
-                f64::from(chosen.red()),
-                f64::from(chosen.green()),
-                f64::from(chosen.blue()),
-                f64::from(chosen.alpha()),
-            ) else {
-                return;
-            };
-            // The dialog is modeless as far as the model is concerned: anything
-            // could have replaced the document or edited it while it was open.
-            let current = {
-                let state = viewer.state.borrow();
-                state
-                    .session
-                    .as_ref()
-                    .is_some_and(|session| token.matches(state.generation, session.edit_revision))
-            };
-            if !current {
-                return;
-            }
-            // `connect_response` is an `Fn`, so the command below cannot consume
-            // the captured annotation — it works from a clone per response.
-            let before = before.clone();
-            command(&viewer, move |session| {
-                let current = session
-                    .document_model
-                    .as_ref()
-                    .and_then(|document| document.annotations.get(id));
-                if current != Some(&before) {
-                    return Ok("Color selection is no longer current.".to_string());
+    );
+    dialog.choose_rgba(
+        parent.as_ref(),
+        Some(&initial),
+        None::<&gtk::gio::Cancellable>,
+        {
+            let viewer = viewer.clone();
+            move |result| {
+                let Ok(chosen) = result else {
+                    return;
+                };
+                let Some(color) = color_from_rgba(
+                    f64::from(chosen.red()),
+                    f64::from(chosen.green()),
+                    f64::from(chosen.blue()),
+                    f64::from(chosen.alpha()),
+                ) else {
+                    return;
+                };
+                // The dialog is modeless as far as the model is concerned: anything
+                // could have replaced the document or edited it while it was open.
+                let current = {
+                    let state = viewer.state.borrow();
+                    state.session.as_ref().is_some_and(|session| {
+                        token.matches(state.generation, session.edit_revision)
+                    })
+                };
+                if !current {
+                    return;
                 }
-                let mut after = before.clone();
-                pdf_annotate::restyle_annotation(&mut after, color)
-                    .map_err(|error| error.to_string())?;
-                let document = model(session)?;
-                apply_command(document, Command::ReplaceAnnotation { before, after });
-                Ok("Annotation restyled. Changes are pending save.".to_string())
-            });
-        }
-    });
-    dialog.present();
+                // `connect_response` is an `Fn`, so the command below cannot consume
+                // the captured annotation — it works from a clone per response.
+                let before = before.clone();
+                command(&viewer, move |session| {
+                    let current = session
+                        .document_model
+                        .as_ref()
+                        .and_then(|document| document.annotations.get(id));
+                    if current != Some(&before) {
+                        return Ok("Color selection is no longer current.".to_string());
+                    }
+                    let mut after = before.clone();
+                    pdf_annotate::restyle_annotation(&mut after, color)
+                        .map_err(|error| error.to_string())?;
+                    let document = model(session)?;
+                    apply_command(document, Command::ReplaceAnnotation { before, after });
+                    Ok("Annotation restyled. Changes are pending save.".to_string())
+                });
+            }
+        },
+    );
 }
 
 pub(super) fn supports_restyle(annotation: &Annotation) -> bool {
@@ -160,5 +164,17 @@ mod tests {
     #[test]
     fn rgba_conversion_rejects_non_finite_channels() {
         assert_eq!(color_from_rgba(f64::NAN, 0.5, 1.0, 1.0), None);
+    }
+
+    #[test]
+    fn rgba_conversion_clamps_out_of_range_channels_before_rounding() {
+        assert_eq!(
+            color_from_rgba(-0.25, 0.501, 1.25, 0.0),
+            Some(Color {
+                r: 0,
+                g: 128,
+                b: 255
+            })
+        );
     }
 }
