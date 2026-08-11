@@ -102,8 +102,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - name: Build workspace
         run: cargo build --workspace --locked
+      # apps/linux-gtk's app::ui_tests are #[gtk::test]s that need a real
+      # display (gtk_init_check fails and panics without one). This runner
+      # has no Xvfb, so they run separately under linux-gtk-ui.yml instead.
       - name: Run tests (workspace)
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked -- --skip app::ui_tests::gtk_ui_
 
   zero-network:
     name: zero-network enforcement (T-005)
@@ -175,10 +178,12 @@ jobs:
       # egress proof then runs scoped to zero-network-guard; the perf harness
       # (also #[ignore]d) is deliberately NOT run in CI — wall-clock
       # assertions on shared runners are noise, per its own module docs.
+      # Same app::ui_tests exclusion as the `test` job above: those
+      # #[gtk::test]s need a real display, which this runner doesn't have.
       - name: Run the full test suite inside a network namespace
         run: |
           sudo -E env "PATH=$PATH" unshare --net \
-            sh -c 'ip link set lo up && exec cargo test --workspace --locked'
+            sh -c 'ip link set lo up && exec cargo test --workspace --locked -- --skip app::ui_tests::gtk_ui_'
       - name: Run zero-network-guard's CI-only egress proof inside the namespace
         run: |
           sudo -E env "PATH=$PATH" unshare --net \

@@ -100,6 +100,17 @@ bash apps/macos/Tests/test-bundle-integrity.sh
 bash apps/ios/Tests/test-build-ios.sh
 ```
 
+For GTK/frontend changes, run the focused Linux/Xvfb gate:
+
+```bash
+xvfb-run --auto-servernum --server-args='-screen 0 1280x800x24' \
+  env GDK_BACKEND=x11 cargo test -p linux-gtk --locked app::ui_tests::gtk_ui_
+```
+
+If Linux/Xvfb verification is unavailable locally, identify this gate as
+unverified in the PR and rely on its CI evidence. Do not report a skipped GTK
+gate as passing.
+
 ### You can only verify your own platform
 
 Shell crates are gated with `#[cfg(target_os = "...")]` and their GUI

@@ -17,6 +17,9 @@ mod search;
 mod selection;
 mod state;
 
+#[cfg(test)]
+mod ui_tests;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -28,7 +31,9 @@ use gtk::{
 
 use annotations::add_annotation_toolbar;
 use brand::build_app_mark;
-use document::{new_blank_document, open_sample, show_file_chooser, show_save_chooser, SampleKind};
+use document::{
+    new_blank_document, open_file, open_sample, show_file_chooser, show_save_chooser, SampleKind,
+};
 use layout::{refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
@@ -40,15 +45,60 @@ const APPLICATION_ID: &str = "org.vitela.Pdf";
 /// [`build_ui`] and the geometry walks in `layout` that must mirror it.
 pub(crate) const PAGE_GAP: i32 = 12;
 
+/// Private construction result shared by production startup and crate-local GTK tests.
+#[derive(Clone)]
+struct BuiltUi {
+    window: ApplicationWindow,
+    viewer: Viewer,
+}
+
 pub fn run() -> glib::ExitCode {
     let application = Application::builder()
         .application_id(APPLICATION_ID)
+        // The shipped .desktop entry launches with `Exec=vitela %F`; without
+        // this flag GApplication rejects the file argument outright instead
+        // of emitting `open` below.
+        .flags(gio::ApplicationFlags::HANDLES_OPEN)
         .build();
-    application.connect_activate(build_ui);
+
+    let built_ui: Rc<RefCell<Option<BuiltUi>>> = Rc::new(RefCell::new(None));
+
+    application.connect_activate({
+        let built_ui = built_ui.clone();
+        move |application| {
+            ensure_built(&built_ui, application).window.present();
+        }
+    });
+    application.connect_open({
+        let built_ui = built_ui.clone();
+        move |application, files, _hint| {
+            let ui = ensure_built(&built_ui, application);
+            ui.window.present();
+            // A file-manager "Open With" always means one document; extra
+            // entries in `files` (multi-select) are silently ignored rather
+            // than half-supporting multi-window.
+            if let Some(path) = files.first().and_then(gio::File::path) {
+                open_file(&ui.viewer, path);
+            }
+        }
+    });
     application.run()
 }
 
-fn build_ui(application: &Application) {
+/// Builds the window on the first `activate`/`open` and reuses it for every
+/// later one, so a second file-manager launch loads into the already-open
+/// window (through [`open_file`]'s usual replace-the-document flow) instead
+/// of spawning a second window.
+fn ensure_built(built_ui: &Rc<RefCell<Option<BuiltUi>>>, application: &Application) -> BuiltUi {
+    if let Some(built) = built_ui.borrow().as_ref() {
+        return built.clone();
+    }
+    let built = build_ui(application);
+    *built_ui.borrow_mut() = Some(built.clone());
+    built
+}
+
+fn build_ui(application: &Application) -> BuiltUi {
     let window = ApplicationWindow::builder()
         .application(application)
         .default_width(1000)
@@ -86,6 +136,7 @@ fn build_ui(application: &Application) {
         .placeholder_text("Find in document")
         .hexpand(true)
         .build();
+    search_entry.update_property(&[gtk::accessible::Property::Label("Search document")]);
     let find_previous = Button::with_label("Previous");
     let find_next = Button::with_label("Next");
     find_previous.set_sensitive(false);
@@ -255,7 +306,7 @@ fn build_ui(application: &Application) {
     });
     sample_actions.add_action(&action_sample_rc4128);
 
-    window.present();
+    BuiltUi { window, viewer }
 }
 
 /// Adds the standard window commands that already have shell handlers. Copy,

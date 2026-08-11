@@ -73,3 +73,13 @@ the exact per-platform file name pdfium-render expects.
 pdfium-binaries ships pdfium under its own (BSD/Apache-derivative) license —
 see the downloaded `LICENSE.md`. Compatible with this project's `MIT OR
 Apache-2.0` license; verify per-release per `design.md`'s note.
+
+## Linux distribution input (T-053)
+
+`scripts/package-linux.sh` does not download PDFium. Supply `PDFIUM_ARCHIVE`
+with the immutable `chromium/7763/pdfium-linux-x64.tgz` release and it verifies
+SHA-256 `e3f0c66b2daad710cb6c8edd4a8c45c8902995e359dc0775917fc16e2e56349d`
+before extraction. The archive must declare `VERSION` `148.0.7763.0`, Linux
+x64, non-V8, non-XFA settings in `args.gn`, `lib/libpdfium.so`, `LICENSE`, and
+regular third-party notice files under `licenses/`. It remains an external
+build input: do not commit it or its extracted binary.

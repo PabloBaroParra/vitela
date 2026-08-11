@@ -1546,6 +1546,7 @@ dependencies = [
  "pdf-manip",
  "pdf-render",
  "pdf-save",
+ "sha2 0.10.9",
 ]
 
 [[package]]

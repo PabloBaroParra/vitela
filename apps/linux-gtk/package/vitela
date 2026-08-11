@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+launcher_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+if [ -n "${APPDIR:-}" ]; then
+    prefix="$APPDIR/usr"
+else
+    prefix="$(cd "$launcher_dir/.." && pwd -P)"
+fi
+runtime_dir="$prefix/lib/vitela"
+pdfium_library="$runtime_dir/libpdfium.so"
+
+if [ ! -r "$pdfium_library" ]; then
+    printf 'Vitela package error: bundled PDFium is unavailable at %s\n' "$pdfium_library" >&2
+    exit 1
+fi
+
+export PDFIUM_DYNAMIC_LIB_PATH="$pdfium_library"
+exec "$runtime_dir/linux-gtk" "$@"
