@@ -56,9 +56,12 @@ mod tests {
     fn renders_the_embedded_sample_to_a_nonempty_receipt() {
         let receipt = render_embedded_sample().expect("the bundled PDFium renders page one");
         assert!(receipt.contains("width="));
-        assert!(receipt.contains(
-            "pixels_sha256=52409ebbba65a9244f7dc0d0aba4ebc529e47caf5c955da10e2a1843e9a804de"
-        ));
+        assert!(
+            receipt.contains(
+                "pixels_sha256=52409ebbba65a9244f7dc0d0aba4ebc529e47caf5c955da10e2a1843e9a804de"
+            ),
+            "unexpected receipt: {receipt}"
+        );
     }
 
     #[test]
