@@ -1,0 +1,9 @@
+Package: vitela
+Version: @VERSION@
+Section: graphics
+Priority: optional
+Architecture: amd64
+Maintainer: Vitela contributors
+Depends: @DEPENDENCIES@
+Description: Vitela PDF viewer
+ A GTK4 PDF viewer with a bundled PDFium runtime.

@@ -12,7 +12,29 @@
 mod app;
 
 #[cfg(target_os = "linux")]
+mod package_smoke;
+
+#[cfg(target_os = "linux")]
 fn main() -> gtk::glib::ExitCode {
+    let mut args = std::env::args_os();
+    let _program = args.next();
+    if args.next().as_deref() == Some(std::ffi::OsStr::new("--package-smoke")) {
+        let Some(receipt) = args.next() else {
+            eprintln!("--package-smoke requires a receipt path");
+            return gtk::glib::ExitCode::FAILURE;
+        };
+        if args.next().is_some() {
+            eprintln!("--package-smoke accepts exactly one receipt path");
+            return gtk::glib::ExitCode::FAILURE;
+        }
+        return match package_smoke::write_receipt(std::path::Path::new(&receipt)) {
+            Ok(()) => gtk::glib::ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("package smoke failed: {error}");
+                gtk::glib::ExitCode::FAILURE
+            }
+        };
+    }
     app::run()
 }
 

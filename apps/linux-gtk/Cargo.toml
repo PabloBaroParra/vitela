@@ -20,3 +20,4 @@ pdf-render = { path = "../../core/pdf-render" }
 pdf-annotate = { path = "../../core/pdf-annotate" }
 pdf-document = { path = "../../core/pdf-document" }
 pdf-save = { path = "../../core/pdf-save" }
+sha2 = "0.10.9"

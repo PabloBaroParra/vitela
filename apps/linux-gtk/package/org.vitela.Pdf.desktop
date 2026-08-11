@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Vitela
+Comment=View PDF documents
+Exec=vitela %F
+Icon=org.vitela.Pdf
+Categories=Office;Viewer;
+MimeType=application/pdf;
+Terminal=false
+StartupNotify=true
