@@ -67,6 +67,6 @@ log "Packaging .deb and .AppImage"
 LINUXDEPLOY="$TOOLS_DIR/linuxdeploy" \
 APPIMAGETOOL="$TOOLS_DIR/appimagetool" \
 PDFIUM_ARCHIVE="$pdfium_archive" \
-    "$REPO_ROOT/scripts/package-linux.sh"
+    bash "$REPO_ROOT/scripts/package-linux.sh"
 
 log "Done — packages in $BUILD_ROOT/packages"
