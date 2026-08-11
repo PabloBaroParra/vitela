@@ -58,7 +58,7 @@ mod tests {
         assert!(receipt.contains("width="));
         assert!(
             receipt.contains(
-                "pixels_sha256=52409ebbba65a9244f7dc0d0aba4ebc529e47caf5c955da10e2a1843e9a804de"
+                "pixels_sha256=e9a2bea7357da6b4a271e0fe5c9c5767e27f3fc09ba7ae9d2c76d1e2b4b5409f"
             ),
             "unexpected receipt: {receipt}"
         );

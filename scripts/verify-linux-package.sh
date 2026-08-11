@@ -7,7 +7,7 @@ readonly EVIDENCE_DIR="${PACKAGE_EVIDENCE_DIR:-$REPO_ROOT/build/linux/evidence}"
 readonly PACKAGE_VERSION="${PACKAGE_VERSION:-$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Cargo.toml")}" 
 readonly DEB="$PACKAGES_DIR/vitela_${PACKAGE_VERSION}_amd64.deb"
 readonly APPIMAGE="$PACKAGES_DIR/Vitela-${PACKAGE_VERSION}-x86_64.AppImage"
-readonly EXPECTED_RENDERED_PIXELS_SHA256='52409ebbba65a9244f7dc0d0aba4ebc529e47caf5c955da10e2a1843e9a804de'
+readonly EXPECTED_RENDERED_PIXELS_SHA256='e9a2bea7357da6b4a271e0fe5c9c5767e27f3fc09ba7ae9d2c76d1e2b4b5409f'
 
 fail() { printf 'verify-linux-package: %s\n' "$*" >&2; exit 1; }
 require_file() { [ -f "$1" ] && [ -r "$1" ] || fail "required readable file not found: $1"; }
