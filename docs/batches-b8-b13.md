@@ -100,15 +100,11 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
       `Forbidden` y `Unavailable` separados por eso, igual que `TextAccess::Unreadable`:
       colapsarlos hace que el shell le atribuya al documento una restricción que nunca declaró.
 
-      **Pendiente de UX que este batch NO puede cerrar solo:** el shell todavía no tiene save,
-      y undo/redo es T-048. Abrir otro PDF descarta los edits pendientes y lo informa por la
-      barra de estado. En cuanto exista guardado, eso tiene que pasar a ser un prompt
-      save/discard/cancel — hoy bloquear la apertura dejaría al usuario sin ninguna salida.
-- [ ] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
+- [x] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
 - [x] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]
 - [x] T-050 gdk::Clipboard paste → stamp_from_image_bytes; rechazar URL-texto, sin fetch. [Clipboard]
-- [ ] T-051 Drag-and-drop: abrir PDF / insertar imagen como stamp. [ShortcutsDnD]
-- [ ] T-052 Shortcuts estándar C/V/Z/Y/P/S/F/O/N. [ShortcutsDnD]
+- [x] T-051 Drag-and-drop: abrir PDF / insertar imagen como stamp. [ShortcutsDnD]
+- [x] T-052 Shortcuts estándar C/V/Z/Y/P/S/F/O/N. [ShortcutsDnD]
 - [ ] T-053 Bundling pdfium .so + empaquetado (deb/AppImage). [pdfium dist]
 - [ ] T-054 linux.yml CI: build + package. [infra]
 - [ ] T-141 (dep B20) Modo edición de formularios: colocar campo (texto/checkbox/radio/
