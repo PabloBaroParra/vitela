@@ -18,6 +18,13 @@ enum FileDropKind {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PasteTarget {
+    session_id: u64,
+    page_index: usize,
+    point: (f64, f64),
+}
+
 /// Wires Ctrl+V as a window action. It requests a texture only; notably, it
 /// never reads clipboard text, so a URL cannot become an implicit download.
 pub(crate) fn connect_paste(
@@ -81,7 +88,7 @@ pub(crate) fn connect_window_file_drop(area: &gtk::Overlay, viewer: &Viewer) {
 }
 
 fn paste_image(viewer: &Viewer) {
-    let Some((session_id, page_index, point)) = paste_target(viewer) else {
+    let Some(target) = paste_target(viewer) else {
         viewer
             .status
             .set_text("Open a PDF before pasting an image.");
@@ -90,36 +97,38 @@ fn paste_image(viewer: &Viewer) {
     let clipboard = viewer.scroll.clipboard();
     clipboard.read_texture_async(None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
-        move |result| match result.ok().flatten() {
-            Some(texture) if is_current_session(&viewer, session_id) => {
-                annotations::stamp_from_image_bytes(
-                    &viewer,
-                    page_index,
-                    point,
-                    texture.save_to_png_bytes().as_ref().to_vec(),
-                )
+        move |result| {
+            if !is_current_session(&viewer, target.session_id) {
+                return;
             }
-            None => viewer
-                .status
-                .set_text("Clipboard does not contain a bitmap image."),
-            Some(_) => {}
+            match result.ok().flatten() {
+                Some(texture) => annotations::stamp_from_image_bytes(
+                    &viewer,
+                    target.page_index,
+                    target.point,
+                    texture.save_to_png_bytes().as_ref().to_vec(),
+                ),
+                None => viewer
+                    .status
+                    .set_text("Clipboard does not contain a bitmap image."),
+            }
         }
     });
 }
 
-fn paste_target(viewer: &Viewer) -> Option<(u64, usize, (f64, f64))> {
+fn paste_target(viewer: &Viewer) -> Option<PasteTarget> {
     let state = viewer.state.borrow();
     let session = state.session.as_ref()?;
     let page_index = session.last_visible.map_or(0, |(first, _)| first);
     let page = session.pages.get(page_index)?;
-    Some((
-        state.session_id,
+    Some(PasteTarget {
+        session_id: state.session_id,
         page_index,
-        (
+        point: (
             f64::from(page.width_pt) / 2.0,
             f64::from(page.height_pt) / 2.0,
         ),
-    ))
+    })
 }
 
 fn drop_file(viewer: &Viewer, page_index: usize, x: f64, y: f64, file: gio::File) {
