@@ -106,7 +106,7 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
       save/discard/cancel — hoy bloquear la apertura dejaría al usuario sin ninguna salida.
 - [ ] T-048 Keybindings undo/redo → EditLog. [UndoRedo]
 - [x] T-049 GtkPrintOperation usando render_page a DPI de impresión. [Print]
-- [ ] T-050 gdk::Clipboard paste → stamp_from_image_bytes; rechazar URL-texto, sin fetch. [Clipboard]
+- [x] T-050 gdk::Clipboard paste → stamp_from_image_bytes; rechazar URL-texto, sin fetch. [Clipboard]
 - [ ] T-051 Drag-and-drop: abrir PDF / insertar imagen como stamp. [ShortcutsDnD]
 - [ ] T-052 Shortcuts estándar C/V/Z/Y/P/S/F/O/N. [ShortcutsDnD]
 - [ ] T-053 Bundling pdfium .so + empaquetado (deb/AppImage). [pdfium dist]
