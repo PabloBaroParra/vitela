@@ -16,6 +16,7 @@
 | B12 (pdf-sign) | B6 ✓ | **LISTO** (paralelo a todos los shells) |
 | B13 (Android) | B7 ✓ (NO depende de B1) | **LISTO** |
 | B20 (formularios AcroForm, ver [batch-forms.md](batch-forms.md)) | B6 ✓ | **LISTO** (paralelo a todos los shells; T-141..T-143 de B8 dependen de él) |
+| B21 (edición de contenido de página, ver [batch-content-edit.md](batch-content-edit.md)) | B6 ✓ | **LISTO** (paralelo a todos los shells; T-161..T-163 de B8 dependen de él) |
 
 B8, B9, B10, B12 y B13 son mutuamente independientes y pueden correr en paralelo.
 B14 (iOS) queda fuera de este documento: depende de B9 (reutiliza sus bindings y vistas).
@@ -27,7 +28,9 @@ B14 (iOS) queda fuera de este documento: depende de B9 (reutiliza sus bindings y
 **Dependencias:** B6 ✓. Dep directa de crates core — **bypasea B7/FFI** por decisión de design
 ("GTK4 FFI bypass"). El gap de `/Annots` preexistentes que lo bloqueaba se resolvió en la
 remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B20
-([batch-forms.md](batch-forms.md)); el resto de B8 no está gateado por él.
+([batch-forms.md](batch-forms.md)); las de edición de contenido T-161–T-163 además requieren
+B21 ([batch-content-edit.md](batch-content-edit.md)); el resto de B8 no está gateado por
+ninguno de los dos.
 
 ### Tareas
 - [x] T-044 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [OpenPDF, NavZoom]
@@ -105,7 +108,13 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
 - [x] T-050 gdk::Clipboard paste → stamp_from_image_bytes; rechazar URL-texto, sin fetch. [Clipboard]
 - [x] T-051 Drag-and-drop: abrir PDF / insertar imagen como stamp. [ShortcutsDnD]
 - [x] T-052 Shortcuts estándar C/V/Z/Y/P/S/F/O/N. [ShortcutsDnD]
-- [ ] T-053 Bundling pdfium .so + empaquetado (deb/AppImage). [pdfium dist]
+- [x] T-053 Bundling pdfium .so + empaquetado (deb/AppImage). [pdfium dist]
+      **(2026-08-11 — completo: `scripts/package-linux.sh` arma .deb y AppImage desde un
+      tarball de PDFium verificado (checksum, args.gn Linux/x64/non-V8/non-XFA, chequeo ELF,
+      sin symlinks) y falla cerrado antes de publicar nada; `verify-linux-package.sh`
+      smoke-renderea dentro de cada paquete en un namespace aislado de red para probar que
+      el PDFium empaquetado funciona y que nada llama a casa. El launcher apunta al binario
+      empaquetado vía `PDFIUM_DYNAMIC_LIB_PATH`.)**
 - [ ] T-054 linux.yml CI: build + package. [infra]
 - [ ] T-141 (dep B20) Modo edición de formularios: colocar campo (texto/checkbox/radio/
       dropdown) sobre el canvas, arrastrar/resize con handles, inspector de estilo
@@ -117,6 +126,17 @@ remediación pre-B7. Las tareas de formularios T-141–T-143 además requieren B
       (sin re-render pdfium; /V + /AP se escriben al guardar). [FormUI]
 - [ ] T-143 (dep B20) Tab-order del panel = orden del FormFieldSet; foco en el input
       del panel resalta el widget correspondiente en el canvas y viceversa. [FormUI]
+- [ ] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
+      existente abre un editor inline que preserva fuente/tamaño/posición; los runs no
+      editables por `EncodingGap` se muestran distinguibles con explicación al usuario —
+      nunca un fallo silencioso ni un intento que corrompa el stream. [ContentEdit]
+- [ ] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
+      handles/reemplazar (file picker)/borrar imágenes existentes — distinto del stamp de
+      anotación que ya existe (T-047). [ContentEdit]
+- [ ] T-163 (dep B21) Insertar texto/imagen nuevos como contenido de página real; y el
+      ciclo save→reopen→re-render obligatorio tras cualquier commit de edición de contenido
+      — acá el WARNING de UX diferido en T-046/T-047 deja de ser diferible: es el camino
+      principal de la feature, no un caso de borde. [ContentEdit]
 
 ### Criterios de aceptación (spec)
 - PDF válido sin cifrar abre y renderiza página 1.
