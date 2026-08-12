@@ -45,19 +45,39 @@ mkdir -p "$TOOLS_DIR"
 
 fetch_tool() {
     local url="$1" destination="$2"
-    if [ ! -x "$destination" ]; then
-        log "Downloading $(basename "$destination")"
-        curl -sL "$url" -o "$destination"
-        chmod +x "$destination"
+    if [ -x "$destination" ]; then
+        return
     fi
+    log "Downloading $(basename "$destination")"
+    local tmp="$destination.part"
+    # -f: a non-2xx response fails the curl call instead of writing the
+    # error body to $tmp and exiting 0 — otherwise a bad response gets
+    # renamed into place as if it were a real download, and every later
+    # run treats that cached garbage as already fetched and skips it again.
+    curl -fsSL "$url" -o "$tmp"
+    chmod +x "$tmp"
+    mv "$tmp" "$destination"
 }
 fetch_tool "$LINUXDEPLOY_URL" "$TOOLS_DIR/linuxdeploy"
 fetch_tool "$APPIMAGETOOL_URL" "$TOOLS_DIR/appimagetool"
 
 pdfium_archive="$TOOLS_DIR/pdfium-linux-x64.tgz"
 if [ ! -f "$pdfium_archive" ]; then
-    log "Downloading the PDFium packaging input (package-linux.sh verifies its checksum)"
-    curl -sL "$PDFIUM_URL" -o "$pdfium_archive"
+    log "Downloading the PDFium packaging input"
+    tmp_archive="$pdfium_archive.part"
+    curl -fsSL "$PDFIUM_URL" -o "$tmp_archive"
+    # Same reasoning as fetch_tool: verify the archive is actually usable
+    # before caching it under the name later runs trust on sight.
+    # package-linux.sh still re-verifies the checksum before extracting —
+    # this is just what stops a bad download from being cached as good.
+    archive_contents="$tmp_archive.contents"
+    if ! tar -tzf "$tmp_archive" > "$archive_contents" 2>/dev/null || ! grep -Eq '(^|/)lib/libpdfium\.so$' "$archive_contents"; then
+        rm -f "$tmp_archive" "$archive_contents"
+        echo "bootstrap-linux-package: downloaded PDFium archive doesn't contain lib/libpdfium.so — check network/VPN and re-run" >&2
+        exit 1
+    fi
+    rm -f "$archive_contents"
+    mv "$tmp_archive" "$pdfium_archive"
 fi
 
 log "Building linux-gtk (release)"

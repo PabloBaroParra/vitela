@@ -19,8 +19,8 @@ trap cleanup EXIT
 make_fixture() {
     fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/vitela package.XXXXXX")"
     mkdir -p "$fixture_root/input/lib" "$fixture_root/input/licenses" "$fixture_root/bin"
-    printf '%s\n' '148.0.7763.0' > "$fixture_root/input/VERSION"
-    printf '%s\n' 'target_os="linux" target_cpu="x64" pdf_use_v8=false pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'MAJOR=148' 'MINOR=0' 'BUILD=7763' 'PATCH=0' > "$fixture_root/input/VERSION"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' 'pdf_enable_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     printf '%s\n' 'PDFium license' > "$fixture_root/input/LICENSE"
     printf '%s\n' 'third-party notice' > "$fixture_root/input/licenses/pdfium.txt"
     cp /bin/true "$fixture_root/input/lib/libpdfium.so"
@@ -73,9 +73,22 @@ test_checksum_metadata_and_library_validation_fail_closed() {
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 }
 
-test_wrong_metadata_and_missing_tools_fail_before_publication() {
+test_archive_with_many_entries_after_library_is_accepted() {
     make_fixture
-    printf '%s\n' '148.0.0000.0' > "$fixture_root/input/VERSION"
+    mkdir -p "$fixture_root/input/trailing"
+    local index
+    for index in $(seq 1 10000); do
+        : > "$fixture_root/input/trailing/$index"
+    done
+    tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
+    sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
+    run_package
+    assert_file "$fixture_root/build output;not-a-command/packages/vitela_$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Cargo.toml")_amd64.deb"
+}
+
+test_version_metadata_and_missing_tools_fail_before_publication() {
+    make_fixture
+    printf '%s\n' 'MAJOR=148' 'MINOR=0' 'BUILD=0000' 'PATCH=0' > "$fixture_root/input/VERSION"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'wrong version unexpectedly packaged'; fi
@@ -84,30 +97,76 @@ test_wrong_metadata_and_missing_tools_fail_before_publication() {
     printf '%s\n' '148.0.7763.0' > "$fixture_root/input/VERSION"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
+    if run_package; then fail 'malformed VERSION metadata unexpectedly packaged'; fi
+    assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
+
+    printf '%s\n' 'MAJOR=148' 'MINOR=0' 'BUILD=7763' 'PATCH=0' > "$fixture_root/input/VERSION"
+    tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
+    sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if LINUXDEPLOY=vitela-tool-that-does-not-exist run_package; then fail 'missing tool unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 }
 
 test_v8_x64_and_elf_mismatches_fail_before_publication() {
     make_fixture
-    printf '%s\n' 'target_os="linux" target_cpu="x64" pdf_use_v8=true pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' 'pdf_enable_v8=true' 'pdf_use_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'V8-enabled archive unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 
-    printf '%s\n' 'target_os="linux" target_cpu="arm64" pdf_use_v8=false pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="arm64"' 'pdf_enable_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'non-x64 archive unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 
-    printf '%s\n' 'target_os="linux" target_cpu="x64" pdf_use_v8=false pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' 'pdf_enable_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     printf '%s\n' 'not an ELF library' > "$fixture_root/input/lib/libpdfium.so"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'non-ELF archive unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
+}
+
+test_v8_assignment_bypasses_fail_before_publication() {
+    local case_name
+    local v8_setting
+    for case_name in missing malformed substring commented duplicate true legacy_conflict; do
+        make_fixture
+        case "$case_name" in
+            missing) v8_setting='' ;;
+            malformed) v8_setting='pdf_enable_v8=false # disabled' ;;
+            substring) v8_setting='pdf_enable_v8_extra=false' ;;
+            commented) v8_setting='# pdf_enable_v8=false' ;;
+            duplicate) v8_setting=$'pdf_enable_v8=false\npdf_enable_v8=false' ;;
+            true) v8_setting='pdf_enable_v8=true' ;;
+            legacy_conflict) v8_setting=$'pdf_enable_v8=true\npdf_use_v8=false' ;;
+        esac
+        printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' "$v8_setting" 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+        tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
+        sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
+        if run_package; then fail "V8 $case_name bypass unexpectedly packaged"; fi
+        assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
+    done
+}
+
+test_readelf_locale_translation_does_not_cause_a_false_negative() {
+    make_fixture
+    cat > "$fixture_root/bin/readelf" <<'EOF'
+#!/usr/bin/env bash
+if [ "${LC_ALL:-}" = 'C' ]; then
+    label='Machine:'
+else
+    label='Máquina:'
+fi
+printf '  %s                          X86-64\n' "$label"
+EOF
+    chmod +x "$fixture_root/bin/readelf"
+    if ! LC_ALL=es_ES.UTF-8 run_package; then
+        fail 'readelf locale translation caused a false ELF architecture mismatch'
+    fi
+    assert_file "$fixture_root/build output;not-a-command/packages/vitela_$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Cargo.toml")_amd64.deb"
 }
 
 test_nonzero_child_failure_propagates_without_publication() {
@@ -197,8 +256,11 @@ test_required_assets_exist() {
 
 test_missing_or_untrusted_input_fails_before_publication
 test_checksum_metadata_and_library_validation_fail_closed
-test_wrong_metadata_and_missing_tools_fail_before_publication
+test_archive_with_many_entries_after_library_is_accepted
+test_version_metadata_and_missing_tools_fail_before_publication
 test_v8_x64_and_elf_mismatches_fail_before_publication
+test_v8_assignment_bypasses_fail_before_publication
+test_readelf_locale_translation_does_not_cause_a_false_negative
 test_nonzero_child_failure_propagates_without_publication
 test_notices_are_data_and_required_notice_symlinks_fail
 test_launcher_rejects_missing_private_library_and_preserves_arguments
@@ -206,4 +268,4 @@ test_launcher_uses_appdir_usr_for_relocated_appimages
 test_deb_inspector_fixture_has_the_required_payload
 test_artifact_inspectors_reject_bad_metadata_entries_and_appimage_payload
 test_required_assets_exist
-printf 'package-linux shell tests: 11 passed\n'
+printf 'package-linux shell tests: 14 passed\n'
