@@ -339,7 +339,55 @@ public sealed class PdfDocumentFacade : IDisposable
     public Task<OperationResult<AnnotationState>> UndoAsync(string sessionId) => HistoryAsync(sessionId, undo: true);
     public Task<OperationResult<AnnotationState>> RedoAsync(string sessionId) => HistoryAsync(sessionId, undo: false);
 
-    public async Task<OperationResult<SavedDocument>> SaveToDestinationAsync(string sessionId, Func<byte[], Task> replaceDestination)
+    /// <summary>
+    /// Whether saving this session would break a signature the document
+    /// already carries — the question the shell asks so it can warn before
+    /// the reader commits to a save.
+    /// </summary>
+    /// <remarks>
+    /// Asking this and then saving is not a race worth guarding: more edits
+    /// arriving in between can only move the answer from false to true, and a
+    /// save that became signature-breaking without an acknowledgement is
+    /// refused by the core anyway. The reader gets told either way; the only
+    /// difference is whether they are told as a question or as a failure.
+    /// </remarks>
+    public async Task<OperationResult<bool>> WillInvalidateSignaturesAsync(string sessionId)
+    {
+        SessionEntry session;
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out session))
+            {
+                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "signatures", sessionId, null));
+            }
+        }
+
+        try
+        {
+            // Off the UI thread: answering means scanning every object for a
+            // signature dictionary, which on a large document is long enough
+            // to be felt as a stutter.
+            var invalidates = await Task.Run(() => _core.WillInvalidateSignatures(session.Document)).ConfigureAwait(false);
+            return OperationResult<bool>.Success(invalidates);
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<bool>.Failure(MapError(error, "signatures", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<bool>.Failure(MapUnexpected(error, "signatures", sessionId, null));
+        }
+    }
+
+    /// <param name="signaturesAcknowledged">
+    /// Pass <c>true</c> only after the reader has been told the save breaks an
+    /// existing signature and chose to continue — see
+    /// <see cref="WillInvalidateSignaturesAsync"/>. The default is <c>false</c>
+    /// on purpose: a caller that has not thought about signatures gets a
+    /// refusal, not a broken one.
+    /// </param>
+    public async Task<OperationResult<SavedDocument>> SaveToDestinationAsync(string sessionId, Func<byte[], Task> replaceDestination, bool signaturesAcknowledged = false)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         SessionEntry session;
@@ -355,11 +403,7 @@ public sealed class PdfDocumentFacade : IDisposable
                 revision = session.EditRevision;
             }
 
-            // Unacknowledged: this shell has no prompt for it yet, so a signed
-            // document surfaces as a save failure the user can read rather
-            // than a file whose signature quietly stopped verifying. The GTK
-            // shell asks; wiring the same question into WinUI is its own work.
-            var bytes = await Task.Run(() => _core.SaveToBytes(session.Document, signaturesAcknowledged: false)).ConfigureAwait(false);
+            var bytes = await Task.Run(() => _core.SaveToBytes(session.Document, signaturesAcknowledged)).ConfigureAwait(false);
             await replaceDestination(bytes).ConfigureAwait(false);
             lock (_gate)
             {

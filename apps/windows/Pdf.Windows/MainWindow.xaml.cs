@@ -113,6 +113,14 @@ public sealed partial class MainWindow : Window
     private async Task<bool> SaveToPickedFileAsync()
     {
         if (_session is null) return false;
+
+        // Before the picker, not after: the answer does not depend on where
+        // the file goes, so asking first means a reader who backs out never
+        // had to choose a destination for a save that was never going to
+        // happen.
+        var acknowledged = await AskSignatureLossAsync();
+        if (acknowledged is null) return false;
+
         var picker = new FileSavePicker();
         picker.FileTypeChoices.Add("PDF", [".pdf"]);
         picker.SuggestedFileName = Path.GetFileNameWithoutExtension(_session.DisplayName);
@@ -131,7 +139,7 @@ public sealed partial class MainWindow : Window
                 await FileIO.WriteBytesAsync(temporary, bytes);
                 await temporary.MoveAndReplaceAsync(file);
                 temporary = null;
-            });
+            }, acknowledged.Value);
             if (!result.IsSuccess)
             {
                 AnnotationStatus.Text = result.Error!.Message;
@@ -248,6 +256,62 @@ public sealed partial class MainWindow : Window
         }
 
         ShowOpenedDocument(result.Value!);
+    }
+
+    /// <summary>
+    /// Asks about a signature the save would break, if there is one.
+    /// </summary>
+    /// <returns>
+    /// The acknowledgement to save with, or <c>null</c> to abandon the save.
+    /// <c>false</c> is the ordinary case — nothing to acknowledge — and
+    /// <c>true</c> means the reader was shown what they would lose and chose
+    /// to continue.
+    /// </returns>
+    /// <remarks>
+    /// There is no third option to offer: a save rewrites the file, and the
+    /// signature covers the bytes being replaced, so it cannot be carried
+    /// over. The dialog exists to make that a decision instead of a
+    /// discovery. Cancel is the default and the dismissed-dialog result, so
+    /// every way out that is not deliberate keeps the signed file intact —
+    /// the same rule the unsaved-changes prompt follows.
+    ///
+    /// A failure to even determine this is reported and treated as cancel:
+    /// saving anyway would risk breaking a signature nobody confirmed, and
+    /// silently downgrading to "no signature" is how this went wrong before.
+    /// </remarks>
+    private async Task<bool?> AskSignatureLossAsync()
+    {
+        // Busy only around the query — the scan can take a moment on a large
+        // document — and never around the dialog, which needs a live window
+        // to be answered in.
+        SetBusy(true);
+        var query = await _facade.WillInvalidateSignaturesAsync(_session!.SessionId);
+        SetBusy(false);
+
+        if (!query.IsSuccess)
+        {
+            AnnotationStatus.Text = query.Error!.Message;
+            return null;
+        }
+
+        if (!query.Value) return false;
+
+        var dialog = new ContentDialog
+        {
+            Title = "Saving will break this document's signature",
+            Content = new TextBlock
+            {
+                Text = $"\"{_session?.DisplayName}\" is signed. Saving your changes rewrites the file, and the existing signature will no longer verify. The signature cannot be kept.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = "Save anyway",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        return true;
     }
 
     private enum PendingEditDecision { Cancel, Save, Discard }
