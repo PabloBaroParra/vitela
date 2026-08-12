@@ -65,7 +65,12 @@ pdfium_archive_version="$(awk '
 [ "$pdfium_archive_version" = "$PDFIUM_VERSION" ] || fail 'PDFium version is not 148.0.7763.0'
 grep -Eq 'target_os[[:space:]]*=[[:space:]]*"linux"' "$work_dir/pdfium/args.gn" || fail 'PDFium input is not Linux'
 grep -Eq 'target_cpu[[:space:]]*=[[:space:]]*"x64"' "$work_dir/pdfium/args.gn" || fail 'PDFium input is not x64'
-grep -Eq 'pdf_use_v8[[:space:]]*=[[:space:]]*false' "$work_dir/pdfium/args.gn" || fail 'PDFium input enables V8'
+awk '
+    { sub(/\r$/, "") }
+    !/^[[:space:]]*#/ && /^[[:space:]]*pdf_enable_v8([[:space:]]|=)/ { assignments++ }
+    !/^[[:space:]]*#/ && /^[[:space:]]*pdf_enable_v8[[:space:]]*=[[:space:]]*false[[:space:]]*$/ { disabled++ }
+    END { exit !(assignments == 1 && disabled == 1) }
+' "$work_dir/pdfium/args.gn" || fail 'PDFium input enables V8'
 grep -Eq 'pdf_enable_xfa[[:space:]]*=[[:space:]]*false' "$work_dir/pdfium/args.gn" || fail 'PDFium input enables XFA'
 file -b "$work_dir/pdfium/lib/libpdfium.so" | grep -Eq 'ELF 64-bit.*x86-64' || fail 'PDFium library is not an x86_64 ELF'
 readelf -h "$work_dir/pdfium/lib/libpdfium.so" | grep -Eq 'Machine:.*X86-64' || fail 'PDFium library has the wrong ELF architecture'

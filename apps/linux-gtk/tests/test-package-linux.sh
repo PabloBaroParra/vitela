@@ -20,7 +20,7 @@ make_fixture() {
     fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/vitela package.XXXXXX")"
     mkdir -p "$fixture_root/input/lib" "$fixture_root/input/licenses" "$fixture_root/bin"
     printf '%s\n' 'MAJOR=148' 'MINOR=0' 'BUILD=7763' 'PATCH=0' > "$fixture_root/input/VERSION"
-    printf '%s\n' 'target_os="linux" target_cpu="x64" pdf_use_v8=false pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' 'pdf_enable_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     printf '%s\n' 'PDFium license' > "$fixture_root/input/LICENSE"
     printf '%s\n' 'third-party notice' > "$fixture_root/input/licenses/pdfium.txt"
     cp /bin/true "$fixture_root/input/lib/libpdfium.so"
@@ -109,24 +109,46 @@ test_version_metadata_and_missing_tools_fail_before_publication() {
 
 test_v8_x64_and_elf_mismatches_fail_before_publication() {
     make_fixture
-    printf '%s\n' 'target_os="linux" target_cpu="x64" pdf_use_v8=true pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' 'pdf_enable_v8=true' 'pdf_use_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'V8-enabled archive unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 
-    printf '%s\n' 'target_os="linux" target_cpu="arm64" pdf_use_v8=false pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="arm64"' 'pdf_enable_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'non-x64 archive unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 
-    printf '%s\n' 'target_os="linux" target_cpu="x64" pdf_use_v8=false pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+    printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' 'pdf_enable_v8=false' 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     printf '%s\n' 'not an ELF library' > "$fixture_root/input/lib/libpdfium.so"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'non-ELF archive unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
+}
+
+test_v8_assignment_bypasses_fail_before_publication() {
+    local case_name
+    local v8_setting
+    for case_name in missing malformed substring commented duplicate true legacy_conflict; do
+        make_fixture
+        case "$case_name" in
+            missing) v8_setting='' ;;
+            malformed) v8_setting='pdf_enable_v8=false # disabled' ;;
+            substring) v8_setting='pdf_enable_v8_extra=false' ;;
+            commented) v8_setting='# pdf_enable_v8=false' ;;
+            duplicate) v8_setting=$'pdf_enable_v8=false\npdf_enable_v8=false' ;;
+            true) v8_setting='pdf_enable_v8=true' ;;
+            legacy_conflict) v8_setting=$'pdf_enable_v8=true\npdf_use_v8=false' ;;
+        esac
+        printf '%s\n' 'target_os="linux"' 'target_cpu="x64"' "$v8_setting" 'pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
+        tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
+        sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
+        if run_package; then fail "V8 $case_name bypass unexpectedly packaged"; fi
+        assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
+    done
 }
 
 test_nonzero_child_failure_propagates_without_publication() {
@@ -219,6 +241,7 @@ test_checksum_metadata_and_library_validation_fail_closed
 test_archive_with_many_entries_after_library_is_accepted
 test_version_metadata_and_missing_tools_fail_before_publication
 test_v8_x64_and_elf_mismatches_fail_before_publication
+test_v8_assignment_bypasses_fail_before_publication
 test_nonzero_child_failure_propagates_without_publication
 test_notices_are_data_and_required_notice_symlinks_fail
 test_launcher_rejects_missing_private_library_and_preserves_arguments
@@ -226,4 +249,4 @@ test_launcher_uses_appdir_usr_for_relocated_appimages
 test_deb_inspector_fixture_has_the_required_payload
 test_artifact_inspectors_reject_bad_metadata_entries_and_appimage_payload
 test_required_assets_exist
-printf 'package-linux shell tests: 12 passed\n'
+printf 'package-linux shell tests: 13 passed\n'
