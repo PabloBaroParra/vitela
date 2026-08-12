@@ -40,13 +40,13 @@ pub use bitmap::BitmapHandle;
 pub use document::{
     apply_edit, create_blank_document, insert_image_stamp, open, open_from_bytes,
     open_with_passwords, open_with_passwords_from_bytes, redo, render_page, render_page_tiles,
-    save_to_bytes, save_to_path, stamp_placement, undo, DocumentHandle,
+    save_to_bytes, save_to_path, stamp_placement, undo, will_invalidate_signatures, DocumentHandle,
 };
 pub use error::FfiError;
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiEditCommand, FfiOrientation, FfiPageDimensions,
     FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
-    FfiSearchResult, FfiTextRect, FfiTextRun,
+    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun,
 };
 
 uniffi::setup_scaffolding!();

@@ -60,6 +60,17 @@ pub enum FfiError {
     /// requested as an incremental update).
     #[error("invalid save request: {detail}")]
     InvalidSaveRequest { detail: String },
+    /// The file carries a signature that this save would break, and the
+    /// shell has not said the user was told.
+    ///
+    /// The shell's move is to warn — `will_invalidate_signatures` answers
+    /// the same question before anything is attempted — and then re-save
+    /// with `FfiSignatureAcknowledgement::ProceedAndInvalidate` if the user
+    /// wants to go ahead. Its own variant rather than an
+    /// `InvalidSaveRequest`, because it is not a programming mistake: it is a
+    /// decision that belongs to the person whose signature it is.
+    #[error("saving would invalidate an existing signature and this was not acknowledged")]
+    SignaturesWouldBeInvalidated,
     /// The requested operation does not apply to the given annotation kind.
     #[error("unsupported operation: {detail}")]
     UnsupportedOperation { detail: String },
@@ -116,6 +127,7 @@ impl From<pdf_save::SaveError> for FfiError {
             E::InvalidSaveRequest(message) => FfiError::InvalidSaveRequest {
                 detail: message.to_string(),
             },
+            E::SignaturesWouldBeInvalidated => FfiError::SignaturesWouldBeInvalidated,
             // Wrapper variants delegate to the wrapped error's own mapping so
             // a typed inner error (e.g. an out-of-bounds page during
             // replay-on-save) stays typed instead of folding into `Internal`.

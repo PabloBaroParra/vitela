@@ -5,6 +5,7 @@ members = [
     "core/pdf-render",
     "core/pdf-manip",
     "core/pdf-annotate",
+    "core/pdf-edit",
     "core/pdf-save",
     "core/pdf-ffi",
     "core/pdf-sign",

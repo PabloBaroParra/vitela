@@ -8,7 +8,7 @@ use pdf_ffi::{
     apply_edit, create_blank_document, insert_image_stamp, open_from_bytes,
     open_with_passwords_from_bytes, redo, render_page, save_to_bytes, stamp_placement, undo,
     FfiColor, FfiEditCommand, FfiError, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions,
-    FfiSaveIntent,
+    FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -231,7 +231,11 @@ fn single_password_open_cannot_full_rewrite_an_encrypted_document() {
     )
     .unwrap();
 
-    let result = save_to_bytes(&handle, FfiSaveIntent::Default);
+    let result = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    );
     assert!(matches!(result, Err(FfiError::InvalidSaveRequest { .. })));
 }
 
@@ -256,8 +260,12 @@ fn dual_password_open_survives_structural_edit_and_stays_encrypted() {
     )
     .unwrap();
 
-    let saved = save_to_bytes(&handle, FfiSaveIntent::Default)
-        .expect("encrypted full rewrite must succeed with both passwords");
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("encrypted full rewrite must succeed with both passwords");
 
     // Still encrypted after the rewrite, and both the structural edit and
     // the original user credential survive the round-trip.
@@ -331,7 +339,12 @@ fn creates_blank_document_inserts_a_page_and_annotation_then_saves_a_reloadable_
     )
     .expect("inserting an image stamp should succeed");
 
-    let bytes = save_to_bytes(&handle, FfiSaveIntent::Default).expect("save should succeed");
+    let bytes = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save should succeed");
     let reloaded = lopdf::Document::load_mem(&bytes).expect("output must reload");
     assert_eq!(reloaded.get_pages().len(), 1);
 

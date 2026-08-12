@@ -43,7 +43,7 @@ use crate::error::FfiError;
 use crate::types::{
     FfiAnnotation, FfiAnnotationKind, FfiEditCommand, FfiOrientation, FfiPageDimensions,
     FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
-    FfiSearchResult, FfiTextRun,
+    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -772,8 +772,20 @@ fn record_strip_consent_if_requested(document: &mut Document, intent: FfiSaveInt
 /// snapshot from the originally opened bytes plus every edit applied so far
 /// (an idempotent "recompute" model, not a chained-revisions-on-disk model —
 /// callers are free to discard any earlier call's returned bytes).
+///
+/// `signatures` is how a shell says it has told the user that this save
+/// breaks a signature the file carries. Left at
+/// [`FfiSignatureAcknowledgement::Unacknowledged`], such a save returns
+/// [`FfiError::SignaturesWouldBeInvalidated`] rather than silently producing
+/// a file whose signature no longer verifies. Ask
+/// [`will_invalidate_signatures`] first if you want to warn before the user
+/// commits to saving.
 #[uniffi::export]
-pub fn save_to_bytes(handle: &DocumentHandle, intent: FfiSaveIntent) -> Result<Vec<u8>, FfiError> {
+pub fn save_to_bytes(
+    handle: &DocumentHandle,
+    intent: FfiSaveIntent,
+    signatures: FfiSignatureAcknowledgement,
+) -> Result<Vec<u8>, FfiError> {
     let mut state = handle.lock();
     record_strip_consent_if_requested(&mut state.document, intent);
 
@@ -782,8 +794,34 @@ pub fn save_to_bytes(handle: &DocumentHandle, intent: FfiSaveIntent) -> Result<V
         base: &state.base,
         original_bytes: state.original_bytes.as_deref(),
         intent: intent.into(),
+        signatures: signatures.into(),
     };
     pdf_save::save_document(input).map_err(Into::into)
+}
+
+/// Whether saving `handle` with `intent` would break a signature the file
+/// already carries — the question a shell asks *before* saving, so it can
+/// warn and let the user decide.
+///
+/// `true` here is exactly the condition under which [`save_to_bytes`] refuses
+/// an unacknowledged save.
+#[uniffi::export]
+pub fn will_invalidate_signatures(
+    handle: &DocumentHandle,
+    intent: FfiSaveIntent,
+) -> Result<bool, FfiError> {
+    let state = handle.lock();
+
+    pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
+        document: &state.document,
+        base: &state.base,
+        original_bytes: state.original_bytes.as_deref(),
+        intent: intent.into(),
+        // Irrelevant to the question: this reports what the file and the
+        // edits imply, not what the caller has agreed to.
+        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+    })
+    .map_err(Into::into)
 }
 
 /// Saves `handle` to `path` (GTK4-style convenience — delegates to
@@ -793,8 +831,9 @@ pub fn save_to_path(
     handle: &DocumentHandle,
     path: String,
     intent: FfiSaveIntent,
+    signatures: FfiSignatureAcknowledgement,
 ) -> Result<(), FfiError> {
-    let bytes = save_to_bytes(handle, intent)?;
+    let bytes = save_to_bytes(handle, intent, signatures)?;
     std::fs::write(Path::new(&path), bytes)?;
     Ok(())
 }

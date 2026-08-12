@@ -291,6 +291,34 @@ impl From<FfiSaveIntent> for pdf_save::SaveIntent {
     }
 }
 
+/// Whether the shell has told the user that this save will break a signature
+/// the file already carries — the FFI shape of
+/// `pdf_save::SignatureAcknowledgement`.
+///
+/// A rewrite cannot preserve a signature, so there is nothing to *offer* the
+/// user except the choice. `Unacknowledged` is the default precisely so that
+/// a shell which has not built that choice yet fails loudly instead of
+/// destroying a signature quietly.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiSignatureAcknowledgement {
+    #[default]
+    Unacknowledged,
+    ProceedAndInvalidate,
+}
+
+impl From<FfiSignatureAcknowledgement> for pdf_save::SignatureAcknowledgement {
+    fn from(acknowledgement: FfiSignatureAcknowledgement) -> Self {
+        match acknowledgement {
+            FfiSignatureAcknowledgement::Unacknowledged => {
+                pdf_save::SignatureAcknowledgement::Unacknowledged
+            }
+            FfiSignatureAcknowledgement::ProceedAndInvalidate => {
+                pdf_save::SignatureAcknowledgement::ProceedAndInvalidate
+            }
+        }
+    }
+}
+
 /// The FFI-facing shape of `pdf_document::Command` (T-040's `apply_edit`
 /// surface). One variant per real `Command`/annotation-kind combination
 /// this workspace supports as of Batch 7 — `move`/`resize`/`restyle` are

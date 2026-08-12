@@ -154,7 +154,7 @@ fn confirm_save_destination(
     after_save: Option<Rc<dyn Fn()>>,
 ) {
     match destination.try_exists() {
-        Ok(false) => save_current_to(viewer, destination, after_save),
+        Ok(false) => save_current_to(window, viewer, destination, after_save),
         Err(error) => viewer.status.set_text(&format!(
             "Could not check whether {} already exists: {error}",
             destination.display()
@@ -169,9 +169,10 @@ fn confirm_save_destination(
                 .build();
             dialog.choose(Some(window), None::<&gio::Cancellable>, {
                 let viewer = viewer.clone();
+                let window = window.clone();
                 move |response| {
                     if response == Ok(1) {
-                        save_current_to(&viewer, destination.clone(), after_save.clone());
+                        save_current_to(&window, &viewer, destination.clone(), after_save.clone());
                     } else {
                         viewer.status.set_text("Save cancelled.");
                     }
@@ -181,7 +182,58 @@ fn confirm_save_destination(
     }
 }
 
-fn save_current_to(viewer: &Viewer, destination: PathBuf, after_save: Option<Rc<dyn Fn()>>) {
+/// Saving a signed document breaks its signature, and there is no version of
+/// this operation that does not: a rewrite replaces the bytes the signature
+/// covers. `pdf-save` refuses such a save unless the caller states the user
+/// was told, which is what this prompt is for — the core makes sure the
+/// question gets asked, and the answer stays the user's.
+fn confirm_signature_loss(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    document: Document,
+    backing: super::state::SaveBacking,
+    destination: PathBuf,
+    after_save: Option<Rc<dyn Fn()>>,
+    token: super::state::SessionToken,
+) {
+    let dialog = AlertDialog::builder()
+        .message("Saving will break this document's signature")
+        .detail(
+            "This document is signed. Saving your edits rewrites the file, and the \
+             existing signature will no longer verify. The signature cannot be kept.",
+        )
+        .buttons(["Cancel", "Save anyway"])
+        .cancel_button(0)
+        .default_button(0)
+        .modal(true)
+        .build();
+
+    dialog.choose(Some(window), None::<&gio::Cancellable>, {
+        let viewer = viewer.clone();
+        move |response| {
+            if response == Ok(1) {
+                spawn_save(
+                    &viewer,
+                    token,
+                    document.clone(),
+                    backing.clone(),
+                    destination.clone(),
+                    after_save.clone(),
+                    pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+                );
+            } else {
+                viewer.status.set_text("Save cancelled.");
+            }
+        }
+    });
+}
+
+fn save_current_to(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    destination: PathBuf,
+    after_save: Option<Rc<dyn Fn()>>,
+) {
     let (token, document, backing) = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
@@ -207,12 +259,62 @@ fn save_current_to(viewer: &Viewer, destination: PathBuf, after_save: Option<Rc<
             backing,
         )
     };
+
+    // Asked before the save rather than after a rejected one: `pdf-save`
+    // answers the same question either way, and asking here means the user
+    // meets the warning as a question instead of an error message.
+    let breaks_signature = pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
+        document: &document,
+        base: &backing.base,
+        original_bytes: Some(&backing.original_bytes),
+        intent: pdf_save::SaveIntent::Default,
+        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+    })
+    .unwrap_or(false);
+
+    if breaks_signature {
+        confirm_signature_loss(
+            window,
+            viewer,
+            document,
+            backing,
+            destination,
+            after_save,
+            token,
+        );
+        return;
+    }
+
+    spawn_save(
+        viewer,
+        token,
+        document,
+        backing,
+        destination,
+        after_save,
+        pdf_save::SignatureAcknowledgement::Unacknowledged,
+    );
+}
+
+/// Runs the save on a worker thread and folds the result back into the
+/// session. Shared by the ordinary path and the one that had to ask about a
+/// signature first, so both reopen and report identically.
+#[allow(clippy::too_many_arguments)]
+fn spawn_save(
+    viewer: &Viewer,
+    token: super::state::SessionToken,
+    document: Document,
+    backing: super::state::SaveBacking,
+    destination: PathBuf,
+    after_save: Option<Rc<dyn Fn()>>,
+    signatures: pdf_save::SignatureAcknowledgement,
+) {
     viewer.status.set_text("Saving PDF...");
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let result = gio::spawn_blocking(move || {
-                save_snapshot_and_reopen(&document, &backing, &destination)
+                save_snapshot_and_reopen(&document, &backing, &destination, signatures)
             })
             .await;
             let result = save_worker_result(result);
@@ -272,12 +374,14 @@ fn save_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
     destination: &Path,
+    signatures: pdf_save::SignatureAcknowledgement,
 ) -> Result<OpenedDocument, String> {
     let bytes = pdf_save::save_document(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
+        signatures,
     })
     .map_err(|error| error.to_string())?;
     // Validate before replacing a destination: persisted bytes must be usable
