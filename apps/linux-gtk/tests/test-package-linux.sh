@@ -19,7 +19,7 @@ trap cleanup EXIT
 make_fixture() {
     fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/vitela package.XXXXXX")"
     mkdir -p "$fixture_root/input/lib" "$fixture_root/input/licenses" "$fixture_root/bin"
-    printf '%s\n' '148.0.7763.0' > "$fixture_root/input/VERSION"
+    printf '%s\n' 'MAJOR=148' 'MINOR=0' 'BUILD=7763' 'PATCH=0' > "$fixture_root/input/VERSION"
     printf '%s\n' 'target_os="linux" target_cpu="x64" pdf_use_v8=false pdf_enable_xfa=false' > "$fixture_root/input/args.gn"
     printf '%s\n' 'PDFium license' > "$fixture_root/input/LICENSE"
     printf '%s\n' 'third-party notice' > "$fixture_root/input/licenses/pdfium.txt"
@@ -86,15 +86,21 @@ test_archive_with_many_entries_after_library_is_accepted() {
     assert_file "$fixture_root/build output;not-a-command/packages/vitela_$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Cargo.toml")_amd64.deb"
 }
 
-test_wrong_metadata_and_missing_tools_fail_before_publication() {
+test_version_metadata_and_missing_tools_fail_before_publication() {
     make_fixture
-    printf '%s\n' '148.0.0000.0' > "$fixture_root/input/VERSION"
+    printf '%s\n' 'MAJOR=148' 'MINOR=0' 'BUILD=0000' 'PATCH=0' > "$fixture_root/input/VERSION"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if run_package; then fail 'wrong version unexpectedly packaged'; fi
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 
     printf '%s\n' '148.0.7763.0' > "$fixture_root/input/VERSION"
+    tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
+    sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
+    if run_package; then fail 'malformed VERSION metadata unexpectedly packaged'; fi
+    assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
+
+    printf '%s\n' 'MAJOR=148' 'MINOR=0' 'BUILD=7763' 'PATCH=0' > "$fixture_root/input/VERSION"
     tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
     sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
     if LINUXDEPLOY=vitela-tool-that-does-not-exist run_package; then fail 'missing tool unexpectedly packaged'; fi
@@ -211,7 +217,7 @@ test_required_assets_exist() {
 test_missing_or_untrusted_input_fails_before_publication
 test_checksum_metadata_and_library_validation_fail_closed
 test_archive_with_many_entries_after_library_is_accepted
-test_wrong_metadata_and_missing_tools_fail_before_publication
+test_version_metadata_and_missing_tools_fail_before_publication
 test_v8_x64_and_elf_mismatches_fail_before_publication
 test_nonzero_child_failure_propagates_without_publication
 test_notices_are_data_and_required_notice_symlinks_fail

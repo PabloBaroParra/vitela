@@ -43,7 +43,26 @@ require_file "$work_dir/pdfium/VERSION"
 require_file "$work_dir/pdfium/args.gn"
 require_file "$work_dir/pdfium/LICENSE"
 require_file "$work_dir/pdfium/lib/libpdfium.so"
-[ "$(tr -d '[:space:]' < "$work_dir/pdfium/VERSION")" = "$PDFIUM_VERSION" ] || fail 'PDFium version is not 148.0.7763.0'
+pdfium_archive_version="$(awk '
+    BEGIN { valid = 1 }
+    { sub(/\r$/, "") }
+    !/^(MAJOR|MINOR|BUILD|PATCH)=[0-9]+$/ { valid = 0; exit }
+    {
+        split($0, fields, "=")
+        if (seen[fields[1]]++) {
+            valid = 0
+            exit
+        }
+        value[fields[1]] = fields[2]
+    }
+    END {
+        if (!valid || NR != 4 || !("MAJOR" in value) || !("MINOR" in value) || !("BUILD" in value) || !("PATCH" in value)) {
+            exit 1
+        }
+        printf "%s.%s.%s.%s\n", value["MAJOR"], value["MINOR"], value["BUILD"], value["PATCH"]
+    }
+' "$work_dir/pdfium/VERSION")" || fail 'PDFium VERSION metadata is malformed'
+[ "$pdfium_archive_version" = "$PDFIUM_VERSION" ] || fail 'PDFium version is not 148.0.7763.0'
 grep -Eq 'target_os[[:space:]]*=[[:space:]]*"linux"' "$work_dir/pdfium/args.gn" || fail 'PDFium input is not Linux'
 grep -Eq 'target_cpu[[:space:]]*=[[:space:]]*"x64"' "$work_dir/pdfium/args.gn" || fail 'PDFium input is not x64'
 grep -Eq 'pdf_use_v8[[:space:]]*=[[:space:]]*false' "$work_dir/pdfium/args.gn" || fail 'PDFium input enables V8'
