@@ -355,7 +355,11 @@ public sealed class PdfDocumentFacade : IDisposable
                 revision = session.EditRevision;
             }
 
-            var bytes = await Task.Run(() => _core.SaveToBytes(session.Document)).ConfigureAwait(false);
+            // Unacknowledged: this shell has no prompt for it yet, so a signed
+            // document surfaces as a save failure the user can read rather
+            // than a file whose signature quietly stopped verifying. The GTK
+            // shell asks; wiring the same question into WinUI is its own work.
+            var bytes = await Task.Run(() => _core.SaveToBytes(session.Document, signaturesAcknowledged: false)).ConfigureAwait(false);
             await replaceDestination(bytes).ConfigureAwait(false);
             lock (_gate)
             {
@@ -731,6 +735,10 @@ public sealed class PdfDocumentFacade : IDisposable
             PdfCoreError.UnsupportedSecurityHandler or PdfCoreError.UnsupportedOperation => "This document or action is not supported.",
             PdfCoreError.InvalidImage => "The image is corrupt or unsupported.",
             PdfCoreError.InvalidSaveRequest => "The requested action could not be completed.",
+            // Named rather than folded into the generic message: the user can
+            // act on it (save a copy elsewhere, or keep the signed original),
+            // and "could not be processed" would read like a bug in Vitela.
+            PdfCoreError.SignaturesWouldBeInvalidated => "Saving would break this document's digital signature, so it was not saved.",
             PdfCoreError.PageIndexOutOfBounds or PdfCoreError.AnnotationNotFound or PdfCoreError.BitmapNotFound => "The document changed. Please try again.",
             _ => "The document could not be processed."
         };

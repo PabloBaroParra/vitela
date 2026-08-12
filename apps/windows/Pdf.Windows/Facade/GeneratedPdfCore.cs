@@ -133,7 +133,20 @@ internal sealed class GeneratedPdfCore : IPdfCore
 
     public bool Undo(IPdfCoreDocument document) => PdfFfiMethods.Undo(((GeneratedDocument)document).Handle);
     public bool Redo(IPdfCoreDocument document) => PdfFfiMethods.Redo(((GeneratedDocument)document).Handle);
-    public byte[] SaveToBytes(IPdfCoreDocument document) => PdfFfiMethods.SaveToBytes(((GeneratedDocument)document).Handle, FfiSaveIntent.Default);
+    public bool WillInvalidateSignatures(IPdfCoreDocument document)
+    {
+        try { return PdfFfiMethods.WillInvalidateSignatures(((GeneratedDocument)document).Handle, FfiSaveIntent.Default); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged)
+    {
+        var acknowledgement = signaturesAcknowledged
+            ? FfiSignatureAcknowledgement.ProceedAndInvalidate
+            : FfiSignatureAcknowledgement.Unacknowledged;
+        try { return PdfFfiMethods.SaveToBytes(((GeneratedDocument)document).Handle, FfiSaveIntent.Default, acknowledgement); }
+        catch (FfiException error) { throw Translate(error); }
+    }
 
     private static PdfCoreAnnotation ConvertAnnotation(FfiAnnotation annotation) => annotation.Kind switch
     {
@@ -180,6 +193,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
             FfiException.AnnotationNotFound => PdfCoreError.AnnotationNotFound,
             FfiException.InvalidImage => PdfCoreError.InvalidImage,
             FfiException.InvalidSaveRequest => PdfCoreError.InvalidSaveRequest,
+            FfiException.SignaturesWouldBeInvalidated => PdfCoreError.SignaturesWouldBeInvalidated,
             FfiException.UnsupportedOperation => PdfCoreError.UnsupportedOperation,
             FfiException.RenderFailed => PdfCoreError.RenderFailed,
             FfiException.Io => PdfCoreError.Io,

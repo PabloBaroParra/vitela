@@ -63,7 +63,30 @@ internal interface IPdfCore
 
     bool Redo(IPdfCoreDocument document);
 
-    byte[] SaveToBytes(IPdfCoreDocument document);
+    /// <summary>
+    /// Whether saving <paramref name="document"/> would break a signature the
+    /// file already carries.
+    /// </summary>
+    /// <remarks>
+    /// A save that rewrites the file cannot preserve a signature, and page
+    /// content editing makes a rewrite reachable from an ordinary text change.
+    /// The core refuses such a save unless the caller states the user was told
+    /// (see <see cref="SaveToBytes"/>), so this is how the shell finds out
+    /// there is something to tell them.
+    /// </remarks>
+    bool WillInvalidateSignatures(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Saves <paramref name="document"/>.
+    /// </summary>
+    /// <param name="signaturesAcknowledged">
+    /// Pass <c>true</c> only once the user has been told the save will break
+    /// an existing signature and chose to continue. With <c>false</c>, such a
+    /// save fails with <see cref="PdfCoreError.SignaturesWouldBeInvalidated"/>
+    /// rather than silently producing a file whose signature no longer
+    /// verifies.
+    /// </param>
+    byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged);
 }
 
 internal sealed record PdfCoreBitmap(uint Width, uint Height, uint Stride, byte[] Rgba);
@@ -119,6 +142,7 @@ internal enum PdfCoreError
     AnnotationNotFound,
     InvalidImage,
     InvalidSaveRequest,
+    SignaturesWouldBeInvalidated,
     UnsupportedOperation,
     RenderFailed,
     Io,

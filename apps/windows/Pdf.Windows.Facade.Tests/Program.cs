@@ -80,6 +80,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("caps the diagnostic log and keeps one generation back", CapsTheDiagnosticLog)
     ,("never lets diagnostics throw into the operation", SwallowsDiagnosticWriteFailures)
     ,("maps unexpected save failures to user-safe results", MapsUnexpectedSaveFailureAsync)
+    ,("refuses to silently break a signature", RefusesToSilentlyBreakASignatureAsync)
 };
 
 foreach (var test in tests)
@@ -1039,6 +1040,31 @@ static async Task MapsUnexpectedSaveFailureAsync()
     Assert(!result.IsSuccess && result.Error!.Message == "The document could not be processed.", "unexpected save failures must be user safe");
 }
 
+/// <summary>
+/// A signed document must not be saved without the user having been told, and
+/// what they get told has to be about the signature — folding it into "the
+/// document could not be processed" would read like a bug in the app rather
+/// than a choice they still have.
+/// </summary>
+static async Task RefusesToSilentlyBreakASignatureAsync()
+{
+    var core = new FakeCore { SignedDocument = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("signed.pdf", [1]))).Value!;
+
+    var wrote = false;
+    var result = await facade.SaveToDestinationAsync(session.SessionId, _ =>
+    {
+        wrote = true;
+        return Task.CompletedTask;
+    });
+
+    Assert(!result.IsSuccess, "an unacknowledged save of a signed document must fail");
+    Assert(result.Error!.Message.Contains("signature"), "the user must be told what is actually at stake, not that the document could not be processed");
+    Assert(!wrote, "nothing may reach the destination");
+    Assert(core.LastSaveAcknowledgedSignatures == false, "this shell has no prompt yet, so it must never acknowledge on the user's behalf");
+}
+
 static List<PageSpan> Stack(int count, double height)
 {
     var pages = new List<PageSpan>(count);
@@ -1203,14 +1229,29 @@ sealed class FakeCore : IPdfCore
 
     public bool Undo(IPdfCoreDocument document) => ((FakeDocument)document).Undo();
     public bool Redo(IPdfCoreDocument document) => ((FakeDocument)document).Redo();
-    public byte[] SaveToBytes(IPdfCoreDocument document)
+    /// <summary>Set to make the fake behave like a signed document.</summary>
+    public bool SignedDocument;
+
+    /// <summary>The acknowledgement the facade passed on the last save.</summary>
+    public bool? LastSaveAcknowledgedSignatures;
+
+    public bool WillInvalidateSignatures(IPdfCoreDocument document) => SignedDocument;
+
+    public byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged)
     {
+        LastSaveAcknowledgedSignatures = signaturesAcknowledged;
         if (BlockSave)
         {
             SaveStarted.SetResult();
             ReleaseSave.Wait(TimeSpan.FromSeconds(5));
         }
         if (SaveThrowsUnexpected) throw new InvalidOperationException("save failed");
+        // Mirrors the core: an unacknowledged save of a signed document is
+        // refused rather than silently producing a broken signature.
+        if (SignedDocument && !signaturesAcknowledged)
+        {
+            throw new PdfCoreException(PdfCoreError.SignaturesWouldBeInvalidated, "signed document");
+        }
         return [1];
     }
 }
