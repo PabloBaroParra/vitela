@@ -104,7 +104,7 @@ next** — actively being built · 🔮 **Planned** — on the roadmap, not star
 | Optimize for web | Linearize for fast web viewing | `pdf-save` | 🔮 Planned |
 | Convert PDF | Convert to/from other document formats | — | 🔮 Planned |
 | Compare PDF | Diff two PDFs side by side | — | 🔮 Planned |
-| Edit PDF | Edit page body content (text / images) | — | 🔮 Planned |
+| Edit PDF | Edit page body content (text / images), in-place, no reflow | `pdf-edit` *(planned)* | 🚧 In progress / next |
 | Redact PDF | Black out and remove sensitive content | — | 🔮 Planned |
 | PDF OCR | Make scanned PDFs searchable | — | 🔮 Planned |
 
@@ -225,13 +225,16 @@ pinning, which matters.)
 
 Rendering, page operations, annotations, encrypted save, and the FFI surface
 are done. In progress / upcoming: the five platform shells, drawn signatures,
-PKCS#7/PAdES cryptographic signing (offline — no TSA/OCSP), and fillable
-AcroForm forms — create, style, and fill standard form fields, including forms
-authored by other tools (see [docs/batch-forms.md](docs/batch-forms.md)).
-Later, post-MVP: page-body editing (text/images), OCR, and redaction. See
-[Tools & features](#tools--features) for the full, per-tool status. Rendering
-remote web pages to PDF stays out of scope — it would break the offline-first,
-zero-network guarantee.
+PKCS#7/PAdES cryptographic signing (offline — no TSA/OCSP), fillable AcroForm
+forms — create, style, and fill standard form fields, including forms authored
+by other tools (see [docs/batch-forms.md](docs/batch-forms.md)) — and in-place
+page-body editing: replacing an existing text run's content (same font, size
+and position — no paragraph reflow) plus moving, resizing, replacing and
+inserting images as real page content (see
+[docs/batch-content-edit.md](docs/batch-content-edit.md)). Later, post-MVP:
+OCR and redaction. See [Tools & features](#tools--features) for the full,
+per-tool status. Rendering remote web pages to PDF stays out of scope — it
+would break the offline-first, zero-network guarantee.
 
 ## License
 
