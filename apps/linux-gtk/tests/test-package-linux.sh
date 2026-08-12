@@ -151,6 +151,24 @@ test_v8_assignment_bypasses_fail_before_publication() {
     done
 }
 
+test_readelf_locale_translation_does_not_cause_a_false_negative() {
+    make_fixture
+    cat > "$fixture_root/bin/readelf" <<'EOF'
+#!/usr/bin/env bash
+if [ "${LC_ALL:-}" = 'C' ]; then
+    label='Machine:'
+else
+    label='Máquina:'
+fi
+printf '  %s                          X86-64\n' "$label"
+EOF
+    chmod +x "$fixture_root/bin/readelf"
+    if ! LC_ALL=es_ES.UTF-8 run_package; then
+        fail 'readelf locale translation caused a false ELF architecture mismatch'
+    fi
+    assert_file "$fixture_root/build output;not-a-command/packages/vitela_$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Cargo.toml")_amd64.deb"
+}
+
 test_nonzero_child_failure_propagates_without_publication() {
     make_fixture
     printf '%s\n' '#!/usr/bin/env bash' 'exit 37' > "$fixture_root/bin/linuxdeploy"
@@ -242,6 +260,7 @@ test_archive_with_many_entries_after_library_is_accepted
 test_version_metadata_and_missing_tools_fail_before_publication
 test_v8_x64_and_elf_mismatches_fail_before_publication
 test_v8_assignment_bypasses_fail_before_publication
+test_readelf_locale_translation_does_not_cause_a_false_negative
 test_nonzero_child_failure_propagates_without_publication
 test_notices_are_data_and_required_notice_symlinks_fail
 test_launcher_rejects_missing_private_library_and_preserves_arguments
@@ -249,4 +268,4 @@ test_launcher_uses_appdir_usr_for_relocated_appimages
 test_deb_inspector_fixture_has_the_required_payload
 test_artifact_inspectors_reject_bad_metadata_entries_and_appimage_payload
 test_required_assets_exist
-printf 'package-linux shell tests: 13 passed\n'
+printf 'package-linux shell tests: 14 passed\n'

@@ -73,7 +73,7 @@ awk '
 ' "$work_dir/pdfium/args.gn" || fail 'PDFium input enables V8'
 grep -Eq 'pdf_enable_xfa[[:space:]]*=[[:space:]]*false' "$work_dir/pdfium/args.gn" || fail 'PDFium input enables XFA'
 file -b "$work_dir/pdfium/lib/libpdfium.so" | grep -Eq 'ELF 64-bit.*x86-64' || fail 'PDFium library is not an x86_64 ELF'
-readelf -h "$work_dir/pdfium/lib/libpdfium.so" | grep -Eq 'Machine:.*X86-64' || fail 'PDFium library has the wrong ELF architecture'
+LC_ALL=C readelf -h "$work_dir/pdfium/lib/libpdfium.so" | grep -Eq 'Machine:.*X86-64' || fail 'PDFium library has the wrong ELF architecture'
 
 while IFS= read -r -d '' notice; do
     [ -f "$notice" ] && [ ! -L "$notice" ] || fail 'PDFium notice is missing or not a regular file'
