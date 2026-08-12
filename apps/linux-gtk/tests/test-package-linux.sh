@@ -73,6 +73,19 @@ test_checksum_metadata_and_library_validation_fail_closed() {
     assert_no_artifacts "$fixture_root/build output;not-a-command/packages"
 }
 
+test_archive_with_many_entries_after_library_is_accepted() {
+    make_fixture
+    mkdir -p "$fixture_root/input/trailing"
+    local index
+    for index in $(seq 1 10000); do
+        : > "$fixture_root/input/trailing/$index"
+    done
+    tar -C "$fixture_root/input" -czf "$fixture_root/pdfium-linux-x64.tgz" .
+    sha256sum "$fixture_root/pdfium-linux-x64.tgz" | awk '{print $1}' > "$fixture_root/sha256"
+    run_package
+    assert_file "$fixture_root/build output;not-a-command/packages/vitela_$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Cargo.toml")_amd64.deb"
+}
+
 test_wrong_metadata_and_missing_tools_fail_before_publication() {
     make_fixture
     printf '%s\n' '148.0.0000.0' > "$fixture_root/input/VERSION"
@@ -197,6 +210,7 @@ test_required_assets_exist() {
 
 test_missing_or_untrusted_input_fails_before_publication
 test_checksum_metadata_and_library_validation_fail_closed
+test_archive_with_many_entries_after_library_is_accepted
 test_wrong_metadata_and_missing_tools_fail_before_publication
 test_v8_x64_and_elf_mismatches_fail_before_publication
 test_nonzero_child_failure_propagates_without_publication
@@ -206,4 +220,4 @@ test_launcher_uses_appdir_usr_for_relocated_appimages
 test_deb_inspector_fixture_has_the_required_payload
 test_artifact_inspectors_reject_bad_metadata_entries_and_appimage_payload
 test_required_assets_exist
-printf 'package-linux shell tests: 11 passed\n'
+printf 'package-linux shell tests: 12 passed\n'

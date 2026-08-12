@@ -70,11 +70,13 @@ if [ ! -f "$pdfium_archive" ]; then
     # before caching it under the name later runs trust on sight.
     # package-linux.sh still re-verifies the checksum before extracting —
     # this is just what stops a bad download from being cached as good.
-    if ! tar -tzf "$tmp_archive" 2>/dev/null | grep -Eq '(^|/)lib/libpdfium\.so$'; then
-        rm -f "$tmp_archive"
+    archive_contents="$tmp_archive.contents"
+    if ! tar -tzf "$tmp_archive" > "$archive_contents" 2>/dev/null || ! grep -Eq '(^|/)lib/libpdfium\.so$' "$archive_contents"; then
+        rm -f "$tmp_archive" "$archive_contents"
         echo "bootstrap-linux-package: downloaded PDFium archive doesn't contain lib/libpdfium.so — check network/VPN and re-run" >&2
         exit 1
     fi
+    rm -f "$archive_contents"
     mv "$tmp_archive" "$pdfium_archive"
 fi
 

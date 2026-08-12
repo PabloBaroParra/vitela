@@ -34,7 +34,9 @@ staged_packages="$work_dir/packages"
 require_tool "${LINUXDEPLOY:-linuxdeploy}"
 require_tool "${APPIMAGETOOL:-appimagetool}"
 
-tar -tzf "$PDFIUM_ARCHIVE" | grep -Eq '(^|/)lib/libpdfium\.so$' || fail 'PDFium archive lacks lib/libpdfium.so'
+archive_contents="$work_dir/pdfium-contents"
+tar -tzf "$PDFIUM_ARCHIVE" > "$archive_contents" || fail 'PDFium archive is unreadable'
+grep -Eq '(^|/)lib/libpdfium\.so$' "$archive_contents" || fail 'PDFium archive lacks lib/libpdfium.so'
 tar -xzf "$PDFIUM_ARCHIVE" --no-same-owner --no-same-permissions -C "$work_dir/pdfium"
 [ -z "$(find "$work_dir/pdfium" -type l -print -quit)" ] || fail 'PDFium archive contains a symlink'
 require_file "$work_dir/pdfium/VERSION"
