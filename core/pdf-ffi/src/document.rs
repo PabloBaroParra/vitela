@@ -467,6 +467,11 @@ impl DocumentHandle {
     /// they came from (decision 6).
     pub fn read_page_content(&self, page: u32) -> Result<FfiPageContent, FfiError> {
         let state = self.lock();
+        if !text_extraction_is_allowed(&state.document) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "text extraction is not permitted".to_string(),
+            });
+        }
         pdf_save::read_page_content(&state.base, PageId(page))
             .map(Into::into)
             .map_err(Into::into)

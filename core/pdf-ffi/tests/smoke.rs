@@ -491,6 +491,56 @@ fn open_single_line_fixture(line: &str) -> std::sync::Arc<pdf_ffi::DocumentHandl
     open_from_bytes(bytes, None).expect("fixture should open")
 }
 
+/// Builds a single-line AES-128 PDF whose `/P` grants printing but **not**
+/// copying — same shape `pdf-manip`'s `text_extraction_permission.rs` uses to
+/// exercise the gate, built locally here since that support module is
+/// private to its own crate.
+fn restricted_single_line_pdf(line: &str, user_password: &str, owner_password: &str) -> Vec<u8> {
+    use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
+    use lopdf::xref::XrefType;
+    use std::collections::BTreeMap;
+    use std::sync::Arc as StdArc;
+
+    let mut doc = gen_fixtures::build_multi_line_page_document(&[line]);
+    // Classic xref table: lopdf cannot re-hydrate objects out of an encrypted
+    // cross-reference stream at load time.
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    let file_id = lopdf::Object::string_literal("read-page-content-permission-fixture-id");
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+
+    let crypt_filter: StdArc<dyn CryptFilter> = StdArc::new(Aes128CryptFilter);
+    let version = lopdf::EncryptionVersion::V4 {
+        document: &doc,
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password,
+        user_password,
+        permissions: lopdf::Permissions::PRINTABLE,
+    };
+    let state = lopdf::EncryptionState::try_from(version).expect("build encryption state");
+    doc.encrypt(&state).expect("encrypt fixture");
+
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).expect("save fixture");
+    bytes
+}
+
+#[test]
+fn read_page_content_is_denied_when_the_document_forbids_text_extraction() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    let result = handle.read_page_content(0);
+
+    assert!(
+        matches!(result, Err(FfiError::UnsupportedOperation { .. })),
+        "a /P without the copy bit must deny read_page_content, same as text_runs/search"
+    );
+}
+
 #[test]
 fn read_page_content_finds_the_standard14_run_written_by_the_fixture() {
     let handle = open_single_line_fixture("Hello world");
