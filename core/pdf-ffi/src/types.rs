@@ -6,7 +6,9 @@
 //! crate's "never depends on uniffi" boundary), and a stable FFI shape must
 //! not break every time an internal core type gains a field.
 
-use pdf_document::{Orientation, PageSize, Rect};
+use pdf_document::{
+    ContentItemId, FontKind, ImageItem, Orientation, PageContent, PageId, PageSize, Rect, TextRun,
+};
 
 /// Mirrors `pdf_document::PageSize`.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
@@ -319,6 +321,133 @@ impl From<FfiSignatureAcknowledgement> for pdf_save::SignatureAcknowledgement {
     }
 }
 
+/// Mirrors `pdf_document::FontKind` (T-158): which font machinery a page
+/// content text run's active font uses, which decides whether replacement
+/// text can be encoded at all (Batch 21 decision 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiFontKind {
+    Standard14,
+    EmbeddedSimple,
+    EmbeddedComposite,
+}
+
+impl From<FontKind> for FfiFontKind {
+    fn from(kind: FontKind) -> Self {
+        match kind {
+            FontKind::Standard14 => FfiFontKind::Standard14,
+            FontKind::EmbeddedSimple => FfiFontKind::EmbeddedSimple,
+            FontKind::EmbeddedComposite => FfiFontKind::EmbeddedComposite,
+            // `FontKind` is `#[non_exhaustive]` from this crate's
+            // perspective; a future variant is conservatively treated as
+            // not editable rather than failing to compile.
+            _ => FfiFontKind::EmbeddedComposite,
+        }
+    }
+}
+
+impl From<FfiFontKind> for FontKind {
+    fn from(kind: FfiFontKind) -> Self {
+        match kind {
+            FfiFontKind::Standard14 => FontKind::Standard14,
+            FfiFontKind::EmbeddedSimple => FontKind::EmbeddedSimple,
+            FfiFontKind::EmbeddedComposite => FontKind::EmbeddedComposite,
+        }
+    }
+}
+
+/// A text run parsed from a page's content stream (T-158) — distinct from
+/// [`FfiTextRun`], which is pdfium's *extracted* text used for search/copy.
+/// This one is `pdf-edit`'s model of an editable `Tj`/`TJ` operator, keyed by
+/// [`ContentItemId`] rather than a render-side index.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiContentTextRun {
+    pub id: u64,
+    pub page: u32,
+    pub bbox: FfiRect,
+    pub resource_font_name: String,
+    pub font_kind: FfiFontKind,
+    pub text: String,
+}
+
+impl From<TextRun> for FfiContentTextRun {
+    fn from(run: TextRun) -> Self {
+        Self {
+            id: run.id.0,
+            page: run.page.0,
+            bbox: run.bbox.into(),
+            resource_font_name: run.resource_font_name,
+            font_kind: run.font_kind.into(),
+            text: run.text,
+        }
+    }
+}
+
+impl From<FfiContentTextRun> for TextRun {
+    fn from(run: FfiContentTextRun) -> Self {
+        Self {
+            id: ContentItemId(run.id),
+            page: PageId(run.page),
+            bbox: run.bbox.into(),
+            resource_font_name: run.resource_font_name,
+            font_kind: run.font_kind.into(),
+            text: run.text,
+        }
+    }
+}
+
+/// An image parsed from a page's content stream (T-158). Bytes are
+/// deliberately absent, matching `pdf_document::ImageItem` — only
+/// `Command::ReplaceImageSource`/`InsertImage` carry them, explicitly.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiContentImageItem {
+    pub id: u64,
+    pub page: u32,
+    pub bbox: FfiRect,
+    pub resource_xobject_name: String,
+}
+
+impl From<ImageItem> for FfiContentImageItem {
+    fn from(item: ImageItem) -> Self {
+        Self {
+            id: item.id.0,
+            page: item.page.0,
+            bbox: item.bbox.into(),
+            resource_xobject_name: item.resource_xobject_name,
+        }
+    }
+}
+
+impl From<FfiContentImageItem> for ImageItem {
+    fn from(item: FfiContentImageItem) -> Self {
+        Self {
+            id: ContentItemId(item.id),
+            page: PageId(item.page),
+            bbox: item.bbox.into(),
+            resource_xobject_name: item.resource_xobject_name,
+        }
+    }
+}
+
+/// The parsed content of one page — the FFI shape of
+/// `pdf_document::PageContent`, returned by
+/// `DocumentHandle::read_page_content` (T-158). Ids are only valid against
+/// the exact bytes they were parsed from; re-read after a save before
+/// building a second content edit for the same page (Batch 21 decision 6).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiPageContent {
+    pub text_runs: Vec<FfiContentTextRun>,
+    pub images: Vec<FfiContentImageItem>,
+}
+
+impl From<PageContent> for FfiPageContent {
+    fn from(content: PageContent) -> Self {
+        Self {
+            text_runs: content.text_runs.into_iter().map(Into::into).collect(),
+            images: content.images.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
 /// The FFI-facing shape of `pdf_document::Command` (T-040's `apply_edit`
 /// surface). One variant per real `Command`/annotation-kind combination
 /// this workspace supports as of Batch 7 — `move`/`resize`/`restyle` are
@@ -383,5 +512,43 @@ pub enum FfiEditCommand {
     RestyleAnnotation {
         annotation_id: u64,
         color: FfiColor,
+    },
+
+    // --- Page content (Batch 21, T-158) --------------------------------
+    //
+    // Mirror `pdf_document::Command`'s eight page-content variants. Each
+    // carries the item read from `DocumentHandle::read_page_content` — no
+    // id is allocated here, unlike annotations, because the item already
+    // carries the identity the parser assigned it.
+    ReplaceTextRunContent {
+        item: FfiContentTextRun,
+        after: String,
+    },
+    InsertTextRun {
+        item: FfiContentTextRun,
+    },
+    RemoveTextRun {
+        item: FfiContentTextRun,
+    },
+    InsertImage {
+        item: FfiContentImageItem,
+        source: Option<Vec<u8>>,
+    },
+    RemoveImage {
+        item: FfiContentImageItem,
+        source: Option<Vec<u8>>,
+    },
+    MoveImage {
+        item: FfiContentImageItem,
+        to: FfiRect,
+    },
+    ResizeImage {
+        item: FfiContentImageItem,
+        to: FfiRect,
+    },
+    ReplaceImageSource {
+        item: FfiContentImageItem,
+        before: Vec<u8>,
+        after: Vec<u8>,
     },
 }

@@ -3,7 +3,7 @@
 //! types, never inline `Vec<u8>` records), FFI commands (open/
 //! open_from_bytes/open_with_passwords/open_with_passwords_from_bytes/
 //! create_blank_document/render_page/apply_edit/insert_image_stamp/
-//! save_to_bytes/save_to_path/undo/redo), and `FfiError`
+//! read_page_content/save_to_bytes/save_to_path/undo/redo), and `FfiError`
 //! mirroring the core crates' error types. See Batch 7 (T-039..T-043,
 //! T-068 DELTA) and `design.md` "FFI Design (pdf-ffi / UniFFI)".
 //!
@@ -44,9 +44,10 @@ pub use document::{
 };
 pub use error::FfiError;
 pub use types::{
-    FfiAnnotation, FfiAnnotationKind, FfiColor, FfiEditCommand, FfiOrientation, FfiPageDimensions,
-    FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
-    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun,
+    FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,
+    FfiEditCommand, FfiFontKind, FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize,
+    FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult,
+    FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun,
 };
 
 uniffi::setup_scaffolding!();

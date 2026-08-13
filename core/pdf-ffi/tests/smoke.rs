@@ -7,8 +7,8 @@
 use pdf_ffi::{
     apply_edit, create_blank_document, insert_image_stamp, open_from_bytes,
     open_with_passwords_from_bytes, redo, render_page, save_to_bytes, stamp_placement, undo,
-    FfiColor, FfiEditCommand, FfiError, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions,
-    FfiSaveIntent, FfiSignatureAcknowledgement,
+    FfiColor, FfiEditCommand, FfiError, FfiFontKind, FfiOrientation, FfiPageSize, FfiRect,
+    FfiRenderOptions, FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -476,4 +476,145 @@ fn remove_page_with_out_of_bounds_index_returns_typed_error() {
         result,
         Err(FfiError::PageIndexOutOfBounds { index: 5 })
     ));
+}
+
+// ---------------------------------------------------------------------
+// Page-content editing (Batch 21, T-158): read_page_content + the eight
+// content Command variants through apply_edit.
+// ---------------------------------------------------------------------
+
+fn open_single_line_fixture(line: &str) -> std::sync::Arc<pdf_ffi::DocumentHandle> {
+    let mut doc = gen_fixtures::build_multi_line_page_document(&[line]);
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes)
+        .expect("serialize single-line fixture");
+    open_from_bytes(bytes, None).expect("fixture should open")
+}
+
+/// Builds a single-line AES-128 PDF whose `/P` grants printing but **not**
+/// copying — same shape `pdf-manip`'s `text_extraction_permission.rs` uses to
+/// exercise the gate, built locally here since that support module is
+/// private to its own crate.
+fn restricted_single_line_pdf(line: &str, user_password: &str, owner_password: &str) -> Vec<u8> {
+    use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
+    use lopdf::xref::XrefType;
+    use std::collections::BTreeMap;
+    use std::sync::Arc as StdArc;
+
+    let mut doc = gen_fixtures::build_multi_line_page_document(&[line]);
+    // Classic xref table: lopdf cannot re-hydrate objects out of an encrypted
+    // cross-reference stream at load time.
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    let file_id = lopdf::Object::string_literal("read-page-content-permission-fixture-id");
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+
+    let crypt_filter: StdArc<dyn CryptFilter> = StdArc::new(Aes128CryptFilter);
+    let version = lopdf::EncryptionVersion::V4 {
+        document: &doc,
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password,
+        user_password,
+        permissions: lopdf::Permissions::PRINTABLE,
+    };
+    let state = lopdf::EncryptionState::try_from(version).expect("build encryption state");
+    doc.encrypt(&state).expect("encrypt fixture");
+
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).expect("save fixture");
+    bytes
+}
+
+#[test]
+fn read_page_content_is_denied_when_the_document_forbids_text_extraction() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    let result = handle.read_page_content(0);
+
+    assert!(
+        matches!(result, Err(FfiError::UnsupportedOperation { .. })),
+        "a /P without the copy bit must deny read_page_content, same as text_runs/search"
+    );
+}
+
+#[test]
+fn read_page_content_finds_the_standard14_run_written_by_the_fixture() {
+    let handle = open_single_line_fixture("Hello world");
+
+    let content = handle
+        .read_page_content(0)
+        .expect("page content should parse");
+
+    assert!(content.images.is_empty());
+    let run = content
+        .text_runs
+        .first()
+        .expect("fixture wrote one text run");
+    assert_eq!(run.text, "Hello world");
+    assert_eq!(run.font_kind, FfiFontKind::Standard14);
+}
+
+#[test]
+fn editing_a_standard14_run_then_saving_and_reopening_shows_the_new_text() {
+    let handle = open_single_line_fixture("Hello world");
+    let content = handle.read_page_content(0).unwrap();
+    let run = content.text_runs.first().unwrap().clone();
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: run,
+            after: "Goodbye world".to_string(),
+        },
+    )
+    .expect("replacing standard-14 text should succeed");
+
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save should succeed");
+
+    let reopened = open_from_bytes(saved, None).expect("saved bytes should reopen");
+    let reread = reopened
+        .read_page_content(0)
+        .expect("page content should parse after save");
+
+    assert_eq!(reread.text_runs.first().unwrap().text, "Goodbye world");
+}
+
+#[test]
+fn replace_text_run_content_with_stale_item_fails_at_save() {
+    // Per Batch 21 decision 5, `apply_edit` on a content command only
+    // records the log entry — `pdf-edit` resolves the targeted item against
+    // the real content stream during `save_to_bytes`'s replay, so a stale
+    // item is accepted here and rejected there.
+    let handle = open_single_line_fixture("Hello world");
+    let content = handle.read_page_content(0).unwrap();
+    let mut stale = content.text_runs.first().unwrap().clone();
+    // A different revision than what's actually on the page: the parser
+    // never assigned this id/text/position combination.
+    stale.text = "not what is on the page".to_string();
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: stale,
+            after: "irrelevant".to_string(),
+        },
+    )
+    .expect("apply_edit only records the command, it does not resolve the item yet");
+
+    let result = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    );
+
+    assert!(matches!(result, Err(FfiError::Internal { .. })));
 }
