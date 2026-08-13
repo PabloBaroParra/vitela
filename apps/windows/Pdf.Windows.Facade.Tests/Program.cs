@@ -1,6 +1,5 @@
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
-using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
