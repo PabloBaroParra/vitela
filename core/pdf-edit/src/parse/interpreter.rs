@@ -36,6 +36,15 @@ use std::ops::Range;
 pub struct PageStream {
     pub object_id: ObjectId,
     pub bytes: Vec<u8>,
+    /// Whether the stream arrived compressed, carried from the decode rather
+    /// than re-derived when writing.
+    ///
+    /// The writer has to put the stream back the way it found it, and asking
+    /// the dictionary a second time is asking a question that has already
+    /// been answered — by the code that had to resolve `/Filter` through
+    /// indirection to answer it at all (see `crate::parse::filter`). Two
+    /// readings of the same entry can disagree; one reading cannot.
+    pub filtered: bool,
 }
 
 /// A text run plus where its bytes are, which is what [`crate::edit`] needs

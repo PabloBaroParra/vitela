@@ -49,11 +49,25 @@ pub enum EditError {
     /// already uses for a different object. Overwriting it would silently
     /// repaint every other operator on the page that names it.
     ResourceNameInUse { category: String, name: String },
-    /// A content stream declares a `/Filter` whose bytes could not be
-    /// decoded. Treating the still-encoded bytes as operators would parse to
-    /// garbage and — worse — write that garbage back as the page's content,
-    /// so it is refused.
+    /// A content stream is `FlateDecode`d but does not inflate to a
+    /// *complete* stream — truncated, corrupt, or not deflate data at all.
+    ///
+    /// The prefix that did come out is deliberately discarded rather than
+    /// used: it looks like content, and writing it back after an edit would
+    /// replace the page with however much of it survived.
     UndecodableContentStream { object_id: (u32, u16) },
+    /// A content stream is encoded in a way this crate cannot prove it round
+    /// trips: a filter other than `FlateDecode`, a chain of them, an
+    /// unresolvable indirect `/Filter`, or any `/DecodeParms`.
+    ///
+    /// Distinct from [`Self::UndecodableContentStream`] because it says
+    /// something different to whoever reads it — the file is fine, this
+    /// version simply does not edit that encoding — and because the fix is
+    /// different too.
+    UnsupportedContentStreamFilter {
+        object_id: (u32, u16),
+        detail: String,
+    },
     /// A structural problem reported by lopdf while reading the document.
     Lopdf(String),
 }
@@ -100,7 +114,12 @@ impl fmt::Display for EditError {
             ),
             EditError::UndecodableContentStream { object_id } => write!(
                 f,
-                "content stream {} {} declares a filter its bytes do not decode with",
+                "content stream {} {} does not decompress to a complete stream",
+                object_id.0, object_id.1
+            ),
+            EditError::UnsupportedContentStreamFilter { object_id, detail } => write!(
+                f,
+                "content stream {} {} is encoded in a way this version does not edit: {detail}",
                 object_id.0, object_id.1
             ),
             EditError::Lopdf(msg) => write!(f, "pdf structure error: {msg}"),

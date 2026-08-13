@@ -772,47 +772,29 @@ mod tests {
         assert_eq!(texts, vec!["original".to_string(), "added".to_string()]);
     }
 
-    /// A page whose stream does not decode used to be read as empty,
-    /// appended to, and written back — deleting the page's real content to
-    /// add one line to it. Two things stop that now, and both matter: the
-    /// parse refuses the stream (an insertion needs its end-of-page CTM to
-    /// place anything, and that is unknowable here), and the append would
-    /// not have rewritten it anyway.
+    /// The dangerous shape, end to end: a real Flate stream cut short, so it
+    /// inflates to a readable *prefix* of the page. That prefix used to be
+    /// treated as the whole page — appended to, and written back — deleting
+    /// everything past the cut to add one line. Two things stop it now, and
+    /// both matter: the parse refuses a stream that does not end, and the
+    /// append would not have rewritten it anyway.
     #[test]
     fn inserting_into_a_page_with_an_undecodable_stream_does_not_destroy_it() {
         let (mut document, page) = fixture::document_with_content(
             b"BT /F1 12 Tf 0 700 Td (precious) Tj ET",
             fixture::helvetica_resources(),
         );
-        let Ok(Object::Reference(existing_id)) = document
-            .get_dictionary(page)
-            .expect("page dictionary")
-            .get(b"Contents")
-        else {
-            panic!("the fixture starts with a single content stream");
-        };
-        let existing_id = *existing_id;
-        let stream = document
-            .get_object_mut(existing_id)
-            .expect("content stream")
-            .as_stream_mut()
-            .expect("content stream");
-        let before = stream.content.clone();
-        stream.dict.set("Filter", "FlateDecode");
+        let existing_id = fixture::content_stream_id(&document, page);
+        let before = fixture::truncate_page_stream_to_broken_flate(&mut document, page);
 
         let error = insert_text_run(&mut document, page, &new_run("added", 10.0, 10.0))
             .expect_err("the page cannot be read, so it cannot be placed on");
 
         assert!(matches!(error, EditError::UndecodableContentStream { .. }));
         assert_eq!(
-            document
-                .get_object(existing_id)
-                .expect("content stream")
-                .as_stream()
-                .expect("content stream")
-                .content,
+            fixture::stored_stream_bytes(&document, existing_id),
             before,
-            "bytes we could not decode are bytes we must not rewrite"
+            "bytes we could not read whole are bytes we must not rewrite"
         );
     }
 

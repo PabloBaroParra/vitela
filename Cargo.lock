@@ -1827,6 +1827,7 @@ version = "0.1.0"
 name = "pdf-edit"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "image",
  "lopdf",
  "pdf-document",

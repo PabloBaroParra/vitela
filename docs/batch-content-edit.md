@@ -117,6 +117,28 @@ resto exige interpretar el stream completo para saber dónde empieza y termina c
       offsets, y sin offsets T-154 no puede dejar el resto del stream byte a byte idéntico
       (un decode+encode reformatea números y espacios de toda la página). El lexer emite
       cada operación con el span de sus operandos y del operador.
+      **Codec Flate propio (`parse/filter.rs`), tampoco el de lopdf.** Corrección
+      post-review: `Stream::decompressed_content` no sirve para decidir si podemos tocar un
+      stream. Dos motivos, y los dos terminan en un archivo corrupto. (1) Un inflate fallido
+      **no se reporta**: `decompress_zlib` loguea, reintenta deflate crudo y devuelve `Ok`
+      con lo que haya salido — un prefijo. Ese prefijo parece contenido de página, y al
+      editar se escribe de vuelta como la página entera: truncada. (2) `/Filter` **no se
+      dereferencia**, y puede ser perfectamente una referencia indirecta; un lector que sólo
+      matchea el objeto directo concluye "sin filtro" y entrega bytes comprimidos como
+      operadores.
+      La regla ahora es: **si no podemos probar que entendimos el stream entero, no lo
+      tocamos.** El inflate exige `Status::StreamEnd` — no "salió algún byte" —, `/Filter` se
+      resuelve a través de indirección (también dentro del array), y se rechazan cadenas de
+      filtros, filtros distintos de `FlateDecode` y cualquier `/DecodeParms`, con
+      `UnsupportedContentStreamFilter` en vez de `UndecodableContentStream` porque significan
+      cosas distintas para quien lee el error. Salida vacía con `StreamEnd` es una página
+      vacía legítima, no un fallo — la heurística anterior ("comprimido no vacío que decodifica
+      a vacío") tenía justamente ese falso positivo.
+      El encode también es propio: `Stream::compress` es best-effort (declina si no ahorra
+      más de 19 bytes), así que una página chica que llegó comprimida volvía en texto plano
+      con el `/Filter` borrado. Y `PageStream` guarda si el stream venía filtrado, en vez de
+      volver a mirar el diccionario al escribir: la lectura que resolvió `/Filter` es la que
+      sabe, y dos lecturas del mismo campo pueden discrepar.
       **`/Rotate` NO se aplica al bbox:** es una instrucción de visor, no una transformación
       del contenido, y las shells ya la aplican para `Annotation.rect`. Aplicarla acá haría
       doble rotación. Hay un test que fija la equivalencia.

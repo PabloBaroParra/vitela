@@ -7,6 +7,8 @@
 //! `Document` never carries a `page_content` field and nothing here is
 //! cached.
 
+mod filter;
+pub(crate) use filter::encode_flate;
 pub mod interpreter;
 pub mod lexer;
 pub mod matrix;
@@ -16,7 +18,7 @@ pub use lexer::{tokenize, Operand, SpannedOperation};
 pub use matrix::Matrix;
 
 use crate::error::EditError;
-use lopdf::{Dictionary, Document, Object, ObjectId, Stream};
+use lopdf::{Dictionary, Document, Object, ObjectId};
 use pdf_document::{PageContent, PageId};
 
 /// Reads the text runs and images painted by `page`, on demand.
@@ -124,60 +126,14 @@ pub(crate) fn page_streams(
         .into_iter()
         .map(|object_id| {
             let stream = document.get_object(object_id)?.as_stream()?;
-            let bytes = decoded_stream(stream, object_id)?;
-            Ok(PageStream { object_id, bytes })
+            let decoded = filter::decode(document, stream, object_id)?;
+            Ok(PageStream {
+                object_id,
+                bytes: decoded.bytes,
+                filtered: decoded.filtered,
+            })
         })
         .collect()
-}
-
-/// A content stream's operator bytes.
-///
-/// Two failure modes are collapsed here that must not be, and `lopdf` does
-/// not separate either of them for us:
-///
-/// 1. `decompressed_content` returns the same `Err` for "this stream has no
-///    filter" as for a real decode failure. `get_plain_content` fixes that
-///    one — it only decodes when the stream actually declares a filter.
-/// 2. A declared filter that *fails* does not produce an `Err` at all.
-///    `Stream::decompress_zlib` logs the flate error, falls back to raw
-///    deflate, and returns whatever it managed to read — possibly nothing.
-///    So a damaged stream arrives looking like a page that paints nothing.
-///
-/// Either way the caller must not go on: the bytes then get spliced and
-/// written back as the page's content, and a page that was damaged becomes a
-/// page that is gone, with the save reporting success.
-///
-/// What is detectable is the total failure: a stream whose encoded bytes are
-/// not empty and whose decoded bytes are. No content stream compresses a
-/// non-empty payload down to nothing, so that combination means the filter
-/// yielded nothing at all.
-///
-/// **A partial decode is not detectable here** — nothing distinguishes
-/// "half a stream" from "a short stream". The tokenizer catches the usual
-/// consequence (the truncation lands mid-operator and fails to parse), and
-/// `crate::insert` is written so that appending never rewrites an existing
-/// stream at all, which removes the remaining way a partial read could
-/// destroy content it never saw.
-pub(crate) fn decoded_stream(stream: &Stream, object_id: ObjectId) -> Result<Vec<u8>, EditError> {
-    let bytes = stream
-        .get_plain_content()
-        .map_err(|_| EditError::UndecodableContentStream { object_id })?;
-
-    if declares_filter(&stream.dict) && bytes.is_empty() && !stream.content.is_empty() {
-        return Err(EditError::UndecodableContentStream { object_id });
-    }
-
-    Ok(bytes)
-}
-
-/// Whether a stream dictionary actually names a filter. An absent `/Filter`,
-/// and the empty array some producers write instead, both mean "plain".
-pub(crate) fn declares_filter(dict: &Dictionary) -> bool {
-    match dict.get(b"Filter") {
-        Ok(Object::Name(_)) => true,
-        Ok(Object::Array(filters)) => !filters.is_empty(),
-        _ => false,
-    }
 }
 
 fn dereference<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {

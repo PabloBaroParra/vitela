@@ -317,14 +317,25 @@ fn splice(
     bytes.extend_from_slice(replacement);
     bytes.extend_from_slice(&stream.bytes[span.end..]);
 
+    // Whether to re-compress comes from the decode, not from a second look at
+    // the dictionary: the decode is what resolved `/Filter` through
+    // indirection, so it is the reading that knows.
+    let content = if stream.filtered {
+        Some(crate::parse::encode_flate(&bytes)?)
+    } else {
+        None
+    };
+
     let object = document.get_object_mut(stream.object_id)?.as_stream_mut()?;
-    let was_compressed = crate::parse::declares_filter(&object.dict);
-    object.set_plain_content(bytes);
-    if was_compressed {
-        // Re-compressing keeps an edited page from ballooning; it also means
-        // "unchanged bytes" is a statement about decoded content, which is
-        // the level the round-trip tests compare at.
-        object.compress().map_err(EditError::from)?;
+    match content {
+        // `set_plain_content` first: it clears `/Filter` and `/DecodeParms`,
+        // so the dictionary cannot end up describing an encoding the bytes no
+        // longer have.
+        Some(compressed) => {
+            object.set_plain_content(compressed);
+            object.dict.set("Filter", "FlateDecode");
+        }
+        None => object.set_plain_content(bytes),
     }
 
     Ok(())
@@ -815,6 +826,104 @@ mod tests {
         let images = content_of(&document).images;
         assert_eq!(images.len(), 1);
         assert!((images[0].bbox.width - 40.0).abs() < 1e-6);
+    }
+
+    /// The splice path's version of the same guarantee: a stream that only
+    /// half-inflates is never read, so it is never written back either. The
+    /// item is stale by construction — the point is that the refusal comes
+    /// from the stream, and the bytes on disk survive it untouched.
+    #[test]
+    fn a_truncated_content_stream_is_refused_and_left_exactly_as_it_was() {
+        let (mut document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+        let contents_id = fixture::content_stream_id(&document, page);
+        let before = fixture::truncate_page_stream_to_broken_flate(&mut document, page);
+
+        let error = replace_text_run(&mut document, page, &target, "Bye")
+            .expect_err("a stream that does not end is not content");
+
+        assert_eq!(
+            error,
+            EditError::UndecodableContentStream {
+                object_id: contents_id
+            }
+        );
+        assert_eq!(
+            fixture::stored_stream_bytes(&document, contents_id),
+            before,
+            "bytes we could not read whole are bytes we must not rewrite"
+        );
+    }
+
+    /// A page encoded in a way this version does not edit is refused with a
+    /// different error than a damaged one, because it means something
+    /// different: the file is fine, the support is not there.
+    #[test]
+    fn a_page_behind_an_unsupported_filter_is_refused_distinctly() {
+        let (mut document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+        let Ok(Object::Reference(contents_id)) = document
+            .get_dictionary(page)
+            .expect("page dictionary")
+            .get(b"Contents")
+        else {
+            panic!("the fixture uses a single content stream");
+        };
+        let contents_id = *contents_id;
+        document
+            .get_object_mut(contents_id)
+            .expect("content stream")
+            .as_stream_mut()
+            .expect("content stream")
+            .dict
+            .set("Filter", "LZWDecode");
+
+        let error = replace_text_run(&mut document, page, &target, "Bye")
+            .expect_err("LZW is not decoded by this version");
+
+        assert!(matches!(
+            error,
+            EditError::UnsupportedContentStreamFilter { .. }
+        ));
+    }
+
+    /// A compressed page must come back out compressed, and readable.
+    ///
+    /// The stream is built compressed here rather than through
+    /// `Stream::compress`, which declines on a short payload — a version of
+    /// this test that quietly stopped compressing would still pass while
+    /// testing nothing. `PageStream::filtered` is what carries the answer
+    /// from the decode to the write, so this is the test that fails if that
+    /// wiring is dropped.
+    #[test]
+    fn editing_a_compressed_page_leaves_it_compressed_and_readable() {
+        let long_line = "BT /F1 12 Tf 0 700 Td (compressible compressible compressible) Tj \
+                         0 -14 Td (target) Tj ET";
+        let (mut document, page) = text_document(long_line.as_bytes());
+        let contents_id = fixture::content_stream_id(&document, page);
+        fixture::compress_page_stream(&mut document, page);
+        let target = content_of(&document)
+            .text_run(ContentItemId(1))
+            .expect("second run")
+            .clone();
+
+        replace_text_run(&mut document, page, &target, "edited").expect("encodable");
+
+        let stream = document
+            .get_object(contents_id)
+            .expect("content stream")
+            .as_stream()
+            .expect("content stream");
+        assert!(
+            stream.dict.has(b"Filter"),
+            "a page that arrived compressed must not be written back as plain bytes"
+        );
+        let texts: Vec<String> = content_of(&document)
+            .text_runs
+            .into_iter()
+            .map(|run| run.text)
+            .collect();
+        assert_eq!(texts[1], "edited");
     }
 
     #[test]

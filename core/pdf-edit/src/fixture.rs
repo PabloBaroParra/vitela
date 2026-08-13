@@ -99,6 +99,98 @@ fn with_indirect_streams(document: &mut Document, resources: Dictionary) -> Dict
     fixed
 }
 
+/// Flate-compresses a page's single content stream, unconditionally.
+///
+/// `lopdf`'s `Stream::compress` declines unless it saves more than 19 bytes,
+/// so on a test-sized payload it silently leaves the stream plain — and a
+/// test of compression behaviour that is not actually compressed still
+/// passes while testing nothing.
+pub fn compress_page_stream(document: &mut Document, page_id: ObjectId) {
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let contents_id = content_stream_id(document, page_id);
+    let stream = document
+        .get_object_mut(contents_id)
+        .expect("content stream")
+        .as_stream_mut()
+        .expect("content stream");
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(&stream.content).expect("encode");
+    stream.set_content(encoder.finish().expect("finish"));
+    stream.dict.set("Filter", "FlateDecode");
+}
+
+/// Replaces a page's single content stream with a **truncated** Flate one:
+/// real zlib data with the tail cut off, so it inflates to a readable prefix
+/// of the page and then stops without ever reaching the end of the stream.
+///
+/// Built explicitly rather than through `lopdf`'s `Stream::compress`, which
+/// only compresses when it saves more than 19 bytes — a short test payload
+/// comes back uncompressed, and a test that quietly stops exercising
+/// compression is worse than no test.
+///
+/// Returns the bytes now on the page, so a caller can assert they were left
+/// alone.
+pub fn truncate_page_stream_to_broken_flate(document: &mut Document, page_id: ObjectId) -> Vec<u8> {
+    use flate2::write::ZlibEncoder;
+    use flate2::Compression;
+    use std::io::Write;
+
+    let Ok(Object::Reference(contents_id)) = document
+        .get_dictionary(page_id)
+        .expect("page dictionary")
+        .get(b"Contents")
+    else {
+        panic!("this fixture has a single content stream");
+    };
+    let contents_id = *contents_id;
+
+    let stream = document
+        .get_object_mut(contents_id)
+        .expect("content stream")
+        .as_stream_mut()
+        .expect("content stream");
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+    encoder.write_all(&stream.content).expect("encode");
+    let compressed = encoder.finish().expect("finish");
+    assert!(
+        compressed.len() > 8,
+        "the payload must be long enough to truncate meaningfully"
+    );
+
+    stream.set_content(compressed[..compressed.len() - 6].to_vec());
+    stream.dict.set("Filter", "FlateDecode");
+    stream.content.clone()
+}
+
+/// The object id of a page's single content stream.
+pub fn content_stream_id(document: &Document, page_id: ObjectId) -> ObjectId {
+    match document
+        .get_dictionary(page_id)
+        .expect("page dictionary")
+        .get(b"Contents")
+    {
+        Ok(Object::Reference(id)) => *id,
+        _ => panic!("this fixture has a single content stream"),
+    }
+}
+
+/// The bytes currently stored for a page's content stream, encoded as they
+/// sit in the file.
+pub fn stored_stream_bytes(document: &Document, contents_id: ObjectId) -> Vec<u8> {
+    document
+        .get_object(contents_id)
+        .expect("content stream")
+        .as_stream()
+        .expect("content stream")
+        .content
+        .clone()
+}
+
 /// `/F1` is Helvetica with WinAnsi codes and no `/Widths` — the standard-14
 /// case, where advances come from this crate's fallback.
 pub fn helvetica_resources() -> Dictionary {

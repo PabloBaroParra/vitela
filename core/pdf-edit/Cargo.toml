@@ -8,5 +8,6 @@ publish = false
 
 [dependencies]
 pdf-document = { path = "../pdf-document" }
+flate2 = "1.1"
 lopdf = "0.44"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
