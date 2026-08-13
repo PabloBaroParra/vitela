@@ -8,8 +8,10 @@
 //! incremental append was otherwise available, and that a page's content
 //! reads back through `pdf-save`'s own lazy API.
 
+use std::collections::BTreeMap;
+
 use lopdf::dictionary;
-use pdf_document::{Command, Document, FontKind, PageId};
+use pdf_document::{Command, Document, FontKind, PageId, Rect};
 use pdf_save::{
     save_document, will_invalidate_signatures, SaveInput, SaveIntent, SignatureAcknowledgement,
 };
@@ -37,15 +39,224 @@ fn text_pdf(lines: &[&str], label: &str) -> std::path::PathBuf {
     path
 }
 
+fn two_page_text_pdf() -> std::path::PathBuf {
+    let mut doc = gen_fixtures::build_multi_page_document(2, "roundtrip");
+    let path = temp_pdf_path("two-page-text");
+    doc.save(&path).expect("write text fixture");
+    path
+}
+
 fn apply_command(document: &mut Document, command: Command) {
     let mut log = std::mem::take(&mut document.pending_edits);
     log.apply(document, command);
     document.pending_edits = log;
 }
 
+fn save_with_original(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    original_bytes: &[u8],
+) -> Vec<u8> {
+    save_document(SaveInput {
+        document,
+        base,
+        original_bytes: Some(original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+    })
+    .expect("save should succeed")
+}
+
+fn roundtrip_image_document(label: &str) -> (Document, pdf_manip::LopdfDocument, Vec<u8>) {
+    let mut fixture = gen_fixtures::content_edit::build_roundtrip_image_page_document();
+    let path = temp_pdf_path(label);
+    fixture.save(&path).expect("write fixture");
+    let original_bytes = std::fs::read(&path).expect("read fixture");
+    let (base, security) = pdf_manip::open_document(&path, None).expect("open fixture");
+    let document = pdf_save::document_from_lopdf(&base, security).expect("convert fixture");
+    (document, base, original_bytes)
+}
+
+fn image_content(document: &pdf_manip::LopdfDocument) -> pdf_document::PageContent {
+    pdf_save::read_page_content(document, PageId(0)).expect("readable image page")
+}
+
+fn image_content_from_lopdf(document: &lopdf::Document) -> pdf_document::PageContent {
+    let wrapped = pdf_manip::LopdfDocument::from_lopdf(document.clone());
+    image_content(&wrapped)
+}
+
+fn image_stream_bytes(document: &pdf_manip::LopdfDocument, name: &str) -> Vec<u8> {
+    image_stream_bytes_from_lopdf(document.as_lopdf(), name)
+}
+
+fn image_stream_bytes_from_lopdf(document: &lopdf::Document, name: &str) -> Vec<u8> {
+    let page_id = *document.get_pages().get(&1).expect("first page exists");
+    let page = document.get_dictionary(page_id).expect("page dictionary");
+    let resources = resolve_dictionary(document, page.get(b"Resources").expect("resources"));
+    let xobjects = resolve_dictionary(
+        document,
+        resources.get(b"XObject").expect("XObject resources"),
+    );
+    let stream = resolve_stream(
+        document,
+        xobjects.get(name.as_bytes()).expect("named image"),
+    );
+    decoded_stream_bytes(stream)
+}
+
+fn resolve_dictionary<'a>(
+    document: &'a lopdf::Document,
+    object: &'a lopdf::Object,
+) -> &'a lopdf::Dictionary {
+    match object {
+        lopdf::Object::Reference(id) => {
+            document.get_dictionary(*id).expect("referenced dictionary")
+        }
+        lopdf::Object::Dictionary(dictionary) => dictionary,
+        _ => panic!("expected PDF dictionary"),
+    }
+}
+
+fn resolve_stream<'a>(
+    document: &'a lopdf::Document,
+    object: &'a lopdf::Object,
+) -> &'a lopdf::Stream {
+    match object {
+        lopdf::Object::Reference(id) => document
+            .get_object(*id)
+            .expect("referenced stream")
+            .as_stream()
+            .expect("image stream"),
+        lopdf::Object::Stream(stream) => stream,
+        _ => panic!("expected PDF stream"),
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SemanticPageSnapshot {
+    decoded_contents: Vec<Vec<u8>>,
+    xobjects: BTreeMap<Vec<u8>, SemanticXObjectSnapshot>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct SemanticXObjectSnapshot {
+    type_name: Option<Vec<u8>>,
+    subtype: Option<Vec<u8>>,
+    width: Option<i64>,
+    height: Option<i64>,
+    color_space: Option<Vec<u8>>,
+    bits_per_component: Option<i64>,
+    decoded_bytes: Vec<u8>,
+}
+
+fn semantic_page_snapshot(document: &lopdf::Document, page: PageId) -> SemanticPageSnapshot {
+    let page_number = page.0 + 1;
+    let page_id = *document
+        .get_pages()
+        .get(&page_number)
+        .expect("requested page exists");
+    let page = document.get_dictionary(page_id).expect("page dictionary");
+    let resources = resolve_dictionary(document, page.get(b"Resources").expect("resources"));
+    let xobjects = resources
+        .get(b"XObject")
+        .ok()
+        .map(|xobjects| resolve_dictionary(document, xobjects));
+
+    SemanticPageSnapshot {
+        decoded_contents: decoded_page_contents(document, page.get(b"Contents").expect("contents")),
+        xobjects: xobjects
+            .map(lopdf::Dictionary::iter)
+            .into_iter()
+            .flatten()
+            .map(|(name, object)| {
+                let stream = resolve_stream(document, object);
+                (
+                    name.clone(),
+                    SemanticXObjectSnapshot {
+                        type_name: dictionary_name(document, &stream.dict, b"Type"),
+                        subtype: dictionary_name(document, &stream.dict, b"Subtype"),
+                        width: dictionary_integer(document, &stream.dict, b"Width"),
+                        height: dictionary_integer(document, &stream.dict, b"Height"),
+                        color_space: dictionary_name(document, &stream.dict, b"ColorSpace"),
+                        bits_per_component: dictionary_integer(
+                            document,
+                            &stream.dict,
+                            b"BitsPerComponent",
+                        ),
+                        decoded_bytes: decoded_stream_bytes(stream),
+                    },
+                )
+            })
+            .collect(),
+    }
+}
+
+fn decoded_page_contents(document: &lopdf::Document, contents: &lopdf::Object) -> Vec<Vec<u8>> {
+    match resolve_object(document, contents) {
+        lopdf::Object::Array(streams) => streams
+            .iter()
+            .map(|stream| decoded_stream_bytes(resolve_stream(document, stream)))
+            .collect(),
+        stream => vec![decoded_stream_bytes(resolve_stream(document, stream))],
+    }
+}
+
+fn decoded_stream_bytes(stream: &lopdf::Stream) -> Vec<u8> {
+    if stream.dict.has(b"Filter") {
+        stream.decompressed_content().expect("decode stream")
+    } else {
+        stream.content.clone()
+    }
+}
+
+fn dictionary_name(
+    document: &lopdf::Document,
+    dictionary: &lopdf::Dictionary,
+    key: &[u8],
+) -> Option<Vec<u8>> {
+    dictionary
+        .get(key)
+        .ok()
+        .and_then(|value| resolve_object(document, value).as_name().ok())
+        .map(<[u8]>::to_vec)
+}
+
+fn dictionary_integer(
+    document: &lopdf::Document,
+    dictionary: &lopdf::Dictionary,
+    key: &[u8],
+) -> Option<i64> {
+    dictionary
+        .get(key)
+        .ok()
+        .and_then(|value| resolve_object(document, value).as_i64().ok())
+}
+
+fn resolve_object<'a>(
+    document: &'a lopdf::Document,
+    object: &'a lopdf::Object,
+) -> &'a lopdf::Object {
+    match object {
+        lopdf::Object::Reference(id) => {
+            resolve_object(document, document.get_object(*id).expect("reference"))
+        }
+        object => object,
+    }
+}
+
 fn page_texts(bytes: &[u8]) -> Vec<String> {
     let reloaded = lopdf::Document::load_mem(bytes).expect("output must reload");
     pdf_edit::read_page_content(&reloaded, PageId(0))
+        .expect("readable page")
+        .text_runs
+        .into_iter()
+        .map(|run| run.text)
+        .collect()
+}
+
+fn page_texts_at(document: &lopdf::Document, page: PageId) -> Vec<String> {
+    pdf_edit::read_page_content(document, page)
         .expect("readable page")
         .text_runs
         .into_iter()
@@ -88,6 +299,74 @@ fn editing_a_text_run_reaches_the_saved_file() {
         vec!["Adios mundo".to_string(), "second line".to_string()],
         "the edited run changed and the untouched one did not"
     );
+}
+
+#[test]
+fn replacing_text_preserves_the_untouched_page_and_forces_a_full_rewrite() {
+    let path = two_page_text_pdf();
+    let original_bytes = std::fs::read(&path).expect("read fixture");
+    let (base, security) = pdf_manip::open_document(&path, None).expect("open fixture");
+    let before_control = page_texts_at(base.as_lopdf(), PageId(1));
+    let before_control_snapshot = semantic_page_snapshot(base.as_lopdf(), PageId(1));
+    let mut document = pdf_save::document_from_lopdf(&base, security).expect("convert fixture");
+    let run = pdf_save::read_page_content(&base, PageId(0))
+        .expect("readable page")
+        .text_runs
+        .remove(0);
+    apply_command(
+        &mut document,
+        Command::ReplaceTextRunContent {
+            item: run,
+            after: "edited page 0".to_string(),
+        },
+    );
+
+    let saved = save_with_original(&document, &base, &original_bytes);
+    let reloaded = lopdf::Document::load_mem(&saved).expect("output must reload");
+
+    assert_eq!(page_texts_at(&reloaded, PageId(0)), vec!["edited page 0"]);
+    assert_eq!(page_texts_at(&reloaded, PageId(1)), before_control);
+    assert_eq!(
+        semantic_page_snapshot(&reloaded, PageId(1)),
+        before_control_snapshot,
+        "the untouched page retains its decoded content and semantic resources"
+    );
+    assert!(!saved.starts_with(&original_bytes));
+}
+
+#[test]
+#[ignore = "writes a caller-owned file for the standalone pypdf validator"]
+fn write_pypdf_validation_output() {
+    let output = std::env::var_os("PDF_SAVE_VALIDATION_OUTPUT")
+        .map(std::path::PathBuf::from)
+        .expect("PDF_SAVE_VALIDATION_OUTPUT must name a caller-owned output file");
+    assert!(
+        !output.exists(),
+        "refusing to overwrite caller-owned output"
+    );
+    std::fs::create_dir_all(output.parent().expect("output must have a parent"))
+        .expect("create caller-owned output parent");
+
+    let path = two_page_text_pdf();
+    let original_bytes = std::fs::read(&path).expect("read fixture");
+    let (base, security) = pdf_manip::open_document(&path, None).expect("open fixture");
+    let mut document = pdf_save::document_from_lopdf(&base, security).expect("convert fixture");
+    let run = pdf_save::read_page_content(&base, PageId(0))
+        .expect("readable page")
+        .text_runs
+        .remove(0);
+    apply_command(
+        &mut document,
+        Command::ReplaceTextRunContent {
+            item: run,
+            after: "edited page 0".to_string(),
+        },
+    );
+    std::fs::write(
+        &output,
+        save_with_original(&document, &base, &original_bytes),
+    )
+    .expect("write only the caller-owned output");
 }
 
 /// Decision 5, at the level that actually decides it: `original_bytes` is
@@ -612,6 +891,210 @@ fn the_image_fixture_parses_as_one_image_at_its_documented_rect() {
     );
     assert_eq!((image.bbox.x, image.bbox.y), (100.0, 600.0));
     assert_eq!((image.bbox.width, image.bbox.height), (80.0, 40.0));
+}
+
+#[test]
+fn the_roundtrip_image_fixture_exposes_distinct_target_and_control_images() {
+    let mut doc = gen_fixtures::content_edit::build_roundtrip_image_page_document();
+    let path = temp_pdf_path("roundtrip-image-fixture");
+    doc.save(&path).unwrap();
+    let (base, _security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let content = pdf_save::read_page_content(&base, PageId(0)).expect("readable page");
+
+    assert_eq!(content.images.len(), 2);
+    assert_eq!(
+        content.images[0].resource_xobject_name,
+        gen_fixtures::content_edit::TARGET_IMAGE_RESOURCE_NAME
+    );
+    assert_eq!(
+        content.images[1].resource_xobject_name,
+        gen_fixtures::content_edit::CONTROL_IMAGE_RESOURCE_NAME
+    );
+    assert_ne!(
+        gen_fixtures::content_edit::target_image_pixels(),
+        gen_fixtures::content_edit::control_image_pixels()
+    );
+}
+
+#[test]
+fn semantic_page_snapshot_preserves_decoded_contents_and_xobject_properties() {
+    let mut fixture = gen_fixtures::content_edit::build_roundtrip_image_page_document();
+    let path = temp_pdf_path("semantic-page-snapshot");
+    fixture.save(&path).expect("write fixture");
+    let (base, _security) = pdf_manip::open_document(&path, None).expect("open fixture");
+    let before = semantic_page_snapshot(base.as_lopdf(), PageId(0));
+
+    let reloaded = lopdf::Document::load(&path).expect("reload fixture");
+
+    assert_eq!(semantic_page_snapshot(&reloaded, PageId(0)), before);
+}
+
+#[test]
+fn moving_a_target_image_preserves_its_source_and_the_control_image() {
+    let (mut document, base, original_bytes) = roundtrip_image_document("move");
+    let before = image_content(&base);
+    let before_snapshot = semantic_page_snapshot(base.as_lopdf(), PageId(0));
+    let target = before.images[0].clone();
+    apply_command(
+        &mut document,
+        Command::MoveImage {
+            item: target.clone(),
+            to: Rect {
+                x: 140.0,
+                y: 550.0,
+                width: target.bbox.width,
+                height: target.bbox.height,
+            },
+        },
+    );
+
+    let saved = save_with_original(&document, &base, &original_bytes);
+    let reloaded = lopdf::Document::load_mem(&saved).expect("output must reload");
+    let after = image_content_from_lopdf(&reloaded);
+    let after_snapshot = semantic_page_snapshot(&reloaded, PageId(0));
+
+    assert_eq!(
+        (after.images[0].bbox.x, after.images[0].bbox.y),
+        (140.0, 550.0)
+    );
+    assert_eq!(
+        (after.images[0].bbox.width, after.images[0].bbox.height),
+        (80.0, 40.0)
+    );
+    assert_eq!(
+        image_stream_bytes(&base, &target.resource_xobject_name),
+        image_stream_bytes_from_lopdf(&reloaded, &target.resource_xobject_name)
+    );
+    assert_eq!(after.images[1], before.images[1]);
+    assert_eq!(
+        image_stream_bytes(&base, &before.images[1].resource_xobject_name),
+        image_stream_bytes_from_lopdf(&reloaded, &before.images[1].resource_xobject_name)
+    );
+    assert_eq!(
+        after_snapshot.xobjects.get(b"ImTarget" as &[u8]),
+        before_snapshot.xobjects.get(b"ImTarget" as &[u8])
+    );
+    assert_eq!(
+        after_snapshot.xobjects.get(b"ImControl" as &[u8]),
+        before_snapshot.xobjects.get(b"ImControl" as &[u8])
+    );
+}
+
+#[test]
+fn resizing_a_target_image_preserves_its_position_source_and_control_image() {
+    let (mut document, base, original_bytes) = roundtrip_image_document("resize");
+    let before = image_content(&base);
+    let before_snapshot = semantic_page_snapshot(base.as_lopdf(), PageId(0));
+    let target = before.images[0].clone();
+    apply_command(
+        &mut document,
+        Command::ResizeImage {
+            item: target.clone(),
+            to: Rect {
+                x: target.bbox.x,
+                y: target.bbox.y,
+                width: 120.0,
+                height: 70.0,
+            },
+        },
+    );
+
+    let saved = save_with_original(&document, &base, &original_bytes);
+    let reloaded = lopdf::Document::load_mem(&saved).expect("output must reload");
+    let after = image_content_from_lopdf(&reloaded);
+    let after_snapshot = semantic_page_snapshot(&reloaded, PageId(0));
+
+    assert_eq!(
+        (after.images[0].bbox.x, after.images[0].bbox.y),
+        (100.0, 600.0)
+    );
+    assert_eq!(
+        (after.images[0].bbox.width, after.images[0].bbox.height),
+        (120.0, 70.0)
+    );
+    assert_eq!(
+        image_stream_bytes(&base, &target.resource_xobject_name),
+        image_stream_bytes_from_lopdf(&reloaded, &target.resource_xobject_name)
+    );
+    assert_eq!(after.images[1], before.images[1]);
+    assert_eq!(
+        after_snapshot.xobjects.get(b"ImTarget" as &[u8]),
+        before_snapshot.xobjects.get(b"ImTarget" as &[u8])
+    );
+    assert_eq!(
+        after_snapshot.xobjects.get(b"ImControl" as &[u8]),
+        before_snapshot.xobjects.get(b"ImControl" as &[u8])
+    );
+}
+
+#[test]
+fn replacing_a_target_image_preserves_its_geometry_and_the_control_image() {
+    let (mut document, base, original_bytes) = roundtrip_image_document("replace-image");
+    let before = image_content(&base);
+    let before_snapshot = semantic_page_snapshot(base.as_lopdf(), PageId(0));
+    let target = before.images[0].clone();
+    apply_command(
+        &mut document,
+        Command::ReplaceImageSource {
+            item: target.clone(),
+            before: image_stream_bytes(&base, &target.resource_xobject_name),
+            after: gen_fixtures::content_edit::replacement_image_png_bytes(),
+        },
+    );
+
+    let saved = save_with_original(&document, &base, &original_bytes);
+    let reloaded = lopdf::Document::load_mem(&saved).expect("output must reload");
+    let after = image_content_from_lopdf(&reloaded);
+    let after_snapshot = semantic_page_snapshot(&reloaded, PageId(0));
+
+    assert_eq!(after.images[0].bbox, target.bbox);
+    assert_eq!(
+        after.images[0].resource_xobject_name,
+        target.resource_xobject_name
+    );
+    assert_ne!(
+        image_stream_bytes(&base, &target.resource_xobject_name),
+        image_stream_bytes_from_lopdf(&reloaded, &target.resource_xobject_name)
+    );
+    assert_eq!(after.images[1], before.images[1]);
+    assert_eq!(
+        image_stream_bytes(&base, &before.images[1].resource_xobject_name),
+        image_stream_bytes_from_lopdf(&reloaded, &before.images[1].resource_xobject_name)
+    );
+    assert_eq!(
+        after_snapshot.xobjects.get(b"ImControl" as &[u8]),
+        before_snapshot.xobjects.get(b"ImControl" as &[u8])
+    );
+    let before_target = before_snapshot
+        .xobjects
+        .get(b"ImTarget" as &[u8])
+        .expect("target snapshot");
+    let after_target = after_snapshot
+        .xobjects
+        .get(b"ImTarget" as &[u8])
+        .expect("target snapshot");
+    assert_eq!(after_target.type_name, before_target.type_name);
+    assert_eq!(after_target.subtype, before_target.subtype);
+    assert_eq!(after_target.width, Some(2));
+    assert_eq!(after_target.height, Some(3));
+    assert_eq!(after_target.color_space, before_target.color_space);
+    assert_eq!(
+        after_target.bits_per_component,
+        before_target.bits_per_component
+    );
+    assert_ne!(after_target.decoded_bytes, before_target.decoded_bytes);
+
+    let expected_pixels =
+        image::load_from_memory(&gen_fixtures::content_edit::replacement_image_png_bytes())
+            .expect("decode fixture replacement image")
+            .to_rgb8()
+            .into_raw();
+    assert_eq!(
+        after_target.decoded_bytes, expected_pixels,
+        "reopened target must decode to exactly the deterministic replacement pixels, \
+         not merely to something different from the original"
+    );
 }
 
 /// An unsigned file has nothing to invalidate, however it is saved.
