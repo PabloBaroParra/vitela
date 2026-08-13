@@ -9,7 +9,7 @@
 //! reads back through `pdf-save`'s own lazy API.
 
 use lopdf::dictionary;
-use pdf_document::{Command, Document, PageId};
+use pdf_document::{Command, Document, FontKind, PageId};
 use pdf_save::{
     save_document, will_invalidate_signatures, SaveInput, SaveIntent, SignatureAcknowledgement,
 };
@@ -495,6 +495,123 @@ fn a_signed_document_with_no_edits_is_not_reported_as_invalidated() {
     .expect("check should succeed");
 
     assert!(!warned);
+}
+
+// ---------------------------------------------------------------------
+// Fixtures (Batch 21, T-159): proving each new fixture is fit for the
+// round-trip commands T-160 will exercise against it. Not the round-trip
+// tests themselves — just that `pdf-edit` reads back what each fixture
+// claims to provide.
+// ---------------------------------------------------------------------
+
+fn reportlab_embedded_subset_bytes() -> Vec<u8> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("fixtures")
+        .join("content-edit")
+        .join("reportlab_embedded_subset.pdf");
+    std::fs::read(path).expect("committed fixture must be readable")
+}
+
+/// The external-tool fixture ([`reportlab_embedded_subset_bytes`], see its
+/// generator script's docstring) parses as an embedded, non-composite font —
+/// distinct from `FontKind::Standard14`, the case every other fixture in
+/// this file exercises.
+#[test]
+fn the_reportlab_fixture_parses_as_an_embedded_simple_font() {
+    let bytes = reportlab_embedded_subset_bytes();
+    let (base, _security) = pdf_manip::open_document_from_bytes(&bytes, None).unwrap();
+
+    let run = pdf_save::read_page_content(&base, PageId(0))
+        .expect("readable page")
+        .text_runs
+        .remove(0);
+
+    assert_eq!(run.text, "Fixture Text");
+    assert_eq!(run.font_kind, FontKind::EmbeddedSimple);
+}
+
+/// Decision 3's own example, reproduced against a real embedded font instead
+/// of a synthetic dictionary: the same run accepts an ASCII replacement and
+/// refuses one it cannot encode, both reaching (or failing at) the same
+/// `save_document` call the Standard-14 fixtures above go through.
+#[test]
+fn the_reportlab_fixture_accepts_ascii_and_rejects_what_its_encoding_cannot_map() {
+    let bytes = reportlab_embedded_subset_bytes();
+    let (base, security) = pdf_manip::open_document_from_bytes(&bytes, None).unwrap();
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    let run = pdf_save::read_page_content(&base, PageId(0))
+        .expect("readable page")
+        .text_runs
+        .remove(0);
+
+    apply_command(
+        &mut document,
+        Command::ReplaceTextRunContent {
+            item: run.clone(),
+            after: "New Words".to_string(),
+        },
+    );
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+    })
+    .expect("plain ASCII should encode against this font's fallback table");
+    assert_eq!(page_texts(&saved), vec!["New Words".to_string()]);
+
+    // A second, independent document: the fixture's font has no /Encoding
+    // entry, so pdf-edit's fallback table covers ASCII only (Batch 21
+    // "Cobertura de encoding en v1") — a non-ASCII character is a gap, not a
+    // guess.
+    let mut rejected_document = pdf_save::document_from_lopdf(&base, None).unwrap();
+    apply_command(
+        &mut rejected_document,
+        Command::ReplaceTextRunContent {
+            item: run,
+            after: "café".to_string(),
+        },
+    );
+    let result = save_document(SaveInput {
+        document: &rejected_document,
+        base: &base,
+        original_bytes: Some(&bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+    });
+    assert!(matches!(
+        result,
+        Err(pdf_save::SaveError::Edit(
+            pdf_edit::EditError::EncodingGap { .. }
+        ))
+    ));
+}
+
+/// [`gen_fixtures::content_edit::build_image_page_document`] reads back as
+/// exactly the image T-160's move/resize/replace tests need: one item, at
+/// the resource name and rect the builder documents.
+#[test]
+fn the_image_fixture_parses_as_one_image_at_its_documented_rect() {
+    let mut doc = gen_fixtures::content_edit::build_image_page_document();
+    let path = temp_pdf_path("image-fixture");
+    doc.save(&path).unwrap();
+    let (base, _security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let content = pdf_save::read_page_content(&base, PageId(0)).expect("readable page");
+
+    assert!(content.text_runs.is_empty());
+    assert_eq!(content.images.len(), 1);
+    let image = content.images.first().expect("fixture painted one image");
+    assert_eq!(
+        image.resource_xobject_name,
+        gen_fixtures::content_edit::IMAGE_RESOURCE_NAME
+    );
+    assert_eq!((image.bbox.x, image.bbox.y), (100.0, 600.0));
+    assert_eq!((image.bbox.width, image.bbox.height), (80.0, 40.0));
 }
 
 /// An unsigned file has nothing to invalidate, however it is saved.

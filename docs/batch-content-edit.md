@@ -288,10 +288,41 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
       que ya existía por la misma razón.
 
 ### Fase 5 — Fixtures e interop
-- [ ] T-159 Fixtures: un PDF con texto en fuente Standard-14 (editable), uno con fuente
+- [x] T-159 Fixtures: un PDF con texto en fuente Standard-14 (editable), uno con fuente
       embebida subset (para probar el camino `EncodingGap` → run no editable para cierto
       texto), uno con imagen (para move/resize/replace). Al menos uno generado por
       herramienta externa (mismo criterio que T-144 de B20). [ContentFixtures]
+      **Standard-14:** sin fixture nuevo — `gen_fixtures::build_multi_line_page_document`
+      ya era Helvetica/Standard-14 y ya lo usaba de punta a punta el resto de
+      `content_edit_roundtrip.rs`; agregar uno redundante habría sido la abstracción
+      innecesaria que AGENTS.md pide evitar.
+      **Embebida subset (externo):** `tests/fixtures/content-edit/reportlab_embedded_subset.pdf`,
+      generado una sola vez por `generate_reportlab_embedded_subset.py` (reportlab +
+      `Vera.ttf`, la fuente que reportlab empaqueta bajo la licencia Bitstream Vera, que
+      permite explícitamente embeberla en un documento y redistribuir ese documento — el
+      script documenta la licencia y cómo regenerar el fixture). reportlab embebe
+      `Vera.ttf` como fuente `/Subtype /TrueType` simple con tag de subset en `/BaseFont`
+      y sin `/Encoding` — `pdf-edit` clasifica esto como `FontKind::EmbeddedSimple` y cae
+      en su tabla por defecto (cobertura ASCII), reproduciendo el ejemplo de la decisión 3
+      contra una fuente embebida real: "New Words" se reemplaza, "café" no.
+      **Corrección durante la generación:** el primer intento salió con
+      `/Filter [/ASCII85Decode /FlateDecode]` en el content stream — el default de
+      reportlab —, que el codec estricto de T-152 rechaza a propósito (cadena de filtros).
+      Es el comportamiento correcto del codec, no un bug del fixture; se regeneró con
+      `pageCompression=0` para dejar el content stream sin filtrar, ya que lo que este
+      fixture necesita probar es la resolución de `/Encoding`, no el rechazo de cadenas de
+      filtros (que ya tiene su propia cobertura en las unit tests de T-152).
+      **Imagen:** `gen_fixtures::content_edit::build_image_page_document()` (nuevo módulo
+      `content_edit.rs` en `gen-fixtures`, mismo patrón que `large::build_large_document`
+      pero a escala de fixture, no de perf) — una imagen 4x4 pintada en un rect conocido
+      (100, 600, 80x40pt) para que los tests de move/resize de T-160 puedan aserear ancho y
+      alto por separado.
+      **Tests de "fixture válido"** (no el round-trip completo, eso es T-160) agregados a
+      `core/pdf-save/tests/content_edit_roundtrip.rs`: el fixture externo parsea como
+      `EmbeddedSimple` y su texto es el esperado; un reemplazo ASCII sobre ese run
+      sobrevive un `save_document` real y uno no-ASCII falla con
+      `SaveError::Edit(EditError::EncodingGap)`; el fixture de imagen expone exactamente
+      una `ImageItem` en el rect documentado.
 - [ ] T-160 Tests round-trip (editar → save full-rewrite → reabrir → el resto del contenido
       es byte-idéntico donde no fue tocado) + validador Python independiente (pypdf) que
       extrae texto del output y confirma que el run editado cambió. [Parity]

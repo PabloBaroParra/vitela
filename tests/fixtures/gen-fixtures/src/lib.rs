@@ -21,6 +21,7 @@ use lopdf::{
     dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions, Stream,
 };
 
+pub mod content_edit;
 pub mod large;
 pub mod signed;
 
