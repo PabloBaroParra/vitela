@@ -24,6 +24,7 @@ pdf-manip = { path = "../pdf-manip" }
 pdf-render = { path = "../pdf-render" }
 pdf-annotate = { path = "../pdf-annotate" }
 pdf-save = { path = "../pdf-save" }
+pdf-edit = { path = "../pdf-edit" }
 
 [features]
 # Enables the `uniffi-bindgen` CLI binary below (T-042). Off by default so

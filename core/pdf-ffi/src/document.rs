@@ -41,9 +41,9 @@ use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
 use crate::types::{
-    FfiAnnotation, FfiAnnotationKind, FfiEditCommand, FfiOrientation, FfiPageDimensions,
-    FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
-    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
+    FfiAnnotation, FfiAnnotationKind, FfiEditCommand, FfiOrientation, FfiPageContent,
+    FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile,
+    FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -203,6 +203,39 @@ impl DocumentState {
             } => self.replace_annotation(annotation_id, |annotation| {
                 pdf_annotate::restyle_annotation(annotation, color.into())
             })?,
+            FfiEditCommand::ReplaceTextRunContent { item, after } => {
+                Command::ReplaceTextRunContent {
+                    item: item.into(),
+                    after,
+                }
+            }
+            FfiEditCommand::InsertTextRun { item } => Command::InsertTextRun(item.into()),
+            FfiEditCommand::RemoveTextRun { item } => Command::RemoveTextRun(item.into()),
+            FfiEditCommand::InsertImage { item, source } => Command::InsertImage {
+                item: item.into(),
+                source,
+            },
+            FfiEditCommand::RemoveImage { item, source } => Command::RemoveImage {
+                item: item.into(),
+                source,
+            },
+            FfiEditCommand::MoveImage { item, to } => Command::MoveImage {
+                item: item.into(),
+                to: to.into(),
+            },
+            FfiEditCommand::ResizeImage { item, to } => Command::ResizeImage {
+                item: item.into(),
+                to: to.into(),
+            },
+            FfiEditCommand::ReplaceImageSource {
+                item,
+                before,
+                after,
+            } => Command::ReplaceImageSource {
+                item: item.into(),
+                before,
+                after,
+            },
         })
     }
 
@@ -270,14 +303,23 @@ fn annotation_editing_is_allowed(document: &Document) -> bool {
 
 /// Whether `command` edits an annotation rather than page structure — the
 /// annotate permission bit (`/P` bit 6) has no say over `RotatePage`,
-/// `InsertBlankPage` or `RemovePage`, which are gated by the general modify
-/// permission the same as any other structural edit.
+/// `InsertBlankPage`, `RemovePage`, or any page-content command (Batch 21):
+/// editing a page's text/images is a content-modify operation, not an
+/// annotation, the same distinction the PDF permission bits themselves draw.
 fn is_annotation_command(command: &FfiEditCommand) -> bool {
     !matches!(
         command,
         FfiEditCommand::RotatePage { .. }
             | FfiEditCommand::InsertBlankPage { .. }
             | FfiEditCommand::RemovePage { .. }
+            | FfiEditCommand::ReplaceTextRunContent { .. }
+            | FfiEditCommand::InsertTextRun { .. }
+            | FfiEditCommand::RemoveTextRun { .. }
+            | FfiEditCommand::InsertImage { .. }
+            | FfiEditCommand::RemoveImage { .. }
+            | FfiEditCommand::MoveImage { .. }
+            | FfiEditCommand::ResizeImage { .. }
+            | FfiEditCommand::ReplaceImageSource { .. }
     )
 }
 
@@ -415,6 +457,19 @@ impl DocumentHandle {
     /// security context.
     pub fn annotation_editing_allowed(&self) -> bool {
         annotation_editing_is_allowed(&self.lock().document)
+    }
+
+    /// Parses `page`'s content stream on demand and returns its text runs
+    /// and images (T-158, Batch 21 decision 2 — never cached on the
+    /// document, unlike annotations). Reflects the last-opened/saved bytes;
+    /// re-read after `save_to_bytes` before building a second content edit
+    /// for the same page, since ids are only valid against the exact parse
+    /// they came from (decision 6).
+    pub fn read_page_content(&self, page: u32) -> Result<FfiPageContent, FfiError> {
+        let state = self.lock();
+        pdf_save::read_page_content(&state.base, PageId(page))
+            .map(Into::into)
+            .map_err(Into::into)
     }
 
     pub fn can_undo(&self) -> bool {

@@ -258,12 +258,34 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
    primero; está documentado.
 
 ### Fase 4 — FFI (`core/pdf-ffi`)
-- [ ] T-158 `FfiTextRun`/`FfiImageItem`/`FfiPageContent` en types.rs; `FfiEditCommand` gana
-      `ReplaceTextRunContent/InsertTextRun/RemoveTextRun/InsertImage/RemoveImage/MoveImage/
-      ResizeImage/ReplaceImageSource`; `DocumentHandle::read_page_content(page) ->
-      FfiPageContent` (carga lazy bajo demanda del shell). Smoke test: editar un run
-      Standard-14 → save_to_bytes → reabrir → read_page_content devuelve el texto nuevo.
-      [ContentFFI]
+- [x] T-158 `FfiContentTextRun`/`FfiContentImageItem`/`FfiPageContent`/`FfiFontKind` en
+      types.rs; `FfiEditCommand` gana `ReplaceTextRunContent/InsertTextRun/RemoveTextRun/
+      InsertImage/RemoveImage/MoveImage/ResizeImage/ReplaceImageSource`;
+      `DocumentHandle::read_page_content(page) -> FfiPageContent` (carga lazy bajo demanda
+      del shell). Smoke test: editar un run Standard-14 → save_to_bytes → reabrir →
+      read_page_content devuelve el texto nuevo. [ContentFFI]
+      **Naming:** no `FfiTextRun`/`FfiImageItem` como decía el boceto — esos nombres ya
+      existen en `types.rs` para el texto *extraído* por pdfium (`text_runs`/`search`), un
+      concepto distinto del texto *parseado* del content stream que edita `pdf-edit`.
+      Reusarlos habría hecho colisionar dos tipos con forma y significado distintos bajo un
+      mismo nombre. Se usó `FfiContentTextRun`/`FfiContentImageItem` en su lugar.
+      **Error mapping:** `pdf_edit::EditError::EncodingGap` se promovió a variante propia
+      de `FfiError` (`character`/`resource_font_name`, `char` cruza como `String` — UniFFI
+      0.31 no tiene un tipo `char`) porque es el único caso que un shell necesita distinguir
+      en UI (T-161: mostrar el run como no editable con explicación). El resto de
+      `EditError` (`ItemNotFound`, `PageNotFound`, `MalformedContent`, etc.) cae en
+      `FfiError::Internal`, mismo criterio que ya aplica `AnnotateError`/`ManipError`: solo
+      se tipa lo que el llamador puede accionar distinto.
+      **`apply_edit` no valida el item contra el stream real** — coherente con la decisión 5
+      (el log de las ocho variantes es inerte sobre `Document`; `pdf-edit` resuelve el item
+      recién en el replay de `save_to_bytes`). Un `ReplaceTextRunContent` con un item
+      obsoleto (releído después de que el documento cambió) es aceptado por `apply_edit` y
+      solo falla al guardar — verificado con un test dedicado, para que este comportamiento
+      no se lea como un bug si alguien lo redescubre.
+      Requirió agregar `pdf-edit` como dependencia directa de `pdf-ffi` (antes solo llegaba
+      transitivamente vía `pdf-save`) — necesario para nombrar `pdf_edit::EditError` en el
+      `impl From<...> for FfiError`, mismo patrón que la dependencia directa a `pdf-annotate`
+      que ya existía por la misma razón.
 
 ### Fase 5 — Fixtures e interop
 - [ ] T-159 Fixtures: un PDF con texto en fuente Standard-14 (editable), uno con fuente

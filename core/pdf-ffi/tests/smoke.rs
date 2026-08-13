@@ -7,8 +7,8 @@
 use pdf_ffi::{
     apply_edit, create_blank_document, insert_image_stamp, open_from_bytes,
     open_with_passwords_from_bytes, redo, render_page, save_to_bytes, stamp_placement, undo,
-    FfiColor, FfiEditCommand, FfiError, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions,
-    FfiSaveIntent, FfiSignatureAcknowledgement,
+    FfiColor, FfiEditCommand, FfiError, FfiFontKind, FfiOrientation, FfiPageSize, FfiRect,
+    FfiRenderOptions, FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -476,4 +476,95 @@ fn remove_page_with_out_of_bounds_index_returns_typed_error() {
         result,
         Err(FfiError::PageIndexOutOfBounds { index: 5 })
     ));
+}
+
+// ---------------------------------------------------------------------
+// Page-content editing (Batch 21, T-158): read_page_content + the eight
+// content Command variants through apply_edit.
+// ---------------------------------------------------------------------
+
+fn open_single_line_fixture(line: &str) -> std::sync::Arc<pdf_ffi::DocumentHandle> {
+    let mut doc = gen_fixtures::build_multi_line_page_document(&[line]);
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes)
+        .expect("serialize single-line fixture");
+    open_from_bytes(bytes, None).expect("fixture should open")
+}
+
+#[test]
+fn read_page_content_finds_the_standard14_run_written_by_the_fixture() {
+    let handle = open_single_line_fixture("Hello world");
+
+    let content = handle
+        .read_page_content(0)
+        .expect("page content should parse");
+
+    assert!(content.images.is_empty());
+    let run = content
+        .text_runs
+        .first()
+        .expect("fixture wrote one text run");
+    assert_eq!(run.text, "Hello world");
+    assert_eq!(run.font_kind, FfiFontKind::Standard14);
+}
+
+#[test]
+fn editing_a_standard14_run_then_saving_and_reopening_shows_the_new_text() {
+    let handle = open_single_line_fixture("Hello world");
+    let content = handle.read_page_content(0).unwrap();
+    let run = content.text_runs.first().unwrap().clone();
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: run,
+            after: "Goodbye world".to_string(),
+        },
+    )
+    .expect("replacing standard-14 text should succeed");
+
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save should succeed");
+
+    let reopened = open_from_bytes(saved, None).expect("saved bytes should reopen");
+    let reread = reopened
+        .read_page_content(0)
+        .expect("page content should parse after save");
+
+    assert_eq!(reread.text_runs.first().unwrap().text, "Goodbye world");
+}
+
+#[test]
+fn replace_text_run_content_with_stale_item_fails_at_save() {
+    // Per Batch 21 decision 5, `apply_edit` on a content command only
+    // records the log entry — `pdf-edit` resolves the targeted item against
+    // the real content stream during `save_to_bytes`'s replay, so a stale
+    // item is accepted here and rejected there.
+    let handle = open_single_line_fixture("Hello world");
+    let content = handle.read_page_content(0).unwrap();
+    let mut stale = content.text_runs.first().unwrap().clone();
+    // A different revision than what's actually on the page: the parser
+    // never assigned this id/text/position combination.
+    stale.text = "not what is on the page".to_string();
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: stale,
+            after: "irrelevant".to_string(),
+        },
+    )
+    .expect("apply_edit only records the command, it does not resolve the item yet");
+
+    let result = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    );
+
+    assert!(matches!(result, Err(FfiError::Internal { .. })));
 }

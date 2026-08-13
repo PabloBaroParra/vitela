@@ -74,6 +74,15 @@ pub enum FfiError {
     /// The requested operation does not apply to the given annotation kind.
     #[error("unsupported operation: {detail}")]
     UnsupportedOperation { detail: String },
+    /// A page-content text edit's replacement text has a character the
+    /// run's font cannot represent (Batch 21 decision 3). Reported per
+    /// character, before the content stream is touched, so a shell can show
+    /// the user exactly what to fix rather than a generic failure.
+    #[error("font {resource_font_name} cannot represent {character:?}")]
+    EncodingGap {
+        character: String,
+        resource_font_name: String,
+    },
     /// Rendering failed for a reason surfaced by the render backend.
     #[error("render failed: {detail}")]
     RenderFailed { detail: String },
@@ -134,6 +143,7 @@ impl From<pdf_save::SaveError> for FfiError {
             E::Manip(inner) => inner.into(),
             E::Annotate(inner) => inner.into(),
             E::Render(inner) => inner.into(),
+            E::Edit(inner) => inner.into(),
             E::Io(inner) => inner.into(),
             other => FfiError::Internal {
                 detail: other.to_string(),
@@ -150,6 +160,25 @@ impl From<pdf_annotate::AnnotateError> for FfiError {
             E::UnsupportedOperation(op) => FfiError::UnsupportedOperation {
                 detail: op.to_string(),
             },
+            other => FfiError::Internal {
+                detail: other.to_string(),
+            },
+        }
+    }
+}
+
+impl From<pdf_edit::EditError> for FfiError {
+    fn from(err: pdf_edit::EditError) -> Self {
+        use pdf_edit::EditError as E;
+        match err {
+            E::EncodingGap {
+                character,
+                resource_font_name,
+            } => FfiError::EncodingGap {
+                character: character.to_string(),
+                resource_font_name,
+            },
+            E::InvalidImage(message) => FfiError::InvalidImage { detail: message },
             other => FfiError::Internal {
                 detail: other.to_string(),
             },
@@ -265,6 +294,50 @@ mod tests {
             FfiError::UnsupportedOperation { detail } => assert_eq!(detail, "resize ink"),
             other => panic!("expected UnsupportedOperation, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn edit_encoding_gap_carries_the_character_and_font_name() {
+        let err: FfiError = pdf_edit::EditError::EncodingGap {
+            character: '日',
+            resource_font_name: "F1".to_string(),
+        }
+        .into();
+        match err {
+            FfiError::EncodingGap {
+                character,
+                resource_font_name,
+            } => {
+                assert_eq!(character, "日");
+                assert_eq!(resource_font_name, "F1");
+            }
+            other => panic!("expected EncodingGap, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn edit_invalid_image_carries_the_message() {
+        let err: FfiError = pdf_edit::EditError::InvalidImage("bad png".to_string()).into();
+        match err {
+            FfiError::InvalidImage { detail } => assert_eq!(detail, "bad png"),
+            other => panic!("expected InvalidImage, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn edit_unclassified_variant_folds_into_internal() {
+        let err: FfiError = pdf_edit::EditError::PageNotFound(pdf_document::PageId(3)).into();
+        assert!(matches!(err, FfiError::Internal { .. }));
+    }
+
+    #[test]
+    fn save_wrapped_edit_error_reuses_the_edit_mapping() {
+        let err: FfiError = pdf_save::SaveError::Edit(pdf_edit::EditError::EncodingGap {
+            character: 'x',
+            resource_font_name: "F1".to_string(),
+        })
+        .into();
+        assert!(matches!(err, FfiError::EncodingGap { .. }));
     }
 
     #[test]
