@@ -9,7 +9,8 @@
 //! consent events (e.g. explicit protection strip) live in the separate,
 //! non-undoable `AuditLog` (T-013) — see that module's docs.
 
-use crate::annotation::Annotation;
+use crate::annotation::{Annotation, Rect};
+use crate::content::{ImageItem, TextRun};
 use crate::document::PageId;
 use crate::document::{Document, Page};
 
@@ -52,6 +53,83 @@ pub enum Command {
         index: usize,
         page: Page,
     },
+
+    // --- Page content (Batch 21) --------------------------------------
+    //
+    // These eight edit what lives *inside* a page's content stream. They
+    // differ from every command above in one structural way: the model does
+    // not hold page content (batch decision 2 — it is parsed lazily by
+    // `pdf-edit`), so `apply` has nothing to mutate and is inert. The log
+    // entry IS the edit; `pdf-save` replays these against the file during
+    // the full rewrite that any content change forces (decision 5).
+    //
+    // Each carries the parsed item it targets, which doubles as the "before"
+    // value wherever the item already holds the field being changed — the
+    // page comes from `item.page`, the previous text from `item.text`, the
+    // previous geometry from `item.bbox`. Restating those alongside the item
+    // would create a second source of truth that can disagree with it.
+    /// Replaces the text shown by an existing run, keeping its font, size
+    /// and position — `item.text` is the value being replaced.
+    ///
+    /// Recording this command does not mean the edit is possible: whether
+    /// `after` can be encoded in the run's font is `pdf-edit`'s call at
+    /// write time, and an unrepresentable character is rejected there before
+    /// the stream is touched (decision 3).
+    ReplaceTextRunContent {
+        item: TextRun,
+        after: String,
+    },
+    /// Adds a run as real page content — appended to the content stream with
+    /// its font registered in `/Resources`, not stamped as an annotation.
+    InsertTextRun(TextRun),
+    /// Carries the removed run itself, so undo never has to re-parse a
+    /// stream that no longer contains it (mirrors `RemoveAnnotation`).
+    RemoveTextRun(TextRun),
+    /// Adds an image to the page.
+    ///
+    /// `source` carries the encoded image (PNG/JPEG) when this brings a
+    /// genuinely new picture — the bytes have to travel with the command
+    /// because `ImageItem` deliberately does not hold them and the writer
+    /// has nothing else to build the XObject from. It is `None` when the
+    /// page's resources already contain the image and only the paint
+    /// operation is being added back, which is what undoing a removal does.
+    InsertImage {
+        item: ImageItem,
+        source: Option<Vec<u8>>,
+    },
+    /// Removes an image's paint operation, keeping whatever its inverse
+    /// would need to put it back.
+    ///
+    /// Removing does not delete the XObject, so `source` is normally `None`;
+    /// it is `Some` only when this inverts an insertion that brought its own
+    /// bytes, so that redoing the insertion still has them.
+    RemoveImage {
+        item: ImageItem,
+        source: Option<Vec<u8>>,
+    },
+    /// Repositions an existing image — `item.bbox` is where it was, `to` is
+    /// where it goes. Applied by rewriting the `cm` matrix preceding the
+    /// item's `Do`.
+    MoveImage {
+        item: ImageItem,
+        to: Rect,
+    },
+    /// Rescales an existing image. Structurally identical to `MoveImage`
+    /// (both rewrite the same `cm`) and kept separate for intent: a resize
+    /// comes from a handle drag and changes width/height, a move does not.
+    ResizeImage {
+        item: ImageItem,
+        to: Rect,
+    },
+    /// Swaps the bytes behind an existing image, keeping its resource name
+    /// and its place on the page. Unlike geometry and text, the previous
+    /// value is not part of `ImageItem`, so `before` is stored explicitly —
+    /// it is the only way undo can restore the original image.
+    ReplaceImageSource {
+        item: ImageItem,
+        before: Vec<u8>,
+        after: Vec<u8>,
+    },
 }
 
 impl Command {
@@ -89,6 +167,18 @@ impl Command {
             Command::RemovePage { index, .. } => {
                 document.pages.remove(*index);
             }
+            // Inert by design, not by omission: the model carries no page
+            // content to mutate (see the variants' docs above). Recording
+            // the command in the log is the entire forward action; the file
+            // is changed by `pdf-edit` during the save rewrite.
+            Command::ReplaceTextRunContent { .. }
+            | Command::InsertTextRun(_)
+            | Command::RemoveTextRun(_)
+            | Command::InsertImage { .. }
+            | Command::RemoveImage { .. }
+            | Command::MoveImage { .. }
+            | Command::ResizeImage { .. }
+            | Command::ReplaceImageSource { .. } => {}
         }
     }
 
@@ -115,6 +205,52 @@ impl Command {
             Command::RemovePage { index, page } => Command::InsertPage {
                 index: *index,
                 page: page.clone(),
+            },
+            // The item snapshot doubles as the "before" value, so undoing a
+            // content edit means re-targeting the same item with the two
+            // values swapped — the same shape `ReplaceAnnotation` uses.
+            Command::ReplaceTextRunContent { item, after } => {
+                let mut replaced = item.clone();
+                replaced.text = after.clone();
+                Command::ReplaceTextRunContent {
+                    item: replaced,
+                    after: item.text.clone(),
+                }
+            }
+            Command::InsertTextRun(run) => Command::RemoveTextRun(run.clone()),
+            Command::RemoveTextRun(run) => Command::InsertTextRun(run.clone()),
+            Command::InsertImage { item, source } => Command::RemoveImage {
+                item: item.clone(),
+                source: source.clone(),
+            },
+            Command::RemoveImage { item, source } => Command::InsertImage {
+                item: item.clone(),
+                source: source.clone(),
+            },
+            Command::MoveImage { item, to } => {
+                let mut moved = item.clone();
+                moved.bbox = *to;
+                Command::MoveImage {
+                    item: moved,
+                    to: item.bbox,
+                }
+            }
+            Command::ResizeImage { item, to } => {
+                let mut resized = item.clone();
+                resized.bbox = *to;
+                Command::ResizeImage {
+                    item: resized,
+                    to: item.bbox,
+                }
+            }
+            Command::ReplaceImageSource {
+                item,
+                before,
+                after,
+            } => Command::ReplaceImageSource {
+                item: item.clone(),
+                before: after.clone(),
+                after: before.clone(),
             },
         }
     }
@@ -183,7 +319,8 @@ impl EditLog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::annotation::{AnnotationId, AnnotationKind, Color, Rect};
+    use crate::annotation::{AnnotationId, AnnotationKind, Color};
+    use crate::content::{ContentItemId, FontKind};
     use crate::document::{Orientation, PageSize};
 
     fn sample_annotation(id: u64, page: PageId) -> Annotation {
@@ -409,5 +546,289 @@ mod tests {
         let mut log = EditLog::new();
         assert!(!log.undo(&mut document));
         assert!(!log.redo(&mut document));
+    }
+
+    // --- Page-content commands (B21, T-150) -------------------------------
+
+    fn sample_rect(x: f64, y: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width: 100.0,
+            height: 12.0,
+        }
+    }
+
+    fn sample_text_run() -> TextRun {
+        TextRun {
+            id: ContentItemId(1),
+            page: PageId(0),
+            bbox: sample_rect(72.0, 700.0),
+            resource_font_name: "F1".to_string(),
+            font_kind: FontKind::Standard14,
+            text: "before".to_string(),
+        }
+    }
+
+    fn sample_image() -> ImageItem {
+        ImageItem {
+            id: ContentItemId(1),
+            page: PageId(0),
+            bbox: sample_rect(72.0, 400.0),
+            resource_xobject_name: "Im1".to_string(),
+        }
+    }
+
+    /// Every page-content command, one of each variant, for the properties
+    /// that must hold across all of them.
+    fn all_content_commands() -> Vec<Command> {
+        vec![
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "after".to_string(),
+            },
+            Command::InsertTextRun(sample_text_run()),
+            Command::RemoveTextRun(sample_text_run()),
+            Command::InsertImage {
+                item: sample_image(),
+                source: Some(vec![0x89, b'P']),
+            },
+            Command::RemoveImage {
+                item: sample_image(),
+                source: None,
+            },
+            Command::MoveImage {
+                item: sample_image(),
+                to: sample_rect(200.0, 400.0),
+            },
+            Command::ResizeImage {
+                item: sample_image(),
+                to: sample_rect(72.0, 400.0),
+            },
+            Command::ReplaceImageSource {
+                item: sample_image(),
+                before: vec![0x89, b'P'],
+                after: vec![0xff, 0xd8],
+            },
+        ]
+    }
+
+    /// Batch decision 2: page content is never mirrored into `Document`, so
+    /// these commands have no in-model state to mutate — the rewrite happens
+    /// in `pdf-edit` at save time. Applying one must therefore be inert on
+    /// the model, and the log entry is the whole record of the edit.
+    #[test]
+    fn applying_a_content_command_leaves_the_document_model_untouched() {
+        for command in all_content_commands() {
+            let mut document = Document::blank();
+            document
+                .pages
+                .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+            document.annotations.insert(sample_annotation(1, PageId(0)));
+            let untouched = document.clone();
+
+            let mut log = EditLog::new();
+            log.apply(&mut document, command.clone());
+
+            assert_eq!(
+                document, untouched,
+                "{command:?} must not mutate the pure document model"
+            );
+            assert_eq!(
+                log.entries(),
+                &[command],
+                "but it must still be recorded for pdf-save to route"
+            );
+        }
+    }
+
+    /// The bar B20 set for forms and B5 missed for annotations: a complete
+    /// inverse from day one for every variant, not a subset.
+    #[test]
+    fn every_content_command_is_its_own_inverses_inverse() {
+        for command in all_content_commands() {
+            assert_eq!(
+                command.inverse().inverse(),
+                command,
+                "{command:?} does not survive a round trip through its inverse"
+            );
+        }
+    }
+
+    #[test]
+    fn content_commands_round_trip_through_undo_and_redo() {
+        for command in all_content_commands() {
+            let mut document = Document::blank();
+            let mut log = EditLog::new();
+
+            log.apply(&mut document, command.clone());
+            assert!(log.can_undo());
+
+            assert!(log.undo(&mut document));
+            assert!(log.entries().is_empty(), "{command:?} was not undone");
+            assert!(log.can_redo());
+
+            assert!(log.redo(&mut document));
+            assert_eq!(log.entries(), &[command]);
+        }
+    }
+
+    /// `item` carries the run as parsed, so `item.text` *is* the before
+    /// value — the inverse swaps the two rather than storing a third copy of
+    /// the same string.
+    #[test]
+    fn the_inverse_of_a_text_replacement_swaps_the_run_text() {
+        let inverse = Command::ReplaceTextRunContent {
+            item: sample_text_run(),
+            after: "after".to_string(),
+        }
+        .inverse();
+
+        let Command::ReplaceTextRunContent { item, after } = inverse else {
+            panic!("the inverse of a text replacement is a text replacement");
+        };
+        assert_eq!(item.text, "after", "undo starts from the replaced text");
+        assert_eq!(after, "before", "and restores the original");
+        assert_eq!(item.id, ContentItemId(1), "targeting the same run");
+        assert_eq!(item.resource_font_name, "F1", "with the same font");
+    }
+
+    #[test]
+    fn the_inverse_of_a_move_swaps_the_bounding_boxes() {
+        let destination = sample_rect(200.0, 500.0);
+
+        let inverse = Command::MoveImage {
+            item: sample_image(),
+            to: destination,
+        }
+        .inverse();
+
+        let Command::MoveImage { item, to } = inverse else {
+            panic!("the inverse of a move is a move");
+        };
+        assert_eq!(item.bbox, destination, "undo starts from where it landed");
+        assert_eq!(to, sample_image().bbox, "and puts it back");
+    }
+
+    #[test]
+    fn the_inverse_of_a_resize_swaps_the_bounding_boxes() {
+        let resized = sample_rect(72.0, 400.0);
+
+        let inverse = Command::ResizeImage {
+            item: sample_image(),
+            to: resized,
+        }
+        .inverse();
+
+        let Command::ResizeImage { item, to } = inverse else {
+            panic!("the inverse of a resize is a resize");
+        };
+        assert_eq!(item.bbox, resized);
+        assert_eq!(to, sample_image().bbox);
+    }
+
+    /// Image bytes are not part of `ImageItem`, so unlike geometry and text
+    /// this one genuinely needs both halves stored — undo cannot re-derive
+    /// the replaced image from anywhere else.
+    #[test]
+    fn the_inverse_of_an_image_source_replacement_swaps_the_bytes() {
+        let inverse = Command::ReplaceImageSource {
+            item: sample_image(),
+            before: vec![0x89, b'P'],
+            after: vec![0xff, 0xd8],
+        }
+        .inverse();
+
+        assert_eq!(
+            inverse,
+            Command::ReplaceImageSource {
+                item: sample_image(),
+                before: vec![0xff, 0xd8],
+                after: vec![0x89, b'P'],
+            }
+        );
+    }
+
+    #[test]
+    fn inserting_and_removing_content_items_are_each_others_inverse() {
+        let run = sample_text_run();
+        let image = sample_image();
+
+        assert_eq!(
+            Command::InsertTextRun(run.clone()).inverse(),
+            Command::RemoveTextRun(run.clone())
+        );
+        assert_eq!(
+            Command::RemoveTextRun(run.clone()).inverse(),
+            Command::InsertTextRun(run)
+        );
+        assert_eq!(
+            Command::InsertImage {
+                item: image.clone(),
+                source: None
+            }
+            .inverse(),
+            Command::RemoveImage {
+                item: image.clone(),
+                source: None
+            }
+        );
+        assert_eq!(
+            Command::RemoveImage {
+                item: image.clone(),
+                source: None
+            }
+            .inverse(),
+            Command::InsertImage {
+                item: image,
+                source: None
+            }
+        );
+    }
+
+    /// An insertion that brought its own bytes must still have them after a
+    /// round trip through undo — otherwise redoing it has no image to add.
+    #[test]
+    fn undoing_an_image_insertion_keeps_the_bytes_a_redo_needs() {
+        let insertion = Command::InsertImage {
+            item: sample_image(),
+            source: Some(vec![0x89, b'P', b'N', b'G']),
+        };
+
+        let Command::RemoveImage { source, .. } = insertion.inverse() else {
+            panic!("the inverse of an insertion is a removal");
+        };
+
+        assert_eq!(source, Some(vec![0x89, b'P', b'N', b'G']));
+        assert_eq!(insertion.inverse().inverse(), insertion);
+    }
+
+    /// A content edit and an annotation edit share one log, so undo has to
+    /// unwind them in the order they were made — the inert apply must not
+    /// let a content command fall out of sequence.
+    #[test]
+    fn content_and_annotation_edits_undo_in_reverse_order_of_a_shared_log() {
+        let mut document = Document::blank();
+        let annotation = sample_annotation(1, PageId(0));
+        let mut log = EditLog::new();
+
+        log.apply(&mut document, Command::AddAnnotation(annotation.clone()));
+        log.apply(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "after".to_string(),
+            },
+        );
+
+        log.undo(&mut document);
+        assert_eq!(
+            document.annotations.len(),
+            1,
+            "undoing the content edit must not reach the annotation"
+        );
+
+        log.undo(&mut document);
+        assert!(document.annotations.is_empty());
     }
 }

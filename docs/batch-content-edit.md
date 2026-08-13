@@ -64,56 +64,181 @@ resto exige interpretar el stream completo para saber dónde empieza y termina c
 ## Tareas
 
 ### Fase 1 — Modelo (`core/pdf-document`)
-- [ ] T-148 Módulo `content.rs`: `ContentItemId`, `TextRun {id, page, bbox: Rect
+- [x] T-148 Módulo `content.rs`: `ContentItemId`, `TextRun {id, page, bbox: Rect
       (espacio de página, resultado de aplicar Tm + CTM), resource_font_name, font_kind:
       Standard14 | EmbeddedSimple | EmbeddedComposite, text: String}`, `ImageItem {id, page,
       bbox, resource_xobject_name}`, `PageContent {text_runs: Vec<TextRun>, images:
       Vec<ImageItem>}`. Espejo de `annotation.rs`/`form.rs` en estilo, pero **no** se cuelga
       de `Page` — ver T-149. [ContentModel]
-- [ ] T-149 API lazy: `pdf_edit::read_page_content(doc_bytes_or_ref, page: PageId) ->
+      `Rect` se reusa de `annotation.rs` en vez de redefinirse. `PageContent` expone campos
+      públicos (es un snapshot inmutable del parser, no estado mutable como `AnnotationSet`)
+      más lookups `text_run(id)`/`image(id)` para que el shell resuelva por id lo que cruza
+      el FFI. Los ids de texto e imagen se numeran por separado: el par (tipo, id) es lo que
+      desambigua, y hay un test que lo fija.
+- [x] T-149 API lazy: `pdf_edit::read_page_content(doc_bytes_or_ref, page: PageId) ->
       PageContent`, llamada por el shell al entrar en modo edición de esa página. `Document`
       no gana un campo `page_content` — decisión 2. [ContentModel]
-- [ ] T-150 Variantes nuevas de `Command` (`#[non_exhaustive]`, cero breaking change) **con
+      Arrancó a medias en Fase 1 (`Document` sin el campo, `PageContent` como tipo de
+      retorno) y cerró con T-152, que es quien la puede implementar. Firma final:
+      `read_page_content(&lopdf::Document, PageId) -> Result<PageContent, EditError>`.
+- [x] T-150 Variantes nuevas de `Command` (`#[non_exhaustive]`, cero breaking change) **con
       inversa completa desde el día uno** (mismo estándar que fijó B20 para forms, no el gap
-      que dejó B5 con anotaciones): `ReplaceTextRunContent {page, item: TextRun, before:
-      String, after: String}`, `InsertTextRun(TextRun)`, `RemoveTextRun(TextRun)`,
-      `InsertImage(ImageItem)`, `RemoveImage(ImageItem)`, `MoveImage {page, item, from: Rect,
-      to: Rect}`, `ResizeImage {page, item, from: Rect, to: Rect}`, `ReplaceImageSource
-      {page, item, before: Vec<u8>, after: Vec<u8>}` + apply/inverse + tests undo/redo
-      (patrón `edit_log`). [ContentModel, UndoRedo]
+      que dejó B5 con anotaciones): `ReplaceTextRunContent {item: TextRun, after: String}`,
+      `InsertTextRun(TextRun)`, `RemoveTextRun(TextRun)`, `InsertImage(ImageItem)`,
+      `RemoveImage(ImageItem)`, `MoveImage {item: ImageItem, to: Rect}`, `ResizeImage {item:
+      ImageItem, to: Rect}`, `ReplaceImageSource {item: ImageItem, before: Vec<u8>, after:
+      Vec<u8>}` + apply/inverse + tests undo/redo (patrón `edit_log`). [ContentModel,
+      UndoRedo]
+      **Desvío del boceto original:** el boceto llevaba además `page` y un `before`/`from`
+      explícitos. Se eliminaron por duplicar estado que el propio `item` ya carga —
+      `item.page`, `item.text`, `item.bbox` — y dos fuentes de verdad que pueden discrepar
+      son un bug esperando. `ReplaceImageSource` sí conserva `before`: los bytes NO son parte
+      de `ImageItem`, así que ahí es la única forma de que el undo restaure la imagen previa.
+      `apply` de las ocho es **inerte sobre `Document`** por la decisión 2: no hay contenido
+      de página en el modelo que mutar, la entrada del log *es* la edición y `pdf-save` la
+      replaya contra el archivo en el full rewrite (decisión 5). Tests cubren
+      `inverse().inverse() == self` para las ocho, el round-trip undo/redo, que aplicar una
+      no toque el modelo, y que un log mixto contenido+anotación se deshaga en orden.
 
 ### Fase 2 — Crate `core/pdf-edit`
-- [ ] T-151 Scaffold del crate (miembro del workspace; deps: pdf-document + lopdf), aislado
+- [x] T-151 Scaffold del crate (miembro del workspace; deps: pdf-document + lopdf), aislado
       del resto de core igual que pdf-sign/pdf-form. Módulos: `parse`, `encoding`, `edit`,
       `insert`. [infra]
-- [ ] T-152 `parse.rs`: tokenizer + interpreter del content stream — trackea `q`/`Q`, `cm`
+      Se sumó `error.rs` (`EditError`, espejo de `AnnotateError`) y la dep `image` — la
+      necesitan `insert_image`/`replace_image_source` para recalcular `/Width`/`/Height` y
+      construir el `/SMask`. `parse` y `encoding` son módulos-directorio (`parse/lexer.rs`,
+      `parse/matrix.rs`, `parse/interpreter.rs`, `encoding/tables.rs`) por tamaño: un
+      `parse.rs` único habría sido un archivo de ~1000 líneas.
+- [x] T-152 `parse.rs`: tokenizer + interpreter del content stream — trackea `q`/`Q`, `cm`
       compuesto y el text matrix (`Tm`/`Td`/`TD`) para computar el bbox de cada `TextRun`/
       `ImageItem` en espacio de página, correcto bajo rotación de página. Produce
       `PageContent`. [ContentParse]
-- [ ] T-153 `encoding.rs`: mapea el texto de reemplazo/inserción a codes contra el
+      **Tokenizer propio, no `lopdf::content::Content::decode`:** el decode de lopdf no da
+      offsets, y sin offsets T-154 no puede dejar el resto del stream byte a byte idéntico
+      (un decode+encode reformatea números y espacios de toda la página). El lexer emite
+      cada operación con el span de sus operandos y del operador.
+      **Codec Flate propio (`parse/filter.rs`), tampoco el de lopdf.** Corrección
+      post-review: `Stream::decompressed_content` no sirve para decidir si podemos tocar un
+      stream. Dos motivos, y los dos terminan en un archivo corrupto. (1) Un inflate fallido
+      **no se reporta**: `decompress_zlib` loguea, reintenta deflate crudo y devuelve `Ok`
+      con lo que haya salido — un prefijo. Ese prefijo parece contenido de página, y al
+      editar se escribe de vuelta como la página entera: truncada. (2) `/Filter` **no se
+      dereferencia**, y puede ser perfectamente una referencia indirecta; un lector que sólo
+      matchea el objeto directo concluye "sin filtro" y entrega bytes comprimidos como
+      operadores.
+      La regla ahora es: **si no podemos probar que entendimos el stream entero, no lo
+      tocamos.** El inflate exige `Status::StreamEnd` — no "salió algún byte" —, `/Filter` se
+      resuelve a través de indirección (también dentro del array), y se rechazan cadenas de
+      filtros, filtros distintos de `FlateDecode` y cualquier `/DecodeParms`, con
+      `UnsupportedContentStreamFilter` en vez de `UndecodableContentStream` porque significan
+      cosas distintas para quien lee el error. Salida vacía con `StreamEnd` es una página
+      vacía legítima, no un fallo — la heurística anterior ("comprimido no vacío que decodifica
+      a vacío") tenía justamente ese falso positivo.
+      El encode también es propio: `Stream::compress` es best-effort (declina si no ahorra
+      más de 19 bytes), así que una página chica que llegó comprimida volvía en texto plano
+      con el `/Filter` borrado. Y `PageStream` guarda si el stream venía filtrado, en vez de
+      volver a mirar el diccionario al escribir: la lectura que resolvió `/Filter` es la que
+      sabe, y dos lecturas del mismo campo pueden discrepar.
+      **`/Rotate` NO se aplica al bbox:** es una instrucción de visor, no una transformación
+      del contenido, y las shells ya la aplican para `Annotation.rect`. Aplicarla acá haría
+      doble rotación. Hay un test que fija la equivalencia.
+      Cierra también **T-149**: `read_page_content(&lopdf::Document, PageId)` es la API lazy,
+      sin cache en `Document`.
+- [x] T-153 `encoding.rs`: mapea el texto de reemplazo/inserción a codes contra el
       `/Encoding` de la fuente del run (Standard-14/WinAnsi/MacRoman/Differences); devuelve
       `EncodingGap` tipado por carácter no representable en vez de escribir un glyph
       inválido. Fuentes Type0/CID: rechazadas siempre en v1 (decisión 3). [ContentEncoding]
-- [ ] T-154 `edit.rs`: reescritura quirúrgica del content stream — `replace_text_run`
+      Asimetría deliberada: **decodificar** (codes→texto) es best-effort y devuelve U+FFFD
+      para lo que no sabe mapear, así el run igual se ve; **codificar** (texto→codes) es
+      estricto y falla. Un code sin mapeo conocido produce un `EncodingGap`, nunca un glyph
+      inventado — ver "Cobertura de encoding en v1" abajo.
+- [x] T-154 `edit.rs`: reescritura quirúrgica del content stream — `replace_text_run`
       reemplaza SOLO el operando de `Tj`/`TJ` del run targeteado, resto del stream byte a
-      byte idéntico; `move_image`/`resize_image` reescriben el `cm` inmediatamente anterior
-      al `Do` del XObject; `remove_item` elimina el rango de operadores del item; `replace_
+      byte idéntico; `remove_item` elimina el rango de operadores del item; `replace_
       image_source` reemplaza el stream del XObject (`/Width`/`/Height`/`/Filter`
       recalculados) manteniendo el mismo nombre de recurso. [ContentEdit]
-- [ ] T-155 `insert.rs`: agrega texto/imagen nuevos al final del content stream de la
+      **Desvío en move/resize:** el boceto decía "reescriben el `cm` inmediatamente anterior
+      al `Do`". Eso es incorrecto cuando ese `cm` está compuesto de varios o lo comparten
+      dos `Do` — reescribirlo mueve también la otra imagen. En vez de eso se reemplaza la
+      operación `Do` por `q <corrección> cm /Name Do Q`, donde la corrección es
+      `M_destino × inverse(CTM_en_el_Do)`. Siempre correcta, y el `q`/`Q` deja intacto el
+      estado gráfico que hereda el resto de la página. Hay un test con dos `Do` bajo el
+      mismo `cm` que falla con el enfoque del boceto.
+      **`remove_text_run` no deja un hueco vacío:** reemplaza la operación por un ajuste
+      `TJ` que no pinta nada y avanza el text matrix exactamente lo que avanzaban los glyphs
+      borrados. Sin eso, el texto siguiente de la línea se corre a la izquierda — o sea,
+      reflow, que está fuera de scope por decisión.
+- [x] T-155 `insert.rs`: agrega texto/imagen nuevos al final del content stream de la
       página (o a un stream nuevo si `/Contents` es array), registrando el recurso en
-      `/Resources` — fuente Standard-14 vía el mismo helper `/DR` que pdf-form, o un XObject
-      de imagen nuevo. [ContentInsert]
+      `/Resources` — fuente Standard-14, o un XObject de imagen nuevo. [ContentInsert]
+      No hay helper `/DR` de pdf-form que reusar: **B20 todavía no está implementado**, en
+      `core/pdf-document` no existe `form.rs`. La fuente Standard-14 (Helvetica/WinAnsi) se
+      registra acá; cuando B20 llegue, vale unificar.
+      Lo insertado se coloca cancelando el CTM que dejan los streams de la página
+      (`end_ctm`), así una página que termina dentro de un `q ... cm` desbalanceado igual
+      recibe el contenido en coordenadas de página. El `/Resources` de la página se
+      materializa como propio antes de escribirlo, para no agregarle el recurso a las
+      páginas hermanas que compartían el diccionario heredado.
 
 ### Fase 3 — Serialización (`core/pdf-save`)
-- [ ] T-156 `content.rs` sobre `ObjectSink`: rutea cualquier `Command` de contenido de
+- [x] T-156 `content.rs`: rutea cualquier `Command` de contenido de
       página SIEMPRE por full rewrite en `strategy.rs` (decisión 5); si el documento tiene
       firmas existentes, expone la advertencia de invalidación al llamador — no bloquea el
       guardado, igual criterio que ya rige para otras ediciones estructurales. [ContentSave,
       FirmaCripto]
-- [ ] T-157 Wiring: `bridge.rs` NO puebla contenido de página al abrir (decisión 2); expone
+      **No va sobre `ObjectSink`**, contra lo que decía el boceto. El sink existe para
+      compartir la escritura de anotaciones entre los dos writers; el contenido de página
+      tiene un solo writer por construcción (decisión 5), así que una abstracción con una
+      única implementación sería una capa puesta para verse simétrica — justo lo que el
+      protocolo de AGENTS.md pide no hacer. `content.rs` trabaja sobre `lopdf::Document`,
+      que es lo que el full rewrite ya tiene en la mano.
+      La advertencia se expone como `strategy::will_invalidate_signatures(input) ->
+      Result<bool>`: el shell la consulta antes de escribir y decide el usuario. Detecta
+      firmas por `/Type /Sig`, `/FT /Sig` y por `/AcroForm /SigFlags` con el bit
+      SignaturesExist — escanea objetos además de caminar `/AcroForm /Fields` porque un
+      árbol de formulario dañado igual puede llevar una firma, y no avisar es peor que
+      avisar de más.
+      **Corrección post-review:** exponer la advertencia no alcanzaba. `will_invalidate_signatures`
+      era una consulta opcional que ningún llamador hacía — ni `save_document`, ni
+      `pdf_ffi::save_to_bytes`, ni ningún shell —, así que en la práctica el usuario perdía la
+      firma sin enterarse. Ahora `SaveInput` lleva `signatures: SignatureAcknowledgement`
+      (`Unacknowledged` por defecto) y `save_document` devuelve
+      `SaveError::SignaturesWouldBeInvalidated` si el guardado rompe una firma existente y el
+      llamador no declaró que ya avisó. No es un bloqueo: **no hay forma de conservar la firma**
+      en un rewrite, así que negarse a secas volvería inguardables los documentos firmados. Lo
+      que el tipo garantiza es que la pregunta se haga; la respuesta sigue siendo del usuario.
+      El shell GTK4 la hace con un `AlertDialog` y reenvía el guardado con
+      `ProceedAndInvalidate`.
+      El replay corre **antes** de anotaciones, y **después** de que `page_object_ids` resuelva
+      el mapa `PageId -> ObjectId` contra el documento ya replayado: los comandos de contenido
+      se localizan reparseando los streams de la página, y un `PageId` es identidad estable, no
+      posición. Resolverlo posicionalmente después de un borrado o reordenamiento de páginas
+      aplicaba la edición a la página equivocada — por eso toda la API de edición de `pdf-edit`
+      toma `ObjectId` y no `PageId`.
+- [x] T-157 Wiring: `bridge.rs` NO puebla contenido de página al abrir (decisión 2); expone
       el acceso lazy delegando directo a `pdf_edit::read_page_content` sobre el lopdf backing
       doc. [ContentSave]
+      `pdf_save::read_page_content(&LopdfDocument, PageId)`. Hay un test de integración que
+      fija lo que más fácil se rompe en silencio: que los `PageId` que reparte
+      `document_from_lopdf` sean los mismos que toma la lectura lazy.
+
+### Correcciones a Fase 1 y Fase 2 que destapó Fase 3
+
+Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores podía ver sola:
+
+1. **`Command::InsertImage(ImageItem)` no llevaba los bytes de la imagen.** `ImageItem` no
+   los tiene a propósito, así que el writer no tenía con qué construir el XObject — la
+   feature "insertar una imagen nueva" era inejecutable tal como estaba modelada. Ahora es
+   `InsertImage { item, source: Option<Vec<u8>> }`, y `RemoveImage` lleva el mismo `source`
+   para que `inverse().inverse()` siga siendo identidad: un redo de la inserción necesita
+   esos bytes. `source: None` significa "el recurso ya está registrado, solo falta volver a
+   pintarlo", que es lo que hace deshacer un borrado.
+2. **Los ids son posiciones en un parse, y un borrado renumera la página.** Con resolución
+   solo por id, un save con dos comandos donde el primero borra fallaba con `ItemNotFound`
+   en el segundo. Ahora `pdf-edit` resuelve por la identidad propia del item — texto +
+   fuente + posición para runs, nombre de recurso + posición para imágenes — usando el id
+   apenas como atajo. Dos items idénticos en los tres campos son indistinguibles y gana el
+   primero; está documentado.
 
 ### Fase 4 — FFI (`core/pdf-ffi`)
 - [ ] T-158 `FfiTextRun`/`FfiImageItem`/`FfiPageContent` en types.rs; `FfiEditCommand` gana
@@ -165,6 +290,41 @@ resto exige interpretar el stream completo para saber dónde empieza y termina c
   previas, el shell lo advierte antes de guardar.
 - El visor re-renderiza el resultado real tras cada commit (no un overlay simulado).
 - Undo/redo completo desde el día uno para las ocho variantes de `Command` nuevas.
+
+## Cobertura de encoding en v1 (T-153)
+
+Lo que el mapeo de codes cubre hoy, y lo que rechaza. La dirección conservadora es
+deliberada: una tabla incompleta cuesta una edición rechazada, una tabla equivocada cuesta
+un documento corrupto — y la decisión 3 prohíbe exactamente lo segundo.
+
+| Encoding | Cobertura | Efecto de lo no cubierto |
+| --- | --- | --- |
+| WinAnsiEncoding | **Completo y exacto** — ASCII, el bloque Windows-1252 `0x80-0x9F` y Latin-1 `0xA0-0xFF` | — |
+| StandardEncoding (default) | ASCII, con las dos excepciones de comillas | codes > 0x7E: `EncodingGap` al escribir, U+FFFD al leer |
+| MacRomanEncoding | Solo ASCII | ídem — su mitad alta **no** está tabulada |
+| `/Differences` | Nombres de glyph latinos + formas `uniXXXX`/`uXXXX` + letras sueltas | nombre desconocido ⇒ el code queda sin mapear |
+
+Completar las mitades altas de MacRoman y Standard es trabajo mecánico de tabla, no de
+diseño; conviene hacerlo contra el Annex D de la spec, no de memoria.
+
+## Otras limitaciones conocidas de Fase 2
+
+- **Form XObjects:** el texto pintado dentro de un `/Subtype /Form` no se reporta. Su stream
+  puede estar compartido por varias páginas, y editarlo las cambiaría todas en silencio.
+- **Inline images (`BI`..`EI`):** se atraviesan de forma opaca (el lexer se las traga
+  enteras para no desincronizarse con su payload binario) pero no son `ImageItem`: no tienen
+  nombre de recurso al que apuntar.
+- **`replace_image_source` reemplaza el XObject in situ.** Si otra página referencia el
+  mismo objeto, también cambia. Clonar el recurso para aislar la edición queda pendiente.
+- **El ancho del bbox de un run es aproximado** cuando la fuente no trae `/Widths` (caso
+  típico de las Standard-14): se asume medio em por glyph. El alto usa 0.75/-0.25 em en vez
+  de leer `/Ascent`/`/Descent`. Afecta la precisión del hit-test en la UI, nunca lo que se
+  escribe.
+- **Editar dos veces el mismo item sin releer entre medio falla** con `ItemNotFound`. El
+  segundo comando lleva la identidad vieja (el texto o la posición anterior), que ya no
+  existe en la página. Falla ruidosamente, nunca edita el item equivocado. El ciclo
+  save→reopen→re-render de la decisión 6 —que T-163 implementa— es el flujo previsto y lo
+  evita; el shell arma el segundo comando a partir de una lectura fresca.
 
 ## Fuera de scope (v1)
 

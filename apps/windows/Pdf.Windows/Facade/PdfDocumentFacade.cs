@@ -339,7 +339,55 @@ public sealed class PdfDocumentFacade : IDisposable
     public Task<OperationResult<AnnotationState>> UndoAsync(string sessionId) => HistoryAsync(sessionId, undo: true);
     public Task<OperationResult<AnnotationState>> RedoAsync(string sessionId) => HistoryAsync(sessionId, undo: false);
 
-    public async Task<OperationResult<SavedDocument>> SaveToDestinationAsync(string sessionId, Func<byte[], Task> replaceDestination)
+    /// <summary>
+    /// Whether saving this session would break a signature the document
+    /// already carries — the question the shell asks so it can warn before
+    /// the reader commits to a save.
+    /// </summary>
+    /// <remarks>
+    /// Asking this and then saving is not a race worth guarding: more edits
+    /// arriving in between can only move the answer from false to true, and a
+    /// save that became signature-breaking without an acknowledgement is
+    /// refused by the core anyway. The reader gets told either way; the only
+    /// difference is whether they are told as a question or as a failure.
+    /// </remarks>
+    public async Task<OperationResult<bool>> WillInvalidateSignaturesAsync(string sessionId)
+    {
+        SessionEntry session;
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out session))
+            {
+                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "signatures", sessionId, null));
+            }
+        }
+
+        try
+        {
+            // Off the UI thread: answering means scanning every object for a
+            // signature dictionary, which on a large document is long enough
+            // to be felt as a stutter.
+            var invalidates = await Task.Run(() => _core.WillInvalidateSignatures(session.Document)).ConfigureAwait(false);
+            return OperationResult<bool>.Success(invalidates);
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<bool>.Failure(MapError(error, "signatures", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<bool>.Failure(MapUnexpected(error, "signatures", sessionId, null));
+        }
+    }
+
+    /// <param name="signaturesAcknowledged">
+    /// Pass <c>true</c> only after the reader has been told the save breaks an
+    /// existing signature and chose to continue — see
+    /// <see cref="WillInvalidateSignaturesAsync"/>. The default is <c>false</c>
+    /// on purpose: a caller that has not thought about signatures gets a
+    /// refusal, not a broken one.
+    /// </param>
+    public async Task<OperationResult<SavedDocument>> SaveToDestinationAsync(string sessionId, Func<byte[], Task> replaceDestination, bool signaturesAcknowledged = false)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         SessionEntry session;
@@ -355,7 +403,7 @@ public sealed class PdfDocumentFacade : IDisposable
                 revision = session.EditRevision;
             }
 
-            var bytes = await Task.Run(() => _core.SaveToBytes(session.Document)).ConfigureAwait(false);
+            var bytes = await Task.Run(() => _core.SaveToBytes(session.Document, signaturesAcknowledged)).ConfigureAwait(false);
             await replaceDestination(bytes).ConfigureAwait(false);
             lock (_gate)
             {
@@ -731,6 +779,10 @@ public sealed class PdfDocumentFacade : IDisposable
             PdfCoreError.UnsupportedSecurityHandler or PdfCoreError.UnsupportedOperation => "This document or action is not supported.",
             PdfCoreError.InvalidImage => "The image is corrupt or unsupported.",
             PdfCoreError.InvalidSaveRequest => "The requested action could not be completed.",
+            // Named rather than folded into the generic message: the user can
+            // act on it (save a copy elsewhere, or keep the signed original),
+            // and "could not be processed" would read like a bug in Vitela.
+            PdfCoreError.SignaturesWouldBeInvalidated => "Saving would break this document's digital signature, so it was not saved.",
             PdfCoreError.PageIndexOutOfBounds or PdfCoreError.AnnotationNotFound or PdfCoreError.BitmapNotFound => "The document changed. Please try again.",
             _ => "The document could not be processed."
         };

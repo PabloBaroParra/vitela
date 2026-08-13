@@ -49,7 +49,7 @@ use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, Color, Command, Document, PageId, Rect,
 };
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderOptions};
-use pdf_save::{save_document, SaveInput, SaveIntent};
+use pdf_save::{save_document, SaveInput, SaveIntent, SignatureAcknowledgement};
 
 /// DPI de una página visible a tamaño de lectura — el mismo que usa el perf
 /// harness de `pdf-render` para su render de página 1.
@@ -221,6 +221,7 @@ fn measure(shape: &Shape) {
             base: &base,
             original_bytes: Some(&original_bytes),
             intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
         };
         let input_build = start.elapsed();
 
@@ -272,6 +273,7 @@ fn measure(shape: &Shape) {
         base: &base,
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
     };
     let final_bytes = save_document(final_input).expect("final save");
     let reloaded = lopdf::Document::load_mem(&final_bytes).expect("reload final save");

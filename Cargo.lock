@@ -1824,6 +1824,16 @@ name = "pdf-document"
 version = "0.1.0"
 
 [[package]]
+name = "pdf-edit"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "image",
+ "lopdf",
+ "pdf-document",
+]
+
+[[package]]
 name = "pdf-ffi"
 version = "0.1.0"
 dependencies = [
@@ -1865,6 +1875,7 @@ dependencies = [
  "lopdf",
  "pdf-annotate",
  "pdf-document",
+ "pdf-edit",
  "pdf-manip",
  "pdf-render",
 ]

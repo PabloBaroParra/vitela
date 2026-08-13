@@ -6,7 +6,7 @@
 use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, AuditActor, AuditEvent, Color, Command, PageId, Rect,
 };
-use pdf_save::{save_document, SaveInput, SaveIntent};
+use pdf_save::{save_document, SaveInput, SaveIntent, SignatureAcknowledgement};
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -117,6 +117,7 @@ fn incremental_save_happy_path_rotates_and_annotates_real_file() {
         base: &base,
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
     };
     // Incremental append must be strictly larger than the original (bytes
     // were appended, not rewritten from scratch).
@@ -177,6 +178,7 @@ fn incremental_save_on_encrypted_document_reencrypts_with_same_credential() {
         base: &base,
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
     };
     let saved = save_document(input).expect("save should succeed");
 
@@ -224,6 +226,7 @@ fn structural_edit_forces_full_rewrite_against_a_real_file() {
         base: &base,
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
     };
     let saved = save_document(input).expect("save should succeed");
     let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
@@ -255,6 +258,7 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
         base: &base,
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
     })
     .expect("full rewrite should preserve encryption with both passwords");
 
@@ -309,6 +313,7 @@ fn explicit_strip_protection_removes_encryption_and_bypasses_edit_log() {
         base: &base,
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::StripProtection,
+        signatures: SignatureAcknowledgement::Unacknowledged,
     };
     let saved = save_document(input).expect("save should succeed");
 

@@ -209,6 +209,26 @@ pub fn document_from_lopdf(
     })
 }
 
+/// Reads a page's text runs and images, on demand (T-157).
+///
+/// Deliberately **not** part of [`document_from_lopdf`]. Population-on-open
+/// walks every page dictionary already; interpreting every page's content
+/// stream on top of that would be paid by every session, and most sessions
+/// never open content-edit mode at all (Batch 21 decision 2). So `Document`
+/// gains no `page_content` field and this is a separate call a shell makes
+/// when the user actually asks for it.
+///
+/// The ids in the result are positions in a parse of *these* bytes. After a
+/// save the document has been rewritten, so a shell must read again rather
+/// than reuse them — which is the same save-reopen-rerender cycle content
+/// editing needs anyway (decision 6).
+pub fn read_page_content(
+    lopdf: &LopdfDocument,
+    page: PageId,
+) -> Result<pdf_document::PageContent, SaveError> {
+    pdf_edit::read_page_content(lopdf.as_lopdf(), page).map_err(Into::into)
+}
+
 /// Returns every page's existing `/Annots` array entries without attempting to
 /// model their subtype. Retaining the raw objects lets a save append new
 /// annotations without deleting annotations created by another PDF editor.

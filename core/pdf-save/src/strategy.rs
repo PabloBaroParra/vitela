@@ -20,6 +20,7 @@ use pdf_manip::LopdfDocument;
 use crate::annotations::{self, ObjectSink};
 use crate::bridge;
 use crate::clock::{Clock, IdGenerator, RandomIdGenerator, SystemClock};
+use crate::content;
 use crate::error::SaveError;
 use crate::security::{self, SaveIntent};
 
@@ -68,6 +69,37 @@ pub struct SaveInput<'a> {
     pub base: &'a LopdfDocument,
     pub original_bytes: Option<&'a [u8]>,
     pub intent: SaveIntent,
+    /// Whether the caller has already told the user that this save breaks a
+    /// signature the file carries. See [`SignatureAcknowledgement`].
+    pub signatures: SignatureAcknowledgement,
+}
+
+/// Whether the caller has dealt with the fact that a save will invalidate a
+/// signature already in the file.
+///
+/// A full rewrite cannot preserve a signature — the bytes it signed are gone
+/// — and page-content editing (Batch 21) makes a rewrite reachable from an
+/// ordinary text change, so this stopped being a corner case.
+///
+/// The decision belongs to the user, not to this crate. What this crate can
+/// do is make sure the decision is actually *made*: the default is
+/// [`Unacknowledged`](Self::Unacknowledged), so a caller that never thought
+/// about signatures gets [`SaveError::SignaturesWouldBeInvalidated`] instead
+/// of a silently broken signature. Warning is one call
+/// ([`will_invalidate_signatures`]) and proceeding is one field — what is no
+/// longer possible is doing neither.
+///
+/// This is not a block. There is no way to *keep* the signature, so refusing
+/// outright would just make signed documents uneditable; the acknowledgement
+/// is what turns an invisible loss into a choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SignatureAcknowledgement {
+    /// Nobody has been told. A save that would break an existing signature
+    /// is refused so the caller can ask first.
+    #[default]
+    Unacknowledged,
+    /// The user was told and chose to save anyway. Nothing is checked.
+    ProceedAndInvalidate,
 }
 
 /// Auto-selects the incremental or full-rewrite path for `input` and produces
@@ -89,11 +121,20 @@ pub fn save_document_with_options(
     // save, on both paths.
     let original_pages = bridge::populate_document(input.base)?;
 
-    if requires_full_rewrite(input, &original_pages) {
-        save_full_rewrite(input, &options, &original_pages)
-    } else {
-        save_incremental(input, &original_pages)
+    if !requires_full_rewrite(input, &original_pages) {
+        return save_incremental(input, &original_pages);
     }
+
+    // Only a rewrite can break a signature, and scanning every object for one
+    // is not free — so this asks in the one branch where the answer matters,
+    // and only when the caller has not already settled it.
+    if input.signatures == SignatureAcknowledgement::Unacknowledged
+        && content::has_signatures(input.base.as_lopdf())
+    {
+        return Err(SaveError::SignaturesWouldBeInvalidated);
+    }
+
+    save_full_rewrite(input, &options, &original_pages)
 }
 
 /// Appends one incremental revision to `original_bytes` using the same
@@ -140,7 +181,37 @@ pub fn append_incremental_update(
 fn requires_full_rewrite(input: SaveInput<'_>, original_pages: &[Page]) -> bool {
     input.intent == SaveIntent::StripProtection
         || input.original_bytes.is_none()
+        // Batch 21 decision 5: editing a page's content rewrites its stream
+        // object, which an incremental append cannot express as a narrow
+        // addition. Content edits are structural, always.
+        || content::has_content_edits(input.document)
         || bridge::has_structural_page_changes(original_pages, &input.document.pages)
+}
+
+/// Whether saving `input` will break a signature the file already carries.
+///
+/// A full rewrite invalidates existing signatures — that has always been true
+/// of structural edits, and page-content editing (Batch 21) makes it reachable
+/// from an ordinary text change, which is why it is worth asking about
+/// explicitly.
+///
+/// This is the *query*: it answers the question without attempting a save, so
+/// a shell can put the warning in front of the user at the moment they press
+/// save rather than after a failed attempt. Answering `true` here is exactly
+/// the condition under which [`save_document`] returns
+/// [`SaveError::SignaturesWouldBeInvalidated`] for an
+/// [`SignatureAcknowledgement::Unacknowledged`] input — the shell warns, the
+/// user decides, and the save is re-submitted acknowledged.
+///
+/// The `signatures` field of `input` is ignored here: this reports what the
+/// file and the edits imply, not what the caller has agreed to.
+pub fn will_invalidate_signatures(input: SaveInput<'_>) -> Result<bool, SaveError> {
+    if !content::has_signatures(input.base.as_lopdf()) {
+        return Ok(false);
+    }
+
+    let original_pages = bridge::populate_document(input.base)?;
+    Ok(requires_full_rewrite(input, &original_pages))
 }
 
 fn save_full_rewrite(
@@ -150,7 +221,16 @@ fn save_full_rewrite(
 ) -> Result<Vec<u8>, SaveError> {
     let mut working = bridge::replay_page_ops(input.base, original_pages, &input.document.pages)?;
 
+    // Resolved once, before either consumer runs, and against the *replayed*
+    // document: page ops have already moved pages around, so this map is the
+    // only thing that still connects a model `PageId` to the object it names.
     let page_ids = bridge::page_object_ids(&working, &input.document.pages)?;
+
+    // Before annotations: content edits are located by re-parsing the page's
+    // streams, so they must run while `working` still matches the parse the
+    // commands were recorded against.
+    content::replay_content_edits(working.as_lopdf_mut(), input.document, &page_ids)?;
+
     let existing_annotations = bridge::page_annotation_objects(input.base)?;
     annotations::attach_annotations(
         working.as_lopdf_mut(),
@@ -301,6 +381,7 @@ mod tests {
         base: LopdfDocument,
         original_bytes: Option<Vec<u8>>,
         intent: SaveIntent,
+        signatures: SignatureAcknowledgement,
     }
 
     impl Fixture {
@@ -312,6 +393,7 @@ mod tests {
                 base,
                 original_bytes: None,
                 intent: SaveIntent::Default,
+                signatures: SignatureAcknowledgement::Unacknowledged,
             }
         }
 
@@ -321,6 +403,7 @@ mod tests {
                 base: &self.base,
                 original_bytes: self.original_bytes.as_deref(),
                 intent: self.intent,
+                signatures: self.signatures,
             }
         }
 

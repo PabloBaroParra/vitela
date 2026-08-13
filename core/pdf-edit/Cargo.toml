@@ -1,0 +1,13 @@
+[package]
+name = "pdf-edit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Page-content editing: parses a page's content stream into text runs and images, encodes replacement text against the run's own font, and rewrites the stream surgically. Batch 21 (T-151..T-155)."
+publish = false
+
+[dependencies]
+pdf-document = { path = "../pdf-document" }
+flate2 = "1.1"
+lopdf = "0.44"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

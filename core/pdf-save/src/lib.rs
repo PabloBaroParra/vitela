@@ -14,6 +14,8 @@
 //! - [`security`] (T-034, T-035): re-encrypt-by-default / explicit-strip save
 //!   intent for the full-rewrite writer.
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
+//! - [`content`] (T-156): replays page-content edits (Batch 21) at save
+//!   time, and reports whether the rewrite invalidates existing signatures.
 //! - [`strategy`] (T-032, T-033): writer selection and
 //!   the [`save_document`] auto-selection entry point.
 //! - [`export`] (T-037): page export as PNG/JPEG at selectable DPI.
@@ -22,6 +24,7 @@
 pub mod annotations;
 pub mod bridge;
 pub mod clock;
+pub mod content;
 pub mod error;
 pub mod export;
 pub mod security;
@@ -30,14 +33,16 @@ pub mod strategy;
 pub use annotations::{attach_annotations, ObjectSink};
 pub use bridge::{
     document_from_lopdf, has_structural_page_changes, page_annotation_objects, page_object_ids,
-    populate_document, replay_page_ops, rotation_changes,
+    populate_document, read_page_content, replay_page_ops, rotation_changes,
 };
 pub use clock::{
     Clock, FixedClock, IdGenerator, RandomIdGenerator, SequentialIdGenerator, SystemClock,
 };
+pub use content::{has_content_edits, has_signatures, replay_content_edits};
 pub use error::SaveError;
 pub use export::{export_page_as_image, ExportFormat};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{
-    append_incremental_update, save_document, save_document_with_options, SaveInput, SaveOptions,
+    append_incremental_update, save_document, save_document_with_options,
+    will_invalidate_signatures, SaveInput, SaveOptions, SignatureAcknowledgement,
 };

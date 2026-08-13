@@ -36,7 +36,8 @@ These are **proposed facade methods**, not additions to `pdf-ffi`.
 | `Search(request)` | `DocumentHandle.search(query)` | Dispatch off the UI thread, translate page-space matches, and discard stale query results. |
 | `ApplyEdit(request)` / `InsertImageStamp(request)` | `apply_edit` / `insert_image_stamp` | Translate validated UI commands to FFI DTOs; mark session render state stale. |
 | `Undo(sessionId)` / `Redo(sessionId)` | `undo` / `redo` | Return whether state changed and refresh session metadata. |
-| `Save(request)` | `save_to_bytes(intent)` | Write returned bytes through the selected destination; enforce protection consent flow. |
+| `Save(request)` | `save_to_bytes(intent, signatures)` | Write returned bytes through the selected destination; enforce protection consent flow. The acknowledgement is never supplied by the facade — it comes from the reader's answer to `WillInvalidateSignatures`, so an unanswered save is refused rather than silently breaking a signature. |
+| `WillInvalidateSignatures(sessionId)` | `will_invalidate_signatures(intent)` | Answer off the UI thread so the shell can warn before the reader commits to a save. |
 | `ReopenSaved(sessionId, bytes, credentials)` | `open_from_bytes` or `open_with_passwords_from_bytes` | Replace the session handle so rendering reflects saved edits. |
 
 Path-based FFI helpers are not the Windows contract. The facade uses the bytes-based open/save operations, which are the canonical cross-platform entry points.
