@@ -604,6 +604,7 @@ fn the_image_fixture_parses_as_one_image_at_its_documented_rect() {
     let content = pdf_save::read_page_content(&base, PageId(0)).expect("readable page");
 
     assert!(content.text_runs.is_empty());
+    assert_eq!(content.images.len(), 1);
     let image = content.images.first().expect("fixture painted one image");
     assert_eq!(
         image.resource_xobject_name,
