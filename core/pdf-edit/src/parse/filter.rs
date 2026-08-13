@@ -56,20 +56,29 @@ pub(crate) struct DecodedStream {
 ///   `FlateDecode`, a chain of them, or any `/DecodeParms`.
 /// - [`EditError::UndecodableContentStream`] when it *is* `FlateDecode` and
 ///   the data does not inflate to a complete stream.
+/// - [`EditError::PageContentTooLarge`] when it decodes to more than
+///   `budget` bytes. `budget` is what remains of the page's shared ceiling,
+///   not a per-stream one — see [`MAX_PAGE_CONTENT_BYTES`].
 pub(crate) fn decode(
     document: &Document,
     stream: &Stream,
     object_id: ObjectId,
+    budget: usize,
 ) -> Result<DecodedStream, EditError> {
     match filter_of(document, &stream.dict, object_id)? {
-        None => Ok(DecodedStream {
-            bytes: stream.content.clone(),
-            filtered: false,
-        }),
+        None => {
+            if stream.content.len() > budget {
+                return Err(too_large(object_id));
+            }
+            Ok(DecodedStream {
+                bytes: stream.content.clone(),
+                filtered: false,
+            })
+        }
         Some(Filter::Flate) => {
             reject_decode_parms(document, &stream.dict, object_id)?;
             Ok(DecodedStream {
-                bytes: inflate(&stream.content, object_id)?,
+                bytes: inflate(&stream.content, object_id, budget)?,
                 filtered: true,
             })
         }
@@ -89,8 +98,17 @@ pub(crate) fn decode(
 /// than it went in. That is the right trade: the shape of the file is
 /// preserved, and page content streams that are small enough for it to
 /// matter are small enough for it not to.
+///
+/// The level is `default` (6) rather than `best` (9) because this does not
+/// run once per save — it runs once per *command*. `pdf-save`'s
+/// `replay_content_edits` walks the edit log one entry at a time, and each
+/// entry re-reads the page (inflating every one of its streams) and writes it
+/// back through here. Ten edits on one page are ten full round trips of the
+/// whole stream, so the level buys a percent or two of size at a cost paid
+/// over and over. Level 9's extra work is spent searching for matches in
+/// operator text that has very few of them.
 pub(crate) fn encode_flate(bytes: &[u8]) -> Result<Vec<u8>, EditError> {
-    let mut compressor = Compress::new(Compression::best(), true);
+    let mut compressor = Compress::new(Compression::default(), true);
     let mut output = Vec::with_capacity(bytes.len() / 2 + 64);
 
     loop {
@@ -206,25 +224,63 @@ fn reject_decode_parms(
 /// An empty result is fine when the stream ended cleanly: a page whose
 /// content stream compresses to nothing is a page that paints nothing, which
 /// is legal and not the same as a failure.
-fn inflate(input: &[u8], object_id: ObjectId) -> Result<Vec<u8>, EditError> {
+fn inflate(input: &[u8], object_id: ObjectId, budget: usize) -> Result<Vec<u8>, EditError> {
     // PDF's FlateDecode is zlib (RFC 1950). Raw deflate appears in files
     // written by producers that skipped the two-byte header, and is tried
-    // second — under the same end-of-stream requirement, so accepting it
-    // still means having decoded a complete stream rather than a prefix.
-    inflate_with(input, true)
-        .or_else(|| inflate_with(input, false))
-        .ok_or(EditError::UndecodableContentStream { object_id })
+    // second — but *only* when there is no valid header for the first attempt
+    // to have failed on.
+    //
+    // That condition is the whole safety of the fallback. Retrying a merely
+    // damaged zlib stream as raw deflate reads its header bytes as the start
+    // of a stored block, and a stored block whose LEN/NLEN pair happens to
+    // agree yields bytes that can run all the way to an end-of-stream marker
+    // while meaning nothing. Raw deflate carries no Adler-32 to catch that —
+    // the end of the stream is all it can prove — so the header check is what
+    // stands between a damaged page and a plausible-looking rewrite of it.
+    let outcome = match inflate_with(input, true, budget) {
+        Err(InflateFailure::Incomplete) if !has_zlib_header(input) => {
+            inflate_with(input, false, budget)
+        }
+        first => first,
+    };
+
+    outcome.map_err(|failure| match failure {
+        InflateFailure::Incomplete => EditError::UndecodableContentStream { object_id },
+        InflateFailure::TooLarge => too_large(object_id),
+    })
 }
 
-fn inflate_with(input: &[u8], zlib_header: bool) -> Option<Vec<u8>> {
+/// Why an inflate did not produce a whole stream.
+enum InflateFailure {
+    /// Truncated, corrupt, or not deflate data at all — the stream never
+    /// ended, so whatever came out is a prefix.
+    Incomplete,
+    /// It kept producing output past what the page is allowed to decode to.
+    TooLarge,
+}
+
+/// Whether `input` opens with a well-formed zlib (RFC 1950) header: the
+/// deflate compression method, and the check value FCHECK exists to make hold.
+///
+/// Cheap and decisive. A stream that passes this is zlib — if it then fails to
+/// inflate, it is broken zlib, not raw deflate wearing a disguise.
+fn has_zlib_header(input: &[u8]) -> bool {
+    let [cmf, flg, ..] = input else {
+        return false;
+    };
+    cmf & 0x0f == 8 && (u16::from(*cmf) << 8 | u16::from(*flg)) % 31 == 0
+}
+
+fn inflate_with(input: &[u8], zlib_header: bool, budget: usize) -> Result<Vec<u8>, InflateFailure> {
     let mut decompressor = Decompress::new(zlib_header);
-    // Growth is bounded by the guard below rather than by trusting the
-    // stream's own claims about its size.
+    // Growth is bounded by `budget` rather than by trusting the stream's own
+    // claims about its size.
     let mut output = Vec::with_capacity(
         input
             .len()
             .saturating_mul(4)
-            .clamp(INITIAL_CAPACITY, MAX_INITIAL_CAPACITY),
+            .clamp(INITIAL_CAPACITY, MAX_INITIAL_CAPACITY)
+            .min(budget),
     );
 
     loop {
@@ -243,22 +299,32 @@ fn inflate_with(input: &[u8], zlib_header: bool) -> Option<Vec<u8>> {
                 // only thing this function accepts.
                 FlushDecompress::None,
             )
-            .ok()?;
+            .map_err(|_| InflateFailure::Incomplete)?;
 
         match status {
-            Status::StreamEnd => return Some(output),
+            Status::StreamEnd => return Ok(output),
             Status::Ok | Status::BufError => {
+                // Checked on length, not capacity: an allocator that rounds a
+                // request up must not become permission to decode further.
+                if output.len() >= budget {
+                    return Err(InflateFailure::TooLarge);
+                }
                 if output.len() == output.capacity() {
-                    if output.capacity() >= MAX_DECODED_BYTES {
-                        return None;
-                    }
-                    output.reserve(output.capacity().max(INITIAL_CAPACITY));
+                    // Doubling, capped at the budget. `target` is strictly
+                    // above `len` because `len < budget` was just established,
+                    // so the buffer always grows and the loop always advances.
+                    let target = output
+                        .capacity()
+                        .saturating_mul(2)
+                        .max(INITIAL_CAPACITY)
+                        .min(budget);
+                    output.reserve_exact(target - output.len());
                 } else if decompressor.total_out() == before {
                     // Room to spare and nothing more came out: the input ran
                     // out before the stream did. That is the truncation case,
                     // and the bytes gathered so far are a prefix of a page —
                     // exactly what must not be handed to a writer.
-                    return None;
+                    return Err(InflateFailure::Incomplete);
                 }
             }
         }
@@ -268,16 +334,33 @@ fn inflate_with(input: &[u8], zlib_header: bool) -> Option<Vec<u8>> {
 const INITIAL_CAPACITY: usize = 8 * 1024;
 const MAX_INITIAL_CAPACITY: usize = 1024 * 1024;
 
-/// A ceiling on a single decoded content stream, so a decompression bomb
-/// cannot exhaust memory before anything has even been parsed. Page content
-/// is operators, not image data — real streams are orders of magnitude below
-/// this.
-const MAX_DECODED_BYTES: usize = 512 * 1024 * 1024;
+/// A ceiling on everything **one page** decodes to, so a decompression bomb
+/// cannot exhaust memory before anything has even been parsed.
+///
+/// Shared across the page rather than applied per stream, because `/Contents`
+/// is an array of arbitrary length and nothing stops it from repeating the
+/// same reference: a per-stream ceiling multiplies by the number of entries,
+/// which is to say it is not a ceiling. [`super::page_streams`] threads what
+/// is left of it through each decode.
+///
+/// Page content is operators, not image data. A heavy vector-graphics page
+/// decodes to single-digit megabytes; this is one to two orders of magnitude
+/// above anything real, which is where a memory guard belongs — far enough
+/// out that it never argues with a legitimate file, close enough in that it
+/// still bounds a hostile one.
+pub(crate) const MAX_PAGE_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 
 fn unsupported(object_id: ObjectId, detail: &str) -> EditError {
     EditError::UnsupportedContentStreamFilter {
         object_id,
         detail: detail.to_string(),
+    }
+}
+
+fn too_large(object_id: ObjectId) -> EditError {
+    EditError::PageContentTooLarge {
+        object_id,
+        limit: MAX_PAGE_CONTENT_BYTES,
     }
 }
 
@@ -291,7 +374,7 @@ fn dereference<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Obj
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::write::ZlibEncoder;
+    use flate2::write::{DeflateEncoder, ZlibEncoder};
     use flate2::Compression;
     use lopdf::dictionary;
     use std::io::Write;
@@ -302,8 +385,26 @@ mod tests {
         encoder.finish().expect("finish")
     }
 
+    /// Deflate with no zlib wrapper — what a producer that skipped the
+    /// two-byte header emits, and the only thing the fallback is for.
+    fn raw_deflate(payload: &[u8]) -> Vec<u8> {
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(payload).expect("encode");
+        encoder.finish().expect("finish")
+    }
+
     fn flate_stream(content: Vec<u8>) -> Stream {
         Stream::new(dictionary! { "Filter" => "FlateDecode" }, content)
+    }
+
+    /// The budget is a property of the page, not of a case under test, so
+    /// every test but the one about the ceiling passes the whole thing.
+    fn decode(
+        document: &Document,
+        stream: &Stream,
+        object_id: ObjectId,
+    ) -> Result<DecodedStream, EditError> {
+        super::decode(document, stream, object_id, MAX_PAGE_CONTENT_BYTES)
     }
 
     const ID: ObjectId = (7, 0);
@@ -418,6 +519,91 @@ mod tests {
         let mut output = Vec::with_capacity(1024);
         let _ = decompressor.decompress_vec(input, &mut output, FlushDecompress::None);
         output
+    }
+
+    /// Some producers write the deflate data without zlib's two-byte header.
+    /// The fallback exists for them, and until now nothing proved it worked.
+    #[test]
+    fn a_headerless_deflate_stream_is_accepted_by_the_fallback() {
+        let document = Document::with_version("1.7");
+        let payload = b"BT /F1 12 Tf (headerless) Tj ET";
+
+        let decoded = decode(&document, &flate_stream(raw_deflate(payload)), ID)
+            .expect("no zlib header, but a complete deflate stream");
+
+        assert_eq!(decoded.bytes, payload);
+        assert!(decoded.filtered);
+    }
+
+    /// The check that decides whether the fallback is even a plausible
+    /// explanation. If this stops telling the two encodings apart, the
+    /// fallback either stops working or starts rescuing damaged zlib — and
+    /// the second is how garbage that reaches an end-of-stream marker gets
+    /// written back as a page.
+    #[test]
+    fn the_zlib_header_check_tells_the_two_encodings_apart() {
+        assert!(has_zlib_header(&zlib(b"BT ET")), "a real zlib stream");
+        assert!(
+            !has_zlib_header(&raw_deflate(b"BT ET")),
+            "raw deflate must stay eligible for the fallback"
+        );
+        assert!(!has_zlib_header(b"this was never compressed"));
+        assert!(!has_zlib_header(b"\x78"), "a header needs both its bytes");
+        assert!(!has_zlib_header(b""));
+    }
+
+    /// A zlib stream whose Adler-32 no longer matches is damaged, not
+    /// headerless — so it is refused rather than re-read as raw deflate,
+    /// which is the one reading that could turn it into plausible content.
+    #[test]
+    fn a_zlib_stream_with_a_broken_checksum_is_refused() {
+        let document = Document::with_version("1.7");
+        let mut corrupt = zlib(b"BT /F1 12 Tf (hi) Tj ET");
+        assert!(
+            has_zlib_header(&corrupt),
+            "the premise: these bytes still announce themselves as zlib"
+        );
+        *corrupt.last_mut().expect("non-empty") ^= 0xff;
+
+        assert_eq!(
+            decode(&document, &flate_stream(corrupt), ID)
+                .expect_err("a stream that fails its own checksum is not content"),
+            EditError::UndecodableContentStream { object_id: ID }
+        );
+    }
+
+    /// The ceiling is the page's, not the stream's, and it is reported as a
+    /// limit of ours rather than as a damaged file.
+    #[test]
+    fn content_past_the_page_ceiling_is_refused_as_a_limit_not_as_damage() {
+        let document = Document::with_version("1.7");
+        let stream = flate_stream(zlib(&vec![b'q'; 4096]));
+
+        let error = super::decode(&document, &stream, ID, 1024)
+            .expect_err("more than the budget left for this page");
+
+        assert_eq!(
+            error,
+            EditError::PageContentTooLarge {
+                object_id: ID,
+                limit: MAX_PAGE_CONTENT_BYTES,
+            }
+        );
+    }
+
+    /// A stream that fits exactly is not over the line.
+    #[test]
+    fn content_that_exactly_fills_the_remaining_budget_is_accepted() {
+        let document = Document::with_version("1.7");
+        let payload = vec![b'q'; 4096];
+        let stream = flate_stream(zlib(&payload));
+
+        assert_eq!(
+            super::decode(&document, &stream, ID, payload.len())
+                .expect("exactly the budget is within it")
+                .bytes,
+            payload
+        );
     }
 
     #[test]

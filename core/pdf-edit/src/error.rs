@@ -56,6 +56,15 @@ pub enum EditError {
     /// used: it looks like content, and writing it back after an edit would
     /// replace the page with however much of it survived.
     UndecodableContentStream { object_id: (u32, u16) },
+    /// A page's content decodes to more bytes than this version will hold for
+    /// one page, and decoding stopped at `object_id`.
+    ///
+    /// The ceiling is shared by every stream in the page's `/Contents`, not
+    /// applied to each: the array can repeat a reference, so a per-stream
+    /// limit multiplies by its length and bounds nothing. Distinct from
+    /// [`Self::UndecodableContentStream`] because the file is not damaged —
+    /// it is a refusal to allocate, and the number is ours, not the file's.
+    PageContentTooLarge { object_id: (u32, u16), limit: usize },
     /// A content stream is encoded in a way this crate cannot prove it round
     /// trips: a filter other than `FlateDecode`, a chain of them, an
     /// unresolvable indirect `/Filter`, or any `/DecodeParms`.
@@ -115,6 +124,12 @@ impl fmt::Display for EditError {
             EditError::UndecodableContentStream { object_id } => write!(
                 f,
                 "content stream {} {} does not decompress to a complete stream",
+                object_id.0, object_id.1
+            ),
+            EditError::PageContentTooLarge { object_id, limit } => write!(
+                f,
+                "this page's content decodes to more than the {limit} bytes this \
+                 version will hold for one page (reached at content stream {} {})",
                 object_id.0, object_id.1
             ),
             EditError::UnsupportedContentStreamFilter { object_id, detail } => write!(
