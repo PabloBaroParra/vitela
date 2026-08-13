@@ -217,3 +217,29 @@ jobs:
         run: |
           cargo test -p pdf-save --locked --lib \
             full_rewrite_with_fixed_options_is_byte_identical_across_runs -- --exact
+
+  content-roundtrip-validation:
+    name: content round-trip validation (T-160)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v3.13.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned pypdf before network isolation
+        run: python3 -m pip install --require-hashes -r tools/pypdf-validation/requirements.txt
+      - name: Produce and validate content round trip offline
+        run: |
+          output="$RUNNER_TEMP/t160 content;roundtrip.pdf"
+          trap 'rm -f "$output"' EXIT
+          PDF_SAVE_VALIDATION_OUTPUT="$output" \
+            cargo test -p pdf-save --locked --test content_edit_roundtrip \
+            write_pypdf_validation_output -- --ignored --exact
+          sudo -E env "PATH=$PATH" unshare --net \
+            sh -c 'ip link set lo up && exec python3 tools/pypdf-validation/validate_content_roundtrip.py "$1"' \
+            sh "$output"
