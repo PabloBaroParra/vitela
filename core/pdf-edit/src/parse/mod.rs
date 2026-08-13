@@ -122,18 +122,25 @@ pub(crate) fn page_streams(
         _ => Vec::new(),
     };
 
-    object_ids
-        .into_iter()
-        .map(|object_id| {
-            let stream = document.get_object(object_id)?.as_stream()?;
-            let decoded = filter::decode(document, stream, object_id)?;
-            Ok(PageStream {
-                object_id,
-                bytes: decoded.bytes,
-                filtered: decoded.filtered,
-            })
-        })
-        .collect()
+    // One ceiling for the whole page, spent as the streams are decoded. A
+    // per-stream ceiling would be no ceiling at all: `/Contents` may list any
+    // number of references and may list the same one repeatedly, so a bounded
+    // stream repeated N times is an unbounded page.
+    let mut budget = filter::MAX_PAGE_CONTENT_BYTES;
+    let mut streams = Vec::with_capacity(object_ids.len());
+
+    for object_id in object_ids {
+        let stream = document.get_object(object_id)?.as_stream()?;
+        let decoded = filter::decode(document, stream, object_id, budget)?;
+        budget = budget.saturating_sub(decoded.bytes.len());
+        streams.push(PageStream {
+            object_id,
+            bytes: decoded.bytes,
+            filtered: decoded.filtered,
+        });
+    }
+
+    Ok(streams)
 }
 
 fn dereference<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {

@@ -187,6 +187,15 @@ fn confirm_save_destination(
 /// covers. `pdf-save` refuses such a save unless the caller states the user
 /// was told, which is what this prompt is for — the core makes sure the
 /// question gets asked, and the answer stays the user's.
+///
+/// The wording says the signature is *invalidated*, not removed, because that
+/// is what happens: nothing in `pdf-save`'s full rewrite strips `/Sig`,
+/// `/FT /Sig` or `/AcroForm /SigFlags`, so the saved file still carries the
+/// signature and a reader opening it reports it as **invalid**, not absent.
+/// Those are different outcomes for someone about to send the file on — one
+/// is an unsigned document, the other looks tampered with — and the text has
+/// to say which one they are choosing. Keep this and
+/// `MainWindow.AskSignatureLossAsync` in the same words.
 fn confirm_signature_loss(
     window: &ApplicationWindow,
     viewer: &Viewer,
@@ -199,8 +208,12 @@ fn confirm_signature_loss(
     let dialog = AlertDialog::builder()
         .message("Saving will break this document's signature")
         .detail(
-            "This document is signed. Saving your edits rewrites the file, and the \
-             existing signature will no longer verify. The signature cannot be kept.",
+            "This document is signed. Saving rewrites the file, so the signature \
+             will no longer match what it covers.\n\n\
+             It is not removed: the saved file still carries the signature, and \
+             PDF readers will report it as invalid rather than missing.\n\n\
+             To keep a copy that still verifies, cancel and save to a different \
+             file.",
         )
         .buttons(["Cancel", "Save anyway"])
         .cancel_button(0)

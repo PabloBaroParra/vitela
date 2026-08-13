@@ -139,6 +139,23 @@ resto exige interpretar el stream completo para saber dónde empieza y termina c
       con el `/Filter` borrado. Y `PageStream` guarda si el stream venía filtrado, en vez de
       volver a mirar el diccionario al escribir: la lectura que resolvió `/Filter` es la que
       sabe, y dos lecturas del mismo campo pueden discrepar.
+      **El fallback a deflate crudo sólo corre si no hay header zlib válido.** Existe para
+      productores que se saltearon los dos bytes de header, y esa es la única situación en la
+      que es una explicación plausible. Reintentar un zlib *dañado* como crudo lee sus bytes de
+      header como el arranque de un stored block, y un stored block cuyo LEN/NLEN casualmente
+      cierra entrega bytes que pueden llegar hasta un fin de stream sin significar nada —
+      deflate crudo no trae Adler-32 para atajar eso. El chequeo de header (`has_zlib_header`)
+      es lo único que separa una página dañada de una reescritura que parece sana.
+      **El techo de decodificado es por página, no por stream** (`MAX_PAGE_CONTENT_BYTES`,
+      64 MB). `/Contents` es un array de largo arbitrario y nada le impide repetir la misma
+      referencia, así que un límite por stream se multiplica por la cantidad de entradas y no
+      acota nada; `page_streams` reparte un presupuesto único entre los decodes. Se reporta
+      como `PageContentTooLarge` y no como stream indecodificable, porque el archivo no está
+      roto: el número es nuestro.
+      **El nivel de compresión es `default` (6), no `best` (9)**, porque el encode no corre una
+      vez por guardado sino una vez por *comando*: `replay_content_edits` recorre el log de a
+      una entrada y cada una relee la página entera y la vuelve a escribir. Diez ediciones en
+      una página son diez round trips completos del stream.
       **`/Rotate` NO se aplica al bbox:** es una instrucción de visor, no una transformación
       del contenido, y las shells ya la aplican para `Annotation.rect`. Aplicarla acá haría
       doble rotación. Hay un test que fija la equivalencia.

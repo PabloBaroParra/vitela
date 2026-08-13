@@ -275,6 +275,23 @@ public sealed partial class MainWindow : Window
     /// every way out that is not deliberate keeps the signed file intact —
     /// the same rule the unsaved-changes prompt follows.
     ///
+    /// The text says the signature is <em>invalidated</em>, not removed,
+    /// because that is what happens: nothing in <c>pdf-save</c>'s full
+    /// rewrite strips <c>/Sig</c>, <c>/FT /Sig</c> or
+    /// <c>/AcroForm /SigFlags</c>, so the saved file still carries the
+    /// signature and a reader opening it reports it as invalid rather than
+    /// absent. For someone about to send the file on, an unsigned document
+    /// and one that looks tampered with are not the same choice. The GTK
+    /// shell's <c>confirm_signature_loss</c> says this in the same words —
+    /// keep them together.
+    ///
+    /// It names no file, deliberately. The GTK shell cannot always supply one
+    /// (an embedded sample or a new blank document has no path), and one
+    /// prompt in two voices is worse than one prompt with no filename. It
+    /// also removes the only reason this method reached for
+    /// <c>_session</c> after an await, where a re-entrant open could have
+    /// left the reader looking at an empty pair of quotes.
+    ///
     /// A failure to even determine this is reported and treated as cancel:
     /// saving anyway would risk breaking a signature nobody confirmed, and
     /// silently downgrading to "no signature" is how this went wrong before.
@@ -301,7 +318,9 @@ public sealed partial class MainWindow : Window
             Title = "Saving will break this document's signature",
             Content = new TextBlock
             {
-                Text = $"\"{_session?.DisplayName}\" is signed. Saving your changes rewrites the file, and the existing signature will no longer verify. The signature cannot be kept.",
+                Text = "This document is signed. Saving rewrites the file, so the signature will no longer match what it covers."
+                    + "\n\nIt is not removed: the saved file still carries the signature, and PDF readers will report it as invalid rather than missing."
+                    + "\n\nTo keep a copy that still verifies, cancel and save to a different file.",
                 TextWrapping = TextWrapping.Wrap,
             },
             PrimaryButtonText = "Save anyway",
