@@ -181,11 +181,21 @@ ninguno de los dos.
       diferido acá, tal como lo deja escrito la ficha de T-163 — el status dice "pending
       save" igual que undo/redo. Verificado: build + `clippy --workspace --all-targets -D
       warnings` + `cargo test --workspace` en WSL, todo verde salvo un fallo preexistente
-      de `package_smoke` (hash de píxeles) ya presente en `main`, no relacionado. El binario
-      real arranca limpio bajo WSLg con el toggle nuevo construido — verificación
-      interactiva con captura de pantalla no fue posible en este entorno (la ventana WSLg
-      no es identificable por las herramientas de automatización de escritorio), así que la
-      confirmación visual completa queda pendiente de una pasada manual.)**
+      de `package_smoke` (hash de píxeles) ya presente en `main`, no relacionado.
+
+      **Pasada manual bajo WSLg, hecha (2026-08-14):** el shell WSLg SÍ es controlable
+      (queda bajo el proceso `msrdc.exe`, no bajo el propio WSL/terminal — pedir acceso a
+      ese proceso lo destapa). Con el sample embebido: armar "Edit content" pinta el
+      contorno verde en cada run sin necesitar click previo; click en "A sample document"
+      abre el `Entry` inline exactamente sobre el bbox del run con el texto preseleccionado;
+      retipear y Enter cierra el editor y el status dice "Text updated. Changes are pending
+      save." (el bitmap se queda viejo, como se documentó arriba); Ctrl+Z (el mismo botón
+      Undo de anotaciones) dice "Edit undone. Changes are pending save." y revierte. Único
+      hallazgo, ajeno al feature: la acción de tipeo del automatizador pega vía portapapeles,
+      y el `Ctrl+V` de eso lo intercepta la acción `win.paste` (stamp de imagen) antes de
+      llegar al `Entry` con foco — no reproducible con teclas reales sueltas, y probablemente
+      afecta cualquier `Entry` de la app (incluida la búsqueda), no algo que este batch haya
+      introducido; queda para revisar aparte, no bloquea T-161.)**
 - [ ] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
       handles/reemplazar (file picker)/borrar imágenes existentes — distinto del stamp de
       anotación que ya existe (T-047). [ContentEdit]
