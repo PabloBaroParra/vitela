@@ -115,7 +115,17 @@ ninguno de los dos.
       smoke-renderea dentro de cada paquete en un namespace aislado de red para probar que
       el PDFium empaquetado funciona y que nada llama a casa. El launcher apunta al binario
       empaquetado vía `PDFIUM_DYNAMIC_LIB_PATH`.)**
-- [ ] T-054 linux.yml CI: build + package. [infra]
+- [x] T-054 linux.yml CI: build + package. [infra]
+      **(2026-08-14 — completo: `.github/workflows/linux.yml`, un job dedicado que
+      construye el binario release, empaqueta con `scripts/package-linux.sh` y verifica
+      con `scripts/verify-linux-package.sh` — mismos scripts que T-053 ya dejó
+      fail-closed, esto solo los conecta a CI. `linux-gtk-ui.yml` queda intacto como
+      suite aparte (tests de interacción bajo Xvfb); este job nunca toca un display,
+      porque `verify-linux-package.sh` maneja el binario empaquetado vía
+      `--package-smoke`, que rinde sin el loop de eventos de GTK. El smoke corre bajo
+      `unshare --net` propio del script — de ahí el `sudo` que envuelve todo el paso,
+      mismo motivo que el job `zero-network` de `core.yml`. Sin paso de upload: sigue
+      sin haber proceso de publicación, igual que macOS/Windows a esta altura.)**
 - [ ] T-141 (dep B20) Modo edición de formularios: colocar campo (texto/checkbox/radio/
       dropdown) sobre el canvas, arrastrar/resize con handles, inspector de estilo
       (fuente standard-14, tamaño, color) → comandos MoveFormField/ResizeFormField/
