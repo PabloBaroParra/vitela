@@ -561,9 +561,10 @@ mod tests {
             "descender hangs below the baseline"
         );
         assert!(close(bbox.height, 12.0), "one em tall");
-        // No /Widths on a standard-14 font, so the fallback half-em advance
-        // applies: five glyphs at 6pt each.
-        assert!(close(bbox.width, 30.0));
+        // No /Widths on a standard-14 font, so the advance comes from this
+        // crate's real Helvetica AFM widths (H722+e556+l222+l222+o556 =
+        // 2278 units, at 12pt).
+        assert!(close(bbox.width, 27.336));
     }
 
     #[test]
@@ -581,7 +582,10 @@ mod tests {
         let bbox = content.text_runs[0].run.bbox;
 
         assert!(close(bbox.x, 200.0), "the ctm scale reaches the box");
-        assert!(close(bbox.width, 60.0));
+        assert!(
+            close(bbox.width, 54.672),
+            "the 2x ctm doubles the AFM advance too"
+        );
     }
 
     #[test]
@@ -625,7 +629,8 @@ mod tests {
         assert_eq!(content.text_runs.len(), 2);
         assert!(close(content.text_runs[0].run.bbox.x, 100.0));
         assert!(
-            close(content.text_runs[1].run.bbox.x, 112.0),
+            // "ab": a556 + b556 = 1112 units, at 12pt = 13.344pt advance.
+            close(content.text_runs[1].run.bbox.x, 113.344),
             "the second run starts where the first ended"
         );
     }
