@@ -11,7 +11,7 @@ use gtk::{
     cairo, gio, Box as GtkBox, Button, DrawingArea, Entry, Label, Overlay, Picture, ScrolledWindow,
     ToggleButton, Window,
 };
-use pdf_document::{AnnotationId, Document};
+use pdf_document::{AnnotationId, Document, PageContent, TextRun};
 use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
@@ -47,6 +47,7 @@ pub(crate) struct Viewer {
     pub(crate) undo_action: gio::SimpleAction,
     pub(crate) redo_action: gio::SimpleAction,
     pub(crate) annotation_buttons: AnnotationToolbar,
+    pub(crate) content_edit_button: ToggleButton,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -73,6 +74,14 @@ impl Viewer {
             .as_ref()
             .and_then(|session| session.annotation_access.refusal())
     }
+
+    pub(crate) fn content_edit_refusal(&self) -> Option<&'static str> {
+        self.state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.content_edit_access.refusal())
+    }
 }
 
 pub(crate) struct ViewerState {
@@ -87,6 +96,13 @@ pub(crate) struct ViewerState {
     /// open document, so opening a second PDF does not silently disarm the
     /// tool the user just picked.
     pub(crate) active_tool: Option<Tool>,
+    /// Whether a page click opens the inline content editor instead of
+    /// selecting text or placing an annotation. Lives here rather than on
+    /// `DocumentSession` for the same reason `active_tool` does: it is a
+    /// shell mode, not document state, so it deliberately outlives the open
+    /// document. Mutually exclusive with `active_tool` — arming either one
+    /// clears the other (`content_edit::set_mode`, `annotations::toolbar::arm_tool`).
+    pub(crate) content_edit_mode: bool,
     /// The password prompt for the in-flight open attempt, if any. Tracked so
     /// a new open request (which may supersede this one before the user has
     /// answered) can tear down the stale prompt instead of leaving it
@@ -277,6 +293,20 @@ pub(crate) enum AnnotationDragMode {
     Resize(Corner),
 }
 
+/// The inline text editor open over a content-edit-mode click, if any.
+///
+/// Lives on the session rather than being committed immediately, the same
+/// posture as [`Placement`]: nothing reaches the `EditLog` until the entry is
+/// committed, and replacing the document drops a half-typed edit with it.
+pub(crate) struct ContentEditor {
+    pub(crate) page_index: usize,
+    /// The run this editor is replacing. Kept whole (not just its id) because
+    /// `Command::ReplaceTextRunContent` is matched against the exact snapshot
+    /// it was read from — see `pdf_document::content`'s module docs.
+    pub(crate) run: TextRun,
+    pub(crate) entry: Entry,
+}
+
 /// A selected annotation being moved or resized right now.
 ///
 /// Like [`Placement`], it lives on the session and reaches the `EditLog` only
@@ -318,6 +348,12 @@ pub(crate) struct Placement {
 pub(crate) const ANNOTATION_MODEL_UNAVAILABLE: &str =
     "This document could not be prepared for annotation changes.";
 
+/// Shown when the document allows content changes but this shell could not
+/// build an editable model for it — the content-edit twin of
+/// [`ANNOTATION_MODEL_UNAVAILABLE`], both driven by the same `document_model`.
+pub(crate) const CONTENT_MODEL_UNAVAILABLE: &str =
+    "This document could not be prepared for content changes.";
+
 /// Whether this document's annotations may be edited — the annotation twin of
 /// [`TextAccess`], read once at open time and cached for the session.
 ///
@@ -352,11 +388,45 @@ impl AnnotationAccess {
     }
 }
 
+/// Whether this document's page content (text runs, images) may be edited —
+/// the content-edit twin of [`AnnotationAccess`], read once at open time and
+/// cached for the session.
+///
+/// A separate type rather than reusing `AnnotationAccess`: a document can
+/// grant the annotate permission while withholding the modify-contents
+/// permission, or vice versa (see `pdf_manip::content_editing_is_allowed`),
+/// so the two must be able to disagree.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum ContentEditAccess {
+    /// Unencrypted, or the permissions (or an owner credential) allow it, and
+    /// the editable model was built.
+    Allowed,
+    /// The document's `/P` withholds the modify-contents permission.
+    Forbidden,
+    /// The permission question could not be answered, or the editable model
+    /// could not be built. Refused rather than assumed permissive, for the
+    /// same reason as [`AnnotationAccess::Unavailable`].
+    Unavailable,
+}
+
+impl ContentEditAccess {
+    /// The message to show instead of editing content, or `None` when
+    /// editing is allowed.
+    pub(crate) fn refusal(self) -> Option<&'static str> {
+        match self {
+            ContentEditAccess::Allowed => None,
+            ContentEditAccess::Forbidden => Some("This document does not permit content changes."),
+            ContentEditAccess::Unavailable => Some(CONTENT_MODEL_UNAVAILABLE),
+        }
+    }
+}
+
 pub(crate) struct DocumentSession {
     pub(crate) document: DocumentHandle,
     /// Whether search and text selection may read this document's text.
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
+    pub(crate) content_edit_access: ContentEditAccess,
     /// The editable core model. Rendering remains backed by pdfium until a
     /// future save/reopen refresh, but every annotation command is recorded in
     /// this model's EditLog immediately.
@@ -381,6 +451,10 @@ pub(crate) struct DocumentSession {
     pub(crate) placement: Option<Placement>,
     /// The selected annotation being moved or resized right now, if any.
     pub(crate) annotation_drag: Option<AnnotationDrag>,
+    /// The inline content editor open right now, if any. Lives on the session
+    /// so replacing the document drops it with the run it addressed — same
+    /// reasoning as `annotation_drag`.
+    pub(crate) content_editor: Option<ContentEditor>,
     pub(crate) physical_width: u32,
     pub(crate) physical_height: u32,
     pub(crate) scale_factor: i32,
@@ -452,6 +526,12 @@ pub(crate) struct PageSlot {
     /// flight" so a drag over a page cannot queue one job per motion event.
     pub(crate) characters: Option<PageCharacters>,
     pub(crate) characters_requested: bool,
+    /// This page's content-stream text runs and images, loaded on first entry
+    /// into content-edit mode. Unlike `characters`, this is pure computation
+    /// over the already-in-memory base document (no pdfium round trip), so it
+    /// is filled in synchronously the first time it is needed — see
+    /// `content_edit::model::ensure_page_content`.
+    pub(crate) content: Option<PageContent>,
     pub(crate) width_pt: f32,
     pub(crate) height_pt: f32,
     pub(crate) state: PageState,
@@ -492,6 +572,7 @@ pub(crate) struct OpenedDocument {
     pub(crate) page_sizes: Vec<(f32, f32)>,
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
+    pub(crate) content_edit_access: ContentEditAccess,
     pub(crate) document_model: Option<Document>,
     pub(crate) save_backing: Option<SaveBacking>,
 }

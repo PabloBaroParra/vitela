@@ -19,5 +19,13 @@ pdf-manip = { path = "../../core/pdf-manip" }
 pdf-render = { path = "../../core/pdf-render" }
 pdf-annotate = { path = "../../core/pdf-annotate" }
 pdf-document = { path = "../../core/pdf-document" }
+pdf-edit = { path = "../../core/pdf-edit" }
 pdf-save = { path = "../../core/pdf-save" }
 sha2 = "0.10.9"
+# Content-edit mode (T-161) validates a replacement by cloning the base
+# document and probing `pdf-edit`'s real encoder against it — same version
+# `pdf-edit` itself depends on.
+lopdf = "0.44"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+gen-fixtures = { path = "../../tests/fixtures/gen-fixtures" }

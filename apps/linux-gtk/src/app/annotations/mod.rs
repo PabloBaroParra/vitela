@@ -39,7 +39,7 @@ pub(crate) use gesture::{
     finish_annotation_drag, finish_placement,
 };
 pub(crate) use toolbar::{
-    add_annotation_toolbar, connect_annotation_toolbar, connect_delete_shortcut,
+    add_annotation_toolbar, connect_annotation_toolbar, connect_delete_shortcut, disarm,
     update_annotation_controls,
 };
 
