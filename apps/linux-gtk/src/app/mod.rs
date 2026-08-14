@@ -8,6 +8,7 @@
 
 mod annotations;
 mod brand;
+mod content_edit;
 mod document;
 mod input;
 mod layout;
@@ -181,6 +182,11 @@ fn build_ui(application: &Application) -> BuiltUi {
     // search/print, and stacking them there pushed the window's minimum width
     // past the screen (see `annotations::add_annotation_toolbar`).
     let (annotation_toolbar, annotation_row) = add_annotation_toolbar();
+    // Next to the annotation row, not inside it: arming this and arming an
+    // annotation tool are mutually exclusive (`content_edit::set_mode`,
+    // `annotations::toolbar::arm_tool`), so it reads as a sibling mode rather
+    // than an eighth annotation type.
+    let content_edit_button = content_edit::build_toggle();
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
@@ -206,6 +212,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     content.set_margin_end(12);
     content.append(&toolbar);
     content.append(&annotation_row);
+    content.append(&content_edit_button);
     content.append(&status);
     content.append(&page_area);
     window.set_child(Some(&content));
@@ -233,17 +240,20 @@ fn build_ui(application: &Application) -> BuiltUi {
         undo_action,
         redo_action,
         annotation_buttons: annotation_toolbar,
+        content_edit_button,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,
             session: None,
             active_tool: None,
+            content_edit_mode: false,
             password_dialog: None,
         })),
     };
     connect_viewport_updates(&viewer);
     connect_search(&viewer);
     annotations::connect_annotation_toolbar(&viewer);
+    content_edit::connect_toggle(&viewer);
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);

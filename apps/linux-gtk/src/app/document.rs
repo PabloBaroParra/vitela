@@ -22,8 +22,8 @@ use super::layout::set_placeholder_size;
 use super::render::update_viewport;
 use super::search::update_search_controls;
 use super::state::{
-    AnnotationAccess, DocumentSession, DocumentSource, FitRequest, OpenedDocument, PageSlot,
-    PageState, TextAccess, Viewer,
+    AnnotationAccess, ContentEditAccess, DocumentSession, DocumentSource, FitRequest,
+    OpenedDocument, PageSlot, PageState, TextAccess, Viewer,
 };
 
 /// The sample document, linked into the binary at compile time from the same
@@ -641,6 +641,7 @@ fn open_document(
             (Some(model), Some(backing))
         });
     let annotation_access = annotation_access_from(&security, document_model.is_some());
+    let content_edit_access = content_edit_access_from(&security, document_model.is_some());
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
@@ -650,6 +651,7 @@ fn open_document(
             page_sizes,
             text_access,
             annotation_access,
+            content_edit_access,
             document_model,
             save_backing,
         }),
@@ -727,6 +729,21 @@ fn annotation_access_from(
         }
         Ok(_) if has_model => AnnotationAccess::Allowed,
         _ => AnnotationAccess::Unavailable,
+    }
+}
+
+/// The content-edit twin of [`annotation_access_from`] — same shape, gated on
+/// `pdf_manip::content_editing_is_allowed` instead of the annotate bit.
+fn content_edit_access_from(
+    security: &Result<Option<SecurityContext>, ManipError>,
+    has_model: bool,
+) -> ContentEditAccess {
+    match security {
+        Ok(security) if !pdf_manip::content_editing_is_allowed(security.as_ref()) => {
+            ContentEditAccess::Forbidden
+        }
+        Ok(_) if has_model => ContentEditAccess::Allowed,
+        _ => ContentEditAccess::Unavailable,
     }
 }
 
@@ -820,6 +837,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             highlights,
             characters: None,
             characters_requested: false,
+            content: None,
             width_pt,
             height_pt,
             state: PageState::Idle,
@@ -841,6 +859,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             document: document.document,
             text_access: document.text_access,
             annotation_access: document.annotation_access,
+            content_edit_access: document.content_edit_access,
             document_model: document.document_model,
             save_backing: document.save_backing,
             edit_revision: 0,
@@ -849,6 +868,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             stamp_surfaces: HashMap::new(),
             placement: None,
             annotation_drag: None,
+            content_editor: None,
             physical_width: fit.available_width,
             physical_height: fit.available_height,
             scale_factor: fit.scale_factor,
@@ -868,6 +888,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     // A new document invalidates the previous document's matches.
     update_search_controls(viewer);
     super::annotations::update_annotation_controls(viewer);
+    super::content_edit::update_controls(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
     // A document with no pages leaves the page area empty, so the mark stays
     // up — the same call the WinUI shell makes when it re-shows its empty

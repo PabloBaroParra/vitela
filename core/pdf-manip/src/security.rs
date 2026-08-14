@@ -21,6 +21,13 @@ use pdf_document::{Credential, SecurityContext};
 /// exactly the documents this check exists for through.
 const COPY_OR_EXTRACT: u32 = 1 << 4;
 const ANNOTATE: u32 = 1 << 5;
+/// `/P` bit 4 (0-indexed bit 3) per PDF 1.7 table 22: "modify the contents of
+/// the document by operations other than those controlled by" the other
+/// content-related bits. This is the general edit-the-page-content
+/// permission — distinct from bit 6's narrower "add or modify annotations"
+/// (T-161: editing an existing text run or image is a content-stream change,
+/// not an annotation, so it is gated on this bit instead).
+const MODIFY_CONTENTS: u32 = 1 << 3;
 
 /// Whether the document permits copying/extracting its text.
 ///
@@ -47,6 +54,22 @@ pub fn annotation_editing_is_allowed(security: Option<&SecurityContext>) -> bool
     match security {
         Some(security) => {
             security.credential == Credential::Owner || security.permissions.0 & ANNOTATE != 0
+        }
+        None => true,
+    }
+}
+
+/// Whether the document permits changes to page content (text runs, images).
+///
+/// As with [`annotation_editing_is_allowed`], an owner credential bypasses
+/// the bitmask and unencrypted documents permit it. A document may grant one
+/// of the annotate/modify-contents bits without the other, so this must not
+/// be inferred from `annotation_editing_is_allowed`.
+pub fn content_editing_is_allowed(security: Option<&SecurityContext>) -> bool {
+    match security {
+        Some(security) => {
+            security.credential == Credential::Owner
+                || security.permissions.0 & MODIFY_CONTENTS != 0
         }
         None => true,
     }
@@ -131,5 +154,40 @@ mod tests {
             Credential::Owner,
             0
         ))));
+    }
+
+    #[test]
+    fn a_user_open_follows_the_modify_contents_bit_for_content_edits() {
+        assert!(!content_editing_is_allowed(Some(&context(
+            Credential::User,
+            0
+        ))));
+        assert!(content_editing_is_allowed(Some(&context(
+            Credential::User,
+            MODIFY_CONTENTS
+        ))));
+    }
+
+    /// The annotate bit alone must not open the content-edit gate — a
+    /// document can grant one and withhold the other.
+    #[test]
+    fn the_annotate_bit_alone_does_not_permit_content_edits() {
+        assert!(!content_editing_is_allowed(Some(&context(
+            Credential::User,
+            ANNOTATE
+        ))));
+    }
+
+    #[test]
+    fn an_owner_open_may_edit_content_without_the_modify_bit() {
+        assert!(content_editing_is_allowed(Some(&context(
+            Credential::Owner,
+            0
+        ))));
+    }
+
+    #[test]
+    fn an_unencrypted_document_permits_content_edits() {
+        assert!(content_editing_is_allowed(None));
     }
 }

@@ -9,14 +9,15 @@
 
 use gtk::prelude::*;
 use gtk::{cairo, gdk, gio, glib, DrawingArea, GestureDrag};
-use pdf_document::{Annotation, AnnotationKind, Color, Rect};
+use pdf_document::{Annotation, AnnotationKind, Color, FontKind, Rect};
 use pdf_render::{
     caret_range, line_rects, place_rect, point_to_pdf, DocumentHandle, PageCharacters,
     PdfiumRenderer, PlacedRect, Priority, RenderError, TextRect, TextRun,
 };
 
 use super::annotations;
-use super::state::{Selection, Viewer};
+use super::content_edit;
+use super::state::{PageSlot, Selection, Viewer};
 
 /// Selection fill. Alpha rather than an opaque box because the glyphs have to
 /// stay legible underneath it.
@@ -43,6 +44,14 @@ const HANDLE_PX: f64 = 8.0;
 /// Handle fill. Solid, unlike the annotations, so a handle reads as chrome the
 /// user can grab rather than as part of the mark.
 const HANDLE_RGB: (f64, f64, f64) = (0.10, 0.35, 0.85);
+/// Outline for a content-edit-mode text run that can be retyped.
+const CONTENT_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.55);
+/// Outline for a composite-font run: distinct colour *and* dashed, so the
+/// difference reads even to a colour-blind user — T-161's "shown
+/// distinguishable" requirement for runs `pdf-edit` will never accept an edit
+/// against.
+const COMPOSITE_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.75, 0.20, 0.20, 0.55);
+const COMPOSITE_RUN_DASH: [f64; 2] = [4.0, 3.0];
 
 /// Builds the transparent layer that paints one page's highlights and
 /// receives its drag gestures.
@@ -73,7 +82,11 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         let viewer = viewer.clone();
         // No-ops unless this drag was placing or reshaping an annotation; a
         // text selection is already complete by the time the button comes up.
-        move |_, _, _| {
+        move |gesture, offset_x, offset_y| {
+            if content_edit::mode_is_active(&viewer) {
+                content_edit::handle_drag_end(&viewer, page_index, gesture, offset_x, offset_y);
+                return;
+            }
             annotations::finish_placement(&viewer);
             annotations::finish_annotation_drag(&viewer);
         }
@@ -112,6 +125,10 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         return;
     };
     let scale = page.budget.factor;
+
+    if content_edit::mode_is_active(viewer) {
+        draw_content_run_outlines(context, page, scale);
+    }
 
     if let Some(search) = session.search.as_ref() {
         for (index, found) in search.matches.iter().enumerate() {
@@ -196,6 +213,41 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         scale,
         SELECTION_RGBA,
     );
+}
+
+/// Paints one outline per text run on `page`, while content-edit mode is on.
+///
+/// A no-op until the page's content has been parsed at least once
+/// (`content_edit::load_all_page_content` does this eagerly the moment the
+/// mode turns on) — draw funcs must not have side effects, so this never
+/// triggers the parse itself.
+fn draw_content_run_outlines(context: &cairo::Context, page: &PageSlot, scale: f64) {
+    let Some(content) = page.content.as_ref() else {
+        return;
+    };
+    for run in &content.text_runs {
+        let placed = place_rect(
+            TextRect {
+                x_pt: run.bbox.x as f32,
+                y_pt: run.bbox.y as f32,
+                width_pt: run.bbox.width as f32,
+                height_pt: run.bbox.height as f32,
+            },
+            page.height_pt,
+            scale,
+        );
+        if run.font_kind == FontKind::EmbeddedComposite {
+            let (red, green, blue, alpha) = COMPOSITE_RUN_OUTLINE_RGBA;
+            context.set_source_rgba(red, green, blue, alpha);
+            context.set_dash(&COMPOSITE_RUN_DASH, 0.0);
+        } else {
+            let (red, green, blue, alpha) = CONTENT_RUN_OUTLINE_RGBA;
+            context.set_source_rgba(red, green, blue, alpha);
+            context.set_dash(&[], 0.0);
+        }
+        context.rectangle(placed.left, placed.top, placed.width, placed.height);
+        let _ = context.stroke();
+    }
 }
 
 /// Paints one annotation from the editable model onto its page's layer.
@@ -498,6 +550,12 @@ fn fill_all(
 }
 
 fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
+    // Content-edit mode claims the whole gesture: resolution happens on
+    // `drag_end` (`content_edit::handle_drag_end`), because a content edit
+    // has no live preview to paint while the pointer is still down.
+    if content_edit::mode_is_active(viewer) {
+        return;
+    }
     // An armed creation tool claims the drag: the user is drawing an
     // annotation, not selecting text. Checked before the extraction refusal
     // below, because placing an annotation extracts nothing — a document may

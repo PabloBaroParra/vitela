@@ -136,10 +136,56 @@ ninguno de los dos.
       (sin re-render pdfium; /V + /AP se escriben al guardar). [FormUI]
 - [ ] T-143 (dep B20) Tab-order del panel = orden del FormFieldSet; foco en el input
       del panel resalta el widget correspondiente en el canvas y viceversa. [FormUI]
-- [ ] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
+- [x] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
       existente abre un editor inline que preserva fuente/tamaño/posición; los runs no
       editables por `EncodingGap` se muestran distinguibles con explicación al usuario —
       nunca un fallo silencioso ni un intento que corrompa el stream. [ContentEdit]
+      **(2026-08-14 — completo: `app/content_edit/` nuevo (mod/model/editor/command),
+      wired directo a `pdf-edit` (bypass FFI, igual que anotaciones). Un toggle "Edit
+      content" (mutuamente excluyente con las herramientas de anotación, en ambas
+      direcciones) arma el modo; el mismo `GestureDrag` por página que ya usan selección y
+      anotaciones colapsa un arrastre corto en un click (mismo umbral que T-047), que
+      hit-testea contra `PageContent` parseado on-demand vía `pdf_edit::read_page_content`
+      — síncrono, no hace falta el patrón async de `characters` porque no cruza a pdfium.
+      El editor inline es un `gtk::Entry` real como tercer hijo del `Overlay` de la página,
+      posicionado con márgenes desde `place_rect` — primer widget-sobre-coordenadas-de-página
+      del shell (todo lo demás son anotaciones pintadas, nunca widgets).
+
+      **Validar antes de grabar, no después:** al confirmar (Enter/focus-out) el shell
+      clona el `lopdf::Document` base y corre el `pdf_edit::replace_text_run` real sobre el
+      clon — la misma llamada que `pdf-save` hará de verdad al guardar — y solo si acepta
+      graba `Command::ReplaceTextRunContent` en el `EditLog`. `Command::apply` para todo
+      comando de contenido es un no-op sobre `Document` (el modelo es un snapshot, no
+      estado cacheado), así que validar solo al guardar habría hecho fallar el guardado
+      ENTERO por un solo edit malo entre varios en cola. Un `EncodingGap` o
+      `CompositeFontNotEditable` deja el editor abierto con el texto tipeado intacto — nunca
+      se pierde ni se escribe nada. Los runs de fuente compuesta (`FontKind::EmbeddedComposite`)
+      se conocen sin intentar nada (el encoder los rechaza siempre) y se pintan con contorno
+      distinguible (guiones, color distinto) apenas se arma el modo — `content_edit::
+      load_all_page_content` parsea todas las páginas de una (ya existen todos los
+      `PageSlot`, el render es lo único virtualizado) para que el contorno no dependa de
+      haber clickeado antes.
+
+      **Gap encontrado en la implementación, no en el plan original:** editar contenido de
+      página estaba gateado por el mismo permiso que anotaciones (`ANNOTATE`, bit 6 de
+      `/P`), que es el bit equivocado — el PDF distingue "modificar anotaciones" de
+      "modificar el contenido del documento" (bit 4). Se agregó
+      `pdf_manip::content_editing_is_allowed` (`core/pdf-manip/src/security.rs`, espejo
+      exacto de `annotation_editing_is_allowed`) y `ContentEditAccess` en el shell (espejo
+      de `AnnotationAccess`) para que un documento que permite anotar pero prohíbe editar
+      contenido (o al revés) no se reporte mal — la misma clase de regresión de permisos
+      que este repo ya pisó dos veces (texto en T-046, anotaciones en T-047).
+
+      **Deliberadamente diferido a T-163, no un descuido:** el WARNING de UX de re-render
+      (el canvas sigue mostrando el bitmap viejo de pdfium hasta guardar+reabrir) sigue
+      diferido acá, tal como lo deja escrito la ficha de T-163 — el status dice "pending
+      save" igual que undo/redo. Verificado: build + `clippy --workspace --all-targets -D
+      warnings` + `cargo test --workspace` en WSL, todo verde salvo un fallo preexistente
+      de `package_smoke` (hash de píxeles) ya presente en `main`, no relacionado. El binario
+      real arranca limpio bajo WSLg con el toggle nuevo construido — verificación
+      interactiva con captura de pantalla no fue posible en este entorno (la ventana WSLg
+      no es identificable por las herramientas de automatización de escritorio), así que la
+      confirmación visual completa queda pendiente de una pasada manual.)**
 - [ ] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
       handles/reemplazar (file picker)/borrar imágenes existentes — distinto del stamp de
       anotación que ya existe (T-047). [ContentEdit]

@@ -169,6 +169,12 @@ fn arm_tool(viewer: &Viewer, tool: Tool, active: bool) {
         disarm(viewer);
         return;
     }
+    if active {
+        // Mutual exclusion with content-edit mode, the other direction from
+        // `content_edit::set_mode`'s call to `disarm` — one mode claims a
+        // page click at a time.
+        crate::app::content_edit::set_mode(viewer, false);
+    }
     {
         let mut state = viewer.state.borrow_mut();
         if active {
@@ -245,7 +251,10 @@ fn text_rect_to_pdf(rect: TextRect) -> Rect {
 }
 
 /// Clears the armed tool and releases its button.
-pub(super) fn disarm(viewer: &Viewer) {
+///
+/// `pub(crate)`, not `pub(super)`: `content_edit::set_mode` also calls this,
+/// to keep an armed creation tool and content-edit mode mutually exclusive.
+pub(crate) fn disarm(viewer: &Viewer) {
     viewer.state.borrow_mut().active_tool = None;
     for (_, button) in &viewer.annotation_buttons.create {
         button.set_active(false);
