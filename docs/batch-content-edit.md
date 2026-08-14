@@ -323,9 +323,14 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
       sobrevive un `save_document` real y uno no-ASCII falla con
       `SaveError::Edit(EditError::EncodingGap)`; el fixture de imagen expone exactamente
       una `ImageItem` en el rect documentado.
-- [ ] T-160 Tests round-trip (editar → save full-rewrite → reabrir → el resto del contenido
+- [x] T-160 Tests round-trip (editar → save full-rewrite → reabrir → el resto del contenido
       es byte-idéntico donde no fue tocado) + validador Python independiente (pypdf) que
       extrae texto del output y confirma que el run editado cambió. [Parity]
+      **(2026-08-13 — completo: tests de integración en Rust sobre replace/move/resize/
+      replace de texto e imagen vía el full-rewrite de pdf-save, más un productor `#[ignore]`
+      que le pasa el PDF resultante a un validador pypdf hash-pineado (`tools/pypdf-validation`)
+      y un job de CI offline dedicado en `core.yml`. Solo tests/tooling — cero cambios de
+      producción, API, FFI o UI.)**
 
 ### Fase 6 — Docs
 - [x] T-166 README: mover "Edit PDF" de `🔮 Planned` al roadmap activo; enlazar esta ficha

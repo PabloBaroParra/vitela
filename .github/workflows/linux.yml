@@ -1,0 +1,112 @@
+name: linux
+
+# Builds the release linux-gtk binary and assembles/verifies the .deb and
+# .AppImage that scripts/package-linux.sh and scripts/verify-linux-package.sh
+# produce locally (T-053). No upload step: this proves the packages assemble,
+# contain a genuine Linux/x64/non-V8/non-XFA PDFium, and pass the offline
+# smoke render — publishing them is a separate release process.
+#
+# linux-gtk-ui.yml stays the separate headless UI-interaction suite (Xvfb,
+# gtk::test); this workflow never touches a display — verify-linux-package.sh
+# drives the packaged binary through --package-smoke, which renders without
+# GTK's event loop (see apps/linux-gtk/src/package_smoke.rs).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/linux-gtk/**"
+      - "core/**"
+      - "Cargo.lock"
+      - "scripts/package-linux.sh"
+      - "scripts/verify-linux-package.sh"
+      - ".github/workflows/linux.yml"
+  pull_request:
+    paths:
+      - "apps/linux-gtk/**"
+      - "core/**"
+      - "Cargo.lock"
+      - "scripts/package-linux.sh"
+      - "scripts/verify-linux-package.sh"
+      - ".github/workflows/linux.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-package-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Linux x86_64 .deb/.AppImage package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-package-${{ hashFiles('**/Cargo.lock') }}
+      # Same package list scripts/bootstrap-linux-package.sh installs for a
+      # local run: libgtk-4-dev for the -sys crates' pkg-config build,
+      # dpkg-dev/file/binutils for package-linux.sh's own tool checks, and
+      # libfuse2 so linuxdeploy/appimagetool's AppImage runtime can mount
+      # itself instead of failing closed with no /dev/fuse.
+      - name: Install packaging and GTK4 build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev dpkg-dev file binutils libfuse2
+      # The same pinned chromium/7763 Linux/x64 input core.yml's test job
+      # downloads for pdf-render's own tests — cached separately because this
+      # job feeds it to package-linux.sh as a raw archive, not as an
+      # extracted vendor/pdfium tree.
+      - name: Cache pinned Linux PDFium packaging input
+        id: pdfium-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/linux/tools/pdfium-linux-x64.tgz
+          key: pdfium-linux-x64-7763-package-input
+      - name: Download pinned Linux PDFium packaging input (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p build/linux/tools
+          curl -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-linux-x64.tgz" \
+            -o build/linux/tools/pdfium-linux-x64.tgz
+      - name: Download linuxdeploy and appimagetool
+        run: |
+          mkdir -p build/linux/tools
+          curl -fsSL https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+            -o build/linux/tools/linuxdeploy
+          curl -fsSL https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -o build/linux/tools/appimagetool
+          chmod +x build/linux/tools/linuxdeploy build/linux/tools/appimagetool
+      - name: Build linux-gtk (release)
+        run: cargo build --release --locked -p linux-gtk
+      # package-linux.sh re-verifies the archive's checksum, version and
+      # args.gn itself before trusting it (PDFIUM_SHA256_DEFAULT) — this step
+      # only hands it the raw inputs.
+      - name: Package .deb and .AppImage
+        env:
+          LINUXDEPLOY: ${{ github.workspace }}/build/linux/tools/linuxdeploy
+          APPIMAGETOOL: ${{ github.workspace }}/build/linux/tools/appimagetool
+          PDFIUM_ARCHIVE: ${{ github.workspace }}/build/linux/tools/pdfium-linux-x64.tgz
+        run: bash scripts/package-linux.sh
+      # verify-linux-package.sh runs the packaged binary under a bare
+      # `unshare --net` of its own (no --user/--map-root-user, see its own
+      # comments and core.yml's zero-network job) to prove the smoke render
+      # makes no network attempt, which needs the whole script to already
+      # hold the privilege that syscall requires — hence the outer sudo,
+      # same reasoning as core.yml's zero-network-enforcement job.
+      - name: Verify packaged .deb and .AppImage (offline smoke)
+        run: sudo -E env "PATH=$PATH" bash scripts/verify-linux-package.sh "$GITHUB_WORKSPACE/build/linux/packages"
