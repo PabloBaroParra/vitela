@@ -107,6 +107,12 @@ pub fn resolve_font(
     };
 
     let (widths, missing_width) = simple_widths(document, font_dict);
+    let widths = if kind == FontKind::Standard14 {
+        let base_font = resolved_name(document, font_dict, b"BaseFont").unwrap_or_default();
+        apply_standard_14_widths(widths, &base_font, &to_unicode)
+    } else {
+        widths
+    };
 
     Ok(FontInfo {
         resource_name: resource_name.to_string(),
@@ -115,6 +121,36 @@ pub fn resolve_font(
         widths,
         missing_width,
     })
+}
+
+/// Fills the gaps `simple_widths` left (there being no `/Widths` array is the
+/// common case for a Standard-14 font, which is allowed to omit one) from the
+/// real AFM metrics in [`tables::standard_14_ascii_widths`], for whichever
+/// codes decode to plain ASCII.
+///
+/// Never overrides a width the font's own `/Widths` array actually supplied
+/// — that is the document's own authoritative data and wins over a table
+/// this crate ships. Only ASCII gets filled; see the table's own doc for why.
+fn apply_standard_14_widths(
+    mut widths: Vec<Option<f64>>,
+    base_font: &str,
+    to_unicode: &[Option<char>],
+) -> Vec<Option<f64>> {
+    let Some(table) = tables::standard_14_ascii_widths(base_font) else {
+        return widths;
+    };
+    for code in 0..widths.len() {
+        if widths[code].is_some() {
+            continue;
+        }
+        let Some(character) = to_unicode[code] else {
+            continue;
+        };
+        if ('\u{20}'..='\u{7E}').contains(&character) {
+            widths[code] = Some(f64::from(table[character as usize - 0x20]));
+        }
+    }
+    widths
 }
 
 fn font_kind(document: &Document, font_dict: &Dictionary) -> FontKind {
@@ -344,6 +380,69 @@ mod tests {
     }
 
     #[test]
+    fn standard14_widths_come_from_the_real_afm_metrics_not_a_flat_fallback() {
+        let font = resolve_in(helvetica());
+        let i_width = font.width_of(&font.encode("i").expect("ascii"));
+        let m_width = font.width_of(&font.encode("m").expect("ascii"));
+
+        // Real Helvetica: 'i' is narrow (222/1000em), 'm' is wide (833/1000em).
+        // The old flat fallback reported both alike, at 500/1000em.
+        assert!((i_width - 0.222).abs() < 1e-9);
+        assert!((m_width - 0.833).abs() < 1e-9);
+        assert!(i_width < m_width);
+    }
+
+    /// The font's own `/Widths` array is the document's authoritative data
+    /// and must win over the table this crate ships.
+    #[test]
+    fn a_documents_own_widths_array_is_never_overridden() {
+        let font = dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+            "Encoding" => "WinAnsiEncoding",
+            "FirstChar" => 105, // 'i'
+            "LastChar" => 105,
+            "Widths" => vec![999.into()],
+        };
+        let resolved = resolve_in(font);
+        let width = resolved.width_of(&resolved.encode("i").expect("ascii"));
+
+        assert!((width - 0.999).abs() < 1e-9);
+    }
+
+    #[test]
+    fn courier_is_flat_600_per_glyph() {
+        let font = dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Courier",
+            "Encoding" => "WinAnsiEncoding",
+        };
+        let resolved = resolve_in(font);
+        let narrow = resolved.width_of(&resolved.encode("i").expect("ascii"));
+        let wide = resolved.width_of(&resolved.encode("m").expect("ascii"));
+
+        assert_eq!(narrow, wide, "Courier is monospaced");
+        assert!((narrow - 0.6).abs() < 1e-9);
+    }
+
+    /// Embedded fonts have their own `/Widths` semantics; the Standard-14
+    /// AFM table must never kick in for them, standard-14-named or not.
+    #[test]
+    fn a_non_standard14_font_keeps_the_generic_fallback() {
+        let font = dictionary! {
+            "Subtype" => "Type1",
+            "BaseFont" => "ABCDEF+Helvetica",
+            "Encoding" => "WinAnsiEncoding",
+        };
+        let resolved = resolve_in(font);
+        let width = resolved.width_of(&resolved.encode("i").expect("ascii"));
+
+        assert!((width - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
     fn winansi_encodes_latin1_accents() {
         assert_eq!(
             resolve_in(helvetica()).encode("café").expect("latin-1"),
@@ -493,7 +592,13 @@ mod tests {
         };
         assert!((resolve_in(with_descriptor).width_of(b"AB") - 0.5).abs() < 1e-9);
 
-        assert!((resolve_in(helvetica()).width_of(b"AB") - 1.0).abs() < 1e-9);
+        // Standard-14 ASCII now comes from the real AFM table (see
+        // `standard14_widths_come_from_the_real_afm_metrics_not_a_flat_fallback`),
+        // but the half-em fallback still applies outside that table's ASCII
+        // scope — an accented character, here.
+        let helvetica = resolve_in(helvetica());
+        let accented = helvetica.encode("é").expect("winansi covers this");
+        assert!((helvetica.width_of(&accented) - 0.5).abs() < 1e-9);
     }
 
     /// A documented v1 limitation, pinned by a test so it is a decision and

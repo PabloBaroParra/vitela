@@ -192,7 +192,9 @@ pub fn stored_stream_bytes(document: &Document, contents_id: ObjectId) -> Vec<u8
 }
 
 /// `/F1` is Helvetica with WinAnsi codes and no `/Widths` — the standard-14
-/// case, where advances come from this crate's fallback.
+/// case, where ASCII advances come from this crate's built-in AFM widths
+/// (`encoding::tables::standard_14_ascii_widths`) rather than a flat
+/// fallback.
 pub fn helvetica_resources() -> Dictionary {
     dictionary! {
         "Font" => dictionary! {
