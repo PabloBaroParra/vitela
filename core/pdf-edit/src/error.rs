@@ -45,6 +45,13 @@ pub enum EditError {
     FontResourceMissing { resource_font_name: String },
     /// Image bytes could not be decoded as a supported format (PNG/JPEG).
     InvalidImage(String),
+    /// An existing image's stream is encoded in a way
+    /// [`crate::image_source_bytes`] cannot read back — a `/ColorSpace` or
+    /// bit depth beyond 8-bit `DeviceGray`/`DeviceRGB`, an `/SMask` that does
+    /// not match its base image, or a filter beyond `DCTDecode`/
+    /// `FlateDecode`/`LZWDecode`/`ASCII85Decode`. Replacing this image is
+    /// refused rather than recorded without a way for undo to restore it.
+    ImageSourceNotRecoverable { resource_xobject_name: String },
     /// A new resource was asked to be registered under a name the page
     /// already uses for a different object. Overwriting it would silently
     /// repaint every other operator on the page that names it.
@@ -116,6 +123,13 @@ impl fmt::Display for EditError {
                 write!(f, "font resource {resource_font_name} is missing")
             }
             EditError::InvalidImage(msg) => write!(f, "invalid image bytes: {msg}"),
+            EditError::ImageSourceNotRecoverable {
+                resource_xobject_name,
+            } => write!(
+                f,
+                "image {resource_xobject_name} is encoded in a way this version cannot read \
+                 back, so replacing it cannot be undone safely"
+            ),
             EditError::ResourceNameInUse { category, name } => write!(
                 f,
                 "the page already has a /{category} resource named {name}, and \

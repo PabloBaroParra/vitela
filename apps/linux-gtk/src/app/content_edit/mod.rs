@@ -1,6 +1,6 @@
 //! Content-edit mode: click an existing text run to retype it in place,
 //! preserving its font, size, and position (T-161); select, move, resize,
-//! and delete an existing page image (T-162 Slice 1).
+//! delete, and replace-via-file-picker an existing page image (T-162).
 //!
 //! Wires `core/pdf-edit` (Batch 21's content-stream editor) into this shell
 //! directly, the same bypass-`pdf-ffi` posture `annotations` already has.
@@ -15,7 +15,8 @@
 //!   document's `EditLog`.
 //! - [`editor`] is the inline `Entry` lifecycle for a text run: open, commit,
 //!   cancel.
-//! - [`image`] is the select/move/resize/delete lifecycle for an image.
+//! - [`image`] is the select/move/resize/delete/replace lifecycle for an
+//!   image.
 //!
 //! This module owns the mode toggle and the gesture dispatch that decides
 //! whether a page click is a content edit at all, and — since T-162 — which

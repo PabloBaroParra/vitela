@@ -52,6 +52,10 @@ pub(crate) struct Viewer {
     /// Sensitivity is owned by `update_content_edit_controls`, the
     /// content-edit twin of `annotations::toolbar::update_annotation_controls`.
     pub(crate) delete_image_button: Button,
+    /// Opens a file picker and swaps the selected image's bytes (T-162
+    /// Slice 2). Sensitivity is owned by `update_content_edit_controls`
+    /// alongside `delete_image_button` — the same selection gates both.
+    pub(crate) replace_image_button: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 

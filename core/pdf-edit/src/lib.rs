@@ -48,7 +48,8 @@ pub mod parse;
 mod fixture;
 
 pub use edit::{
-    move_image, remove_image, remove_text_run, replace_image_source, replace_text_run, resize_image,
+    image_source_bytes, move_image, remove_image, remove_text_run, replace_image_source,
+    replace_text_run, resize_image,
 };
 pub use error::EditError;
 pub use insert::{insert_image, insert_text_run};
