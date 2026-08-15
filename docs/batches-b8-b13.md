@@ -196,9 +196,64 @@ ninguno de los dos.
       llegar al `Entry` con foco — no reproducible con teclas reales sueltas, y probablemente
       afecta cualquier `Entry` de la app (incluida la búsqueda), no algo que este batch haya
       introducido; queda para revisar aparte, no bloquea T-161.)**
-- [ ] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
+- [x] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
       handles/reemplazar (file picker)/borrar imágenes existentes — distinto del stamp de
       anotación que ya existe (T-047). [ContentEdit]
+      **Slice 1 (PR #76, mergeado 2026-08-15):** select/move/resize/delete, reusando el
+      module split y la postura validate-before-record de T-161 (`content_edit::image`
+      es el twin de `annotations::gesture`, `geometry.rs` un fork deliberado del de
+      anotaciones — las imágenes son contenido de página, no `document.annotations`).
+      Dos bugs de correctness encontrados y cerrados antes de mergear: (1) `finish_image_drag`/
+      `delete_selected` no refrescaban el snapshot cacheado de la imagen tras un commit
+      exitoso — como `replay_content_edits` (`core/pdf-save/src/content.rs`) resuelve los
+      comandos en cola secuencialmente contra estado progresivamente mutado, un segundo
+      edit sobre la misma imagen aún seleccionada quedaba con el bbox pre-edit y fallaba a
+      resolver en el save, tumbando el save ENTERO. Se agregó
+      `command::image_already_edited` como guardia: rechaza un segundo edit sobre una
+      imagen que ya tiene un comando en el `EditLog`, con mensaje claro ("save and reopen
+      before editing it again") en vez de dejar que llegue al save. (2)
+      `begin_image_drag` no llamaba `editor::commit` antes de fijar `selected_image`,
+      rompiendo la exclusión mutua con el editor de texto inline.
+      **Slice 2 (esta sesión, 2026-08-15):** reemplazar imagen vía file picker.
+      `Command::ReplaceImageSource` ya existía completo en el core desde T-150/T-154
+      (`core/pdf-document/src/edit_log.rs`, `core/pdf-edit/src/edit.rs::replace_image_source`,
+      replay en `core/pdf-save/src/content.rs`) — lo único que faltaba era la UI del shell.
+      **Gap real encontrado, no solo wiring:** `Command::ReplaceImageSource.before: Vec<u8>`
+      tiene que ser bytes que `pdf_edit::replace_image_source` pueda decodificar de nuevo
+      (`image::load_from_memory`, vía `insert::image_xobject`) porque `inverse()` reusa el
+      mismo camino forward con `before`/`after` invertidos — y los bytes crudos del XObject
+      actual (`FlateDecode` de samples `DeviceRGB`/`DeviceGray`, sin cabecera de archivo) NO
+      son ese formato. Se agregó `pdf_edit::image_source_bytes` (nueva función pública,
+      `core/pdf-edit/src/edit.rs`) que lee el stream de la imagen actual — soporta
+      `DCTDecode` (JPEG, bytes ya reutilizables tal cual) y muestras de 8 bits
+      `DeviceGray`/`DeviceRGB` (sin filtro, o `FlateDecode`/`LZWDecode`/`ASCII85Decode`),
+      con `/SMask` opcional para alpha — y las re-codifica como PNG. Cualquier otra cosa
+      (`Indexed`, `DeviceCMYK`, >8 bpc, `CCITTFaxDecode`, `JBIG2Decode`, `JPXDecode`, un
+      `/SMask` que no matchea) se rechaza con el nuevo `EditError::ImageSourceNotRecoverable`
+      — misma postura que `EncodingGap` para texto: nunca se adivina, se rechaza el replace
+      entero antes de escribir nada en vez de grabar un comando que el undo no podría
+      restaurar. **El criterio de "soportado" no es "puedo leer estos bytes" sino "¿el undo
+      restaura la MISMA imagen?"**, porque el `before` vuelve por
+      `replace_image_source`/`insert::image_xobject`: por eso el Code Review agregó tres
+      rechazos más que faltaban y habrían corrompido en silencio — un `/SMask` sobre un
+      stream `DCTDecode` (un JPEG no tiene canal alpha propio, así que devolver el JPEG solo
+      hacía que el undo restaurara la imagen opaca), un `/Decode` (remapea cada muestra:
+      `[1 0 1 0 1 0]` pinta invertido, y el PNG re-codificado no lo registra) y un `/Mask`
+      (transparencia stencil/color-key que las muestras no cargan). Además el read-back
+      ahora exige que cada plano traiga exactamente `width*height*components` muestras
+      (antes el plano del `/SMask` no se verificaba), valida `/Width`x`/Height` como
+      positivos y dentro de `u32` con aritmética chequeada (un `/Width` negativo daba la
+      vuelta en el cast y podía desbordar el conteo de muestras), y decodifica con techo
+      derivado de esas dimensiones en vez del read sin límite de `get_plain_content` —
+      misma postura anti-bomba que `parse::filter`'s `MAX_PAGE_CONTENT_BYTES`.
+      El shell (`content_edit::command::current_source_bytes`/`validate_replace`,
+      `content_edit::image::replace_selected`/`apply_replacement`) reusa exactamente la
+      guardia `image_already_edited` del Slice 1 y el patrón take-then-put-back de
+      `delete_selected`. Botón "Replace image" nuevo junto a "Delete image", mismo gate de
+      sensibilidad. `pdf-edit`/`pdf-document`/`pdf-save` (crates cross-platform, sin gate de
+      `target_os`) build+test+clippy verdes en Windows; el shell `linux-gtk` en sí queda sin
+      verificar localmente por la misma razón de siempre (no compila fuera de Linux) —
+      pendiente de CI.
 - [ ] T-163 (dep B21) Insertar texto/imagen nuevos como contenido de página real; y el
       ciclo save→reopen→re-render obligatorio tras cualquier commit de edición de contenido
       — acá el WARNING de UX diferido en T-046/T-047 deja de ser diferible: es el camino

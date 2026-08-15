@@ -72,6 +72,37 @@ pub(super) fn validate_remove(
     Ok(())
 }
 
+/// Attempts swapping `item`'s bytes for `after` against the real `pdf-edit`
+/// call — the image-source twin of [`validate_move`], same probe-clone
+/// contract.
+pub(super) fn validate_replace(
+    base: &lopdf::Document,
+    page_index: usize,
+    item: &ImageItem,
+    after: &[u8],
+) -> Result<(), EditError> {
+    let mut probe = base.clone();
+    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    pdf_edit::replace_image_source(&mut probe, page_object, item, after)?;
+    Ok(())
+}
+
+/// Reads back `item`'s current bytes, so a replace can carry them as
+/// `Command::ReplaceImageSource`'s `before` — the only way undo can restore
+/// the image being overwritten. Refuses with `EditError::
+/// ImageSourceNotRecoverable` for an encoding `pdf-edit` cannot read back
+/// (see [`pdf_edit::image_source_bytes`]'s own doc for exactly which ones),
+/// which this module's caller turns into refusing the whole replace rather
+/// than recording a command undo could never restore.
+pub(super) fn current_source_bytes(
+    base: &lopdf::Document,
+    page_index: usize,
+    item: &ImageItem,
+) -> Result<Vec<u8>, EditError> {
+    let page_object = pdf_edit::page_object_id(base, PageId(page_index as u32))?;
+    pdf_edit::image_source_bytes(base, page_object, item)
+}
+
 /// Whether `item` already has a content command recorded against it in
 /// `document`'s `EditLog`.
 ///
@@ -234,6 +265,56 @@ mod tests {
         let item = first_image(&base);
 
         let error = validate_remove(&base, 3, &item).expect_err("page 3 does not exist");
+        assert_eq!(error, EditError::PageNotFound(PageId(3)));
+    }
+
+    // --- validate_replace / current_source_bytes --------------------------
+
+    #[test]
+    fn a_representable_replace_validates_successfully() {
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = first_image(&base);
+
+        assert!(validate_replace(
+            &base,
+            0,
+            &item,
+            &gen_fixtures::content_edit::replacement_image_png_bytes()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn a_replace_against_a_page_index_with_no_page_is_refused() {
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = first_image(&base);
+
+        let error = validate_replace(
+            &base,
+            3,
+            &item,
+            &gen_fixtures::content_edit::replacement_image_png_bytes(),
+        )
+        .expect_err("page 3 does not exist");
+        assert_eq!(error, EditError::PageNotFound(PageId(3)));
+    }
+
+    #[test]
+    fn current_source_bytes_reads_back_the_images_current_bytes() {
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = first_image(&base);
+
+        let bytes = current_source_bytes(&base, 0, &item).expect("recoverable fixture image");
+
+        assert!(image::load_from_memory(&bytes).is_ok());
+    }
+
+    #[test]
+    fn current_source_bytes_against_a_page_index_with_no_page_is_refused() {
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = first_image(&base);
+
+        let error = current_source_bytes(&base, 3, &item).expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 

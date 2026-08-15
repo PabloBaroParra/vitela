@@ -13,6 +13,8 @@
 //! actual unit tests, so the logic is exercised without needing a live GTK
 //! display.
 
+use gtk::prelude::*;
+use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
 use pdf_document::{Command, ImageItem, Rect};
 
 use crate::app::selection;
@@ -351,6 +353,156 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
         Ok(()) => viewer
             .status
             .set_text("Image deleted. Changes are pending save."),
+        Err(error) => viewer.status.set_text(&error),
+    }
+    update_content_edit_controls(viewer);
+    selection::redraw(viewer);
+}
+
+/// Opens a file picker and swaps the selected image's bytes for the picked
+/// file's contents (T-162 Slice 2) — the file-picker counterpart to
+/// `delete_selected`.
+///
+/// Split in two because the picker itself is asynchronous: this half only
+/// checks preconditions and opens it, so a refusal or an empty selection
+/// never shows a dialog the click could not have acted on anyway.
+/// [`apply_replacement`] does the actual validate-then-record work once the
+/// picked file's bytes are in hand.
+pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
+    if let Some(refusal) = viewer.content_edit_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
+    let has_selection = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .is_some_and(|session| session.selected_image.is_some());
+    if !has_selection {
+        return;
+    }
+
+    let filter = FileFilter::new();
+    filter.set_name(Some("Image files"));
+    filter.add_mime_type("image/png");
+    filter.add_mime_type("image/jpeg");
+    filter.add_pattern("*.png");
+    filter.add_pattern("*.PNG");
+    filter.add_pattern("*.jpg");
+    filter.add_pattern("*.JPG");
+    filter.add_pattern("*.jpeg");
+    filter.add_pattern("*.JPEG");
+
+    let chooser = FileDialog::builder()
+        .title("Replace image")
+        .accept_label("Replace")
+        .default_filter(&filter)
+        .build();
+    chooser.open(Some(window), None::<&gio::Cancellable>, {
+        let viewer = viewer.clone();
+        move |result| {
+            let Ok(file) = result else {
+                return;
+            };
+            let Some(path) = file.path() else {
+                viewer
+                    .status
+                    .set_text("The selected location is not a local file.");
+                return;
+            };
+            match std::fs::read(&path) {
+                Ok(bytes) => apply_replacement(&viewer, bytes),
+                Err(error) => viewer
+                    .status
+                    .set_text(&format!("Could not read {}: {error}", path.display())),
+            }
+        }
+    });
+}
+
+/// Validates and records `after` as the selected image's new source, once
+/// [`replace_selected`]'s file dialog has resolved.
+///
+/// Mirrors `delete_selected`'s take-then-put-back shape: a refusal — the
+/// selection changed while the dialog was open, the image already has a
+/// pending edit, its current bytes cannot be read back for undo, or `after`
+/// is not decodable — leaves the selection exactly as it was rather than
+/// dropping it silently.
+fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
+    if let Some(refusal) = viewer.content_edit_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
+
+    let result = {
+        let mut state = viewer.state.borrow_mut();
+        let Some(session) = state.session.as_mut() else {
+            return;
+        };
+        let Some(selected) = session.selected_image.take() else {
+            return;
+        };
+        let Some(base) = session
+            .save_backing
+            .as_ref()
+            .map(|backing| backing.base.as_lopdf())
+        else {
+            return;
+        };
+        let document = session
+            .document_model
+            .as_mut()
+            .expect("content_edit_refusal already required a model");
+
+        if command::image_already_edited(document, &selected.item) {
+            // Same reason `finish_image_drag` refuses this — see its
+            // comment: a command carrying the pre-edit snapshot of an image
+            // that already has a queued edit would fail to resolve at save
+            // time and take the whole save down with it.
+            session.selected_image = Some(selected);
+            Err(
+                "This image already has a pending edit — save and reopen before editing it \
+                 again."
+                    .to_string(),
+            )
+        } else {
+            // `before` has to come from the *original* bytes, read back
+            // through `pdf-edit` before anything is written — it is the only
+            // way undo can ever restore this image, so an encoding it cannot
+            // read back refuses the whole replace rather than recording a
+            // command undo could never resolve.
+            let recorded = command::current_source_bytes(base, selected.page_index, &selected.item)
+                .and_then(|before| {
+                    command::validate_replace(base, selected.page_index, &selected.item, &after)
+                        .map(|()| before)
+                });
+            match recorded {
+                Ok(before) => {
+                    command::apply_command(
+                        document,
+                        Command::ReplaceImageSource {
+                            item: selected.item.clone(),
+                            before,
+                            after,
+                        },
+                    );
+                    session.edit_revision += 1;
+                    session.selected_image = Some(selected);
+                    Ok(())
+                }
+                Err(error) => {
+                    session.selected_image = Some(selected);
+                    Err(error.to_string())
+                }
+            }
+        }
+    };
+
+    match result {
+        Ok(()) => viewer
+            .status
+            .set_text("Image replaced. Changes are pending save."),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);

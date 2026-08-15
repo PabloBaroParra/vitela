@@ -192,9 +192,14 @@ fn build_ui(application: &Application) -> BuiltUi {
     // reason the annotation toolbar's own Delete lives in its own row.
     let delete_image_button = Button::with_label("Delete image");
     delete_image_button.set_sensitive(false);
+    // Same row, same gate (T-162 Slice 2): a file-picker swap needs exactly
+    // the selection Delete does.
+    let replace_image_button = Button::with_label("Replace image");
+    replace_image_button.set_sensitive(false);
     let content_edit_row = GtkBox::new(Orientation::Horizontal, 8);
     content_edit_row.append(&content_edit_button);
     content_edit_row.append(&delete_image_button);
+    content_edit_row.append(&replace_image_button);
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
@@ -250,6 +255,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         annotation_buttons: annotation_toolbar,
         content_edit_button,
         delete_image_button,
+        replace_image_button,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,
@@ -266,6 +272,11 @@ fn build_ui(application: &Application) -> BuiltUi {
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| content_edit::image::delete_selected(&viewer)
+    });
+    viewer.replace_image_button.connect_clicked({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_| content_edit::image::replace_selected(&window, &viewer)
     });
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
@@ -387,19 +398,21 @@ fn connect_standard_shortcuts(
     application.set_accels_for_action("win.new", &["<Control>n"]);
 }
 
-/// Whether the "Delete image" control is usable, and applies it — the
-/// content-edit twin of `annotations::toolbar::update_annotation_controls`,
-/// scoped to T-162 Slice 1's one button.
+/// Whether the "Delete image" and "Replace image" controls are usable, and
+/// applies it — the content-edit twin of
+/// `annotations::toolbar::update_annotation_controls`, scoped to T-162's two
+/// selection-gated buttons.
 ///
 /// Called wherever `update_annotation_controls` already is (document
 /// open/close, content-edit mode toggle) plus after every image
-/// select/deselect/delete inside `content_edit::image`.
+/// select/deselect/delete/replace inside `content_edit::image`.
 pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
     let enabled = state.session.as_ref().is_some_and(|session| {
         session.content_edit_access.refusal().is_none() && session.selected_image.is_some()
     });
     viewer.delete_image_button.set_sensitive(enabled);
+    viewer.replace_image_button.set_sensitive(enabled);
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {
