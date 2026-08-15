@@ -187,6 +187,14 @@ fn build_ui(application: &Application) -> BuiltUi {
     // `annotations::toolbar::arm_tool`), so it reads as a sibling mode rather
     // than an eighth annotation type.
     let content_edit_button = content_edit::build_toggle();
+    // Beside the mode toggle rather than in the main toolbar: it only ever
+    // acts on content-edit mode's own selection (T-162 Slice 1), the same
+    // reason the annotation toolbar's own Delete lives in its own row.
+    let delete_image_button = Button::with_label("Delete image");
+    delete_image_button.set_sensitive(false);
+    let content_edit_row = GtkBox::new(Orientation::Horizontal, 8);
+    content_edit_row.append(&content_edit_button);
+    content_edit_row.append(&delete_image_button);
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
@@ -212,7 +220,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     content.set_margin_end(12);
     content.append(&toolbar);
     content.append(&annotation_row);
-    content.append(&content_edit_button);
+    content.append(&content_edit_row);
     content.append(&status);
     content.append(&page_area);
     window.set_child(Some(&content));
@@ -241,6 +249,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         redo_action,
         annotation_buttons: annotation_toolbar,
         content_edit_button,
+        delete_image_button,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,
@@ -254,6 +263,10 @@ fn build_ui(application: &Application) -> BuiltUi {
     connect_search(&viewer);
     annotations::connect_annotation_toolbar(&viewer);
     content_edit::connect_toggle(&viewer);
+    viewer.delete_image_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| content_edit::image::delete_selected(&viewer)
+    });
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);
@@ -372,6 +385,21 @@ fn connect_standard_shortcuts(
     });
     window.add_action(&new);
     application.set_accels_for_action("win.new", &["<Control>n"]);
+}
+
+/// Whether the "Delete image" control is usable, and applies it — the
+/// content-edit twin of `annotations::toolbar::update_annotation_controls`,
+/// scoped to T-162 Slice 1's one button.
+///
+/// Called wherever `update_annotation_controls` already is (document
+/// open/close, content-edit mode toggle) plus after every image
+/// select/deselect/delete inside `content_edit::image`.
+pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
+    let state = viewer.state.borrow();
+    let enabled = state.session.as_ref().is_some_and(|session| {
+        session.content_edit_access.refusal().is_none() && session.selected_image.is_some()
+    });
+    viewer.delete_image_button.set_sensitive(enabled);
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {

@@ -8,7 +8,7 @@
 //! `pdf-document`/`pdf-edit` values only, no GTK — same posture as
 //! `annotations::geometry`.
 
-use pdf_document::{PageContent, PageId, TextRun};
+use pdf_document::{ImageItem, PageContent, PageId, Rect, TextRun};
 use pdf_edit::EditError;
 
 /// Returns the content cached in `cache`, parsing `page_index` from `base`
@@ -39,25 +39,51 @@ pub(crate) fn text_run_at(content: &PageContent, point: (f32, f32)) -> Option<&T
     content
         .text_runs
         .iter()
-        .filter(|run| rect_contains(run, point))
-        .min_by(|a, b| bbox_area(a).partial_cmp(&bbox_area(b)).unwrap())
+        .filter(|run| rect_contains(&run.bbox, point))
+        .min_by(|a, b| bbox_area(&a.bbox).partial_cmp(&bbox_area(&b.bbox)).unwrap())
 }
 
-fn rect_contains(run: &TextRun, (x, y): (f32, f32)) -> bool {
-    let rect = &run.bbox;
+/// The image whose bounding box contains `point` (in PDF page space), or
+/// `None` if it lands outside every image on the page. Sibling of
+/// [`text_run_at`], same smallest-bbox tie-break: content-edit mode is about
+/// picking out one item to act on, and the smaller of two overlapping items
+/// is the more specific — and therefore more likely intended — target.
+pub(crate) fn image_at(content: &PageContent, point: (f32, f32)) -> Option<&ImageItem> {
+    content
+        .images
+        .iter()
+        .filter(|image| rect_contains(&image.bbox, point))
+        .min_by(|a, b| bbox_area(&a.bbox).partial_cmp(&bbox_area(&b.bbox)).unwrap())
+}
+
+fn rect_contains(rect: &Rect, (x, y): (f32, f32)) -> bool {
     let x = f64::from(x);
     let y = f64::from(y);
     x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 }
 
-fn bbox_area(run: &TextRun) -> f64 {
-    run.bbox.width * run.bbox.height
+fn bbox_area(rect: &Rect) -> f64 {
+    rect.width * rect.height
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use pdf_document::{annotation::Rect, ContentItemId, FontKind};
+
+    fn image(id: u64, x: f64, y: f64, width: f64, height: f64) -> ImageItem {
+        ImageItem {
+            id: ContentItemId(id),
+            page: PageId(0),
+            bbox: Rect {
+                x,
+                y,
+                width,
+                height,
+            },
+            resource_xobject_name: "Im1".to_string(),
+        }
+    }
 
     fn run(id: u64, x: f64, y: f64, width: f64, height: f64) -> TextRun {
         TextRun {
@@ -110,6 +136,62 @@ mod tests {
 
         let found = text_run_at(&content, (55.0, 55.0)).expect("point is inside both bboxes");
         assert_eq!(found.id, ContentItemId(2));
+    }
+
+    #[test]
+    fn a_click_inside_an_images_bbox_finds_it() {
+        let content = PageContent {
+            text_runs: Vec::new(),
+            images: vec![image(1, 100.0, 600.0, 80.0, 40.0)],
+        };
+
+        let found = image_at(&content, (140.0, 620.0)).expect("point is inside the bbox");
+        assert_eq!(found.id, ContentItemId(1));
+    }
+
+    #[test]
+    fn a_click_outside_every_images_bbox_finds_nothing() {
+        let content = PageContent {
+            text_runs: Vec::new(),
+            images: vec![image(1, 100.0, 600.0, 80.0, 40.0)],
+        };
+
+        assert!(image_at(&content, (0.0, 0.0)).is_none());
+    }
+
+    /// Two images overlap (e.g. a placeholder painted under a real photo).
+    /// The smaller one is the more specific target.
+    #[test]
+    fn overlapping_images_the_smaller_bbox_wins() {
+        let content = PageContent {
+            text_runs: Vec::new(),
+            images: vec![
+                image(1, 0.0, 0.0, 200.0, 200.0),
+                image(2, 50.0, 50.0, 20.0, 20.0),
+            ],
+        };
+
+        let found = image_at(&content, (55.0, 55.0)).expect("point is inside both bboxes");
+        assert_eq!(found.id, ContentItemId(2));
+    }
+
+    #[test]
+    fn image_at_reads_a_real_fixture_document_and_finds_the_right_image() {
+        let base = gen_fixtures::content_edit::build_roundtrip_image_page_document();
+        let content = pdf_edit::read_page_content(&base, PageId(0)).expect("page 0 parses");
+
+        let found = image_at(&content, (110.0, 610.0)).expect("point is inside the target image");
+        assert_eq!(
+            found.resource_xobject_name,
+            gen_fixtures::content_edit::TARGET_IMAGE_RESOURCE_NAME
+        );
+
+        // The control image, painted elsewhere on the page, must not be hit
+        // by a click aimed at the target.
+        assert_ne!(
+            found.resource_xobject_name,
+            gen_fixtures::content_edit::CONTROL_IMAGE_RESOURCE_NAME
+        );
     }
 
     #[test]

@@ -1,21 +1,30 @@
 //! Content-edit mode: click an existing text run to retype it in place,
-//! preserving its font, size, and position (T-161).
+//! preserving its font, size, and position (T-161); select, move, resize,
+//! and delete an existing page image (T-162 Slice 1).
 //!
 //! Wires `core/pdf-edit` (Batch 21's content-stream editor) into this shell
 //! directly, the same bypass-`pdf-ffi` posture `annotations` already has.
 //! Split by responsibility, mirroring `annotations`:
 //!
 //! - [`model`] loads a page's parsed content on first need and hit-tests a
-//!   click against its text runs — pure functions, no GTK.
-//! - [`command`] validates a replacement against the real font encoder
-//!   *before* recording it, then records it in the document's `EditLog`.
-//! - [`editor`] is the inline `Entry` lifecycle: open, commit, cancel.
+//!   click against its text runs and images — pure functions, no GTK.
+//! - [`geometry`] is the image drag/handle pointer maths — pure functions
+//!   over rects and points, the image twin of `annotations::geometry`.
+//! - [`command`] validates a text or image change against the real
+//!   `pdf-edit` call *before* recording it, then records it in the
+//!   document's `EditLog`.
+//! - [`editor`] is the inline `Entry` lifecycle for a text run: open, commit,
+//!   cancel.
+//! - [`image`] is the select/move/resize/delete lifecycle for an image.
 //!
 //! This module owns the mode toggle and the gesture dispatch that decides
-//! whether a page click is a content edit at all.
+//! whether a page click is a content edit at all, and — since T-162 — which
+//! of a text run or an image it targets.
 
 mod command;
 mod editor;
+pub(crate) mod geometry;
+pub(crate) mod image;
 mod model;
 
 use gtk::prelude::*;
@@ -71,8 +80,9 @@ pub(crate) fn mode_is_active(viewer: &Viewer) -> bool {
 /// turning this on disarms whatever tool was armed
 /// (`annotations::toolbar::disarm`), and `arm_tool` calls back in here to
 /// turn this off — one mode claims a page click at a time. Turning it off
-/// also resolves (commits) whatever inline editor is open, the same way
-/// switching documents or clicking a different run does.
+/// also resolves (commits) whatever inline text editor is open and clears
+/// any selected image (T-162), the same way switching documents or clicking
+/// a different run/image does.
 pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
     {
         let mut state = viewer.state.borrow_mut();
@@ -90,9 +100,42 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
             .set_text("Edit content armed — click a text run to retype it.");
     } else {
         editor::commit(viewer);
+        clear_selected_image(viewer);
         viewer.status.set_text("Edit content disarmed.");
     }
+    crate::app::update_content_edit_controls(viewer);
     redraw(viewer);
+}
+
+/// Clears whatever image is selected (and any drag in flight), if any —
+/// the T-162 twin of `editor::commit`'s own resolve-and-close, but an image
+/// selection has nothing to validate on the way out, only to drop.
+fn clear_selected_image(viewer: &Viewer) {
+    let mut state = viewer.state.borrow_mut();
+    if let Some(session) = state.session.as_mut() {
+        session.selected_image = None;
+        session.image_drag = None;
+    }
+}
+
+/// Delegates a page's drag-begin to the image gesture (T-162): an image
+/// press is live-claimed here, at press time, rather than deferred to
+/// `drag_end` the way a text-run click still is — mirrors
+/// `annotations::gesture::begin_annotation_drag`'s own timing. Returns
+/// whether an image claimed the press.
+pub(crate) fn begin_drag(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    reach: f64,
+) -> bool {
+    image::begin_image_drag(viewer, page_index, point, reach)
+}
+
+/// Delegates a page's drag-update to the image gesture. Returns whether an
+/// image drag was in flight.
+pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
+    image::extend_image_drag(viewer, point)
 }
 
 /// Eagerly parses every page's content once content-edit mode turns on, so
@@ -123,10 +166,16 @@ fn load_all_page_content(viewer: &Viewer) {
     }
 }
 
-/// The content-edit half of a page's drag gesture: claims the whole gesture
-/// while the mode is on, and resolves it as a click on `drag_end` — content
-/// edits have no live preview to paint while the pointer is still down, so
-/// there is nothing useful to do before then.
+/// The content-edit half of a page's drag gesture.
+///
+/// Tries [`image::finish_image_drag`] first (T-162): if an image drag was in
+/// flight — claimed back at `begin_drag` — it validates and records
+/// whatever the drag did (or nothing, for a click that only selected the
+/// image) and this function stops, never touching the text-run editor
+/// below. Only when no image drag existed does this fall through to the
+/// original T-161 behaviour: a text-run edit has no live preview to paint
+/// while the pointer is down, so it claims the whole gesture and resolves it
+/// as a click here, on `drag_end`.
 pub(crate) fn handle_drag_end(
     viewer: &Viewer,
     page_index: usize,
@@ -134,6 +183,10 @@ pub(crate) fn handle_drag_end(
     offset_x: f64,
     offset_y: f64,
 ) {
+    if image::finish_image_drag(viewer) {
+        return;
+    }
+
     if offset_x.abs() >= CLICK_EPSILON_PX || offset_y.abs() >= CLICK_EPSILON_PX {
         // A real drag in content-edit mode targets nothing — resolve whatever
         // was already open and stop, rather than leaving it stranded.
