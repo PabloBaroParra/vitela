@@ -869,6 +869,8 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             placement: None,
             annotation_drag: None,
             content_editor: None,
+            selected_image: None,
+            image_drag: None,
             physical_width: fit.available_width,
             physical_height: fit.available_height,
             scale_factor: fit.scale_factor,
@@ -889,6 +891,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     update_search_controls(viewer);
     super::annotations::update_annotation_controls(viewer);
     super::content_edit::update_controls(viewer);
+    super::update_content_edit_controls(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
     // A document with no pages leaves the page area empty, so the mark stays
     // up — the same call the WinUI shell makes when it re-shows its empty

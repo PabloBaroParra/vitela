@@ -17,7 +17,7 @@ use pdf_render::{
 
 use super::annotations;
 use super::content_edit;
-use super::state::{PageSlot, Selection, Viewer};
+use super::state::{DocumentSession, PageSlot, Selection, Viewer};
 
 /// Selection fill. Alpha rather than an opaque box because the glyphs have to
 /// stay legible underneath it.
@@ -52,6 +52,13 @@ const CONTENT_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.55);
 /// against.
 const COMPOSITE_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.75, 0.20, 0.20, 0.55);
 const COMPOSITE_RUN_DASH: [f64; 2] = [4.0, 3.0];
+/// Outline for a page image in content-edit mode (T-162) — distinct from
+/// the text-run outline colours so the two item kinds read as different
+/// things.
+const CONTENT_IMAGE_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.55);
+/// The selected image's outline/handles, brighter than an unselected one —
+/// same posture as `SELECTED_ANNOTATION_ALPHA` vs `ANNOTATION_ALPHA`.
+const SELECTED_CONTENT_IMAGE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.85);
 
 /// Builds the transparent layer that paints one page's highlights and
 /// receives its drag gestures.
@@ -128,6 +135,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
 
     if content_edit::mode_is_active(viewer) {
         draw_content_run_outlines(context, page, scale);
+        draw_content_image_outlines(context, page, session, page_index, scale);
     }
 
     if let Some(search) = session.search.as_ref() {
@@ -248,6 +256,99 @@ fn draw_content_run_outlines(context: &cairo::Context, page: &PageSlot, scale: f
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
     }
+}
+
+/// Paints one outline per image on `page`, while content-edit mode is on —
+/// the image twin of [`draw_content_run_outlines`] (T-162).
+///
+/// The selected image (or the one being dragged) is painted at its live
+/// rect — sourced from `content_edit::geometry::dragged_rect`, the same
+/// "what the user drags is what they get" posture `draw_highlights` already
+/// uses for `session.annotation_drag` — in the brighter colour, with its
+/// handles; every other image is painted at its committed rect.
+fn draw_content_image_outlines(
+    context: &cairo::Context,
+    page: &PageSlot,
+    session: &DocumentSession,
+    page_index: usize,
+    scale: f64,
+) {
+    let Some(content) = page.content.as_ref() else {
+        return;
+    };
+    let selected_id = session
+        .selected_image
+        .as_ref()
+        .filter(|selected| selected.page_index == page_index)
+        .map(|selected| selected.item.id);
+    let live_rect = session
+        .image_drag
+        .as_ref()
+        .filter(|drag| drag.page_index == page_index)
+        .and_then(|drag| content_edit::geometry::dragged_rect(drag.item.bbox, drag));
+
+    for image in &content.images {
+        let selected = selected_id == Some(image.id);
+        let rect = if selected {
+            live_rect.unwrap_or(image.bbox)
+        } else {
+            image.bbox
+        };
+        let placed = place_rect(
+            TextRect {
+                x_pt: rect.x as f32,
+                y_pt: rect.y as f32,
+                width_pt: rect.width as f32,
+                height_pt: rect.height as f32,
+            },
+            page.height_pt,
+            scale,
+        );
+        let (red, green, blue, alpha) = if selected {
+            SELECTED_CONTENT_IMAGE_RGBA
+        } else {
+            CONTENT_IMAGE_OUTLINE_RGBA
+        };
+        context.set_source_rgba(red, green, blue, alpha);
+        context.set_dash(&[], 0.0);
+        context.rectangle(placed.left, placed.top, placed.width, placed.height);
+        let _ = context.stroke();
+        if selected {
+            draw_image_handles(context, rect, page.height_pt, scale);
+        }
+    }
+}
+
+/// Paints the four corner handles of the selected image — the image twin of
+/// [`draw_handles`] (T-162), over a plain [`Rect`] rather than an
+/// `Annotation`, since an image has no annotation kind of its own.
+fn draw_image_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32, scale: f64) {
+    let placed = place_rect(
+        TextRect {
+            x_pt: rect.x as f32,
+            y_pt: rect.y as f32,
+            width_pt: rect.width as f32,
+            height_pt: rect.height as f32,
+        },
+        page_height_pt,
+        scale,
+    );
+    let (red, green, blue) = HANDLE_RGB;
+    context.set_source_rgb(red, green, blue);
+    for (x, y) in [
+        (placed.left, placed.top),
+        (placed.left + placed.width, placed.top),
+        (placed.left, placed.top + placed.height),
+        (placed.left + placed.width, placed.top + placed.height),
+    ] {
+        context.rectangle(
+            x - HANDLE_PX / 2.0,
+            y - HANDLE_PX / 2.0,
+            HANDLE_PX,
+            HANDLE_PX,
+        );
+    }
+    let _ = context.fill();
 }
 
 /// Paints one annotation from the editable model onto its page's layer.
@@ -550,10 +651,14 @@ fn fill_all(
 }
 
 fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
-    // Content-edit mode claims the whole gesture: resolution happens on
-    // `drag_end` (`content_edit::handle_drag_end`), because a content edit
-    // has no live preview to paint while the pointer is still down.
+    // Content-edit mode claims the whole gesture. An image press is
+    // live-claimed right here (T-162's `content_edit::begin_drag`, so its
+    // drag has a live preview); a text-run click still has none and only
+    // resolves later, on `drag_end` (`content_edit::handle_drag_end`).
     if content_edit::mode_is_active(viewer) {
+        if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
+            content_edit::begin_drag(viewer, page_index, point, handle_reach(viewer, page_index));
+        }
         return;
     }
     // An armed creation tool claims the drag: the user is drawing an
@@ -614,6 +719,7 @@ fn extend_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
     if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
         if annotations::extend_placement(viewer, point)
             || annotations::extend_annotation_drag(viewer, point)
+            || content_edit::extend_drag(viewer, point)
         {
             return;
         }

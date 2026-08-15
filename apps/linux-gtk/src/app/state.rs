@@ -11,7 +11,7 @@ use gtk::{
     cairo, gio, Box as GtkBox, Button, DrawingArea, Entry, Label, Overlay, Picture, ScrolledWindow,
     ToggleButton, Window,
 };
-use pdf_document::{AnnotationId, Document, PageContent, TextRun};
+use pdf_document::{AnnotationId, Document, ImageItem, PageContent, TextRun};
 use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
@@ -48,6 +48,10 @@ pub(crate) struct Viewer {
     pub(crate) redo_action: gio::SimpleAction,
     pub(crate) annotation_buttons: AnnotationToolbar,
     pub(crate) content_edit_button: ToggleButton,
+    /// Deletes the selected image in content-edit mode (T-162 Slice 1).
+    /// Sensitivity is owned by `update_content_edit_controls`, the
+    /// content-edit twin of `annotations::toolbar::update_annotation_controls`.
+    pub(crate) delete_image_button: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -321,6 +325,36 @@ pub(crate) struct AnnotationDrag {
     pub(crate) current: (f64, f64),
 }
 
+/// The content-edit twin of [`AnnotationDrag`]: a selected image being moved
+/// or resized right now, in content-edit mode (T-162).
+///
+/// Forked rather than shared with `AnnotationDrag` per design: images are
+/// page content, not `document.annotations`, so unifying the two would blur
+/// that boundary for no shared behavior beyond the shape.
+pub(crate) struct ImageDrag {
+    pub(crate) page_index: usize,
+    /// The image this drag is moving or resizing. Held by value, the same
+    /// reason [`ContentEditor`] holds a whole `TextRun`: page content has no
+    /// document-wide id to re-fetch by, only the snapshot the parser handed
+    /// back.
+    pub(crate) item: ImageItem,
+    pub(crate) mode: AnnotationDragMode,
+    /// Where the pointer went down, in PDF page space.
+    pub(crate) origin: (f64, f64),
+    /// Where the pointer is now, in PDF page space.
+    pub(crate) current: (f64, f64),
+}
+
+/// An image selected in content-edit mode, if any (T-162).
+///
+/// Like [`ContentEditor`], this holds the item by value rather than an id:
+/// an `ImageItem` is not addressable page state, only a parser's snapshot of
+/// one `Do` operator, so there is nothing to re-fetch by id once selected.
+pub(crate) struct SelectedImage {
+    pub(crate) page_index: usize,
+    pub(crate) item: ImageItem,
+}
+
 /// An annotation being drawn on a page right now, between the pointer going
 /// down and coming back up.
 ///
@@ -455,6 +489,14 @@ pub(crate) struct DocumentSession {
     /// so replacing the document drops it with the run it addressed — same
     /// reasoning as `annotation_drag`.
     pub(crate) content_editor: Option<ContentEditor>,
+    /// The selected image in content-edit mode, if any (T-162). Mutually
+    /// exclusive with `content_editor` per design: at most one of a text-run
+    /// editor and an image selection is open on the page at a time.
+    pub(crate) selected_image: Option<SelectedImage>,
+    /// The selected image being moved or resized right now, if a drag is in
+    /// flight. Lives on the session for the same reason `annotation_drag`
+    /// does: nothing reaches the `EditLog` until the pointer comes up.
+    pub(crate) image_drag: Option<ImageDrag>,
     pub(crate) physical_width: u32,
     pub(crate) physical_height: u32,
     pub(crate) scale_factor: i32,
