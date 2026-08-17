@@ -21,7 +21,7 @@ mod page_ops;
 mod security;
 
 pub use create_blank::{create_blank_document, insert_blank_page, remove_page};
-pub use document::{LopdfDocument, PageDimensions};
+pub use document::{DocumentInfo, LopdfDocument, PageDimensions};
 pub use error::ManipError;
 pub use merge_split::{merge, split};
 pub use open::{

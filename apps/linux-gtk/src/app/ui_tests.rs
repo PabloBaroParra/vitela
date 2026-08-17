@@ -66,6 +66,46 @@ fn gtk_ui_starts_with_find_navigation_disabled() {
 }
 
 #[gtk::test]
+fn gtk_ui_builds_an_accessible_three_column_editor_shell() {
+    let application = test_application();
+    let built = build_ui(&application);
+
+    assert!(built
+        .viewer
+        .page_navigation
+        .has_css_class("page-navigation"));
+
+    let accessible: &gtk::Accessible = built.viewer.page_navigation.as_ref();
+    let expected = <str as ToGlibPtr<'_, *const std::ffi::c_char>>::to_glib_none("Pages");
+    let mismatch: Option<glib::GString> = unsafe {
+        from_glib_full(gtk::ffi::gtk_test_accessible_check_property(
+            accessible.to_glib_none().0,
+            gtk::ffi::GTK_ACCESSIBLE_PROPERTY_LABEL,
+            expected.0,
+        ))
+    };
+    assert!(
+        mismatch.is_none(),
+        "page navigation accessible label mismatch: {mismatch:?}"
+    );
+
+    built.window.close();
+    drain_main_context();
+}
+
+#[gtk::test]
+fn gtk_ui_starts_with_no_document_open_page_and_zoom_readouts() {
+    let application = test_application();
+    let built = build_ui(&application);
+
+    assert_eq!(built.viewer.page_indicator.text(), "\u{2013}");
+    assert_eq!(built.viewer.zoom_label.text(), "100%");
+
+    built.window.close();
+    drain_main_context();
+}
+
+#[gtk::test]
 fn gtk_ui_starts_with_document_output_controls_disabled() {
     let application = test_application();
     let built = build_ui(&application);

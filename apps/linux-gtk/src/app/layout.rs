@@ -309,6 +309,38 @@ pub(crate) fn refresh_layout(viewer: &Viewer) {
         }
     }
     update_viewport(viewer);
+    update_zoom_label(viewer);
+}
+
+/// The effective zoom factor for the page nearest the top of the current
+/// scroll position (page 0 with nothing on screen yet), the same anchor
+/// `render::update_viewport` uses for tile priority. Under `FitWidth`/
+/// `FitPage` this varies page to page, so "current zoom" only ever means
+/// "zoom of the page you're looking at" — there is no single document-wide
+/// number to report otherwise.
+pub(crate) fn current_zoom_factor(viewer: &Viewer) -> f64 {
+    viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| {
+            let anchor = session.last_visible.map_or(0, |(first, _)| first);
+            session
+                .pages
+                .get(anchor)
+                .or_else(|| session.pages.first())
+                .map(|page| page.budget.factor)
+        })
+        .unwrap_or(1.0)
+}
+
+/// Keeps the toolbar's "100%" readout in step with [`current_zoom_factor`].
+/// Called from [`refresh_layout`], the one place a zoom change or a resize
+/// actually recomputes page geometry.
+fn update_zoom_label(viewer: &Viewer) {
+    let percent = (current_zoom_factor(viewer) * 100.0).round() as i64;
+    viewer.zoom_label.set_text(&format!("{percent}%"));
 }
 
 pub(crate) fn set_zoom(viewer: &Viewer, zoom: Zoom) {

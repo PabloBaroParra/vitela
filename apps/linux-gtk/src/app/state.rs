@@ -12,7 +12,7 @@ use gtk::{
     ToggleButton, Window,
 };
 use pdf_document::{AnnotationId, Document, ImageItem, PageContent, TextRun};
-use pdf_manip::LopdfDocument;
+use pdf_manip::{DocumentInfo, LopdfDocument};
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
 /// Where an open request's bytes come from.
@@ -35,10 +35,22 @@ pub(crate) enum DocumentSource {
 pub(crate) struct Viewer {
     pub(crate) scroll: ScrolledWindow,
     pub(crate) pages: GtkBox,
+    /// The left-side page navigator. Its contents mirror the current document
+    /// session, while the session itself remains owned by [`ViewerState`].
+    pub(crate) page_navigation: GtkBox,
+    /// The right panel's document-properties value labels, kept updated by
+    /// `document::show_document` — see `tools_panel::DocumentProperties`.
+    pub(crate) document_properties: super::tools_panel::DocumentProperties,
     /// Brand mark overlaid on the page area. Visible exactly while there is
     /// nothing to show — see `brand::build_app_mark`.
     pub(crate) app_mark: Picture,
     pub(crate) status: Label,
+    /// "3 / 12" readout of the current `last_visible` range, kept in step by
+    /// `render::update_viewport` alongside `status`.
+    pub(crate) page_indicator: Label,
+    /// "100%" readout of `layout::current_zoom_factor`, kept in step by
+    /// `layout::refresh_layout`.
+    pub(crate) zoom_label: Label,
     pub(crate) search_entry: Entry,
     pub(crate) find_previous: Button,
     pub(crate) find_next: Button,
@@ -686,6 +698,11 @@ pub(crate) struct OpenedDocument {
     pub(crate) content_edit_access: ContentEditAccess,
     pub(crate) document_model: Option<Document>,
     pub(crate) save_backing: Option<SaveBacking>,
+    /// The `/Info` dictionary fields for the properties panel, read from
+    /// `save_backing`'s `LopdfDocument` at open time — see
+    /// `document::open_document`. Defaulted (all `None`) whenever there is no
+    /// `save_backing` to read it from.
+    pub(crate) info: DocumentInfo,
 }
 
 #[cfg(test)]

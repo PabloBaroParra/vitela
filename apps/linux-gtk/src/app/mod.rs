@@ -10,13 +10,17 @@ mod annotations;
 mod brand;
 mod content_edit;
 mod document;
+mod editor_toolbar;
 mod input;
 mod layout;
 mod print;
 mod render;
 mod search;
 mod selection;
+mod shell;
+mod side_panel;
 mod state;
+mod tools_panel;
 
 #[cfg(test)]
 mod ui_tests;
@@ -26,8 +30,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, Application, ApplicationWindow, Box as GtkBox, Button, Entry, Label, MenuButton,
-    Orientation, Overlay, ScrolledWindow,
+    gio, glib, Application, ApplicationWindow, Box as GtkBox, Button, FlowBox, Label, Orientation,
+    Overlay, Paned, PolicyType, ScrolledWindow,
 };
 
 use annotations::add_annotation_toolbar;
@@ -35,10 +39,13 @@ use brand::build_app_mark;
 use document::{
     new_blank_document, open_file, open_sample, show_file_chooser, show_save_chooser, SampleKind,
 };
-use layout::{refresh_layout, set_zoom, Zoom};
+use editor_toolbar::build_editor_toolbar;
+use layout::{current_zoom_factor, refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
 use search::{run_search, step_match};
+use shell::{build_app_rail, install_shell_css};
+use side_panel::{collapsible, Column};
 use state::{Viewer, ViewerState};
 
 const APPLICATION_ID: &str = "org.vitela.Pdf";
@@ -100,6 +107,7 @@ fn ensure_built(built_ui: &Rc<RefCell<Option<BuiltUi>>>, application: &Applicati
 }
 
 fn build_ui(application: &Application) -> BuiltUi {
+    install_shell_css();
     let window = ApplicationWindow::builder()
         .application(application)
         .default_width(1000)
@@ -107,76 +115,49 @@ fn build_ui(application: &Application) -> BuiltUi {
         .title("Vitela")
         .build();
 
-    let open_button = Button::with_label("Open PDF");
-    // A `gio::Menu` bound through `menu-model` (rather than a hand-built
-    // `Popover` of `Button`s) so GTK owns the popup/dismiss/keyboard-nav
-    // state machine — a manually-toggled Popover left the button needing a
-    // second click to reopen after a selection.
-    let sample_button = MenuButton::builder().label("Open sample").build();
-    let sample_actions = gio::SimpleActionGroup::new();
-    let sample_menu = gio::Menu::new();
-    sample_menu.append(Some("Vitela sample"), Some("sample.plain"));
-    sample_menu.append(
-        Some("AES-128 sample (user-aes-pass)"),
-        Some("sample.aes128"),
-    );
-    sample_menu.append(
-        Some("RC4-128 sample (user-rc4-pass)"),
-        Some("sample.rc4128"),
-    );
-    sample_button.set_menu_model(Some(&sample_menu));
-    sample_button.insert_action_group("sample", Some(&sample_actions));
+    // Built as one unit by its own module — grouped, and wrapping onto more
+    // rows instead of clipping when the window is narrow. See
+    // `editor_toolbar` for why that is not optional. Destructured here so the
+    // wiring below reads against the controls themselves rather than through
+    // a struct that exists only to carry them across the module boundary.
+    let editor_toolbar::EditorToolbar {
+        root: toolbar,
+        open: open_button,
+        sample_actions,
+        print: print_button,
+        save: save_button,
+        page_indicator,
+        zoom_out,
+        zoom_label,
+        zoom_in,
+        fit_width,
+        fit_page,
+        show_pages,
+        show_tools,
+        search_entry,
+        find_previous,
+        find_next,
+    } = build_editor_toolbar();
+
     let status = Label::new(Some(
         "Choose a PDF file to view, or open the built-in sample.",
     ));
     status.set_xalign(0.0);
+    // A status line is the least important thing on screen and the widest
+    // string in the shell, and an un-ellipsized `Label` reports its full text
+    // width as a *minimum* — which becomes the window's. Ellipsizing lets a
+    // long message shorten itself rather than force the window wider than the
+    // screen; `status.text()` still returns the message in full.
+    status.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    // Ellipsizing costs the user the tail of every long message, and this
+    // label is the only place an open or save failure is ever reported —
+    // "Could not open PDF: …" truncated at the width of the window says
+    // nothing about what went wrong. Mirroring the text into the tooltip
+    // keeps it readable without letting it drive the window's width again.
+    // Wired to the property rather than to the ~20 `set_text` call sites, so
+    // a message added later cannot forget to bring its tooltip along.
+    status.connect_label_notify(|label| label.set_tooltip_text(Some(&label.text())));
 
-    // Exact, case-sensitive search: the same matcher `pdf-ffi` uses, so
-    // this shell and the other platforms agree on what a match is.
-    let search_entry = Entry::builder()
-        .placeholder_text("Find in document")
-        .hexpand(true)
-        .build();
-    search_entry.update_property(&[gtk::accessible::Property::Label("Search document")]);
-    let find_previous = Button::with_label("Previous");
-    let find_next = Button::with_label("Next");
-    find_previous.set_sensitive(false);
-    find_next.set_sensitive(false);
-
-    let print_button = Button::with_label("Print");
-    print_button.set_sensitive(false);
-    let save_button = Button::with_label("Save as");
-    save_button.set_sensitive(false);
-    // Bound to the actions rather than wired to a handler, so GTK greys them
-    // out whenever `win.undo`/`win.redo` are disabled. Offering Redo when the
-    // history has nothing to redo is a promise the toolbar cannot keep: the
-    // click is accepted, nothing changes, and the status line has to explain
-    // it after the fact. The accelerators were already gated on `can_undo`/
-    // `can_redo`; this is the same gate reaching the buttons, from the same
-    // source, instead of a second copy of the rule kept in step by hand.
-    let undo_button = Button::with_label("Undo");
-    undo_button.set_action_name(Some("win.undo"));
-    let redo_button = Button::with_label("Redo");
-    redo_button.set_action_name(Some("win.redo"));
-    let zoom_out = Button::with_label("Zoom out");
-    let fit_width = Button::with_label("Fit width");
-    let fit_page = Button::with_label("Fit page");
-    let zoom_in = Button::with_label("Zoom in");
-
-    let toolbar = GtkBox::new(Orientation::Horizontal, 8);
-    toolbar.append(&open_button);
-    toolbar.append(&sample_button);
-    toolbar.append(&search_entry);
-    toolbar.append(&find_previous);
-    toolbar.append(&find_next);
-    toolbar.append(&zoom_out);
-    toolbar.append(&fit_width);
-    toolbar.append(&fit_page);
-    toolbar.append(&zoom_in);
-    toolbar.append(&print_button);
-    toolbar.append(&save_button);
-    toolbar.append(&undo_button);
-    toolbar.append(&redo_button);
     // Its own row rather than more widgets on this one: twelve annotation
     // controls do not belong in the same horizontal budget as open/zoom/
     // search/print, and stacking them there pushed the window's minimum width
@@ -200,7 +181,15 @@ fn build_ui(application: &Application) -> BuiltUi {
     // the selection Delete does.
     let replace_image_button = Button::with_label("Replace image");
     replace_image_button.set_sensitive(false);
-    let content_edit_row = GtkBox::new(Orientation::Horizontal, 8);
+    // A `FlowBox`, not a plain `GtkBox`, for the same reason
+    // `annotations::add_annotation_toolbar` uses one: it wraps onto more rows
+    // as the resizable tools panel narrows instead of reporting the sum of
+    // five buttons' widths as this panel's minimum.
+    let content_edit_row = FlowBox::new();
+    content_edit_row.set_selection_mode(gtk::SelectionMode::None);
+    content_edit_row.set_row_spacing(4);
+    content_edit_row.set_column_spacing(4);
+    content_edit_row.set_homogeneous(false);
     content_edit_row.append(&content_edit_button);
     content_edit_row.append(&insert_text_button);
     content_edit_row.append(&insert_image_button);
@@ -214,6 +203,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         .vexpand(true)
         .child(&pages)
         .build();
+    scroll.add_css_class("canvas-frame");
 
     // The mark rides above the scroller instead of replacing it, so the view
     // keeps its allocation while the empty state is up: the fit width the
@@ -221,19 +211,107 @@ fn build_ui(application: &Application) -> BuiltUi {
     // document rather than one resize behind it.
     let app_mark = build_app_mark();
     let page_area = Overlay::new();
+    // Explicit rather than left to propagate from `scroll`: this is the one
+    // pane that must claim the space the two `Paned`s below leave over, and
+    // that has to be a stated fact about `page_area` itself, not an inference
+    // GTK draws from its child — see `tools_panel`'s `set_hexpand(false)` for
+    // why an inferred answer is not to be trusted here.
+    page_area.set_hexpand(true);
     page_area.set_child(Some(&scroll));
     page_area.add_overlay(&app_mark);
 
-    let content = GtkBox::new(Orientation::Vertical, 8);
-    content.set_margin_top(12);
-    content.set_margin_bottom(12);
-    content.set_margin_start(12);
-    content.set_margin_end(12);
+    let page_navigation = GtkBox::new(Orientation::Vertical, 4);
+    page_navigation.add_css_class("page-navigation");
+    page_navigation.update_property(&[gtk::accessible::Property::Label("Pages")]);
+    let page_navigation_scroll = ScrolledWindow::builder()
+        .vexpand(true)
+        .hscrollbar_policy(PolicyType::Never)
+        .child(&page_navigation)
+        .build();
+    let navigation_panel = GtkBox::new(Orientation::Vertical, 10);
+    navigation_panel.add_css_class("navigation-panel");
+    navigation_panel.set_hexpand(false);
+    navigation_panel.set_width_request(144);
+    let navigation_heading = Label::new(Some("Pages"));
+    navigation_heading.set_xalign(0.0);
+    navigation_heading.add_css_class("panel-heading");
+    navigation_panel.append(&navigation_heading);
+    navigation_panel.append(&page_navigation_scroll);
+
+    let (tools_content, document_properties) =
+        tools_panel::build_tools_panel(&annotation_row, &content_edit_row);
+    let tools_panel = GtkBox::new(Orientation::Vertical, 10);
+    tools_panel.add_css_class("tools-panel");
+    tools_panel.update_property(&[gtk::accessible::Property::Label("Tools and properties")]);
+    tools_panel.set_hexpand(false);
+    // No `width_request`. The 220 that used to be here was never the real
+    // floor anyway — the tab strip's own 400px was — and now that the strip
+    // wraps (`tools_panel::build_tab_switcher`), the honest minimum is
+    // whatever the controls inside actually need. A hard request on top of
+    // that would only make the divider collapse the column earlier than it
+    // has to. The *initial* width is the `Paned` position below, not a
+    // minimum.
+    tools_panel.append(&tools_content);
+    let tools_scroll = ScrolledWindow::builder()
+        .vexpand(true)
+        .hscrollbar_policy(PolicyType::Never)
+        .child(&tools_panel)
+        .build();
+
+    let (app_rail, app_rail_box) = build_app_rail();
+
+    // Each column goes into the `Paned` through a slot that can fold it away
+    // while staying visible itself — which is what keeps the divider's own
+    // separator on screen to drag back. See `side_panel::collapsible`.
+    let navigation_slot = collapsible(&navigation_panel);
+    let tools_slot = collapsible(&tools_scroll);
+
+    // Nav | (canvas | tools), both boundaries user-draggable — a plain
+    // `GtkBox` has no drag handle of its own, so the three-column layout
+    // needs two nested `Paned`s rather than one flat row. The rail sits
+    // outside both: it is icon-rail width always, never something a document
+    // window is short on room for.
+    let canvas_tools_paned = Paned::new(Orientation::Horizontal);
+    canvas_tools_paned.set_wide_handle(true);
+    canvas_tools_paned.set_hexpand(true);
+    canvas_tools_paned.set_start_child(Some(&page_area));
+    canvas_tools_paned.set_end_child(Some(&tools_slot));
+    // The canvas absorbs a window resize; the tools panel keeps the width the
+    // user last dragged it to, the same way a code editor's side panel does.
+    // `resize_*_child` (window resize) and `shrink_*_child` (how far a drag
+    // may push a boundary) are different axes; only the first is pinned here —
+    // `side_panel::connect` explains why `shrink_*_child` must stay `true`.
+    canvas_tools_paned.set_resize_start_child(true);
+    canvas_tools_paned.set_resize_end_child(false);
+    canvas_tools_paned.set_position(500);
+
+    let nav_paned = Paned::new(Orientation::Horizontal);
+    nav_paned.set_wide_handle(true);
+    nav_paned.set_hexpand(true);
+    nav_paned.set_start_child(Some(&navigation_slot));
+    nav_paned.set_end_child(Some(&canvas_tools_paned));
+    nav_paned.set_resize_start_child(false);
+    nav_paned.set_resize_end_child(true);
+    nav_paned.set_position(144);
+
+    // Both columns, both directions: the toggle folds a column away and
+    // brings it back, and so does dragging the divider across the width the
+    // column needs to draw in.
+    side_panel::connect(&nav_paned, Column::Start, &navigation_slot, &show_pages);
+    side_panel::connect(&canvas_tools_paned, Column::End, &tools_slot, &show_tools);
+
+    let main = GtkBox::new(Orientation::Horizontal, 0);
+    main.add_css_class("editor-main");
+    main.set_vexpand(true);
+    main.append(&app_rail_box);
+    main.append(&nav_paned);
+
+    status.add_css_class("status-bar");
+    let content = GtkBox::new(Orientation::Vertical, 0);
+    content.add_css_class("vitela-shell");
     content.append(&toolbar);
-    content.append(&annotation_row);
-    content.append(&content_edit_row);
+    content.append(&main);
     content.append(&status);
-    content.append(&page_area);
     window.set_child(Some(&content));
 
     // A `SimpleAction` starts enabled, and `update_annotation_controls` — the
@@ -249,8 +327,12 @@ fn build_ui(application: &Application) -> BuiltUi {
     let viewer = Viewer {
         scroll,
         pages,
+        page_navigation,
+        document_properties,
         app_mark,
         status,
+        page_indicator,
+        zoom_label,
         search_entry,
         find_previous,
         find_next,
@@ -287,6 +369,36 @@ fn build_ui(application: &Application) -> BuiltUi {
         let window = window.clone();
         let viewer = viewer.clone();
         move |_| content_edit::image::replace_selected(&window, &viewer)
+    });
+    // Same command as the toolbar's Open PDF button, just reachable from the
+    // rail — `win.open` is installed once, below, by
+    // `connect_standard_shortcuts`.
+    app_rail.files.set_action_name(Some("win.open"));
+    // Focuses the first annotation tool rather than arming it: a rail click
+    // is a navigation gesture, not a promise to start drawing a highlight the
+    // moment the page loads. Focusing (rather than `annotation_row.grab_focus`,
+    // which has no button of its own to delegate to) is also what scrolls the
+    // tools panel to reveal the section, via GTK's usual focus-follows-scroll.
+    app_rail.annotate.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| {
+            if let Some((_, button)) = viewer.annotation_buttons.create.first() {
+                button.grab_focus();
+            }
+        }
+    });
+    // Unlike `annotate`, this one *is* the real toggle already on the tools
+    // panel (`content_edit_button`) — flips the same switch, just reachable
+    // from the rail. Guarded on sensitivity because `ToggleButton::set_active`
+    // takes effect even on an insensitive widget, and this document may not
+    // permit content edits yet.
+    app_rail.edit_pdf.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| {
+            if viewer.content_edit_button.is_sensitive() {
+                viewer.content_edit_button.set_active(true);
+            }
+        }
     });
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
@@ -351,6 +463,20 @@ fn build_ui(application: &Application) -> BuiltUi {
     sample_actions.add_action(&action_sample_rc4128);
 
     BuiltUi { window, viewer }
+}
+
+pub(crate) fn navigate_to_page(viewer: &Viewer, page_index: usize) {
+    let offset = {
+        let state = viewer.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return;
+        };
+        if page_index >= session.page_heights.len() {
+            return;
+        }
+        layout::page_top(&session.page_heights, page_index)
+    };
+    viewer.scroll.vadjustment().set_value(offset);
 }
 
 /// Adds the standard window commands that already have shell handlers. Copy,
@@ -429,23 +555,7 @@ fn step_zoom(viewer: &Viewer, increase: bool) {
     const LADDER: [f64; 12] = [
         0.10, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00, 6.00, 8.00,
     ];
-    let current = viewer
-        .state
-        .borrow()
-        .session
-        .as_ref()
-        .and_then(|session| {
-            // Under FitWidth every page carries a factor derived from its own
-            // width, so the ladder has to step from the page on screen rather
-            // than from page 0, which may be a different size entirely.
-            let anchor = session.last_visible.map_or(0, |(first, _)| first);
-            session
-                .pages
-                .get(anchor)
-                .or_else(|| session.pages.first())
-                .map(|page| page.budget.factor)
-        })
-        .unwrap_or(1.0);
+    let current = current_zoom_factor(viewer);
     let factor = if increase {
         LADDER
             .into_iter()

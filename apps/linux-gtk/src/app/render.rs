@@ -170,6 +170,9 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
             first + 1,
             last + 1
         ));
+        viewer
+            .page_indicator
+            .set_text(&format!("{} / {page_count}", first + 1));
     }
     if let Some(page_index) = rejected_visible_page {
         viewer.status.set_text(&format!(

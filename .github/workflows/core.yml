@@ -102,11 +102,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - name: Build workspace
         run: cargo build --workspace --locked
-      # apps/linux-gtk's app::ui_tests are #[gtk::test]s that need a real
-      # display (gtk_init_check fails and panics without one). This runner
-      # has no Xvfb, so they run separately under linux-gtk-ui.yml instead.
+      # apps/linux-gtk's #[gtk::test]s need a real display (gtk_init_check
+      # fails and panics without one). This runner has no Xvfb, so they run
+      # separately under linux-gtk-ui.yml instead. They are identified by the
+      # `gtk_ui_` name prefix rather than by module, because they live beside
+      # the code they cover (CLAUDE.md) and so are spread across several
+      # modules — the prefix is the contract both workflows filter on, and a
+      # #[gtk::test] added without it will fail here rather than be skipped.
       - name: Run tests (workspace)
-        run: cargo test --workspace --locked -- --skip app::ui_tests::gtk_ui_
+        run: cargo test --workspace --locked -- --skip gtk_ui_
 
   zero-network:
     name: zero-network enforcement (T-005)
@@ -183,7 +187,7 @@ jobs:
       - name: Run the full test suite inside a network namespace
         run: |
           sudo -E env "PATH=$PATH" unshare --net \
-            sh -c 'ip link set lo up && exec cargo test --workspace --locked -- --skip app::ui_tests::gtk_ui_'
+            sh -c 'ip link set lo up && exec cargo test --workspace --locked -- --skip gtk_ui_'
       - name: Run zero-network-guard's CI-only egress proof inside the namespace
         run: |
           sudo -E env "PATH=$PATH" unshare --net \
