@@ -160,6 +160,11 @@ pub(super) fn current_source_bytes(
 /// unlike an existing item's real id, its command still carries the shared
 /// placeholder `ContentItemId(0)` (never `target.id`, which is synthetic),
 /// so the log scan below could not recognise it even if it tried.
+///
+/// Text takes the other road — [`pending_text_command`] amends rather than
+/// refuses. The asymmetry is real, not an oversight: see that function's own
+/// doc for why retyping folds into one command and an image's geometry
+/// operations cannot.
 pub(super) fn image_already_edited(document: &Document, target: &ImageItem) -> bool {
     if target.id.0 >= super::model::PENDING_ITEM_ID_BASE {
         return true;
@@ -176,21 +181,108 @@ pub(super) fn image_already_edited(document: &Document, target: &ImageItem) -> b
     })
 }
 
-/// The text-run twin of [`image_already_edited`] — same reasoning, applied
-/// to `ReplaceTextRunContent` instead of the four image variants. Text runs
-/// have no move/resize/replace-source counterpart, only retyping, so this
-/// checks a single command kind.
-pub(super) fn text_run_already_edited(document: &Document, target: &TextRun) -> bool {
-    if target.id.0 >= super::model::PENDING_ITEM_ID_BASE {
-        return true;
+/// What a *further* edit of `target` has to do about whatever is already
+/// queued against it.
+///
+/// Three outcomes, not two, and the third is the one that matters: a run the
+/// overlay put on the page can stop being resolvable, and collapsing that
+/// into [`Self::Nothing`] would let the shell record a command against an
+/// item no save can find. See [`pending_text_command`].
+#[derive(Debug, PartialEq)]
+pub(super) enum PendingText {
+    /// Nothing queued — committing records a new command, the ordinary case
+    /// for a run read straight out of the file.
+    Nothing,
+    /// Fold the edit into the command at this position in the `EditLog`.
+    Amend(usize),
+    /// The run is on the page only because of a pending command this log no
+    /// longer holds, so there is neither an entry to amend nor anything in
+    /// the base document a new command could target. Refuse.
+    Unresolvable,
+}
+
+/// What `document`'s pending log says about a *further* edit of `target`.
+///
+/// [`PendingText::Amend`] carries where the command to fold into lives.
+///
+/// The text-run answer to the problem [`image_already_edited`] refuses
+/// outright, and it can be better than a refusal for one reason images have
+/// no equivalent of: retyping is idempotent in its target. Whatever the user
+/// types, the edit is still "this one run, parsed from the file, now shows
+/// this string" — so a second edit does not need a second command, it needs
+/// the first command's text changed (`EditLog::amend`, whose own doc carries
+/// the full reasoning about why a second entry could never resolve at save
+/// time). An image move followed by a resize genuinely is two operations
+/// against two different geometries, which is why that side still refuses.
+///
+/// Two shapes of pending command answer here:
+///
+/// - a **synthetic id** (`model::pending_log_index`) — the run is on the page
+///   only because of a pending `InsertTextRun`, and the id carries the entry
+///   it came from. The command still holds the placeholder `ContentItemId(0)`
+///   rather than this id, so the scan below could never find it; the id
+///   arithmetic is the only link.
+/// - a **real id** with a queued `ReplaceTextRunContent` against it — the run
+///   exists in the file and has already been retyped once this session.
+///
+/// A synthetic id whose entry does not check out is [`PendingText::
+/// Unresolvable`], never [`PendingText::Nothing`]. The distinction is the
+/// whole reason this returns an enum: such a run exists in *no* base
+/// document, so treating it as untouched would record a replacement whose
+/// item `pdf-edit` cannot resolve at save time — and since resolution
+/// failure aborts the save, that one bogus command would take every other
+/// queued edit down with it.
+pub(super) fn pending_text_command(document: &Document, target: &TextRun) -> PendingText {
+    let entries = document.pending_edits.entries();
+    if let Some(index) = super::model::pending_log_index(target.id) {
+        // Verified rather than trusted: an id minted against one document's
+        // log must not index into another's after a reopen swapped the model
+        // underneath the cached `PageContent`.
+        return match entries.get(index) {
+            Some(Command::InsertTextRun(run)) if run.page == target.page => {
+                PendingText::Amend(index)
+            }
+            _ => PendingText::Unresolvable,
+        };
     }
-    document.pending_edits.entries().iter().any(|command| {
-        matches!(
-            command,
-            Command::ReplaceTextRunContent { item, .. }
-                if item.id == target.id && item.page == target.page
-        )
-    })
+    entries
+        .iter()
+        .position(|command| {
+            matches!(
+                command,
+                Command::ReplaceTextRunContent { item, .. }
+                    if item.id == target.id && item.page == target.page
+            )
+        })
+        .map_or(PendingText::Nothing, PendingText::Amend)
+}
+
+/// The command that replaces the pending entry `existing` so the run it
+/// describes shows `after` — the amendment [`PendingText::Amend`] found the
+/// slot for.
+///
+/// Built from the *recorded* command, never from the run the shell
+/// hit-tested: the recorded one carries the original snapshot every
+/// resolution at save time keys against (and, for an insertion, the real
+/// placeholder id and font resource name rather than the synthetic id the
+/// overlay handed out). Only the text changes.
+///
+/// `None` for any other command, which [`pending_text_command`]'s own
+/// matching already rules out — an unreachable case kept total rather than
+/// asserted, since the alternative is a panic in a UI callback.
+pub(super) fn retyped_command(existing: &Command, after: &str) -> Option<Command> {
+    match existing {
+        Command::InsertTextRun(run) => {
+            let mut retyped = run.clone();
+            retyped.text = after.to_string();
+            Some(Command::InsertTextRun(retyped))
+        }
+        Command::ReplaceTextRunContent { item, .. } => Some(Command::ReplaceTextRunContent {
+            item: item.clone(),
+            after: after.to_string(),
+        }),
+        _ => None,
+    }
 }
 
 /// Records `command` in the document's own `EditLog`.
@@ -202,6 +294,17 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
     let mut log = std::mem::take(&mut document.pending_edits);
     log.apply(document, command);
     document.pending_edits = log;
+}
+
+/// Folds `command` into the pending entry at `index`, the second door beside
+/// [`apply_command`] for an edit that must not become a new entry (see
+/// [`pending_text_command_index`]). Reports whether the log took it.
+///
+/// No `mem::take` dance here, unlike its sibling: amending a page-content
+/// command touches nothing but the log, precisely because those commands are
+/// inert on the model.
+pub(super) fn amend_command(document: &mut Document, index: usize, command: Command) -> bool {
+    document.pending_edits.amend(index, command)
 }
 
 #[cfg(test)]
@@ -544,20 +647,27 @@ mod tests {
         assert!(image_already_edited(&document, &pending_insert));
     }
 
-    // --- text_run_already_edited ----------------------------------------
+    // --- pending_text_command / retyped_command --------------------------
 
     #[test]
     fn a_fresh_document_has_no_pending_edit_for_any_text_run() {
         let document = Document::default();
         let run = sample_run();
 
-        assert!(!text_run_already_edited(&document, &run));
+        assert_eq!(pending_text_command(&document, &run), PendingText::Nothing);
     }
 
     #[test]
-    fn a_run_with_a_recorded_replacement_is_already_edited() {
+    fn a_run_with_a_recorded_replacement_points_at_that_entry() {
         let mut document = Document::default();
         let run = sample_run();
+        apply_command(
+            &mut document,
+            Command::RotatePage {
+                page: PageId(0),
+                delta_degrees: 90,
+            },
+        );
         apply_command(
             &mut document,
             Command::ReplaceTextRunContent {
@@ -566,7 +676,7 @@ mod tests {
             },
         );
 
-        assert!(text_run_already_edited(&document, &run));
+        assert_eq!(pending_text_command(&document, &run), PendingText::Amend(1));
     }
 
     #[test]
@@ -583,18 +693,164 @@ mod tests {
             },
         );
 
-        assert!(!text_run_already_edited(&document, &other));
+        assert_eq!(
+            pending_text_command(&document, &other),
+            PendingText::Nothing
+        );
     }
 
-    /// The text-run twin of
-    /// `an_image_with_a_synthetic_id_is_already_edited_with_an_empty_log`.
+    /// The run that only exists because of a pending insertion: its command
+    /// still carries the placeholder id, so nothing but the synthetic id's own
+    /// arithmetic can lead back to the entry.
     #[test]
-    fn a_run_with_a_synthetic_id_is_already_edited_with_an_empty_log() {
-        let document = Document::default();
-        let mut pending_insert = sample_run();
-        pending_insert.id = ContentItemId(model::PENDING_ITEM_ID_BASE);
+    fn a_synthetic_id_points_at_the_insertion_that_minted_it() {
+        let mut document = Document::default();
+        let mut inserted = sample_run();
+        inserted.id = ContentItemId(0);
+        apply_command(&mut document, Command::InsertTextRun(inserted));
+        let mut hit_tested = sample_run();
+        hit_tested.id = ContentItemId(model::PENDING_ITEM_ID_BASE);
 
-        assert!(text_run_already_edited(&document, &pending_insert));
+        assert_eq!(
+            pending_text_command(&document, &hit_tested),
+            PendingText::Amend(0)
+        );
+    }
+
+    /// A synthetic id outliving the log it was minted against — a reopen can
+    /// swap the model underneath a cached `PageContent` — must not be trusted
+    /// into indexing whatever entry now sits at that position.
+    ///
+    /// And crucially it must not read as `Nothing` either: such a run exists
+    /// in no base document, so recording a fresh replacement against it would
+    /// queue a command `pdf-edit` cannot resolve, failing the whole save.
+    #[test]
+    fn a_synthetic_id_with_no_insertion_behind_it_is_unresolvable() {
+        let mut document = Document::default();
+        apply_command(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_run(),
+                after: "Goodbye".to_string(),
+            },
+        );
+        let mut stale = sample_run();
+        stale.id = ContentItemId(model::PENDING_ITEM_ID_BASE);
+
+        assert_eq!(
+            pending_text_command(&document, &stale),
+            PendingText::Unresolvable
+        );
+    }
+
+    #[test]
+    fn a_synthetic_id_past_the_end_of_the_log_is_unresolvable() {
+        let document = Document::default();
+        let mut stale = sample_run();
+        stale.id = ContentItemId(model::PENDING_ITEM_ID_BASE + 3);
+
+        assert_eq!(
+            pending_text_command(&document, &stale),
+            PendingText::Unresolvable
+        );
+    }
+
+    /// The insertion is on another page, so this synthetic id does not
+    /// describe it — same refusal as an index with nothing behind it.
+    #[test]
+    fn a_synthetic_id_pointing_at_another_pages_insertion_is_unresolvable() {
+        let mut document = Document::default();
+        let mut elsewhere = sample_run();
+        elsewhere.id = ContentItemId(0);
+        elsewhere.page = PageId(4);
+        apply_command(&mut document, Command::InsertTextRun(elsewhere));
+        let mut hit_tested = sample_run();
+        hit_tested.id = ContentItemId(model::PENDING_ITEM_ID_BASE);
+
+        assert_eq!(
+            pending_text_command(&document, &hit_tested),
+            PendingText::Unresolvable
+        );
+    }
+
+    /// The amendment keeps the recorded snapshot — the id, box, and font the
+    /// save resolves against — and changes only the text.
+    #[test]
+    fn retyping_a_replacement_keeps_the_original_item_and_swaps_the_text() {
+        let existing = Command::ReplaceTextRunContent {
+            item: sample_run(),
+            after: "Goodbye".to_string(),
+        };
+
+        let Some(Command::ReplaceTextRunContent { item, after }) =
+            retyped_command(&existing, "Adios")
+        else {
+            panic!("retyping a replacement stays a replacement");
+        };
+        assert_eq!(item, sample_run(), "still keyed to the run as parsed");
+        assert_eq!(after, "Adios");
+    }
+
+    #[test]
+    fn retyping_an_insertion_keeps_its_placeholder_id_and_font_resource() {
+        let mut inserted = sample_run();
+        inserted.id = ContentItemId(0);
+        inserted.resource_font_name = "FIns1".to_string();
+
+        let Some(Command::InsertTextRun(retyped)) =
+            retyped_command(&Command::InsertTextRun(inserted), "Adios")
+        else {
+            panic!("retyping an insertion stays an insertion");
+        };
+        assert_eq!(retyped.id, ContentItemId(0));
+        assert_eq!(retyped.resource_font_name, "FIns1");
+        assert_eq!(retyped.text, "Adios");
+    }
+
+    #[test]
+    fn a_command_that_is_not_a_text_edit_has_no_retyped_form() {
+        assert!(retyped_command(
+            &Command::MoveImage {
+                item: sample_image_item(),
+                to: sample_image_item().bbox,
+            },
+            "Adios"
+        )
+        .is_none());
+    }
+
+    // --- amend_command ----------------------------------------------------
+
+    /// The whole point of the amend path: a second edit of one run leaves one
+    /// command behind, not two — a second `ReplaceTextRunContent` carrying the
+    /// same pre-edit snapshot would resolve against nothing at save time.
+    #[test]
+    fn amending_leaves_one_command_per_run() {
+        let mut document = Document::default();
+        let run = sample_run();
+        apply_command(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: run.clone(),
+                after: "Goodbye".to_string(),
+            },
+        );
+        let PendingText::Amend(index) = pending_text_command(&document, &run) else {
+            panic!("a replacement was just recorded for this run");
+        };
+
+        let amended = retyped_command(&document.pending_edits.entries()[index], "Adios")
+            .expect("a replacement has a retyped form");
+        assert!(amend_command(&mut document, index, amended));
+
+        assert_eq!(document.pending_edits.entries().len(), 1);
+        assert_eq!(
+            document.pending_edits.entries()[0],
+            Command::ReplaceTextRunContent {
+                item: run,
+                after: "Adios".to_string(),
+            }
+        );
     }
 
     fn sample_image_item() -> ImageItem {

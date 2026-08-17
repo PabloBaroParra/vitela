@@ -65,6 +65,77 @@ pub fn replace_text_run(
     splice(document, &located, stream_index, span, &replacement)
 }
 
+/// The box `run` would occupy if it showed `text` instead of `run.text`.
+///
+/// Writes nothing and resolves nothing on the page beyond the run's font —
+/// this exists for a shell that has queued a replacement (or composed an
+/// insertion) and needs the *pending* geometry to hit-test and outline
+/// against, long before a save re-parses the page and hands back a real box.
+/// Only the width changes: a replacement keeps the run's font, size and
+/// origin, so nothing else about the box can move.
+///
+/// The width is derived one of two ways, because a [`TextRun`] on its own
+/// does not carry the font size, character spacing, horizontal scale or CTM
+/// that turn an advance into points:
+///
+/// - **The page defines the run's font** — the ordinary case, a run that was
+///   parsed off the page. The known box is scaled by the ratio of the two
+///   texts' advances in that font. Exact whenever the run's advance is
+///   proportional to its glyph widths, which a replacement makes true going
+///   forward: `replace_text_run` collapses a kerned `TJ` array to one string,
+///   so the kerning that could skew the ratio is gone from the result anyway.
+/// - **The page does not define it** — a run the shell composed for
+///   insertion, whose resource name [`crate::insert_text_run`] has not
+///   registered yet. There is no box to scale, but no unknowns either: the
+///   font is the standard one insertion registers, and `insert_text_run`
+///   reads `bbox.height` *as* the font size, so the advance converts to
+///   points directly.
+///
+/// Fails with [`EditError::EncodingGap`] when either text has a character the
+/// font cannot show — including `run.text` itself, which for a run parsed
+/// from a font this build cannot fully decode reads back with U+FFFD. A
+/// caller that only wants a better box can treat any error as "keep the one
+/// you have"; nothing here is load-bearing for correctness of the edit
+/// itself.
+pub fn text_run_bbox(
+    document: &Document,
+    page_object: ObjectId,
+    run: &TextRun,
+    text: &str,
+) -> Result<Rect, EditError> {
+    let font = match page_font(document, page_object, &run.resource_font_name) {
+        Ok(font) => font,
+        // The composed-insertion case. Deliberately keyed on the font being
+        // absent rather than on a flag the caller passes: a run naming a
+        // resource the page does not have is precisely a run that has not
+        // been written yet, and once it has been, the first branch takes over
+        // with the real resource.
+        Err(EditError::FontResourceMissing { .. }) => {
+            let font = resolve_font(
+                document,
+                &crate::insert::inserted_font_dictionary(),
+                &run.resource_font_name,
+            )?;
+            let width = font.width_of(&font.encode(text)?) * run.bbox.height;
+            return Ok(Rect { width, ..run.bbox });
+        }
+        Err(error) => return Err(error),
+    };
+
+    let after = font.width_of(&font.encode(text)?);
+    let before = font.width_of(&font.encode(&run.text)?);
+    // A run that advances nothing gives no scale to work from — its box is
+    // degenerate in the same way, so the size-from-height reading is the only
+    // one left rather than a preference.
+    let width = if before > 0.0 {
+        run.bbox.width * after / before
+    } else {
+        after * run.bbox.height
+    };
+
+    Ok(Rect { width, ..run.bbox })
+}
+
 /// Deletes a run, leaving behind the advance it occupied.
 ///
 /// The leftover is a `TJ` adjustment that paints nothing and moves the text
@@ -1196,6 +1267,132 @@ mod tests {
         replace_text_run(&mut document, page, &target, "Bye").expect("encodable");
 
         assert_eq!(run(&document, 0).text, "Bye");
+    }
+
+    // --- text_run_bbox ----------------------------------------------------
+
+    /// The contract in one test: what this predicts for a replacement is what
+    /// the page actually reports once the replacement is written and re-parsed.
+    #[test]
+    fn the_predicted_box_matches_the_one_the_page_reports_after_the_replacement() {
+        let (mut document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+
+        let predicted = text_run_bbox(&document, page, &target, "Goodbye").expect("encodable");
+        replace_text_run(&mut document, page, &target, "Goodbye").expect("encodable");
+
+        let actual = run(&document, 0).bbox;
+        assert!(
+            (predicted.width - actual.width).abs() < 1e-6,
+            "predicted {} but the page reports {}",
+            predicted.width,
+            actual.width
+        );
+        assert_eq!(
+            predicted.x, actual.x,
+            "a replacement never moves the origin"
+        );
+        assert_eq!(predicted.y, actual.y);
+        assert_eq!(predicted.height, actual.height, "nor changes the size");
+    }
+
+    #[test]
+    fn a_longer_replacement_widens_the_box_and_a_shorter_one_narrows_it() {
+        let (document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+
+        let longer = text_run_bbox(&document, page, &target, "Hello there").expect("encodable");
+        let shorter = text_run_bbox(&document, page, &target, "Hi").expect("encodable");
+
+        assert!(longer.width > target.bbox.width);
+        assert!(shorter.width < target.bbox.width);
+    }
+
+    #[test]
+    fn the_same_text_reports_the_box_the_run_already_has() {
+        let (document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+
+        let unchanged = text_run_bbox(&document, page, &target, &target.text).expect("encodable");
+
+        assert!((unchanged.width - target.bbox.width).abs() < 1e-9);
+    }
+
+    /// A run the shell composed for insertion: its resource name is not on
+    /// the page yet, so there is no box to scale — the standard font
+    /// insertion registers plus `bbox.height` as the size answers it exactly.
+    /// "Hi" is H722 + i222 = 944/1000 em, so at 14pt the advance is 13.216pt.
+    #[test]
+    fn a_run_whose_font_the_page_does_not_define_is_measured_at_its_box_height() {
+        let (document, page) = text_document(HELLO);
+        let composed = TextRun {
+            id: ContentItemId(0),
+            page: PageId(0),
+            bbox: Rect {
+                x: 72.0,
+                y: 100.0,
+                width: 150.0,
+                height: 14.0,
+            },
+            resource_font_name: "FIns1".to_string(),
+            font_kind: pdf_document::FontKind::Standard14,
+            text: String::new(),
+        };
+
+        let measured = text_run_bbox(&document, page, &composed, "Hi").expect("encodable");
+
+        assert!(
+            (measured.width - 13.216).abs() < 1e-3,
+            "expected the Helvetica AFM advance at 14pt, got {}",
+            measured.width
+        );
+    }
+
+    /// The same composed run, once actually inserted, reports a box the
+    /// prediction already matched — measurement and writing share the font
+    /// resource for exactly this reason.
+    #[test]
+    fn the_predicted_box_for_a_composed_run_matches_the_inserted_one() {
+        let (mut document, page) = text_document(HELLO);
+        let mut composed = TextRun {
+            id: ContentItemId(0),
+            page: PageId(0),
+            bbox: Rect {
+                x: 72.0,
+                y: 100.0,
+                width: 150.0,
+                height: 14.0,
+            },
+            resource_font_name: "FIns1".to_string(),
+            font_kind: pdf_document::FontKind::Standard14,
+            text: String::new(),
+        };
+
+        let predicted = text_run_bbox(&document, page, &composed, "Inserted").expect("encodable");
+        composed.text = "Inserted".to_string();
+        crate::insert_text_run(&mut document, page, &composed).expect("encodable");
+
+        let inserted = content_of(&document)
+            .text_runs
+            .into_iter()
+            .find(|run| run.resource_font_name == "FIns1")
+            .expect("the inserted run parses back");
+        assert!(
+            (predicted.width - inserted.bbox.width).abs() < 1e-6,
+            "predicted {} but the page reports {}",
+            predicted.width,
+            inserted.bbox.width
+        );
+    }
+
+    #[test]
+    fn a_text_the_font_cannot_show_is_refused_rather_than_measured() {
+        let (document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+
+        let error = text_run_bbox(&document, page, &target, "日本語")
+            .expect_err("Helvetica cannot encode this");
+        assert!(matches!(error, EditError::EncodingGap { .. }));
     }
 
     // --- remove_text_run --------------------------------------------------

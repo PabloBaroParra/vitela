@@ -13,15 +13,30 @@ use pdf_document::{
 };
 use pdf_edit::EditError;
 
-/// The first id [`overlay_pending_content`] hands out to an item that exists
-/// only because of a command still sitting in the `EditLog` — never one
-/// `pdf_edit::read_page_content` assigns itself, since a page's real ids stay
-/// in the tens or hundreds even for an unrealistic number of runs/images.
-/// Real and synthetic ids can therefore never collide by construction, which
-/// is what lets `command::{image,text_run}_already_edited` recognise a
-/// synthetic id at a glance — by comparing against this constant — without
-/// needing the `PageContent` that minted it.
+/// The base [`overlay_pending_content`] adds a command's own position in the
+/// `EditLog` to when it hands an id to an item that exists only because of
+/// that command — never one `pdf_edit::read_page_content` assigns itself,
+/// since a page's real ids stay in the tens or hundreds even for an
+/// unrealistic number of runs/images. Real and synthetic ids can therefore
+/// never collide by construction, which is what lets `command`'s pending
+/// lookups recognise a synthetic id at a glance — by comparing against this
+/// constant — without needing the `PageContent` that minted it.
+///
+/// Carrying the log index rather than a running counter is what makes a
+/// synthetic id *reversible*: [`pending_log_index`] reads the exact entry the
+/// item came from back out of it, so a further edit of a pending insertion
+/// can amend that entry instead of queueing a second command against an item
+/// no save could resolve twice. One command yields at most one item, so
+/// indices stay unique across text and images alike.
 pub(super) const PENDING_ITEM_ID_BASE: u64 = 1 << 40;
+
+/// The `EditLog` position a synthetic id points back at, or `None` for a real
+/// id parsed off the page — the inverse of the id arithmetic in
+/// [`overlay_pending_content`].
+pub(super) fn pending_log_index(id: ContentItemId) -> Option<usize> {
+    id.0.checked_sub(PENDING_ITEM_ID_BASE)
+        .map(|index| index as usize)
+}
 
 /// Returns the content cached in `cache`, parsing `page_index` from `base` on
 /// first use and layering `pending`'s effect on top (see
@@ -38,7 +53,7 @@ pub(crate) fn ensure_page_content<'a>(
     if cache.is_none() {
         let mut content = pdf_edit::read_page_content(base, PageId(page_index as u32))?;
         if let Some(pending) = pending {
-            overlay_pending_content(&mut content, pending, PageId(page_index as u32));
+            overlay_pending_content(&mut content, pending, PageId(page_index as u32), base);
         }
         *cache = Some(content);
     }
@@ -52,25 +67,42 @@ pub(crate) fn ensure_page_content<'a>(
 /// `save_backing`, which the log was recorded against but which does not yet
 /// contain it).
 ///
-/// An inserted run or image is appended with a synthetic id from
-/// [`PENDING_ITEM_ID_BASE`] rather than the placeholder `ContentItemId(0)`
-/// its command carries — that placeholder is never consulted by `pdf_edit`
-/// (see `content_edit::editor::open_insert_editor`'s own doc) and is shared
-/// by every pending insertion, so keeping it would make two insertions on
-/// one page indistinguishable to hit-testing. `pdf_edit` itself resolves
-/// every command by resource name and geometry, never by this shell-local
-/// id, so handing out a fresh one here changes nothing about how the edit
-/// eventually saves.
-fn overlay_pending_content(content: &mut PageContent, pending: &EditLog, page: PageId) {
-    let mut next_text_id = PENDING_ITEM_ID_BASE;
-    let mut next_image_id = PENDING_ITEM_ID_BASE;
+/// An inserted run or image is appended with a synthetic id built from
+/// [`PENDING_ITEM_ID_BASE`] and the command's own log position, rather than
+/// the placeholder `ContentItemId(0)` its command carries — that placeholder
+/// is never consulted by `pdf_edit` (see
+/// `content_edit::editor::open_insert_editor`'s own doc) and is shared by
+/// every pending insertion, so keeping it would make two insertions on one
+/// page indistinguishable to hit-testing. `pdf_edit` itself resolves every
+/// command by resource name and geometry, never by this shell-local id, so
+/// handing out a fresh one here changes nothing about how the edit eventually
+/// saves.
+///
+/// A pending run's **box is re-measured for the text it now shows**
+/// ([`pending_text_bbox`]), not carried over from the command's snapshot.
+/// Without that, retyping "Hi" as "Hello there, everyone" would leave the
+/// outline and the hit-test rect sized to the two characters the file still
+/// holds: the page paints the new text, the shell answers clicks against the
+/// old one, and the tail of what the user just typed is not clickable at all.
+fn overlay_pending_content(
+    content: &mut PageContent,
+    pending: &EditLog,
+    page: PageId,
+    base: &lopdf::Document,
+) {
+    // Resolved once for the whole replay rather than per command: every
+    // measurement below is against the same page. `None` (a page `pdf-edit`
+    // cannot address) simply means no run gets re-measured — the overlay
+    // still applies, with the boxes the commands were recorded with.
+    let page_object = pdf_edit::page_object_id(base, page).ok();
 
-    for command in pending.entries() {
+    for (index, command) in pending.entries().iter().enumerate() {
+        let synthetic_id = ContentItemId(PENDING_ITEM_ID_BASE + index as u64);
         match command {
             Command::InsertTextRun(run) if run.page == page => {
                 let mut run = run.clone();
-                run.id = ContentItemId(next_text_id);
-                next_text_id += 1;
+                run.bbox = pending_text_bbox(base, page_object, &run, &run.text);
+                run.id = synthetic_id;
                 content.text_runs.push(run);
             }
             Command::RemoveTextRun(run) if run.page == page => {
@@ -82,13 +114,17 @@ fn overlay_pending_content(content: &mut PageContent, pending: &EditLog, page: P
                     .iter_mut()
                     .find(|existing| existing.id == item.id)
                 {
+                    // Measured from `item`, the run as it was parsed, never
+                    // from `existing` — the two agree today, and keying off
+                    // the command's own snapshot keeps them agreeing if a
+                    // later command ever touches the same run first.
+                    existing.bbox = pending_text_bbox(base, page_object, item, after);
                     existing.text = after.clone();
                 }
             }
             Command::InsertImage { item, .. } if item.page == page => {
                 let mut item = item.clone();
-                item.id = ContentItemId(next_image_id);
-                next_image_id += 1;
+                item.id = synthetic_id;
                 content.images.push(item);
             }
             Command::RemoveImage { item, .. } if item.page == page => {
@@ -108,6 +144,26 @@ fn overlay_pending_content(content: &mut PageContent, pending: &EditLog, page: P
             _ => {}
         }
     }
+}
+
+/// The box `run` occupies showing `text`, falling back to the box it already
+/// carries when `pdf-edit` cannot measure it.
+///
+/// Every failure it swallows is a *better box being unavailable*, never a
+/// wrong edit: an unaddressable page, a font resource that resolves to
+/// nothing, or text with a character the run's font cannot show — the last of
+/// which the commit path refuses on its own, before any of this runs. Keeping
+/// the recorded box in those cases leaves hit-testing exactly as accurate as
+/// it was before re-measurement existed.
+fn pending_text_bbox(
+    base: &lopdf::Document,
+    page_object: Option<lopdf::ObjectId>,
+    run: &TextRun,
+    text: &str,
+) -> Rect {
+    page_object
+        .and_then(|page_object| pdf_edit::text_run_bbox(base, page_object, run, text).ok())
+        .unwrap_or(run.bbox)
 }
 
 /// The text run whose bounding box contains `point` (in PDF page space),
@@ -529,6 +585,94 @@ mod tests {
             .text_run(target.id)
             .expect("the replaced run is still on the page");
         assert_eq!(found.text, "Goodbye world");
+    }
+
+    /// The user-visible half of the same fix: a replacement long enough to
+    /// outgrow the box the file still holds must be clickable — and outlined
+    /// — over the text it actually shows, not over the run it replaced.
+    #[test]
+    fn a_pending_replacement_grows_the_box_the_click_lands_in() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hi"]);
+        let mut cache = None;
+        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let target = content
+            .text_runs
+            .first()
+            .expect("the fixture has one run")
+            .clone();
+        // Comfortably past the right edge of the two-character original, and
+        // comfortably inside the replacement.
+        let past_the_original = (
+            (target.bbox.x + target.bbox.width) as f32 + 5.0,
+            (target.bbox.y + target.bbox.height / 2.0) as f32,
+        );
+        assert!(
+            text_run_at(content, past_the_original).is_none(),
+            "the point has to start outside the original box for this to prove anything"
+        );
+        cache = None;
+
+        let pending = log_with(vec![Command::ReplaceTextRunContent {
+            item: target.clone(),
+            after: "Hello there, everyone".to_string(),
+        }]);
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        let found = text_run_at(content, past_the_original)
+            .expect("the replacement's own text is hit-tested");
+        assert_eq!(found.id, target.id);
+        assert!(found.bbox.width > target.bbox.width);
+    }
+
+    /// The insertion twin: the fixed 150pt box `open_insert_editor` places is
+    /// a starting size, not what the typed text turns out to occupy.
+    #[test]
+    fn a_pending_insertion_is_measured_for_the_text_it_carries() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let mut cache = None;
+        let mut inserted = run(0, 200.0, 200.0, 150.0, 14.0);
+        inserted.resource_font_name = "FIns1".to_string();
+        inserted.text = "Hi".to_string();
+        let pending = log_with(vec![Command::InsertTextRun(inserted)]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        let found = text_run_at(content, (205.0, 205.0)).expect("the insertion is hit-tested");
+        assert!(
+            found.bbox.width < 150.0,
+            "\"Hi\" at 14pt is nowhere near the default box, got {}",
+            found.bbox.width
+        );
+    }
+
+    // --- pending_log_index ------------------------------------------------
+
+    /// The round trip the amend path depends on: the id handed to a pending
+    /// item leads back to the exact log entry that produced it.
+    #[test]
+    fn a_synthetic_id_leads_back_to_the_command_that_minted_it() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let mut cache = None;
+        let pending = log_with(vec![
+            Command::InsertTextRun(run(0, 200.0, 200.0, 50.0, 12.0)),
+            Command::InsertTextRun(run(0, 200.0, 300.0, 50.0, 12.0)),
+        ]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        let first = text_run_at(content, (210.0, 205.0)).expect("first insertion is hit-tested");
+        let second = text_run_at(content, (210.0, 305.0)).expect("second insertion is hit-tested");
+        assert_eq!(pending_log_index(first.id), Some(0));
+        assert_eq!(pending_log_index(second.id), Some(1));
+    }
+
+    #[test]
+    fn a_real_parsed_id_has_no_log_entry_behind_it() {
+        assert_eq!(pending_log_index(ContentItemId(0)), None);
+        assert_eq!(pending_log_index(ContentItemId(42)), None);
     }
 
     #[test]
