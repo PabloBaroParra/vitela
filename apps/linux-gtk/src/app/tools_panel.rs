@@ -296,18 +296,25 @@ mod tests {
     /// dragging the canvas/tools divider right cut the whole panel off at the
     /// window edge instead of narrowing it.
     ///
-    /// A ratio rather than a pixel count: the numbers move with the theme's
-    /// font, the relationship does not.
+    /// Measured against the sum of the tabs rather than against the
+    /// `FlowBox`'s own natural width: the sum is what a rigid strip demands,
+    /// and `FlowBox`'s reported natural width is environment-dependent (it
+    /// came back equal to the minimum under CI's Xvfb), which is not the
+    /// property under test.
     #[gtk::test]
     fn gtk_ui_tab_strip_shrinks_instead_of_setting_the_panels_floor() {
         let switcher = build_tab_switcher(&stack_of_tabs());
 
-        let (minimum, natural, _, _) = switcher.measure(Orientation::Horizontal, -1);
+        let (minimum, _, _, _) = switcher.measure(Orientation::Horizontal, -1);
+        let sum_of_tabs: i32 =
+            std::iter::successors(switcher.first_child(), |child| child.next_sibling())
+                .map(|tab| tab.measure(Orientation::Horizontal, -1).1)
+                .sum();
 
         assert!(
-            minimum * 2 <= natural,
-            "tab strip minimum {minimum} is not meaningfully below its natural width {natural}; \
-             it is behaving like the StackSwitcher it replaced and will floor the whole panel"
+            minimum * 2 <= sum_of_tabs,
+            "tab strip minimum {minimum} is not meaningfully below the {sum_of_tabs} its tabs add \
+             up to; it is behaving like the StackSwitcher it replaced and will floor the panel"
         );
     }
 

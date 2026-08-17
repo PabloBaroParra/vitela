@@ -247,20 +247,37 @@ mod tests {
     /// one group, not the sum of every control, so a window narrower than the
     /// full bar wraps it instead of clipping controls off the right edge.
     ///
-    /// Asserted as a ratio rather than a pixel count on purpose — the actual
-    /// numbers move with the theme's font, and what has to hold is the shape
-    /// of the relationship, not a measurement taken on one machine.
+    /// Measured against the sum of the groups rather than against the
+    /// `FlowBox`'s own natural width, and as a ratio rather than a pixel
+    /// count. The sum is exactly what the old flat `GtkBox` demanded, so it
+    /// is the number this has to beat — whereas `FlowBox`'s reported natural
+    /// width turns out to be environment-dependent (it came back equal to the
+    /// minimum under CI's Xvfb while reporting 1366px against the same 301px
+    /// minimum locally), which made the original form of this assertion fail
+    /// for a reason that had nothing to do with the property under test.
     #[gtk::test]
     fn gtk_ui_toolbar_minimum_width_is_one_group_not_the_whole_bar() {
         let toolbar = build_editor_toolbar();
 
-        let (minimum, natural, _, _) = toolbar.root.measure(Orientation::Horizontal, -1);
+        let (minimum, _, _, _) = toolbar.root.measure(Orientation::Horizontal, -1);
+        let sum_of_groups = sum_of_child_widths(&toolbar.root);
 
         assert!(
-            minimum * 2 <= natural,
-            "toolbar minimum {minimum} is not meaningfully below its natural width {natural}; \
-             it is behaving like a plain GtkBox and will clip instead of wrapping"
+            minimum * 2 <= sum_of_groups,
+            "toolbar minimum {minimum} is not meaningfully below the {sum_of_groups} its groups \
+             add up to; it is behaving like the plain GtkBox it replaced and will clip instead \
+             of wrapping"
         );
+    }
+
+    /// What a horizontal `GtkBox` of the same children would have reported as
+    /// its own minimum: the sum of their natural widths.
+    fn sum_of_child_widths(container: &impl IsA<gtk::Widget>) -> i32 {
+        std::iter::successors(container.as_ref().first_child(), |child| {
+            child.next_sibling()
+        })
+        .map(|child| child.measure(Orientation::Horizontal, -1).1)
+        .sum()
     }
 
     /// A wrap must move whole groups. `FlowBox`'s default cap of seven
