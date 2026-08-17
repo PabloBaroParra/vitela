@@ -299,7 +299,7 @@ mod tests {
     /// A ratio rather than a pixel count: the numbers move with the theme's
     /// font, the relationship does not.
     #[gtk::test]
-    fn the_tab_strip_shrinks_instead_of_setting_the_panels_floor() {
+    fn gtk_ui_tab_strip_shrinks_instead_of_setting_the_panels_floor() {
         let switcher = build_tab_switcher(&stack_of_tabs());
 
         let (minimum, natural, _, _) = switcher.measure(Orientation::Horizontal, -1);
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[gtk::test]
-    fn clicking_a_tab_moves_the_stack_and_leaves_exactly_that_tab_pressed() {
+    fn gtk_ui_clicking_a_tab_moves_the_stack_and_presses_only_that_tab() {
         let stack = stack_of_tabs();
         let toggles = tab_toggles(&build_tab_switcher(&stack));
 
@@ -328,7 +328,7 @@ mod tests {
     /// `ToggleButton` left to track its own would untoggle here, leaving the
     /// strip claiming no page is open while one plainly is.
     #[gtk::test]
-    fn clicking_the_open_tab_leaves_it_open_rather_than_unpressing_it() {
+    fn gtk_ui_clicking_the_open_tab_leaves_it_open_not_unpressed() {
         let stack = stack_of_tabs();
         let toggles = tab_toggles(&build_tab_switcher(&stack));
 
@@ -340,7 +340,7 @@ mod tests {
 
     /// The other direction: whatever moves the stack, the strip follows.
     #[gtk::test]
-    fn moving_the_stack_directly_repoints_the_strip() {
+    fn gtk_ui_moving_the_stack_directly_repoints_the_strip() {
         let stack = stack_of_tabs();
         let toggles = tab_toggles(&build_tab_switcher(&stack));
 

@@ -251,7 +251,7 @@ mod tests {
     /// numbers move with the theme's font, and what has to hold is the shape
     /// of the relationship, not a measurement taken on one machine.
     #[gtk::test]
-    fn the_toolbar_minimum_width_is_one_group_not_the_whole_bar() {
+    fn gtk_ui_toolbar_minimum_width_is_one_group_not_the_whole_bar() {
         let toolbar = build_editor_toolbar();
 
         let (minimum, natural, _, _) = toolbar.root.measure(Orientation::Horizontal, -1);
@@ -268,7 +268,7 @@ mod tests {
     /// added without raising [`GROUP_COUNT`] would start the bar off already
     /// wrapped on a window with room to spare.
     #[gtk::test]
-    fn every_group_can_share_one_row_when_the_window_is_wide_enough() {
+    fn gtk_ui_every_toolbar_group_can_share_one_row_when_wide_enough() {
         let toolbar = build_editor_toolbar();
 
         let groups = std::iter::successors(toolbar.root.first_child(), |child| child.next_sibling())

@@ -208,7 +208,7 @@ mod tests {
     /// still be squeezed to nothing, *and* the slot holding it stays visible,
     /// which is what keeps the `Paned`'s separator on screen to drag back.
     #[gtk::test]
-    fn a_collapsed_slot_stays_visible_and_asks_for_no_width() {
+    fn gtk_ui_collapsed_slot_stays_visible_and_asks_for_no_width() {
         let slot = collapsible(&column_panel());
 
         let open = slot.measure(Orientation::Horizontal, -1).0;
@@ -292,7 +292,7 @@ mod tests {
     /// column needs, so this fails if the snap is missing rather than only if
     /// the fold is.
     #[gtk::test]
-    fn folding_snaps_the_divider_shut_instead_of_leaving_an_empty_strip() {
+    fn gtk_ui_folding_snaps_the_divider_shut_not_leaving_an_empty_strip() {
         let (window, paned, _slot, toggle, minimum) = realized_shell();
 
         paned.set_position(paned.width() - (minimum - 1));
@@ -313,7 +313,7 @@ mod tests {
     /// child takes its separator with it. Dragging back in must reopen it —
     /// the gesture has to be its own inverse.
     #[gtk::test]
-    fn dragging_the_divider_back_in_reopens_a_folded_column() {
+    fn gtk_ui_dragging_the_divider_back_in_reopens_a_folded_column() {
         let (window, paned, slot, toggle, minimum) = realized_shell();
 
         // Out to the edge: fold.
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[gtk::test]
-    fn a_folded_column_also_reopens_from_its_toggle_wide_enough_to_draw() {
+    fn gtk_ui_folded_column_reopens_from_its_toggle_wide_enough_to_draw() {
         let (window, paned, slot, toggle, minimum) = realized_shell();
 
         paned.set_position(paned.width());
