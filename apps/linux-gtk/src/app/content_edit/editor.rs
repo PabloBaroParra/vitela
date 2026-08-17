@@ -10,13 +10,25 @@
 
 use gtk::prelude::*;
 use gtk::{gdk, glib, Entry, EventControllerFocus, EventControllerKey};
-use pdf_document::{Command, FontKind, TextRun};
+use pdf_document::{Command, ContentItemId, FontKind, PageId, Rect, TextRun};
 use pdf_edit::EditError;
 use pdf_render::{place_rect, TextRect};
 
+use crate::app::document::refresh_after_content_edit;
 use crate::app::state::{ContentEditor, Viewer};
 
-use super::command::{apply_command, validate_replacement};
+use super::command::{apply_command, validate_insert_text, validate_replacement};
+use super::model;
+
+/// Fixed default box for a newly inserted text run (T-163), in PDF points —
+/// there is no existing run to inherit a size from the way a replacement
+/// does. 150pt wide is comfortably more than a short phrase in Helvetica at
+/// this height; 14pt tall matches `insert_text_run`'s own reading of
+/// `bbox.height` as the font size (`core/pdf-edit/src/insert.rs`), so 14pt
+/// is both the box height and the point size the text is drawn at — large
+/// enough to read at 100% zoom.
+const INSERT_TEXT_WIDTH_PT: f64 = 150.0;
+const INSERT_TEXT_HEIGHT_PT: f64 = 14.0;
 
 /// Opens an inline editor over `run` on `page_index`.
 ///
@@ -73,6 +85,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
             page_index,
             run: run.clone(),
             entry: entry.clone(),
+            is_insertion: false,
         });
 
         entry
@@ -81,6 +94,111 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
     wire_entry(viewer, &entry);
     entry.grab_focus();
     entry.select_region(0, -1);
+}
+
+/// Opens a blank inline editor at `point` (PDF page space) to compose a
+/// brand-new text run (T-163's "insert text" sub-mode), rather than
+/// retyping an existing one.
+///
+/// Resolves whatever editor is already open first, same as [`open_editor`]:
+/// a click always commits the edit in progress before starting a new one.
+/// Unlike a replacement there is no run to read a font/size/position from,
+/// so this picks a fixed default box anchored at `point` and a font
+/// resource name guaranteed not to collide with one already on the page —
+/// see [`super::model::unused_font_resource_name`]'s own doc for why a
+/// colliding name would be a silent miscoding bug, not just a cosmetic one.
+pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
+    commit(viewer);
+
+    let entry = {
+        let mut state = viewer.state.borrow_mut();
+        let Some(session) = state.session.as_mut() else {
+            return;
+        };
+        let Some(base) = session
+            .save_backing
+            .as_ref()
+            .map(|backing| backing.base.as_lopdf())
+        else {
+            return;
+        };
+        // Collected into an owned `Vec` before `session.pages` is borrowed
+        // mutably below — see `image::apply_insertion` for the same shape and
+        // the reason the base document alone cannot answer this.
+        let reserved = session
+            .document_model
+            .as_ref()
+            .map(|document| model::reserved_font_resource_names(&document.pending_edits))
+            .unwrap_or_default();
+        let Some(page) = session.pages.get_mut(page_index) else {
+            return;
+        };
+        let resource_font_name =
+            match model::ensure_page_content(&mut page.content, base, page_index) {
+                Ok(content) => model::unused_font_resource_name(content, &reserved),
+                Err(error) => {
+                    drop(state);
+                    viewer.status.set_text(&error.to_string());
+                    return;
+                }
+            };
+
+        // The box's bottom-left sits at `point`, matching how
+        // `pdf_edit::insert::insert_text_run` reads the bbox back: the
+        // baseline it computes (`bbox.y + 0.25 * size`) sits just above the
+        // box's own bottom edge, so what the user clicked is where the text
+        // actually lands, not somewhere inside an invisible margin.
+        let bbox = Rect {
+            x: point.0,
+            y: point.1,
+            width: INSERT_TEXT_WIDTH_PT,
+            height: INSERT_TEXT_HEIGHT_PT,
+        };
+        let run = TextRun {
+            // Never consulted by `pdf_edit::insert_text_run` — insertion has
+            // no existing item to target, so this id is a placeholder only;
+            // `PageContent`'s real ids come from the *next* parse, once the
+            // run this template describes actually exists on the page.
+            id: ContentItemId(0),
+            page: PageId(page_index as u32),
+            bbox,
+            resource_font_name,
+            font_kind: FontKind::Standard14,
+            text: String::new(),
+        };
+
+        let placed = place_rect(
+            TextRect {
+                x_pt: bbox.x as f32,
+                y_pt: bbox.y as f32,
+                width_pt: bbox.width as f32,
+                height_pt: bbox.height as f32,
+            },
+            page.height_pt,
+            page.budget.factor,
+        );
+
+        let entry = Entry::new();
+        entry.set_halign(gtk::Align::Start);
+        entry.set_valign(gtk::Align::Start);
+        entry.set_margin_start(placed.left.round() as i32);
+        entry.set_margin_top(placed.top.round() as i32);
+        entry.set_width_request(placed.width.round().max(1.0) as i32);
+        entry.set_height_request(placed.height.round().max(1.0) as i32);
+        page.overlay.add_overlay(&entry);
+
+        session.content_editor = Some(ContentEditor {
+            page_index,
+            run,
+            entry: entry.clone(),
+            is_insertion: true,
+        });
+
+        entry
+    };
+
+    wire_entry(viewer, &entry);
+    entry.grab_focus();
 }
 
 fn wire_entry(viewer: &Viewer, entry: &Entry) {
@@ -114,11 +232,14 @@ fn wire_entry(viewer: &Viewer, entry: &Entry) {
 /// Validates and records the open editor's text, then closes it.
 ///
 /// A no-op text (`after == run.text`) closes without touching the `EditLog`
-/// at all — retyping the same words is not an edit. A failed validation
-/// leaves the editor open with the user's text intact: see
-/// `command::validate_replacement`'s doc for why this is checked before the
-/// command is recorded rather than only at save time. Safe to call with no
-/// editor open (focus-out and Enter both route here).
+/// at all: for a replacement that means retyping the same words is not an
+/// edit, and for an insertion (`is_insertion`, T-163) `run.text` starts as
+/// the empty string, so leaving the box empty is the same "nothing to
+/// record" case rather than a special one. A failed validation leaves the
+/// editor open with the user's text intact either way: see
+/// `command::validate_replacement`/`validate_insert_text`'s docs for why this
+/// is checked before the command is recorded rather than only at save time.
+/// Safe to call with no editor open (focus-out and Enter both route here).
 pub(crate) fn commit(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(refusal);
@@ -142,6 +263,7 @@ pub(crate) fn commit(viewer: &Viewer) {
     }
 
     let page_index = editor.page_index;
+    let is_insertion = editor.is_insertion;
     let run = editor.run.clone();
     let base = session
         .save_backing
@@ -149,6 +271,36 @@ pub(crate) fn commit(viewer: &Viewer) {
         .expect("content_edit_refusal already required a model, which requires save_backing")
         .base
         .as_lopdf();
+
+    if is_insertion {
+        let mut new_run = run;
+        new_run.text = after;
+        match validate_insert_text(base, page_index, &new_run) {
+            Ok(()) => {
+                let document = session
+                    .document_model
+                    .as_mut()
+                    .expect("content_edit_refusal already required a model");
+                apply_command(document, Command::InsertTextRun(new_run));
+                session.edit_revision += 1;
+                // Marked here, at the moment the command joins the log, not
+                // when `refresh_after_content_edit` lands: a refresh that
+                // fails still leaves a recorded edit behind, and a document
+                // that reports itself clean is one the open-another-document
+                // guard will discard without asking.
+                session.unsaved_to_disk = true;
+                let editor = session.content_editor.take().expect("checked above");
+                drop(state);
+                detach(viewer, &editor);
+                refresh_after_content_edit(viewer, "Text inserted.");
+            }
+            Err(error) => {
+                drop(state);
+                viewer.status.set_text(&error.to_string());
+            }
+        }
+        return;
+    }
 
     match validate_replacement(base, page_index, &run, &after) {
         Ok(()) => {
@@ -164,12 +316,13 @@ pub(crate) fn commit(viewer: &Viewer) {
                 },
             );
             session.edit_revision += 1;
+            // Same reason as the insertion branch above: recorded now, so a
+            // failed refresh cannot leave a dirty document reporting clean.
+            session.unsaved_to_disk = true;
             let editor = session.content_editor.take().expect("checked above");
             drop(state);
             detach(viewer, &editor);
-            viewer
-                .status
-                .set_text("Text updated. Changes are pending save.");
+            refresh_after_content_edit(viewer, "Text updated.");
         }
         Err(error) => {
             drop(state);

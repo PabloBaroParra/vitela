@@ -416,6 +416,318 @@ fn save_snapshot_and_reopen(
     .map_err(|error| error.to_string())
 }
 
+/// Runs the save→reopen→re-render cycle every content-edit commit needs
+/// (batch decision 6, `docs/batch-content-edit.md`) — the no-destination
+/// twin of [`spawn_save`]. T-161/T-162 deferred this: their commits left the
+/// canvas showing pdfium's stale bitmap behind a "Changes are pending save"
+/// status, because for an *annotation* the overlay already painted the
+/// truth. A content edit changes what pdfium itself renders, so nothing
+/// short of a real reopen shows the actual result — that gap stops being
+/// deferrable exactly here.
+///
+/// Modeled closely on [`save_current_to`]/[`spawn_save`]/
+/// [`save_snapshot_and_reopen`], with two deliberate differences:
+///
+/// - **No destination path, no file dialog.** Nothing is written to disk;
+///   the reopened handle is built from an in-memory `save_document` buffer
+///   only (see [`refresh_snapshot_and_reopen`]).
+/// - **No [`confirm_signature_loss`] prompt.** A content edit that would
+///   invalidate an existing signature proceeds silently
+///   (`pdf_save::SignatureAcknowledgement::ProceedAndInvalidate`). Nothing
+///   here is written anywhere durable, so there is nothing irreversible for
+///   the user to consent to yet. This only holds because the edit state
+///   carried across the reopen ([`EditState`]) keeps the *original*
+///   `SaveBacking`: the real disk save therefore still replays a document
+///   that `has_content_edits`, still takes the full-rewrite path, and still
+///   reaches `confirm_signature_loss` before writing a byte. Installing the
+///   reopened session's own backing instead would fold the invalidated
+///   signature into the base with an empty edit log, and
+///   `will_invalidate_signatures` would then answer `false` for a file whose
+///   signature this very function had already broken.
+///
+/// **This is a preview refresh, not a document open.** [`show_document`] is
+/// built to install a *different* document, so it resets everything a new
+/// document should reset — including `document_model` (and with it the whole
+/// `EditLog`), `save_backing`, the zoom, and the scroll position. Letting it
+/// do that here would silently destroy the undo history the user still owns,
+/// re-base future saves on bytes that were never written anywhere, and throw
+/// the user back to the top of page 1 at fit-width after every single edit.
+/// So both halves are lifted out before the call and put back after it
+/// ([`take_edit_state`]/[`restore_edit_state`] and
+/// [`take_view_state`]/[`restore_view_state`]); only the pdfium handle and
+/// the page widgets it feeds are actually replaced.
+///
+/// Reuses [`prepare_reopened_session`]/[`session_matches`]/
+/// [`close_document_in_background`]/[`save_worker_result`] exactly as
+/// `spawn_save` does, so a second content edit landing before this one's
+/// background save+reopen completes is coalesced the same way a second disk
+/// save would be: the stale result's `SessionToken` no longer matches the
+/// session's current `(generation, edit_revision)`, so
+/// [`prepare_reopened_session`] refuses to install it and it is discarded
+/// via [`close_document_in_background`] instead.
+///
+/// `message` is the status text shown once the refresh lands (e.g. "Text
+/// updated.", "Image moved.", "Edit undone.") — no "pending save" suffix,
+/// because once this call has run that is no longer true of the *canvas*.
+/// The file on disk is still behind, which is what `unsaved_to_disk` tracks.
+pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str) {
+    let (token, document, backing) = {
+        let state = viewer.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return;
+        };
+        let Some(document) = session.document_model.clone() else {
+            return;
+        };
+        let Some(backing) = session.save_backing.clone() else {
+            return;
+        };
+        (
+            super::state::SessionToken {
+                generation: state.generation,
+                edit_revision: session.edit_revision,
+            },
+            document,
+            backing,
+        )
+    };
+
+    viewer.status.set_text("Refreshing preview...");
+    glib::spawn_future_local({
+        let viewer = viewer.clone();
+        async move {
+            let result =
+                gio::spawn_blocking(move || refresh_snapshot_and_reopen(&document, &backing)).await;
+            let result = save_worker_result(result);
+            match result {
+                Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
+                    // Lifted out *before* `show_document` drops the session
+                    // it belongs to, and put back after — see this function's
+                    // own doc for why a preview refresh must not let a
+                    // document-open path reset either half.
+                    let preserved_edits = take_edit_state(&viewer);
+                    let preserved_view = take_view_state(&viewer);
+                    show_document(&viewer, generation, reopened);
+                    let still_editing = restore_edit_state(&viewer, preserved_edits);
+                    restore_view_state(&viewer, generation, preserved_view);
+                    // The reopened session's `PageSlot::content` caches start
+                    // out empty again (`show_document` builds fresh
+                    // `PageSlot`s) — without re-parsing now, the composite-
+                    // font/uneditable-run outline would go blank until the
+                    // user clicked a run again, the same gap arming the mode
+                    // the first time already avoids. Runs after the restore,
+                    // so it re-parses the base the restored model's commands
+                    // are actually keyed to.
+                    if still_editing {
+                        super::content_edit::load_all_page_content(&viewer);
+                        super::selection::redraw(&viewer);
+                    }
+                    viewer.status.set_text(message);
+                }
+                Ok(reopened) => close_document_in_background(reopened.document),
+                // The command that triggered this refresh stays recorded in
+                // `pending_edits` either way: undo can still remove it, and
+                // if the error is a real problem (not just a stale token) an
+                // eventual disk Save will hit the exact same error. Rolling
+                // the command back here would silently discard an edit the
+                // user already confirmed through validate-before-record —
+                // worse than leaving a stale preview up with an explanation.
+                //
+                // `unsaved_to_disk` needs no correction on this path: every
+                // caller sets it when it *records* the command, not when the
+                // preview catches up, precisely so a failed refresh still
+                // reports the document as dirty.
+                Err(error) if session_matches(&viewer, token) => viewer
+                    .status
+                    .set_text(&format!("Could not refresh preview: {error}")),
+                Err(_) => {}
+            }
+        }
+    });
+}
+
+/// The half of a session that describes *what the user has edited*, as
+/// opposed to what is currently being rendered.
+///
+/// Exists only so [`refresh_after_content_edit`] can carry it across
+/// [`show_document`], which resets it — correctly, for its usual job of
+/// installing a different document, and destructively for a preview refresh
+/// of the same one.
+///
+/// The four fields travel together because they are mutually dependent, not
+/// because they happen to be convenient: `document_model` holds the
+/// annotations `selected_annotation` names and the id space
+/// `next_annotation_id` continues, and its `EditLog` is keyed to exactly the
+/// `save_backing` it was recorded against. Restoring any of them without the
+/// others produces a session that contradicts itself — a selection pointing
+/// at nothing, ids colliding with live annotations, or commands replayed
+/// against a base they were never validated against.
+struct EditState {
+    document_model: Option<Document>,
+    save_backing: Option<super::state::SaveBacking>,
+    next_annotation_id: u64,
+    selected_annotation: Option<pdf_document::AnnotationId>,
+}
+
+/// Lifts the edit-side state off the current session, leaving the rest of it
+/// to be discarded by the [`show_document`] that follows.
+///
+/// Always paired with [`restore_edit_state`], which is total: it writes onto
+/// whatever session is current when it runs. That matters because
+/// `show_document` can bail out early (`is_current`) and leave the *old*
+/// session in place — in which case the restore simply hands that session
+/// back its own fields, rather than stranding it without a model.
+fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
+    let mut state = viewer.state.borrow_mut();
+    let session = state.session.as_mut()?;
+    Some(EditState {
+        document_model: session.document_model.take(),
+        save_backing: session.save_backing.take(),
+        next_annotation_id: session.next_annotation_id,
+        selected_annotation: session.selected_annotation,
+    })
+}
+
+/// Puts [`take_edit_state`]'s result back onto the session [`show_document`]
+/// has just installed, and reports whether content-edit mode is still armed.
+///
+/// Also re-asserts `unsaved_to_disk`: the bytes just shown came from an
+/// in-memory save that never touched disk, and `show_document` defaults a
+/// freshly shown session to `false` — right for an ordinary open or a real
+/// disk-save reopen, both of which do match disk, wrong here.
+///
+/// `update_annotation_controls` runs again afterwards because
+/// `show_document` already ran it against the reopened model's *empty*
+/// `EditLog` and left Undo/Redo greyed out; the restored model is the one
+/// whose history the buttons must reflect.
+fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
+    let still_editing = {
+        let mut state = viewer.state.borrow_mut();
+        if let Some(session) = state.session.as_mut() {
+            if let Some(preserved) = preserved {
+                session.document_model = preserved.document_model;
+                session.save_backing = preserved.save_backing;
+                session.next_annotation_id = preserved.next_annotation_id;
+                session.selected_annotation = preserved.selected_annotation;
+            }
+            session.unsaved_to_disk = true;
+        }
+        state.content_edit_mode
+    };
+    super::annotations::update_annotation_controls(viewer);
+    still_editing
+}
+
+/// Where the user was looking, as opposed to what they had edited
+/// ([`EditState`]) or what is being rendered.
+///
+/// [`show_document`] resets both halves for the same reason: a *different*
+/// document has no business inheriting the previous one's zoom or scroll
+/// position. Re-showing the same one does.
+#[derive(Clone, Copy)]
+struct ViewState {
+    zoom: super::layout::Zoom,
+    reading: super::layout::ReadingPosition,
+}
+
+/// Reads the current zoom and reading position. Pure observation — unlike
+/// [`take_edit_state`] there is nothing to move out, because
+/// [`show_document`] rebuilds these from scratch rather than carrying them.
+fn take_view_state(viewer: &Viewer) -> Option<ViewState> {
+    // Read before the borrow: `vadjustment()` touches the widget tree, not
+    // `viewer.state`, but keeping the two apart is what lets the borrow below
+    // stay as short as it is.
+    let offset = viewer.scroll.vadjustment().value();
+    let state = viewer.state.borrow();
+    let session = state.session.as_ref()?;
+    Some(ViewState {
+        zoom: session.zoom,
+        reading: super::layout::reading_position(&session.page_heights, offset),
+    })
+}
+
+/// Puts the zoom and reading position back after [`show_document`] has reset
+/// them to "freshly opened": fit-width, scrolled to the top.
+///
+/// Order matters. `set_zoom` recomputes every page's box and with it
+/// `page_heights`, so the reading position must be resolved *after* it —
+/// against the stacking the user will actually be scrolling through, not the
+/// fit-width one `show_document` left behind.
+fn restore_view_state(viewer: &Viewer, generation: u64, preserved: Option<ViewState>) {
+    let Some(preserved) = preserved else {
+        return;
+    };
+    // A no-op when the zoom already matches `show_document`'s fresh default;
+    // a full `refresh_layout` when it does not (see its own guard).
+    super::layout::set_zoom(viewer, preserved.zoom);
+
+    let target = {
+        let state = viewer.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return;
+        };
+        super::layout::position_offset(&session.page_heights, preserved.reading)
+    };
+    if target <= 0.0 {
+        return;
+    }
+
+    // The borrow above must end before this: `set_value` synchronously emits
+    // `value_changed`, whose handler borrows the state again — the same
+    // sequencing `search::scroll_to_current_match` documents.
+    viewer.scroll.vadjustment().set_value(target);
+
+    // Then again on the next idle, because one attempt cannot be enough here.
+    // `set_value` clamps to the adjustment's `upper`, and `upper` only tracks
+    // the page widgets `show_document` just rebuilt as of the next
+    // size-allocate — so the call above lands when the adjustment still holds
+    // the pre-rebuild extent (the common case: same document, same page
+    // sizes, so the old extent is also the right one) and is clamped short
+    // when it does not. Whether GTK clamps synchronously or on its next
+    // configure is not something worth depending on, so this re-asserts
+    // rather than testing for it. Setting it eagerly first is what keeps the
+    // restore from visibly flickering through the top of page 1.
+    glib::idle_add_local_once({
+        let viewer = viewer.clone();
+        move || {
+            // A document opened in the meantime owns the scroll position now;
+            // this one's is stale.
+            if !is_current(&viewer, generation) {
+                return;
+            }
+            let adjustment = viewer.scroll.vadjustment();
+            // Only ever scrolls further down, never back up: if the eager
+            // call already landed, this is a no-op, and if something else
+            // moved past `target` in between, that is more current than what
+            // this closure captured.
+            if adjustment.value() < target {
+                adjustment.set_value(target);
+            }
+        }
+    });
+}
+
+/// The no-destination twin of [`save_snapshot_and_reopen`]: saves to an
+/// in-memory buffer and reopens *that*, without ever touching disk. See
+/// [`refresh_after_content_edit`]'s own doc for why signatures are
+/// acknowledged silently here rather than asked about — and why that stays
+/// safe only because the caller keeps the original `SaveBacking`.
+fn refresh_snapshot_and_reopen(
+    document: &Document,
+    backing: &super::state::SaveBacking,
+) -> Result<OpenedDocument, String> {
+    let bytes = pdf_save::save_document(pdf_save::SaveInput {
+        document,
+        base: &backing.base,
+        original_bytes: Some(&backing.original_bytes),
+        intent: pdf_save::SaveIntent::Default,
+        signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+    })
+    .map_err(|error| error.to_string())?;
+    open_document(&DocumentSource::Bytes(bytes), backing.password.as_deref())
+        .map_err(|error| error.to_string())
+}
+
 fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = destination
         .parent()
@@ -515,15 +827,15 @@ fn confirm_replacing_edits(
     viewer: &Viewer,
     proceed: impl Fn() + 'static,
 ) {
-    if !has_pending_annotation_edits(viewer) {
+    if !has_unsaved_changes(viewer) {
         proceed();
         return;
     }
 
     let dialog = AlertDialog::builder()
-        .message("Unsaved annotation changes")
+        .message("Unsaved changes")
         .detail(
-            "The open document has annotation changes that are not saved. Opening another document will discard them.",
+            "The open document has changes that are not saved. Opening another document will discard them.",
         )
         .buttons(["Cancel", "Discard", "Save"])
         .cancel_button(0)
@@ -862,6 +1174,12 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             content_edit_access: document.content_edit_access,
             document_model: document.document_model,
             save_backing: document.save_backing,
+            // Freshly shown: whatever is on screen right now is exactly what
+            // this session's bytes came from, which for an ordinary open or a
+            // disk-save reopen means it matches disk. A T-163 preview refresh
+            // shows bytes that were never written anywhere, so it restores
+            // this to `true` right after — see `restore_edit_state`.
+            unsaved_to_disk: false,
             edit_revision: 0,
             next_annotation_id: 0,
             selected_annotation: None,
@@ -904,17 +1222,27 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     }
 }
 
-/// Whether the open document carries annotation edits that have not been
-/// written anywhere. Read before the session is replaced — see
-/// [`show_document`].
-fn has_pending_annotation_edits(viewer: &Viewer) -> bool {
+/// Whether the open document carries changes that have not been written to
+/// disk. Read before the session is replaced — see [`show_document`].
+///
+/// Reads `session.unsaved_to_disk` rather than
+/// `document_model.pending_edits.can_undo()` (T-163). The two now agree in
+/// the ordinary case — [`refresh_after_content_edit`] carries the `EditLog`
+/// across its reopen rather than resetting it — but the flag is still the
+/// right question to ask, because it stays `true` on paths where the log
+/// cannot speak for itself: a refresh that *failed* after its command was
+/// recorded, and the window between recording a command and the async
+/// reopen landing. It errs toward asking: undoing every edit back to zero
+/// leaves it `true`, so the user is prompted about a document that now
+/// matches disk. Prompting once too often is the safe direction; the
+/// alternative discards work without asking.
+fn has_unsaved_changes(viewer: &Viewer) -> bool {
     viewer
         .state
         .borrow()
         .session
         .as_ref()
-        .and_then(|session| session.document_model.as_ref())
-        .is_some_and(|document| document.pending_edits.can_undo())
+        .is_some_and(|session| session.unsaved_to_disk)
 }
 
 pub(crate) fn close_document_in_background(document: DocumentHandle) {

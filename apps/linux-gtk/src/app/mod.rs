@@ -187,6 +187,10 @@ fn build_ui(application: &Application) -> BuiltUi {
     // `annotations::toolbar::arm_tool`), so it reads as a sibling mode rather
     // than an eighth annotation type.
     let content_edit_button = content_edit::build_toggle();
+    // Siblings of the mode toggle, not variants of it (T-163): they decide
+    // what a content-edit-mode click *creates* rather than whether one can
+    // happen at all — see `content_edit::set_insert_mode`.
+    let (insert_text_button, insert_image_button) = content_edit::build_insert_toggles();
     // Beside the mode toggle rather than in the main toolbar: it only ever
     // acts on content-edit mode's own selection (T-162 Slice 1), the same
     // reason the annotation toolbar's own Delete lives in its own row.
@@ -198,6 +202,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     replace_image_button.set_sensitive(false);
     let content_edit_row = GtkBox::new(Orientation::Horizontal, 8);
     content_edit_row.append(&content_edit_button);
+    content_edit_row.append(&insert_text_button);
+    content_edit_row.append(&insert_image_button);
     content_edit_row.append(&delete_image_button);
     content_edit_row.append(&replace_image_button);
 
@@ -254,6 +260,8 @@ fn build_ui(application: &Application) -> BuiltUi {
         redo_action,
         annotation_buttons: annotation_toolbar,
         content_edit_button,
+        insert_text_button,
+        insert_image_button,
         delete_image_button,
         replace_image_button,
         state: Rc::new(RefCell::new(ViewerState {
@@ -262,6 +270,7 @@ fn build_ui(application: &Application) -> BuiltUi {
             session: None,
             active_tool: None,
             content_edit_mode: false,
+            content_insert_mode: None,
             password_dialog: None,
         })),
     };
@@ -269,6 +278,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     connect_search(&viewer);
     annotations::connect_annotation_toolbar(&viewer);
     content_edit::connect_toggle(&viewer);
+    content_edit::connect_insert_toggles(&viewer);
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| content_edit::image::delete_selected(&viewer)

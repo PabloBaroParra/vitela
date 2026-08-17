@@ -254,10 +254,122 @@ ninguno de los dos.
       `target_os`) build+test+clippy verdes en Windows; el shell `linux-gtk` en sí queda sin
       verificar localmente por la misma razón de siempre (no compila fuera de Linux) —
       pendiente de CI.
-- [ ] T-163 (dep B21) Insertar texto/imagen nuevos como contenido de página real; y el
+- [x] T-163 (dep B21) Insertar texto/imagen nuevos como contenido de página real; y el
       ciclo save→reopen→re-render obligatorio tras cualquier commit de edición de contenido
       — acá el WARNING de UX diferido en T-046/T-047 deja de ser diferible: es el camino
       principal de la feature, no un caso de borde. [ContentEdit]
+      **(2026-08-17 — completo.) Parte A — insertar:** dos toggles nuevos junto a "Edit
+      content" (`insert_text_button`/`insert_image_button`, `ContentInsertKind` en
+      `state.rs`), mutuamente excluyentes entre sí y con las herramientas de anotación
+      (armar cualquiera de los dos arma "Edit content" como efecto colateral, porque el
+      click solo llega al ruteo de inserción con `content_edit_mode` en `true`). Armado,
+      un click en cualquier punto de la página —sin consultar `text_run_at`— abre un
+      `Entry` en blanco (texto) o un file picker (imagen) anclado ahí. Texto usa una caja
+      fija de 150×14pt cuyo borde inferior-izquierdo cae en el punto clickeado (consistente
+      con `insert_text_run`'s `baseline = bbox.y + 0.25*size`); imagen reusa
+      `pdf_annotate::stamp_placement`/`DEFAULT_STAMP_MAX_SIDE_PT` — el mismo default que ya
+      usa el Stamp de anotaciones — en vez de inventar un segundo heurístico de tamaño. El
+      nombre de recurso (`FInsN`/`XInsN`) lo elige `content_edit::model::
+      unused_font_resource_name`/`unused_xobject_resource_name`, comparando solo contra los
+      runs/imágenes que `PageContent` ya expone: reusar un nombre ya tomado haría que
+      `ensure_font_resource` reciclara en silencio el recurso equivocado.
+
+      **Parte B — el WARNING deja de ser diferible, para TODO commit de contenido, no solo
+      inserts.** Nuevo `document::refresh_after_content_edit(viewer, message)`: guardado a
+      buffer en memoria (nunca a disco) + reapertura, calcado de
+      `spawn_save`/`save_snapshot_and_reopen` salvo dos diferencias deliberadas — sin
+      destino/diálogo, y sin `confirm_signature_loss` (la firma se invalida en silencio con
+      `ProceedAndInvalidate`, porque nada se escribe a un archivo real todavía; el save a
+      disco de verdad sigue preguntando antes de tocar un byte). Reusa
+      `prepare_reopened_session`/`session_matches`/`SessionToken` tal cual, así que una
+      segunda edición que llega antes de que la primera reabra se coalesce solo — el mismo
+      mecanismo que ya protegía el save a disco. Los seis sitios de commit de
+      `content_edit::editor::commit`/`content_edit::image` (replace, move, resize, delete,
+      replace-source, insert-text, insert-image) llaman esto en vez de escribir "Changes are
+      pending save."; `annotations::command::history` (el undo/redo compartido de TODO el
+      `EditLog`) lo llama también cuando el comando que se movió es uno de contenido —
+      `Command::is_content_edit()` (nuevo, `core/pdf-document/src/edit_log.rs`) clasifica
+      qué acaba de moverse, y `EditLog::peek_undo`/`peek_redo` (nuevos, de solo lectura) lo
+      dejan mirar *antes* de aplicar el paso, porque `undo`/`redo` en sí solo devuelven si
+      hubo paso, no qué comando fue.
+
+      **El gap real, encontrado en code review:** el refresh reusaba `show_document` tal
+      cual, y `show_document` está escrito para instalar un documento *distinto* — resetea
+      todo lo que un documento nuevo debe resetear, incluidos `document_model` (y con él el
+      `EditLog` entero) y `save_backing`. Como el refresh instala el *mismo* documento, eso
+      rompía tres cosas de una: (1) cada edición de contenido borraba el historial de
+      undo/redo completo, anotaciones previas incluidas, y dejaba muerta la rama
+      `is_content_edit` recién agregada a `annotations::command::history`; (2) el
+      `save_backing` pasaba a ser los bytes refrescados con log vacío, así que
+      `will_invalidate_signatures` respondía `false` y el save a disco de un PDF firmado
+      salía por `save_incremental` sin pasar nunca por `confirm_signature_loss` — la firma
+      la había roto el propio refresh, en silencio; (3) `has_unsaved_changes` quedaba en
+      `false` si el refresh fallaba, y abrir otro documento descartaba la edición sin
+      preguntar.
+
+      La corrección es tratar el refresh como lo que es —**un refresh de preview, no un
+      open**—: `document::take_edit_state`/`restore_edit_state` levantan la mitad de la
+      sesión que describe *lo que el usuario editó* (`document_model`, `save_backing`,
+      `next_annotation_id`, `selected_annotation`) antes de `show_document` y la reponen
+      después. Solo el handle de pdfium y los widgets de página se reemplazan de verdad.
+      Con el `save_backing` original preservado, el log sigue keyed contra la base que lo
+      validó, el save a disco sigue haciendo full rewrite y sigue preguntando por la firma,
+      y el undo de un content edit ahora sí llega a `refresh_after_content_edit` como el
+      diseño pretendía.
+
+      La otra mitad que `show_document` reseteaba —con la misma lógica de "documento
+      nuevo"— era **la posición de lectura**: zoom a `FitWidth` y scroll a 0 en *cada*
+      commit de contenido, o sea que editar un run en la página 12 al 400% te devolvía al
+      tope de la página 1. `take_view_state`/`restore_view_state` son el gemelo de los
+      anteriores. El zoom se repone con `layout::set_zoom` (idempotente si ya coincide con
+      el default). El scroll **no** se guarda como offset crudo sino como
+      `layout::ReadingPosition` (página + fracción dentro de ella, funciones puras
+      `reading_position`/`position_offset` con tests): un offset solo significa algo contra
+      un `page_heights` concreto, y ese es justamente el vector que se recalcula. Se
+      resuelve *después* del `set_zoom`, contra el stacking nuevo. Se aplica dos veces —ya
+      mismo y en el próximo idle— porque `set_value` clampea contra el `upper` del
+      adjustment y ese `upper` solo se pone al día con los widgets recién reconstruidos en
+      el siguiente size-allocate; la primera aplicación evita el parpadeo por el tope de la
+      página 1, la del idle es el fallback si la primera quedó clampeada, y solo scrollea
+      hacia abajo para no pisar algo más reciente.
+
+      `DocumentSession::unsaved_to_disk` (bool, default `false`) se mantiene, pero lo marca
+      **quien registra el comando**, no el refresh que después alcanza al canvas: un refresh
+      que falla deja la edición en el log igual, y un documento que se reporta limpio es uno
+      que el guard de "abrir otro documento" descarta sin preguntar. `restore_edit_state` lo
+      re-afirma al cruzar su propio reopen, porque los bytes que mostró no se escribieron a
+      ningún lado. `has_pending_annotation_edits` se renombró a `has_unsaved_changes` y el
+      `AlertDialog` de `confirm_replacing_edits` pasó a texto genérico ("Unsaved changes"),
+      ya que ahora cubre contenido además de anotaciones.
+
+      **Consecuencia de preservar la base original:** el `PageContent` que se re-parsea tras
+      el refresh sale de esa base, no de los bytes en pantalla, así que contenido insertado
+      desde el último save a disco se ve pero todavía no es clickeable — la misma limitación
+      que `command::image_already_edited` ya declaraba ("save and reopen before editing it
+      again"). Y como la base no ve las inserciones pendientes, elegir el nombre de recurso
+      solo desde `PageContent` habría hecho que dos inserciones seguidas pidieran el mismo
+      `XIns1`; `insert_image` rechaza un `source` bajo un nombre ya registrado
+      (`ResourceNameInUse`) y, al pasar eso dentro de `replay_content_edits`, se llevaba
+      puesto el save entero. `model::reserved_font_resource_names`/
+      `reserved_xobject_resource_names` leen los nombres ya reclamados por comandos del log
+      (incluido `RemoveImage`, que deja su XObject registrado para que el undo lo pueda
+      repintar) y `unused_*_resource_name` los honra junto con los que la página ya pinta.
+
+      Verificado: `cargo fmt --check` + `cargo build`/`test`/`clippy --all-targets
+      --all-features -D warnings` en `pdf-document`, `pdf-edit`, `pdf-save`, `pdf-ffi`
+      (todos cross-platform, sin gate de `target_os`) — todo verde en Windows, incluidos los
+      tests nuevos de `Command::is_content_edit`/`EditLog::peek_undo`/`peek_redo` y de
+      `content_edit::model::unused_font_resource_name`/`unused_xobject_resource_name`/
+      `content_edit::command::validate_insert_text`/`validate_insert_image`. El shell
+      `linux-gtk` en sí queda sin verificar localmente por la misma razón de siempre: en
+      Windows `main.rs` excluye `mod app;` entero tras `#[cfg(target_os = "linux")]`, así
+      que ni `cargo check -p linux-gtk` compila una sola línea del código de este batch —
+      pendiente de CI. Revisión manual de todo el diff enfocada en un footgun conocido de
+      Rust (temporal de `RefCell::borrow()` extendido por todo un `match`/`if let`): un
+      `match viewer.state.borrow().content_insert_mode { ... }` original habría mantenido el
+      `Ref` vivo mientras las ramas reabrían `viewer.state` — se corrigió leyendo a una
+      variable local antes del `match`/`if`, mismo patrón que el resto del archivo ya usa en
+      otros lados.
 
 ### Criterios de aceptación (spec)
 - PDF válido sin cifrar abre y renderiza página 1.

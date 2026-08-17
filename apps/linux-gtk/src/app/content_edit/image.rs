@@ -1,10 +1,11 @@
-//! Select/move/resize/delete for existing page images in content-edit mode
-//! (T-162 Slice 1) — the image twin of `annotations::gesture`, but claiming
-//! its own `SelectedImage`/`ImageDrag` state and `content_edit::command`'s
-//! validate fns instead of `pdf_annotate`.
+//! Select/move/resize/delete/replace for existing page images, plus
+//! inserting a brand-new one (T-162, T-163) — the image twin of
+//! `annotations::gesture`, but claiming its own `SelectedImage`/`ImageDrag`
+//! state and `content_edit::command`'s validate fns instead of
+//! `pdf_annotate`.
 //!
-//! Split the same way `annotations::command::history` is: the four functions
-//! below take `&Viewer` and do real widget/session work (GTK, `RefCell`
+//! Split the same way `annotations::command::history` is: the functions
+//! below that take `&Viewer` do real widget/session work (GTK, `RefCell`
 //! borrows, status text, redraw), so — matching this codebase's existing
 //! convention for `annotations::gesture` and `content_edit::editor::commit`,
 //! neither of which is unit-tested directly either — they stay thin and
@@ -15,8 +16,9 @@
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
-use pdf_document::{Command, ImageItem, Rect};
+use pdf_document::{Command, ContentItemId, ImageItem, PageId, Rect};
 
+use crate::app::document::refresh_after_content_edit;
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
 use crate::app::update_content_edit_controls;
@@ -62,10 +64,13 @@ fn command_for(item: ImageItem, mode: AnnotationDragMode, to: Rect) -> Command {
     }
 }
 
+/// The status text `document::refresh_after_content_edit` shows once the
+/// refresh lands — no "pending save" suffix (T-163): by the time it shows,
+/// the canvas already reflects the edit, only the file on disk is behind.
 fn message_for(mode: AnnotationDragMode) -> &'static str {
     match mode {
-        AnnotationDragMode::Move => "Image moved. Changes are pending save.",
-        AnnotationDragMode::Resize(_) => "Image resized. Changes are pending save.",
+        AnnotationDragMode::Move => "Image moved.",
+        AnnotationDragMode::Resize(_) => "Image resized.",
     }
 }
 
@@ -268,6 +273,10 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
                 Ok(()) => {
                     command::apply_command(document, command_for(drag.item.clone(), drag.mode, to));
                     session.edit_revision += 1;
+                    // Marked when the command joins the log rather than when
+                    // `refresh_after_content_edit` lands — a refresh that
+                    // fails must still leave the document reporting dirty.
+                    session.unsaved_to_disk = true;
                     Ok(message_for(drag.mode))
                 }
                 Err(error) => Err(error.to_string()),
@@ -276,7 +285,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
     };
 
     match result {
-        Ok(message) => viewer.status.set_text(message),
+        Ok(message) => refresh_after_content_edit(viewer, message),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -336,6 +345,9 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
                         },
                     );
                     session.edit_revision += 1;
+                    // See `finish_image_drag`: dirty at record time, not at
+                    // refresh time.
+                    session.unsaved_to_disk = true;
                     Ok(())
                 }
                 Err(error) => {
@@ -350,9 +362,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
     };
 
     match result {
-        Ok(()) => viewer
-            .status
-            .set_text("Image deleted. Changes are pending save."),
+        Ok(()) => refresh_after_content_edit(viewer, "Image deleted."),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -488,6 +498,9 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
                         },
                     );
                     session.edit_revision += 1;
+                    // See `finish_image_drag`: dirty at record time, not at
+                    // refresh time.
+                    session.unsaved_to_disk = true;
                     session.selected_image = Some(selected);
                     Ok(())
                 }
@@ -500,9 +513,162 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     };
 
     match result {
-        Ok(()) => viewer
-            .status
-            .set_text("Image replaced. Changes are pending save."),
+        Ok(()) => refresh_after_content_edit(viewer, "Image replaced."),
+        Err(error) => viewer.status.set_text(&error),
+    }
+    update_content_edit_controls(viewer);
+    selection::redraw(viewer);
+}
+
+/// Opens a file picker and inserts the chosen image as brand-new page
+/// content anchored at `point` (T-163's "insert image" sub-mode) — the
+/// insertion twin of [`replace_selected`], same async split for the same
+/// reason: the picker itself is asynchronous, so this half only checks the
+/// permission and opens it, and [`apply_insertion`] does the actual
+/// decode-then-validate-then-record work once the picked file's bytes are in
+/// hand.
+pub(crate) fn insert_at(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+) {
+    if let Some(refusal) = viewer.content_edit_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
+
+    let filter = FileFilter::new();
+    filter.set_name(Some("Image files"));
+    filter.add_mime_type("image/png");
+    filter.add_mime_type("image/jpeg");
+    filter.add_pattern("*.png");
+    filter.add_pattern("*.PNG");
+    filter.add_pattern("*.jpg");
+    filter.add_pattern("*.JPG");
+    filter.add_pattern("*.jpeg");
+    filter.add_pattern("*.JPEG");
+
+    let chooser = FileDialog::builder()
+        .title("Insert image")
+        .accept_label("Insert")
+        .default_filter(&filter)
+        .build();
+    chooser.open(Some(window), None::<&gio::Cancellable>, {
+        let viewer = viewer.clone();
+        move |result| {
+            let Ok(file) = result else {
+                return;
+            };
+            let Some(path) = file.path() else {
+                viewer
+                    .status
+                    .set_text("The selected location is not a local file.");
+                return;
+            };
+            match std::fs::read(&path) {
+                Ok(bytes) => apply_insertion(&viewer, page_index, point, bytes),
+                Err(error) => viewer
+                    .status
+                    .set_text(&format!("Could not read {}: {error}", path.display())),
+            }
+        }
+    });
+}
+
+/// Validates and records `bytes` as a brand-new image at `point`, once
+/// [`insert_at`]'s file dialog has resolved.
+fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes: Vec<u8>) {
+    if let Some(refusal) = viewer.content_edit_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
+
+    // The default box comes from the same place the annotation Stamp tool's
+    // does (`annotations::builder::stamp_rect`, which reaches the same
+    // function): natural proportions, longest side capped at
+    // `DEFAULT_STAMP_MAX_SIDE_PT`, anchored at the click point. One
+    // heuristic for "where does an app-placed image land", reused rather
+    // than a second one invented here that could quietly disagree with it
+    // about a default size.
+    let bbox =
+        match pdf_annotate::stamp_placement(&bytes, point, pdf_annotate::DEFAULT_STAMP_MAX_SIDE_PT)
+        {
+            Ok(bbox) => bbox,
+            Err(error) => {
+                viewer
+                    .status
+                    .set_text(&format!("Could not use the image: {error}"));
+                return;
+            }
+        };
+
+    let result = {
+        let mut state = viewer.state.borrow_mut();
+        let Some(session) = state.session.as_mut() else {
+            return;
+        };
+        let Some(base) = session
+            .save_backing
+            .as_ref()
+            .map(|backing| backing.base.as_lopdf())
+        else {
+            return;
+        };
+        // Collected into an owned `Vec` before `session.pages` is borrowed
+        // mutably below — `session.document_model` and `session.pages` are
+        // disjoint fields, but reading the log into a value keeps that
+        // obvious instead of load-bearing.
+        let reserved = session
+            .document_model
+            .as_ref()
+            .map(|document| model::reserved_xobject_resource_names(&document.pending_edits))
+            .unwrap_or_default();
+        let Some(page) = session.pages.get_mut(page_index) else {
+            return;
+        };
+        let resource_xobject_name =
+            match model::ensure_page_content(&mut page.content, base, page_index) {
+                Ok(content) => model::unused_xobject_resource_name(content, &reserved),
+                Err(error) => {
+                    drop(state);
+                    viewer.status.set_text(&error.to_string());
+                    return;
+                }
+            };
+
+        let item = ImageItem {
+            id: ContentItemId(0),
+            page: PageId(page_index as u32),
+            bbox,
+            resource_xobject_name,
+        };
+
+        match command::validate_insert_image(base, page_index, &item, &bytes) {
+            Ok(()) => {
+                let document = session
+                    .document_model
+                    .as_mut()
+                    .expect("content_edit_refusal already required a model");
+                command::apply_command(
+                    document,
+                    Command::InsertImage {
+                        item,
+                        source: Some(bytes),
+                    },
+                );
+                session.edit_revision += 1;
+                // See `finish_image_drag`: dirty at record time, not at
+                // refresh time.
+                session.unsaved_to_disk = true;
+                Ok(())
+            }
+            Err(error) => Err(error.to_string()),
+        }
+    };
+
+    match result {
+        Ok(()) => refresh_after_content_edit(viewer, "Image inserted."),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);

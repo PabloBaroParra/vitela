@@ -345,10 +345,11 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
 - [ ] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
       handles/reemplazar (file picker)/borrar imágenes existentes — distinto del stamp de
       anotación que ya existe (T-047). [ContentEdit]
-- [ ] T-163 (dep B21) Insertar texto/imagen nuevos como contenido de página real; y el
+- [x] T-163 (dep B21) Insertar texto/imagen nuevos como contenido de página real; y el
       ciclo save→reopen→re-render obligatorio tras cualquier commit de edición de contenido
       (decisión 6) — acá el WARNING de UX diferido en T-046/T-047 deja de ser diferible.
       [ContentEdit]
+      **(2026-08-17 — completo, ver la entrada extendida en `docs/batches-b8-b13.md`.)**
 
 ## Criterios de aceptación
 
