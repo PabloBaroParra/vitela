@@ -24,6 +24,17 @@ pub struct PageDimensions {
     pub height_pt: f64,
 }
 
+/// The subset of the `/Info` dictionary a document-properties display wants.
+/// Each field is `None` when the dictionary is absent, the key is missing,
+/// or the value could not be read as a PDF text string — never guessed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DocumentInfo {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub creator: Option<String>,
+    pub producer: Option<String>,
+}
+
 impl LopdfDocument {
     /// Wraps an existing `lopdf::Document`. Exposed (rather than
     /// crate-private) so sibling crates (e.g. the future `pdf-save`, Batch 6)
@@ -66,6 +77,56 @@ impl LopdfDocument {
             .values()
             .map(|&page_id| page_dimensions_for(&self.0, page_id))
             .collect()
+    }
+
+    /// Reads the trailer's `/Info` dictionary for a document-properties
+    /// display. Missing dictionary, missing keys, and unreadable values all
+    /// fall back to `None` on their own field rather than failing the whole
+    /// read — a document with a `/Title` but no `/Author` should still show
+    /// the title it has.
+    pub fn info(&self) -> DocumentInfo {
+        let Some(dict) = self.info_dictionary() else {
+            return DocumentInfo::default();
+        };
+        DocumentInfo {
+            title: self.info_field(dict, b"Title"),
+            author: self.info_field(dict, b"Author"),
+            creator: self.info_field(dict, b"Creator"),
+            producer: self.info_field(dict, b"Producer"),
+        }
+    }
+
+    fn info_dictionary(&self) -> Option<&lopdf::Dictionary> {
+        let info_id = self.0.trailer.get(b"Info").ok()?.as_reference().ok()?;
+        self.0.get_dictionary(info_id).ok()
+    }
+
+    fn info_field(&self, dict: &lopdf::Dictionary, key: &[u8]) -> Option<String> {
+        let bytes = resolve(&self.0, dict.get(key).ok()?).as_str().ok()?;
+        (!bytes.is_empty()).then(|| decode_pdf_text_string(bytes))
+    }
+}
+
+/// Decodes a PDF text string (ISO 32000-2 §7.9.2.2): UTF-16BE when the bytes
+/// open with the `FE FF` byte-order mark, PDFDocEncoding otherwise.
+///
+/// The PDFDocEncoding branch only really covers its printable-ASCII range
+/// (mapping each byte straight to the matching codepoint) rather than the
+/// handful of typographic marks the encoding remaps above 0x80 — every
+/// `/Info` string this codebase has produced or seen in the wild stays in
+/// that range, and a properties display asks for "good enough to read", not
+/// a spec-complete text-string decoder.
+fn decode_pdf_text_string(bytes: &[u8]) -> String {
+    match bytes.strip_prefix(&[0xFE, 0xFF]) {
+        Some(utf16_be) => {
+            let units = utf16_be
+                .chunks_exact(2)
+                .map(|pair| u16::from_be_bytes([pair[0], pair[1]]));
+            char::decode_utf16(units)
+                .map(|unit| unit.unwrap_or(char::REPLACEMENT_CHARACTER))
+                .collect()
+        }
+        None => bytes.iter().map(|&byte| byte as char).collect(),
     }
 }
 
@@ -276,5 +337,61 @@ mod tests {
                 2
             ]
         );
+    }
+
+    fn document_with_info(entries: &[(&str, Object)]) -> LopdfDocument {
+        let mut document = two_page_a4();
+        let mut info = lopdf::Dictionary::new();
+        for (key, value) in entries {
+            info.set(*key, value.clone());
+        }
+        let info_id = document.0.add_object(Object::Dictionary(info));
+        document.0.trailer.set("Info", info_id);
+        document
+    }
+
+    #[test]
+    fn info_is_empty_without_a_trailer_info_entry() {
+        let document = two_page_a4();
+
+        assert_eq!(document.info(), DocumentInfo::default());
+    }
+
+    #[test]
+    fn info_decodes_ascii_literal_strings() {
+        let document = document_with_info(&[
+            (
+                "Title",
+                Object::string_literal("Contrato de servicios".to_string()),
+            ),
+            (
+                "Author",
+                Object::string_literal("Vitela Software".to_string()),
+            ),
+        ]);
+
+        let info = document.info();
+        assert_eq!(info.title.as_deref(), Some("Contrato de servicios"));
+        assert_eq!(info.author.as_deref(), Some("Vitela Software"));
+        assert_eq!(info.creator, None);
+        assert_eq!(info.producer, None);
+    }
+
+    #[test]
+    fn info_decodes_utf16_be_strings_with_a_byte_order_mark() {
+        let mut utf16_be = vec![0xFE, 0xFF];
+        for unit in "Café".encode_utf16() {
+            utf16_be.extend_from_slice(&unit.to_be_bytes());
+        }
+        let document = document_with_info(&[("Producer", Object::string_literal(utf16_be))]);
+
+        assert_eq!(document.info().producer.as_deref(), Some("Café"));
+    }
+
+    #[test]
+    fn info_treats_an_empty_string_the_same_as_a_missing_key() {
+        let document = document_with_info(&[("Title", Object::string_literal(Vec::new()))]);
+
+        assert_eq!(document.info().title, None);
     }
 }

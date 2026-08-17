@@ -954,6 +954,13 @@ fn open_document(
         });
     let annotation_access = annotation_access_from(&security, document_model.is_some());
     let content_edit_access = content_edit_access_from(&security, document_model.is_some());
+    // The `/Info` dict lives on the same `LopdfDocument` `save_backing`
+    // already carries for saving — nothing this shell cannot model gets a
+    // properties readout either, same posture as `document_model`.
+    let info = save_backing
+        .as_ref()
+        .map(|backing| backing.base.info())
+        .unwrap_or_default();
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
@@ -966,6 +973,7 @@ fn open_document(
             content_edit_access,
             document_model,
             save_backing,
+            info,
         }),
         Err(error) => {
             let _ = renderer.close_document(document);
@@ -1121,6 +1129,9 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     while let Some(child) = viewer.pages.first_child() {
         viewer.pages.remove(&child);
     }
+    while let Some(child) = viewer.page_navigation.first_child() {
+        viewer.page_navigation.remove(&child);
+    }
 
     let fit = FitRequest::measure(viewer);
     let mut slots = Vec::with_capacity(document.page_sizes.len());
@@ -1137,6 +1148,17 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         let highlights = super::selection::build_highlight_layer(viewer, page_index);
         overlay.add_overlay(&highlights);
         viewer.pages.append(&overlay);
+        let page_number = page_index + 1;
+        let page_button = Button::with_label(&page_number.to_string());
+        page_button.set_tooltip_text(Some(&format!("Go to page {page_number}")));
+        page_button.update_property(&[gtk::accessible::Property::Label(&format!(
+            "Go to page {page_number}"
+        ))]);
+        page_button.connect_clicked({
+            let viewer = viewer.clone();
+            move |_| super::navigate_to_page(&viewer, page_index)
+        });
+        viewer.page_navigation.append(&page_button);
         let box_ = super::layout::resolve_page_box(
             super::layout::Zoom::FitWidth,
             width_pt,
@@ -1205,6 +1227,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             active_tiles: HashMap::new(),
         });
     }
+    viewer.document_properties.set(page_count, &document.info);
     // A new document invalidates the previous document's matches.
     update_search_controls(viewer);
     super::annotations::update_annotation_controls(viewer);

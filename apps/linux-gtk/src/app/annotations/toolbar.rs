@@ -3,7 +3,7 @@
 //! decides when each control is sensitive.
 
 use gtk::prelude::*;
-use gtk::{gio, Box as GtkBox, Button, Orientation, PolicyType, ScrolledWindow, ToggleButton};
+use gtk::{gio, Button, FlowBox, PolicyType, ScrolledWindow, SelectionMode, ToggleButton};
 use pdf_document::{AnnotationId, Command, PageId, Rect};
 use pdf_render::TextRect;
 
@@ -17,11 +17,13 @@ use super::style::{choose_restyle_color, supports_restyle};
 
 /// Builds the annotation toolbar and the row that carries it.
 ///
-/// The row is a `ScrolledWindow`, and that is load-bearing, not decoration.
-/// A plain `GtkBox` reports its natural width as the window's *minimum* width,
-/// and these twelve labelled controls need more of it than a laptop screen
-/// has. On maximize the compositor hands the window a fixed size; a GTK window
-/// that cannot shrink to it commits an oversized buffer and Wayland kills the
+/// The row wraps a `FlowBox`, not a plain `GtkBox`, and that is load-bearing,
+/// not decoration. A horizontal `GtkBox` reports its natural width as the sum
+/// of its children's — the window's *minimum* width — and these twelve
+/// labelled controls need more of it than a laptop screen has, or than the
+/// panel gets once the tools/canvas divider (T-165) is dragged narrow. On
+/// maximize the compositor hands the window a fixed size; a GTK window that
+/// cannot shrink to it commits an oversized buffer and Wayland kills the
 /// client outright:
 ///
 /// ```text
@@ -29,12 +31,22 @@ use super::style::{choose_restyle_color, supports_restyle};
 /// the configured maximized state (1920 x 1032)
 /// ```
 ///
-/// A `ScrolledWindow` has a small minimum width regardless of its child, so
-/// the window can always reach the size it is told to be, and the controls
-/// that do not fit scroll instead of crashing the app. Do not swap it back for
-/// a bare box, and do not "fix" a future overflow by widening the window.
+/// A `FlowBox` reports only its widest single child as a minimum and wraps
+/// the rest onto more rows as the width shrinks, so the window (and now the
+/// resizable tools panel) can always reach the size it is told to be. The
+/// outer `ScrolledWindow` is `propagate_natural_height` — it grows with
+/// however many rows the `FlowBox` currently needs, and the *panel's own*
+/// outer scroller (`tools_panel::build_tools_panel`) absorbs that instead of
+/// this row growing forever — with `Automatic` horizontal scrolling kept as a
+/// last-resort fallback for a single button wider than the panel gets. Do not
+/// swap the `FlowBox` back for a bare box, and do not "fix" a future overflow
+/// by widening the window.
 pub(crate) fn add_annotation_toolbar() -> (AnnotationToolbar, ScrolledWindow) {
-    let annotation_toolbar = GtkBox::new(Orientation::Horizontal, 4);
+    let annotation_toolbar = FlowBox::new();
+    annotation_toolbar.set_selection_mode(SelectionMode::None);
+    annotation_toolbar.set_row_spacing(4);
+    annotation_toolbar.set_column_spacing(4);
+    annotation_toolbar.set_homogeneous(false);
     // Nothing is editable until a document opens and reports that it permits
     // annotation changes — `update_annotation_controls` owns every transition
     // out of that state, for both button kinds.
@@ -67,8 +79,6 @@ pub(crate) fn add_annotation_toolbar() -> (AnnotationToolbar, ScrolledWindow) {
     let row = ScrolledWindow::builder()
         .child(&annotation_toolbar)
         .hscrollbar_policy(PolicyType::Automatic)
-        // One row tall: without this the scroller claims vertical space it has
-        // no use for and steals it from the page area.
         .vscrollbar_policy(PolicyType::Never)
         .propagate_natural_height(true)
         .build();
