@@ -290,12 +290,17 @@ pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// avoids.
 ///
 /// It re-parses the *preserved* `save_backing`, not the refreshed bytes on
-/// screen: that backing is what the pending `EditLog` was recorded against,
-/// so hit-testing and validation keep agreeing with the commands already
-/// queued. The visible consequence is that content added since the last disk
-/// save is rendered but not yet clickable — the same "save and reopen before
-/// editing it again" limitation `command::image_already_edited` already
-/// states for images.
+/// screen, then layers the pending `EditLog` back on top via
+/// `model::ensure_page_content`'s `pending` argument
+/// (`model::overlay_pending_content`) — so content added, moved, retyped or
+/// removed since the last disk save is both rendered *and* clickable,
+/// closing the gap this doc used to describe. Reparsing from `save_backing`
+/// rather than the refreshed bytes still matters: it is what the log was
+/// recorded against, so hit-testing and validation keep agreeing with the
+/// commands already queued. A second edit on an item the overlay only shows
+/// because of a pending command is still refused — see
+/// `command::{image,text_run}_already_edited` — since there is no live
+/// re-render to re-read a fresh bbox from for a *third* edit to key against.
 pub(crate) fn load_all_page_content(viewer: &Viewer) {
     let mut state = viewer.state.borrow_mut();
     let Some(session) = state.session.as_mut() else {
@@ -308,8 +313,12 @@ pub(crate) fn load_all_page_content(viewer: &Viewer) {
     else {
         return;
     };
+    let pending = session
+        .document_model
+        .as_ref()
+        .map(|document| &document.pending_edits);
     for (index, page) in session.pages.iter_mut().enumerate() {
-        let _ = model::ensure_page_content(&mut page.content, base, index);
+        let _ = model::ensure_page_content(&mut page.content, base, index, pending);
     }
 }
 
@@ -394,10 +403,14 @@ pub(crate) fn handle_drag_end(
         else {
             return;
         };
+        let pending = session
+            .document_model
+            .as_ref()
+            .map(|document| &document.pending_edits);
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
-        match model::ensure_page_content(&mut page.content, base, page_index) {
+        match model::ensure_page_content(&mut page.content, base, page_index, pending) {
             Ok(content) => model::text_run_at(content, (x as f32, y as f32)).cloned(),
             Err(error) => {
                 drop(state);

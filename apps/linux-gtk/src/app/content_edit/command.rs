@@ -152,7 +152,18 @@ pub(super) fn current_source_bytes(
 /// interaction time, turns that into a clear status message instead:
 /// finishing this image's edit requires a save (and, per the module's own
 /// no-live-re-render limitation, a reopen) before it can be touched again.
+///
+/// `target.id >= model::PENDING_ITEM_ID_BASE` is the same refusal for the
+/// twin case `model::overlay_pending_content` exists to fix: an image that
+/// is only clickable *because* of a pending `InsertImage` has no saved
+/// existence to move/resize/remove/replace a second time either — and
+/// unlike an existing item's real id, its command still carries the shared
+/// placeholder `ContentItemId(0)` (never `target.id`, which is synthetic),
+/// so the log scan below could not recognise it even if it tried.
 pub(super) fn image_already_edited(document: &Document, target: &ImageItem) -> bool {
+    if target.id.0 >= super::model::PENDING_ITEM_ID_BASE {
+        return true;
+    }
     document.pending_edits.entries().iter().any(|command| {
         let recorded = match command {
             Command::MoveImage { item, .. }
@@ -162,6 +173,23 @@ pub(super) fn image_already_edited(document: &Document, target: &ImageItem) -> b
             _ => None,
         };
         recorded.is_some_and(|recorded| recorded.id == target.id && recorded.page == target.page)
+    })
+}
+
+/// The text-run twin of [`image_already_edited`] — same reasoning, applied
+/// to `ReplaceTextRunContent` instead of the four image variants. Text runs
+/// have no move/resize/replace-source counterpart, only retyping, so this
+/// checks a single command kind.
+pub(super) fn text_run_already_edited(document: &Document, target: &TextRun) -> bool {
+    if target.id.0 >= super::model::PENDING_ITEM_ID_BASE {
+        return true;
+    }
+    document.pending_edits.entries().iter().any(|command| {
+        matches!(
+            command,
+            Command::ReplaceTextRunContent { item, .. }
+                if item.id == target.id && item.page == target.page
+        )
     })
 }
 
@@ -179,6 +207,7 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::content_edit::model;
     use pdf_document::{annotation::Rect, ContentItemId, FontKind};
 
     fn first_run(base: &lopdf::Document) -> TextRun {
@@ -499,6 +528,73 @@ mod tests {
         );
 
         assert!(!image_already_edited(&document, &other));
+    }
+
+    /// The twin case `overlay_pending_content` exists to fix: an image only
+    /// on the page because of a pending, unsaved `InsertImage` must refuse a
+    /// second edit exactly like one already moved/resized/replaced — even
+    /// though no `MoveImage`/`ResizeImage`/`RemoveImage`/`ReplaceImageSource`
+    /// entry names it, since the id alone marks it as synthetic.
+    #[test]
+    fn an_image_with_a_synthetic_id_is_already_edited_with_an_empty_log() {
+        let document = Document::default();
+        let mut pending_insert = sample_image_item();
+        pending_insert.id = ContentItemId(model::PENDING_ITEM_ID_BASE);
+
+        assert!(image_already_edited(&document, &pending_insert));
+    }
+
+    // --- text_run_already_edited ----------------------------------------
+
+    #[test]
+    fn a_fresh_document_has_no_pending_edit_for_any_text_run() {
+        let document = Document::default();
+        let run = sample_run();
+
+        assert!(!text_run_already_edited(&document, &run));
+    }
+
+    #[test]
+    fn a_run_with_a_recorded_replacement_is_already_edited() {
+        let mut document = Document::default();
+        let run = sample_run();
+        apply_command(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: run.clone(),
+                after: "Goodbye".to_string(),
+            },
+        );
+
+        assert!(text_run_already_edited(&document, &run));
+    }
+
+    #[test]
+    fn a_different_run_on_the_same_page_is_unaffected_by_a_replacement() {
+        let mut document = Document::default();
+        let edited = sample_run();
+        let mut other = sample_run();
+        other.id = ContentItemId(edited.id.0 + 1);
+        apply_command(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: edited,
+                after: "Goodbye".to_string(),
+            },
+        );
+
+        assert!(!text_run_already_edited(&document, &other));
+    }
+
+    /// The text-run twin of
+    /// `an_image_with_a_synthetic_id_is_already_edited_with_an_empty_log`.
+    #[test]
+    fn a_run_with_a_synthetic_id_is_already_edited_with_an_empty_log() {
+        let document = Document::default();
+        let mut pending_insert = sample_run();
+        pending_insert.id = ContentItemId(model::PENDING_ITEM_ID_BASE);
+
+        assert!(text_run_already_edited(&document, &pending_insert));
     }
 
     fn sample_image_item() -> ImageItem {
