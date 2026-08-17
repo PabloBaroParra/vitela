@@ -374,6 +374,69 @@ pub(crate) fn page_top(page_heights: &[i32], page_index: usize) -> f64 {
         .sum()
 }
 
+/// Where the user is reading, as a page plus how far into that page the
+/// viewport's top edge sits.
+///
+/// Deliberately *not* a raw scroll offset. An offset only means something
+/// against one particular set of `page_heights`, and the two moments that
+/// need to survive a rebuild — `document::refresh_after_content_edit`
+/// re-showing the same document — are exactly the moments those heights are
+/// recomputed. Expressed this way the position stays meaningful across a
+/// zoom change too, which a pixel offset does not.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) struct ReadingPosition {
+    pub(crate) page_index: usize,
+    /// How far down that page the viewport's top edge sits, `0.0` at its top
+    /// edge and `1.0` at its bottom. Clamped, so an offset that landed in the
+    /// gap *between* two pages reads as the bottom of the earlier one.
+    pub(crate) fraction: f64,
+}
+
+/// The page-relative reading position `offset` corresponds to, walking the
+/// same stacking as [`page_top`] and [`visible_range`].
+pub(crate) fn reading_position(page_heights: &[i32], offset: f64) -> ReadingPosition {
+    let mut top = 0.0;
+    for (page_index, height) in page_heights.iter().enumerate() {
+        let height = f64::from(*height);
+        let next_top = top + height + f64::from(PAGE_GAP);
+        // The last page absorbs anything past its own top: an offset can sit
+        // below the final page when the viewport is taller than what is left
+        // to scroll, and there is no later page to attribute it to.
+        if offset < next_top || page_index + 1 == page_heights.len() {
+            let fraction = if height > 0.0 {
+                ((offset - top) / height).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            return ReadingPosition {
+                page_index,
+                fraction,
+            };
+        }
+        top = next_top;
+    }
+    // Only reachable for a document with no pages, which has nowhere to be.
+    ReadingPosition {
+        page_index: 0,
+        fraction: 0.0,
+    }
+}
+
+/// The scroll offset that puts `position` back under the viewport's top edge,
+/// against a possibly-different set of `page_heights` — the inverse of
+/// [`reading_position`].
+///
+/// A `page_index` past the end resolves to the top of the document rather
+/// than to the last page: it means the rebuild produced *fewer* pages than
+/// the position was taken against, and guessing at a substitute page would
+/// silently land the user somewhere they never were.
+pub(crate) fn position_offset(page_heights: &[i32], position: ReadingPosition) -> f64 {
+    let Some(height) = page_heights.get(position.page_index) else {
+        return 0.0;
+    };
+    page_top(page_heights, position.page_index) + position.fraction * f64::from(*height)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,5 +598,96 @@ mod tests {
             page_top(&[100, 100, 100], 2),
             2.0 * (100.0 + f64::from(PAGE_GAP))
         );
+    }
+
+    // --- reading_position / position_offset -------------------------------
+
+    #[test]
+    fn an_offset_inside_a_page_reports_that_page_and_how_far_into_it() {
+        let heights = [100, 100, 100];
+        let quarter_into_page_1 = page_top(&heights, 1) + 25.0;
+
+        let position = reading_position(&heights, quarter_into_page_1);
+        assert_eq!(position.page_index, 1);
+        assert!((position.fraction - 0.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_top_of_the_document_is_the_top_of_page_zero() {
+        let position = reading_position(&[100, 100], 0.0);
+        assert_eq!(
+            position,
+            ReadingPosition {
+                page_index: 0,
+                fraction: 0.0
+            }
+        );
+    }
+
+    /// An offset landing in the gap between two pages belongs to the earlier
+    /// one — there is no page there to be a fraction of.
+    #[test]
+    fn an_offset_in_the_inter_page_gap_clamps_to_the_bottom_of_the_page_above() {
+        let heights = [100, 100];
+        let inside_the_gap = 100.0 + f64::from(PAGE_GAP) / 2.0;
+
+        let position = reading_position(&heights, inside_the_gap);
+        assert_eq!(position.page_index, 0);
+        assert!((position.fraction - 1.0).abs() < 1e-9);
+    }
+
+    /// Scrolled to the very bottom, the viewport's top edge can sit past the
+    /// last page's top with nothing below to attribute it to.
+    #[test]
+    fn an_offset_past_the_last_page_stays_on_the_last_page() {
+        let position = reading_position(&[100, 100], 10_000.0);
+        assert_eq!(position.page_index, 1);
+        assert!((position.fraction - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn an_empty_document_reads_as_the_top() {
+        assert_eq!(
+            reading_position(&[], 500.0),
+            ReadingPosition {
+                page_index: 0,
+                fraction: 0.0
+            }
+        );
+    }
+
+    /// The round trip that matters: same heights in and out, same offset.
+    #[test]
+    fn a_position_round_trips_back_to_the_offset_it_came_from() {
+        let heights = [120, 90, 300];
+        let offset = page_top(&heights, 2) + 150.0;
+
+        let restored = position_offset(&heights, reading_position(&heights, offset));
+        assert!((restored - offset).abs() < 1e-9);
+    }
+
+    /// The whole reason this is a page+fraction and not a pixel offset: after
+    /// a zoom change the pages are taller, and the same reading position has
+    /// to resolve against the *new* stacking.
+    #[test]
+    fn a_position_survives_pages_being_resized_under_it() {
+        let before = [100, 100, 100];
+        let after = [200, 200, 200];
+        let position = reading_position(&before, page_top(&before, 1) + 50.0);
+
+        // Halfway into page 1 stays halfway into page 1, now 100pt in.
+        assert!((position_offset(&after, position) - (page_top(&after, 1) + 100.0)).abs() < 1e-9);
+    }
+
+    /// A rebuild that produced fewer pages than the position was taken
+    /// against goes to the top rather than to an invented substitute page.
+    #[test]
+    fn a_position_past_the_new_page_count_falls_back_to_the_top() {
+        let position = ReadingPosition {
+            page_index: 7,
+            fraction: 0.5,
+        };
+
+        assert_eq!(position_offset(&[100, 100], position), 0.0);
     }
 }

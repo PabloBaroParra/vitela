@@ -7,6 +7,7 @@
 use gtk::prelude::*;
 use pdf_document::{AnnotationId, Command, Document};
 
+use crate::app::document::refresh_after_content_edit;
 use crate::app::selection;
 use crate::app::state::{DocumentSession, Viewer, ANNOTATION_MODEL_UNAVAILABLE};
 
@@ -43,7 +44,7 @@ fn redo(viewer: &Viewer) {
 }
 
 fn history(viewer: &Viewer, undo: bool) {
-    let changed = {
+    let outcome = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
             return;
@@ -51,23 +52,57 @@ fn history(viewer: &Viewer, undo: bool) {
         let Some(document) = session.document_model.as_mut() else {
             return;
         };
+        // Peeked *before* stepping: `EditLog::peek_undo`/`peek_redo` are
+        // read-only (T-163), so this looks at the command about to move
+        // without consuming it — `step_history` still has to see it fresh a
+        // moment later to actually apply the inverse.
+        let is_content_edit = if undo {
+            document.pending_edits.peek_undo()
+        } else {
+            document.pending_edits.peek_redo()
+        }
+        .is_some_and(Command::is_content_edit);
+
         match step_history(document, session.selected_annotation, undo) {
             Some(surviving) => {
                 session.selected_annotation = surviving;
                 session.edit_revision += 1;
-                true
+                // Unconditional, content edit or not. A content command's
+                // refresh (`document::refresh_after_content_edit`) does
+                // re-assert this on the session it installs, but only when
+                // it succeeds — and a step that has already moved the log is
+                // an unsaved change whether or not the preview caught up
+                // with it.
+                session.unsaved_to_disk = true;
+                Some(is_content_edit)
             }
-            None => false,
+            None => None,
         }
     };
-    if changed {
+
+    let Some(is_content_edit) = outcome else {
+        return;
+    };
+
+    // Runs for both kinds and before the branch below: the log has already
+    // moved, so Undo/Redo sensitivity is stale right now. A content edit's
+    // refresh re-runs this once its reopen lands, but it may also fail — and
+    // a failed refresh must not leave the toolbar describing a history that
+    // no longer exists.
+    update_annotation_controls(viewer);
+    selection::redraw(viewer);
+
+    // Only a full refresh shows the real result of undoing/redoing a content
+    // edit (T-163, decision 6) — an annotation's overlay already painted the
+    // truth in the `redraw` above without one.
+    if is_content_edit {
+        refresh_after_content_edit(viewer, if undo { "Edit undone." } else { "Edit redone." });
+    } else {
         viewer.status.set_text(if undo {
             "Edit undone. Changes are pending save."
         } else {
             "Edit redone. Changes are pending save."
         });
-        update_annotation_controls(viewer);
-        selection::redraw(viewer);
     }
 }
 
@@ -128,6 +163,9 @@ pub(super) fn command(
         Ok(message) => {
             if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
                 session.edit_revision += 1;
+                // Annotation edits never go through `refresh_after_content_edit`'s
+                // reopen, so this is the only place that marks them unsaved.
+                session.unsaved_to_disk = true;
             }
             viewer.status.set_text(&message);
         }

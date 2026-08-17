@@ -8,7 +8,7 @@
 //! `pdf-document`/`pdf-edit` values only, no GTK — same posture as
 //! `annotations::geometry`.
 
-use pdf_document::{ImageItem, PageContent, PageId, Rect, TextRun};
+use pdf_document::{Command, EditLog, ImageItem, PageContent, PageId, Rect, TextRun};
 use pdf_edit::EditError;
 
 /// Returns the content cached in `cache`, parsing `page_index` from `base`
@@ -54,6 +54,115 @@ pub(crate) fn image_at(content: &PageContent, point: (f32, f32)) -> Option<&Imag
         .iter()
         .filter(|image| rect_contains(&image.bbox, point))
         .min_by(|a, b| bbox_area(&a.bbox).partial_cmp(&bbox_area(&b.bbox)).unwrap())
+}
+
+/// Picks a font resource name not already used by any text run currently
+/// parsed on the page (T-163's "insert text" sub-mode).
+///
+/// This matters more than a cosmetic naming choice:
+/// `pdf_edit::insert::ensure_font_resource` *reuses* whatever resource
+/// dictionary already answers to a given name rather than creating a new
+/// one — that is exactly what lets replaying an insertion twice, or two
+/// insertions sharing one font, avoid piling up duplicate font objects. But
+/// it also means a name that happens to already name some *other* font would
+/// silently register the new run against the wrong glyph set instead of
+/// failing loudly, so the caller has to pick a genuinely unused name up
+/// front rather than lean on `pdf-edit` to notice a collision — it cannot.
+///
+/// Only checks the runs `PageContent` actually exposes, not the page's full
+/// `/Resources /Font` dictionary: `PageContent` is a snapshot of what the
+/// content stream *paints*, and does not carry a resource entry no run
+/// references. A font registered but never painted by any run is a rare,
+/// pre-existing oddity outside this model's visibility; the `FIns` prefix —
+/// distinct from the `F1`, `F2`, … a producer typically assigns — further
+/// narrows the (already narrow) chance of landing on exactly such an entry.
+///
+/// `reserved` closes the gap `PageContent` alone cannot: it is parsed from
+/// the *base* document, which never carries edits still sitting in the
+/// `EditLog`, so a second insertion made before a save would otherwise pick
+/// the name the first one already claimed. Pass
+/// [`reserved_font_resource_names`]'s result.
+pub(crate) fn unused_font_resource_name(content: &PageContent, reserved: &[String]) -> String {
+    let mut candidate_number = 1u32;
+    loop {
+        let candidate = format!("FIns{candidate_number}");
+        let taken = content
+            .text_runs
+            .iter()
+            .any(|run| run.resource_font_name == candidate)
+            || reserved.contains(&candidate);
+        if !taken {
+            return candidate;
+        }
+        candidate_number += 1;
+    }
+}
+
+/// The image twin of [`unused_font_resource_name`] — same reasoning, same
+/// caveat about only seeing resources `PageContent` actually paints, applied
+/// to `/Resources /XObject` instead of `/Resources /Font` (T-163's "insert
+/// image" sub-mode).
+///
+/// `reserved` matters more here than it does for fonts. A duplicate font
+/// name degrades quietly (`ensure_font_resource` reuses the entry, and two
+/// Standard-14 runs sharing one resource render correctly); a duplicate
+/// XObject name is refused outright by `pdf_edit::insert_image`
+/// (`EditError::ResourceNameInUse`), and since that refusal happens during
+/// `replay_content_edits` it takes the entire save down with it.
+pub(crate) fn unused_xobject_resource_name(content: &PageContent, reserved: &[String]) -> String {
+    let mut candidate_number = 1u32;
+    loop {
+        let candidate = format!("XIns{candidate_number}");
+        let taken = content
+            .images
+            .iter()
+            .any(|image| image.resource_xobject_name == candidate)
+            || reserved.contains(&candidate);
+        if !taken {
+            return candidate;
+        }
+        candidate_number += 1;
+    }
+}
+
+/// The font resource names already claimed by insertions queued in `pending`
+/// but not yet folded into any base document.
+///
+/// Deliberately not filtered by page: a `/Resources` dictionary can be
+/// inherited from the page tree or shared outright between pages, which is
+/// the same reason `pdf_edit::insert_image`'s own doc warns that registering
+/// a name affects "every other page sharing the dictionary". Treating a name
+/// claimed on one page as unavailable everywhere over-reserves in the
+/// unshared case — which costs nothing but a higher suffix.
+pub(crate) fn reserved_font_resource_names(pending: &EditLog) -> Vec<String> {
+    pending
+        .entries()
+        .iter()
+        .filter_map(|command| match command {
+            Command::InsertTextRun(run) => Some(run.resource_font_name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The XObject twin of [`reserved_font_resource_names`].
+///
+/// Covers `RemoveImage` as well as `InsertImage`: removing an image takes
+/// the paint operation off the page but deliberately leaves its XObject
+/// registered (so undo can put the picture back without carrying the bytes),
+/// which means the name stays occupied even though nothing paints it any
+/// more — exactly the case `PageContent` cannot see.
+pub(crate) fn reserved_xobject_resource_names(pending: &EditLog) -> Vec<String> {
+    pending
+        .entries()
+        .iter()
+        .filter_map(|command| match command {
+            Command::InsertImage { item, .. } | Command::RemoveImage { item, .. } => {
+                Some(item.resource_xobject_name.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn rect_contains(rect: &Rect, (x, y): (f32, f32)) -> bool {
@@ -209,6 +318,166 @@ mod tests {
         // snapshot from the now-populated cache.
         let second = ensure_page_content(&mut cache, &base, 0).expect("still page 0");
         assert_eq!(second.text_runs[0].text, "Hello world");
+    }
+
+    // --- unused_font_resource_name / unused_xobject_resource_name (T-163) -
+
+    fn empty_page() -> PageContent {
+        PageContent {
+            text_runs: Vec::new(),
+            images: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_empty_page_gets_the_first_candidate_name() {
+        let content = empty_page();
+
+        assert_eq!(unused_font_resource_name(&content, &[]), "FIns1");
+        assert_eq!(unused_xobject_resource_name(&content, &[]), "XIns1");
+    }
+
+    #[test]
+    fn a_taken_font_name_is_skipped_for_the_next_candidate() {
+        let mut taken = run(1, 0.0, 0.0, 10.0, 10.0);
+        taken.resource_font_name = "FIns1".to_string();
+        let content = PageContent {
+            text_runs: vec![taken],
+            images: Vec::new(),
+        };
+
+        assert_eq!(unused_font_resource_name(&content, &[]), "FIns2");
+    }
+
+    #[test]
+    fn a_taken_xobject_name_is_skipped_for_the_next_candidate() {
+        let mut taken = image(1, 0.0, 0.0, 10.0, 10.0);
+        taken.resource_xobject_name = "XIns1".to_string();
+        let content = PageContent {
+            text_runs: Vec::new(),
+            images: vec![taken],
+        };
+
+        assert_eq!(unused_xobject_resource_name(&content, &[]), "XIns2");
+    }
+
+    /// Font names and XObject names are independent namespaces in
+    /// `/Resources`, so a name taken in one must not influence the other.
+    #[test]
+    fn font_and_xobject_naming_do_not_interfere_with_each_other() {
+        let mut taken_font = run(1, 0.0, 0.0, 10.0, 10.0);
+        taken_font.resource_font_name = "FIns1".to_string();
+        let content = PageContent {
+            text_runs: vec![taken_font],
+            images: Vec::new(),
+        };
+
+        assert_eq!(unused_xobject_resource_name(&content, &[]), "XIns1");
+    }
+
+    // --- reserved_*_resource_names (queued-but-unsaved insertions) --------
+
+    /// The case the base document cannot answer on its own: a second
+    /// insertion made before any save must not reuse the name the first one
+    /// already claimed, even though `PageContent` — parsed from bytes that
+    /// predate both — still shows the page as empty.
+    #[test]
+    fn a_name_claimed_by_a_queued_insertion_is_skipped() {
+        let content = empty_page();
+        let reserved = vec!["XIns1".to_string()];
+
+        assert_eq!(unused_xobject_resource_name(&content, &reserved), "XIns2");
+    }
+
+    #[test]
+    fn a_font_name_claimed_by_a_queued_insertion_is_skipped() {
+        let content = empty_page();
+        let reserved = vec!["FIns1".to_string()];
+
+        assert_eq!(unused_font_resource_name(&content, &reserved), "FIns2");
+    }
+
+    /// Both sources of "taken" have to compose: the page already paints
+    /// `FIns1`, the log already claims `FIns2`, so the next free name is
+    /// `FIns3`.
+    #[test]
+    fn page_content_and_queued_insertions_are_both_honoured() {
+        let mut painted = run(1, 0.0, 0.0, 10.0, 10.0);
+        painted.resource_font_name = "FIns1".to_string();
+        let content = PageContent {
+            text_runs: vec![painted],
+            images: Vec::new(),
+        };
+        let reserved = vec!["FIns2".to_string()];
+
+        assert_eq!(unused_font_resource_name(&content, &reserved), "FIns3");
+    }
+
+    #[test]
+    fn queued_text_and_image_insertions_report_the_names_they_claim() {
+        let mut inserted_run = run(1, 0.0, 0.0, 10.0, 10.0);
+        inserted_run.resource_font_name = "FIns1".to_string();
+        let mut inserted_image = image(1, 0.0, 0.0, 10.0, 10.0);
+        inserted_image.resource_xobject_name = "XIns1".to_string();
+
+        let mut document = pdf_document::Document::blank();
+        let mut log = EditLog::new();
+        log.apply(&mut document, Command::InsertTextRun(inserted_run));
+        log.apply(
+            &mut document,
+            Command::InsertImage {
+                item: inserted_image,
+                source: None,
+            },
+        );
+
+        assert_eq!(reserved_font_resource_names(&log), vec!["FIns1"]);
+        assert_eq!(reserved_xobject_resource_names(&log), vec!["XIns1"]);
+    }
+
+    /// Removing an image leaves its XObject registered so undo can repaint
+    /// it, so the name stays occupied even though nothing paints it any more
+    /// — and `PageContent`, which only reports what is painted, cannot see
+    /// that.
+    #[test]
+    fn a_queued_removal_still_reserves_its_xobject_name() {
+        let mut removed = image(1, 0.0, 0.0, 10.0, 10.0);
+        removed.resource_xobject_name = "XIns1".to_string();
+
+        let mut document = pdf_document::Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::RemoveImage {
+                item: removed,
+                source: None,
+            },
+        );
+
+        assert_eq!(reserved_xobject_resource_names(&log), vec!["XIns1"]);
+        assert_eq!(
+            unused_xobject_resource_name(&empty_page(), &reserved_xobject_resource_names(&log)),
+            "XIns2"
+        );
+    }
+
+    /// Annotation commands share the log with content commands, and claim no
+    /// page resource at all — reserving a name for one would push every
+    /// insertion onto a higher suffix for no reason.
+    #[test]
+    fn commands_that_claim_no_resource_reserve_nothing() {
+        let mut document = pdf_document::Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::RotatePage {
+                page: PageId(0),
+                delta_degrees: 90,
+            },
+        );
+
+        assert!(reserved_font_resource_names(&log).is_empty());
+        assert!(reserved_xobject_resource_names(&log).is_empty());
     }
 
     #[test]

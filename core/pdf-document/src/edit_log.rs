@@ -133,6 +133,30 @@ pub enum Command {
 }
 
 impl Command {
+    /// Whether this command edits page content (the eight "Page content
+    /// (Batch 21)" variants above) rather than an annotation or a page
+    /// operation.
+    ///
+    /// A shell that reacts differently to undoing/redoing a content edit
+    /// versus an annotation edit (T-163: only a content edit forces a
+    /// save→reopen→re-render cycle, because only a content edit changes what
+    /// pdfium actually renders) needs to classify the command *before*
+    /// stepping the log — `EditLog::peek_undo`/`peek_redo` exist for exactly
+    /// that, so the caller can decide first and act once.
+    pub fn is_content_edit(&self) -> bool {
+        matches!(
+            self,
+            Command::ReplaceTextRunContent { .. }
+                | Command::InsertTextRun(_)
+                | Command::RemoveTextRun(_)
+                | Command::InsertImage { .. }
+                | Command::RemoveImage { .. }
+                | Command::MoveImage { .. }
+                | Command::ResizeImage { .. }
+                | Command::ReplaceImageSource { .. }
+        )
+    }
+
     /// Applies this command's forward action to `document`.
     pub fn apply(&self, document: &mut Document) {
         match self {
@@ -313,6 +337,25 @@ impl EditLog {
 
     pub fn entries(&self) -> &[Command] {
         &self.entries
+    }
+
+    /// The command a call to [`Self::undo`] would step right now, without
+    /// stepping it — `None` if there is nothing to undo.
+    ///
+    /// Read-only: does not pop `entries` or touch `redo_stack`. A caller that
+    /// needs to react differently depending on *what kind* of command is
+    /// about to move (T-163: content edits force a re-render, annotation
+    /// edits do not) has to know that before calling `undo`, since `undo`
+    /// only reports whether a step happened, not what it was.
+    pub fn peek_undo(&self) -> Option<&Command> {
+        self.entries.last()
+    }
+
+    /// The command a call to [`Self::redo`] would step right now, without
+    /// stepping it — `None` if there is nothing to redo. The redo twin of
+    /// [`Self::peek_undo`].
+    pub fn peek_redo(&self) -> Option<&Command> {
+        self.redo_stack.last()
     }
 }
 
@@ -801,6 +844,125 @@ mod tests {
 
         assert_eq!(source, Some(vec![0x89, b'P', b'N', b'G']));
         assert_eq!(insertion.inverse().inverse(), insertion);
+    }
+
+    // --- Command::is_content_edit / EditLog::peek_undo/peek_redo (T-163) --
+
+    /// Every one of the eight page-content variants reports itself as a
+    /// content edit — this is the whole set T-163's refresh path must react
+    /// to, so a variant silently missing here would silently skip the
+    /// re-render it needs.
+    #[test]
+    fn every_page_content_command_reports_itself_as_a_content_edit() {
+        for command in all_content_commands() {
+            assert!(
+                command.is_content_edit(),
+                "{command:?} must report itself as a content edit"
+            );
+        }
+    }
+
+    /// Every command above the "Page content (Batch 21)" section — annotation
+    /// and page-op commands — must report `false`, or a shell would force an
+    /// unnecessary save→reopen→re-render cycle on a plain annotation edit.
+    #[test]
+    fn annotation_and_page_commands_are_never_content_edits() {
+        let annotation = sample_annotation(1, PageId(0));
+        let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let non_content_commands = [
+            Command::AddAnnotation(annotation.clone()),
+            Command::RemoveAnnotation(annotation.clone()),
+            Command::ReplaceAnnotation {
+                before: annotation.clone(),
+                after: annotation,
+            },
+            Command::RotatePage {
+                page: PageId(0),
+                delta_degrees: 90,
+            },
+            Command::InsertPage {
+                index: 0,
+                page: page.clone(),
+            },
+            Command::RemovePage { index: 0, page },
+        ];
+
+        for command in non_content_commands {
+            assert!(
+                !command.is_content_edit(),
+                "{command:?} must not report itself as a content edit"
+            );
+        }
+    }
+
+    #[test]
+    fn peek_undo_reports_without_popping() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        assert!(log.peek_undo().is_none());
+
+        let command = Command::AddAnnotation(sample_annotation(1, PageId(0)));
+        log.apply(&mut document, command.clone());
+
+        assert_eq!(log.peek_undo(), Some(&command));
+        // Peeking must not consume the entry: undo still has it, twice.
+        assert_eq!(log.peek_undo(), Some(&command));
+        assert!(log.can_undo());
+    }
+
+    #[test]
+    fn peek_redo_reports_without_popping() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        assert!(log.peek_redo().is_none());
+
+        let command = Command::AddAnnotation(sample_annotation(1, PageId(0)));
+        log.apply(&mut document, command.clone());
+        log.undo(&mut document);
+
+        assert_eq!(log.peek_redo(), Some(&command));
+        assert_eq!(log.peek_redo(), Some(&command));
+        assert!(log.can_redo());
+    }
+
+    /// A caller that wants to classify the *next* undo/redo before stepping
+    /// it (T-163) needs `peek_undo`/`peek_redo` to line up with
+    /// `Command::is_content_edit` on a mixed log.
+    #[test]
+    fn peek_undo_and_redo_classify_content_versus_annotation_commands() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::AddAnnotation(sample_annotation(1, PageId(0))),
+        );
+        assert!(!log
+            .peek_undo()
+            .expect("an annotation add was just applied")
+            .is_content_edit());
+
+        log.apply(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "after".to_string(),
+            },
+        );
+        assert!(log
+            .peek_undo()
+            .expect("a content edit was just applied")
+            .is_content_edit());
+
+        log.undo(&mut document);
+        assert!(log
+            .peek_redo()
+            .expect("the content edit just moved to redo")
+            .is_content_edit());
+        assert!(!log
+            .peek_undo()
+            .expect("the annotation add is next to undo")
+            .is_content_edit());
     }
 
     /// A content edit and an annotation edit share one log, so undo has to

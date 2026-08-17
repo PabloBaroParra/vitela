@@ -87,6 +87,41 @@ pub(super) fn validate_replace(
     Ok(())
 }
 
+/// Attempts inserting `run` as brand-new page content against the real
+/// `pdf-edit` call — the insertion twin of [`validate_replacement`], same
+/// probe-clone-then-real-call contract, writing nothing for real (T-163).
+/// Structurally lower-risk than a replacement (batch decision 4: no existing
+/// font to collide with), but still validated up front rather than only at
+/// save time, for the same reason every other content command here is: the
+/// eight page-content `Command` variants are inert on `Document::apply`
+/// (`pdf_document::edit_log`'s own module docs), so a bad insertion recorded
+/// without checking would only surface when the whole save runs.
+pub(super) fn validate_insert_text(
+    base: &lopdf::Document,
+    page_index: usize,
+    run: &TextRun,
+) -> Result<(), EditError> {
+    let mut probe = base.clone();
+    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    pdf_edit::insert_text_run(&mut probe, page_object, run)?;
+    Ok(())
+}
+
+/// Attempts inserting `item` (backed by `source`) as a brand-new image
+/// against the real `pdf-edit` call — the image twin of
+/// [`validate_insert_text`].
+pub(super) fn validate_insert_image(
+    base: &lopdf::Document,
+    page_index: usize,
+    item: &ImageItem,
+    source: &[u8],
+) -> Result<(), EditError> {
+    let mut probe = base.clone();
+    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    pdf_edit::insert_image(&mut probe, page_object, item, Some(source))?;
+    Ok(())
+}
+
 /// Reads back `item`'s current bytes, so a replace can carry them as
 /// `Command::ReplaceImageSource`'s `before` — the only way undo can restore
 /// the image being overwritten. Refuses with `EditError::
@@ -265,6 +300,92 @@ mod tests {
         let item = first_image(&base);
 
         let error = validate_remove(&base, 3, &item).expect_err("page 3 does not exist");
+        assert_eq!(error, EditError::PageNotFound(PageId(3)));
+    }
+
+    // --- validate_insert_text / validate_insert_image (T-163) ------------
+
+    fn new_run(text: &str) -> TextRun {
+        TextRun {
+            id: ContentItemId(0),
+            page: PageId(0),
+            bbox: Rect {
+                x: 72.0,
+                y: 100.0,
+                width: 150.0,
+                height: 14.0,
+            },
+            resource_font_name: "FInsTest".to_string(),
+            font_kind: FontKind::Standard14,
+            text: text.to_string(),
+        }
+    }
+
+    fn new_image_item(name: &str) -> ImageItem {
+        ImageItem {
+            id: ContentItemId(0),
+            page: PageId(0),
+            bbox: Rect {
+                x: 300.0,
+                y: 300.0,
+                width: 80.0,
+                height: 40.0,
+            },
+            resource_xobject_name: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn a_representable_text_insertion_validates_successfully() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+
+        assert!(validate_insert_text(&base, 0, &new_run("New text")).is_ok());
+    }
+
+    #[test]
+    fn an_unrepresentable_text_insertion_is_refused_before_recording() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+
+        let error = validate_insert_text(&base, 0, &new_run("日本語"))
+            .expect_err("Standard14 cannot encode this");
+        assert!(matches!(error, EditError::EncodingGap { .. }));
+    }
+
+    #[test]
+    fn a_text_insertion_against_a_page_index_with_no_page_is_refused() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+
+        let error = validate_insert_text(&base, 3, &new_run("New text"))
+            .expect_err("page 3 does not exist");
+        assert_eq!(error, EditError::PageNotFound(PageId(3)));
+    }
+
+    #[test]
+    fn a_representable_image_insertion_validates_successfully() {
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = new_image_item("XInsTest");
+
+        assert!(validate_insert_image(
+            &base,
+            0,
+            &item,
+            &gen_fixtures::content_edit::replacement_image_png_bytes()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn an_image_insertion_against_a_page_index_with_no_page_is_refused() {
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = new_image_item("XInsTest");
+
+        let error = validate_insert_image(
+            &base,
+            3,
+            &item,
+            &gen_fixtures::content_edit::replacement_image_png_bytes(),
+        )
+        .expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 

@@ -1,26 +1,38 @@
 //! Content-edit mode: click an existing text run to retype it in place,
 //! preserving its font, size, and position (T-161); select, move, resize,
-//! delete, and replace-via-file-picker an existing page image (T-162).
+//! delete, and replace-via-file-picker an existing page image (T-162); arm
+//! "insert text"/"insert image" to add brand-new page content instead of
+//! targeting whatever is already there (T-163).
 //!
 //! Wires `core/pdf-edit` (Batch 21's content-stream editor) into this shell
 //! directly, the same bypass-`pdf-ffi` posture `annotations` already has.
 //! Split by responsibility, mirroring `annotations`:
 //!
-//! - [`model`] loads a page's parsed content on first need and hit-tests a
-//!   click against its text runs and images — pure functions, no GTK.
+//! - [`model`] loads a page's parsed content on first need, hit-tests a
+//!   click against its text runs and images, and (T-163) picks an unused
+//!   font/XObject resource name for something new to insert — pure
+//!   functions, no GTK.
 //! - [`geometry`] is the image drag/handle pointer maths — pure functions
 //!   over rects and points, the image twin of `annotations::geometry`.
-//! - [`command`] validates a text or image change against the real
-//!   `pdf-edit` call *before* recording it, then records it in the
-//!   document's `EditLog`.
-//! - [`editor`] is the inline `Entry` lifecycle for a text run: open, commit,
-//!   cancel.
-//! - [`image`] is the select/move/resize/delete/replace lifecycle for an
-//!   image.
+//! - [`command`] validates a text or image change (including an insertion)
+//!   against the real `pdf-edit` call *before* recording it, then records it
+//!   in the document's `EditLog`.
+//! - [`editor`] is the inline `Entry` lifecycle for a text run: open (over an
+//!   existing run, or blank for an insertion), commit, cancel.
+//! - [`image`] is the select/move/resize/delete/replace/insert lifecycle for
+//!   an image.
 //!
-//! This module owns the mode toggle and the gesture dispatch that decides
-//! whether a page click is a content edit at all, and — since T-162 — which
-//! of a text run or an image it targets.
+//! This module owns the mode toggle, the two insert-kind toggles, and the
+//! gesture dispatch that decides whether a page click is a content edit at
+//! all, and which of an existing text run, an existing image, a new text
+//! insertion, or a new image insertion it targets.
+//!
+//! Every commit that actually reaches the `EditLog` — from any of the above,
+//! plus undo/redo of one — ends in
+//! `document::refresh_after_content_edit` (T-163, batch decision 6): a
+//! content edit changes what pdfium itself renders, so the canvas has to
+//! show the real, reopened result, not a "pending save" status message over
+//! a stale bitmap.
 
 mod command;
 mod editor;
@@ -29,11 +41,11 @@ pub(crate) mod image;
 mod model;
 
 use gtk::prelude::*;
-use gtk::{GestureDrag, ToggleButton};
+use gtk::{ApplicationWindow, GestureDrag, ToggleButton};
 
 use crate::app::annotations;
 use crate::app::selection::{pointer_to_pdf, redraw};
-use crate::app::state::Viewer;
+use crate::app::state::{ContentInsertKind, Viewer};
 
 /// A drag shorter than this, in device pixels on either axis, is a click —
 /// mirrors the annotation placement gesture's own click collapse
@@ -57,6 +69,55 @@ pub(crate) fn connect_toggle(viewer: &Viewer) {
     });
 }
 
+/// Builds the two "insert new content" toggle buttons (T-163) — the mode
+/// toggle's siblings, not variants of it: `content_edit_button` decides
+/// whether a click can touch content at all, these decide what a click
+/// inside that mode *does*. Both start insensitive, same rule and same call
+/// site (`update_controls`) as `content_edit_button` itself.
+pub(crate) fn build_insert_toggles() -> (ToggleButton, ToggleButton) {
+    let insert_text = ToggleButton::with_label("Insert text");
+    insert_text.set_sensitive(false);
+    let insert_image = ToggleButton::with_label("Insert image");
+    insert_image.set_sensitive(false);
+    (insert_text, insert_image)
+}
+
+/// Wires both insert toggles to [`set_insert_mode`], keeping at most one
+/// active at a time.
+pub(crate) fn connect_insert_toggles(viewer: &Viewer) {
+    connect_insert_toggle(viewer, &viewer.insert_text_button, ContentInsertKind::Text);
+    connect_insert_toggle(
+        viewer,
+        &viewer.insert_image_button,
+        ContentInsertKind::Image,
+    );
+}
+
+fn connect_insert_toggle(viewer: &Viewer, button: &ToggleButton, kind: ContentInsertKind) {
+    button.connect_toggled({
+        let viewer = viewer.clone();
+        move |button| {
+            if button.is_active() {
+                set_insert_mode(&viewer, Some(kind));
+                return;
+            }
+            // Read into an owned value and let the borrow end here — the
+            // branch below re-borrows `viewer.state` inside
+            // `set_insert_mode`, which would panic against a `Ref` still
+            // held open by a `match`/`if` condition on the field directly.
+            let armed = viewer.state.borrow().content_insert_mode;
+            if armed == Some(kind) {
+                set_insert_mode(&viewer, None);
+            }
+            // Otherwise this button was switched off as a side effect of the
+            // *other* insert kind being armed inside `set_insert_mode`
+            // (which un-toggles whichever button is not the new one) —
+            // `content_insert_mode` has already moved on to that kind by the
+            // time this fires, so there is nothing left here to clear.
+        }
+    });
+}
+
 /// Refreshes the toggle's sensitivity from the open document's permission.
 ///
 /// Unlike the annotation toolbar, nothing else here depends on a live
@@ -68,7 +129,16 @@ pub(crate) fn update_controls(viewer: &Viewer) {
         .session
         .as_ref()
         .is_some_and(|session| session.content_edit_access.refusal().is_none());
+    drop(state);
     viewer.content_edit_button.set_sensitive(enabled);
+    // Same rule as `content_edit_button` itself (T-163): whether a click can
+    // insert new content depends on the document's permission, not on
+    // whether content-edit mode happens to be toggled on right now —
+    // `set_insert_mode` arms the parent mode as a side effect when needed,
+    // so gating these on `content_edit_mode` here would be redundant with
+    // that, not an additional safeguard.
+    viewer.insert_text_button.set_sensitive(enabled);
+    viewer.insert_image_button.set_sensitive(enabled);
 }
 
 pub(crate) fn mode_is_active(viewer: &Viewer) -> bool {
@@ -102,8 +172,69 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
     } else {
         editor::commit(viewer);
         clear_selected_image(viewer);
+        // T-163: an armed insert kind cannot outlive the mode that makes it
+        // reachable — a page click only reaches an insert path while
+        // `content_edit_mode` is true (`selection.rs`'s gesture dispatch), so
+        // leaving this armed here would make a toggle look active while
+        // doing nothing on the next click.
+        {
+            let mut state = viewer.state.borrow_mut();
+            state.content_insert_mode = None;
+        }
+        viewer.insert_text_button.set_active(false);
+        viewer.insert_image_button.set_active(false);
         viewer.status.set_text("Edit content disarmed.");
     }
+    crate::app::update_content_edit_controls(viewer);
+    redraw(viewer);
+}
+
+/// Arms or disarms which kind of new content a content-edit-mode click
+/// inserts (T-163). At most one of `insert_text_button`/`insert_image_button`
+/// is active at a time.
+///
+/// Arming either kind implies content-edit mode itself is armed: a page
+/// click only reaches this module's insert routing (`handle_drag_end`) while
+/// `content_edit_mode` is true, so an insert button that toggled on without
+/// also arming the parent mode would look armed and then do nothing on the
+/// next click. `set_mode` is idempotent when already active (see its own
+/// guard at the top), so this is free once content-edit mode is already on.
+pub(crate) fn set_insert_mode(viewer: &Viewer, kind: Option<ContentInsertKind>) {
+    {
+        let mut state = viewer.state.borrow_mut();
+        if state.content_insert_mode == kind {
+            return;
+        }
+        state.content_insert_mode = kind;
+    }
+
+    if kind.is_some() {
+        set_mode(viewer, true);
+    }
+
+    // Resolves whatever is already open/selected first — the same
+    // precondition `editor::open_editor`/`image::begin_image_drag` already
+    // enforce before claiming a click, so switching insert kinds mid-edit
+    // never abandons one silently.
+    editor::commit(viewer);
+    clear_selected_image(viewer);
+
+    viewer
+        .insert_text_button
+        .set_active(kind == Some(ContentInsertKind::Text));
+    viewer
+        .insert_image_button
+        .set_active(kind == Some(ContentInsertKind::Image));
+
+    viewer.status.set_text(match kind {
+        Some(ContentInsertKind::Text) => {
+            "Insert text armed — click the page to place a new text box."
+        }
+        Some(ContentInsertKind::Image) => {
+            "Insert image armed — click the page to insert a picture."
+        }
+        None => "Edit content armed — click a text run to retype it.",
+    });
     crate::app::update_content_edit_controls(viewer);
     redraw(viewer);
 }
@@ -150,7 +281,22 @@ pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// still surfaces the moment its content is actually clicked
 /// (`handle_drag_end`), so nothing is silently lost, only the proactive
 /// outline for that one page.
-fn load_all_page_content(viewer: &Viewer) {
+///
+/// `pub(crate)` rather than private (T-163): `document::refresh_after_content_edit`
+/// calls this after every content-edit commit's save→reopen cycle, because
+/// the reopened session's `PageSlot::content` caches start out empty again —
+/// without a re-parse here, the outline would stay blank until the user
+/// clicked a run, exactly the gap arming the mode for the first time already
+/// avoids.
+///
+/// It re-parses the *preserved* `save_backing`, not the refreshed bytes on
+/// screen: that backing is what the pending `EditLog` was recorded against,
+/// so hit-testing and validation keep agreeing with the commands already
+/// queued. The visible consequence is that content added since the last disk
+/// save is rendered but not yet clickable — the same "save and reopen before
+/// editing it again" limitation `command::image_already_edited` already
+/// states for images.
+pub(crate) fn load_all_page_content(viewer: &Viewer) {
     let mut state = viewer.state.borrow_mut();
     let Some(session) = state.session.as_mut() else {
         return;
@@ -202,6 +348,40 @@ pub(crate) fn handle_drag_end(
         return;
     };
 
+    // T-163: while an insert kind is armed, a click anywhere on the page
+    // (that did not land on an existing image — `image::finish_image_drag`
+    // above already returned for that case) composes brand-new content
+    // instead of targeting whatever, if anything, is already at the point.
+    // Deliberately skips `text_run_at` entirely rather than falling back to
+    // it on a miss: while this sub-mode is armed, a click is *always* about
+    // creating something new, never about retyping whatever happens to sit
+    // under the pointer.
+    //
+    // Read into an owned value first and let the borrow end here: a `match`
+    // scrutinee's temporaries live for the whole match (all arm bodies), so
+    // matching `viewer.state.borrow().content_insert_mode` directly would
+    // keep the `Ref` open while the arms below re-borrow `viewer.state`
+    // through `editor::open_insert_editor`/`image::insert_at` — a
+    // `BorrowMutError` panic waiting to happen.
+    let insert_kind = viewer.state.borrow().content_insert_mode;
+    match insert_kind {
+        Some(ContentInsertKind::Text) => {
+            editor::open_insert_editor(viewer, page_index, (x, y));
+            return;
+        }
+        Some(ContentInsertKind::Image) => {
+            let Some(window) = window_of(viewer) else {
+                viewer
+                    .status
+                    .set_text("The application window is unavailable.");
+                return;
+            };
+            image::insert_at(&window, viewer, page_index, (x, y));
+            return;
+        }
+        None => {}
+    }
+
     let run = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
@@ -233,4 +413,17 @@ pub(crate) fn handle_drag_end(
         // opening nothing and leaving it stranded.
         None => editor::commit(viewer),
     }
+}
+
+/// Recovers the shell's top-level window from a widget that is always in the
+/// tree once a document is open — `image::insert_at`'s file picker needs one
+/// to parent itself against, and `handle_drag_end` has no window parameter
+/// of its own to hand it. Mirrors `document::open_file`'s own recovery of
+/// the window from `viewer.status.root()` for the same reason: a drop (there)
+/// or a page click (here) has no direct window parameter either.
+fn window_of(viewer: &Viewer) -> Option<ApplicationWindow> {
+    viewer
+        .status
+        .root()
+        .and_then(|root| root.downcast::<ApplicationWindow>().ok())
 }

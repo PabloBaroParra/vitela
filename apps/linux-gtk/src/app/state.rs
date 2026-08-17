@@ -48,6 +48,15 @@ pub(crate) struct Viewer {
     pub(crate) redo_action: gio::SimpleAction,
     pub(crate) annotation_buttons: AnnotationToolbar,
     pub(crate) content_edit_button: ToggleButton,
+    /// Arms "click anywhere to open a blank text editor" sub-mode (T-163),
+    /// mutually exclusive with `insert_image_button`. Sensitivity is owned
+    /// by `content_edit::update_controls`, the same gate as
+    /// `content_edit_button` itself — inserting is only meaningful once
+    /// content-edit mode itself is available.
+    pub(crate) insert_text_button: ToggleButton,
+    /// Arms "click anywhere to insert a picked image" sub-mode (T-163), the
+    /// twin of `insert_text_button` for images. Same sensitivity gate.
+    pub(crate) insert_image_button: ToggleButton,
     /// Deletes the selected image in content-edit mode (T-162 Slice 1).
     /// Sensitivity is owned by `update_content_edit_controls`, the
     /// content-edit twin of `annotations::toolbar::update_annotation_controls`.
@@ -111,6 +120,17 @@ pub(crate) struct ViewerState {
     /// document. Mutually exclusive with `active_tool` — arming either one
     /// clears the other (`content_edit::set_mode`, `annotations::toolbar::arm_tool`).
     pub(crate) content_edit_mode: bool,
+    /// Which kind of new content a content-edit-mode click inserts, if any
+    /// (T-163) — `None` means an ordinary click still targets an existing
+    /// run/image, same as before this sub-mode existed.
+    ///
+    /// Lives here rather than on `DocumentSession` for the same reason
+    /// `content_edit_mode` does: it is a shell mode, not document state, so
+    /// it deliberately outlives the open document. In practice it is always
+    /// cleared alongside `content_edit_mode` (`content_edit::set_mode`), so
+    /// the two never disagree about whether content-edit mode is active —
+    /// only about what a click inside it does.
+    pub(crate) content_insert_mode: Option<ContentInsertKind>,
     /// The password prompt for the in-flight open attempt, if any. Tracked so
     /// a new open request (which may supersede this one before the user has
     /// answered) can tear down the stale prompt instead of leaving it
@@ -249,6 +269,19 @@ impl Tool {
     }
 }
 
+/// What kind of new page content a content-edit-mode click inserts, when
+/// `ViewerState::content_insert_mode` is armed (T-163).
+///
+/// Mirrors `Tool`'s shape (a small `Copy` enum the toolbar arms one of at a
+/// time) but needs none of `Tool`'s richer API — insertion has no drag-drawn
+/// geometry, no markup/rule/freehand distinctions, just "what does the next
+/// click create".
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum ContentInsertKind {
+    Text,
+    Image,
+}
+
 /// The annotation toolbar's buttons, held by name rather than by position.
 ///
 /// An earlier shape was a flat `Vec<Button>` indexed with literals at three
@@ -308,11 +341,24 @@ pub(crate) enum AnnotationDragMode {
 /// committed, and replacing the document drops a half-typed edit with it.
 pub(crate) struct ContentEditor {
     pub(crate) page_index: usize,
-    /// The run this editor is replacing. Kept whole (not just its id) because
-    /// `Command::ReplaceTextRunContent` is matched against the exact snapshot
-    /// it was read from — see `pdf_document::content`'s module docs.
+    /// The run this editor is replacing, or — when [`Self::is_insertion`] is
+    /// `true` — a template for the run it will insert: `page`/`bbox`/
+    /// `resource_font_name`/`font_kind` are already the values the new run
+    /// will carry, and `text` is the empty string until commit. Kept whole
+    /// (not just an id) because `Command::ReplaceTextRunContent` is matched
+    /// against the exact snapshot it was read from — see
+    /// `pdf_document::content`'s module docs — and an insertion needs
+    /// somewhere to hold the same fields before there is a run to match
+    /// against at all.
     pub(crate) run: TextRun,
     pub(crate) entry: Entry,
+    /// `true` when this editor is composing a brand-new run (T-163's "insert
+    /// text" sub-mode) rather than retyping `run` in place. `commit` branches
+    /// on this to call `pdf_edit::insert_text_run`/`Command::InsertTextRun`
+    /// instead of the replace path — the empty-`run.text` template above is
+    /// what makes the existing "no-op when nothing changed" check double as
+    /// "close without recording an empty insertion".
+    pub(crate) is_insertion: bool,
 }
 
 /// A selected annotation being moved or resized right now.
@@ -470,6 +516,25 @@ pub(crate) struct DocumentSession {
     /// this model's EditLog immediately.
     pub(crate) document_model: Option<Document>,
     pub(crate) save_backing: Option<SaveBacking>,
+    /// Whether the in-memory model — and, since T-163, the pdfium handle
+    /// currently rendering `document` — has diverged from whatever is on
+    /// disk.
+    ///
+    /// Set by whatever *records* a command — `annotations::command::command`,
+    /// `annotations::command::history`, and each content-edit commit site —
+    /// never by the refresh that later catches the canvas up. That ordering
+    /// is the whole point: `document::refresh_after_content_edit` runs a
+    /// background save+reopen that can fail, and a document whose edit is
+    /// already in the `EditLog` must report itself dirty even when the
+    /// preview behind it never updated.
+    ///
+    /// Only `show_document`'s own default (`false`, a freshly opened document
+    /// matches disk) and the real disk-save reopen (`document::spawn_save`,
+    /// which also leaves it `false` — the file it just wrote *is* what is now
+    /// shown) clear this. The preview refresh restores it to `true` across
+    /// its own reopen (`document::restore_edit_state`), because the bytes it
+    /// showed were never written anywhere.
+    pub(crate) unsaved_to_disk: bool,
     pub(crate) edit_revision: u64,
     pub(crate) next_annotation_id: u64,
     pub(crate) selected_annotation: Option<AnnotationId>,
