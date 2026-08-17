@@ -90,7 +90,7 @@ pub(crate) fn unused_font_resource_name(content: &PageContent, reserved: &[Strin
             .text_runs
             .iter()
             .any(|run| run.resource_font_name == candidate)
-            || reserved.iter().any(|name| *name == candidate);
+            || reserved.contains(&candidate);
         if !taken {
             return candidate;
         }
@@ -117,7 +117,7 @@ pub(crate) fn unused_xobject_resource_name(content: &PageContent, reserved: &[St
             .images
             .iter()
             .any(|image| image.resource_xobject_name == candidate)
-            || reserved.iter().any(|name| *name == candidate);
+            || reserved.contains(&candidate);
         if !taken {
             return candidate;
         }
