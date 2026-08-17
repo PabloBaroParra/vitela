@@ -8,25 +8,106 @@
 //! `pdf-document`/`pdf-edit` values only, no GTK — same posture as
 //! `annotations::geometry`.
 
-use pdf_document::{Command, EditLog, ImageItem, PageContent, PageId, Rect, TextRun};
+use pdf_document::{
+    Command, ContentItemId, EditLog, ImageItem, PageContent, PageId, Rect, TextRun,
+};
 use pdf_edit::EditError;
 
-/// Returns the content cached in `cache`, parsing `page_index` from `base`
-/// on first use. Re-reports the same error on every call for a page whose
-/// content stream this build cannot handle — errors are never cached as "no
-/// content", so a transient failure does not haunt every later call.
+/// The first id [`overlay_pending_content`] hands out to an item that exists
+/// only because of a command still sitting in the `EditLog` — never one
+/// `pdf_edit::read_page_content` assigns itself, since a page's real ids stay
+/// in the tens or hundreds even for an unrealistic number of runs/images.
+/// Real and synthetic ids can therefore never collide by construction, which
+/// is what lets `command::{image,text_run}_already_edited` recognise a
+/// synthetic id at a glance — by comparing against this constant — without
+/// needing the `PageContent` that minted it.
+pub(super) const PENDING_ITEM_ID_BASE: u64 = 1 << 40;
+
+/// Returns the content cached in `cache`, parsing `page_index` from `base` on
+/// first use and layering `pending`'s effect on top (see
+/// [`overlay_pending_content`]). Re-reports the same error on every call for
+/// a page whose content stream this build cannot handle — errors are never
+/// cached as "no content", so a transient failure does not haunt every later
+/// call.
 pub(crate) fn ensure_page_content<'a>(
     cache: &'a mut Option<PageContent>,
     base: &lopdf::Document,
     page_index: usize,
+    pending: Option<&EditLog>,
 ) -> Result<&'a PageContent, EditError> {
     if cache.is_none() {
-        *cache = Some(pdf_edit::read_page_content(
-            base,
-            PageId(page_index as u32),
-        )?);
+        let mut content = pdf_edit::read_page_content(base, PageId(page_index as u32))?;
+        if let Some(pending) = pending {
+            overlay_pending_content(&mut content, pending, PageId(page_index as u32));
+        }
+        *cache = Some(content);
     }
     Ok(cache.as_ref().expect("just populated above"))
+}
+
+/// Layers the page-content effect of every command still pending in
+/// `pending` onto `content`, in log order, so an item added, moved, retyped
+/// or removed since the last disk save is part of the same hit-test data as
+/// what came from the file (T-163's documented gap: `content` is parsed from
+/// `save_backing`, which the log was recorded against but which does not yet
+/// contain it).
+///
+/// An inserted run or image is appended with a synthetic id from
+/// [`PENDING_ITEM_ID_BASE`] rather than the placeholder `ContentItemId(0)`
+/// its command carries — that placeholder is never consulted by `pdf_edit`
+/// (see `content_edit::editor::open_insert_editor`'s own doc) and is shared
+/// by every pending insertion, so keeping it would make two insertions on
+/// one page indistinguishable to hit-testing. `pdf_edit` itself resolves
+/// every command by resource name and geometry, never by this shell-local
+/// id, so handing out a fresh one here changes nothing about how the edit
+/// eventually saves.
+fn overlay_pending_content(content: &mut PageContent, pending: &EditLog, page: PageId) {
+    let mut next_text_id = PENDING_ITEM_ID_BASE;
+    let mut next_image_id = PENDING_ITEM_ID_BASE;
+
+    for command in pending.entries() {
+        match command {
+            Command::InsertTextRun(run) if run.page == page => {
+                let mut run = run.clone();
+                run.id = ContentItemId(next_text_id);
+                next_text_id += 1;
+                content.text_runs.push(run);
+            }
+            Command::RemoveTextRun(run) if run.page == page => {
+                content.text_runs.retain(|existing| existing.id != run.id);
+            }
+            Command::ReplaceTextRunContent { item, after } if item.page == page => {
+                if let Some(existing) = content
+                    .text_runs
+                    .iter_mut()
+                    .find(|existing| existing.id == item.id)
+                {
+                    existing.text = after.clone();
+                }
+            }
+            Command::InsertImage { item, .. } if item.page == page => {
+                let mut item = item.clone();
+                item.id = ContentItemId(next_image_id);
+                next_image_id += 1;
+                content.images.push(item);
+            }
+            Command::RemoveImage { item, .. } if item.page == page => {
+                content.images.retain(|existing| existing.id != item.id);
+            }
+            Command::MoveImage { item, to } | Command::ResizeImage { item, to }
+                if item.page == page =>
+            {
+                if let Some(existing) = content
+                    .images
+                    .iter_mut()
+                    .find(|existing| existing.id == item.id)
+                {
+                    existing.bbox = *to;
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The text run whose bounding box contains `point` (in PDF page space),
@@ -308,7 +389,7 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let mut cache = None;
 
-        let first = ensure_page_content(&mut cache, &base, 0).expect("page 0 exists");
+        let first = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
         assert_eq!(first.text_runs.len(), 1);
         assert_eq!(first.text_runs[0].text, "Hello world");
         assert!(cache.is_some());
@@ -316,8 +397,152 @@ mod tests {
         // A second call must not re-parse. We cannot observe "did not
         // re-parse" directly, but it must at least keep returning the same
         // snapshot from the now-populated cache.
-        let second = ensure_page_content(&mut cache, &base, 0).expect("still page 0");
+        let second = ensure_page_content(&mut cache, &base, 0, None).expect("still page 0");
         assert_eq!(second.text_runs[0].text, "Hello world");
+    }
+
+    // --- overlay_pending_content / ensure_page_content with pending edits --
+    // (T-163 follow-up: content added since the last disk save is rendered
+    // but was not clickable — see this module's own doc.)
+
+    fn log_with(commands: Vec<Command>) -> EditLog {
+        let mut document = pdf_document::Document::blank();
+        let mut log = EditLog::new();
+        for command in commands {
+            log.apply(&mut document, command);
+        }
+        log
+    }
+
+    #[test]
+    fn a_pending_insertion_becomes_clickable_with_a_synthetic_id() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let mut cache = None;
+        let inserted = run(0, 200.0, 200.0, 50.0, 12.0);
+        let pending = log_with(vec![Command::InsertTextRun(inserted.clone())]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        let found = text_run_at(content, (210.0, 205.0)).expect("the inserted run is hit-tested");
+        assert!(
+            found.id.0 >= PENDING_ITEM_ID_BASE,
+            "an inserted run must not keep the placeholder id its command carries"
+        );
+        assert_eq!(found.text, inserted.text);
+    }
+
+    #[test]
+    fn two_pending_insertions_on_the_same_page_get_distinct_synthetic_ids() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let mut cache = None;
+        let pending = log_with(vec![
+            Command::InsertTextRun(run(0, 200.0, 200.0, 50.0, 12.0)),
+            Command::InsertTextRun(run(0, 200.0, 300.0, 50.0, 12.0)),
+        ]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        let first = text_run_at(content, (210.0, 205.0)).expect("first insertion is hit-tested");
+        let second = text_run_at(content, (210.0, 305.0)).expect("second insertion is hit-tested");
+        assert_ne!(
+            first.id, second.id,
+            "two pending insertions must not collide on the placeholder id"
+        );
+    }
+
+    #[test]
+    fn a_pending_move_updates_an_existing_images_bbox_for_hit_testing() {
+        let base = gen_fixtures::content_edit::build_roundtrip_image_page_document();
+        let mut cache = None;
+        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let target = image_at(content, (110.0, 610.0))
+            .expect("the fixture's target image parses")
+            .clone();
+        cache = None;
+        let moved_to = Rect {
+            x: 300.0,
+            y: 100.0,
+            ..target.bbox
+        };
+        let pending = log_with(vec![Command::MoveImage {
+            item: target.clone(),
+            to: moved_to,
+        }]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        assert!(
+            image_at(content, (110.0, 610.0)).is_none(),
+            "the image must no longer hit-test at its pre-move position"
+        );
+        let found = image_at(content, (moved_to.x as f32 + 5.0, moved_to.y as f32 + 5.0))
+            .expect("the image hit-tests at its pending position");
+        assert_eq!(found.id, target.id);
+    }
+
+    #[test]
+    fn a_pending_removal_hides_an_existing_image_from_hit_testing() {
+        let base = gen_fixtures::content_edit::build_roundtrip_image_page_document();
+        let mut cache = None;
+        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let target = image_at(content, (110.0, 610.0))
+            .expect("the fixture's target image parses")
+            .clone();
+        cache = None;
+        let pending = log_with(vec![Command::RemoveImage {
+            item: target,
+            source: None,
+        }]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        assert!(
+            image_at(content, (110.0, 610.0)).is_none(),
+            "a pending removal must not still be a valid hit-test target"
+        );
+    }
+
+    #[test]
+    fn a_pending_replacement_updates_the_runs_text_for_hit_testing() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let mut cache = None;
+        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let target = content
+            .text_runs
+            .first()
+            .expect("the fixture has one run")
+            .clone();
+        cache = None;
+        let pending = log_with(vec![Command::ReplaceTextRunContent {
+            item: target.clone(),
+            after: "Goodbye world".to_string(),
+        }]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        let found = content
+            .text_run(target.id)
+            .expect("the replaced run is still on the page");
+        assert_eq!(found.text, "Goodbye world");
+    }
+
+    #[test]
+    fn pending_commands_targeting_a_different_page_are_ignored() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let mut cache = None;
+        let mut inserted = run(0, 200.0, 200.0, 50.0, 12.0);
+        inserted.page = PageId(7);
+        let pending = log_with(vec![Command::InsertTextRun(inserted)]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        assert!(text_run_at(content, (210.0, 205.0)).is_none());
     }
 
     // --- unused_font_resource_name / unused_xobject_resource_name (T-163) -
@@ -485,7 +710,8 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let mut cache = None;
 
-        let error = ensure_page_content(&mut cache, &base, 7).expect_err("page 7 does not exist");
+        let error =
+            ensure_page_content(&mut cache, &base, 7, None).expect_err("page 7 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(7)));
         assert!(cache.is_none());
     }

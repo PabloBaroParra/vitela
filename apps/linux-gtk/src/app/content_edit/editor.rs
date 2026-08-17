@@ -17,7 +17,9 @@ use pdf_render::{place_rect, TextRect};
 use crate::app::document::refresh_after_content_edit;
 use crate::app::state::{ContentEditor, Viewer};
 
-use super::command::{apply_command, validate_insert_text, validate_replacement};
+use super::command::{
+    apply_command, text_run_already_edited, validate_insert_text, validate_replacement,
+};
 use super::model;
 
 /// Fixed default box for a newly inserted text run (T-163), in PDF points —
@@ -47,6 +49,28 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
                 resource_font_name: run.resource_font_name.clone(),
             }
             .to_string(),
+        );
+        return;
+    }
+
+    // T-163 follow-up: `run` may have come from `model::overlay_pending_content`
+    // rather than the base document — a run that only exists because of a
+    // pending, unsaved insertion, or one already carrying a queued
+    // replacement, has nothing a second `ReplaceTextRunContent` could resolve
+    // against at save time (see `command::text_run_already_edited`'s own
+    // doc). Refused immediately, the same way the composite-font case above
+    // never opens an editor it already knows will fail.
+    let already_edited = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.document_model.as_ref())
+        .is_some_and(|document| text_run_already_edited(document, &run));
+    if already_edited {
+        viewer.status.set_text(
+            "This text already has a pending edit — save and reopen before editing it \
+             again.",
         );
         return;
     }
@@ -130,11 +154,15 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             .as_ref()
             .map(|document| model::reserved_font_resource_names(&document.pending_edits))
             .unwrap_or_default();
+        let pending = session
+            .document_model
+            .as_ref()
+            .map(|document| &document.pending_edits);
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
         let resource_font_name =
-            match model::ensure_page_content(&mut page.content, base, page_index) {
+            match model::ensure_page_content(&mut page.content, base, page_index, pending) {
                 Ok(content) => model::unused_font_resource_name(content, &reserved),
                 Err(error) => {
                     drop(state);

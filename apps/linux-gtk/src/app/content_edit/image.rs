@@ -132,10 +132,14 @@ pub(crate) fn begin_image_drag(
     else {
         return false;
     };
+    let pending = session
+        .document_model
+        .as_ref()
+        .map(|document| &document.pending_edits);
     let Some(page) = session.pages.get_mut(page_index) else {
         return false;
     };
-    let hit = match model::ensure_page_content(&mut page.content, base, page_index) {
+    let hit = match model::ensure_page_content(&mut page.content, base, page_index, pending) {
         Ok(content) => model::image_at(content, (point.0 as f32, point.1 as f32)).cloned(),
         Err(error) => {
             drop(state);
@@ -624,11 +628,15 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
             .as_ref()
             .map(|document| model::reserved_xobject_resource_names(&document.pending_edits))
             .unwrap_or_default();
+        let pending = session
+            .document_model
+            .as_ref()
+            .map(|document| &document.pending_edits);
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
         let resource_xobject_name =
-            match model::ensure_page_content(&mut page.content, base, page_index) {
+            match model::ensure_page_content(&mut page.content, base, page_index, pending) {
                 Ok(content) => model::unused_xobject_resource_name(content, &reserved),
                 Err(error) => {
                     drop(state);
