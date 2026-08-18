@@ -338,13 +338,15 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
 
 ## Tareas de UI (agregadas a la ficha de B8, docs/batches-b8-b13.md)
 
-- [ ] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
+- [x] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
       existente abre un editor inline que preserva fuente/tamaño/posición; los runs no
       editables por `EncodingGap` se muestran distinguibles con explicación al usuario —
       nunca un fallo silencioso ni un intento que corrompa el stream. [ContentEdit]
-- [ ] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
+      **(completo, ver la entrada extendida en `docs/batches-b8-b13.md`.)**
+- [x] T-162 (dep B21) Imágenes de página real: seleccionar/mover/redimensionar con
       handles/reemplazar (file picker)/borrar imágenes existentes — distinto del stamp de
       anotación que ya existe (T-047). [ContentEdit]
+      **(completo, ver la entrada extendida en `docs/batches-b8-b13.md`.)**
 - [x] T-163 (dep B21) Insertar texto/imagen nuevos como contenido de página real; y el
       ciclo save→reopen→re-render obligatorio tras cualquier commit de edición de contenido
       (decisión 6) — acá el WARNING de UX diferido en T-046/T-047 deja de ser diferible.
