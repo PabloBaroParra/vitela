@@ -211,6 +211,10 @@ impl DocumentState {
             }
             FfiEditCommand::InsertTextRun { item } => Command::InsertTextRun(item.into()),
             FfiEditCommand::RemoveTextRun { item } => Command::RemoveTextRun(item.into()),
+            FfiEditCommand::MoveTextRun { item, to } => Command::MoveTextRun {
+                item: item.into(),
+                to: to.into(),
+            },
             FfiEditCommand::InsertImage { item, source } => Command::InsertImage {
                 item: item.into(),
                 source,
@@ -315,6 +319,7 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::ReplaceTextRunContent { .. }
             | FfiEditCommand::InsertTextRun { .. }
             | FfiEditCommand::RemoveTextRun { .. }
+            | FfiEditCommand::MoveTextRun { .. }
             | FfiEditCommand::InsertImage { .. }
             | FfiEditCommand::RemoveImage { .. }
             | FfiEditCommand::MoveImage { .. }

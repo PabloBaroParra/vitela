@@ -47,6 +47,36 @@ pub struct PageStream {
     pub filtered: bool,
 }
 
+/// The matrices and advance that put a run where it is — what a
+/// reposition ([`crate::move_text_run`]) has to work from, and what the
+/// `TextRun` model deliberately does not carry.
+///
+/// A move rewrites the run's text matrix and then has to put the text state
+/// back exactly as the original operation left it, so both matrices are
+/// needed, not just the one that positioned the glyphs: `text_matrix` is
+/// where this run painted, `line_matrix` is what the *next* relative
+/// positioning operator (`Td`, `T*`, `'`) will be measured from.
+#[derive(Debug, Clone, Copy)]
+pub struct TextPlacement {
+    /// `Tm` in effect when the run was shown.
+    pub text_matrix: Matrix,
+    /// `Tlm` in effect when the run was shown. Equal to `text_matrix` for
+    /// the first run after a positioning operator, and behind it by the
+    /// accumulated advance for every run after that on the same line.
+    pub line_matrix: Matrix,
+    /// The CTM in effect when the run was shown — what turns text space
+    /// into page space, and therefore what a page-space displacement has to
+    /// be pulled back through.
+    pub ctm: Matrix,
+    /// The run's own horizontal advance, in text space.
+    pub advance: f64,
+    /// `Tfs × Th` — the factor that turns a `TJ` adjustment into a
+    /// text-space displacement (PDF 32000-1 9.4.3). Zero when the font size
+    /// or horizontal scale is degenerate, which is exactly when no `TJ`
+    /// number can reproduce a displacement at all.
+    pub advance_scale: f64,
+}
+
 /// A text run plus where its bytes are, which is what [`crate::edit`] needs
 /// and what `PageContent` deliberately does not carry.
 #[derive(Debug, Clone)]
@@ -65,6 +95,8 @@ pub struct LocatedTextRun {
     /// Zero when the run advances nothing, or when the font size makes the
     /// conversion meaningless.
     pub advance_adjustment: f64,
+    /// Where the text state stood when this run painted.
+    pub placement: TextPlacement,
 }
 
 /// An image plus where its `Do` is and what transform placed it.
@@ -395,6 +427,13 @@ fn show_text(
         operand_span: span,
         operator: operation.operator.clone(),
         advance_adjustment: advance_adjustment(state, advance),
+        placement: TextPlacement {
+            text_matrix: state.text_matrix,
+            line_matrix: state.line_matrix,
+            ctm: state.ctm,
+            advance,
+            advance_scale: state.font_size * state.horizontal_scale,
+        },
     });
 
     state.text_matrix = Matrix::translate(advance, 0.0).then(state.text_matrix);

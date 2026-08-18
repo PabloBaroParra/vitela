@@ -122,6 +122,24 @@ fn overlay_pending_content(
                     existing.text = after.clone();
                 }
             }
+            Command::MoveTextRun { item, to } if item.page == page => {
+                if let Some(existing) = content
+                    .text_runs
+                    .iter_mut()
+                    .find(|existing| existing.id == item.id)
+                {
+                    // Origin only, and the width the run already had is kept
+                    // rather than re-measured: a move changes nothing about
+                    // what the run says, so the box it occupies is the same
+                    // box somewhere else — the one case in this replay where
+                    // `pending_text_bbox` would have nothing to add.
+                    existing.bbox = Rect {
+                        x: to.x,
+                        y: to.y,
+                        ..existing.bbox
+                    };
+                }
+            }
             Command::InsertImage { item, .. } if item.page == page => {
                 let mut item = item.clone();
                 item.id = synthetic_id;
@@ -505,6 +523,53 @@ mod tests {
         assert_ne!(
             first.id, second.id,
             "two pending insertions must not collide on the placeholder id"
+        );
+    }
+
+    /// A dragged run is rendered at its new spot the moment the refresh
+    /// lands, so it has to be *clickable* there too — otherwise the text the
+    /// user just moved answers clicks from where it used to be.
+    #[test]
+    fn a_pending_move_updates_an_existing_runs_bbox_for_hit_testing() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let mut cache = None;
+        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let target = content.text_runs.first().expect("the line parses").clone();
+        let inside_original = (
+            target.bbox.x as f32 + 2.0,
+            target.bbox.y as f32 + target.bbox.height as f32 / 2.0,
+        );
+        cache = None;
+        let moved_to = Rect {
+            x: target.bbox.x + 150.0,
+            y: target.bbox.y - 200.0,
+            ..target.bbox
+        };
+        let pending = log_with(vec![Command::MoveTextRun {
+            item: target.clone(),
+            to: moved_to,
+        }]);
+
+        let content =
+            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+
+        assert!(
+            text_run_at(content, inside_original).is_none(),
+            "the run must no longer hit-test where it used to be"
+        );
+        let found = text_run_at(
+            content,
+            (
+                moved_to.x as f32 + 2.0,
+                moved_to.y as f32 + moved_to.height as f32 / 2.0,
+            ),
+        )
+        .expect("the run hit-tests at its pending position");
+        assert_eq!(found.id, target.id);
+        assert_eq!(found.text, target.text, "a move changes nothing it says");
+        assert!(
+            (found.bbox.width - target.bbox.width).abs() < 1e-6,
+            "and nothing about how wide it is"
         );
     }
 

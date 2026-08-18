@@ -160,6 +160,124 @@ pub fn remove_text_run(
     splice(document, &located, stream_index, span, &replacement)
 }
 
+/// Repositions an existing run so its box sits at `to`'s origin, keeping
+/// the font, size, colour and kerning it already had.
+///
+/// Only `to`'s **origin** is read. A run's width and height come from its
+/// font and its text, not from a box the caller chooses — unlike an image,
+/// which is painted into whatever rectangle its matrix names — so a `to`
+/// that resizes is not refused, it simply has nothing to resize.
+///
+/// # How the rewrite keeps the rest of the page still
+///
+/// The run's show operation is replaced by four things, in order:
+///
+/// 1. `a b c d e f Tm` — the run's own text matrix, corrected so the glyphs
+///    land `to - item.bbox` further along in **page** space. The correction
+///    is pulled back through the CTM, so the run moves the distance the user
+///    asked for even inside a scaled or rotated `cm`.
+/// 2. The original operand bytes, unchanged, shown with `Tj`/`TJ`. Not
+///    re-encoded and not re-kerned: whatever the file said is what still
+///    paints, which is what keeps the font, the size, the fill colour and a
+///    `TJ` array's kerning exactly as they were.
+/// 3. `Tm` again, restoring the line matrix the operation started from — so
+///    a following `Td`, `T*` or `'` measures from where it always did.
+/// 4. A `TJ` adjustment reproducing the horizontal advance the text state
+///    had accumulated on that line, this run's own included — so a following
+///    `Tj` on the same line still starts where it always did.
+///
+/// Steps 3 and 4 are what make this a *move of one run* rather than a shift
+/// of everything after it. Without them the page would reflow, and reflow is
+/// out of scope by the same decision that shaped [`remove_text_run`].
+///
+/// Fails with [`EditError::TextRunNotMovable`] for a run painted by `"`
+/// (see that variant's own doc), and with [`EditError::MalformedContent`]
+/// when a matrix in the run's own placement collapses to zero area and
+/// cannot be inverted.
+pub fn move_text_run(
+    document: &mut Document,
+    page_object: ObjectId,
+    item: &TextRun,
+    to: Rect,
+) -> Result<(), EditError> {
+    let located = read_located_content(document, page_object)?;
+    let target = resolve_text_run(&located, item)?;
+
+    // `"` sets word and character spacing for everything after it; the
+    // rewrite below emits a plain show operator and would drop both.
+    if target.operator == "\"" {
+        return Err(EditError::TextRunNotMovable {
+            operator: target.operator.clone(),
+        });
+    }
+
+    let placement = target.placement;
+    let collapsed = |what: &str| EditError::MalformedContent {
+        reason: format!("text is placed by a {what} that collapses to zero area"),
+        offset: target.operation_span.start,
+    };
+
+    // The page-space displacement, pulled back into text space: the moved
+    // matrix is the original one with a page-space translation composed on
+    // its page-facing side, `Tm × CTM × T × CTM⁻¹`.
+    let inverse_ctm = placement.ctm.invert().ok_or_else(|| collapsed("matrix"))?;
+    let shift = Matrix::translate(to.x - item.bbox.x, to.y - item.bbox.y);
+    let moved = placement
+        .text_matrix
+        .then(placement.ctm)
+        .then(shift)
+        .then(inverse_ctm);
+
+    // How far along the line the text matrix already stood before this run
+    // painted. `Tm` can only ever be `translate(carried, 0) × Tlm` — every
+    // operator that sets `Tlm` sets `Tm` equal to it, and only showing text
+    // moves them apart, always by a horizontal advance — so this recovers
+    // that one number exactly.
+    let inverse_line = placement
+        .line_matrix
+        .invert()
+        .ok_or_else(|| collapsed("line matrix"))?;
+    let carried = placement.text_matrix.then(inverse_line).e;
+
+    let restored_advance = carried + placement.advance;
+    let adjustment = if placement.advance_scale.abs() < 1e-9 {
+        // No `TJ` number can displace anything at this scale. Harmless when
+        // there is no displacement to reproduce, and unreachable otherwise:
+        // a degenerate scale is exactly what makes the advance zero too.
+        0.0
+    } else {
+        -restored_advance * 1000.0 / placement.advance_scale
+    };
+
+    let operand = &located.streams[target.stream_index].bytes[target.operand_span.clone()];
+    let show = if target.operator == "TJ" { "TJ" } else { "Tj" };
+
+    let mut replacement = matrix_operator(moved);
+    replacement.extend_from_slice(operand);
+    replacement.extend_from_slice(format!(" {show} ").as_bytes());
+    replacement.extend_from_slice(&matrix_operator(placement.line_matrix));
+    if adjustment.abs() >= 1e-9 {
+        replacement.extend_from_slice(format!("[{}] TJ", format_number(adjustment)).as_bytes());
+    }
+
+    let (stream_index, span) = (target.stream_index, target.operation_span.clone());
+    splice(document, &located, stream_index, span, &replacement)
+}
+
+/// `a b c d e f Tm `, trailing space included so operands never run together.
+fn matrix_operator(matrix: Matrix) -> Vec<u8> {
+    format!(
+        "{} {} {} {} {} {} Tm ",
+        format_number(matrix.a),
+        format_number(matrix.b),
+        format_number(matrix.c),
+        format_number(matrix.d),
+        format_number(matrix.e),
+        format_number(matrix.f),
+    )
+    .into_bytes()
+}
+
 /// Repositions an existing image so its box becomes `to`.
 pub fn move_image(
     document: &mut Document,
@@ -1424,6 +1542,237 @@ mod tests {
             (remaining[0].bbox.x - second_before.x).abs() < 1e-6,
             "the surviving run must not move"
         );
+    }
+
+    // --- move_text_run ----------------------------------------------------
+
+    /// The destination is an origin, and only an origin: a run's size comes
+    /// from its font and its text, so a `to` that also resizes has nothing
+    /// to resize.
+    fn origin(x: f64, y: f64) -> Rect {
+        Rect {
+            x,
+            y,
+            width: 0.0,
+            height: 0.0,
+        }
+    }
+
+    fn moved_by(before: Rect, dx: f64, dy: f64) -> Rect {
+        Rect {
+            x: before.x + dx,
+            y: before.y + dy,
+            ..before
+        }
+    }
+
+    #[test]
+    fn moving_a_run_puts_its_box_where_asked() {
+        let (mut document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+        let destination = moved_by(target.bbox, 40.0, -25.0);
+
+        move_text_run(&mut document, page, &target, destination).expect("movable");
+
+        let moved = run(&document, 0).bbox;
+        assert!((moved.x - destination.x).abs() < 1e-6);
+        assert!((moved.y - destination.y).abs() < 1e-6);
+    }
+
+    /// What the whole `Tm`-wrap exists for: the glyphs are the file's own
+    /// bytes, so nothing about how they are drawn can drift.
+    #[test]
+    fn moving_a_run_keeps_its_text_font_and_size() {
+        let (mut document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(200.0, 300.0)).expect("movable");
+
+        let moved = run(&document, 0);
+        assert_eq!(moved.text, "Hello");
+        assert_eq!(moved.resource_font_name, "F1");
+        assert!(
+            (moved.bbox.height - target.bbox.height).abs() < 1e-6
+                && (moved.bbox.width - target.bbox.width).abs() < 1e-6,
+            "the box is the same one, only somewhere else"
+        );
+    }
+
+    /// The no-reflow invariant, the direction that actually breaks: the run
+    /// after the moved one shares its line and is positioned by the advance
+    /// the moved run left behind.
+    #[test]
+    fn moving_a_run_leaves_the_next_run_on_the_line_where_it_was() {
+        let (mut document, page) = text_document(b"BT /F1 12 Tf 100 700 Td (aaa) Tj (bbb) Tj ET");
+        let second_before = run(&document, 1).bbox;
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(400.0, 200.0)).expect("movable");
+
+        let after = content_of(&document);
+        let second = after
+            .text_runs
+            .iter()
+            .find(|candidate| candidate.text == "bbb")
+            .expect("the second run survives");
+        assert!(
+            (second.bbox.x - second_before.x).abs() < 1e-6
+                && (second.bbox.y - second_before.y).abs() < 1e-6,
+            "the run sharing the line must not move: {:?} was {:?}",
+            second.bbox,
+            second_before
+        );
+    }
+
+    /// The other half of no-reflow: a `Td` after the moved run is relative
+    /// to the *line* matrix, so restoring `Tm` alone would leave the next
+    /// line displaced by however far the run was dragged.
+    #[test]
+    fn moving_a_run_leaves_the_following_line_where_it_was() {
+        let (mut document, page) =
+            text_document(b"BT /F1 12 Tf 100 700 Td (first) Tj 0 -20 Td (second) Tj ET");
+        let second_before = run(&document, 1).bbox;
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(300.0, 500.0)).expect("movable");
+
+        let after = content_of(&document);
+        let second = after
+            .text_runs
+            .iter()
+            .find(|candidate| candidate.text == "second")
+            .expect("the second run survives");
+        assert!(
+            (second.bbox.x - second_before.x).abs() < 1e-6
+                && (second.bbox.y - second_before.y).abs() < 1e-6,
+            "the next line must not move: {:?} was {:?}",
+            second.bbox,
+            second_before
+        );
+    }
+
+    /// A run mid-line starts from a text matrix already advanced past its
+    /// predecessors. Restoring the line matrix without adding that carried
+    /// advance back would drag everything after it to the start of the line.
+    #[test]
+    fn moving_the_second_run_on_a_line_restores_the_advance_it_started_from() {
+        let (mut document, page) =
+            text_document(b"BT /F1 12 Tf 100 700 Td (aaa) Tj (bbb) Tj (ccc) Tj ET");
+        let third_before = run(&document, 2).bbox;
+        let target = run(&document, 1);
+
+        move_text_run(&mut document, page, &target, origin(400.0, 200.0)).expect("movable");
+
+        let after = content_of(&document);
+        let third = after
+            .text_runs
+            .iter()
+            .find(|candidate| candidate.text == "ccc")
+            .expect("the third run survives");
+        assert!(
+            (third.bbox.x - third_before.x).abs() < 1e-6,
+            "the run after the moved one must not move: {:?} was {:?}",
+            third.bbox,
+            third_before
+        );
+    }
+
+    /// A page-space displacement has to be pulled back through the CTM, or
+    /// dragging 10pt to the right inside a `2 0 0 2 0 0 cm` moves the run 20.
+    #[test]
+    fn a_move_inside_a_scaled_ctm_still_lands_in_page_space() {
+        let (mut document, page) =
+            text_document(b"q 2 0 0 2 0 0 cm BT /F1 12 Tf 50 300 Td (Hello) Tj ET Q");
+        let target = run(&document, 0);
+        let destination = moved_by(target.bbox, 30.0, 10.0);
+
+        move_text_run(&mut document, page, &target, destination).expect("movable");
+
+        let moved = run(&document, 0).bbox;
+        assert!(
+            (moved.x - destination.x).abs() < 1e-6 && (moved.y - destination.y).abs() < 1e-6,
+            "expected {destination:?}, got {moved:?}"
+        );
+    }
+
+    /// `TJ` kerning is the file's own, and a move must not flatten it the
+    /// way a replacement deliberately does.
+    #[test]
+    fn moving_a_kerned_run_keeps_its_array_operand() {
+        let (mut document, page) = text_document(b"BT /F1 12 Tf 100 700 Td [(He) -20 (llo)] TJ ET");
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(200.0, 400.0)).expect("movable");
+
+        let bytes = stream_bytes(&document);
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            text.contains("[(He) -20 (llo)] TJ"),
+            "the kerned array must survive verbatim: {text}"
+        );
+    }
+
+    /// `'` shows text on the next line. Its line advance is already part of
+    /// the matrices recorded at paint, so the rewrite reproduces it by
+    /// restoring them rather than by re-emitting the operator.
+    #[test]
+    fn moving_a_run_shown_with_the_next_line_operator_keeps_the_following_line_put() {
+        let (mut document, page) =
+            text_document(b"BT /F1 10 Tf 14 TL 0 700 Td (first) ' (second) ' ET");
+        let second_before = run(&document, 1).bbox;
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(300.0, 500.0)).expect("movable");
+
+        let after = content_of(&document);
+        let second = after
+            .text_runs
+            .iter()
+            .find(|candidate| candidate.text == "second")
+            .expect("the second run survives");
+        assert!(
+            (second.bbox.x - second_before.x).abs() < 1e-6
+                && (second.bbox.y - second_before.y).abs() < 1e-6,
+            "the next line must not move: {:?} was {:?}",
+            second.bbox,
+            second_before
+        );
+    }
+
+    /// `"` sets spacing for everything after it. Refused rather than
+    /// rewritten into something that silently drops those two state changes.
+    #[test]
+    fn a_run_shown_with_the_spacing_operator_refuses_to_move() {
+        let (mut document, page) = text_document(b"BT /F1 10 Tf 12 TL 0 700 Td 5 1 (spaced) \" ET");
+        let target = run(&document, 0);
+        let before = stream_bytes(&document);
+
+        let error =
+            move_text_run(&mut document, page, &target, origin(200.0, 200.0)).expect_err("refused");
+
+        assert!(matches!(
+            error,
+            EditError::TextRunNotMovable { ref operator } if operator == "\""
+        ));
+        assert_eq!(
+            stream_bytes(&document),
+            before,
+            "nothing may have been written"
+        );
+    }
+
+    #[test]
+    fn moving_a_run_that_is_not_on_the_page_writes_nothing() {
+        let (mut document, page) = text_document(HELLO);
+        let mut stranger = run(&document, 0);
+        stranger.text = "Elsewhere".to_string();
+        let before = stream_bytes(&document);
+
+        let error = move_text_run(&mut document, page, &stranger, origin(200.0, 200.0))
+            .expect_err("no such run");
+
+        assert!(matches!(error, EditError::ItemNotFound(_)));
+        assert_eq!(stream_bytes(&document), before);
     }
 
     // --- move_image / resize_image ---------------------------------------

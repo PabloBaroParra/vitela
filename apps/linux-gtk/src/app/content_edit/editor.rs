@@ -7,21 +7,35 @@
 //! of the page's `Overlay`, positioned with plain margins computed from
 //! `pdf_render::place_rect` — the same "coordinates are pre-scaled in Rust,
 //! no cairo transform" posture the rest of the shell already uses.
+//!
+//! Being a real widget is also what lets a *new* box be nudged into place
+//! before anything is typed into it: the same margins that position it are
+//! what [`wire_drag`] updates. That is the only drag this module owns —
+//! moving a run that already exists belongs to the page gesture in
+//! [`super::text`], which does not have to fight the text field for the
+//! press.
+
+use std::cell::Cell;
+use std::rc::Rc;
 
 use gtk::prelude::*;
-use gtk::{gdk, glib, Entry, EventControllerFocus, EventControllerKey};
+use gtk::{
+    gdk, glib, Entry, EventControllerFocus, EventControllerKey, EventSequenceState, GestureDrag,
+    PropagationPhase,
+};
 use pdf_document::{Command, ContentItemId, FontKind, PageId, Rect, TextRun};
 use pdf_edit::EditError;
 use pdf_render::{place_rect, TextRect};
 
 use crate::app::document::refresh_after_content_edit;
-use crate::app::state::{ContentEditor, Viewer};
+use crate::app::state::{ContentEditor, PageSlot, Viewer};
 
 use super::command::{
-    amend_command, apply_command, pending_text_command, retyped_command, validate_insert_text,
+    amend_command, amended_command, apply_command, pending_text_command, validate_insert_text,
     validate_replacement, PendingText,
 };
 use super::model;
+use super::CLICK_EPSILON_PX;
 
 /// Fixed default box for a newly inserted text run (T-163), in PDF points —
 /// there is no existing run to inherit a size from the way a replacement
@@ -101,25 +115,9 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
             return;
         };
 
-        let placed = place_rect(
-            TextRect {
-                x_pt: run.bbox.x as f32,
-                y_pt: run.bbox.y as f32,
-                width_pt: run.bbox.width as f32,
-                height_pt: run.bbox.height as f32,
-            },
-            page.height_pt,
-            page.budget.factor,
-        );
-
         let entry = Entry::new();
         entry.set_text(&run.text);
-        entry.set_halign(gtk::Align::Start);
-        entry.set_valign(gtk::Align::Start);
-        entry.set_margin_start(placed.left.round() as i32);
-        entry.set_margin_top(placed.top.round() as i32);
-        entry.set_width_request(placed.width.round().max(1.0) as i32);
-        entry.set_height_request(placed.height.round().max(1.0) as i32);
+        place_entry(&entry, run.bbox, page);
         page.overlay.add_overlay(&entry);
 
         session.content_editor = Some(ContentEditor {
@@ -133,7 +131,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
         entry
     };
 
-    wire_entry(viewer, &entry);
+    wire_entry(viewer, &entry, false);
     entry.grab_focus();
     entry.select_region(0, -1);
 }
@@ -213,24 +211,8 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             text: String::new(),
         };
 
-        let placed = place_rect(
-            TextRect {
-                x_pt: bbox.x as f32,
-                y_pt: bbox.y as f32,
-                width_pt: bbox.width as f32,
-                height_pt: bbox.height as f32,
-            },
-            page.height_pt,
-            page.budget.factor,
-        );
-
         let entry = Entry::new();
-        entry.set_halign(gtk::Align::Start);
-        entry.set_valign(gtk::Align::Start);
-        entry.set_margin_start(placed.left.round() as i32);
-        entry.set_margin_top(placed.top.round() as i32);
-        entry.set_width_request(placed.width.round().max(1.0) as i32);
-        entry.set_height_request(placed.height.round().max(1.0) as i32);
+        place_entry(&entry, bbox, page);
         page.overlay.add_overlay(&entry);
 
         session.content_editor = Some(ContentEditor {
@@ -247,11 +229,197 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
         entry
     };
 
-    wire_entry(viewer, &entry);
+    wire_entry(viewer, &entry, true);
     entry.grab_focus();
 }
 
-fn wire_entry(viewer: &Viewer, entry: &Entry) {
+/// Positions the editor box over `bbox` on `page`, in the page overlay's
+/// own coordinates.
+///
+/// The one place the widget's geometry is computed, shared by opening an
+/// editor, opening a blank one for an insertion, and putting the box back
+/// after a refused drag — three call sites that must agree on where a given
+/// run's box sits, or a rejected move would leave the box somewhere the run
+/// is not.
+fn place_entry(entry: &Entry, bbox: Rect, page: &PageSlot) {
+    let placed = place_rect(
+        TextRect {
+            x_pt: bbox.x as f32,
+            y_pt: bbox.y as f32,
+            width_pt: bbox.width as f32,
+            height_pt: bbox.height as f32,
+        },
+        page.height_pt,
+        page.budget.factor,
+    );
+
+    entry.set_halign(gtk::Align::Start);
+    entry.set_valign(gtk::Align::Start);
+    // Clamped at zero because GTK refuses a negative margin, which is also
+    // what stops a drag from carrying the box off the top-left of the page.
+    entry.set_margin_start(placed.left.round().max(0.0) as i32);
+    entry.set_margin_top(placed.top.round().max(0.0) as i32);
+    entry.set_width_request(placed.width.round().max(1.0) as i32);
+    entry.set_height_request(placed.height.round().max(1.0) as i32);
+}
+
+/// Makes an insertion's box draggable, so a new text box can be nudged into
+/// place before anything is typed into it.
+///
+/// **Only an insertion's box.** An editor opened over an existing run does
+/// not get this, deliberately: dragging inside a text field is how anyone
+/// selects text with a mouse, and a gesture that stole it would trade an
+/// everyday interaction for one the page already offers — pressing the run
+/// itself and dragging it (`super::text::begin_text_drag`). A blank box has
+/// no text to select yet, so there is nothing to trade.
+///
+/// Press and pull moves the box; press and release places the caret. Both
+/// live in the same pixels and distance tells them apart, using the same
+/// [`CLICK_EPSILON_PX`] threshold the page gesture uses. The controller runs
+/// in the **capture** phase, ahead of the `Entry`'s own text gesture, and
+/// claims the sequence only once the pointer has actually travelled.
+fn wire_drag(viewer: &Viewer, entry: &Entry) {
+    let drag = GestureDrag::new();
+    drag.set_propagation_phase(PropagationPhase::Capture);
+
+    // Where the box's margins stood when the press landed. `None` means this
+    // press must not move anything, either because there is no editor to move
+    // or because moving this particular run was refused before the drag could
+    // start.
+    let anchor: Rc<Cell<Option<(i32, i32)>>> = Rc::new(Cell::new(None));
+    // Whether the pointer has passed the threshold, i.e. whether this gesture
+    // has become a move rather than a click.
+    let moving = Rc::new(Cell::new(false));
+
+    drag.connect_drag_begin({
+        let viewer = viewer.clone();
+        let entry = entry.clone();
+        let anchor = anchor.clone();
+        let moving = moving.clone();
+        move |_, _, _| {
+            moving.set(false);
+            anchor.set(
+                is_composing_an_insertion(&viewer)
+                    .then(|| (entry.margin_start(), entry.margin_top())),
+            );
+        }
+    });
+
+    drag.connect_drag_update({
+        let entry = entry.clone();
+        let anchor = anchor.clone();
+        let moving = moving.clone();
+        move |gesture, offset_x, offset_y| {
+            let Some((left, top)) = anchor.get() else {
+                return;
+            };
+            if !moving.get() {
+                if offset_x.abs() < CLICK_EPSILON_PX && offset_y.abs() < CLICK_EPSILON_PX {
+                    return;
+                }
+                // Past the threshold, so this is a move. Claiming the
+                // sequence is what stops the `Entry` from going on selecting
+                // text under the pointer for the rest of the drag.
+                gesture.set_state(EventSequenceState::Claimed);
+                moving.set(true);
+            }
+            entry.set_margin_start((f64::from(left) + offset_x).round().max(0.0) as i32);
+            entry.set_margin_top((f64::from(top) + offset_y).round().max(0.0) as i32);
+        }
+    });
+
+    drag.connect_drag_end({
+        let viewer = viewer.clone();
+        let entry = entry.clone();
+        move |_, _, _| {
+            let Some((left, top)) = anchor.take() else {
+                return;
+            };
+            if !moving.replace(false) {
+                return;
+            }
+            // Measured from the margins the box actually ended up with rather
+            // than from the pointer's own offset: `place_entry` clamps at the
+            // page's top-left corner, and reading the widget back is what
+            // keeps the move that gets recorded equal to the one the user
+            // watched happen.
+            finish_drag(
+                &viewer,
+                entry.margin_start() - left,
+                entry.margin_top() - top,
+            );
+        }
+    });
+
+    entry.add_controller(drag);
+}
+
+/// Whether the open editor is composing a run that exists nowhere yet — the
+/// one state in which the box itself may be dragged.
+///
+/// `amends` being set means the run is already in the log (and, for a
+/// replacement, in the file), so moving it is a real edit that belongs to the
+/// page gesture, not to this widget.
+fn is_composing_an_insertion(viewer: &Viewer) -> bool {
+    let state = viewer.state.borrow();
+    state
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .is_some_and(|editor| editor.is_insertion && editor.amends.is_none())
+}
+
+/// Resolves a finished drag of an insertion's box, `dx`/`dy` being how far it
+/// actually moved in device pixels.
+///
+/// Nothing reaches the `EditLog`: the run this box will insert does not exist
+/// yet, so moving the box is not an edit of the page, only a different
+/// description of what the eventual commit will add. That is what makes
+/// "click, nudge into place, type" one uninterrupted gesture rather than
+/// three edits.
+fn finish_drag(viewer: &Viewer, dx: i32, dy: i32) {
+    if dx == 0 && dy == 0 {
+        return;
+    }
+
+    let mut state = viewer.state.borrow_mut();
+    let Some(session) = state.session.as_mut() else {
+        return;
+    };
+    let Some(editor) = session.content_editor.as_ref() else {
+        return;
+    };
+    let page_index = editor.page_index;
+    let bbox = editor.run.bbox;
+    let Some(page) = session.pages.get(page_index) else {
+        return;
+    };
+    let scale = page.budget.factor;
+    if !scale.is_finite() || scale <= 0.0 {
+        return;
+    }
+
+    // Screen pixels grow downwards and PDF points grow upwards, which is the
+    // whole of the difference between the two spaces here: the box keeps the
+    // size it was composed with, so only the origin moves.
+    let destination = Rect {
+        x: bbox.x + f64::from(dx) / scale,
+        y: bbox.y - f64::from(dy) / scale,
+        ..bbox
+    };
+    session
+        .content_editor
+        .as_mut()
+        .expect("read through the same field just above")
+        .run
+        .bbox = destination;
+}
+
+fn wire_entry(viewer: &Viewer, entry: &Entry, draggable: bool) {
+    if draggable {
+        wire_drag(viewer, entry);
+    }
+
     entry.connect_activate({
         let viewer = viewer.clone();
         move |_| commit(&viewer)
@@ -347,7 +515,7 @@ pub(crate) fn commit(viewer: &Viewer) {
         // be the very duplicate this path exists to avoid.
         let Some(amended) = existing
             .as_ref()
-            .and_then(|existing| retyped_command(existing, &after))
+            .and_then(|existing| amended_command(existing, &after, None))
         else {
             let editor = session.content_editor.take().expect("checked above");
             drop(state);
@@ -366,7 +534,7 @@ pub(crate) fn commit(viewer: &Viewer) {
             Command::ReplaceTextRunContent { item, after } => {
                 validate_replacement(base, page_index, item, after)
             }
-            // `retyped_command` produces no other shape.
+            // `amended_command` produces no other shape.
             _ => Ok(()),
         };
 
@@ -459,6 +627,9 @@ pub(crate) fn commit(viewer: &Viewer) {
             refresh_after_content_edit(viewer, "Text updated.");
         }
         Err(error) => {
+            // A move recorded just above stays recorded: it validated on its
+            // own and undo can still remove it. Only the retype failed, and
+            // the editor stays open holding it.
             drop(state);
             viewer.status.set_text(&error.to_string());
         }

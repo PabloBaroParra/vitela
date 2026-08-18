@@ -13,7 +13,7 @@ pub mod interpreter;
 pub mod lexer;
 pub mod matrix;
 
-pub use interpreter::{LocatedContent, LocatedImage, LocatedTextRun, PageStream};
+pub use interpreter::{LocatedContent, LocatedImage, LocatedTextRun, PageStream, TextPlacement};
 pub use lexer::{tokenize, Operand, SpannedOperation};
 pub use matrix::Matrix;
 

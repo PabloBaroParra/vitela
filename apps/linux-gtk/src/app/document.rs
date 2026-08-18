@@ -1211,6 +1211,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             content_editor: None,
             selected_image: None,
             image_drag: None,
+            text_drag: None,
             physical_width: fit.available_width,
             physical_height: fit.available_height,
             scale_factor: fit.scale_factor,
@@ -1233,6 +1234,10 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     super::annotations::update_annotation_controls(viewer);
     super::content_edit::update_controls(viewer);
     super::update_content_edit_controls(viewer);
+    // The mode outlives the document it was armed on, so a session installed
+    // while it is on has to be given the same start `set_mode` would have —
+    // see `content_edit::rearm_for_session`.
+    super::content_edit::rearm_for_session(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
     // A document with no pages leaves the page area empty, so the mark stays
     // up — the same call the WinUI shell makes when it re-shows its empty

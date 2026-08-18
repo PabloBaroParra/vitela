@@ -479,7 +479,7 @@ fn remove_page_with_out_of_bounds_index_returns_typed_error() {
 }
 
 // ---------------------------------------------------------------------
-// Page-content editing (Batch 21, T-158): read_page_content + the eight
+// Page-content editing (Batch 21, T-158): read_page_content + the nine
 // content Command variants through apply_edit.
 // ---------------------------------------------------------------------
 

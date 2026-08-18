@@ -516,7 +516,7 @@ pub enum FfiEditCommand {
 
     // --- Page content (Batch 21, T-158) --------------------------------
     //
-    // Mirror `pdf_document::Command`'s eight page-content variants. Each
+    // Mirror `pdf_document::Command`'s nine page-content variants. Each
     // carries the item read from `DocumentHandle::read_page_content` — no
     // id is allocated here, unlike annotations, because the item already
     // carries the identity the parser assigned it.
@@ -529,6 +529,10 @@ pub enum FfiEditCommand {
     },
     RemoveTextRun {
         item: FfiContentTextRun,
+    },
+    MoveTextRun {
+        item: FfiContentTextRun,
+        to: FfiRect,
     },
     InsertImage {
         item: FfiContentImageItem,

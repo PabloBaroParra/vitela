@@ -301,6 +301,134 @@ fn editing_a_text_run_reaches_the_saved_file() {
     );
 }
 
+/// The move half of the same headline path: drag a line somewhere else,
+/// save, reopen, and find it there — with the line below it untouched,
+/// which is what separates a move from a reflow.
+#[test]
+fn moving_a_text_run_reaches_the_saved_file() {
+    let path = text_pdf(&["Hello world", "second line"], "move");
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+
+    let runs = pdf_save::read_page_content(&base, PageId(0))
+        .expect("readable page")
+        .text_runs;
+    let run = runs[0].clone();
+    let control = runs[1].bbox;
+    let destination = Rect {
+        x: run.bbox.x + 120.0,
+        y: run.bbox.y - 60.0,
+        ..run.bbox
+    };
+    apply_command(
+        &mut document,
+        Command::MoveTextRun {
+            item: run.clone(),
+            to: destination,
+        },
+    );
+
+    let saved = save_with_original(&document, &base, &original_bytes);
+    let reloaded = lopdf::Document::load_mem(&saved).expect("output must reload");
+    let after = pdf_edit::read_page_content(&reloaded, PageId(0)).expect("readable page");
+
+    let moved = after
+        .text_runs
+        .iter()
+        .find(|candidate| candidate.text == run.text)
+        .expect("the moved run is still on the page");
+    assert!(
+        (moved.bbox.x - destination.x).abs() < 1e-6 && (moved.bbox.y - destination.y).abs() < 1e-6,
+        "expected the run at {destination:?}, found it at {:?}",
+        moved.bbox
+    );
+
+    let untouched = after
+        .text_runs
+        .iter()
+        .find(|candidate| candidate.text == "second line")
+        .expect("the other line survives");
+    assert!(
+        (untouched.bbox.x - control.x).abs() < 1e-6 && (untouched.bbox.y - control.y).abs() < 1e-6,
+        "moving one run must not move the next line: {:?} was {control:?}",
+        untouched.bbox
+    );
+}
+
+/// The interaction the shell's whole ordering rule exists for: one run
+/// dragged and then retyped leaves two commands in the log, and the save has
+/// to replay both against a document the first one already changed.
+///
+/// The move goes first precisely so the replacement can carry an exact box —
+/// `pdf-save` re-resolves each command's target by text, font and geometry
+/// against the progressively edited document, so a replacement carrying the
+/// pre-move box would resolve against nothing and fail the entire save.
+#[test]
+fn moving_a_run_and_then_retyping_it_both_reach_the_saved_file() {
+    let path = text_pdf(&["Hello world", "second line"], "move-then-retype");
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+
+    let run = pdf_save::read_page_content(&base, PageId(0))
+        .expect("readable page")
+        .text_runs
+        .remove(0);
+    let destination = Rect {
+        x: run.bbox.x + 90.0,
+        y: run.bbox.y - 40.0,
+        ..run.bbox
+    };
+    apply_command(
+        &mut document,
+        Command::MoveTextRun {
+            item: run.clone(),
+            to: destination,
+        },
+    );
+    // Exactly what the shell records after a drag: the same run, described
+    // where the move leaves it.
+    let moved_run = pdf_document::TextRun {
+        bbox: Rect {
+            x: destination.x,
+            y: destination.y,
+            ..run.bbox
+        },
+        ..run.clone()
+    };
+    apply_command(
+        &mut document,
+        Command::ReplaceTextRunContent {
+            item: moved_run,
+            after: "Adios mundo".to_string(),
+        },
+    );
+
+    let saved = save_with_original(&document, &base, &original_bytes);
+    let reloaded = lopdf::Document::load_mem(&saved).expect("output must reload");
+    let after = pdf_edit::read_page_content(&reloaded, PageId(0)).expect("readable page");
+
+    let edited = after
+        .text_runs
+        .iter()
+        .find(|candidate| candidate.text == "Adios mundo")
+        .expect("both edits reached the file");
+    assert!(
+        (edited.bbox.x - destination.x).abs() < 1e-6
+            && (edited.bbox.y - destination.y).abs() < 1e-6,
+        "the retyped run must still be where the move put it: {:?}",
+        edited.bbox
+    );
+    assert!(
+        after
+            .text_runs
+            .iter()
+            .any(|candidate| candidate.text == "second line"),
+        "the untouched line survives both edits"
+    );
+}
+
 #[test]
 fn replacing_text_preserves_the_untouched_page_and_forces_a_full_rewrite() {
     let path = two_page_text_pdf();

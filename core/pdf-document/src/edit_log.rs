@@ -56,7 +56,7 @@ pub enum Command {
 
     // --- Page content (Batch 21) --------------------------------------
     //
-    // These eight edit what lives *inside* a page's content stream. They
+    // These nine edit what lives *inside* a page's content stream. They
     // differ from every command above in one structural way: the model does
     // not hold page content (batch decision 2 — it is parsed lazily by
     // `pdf-edit`), so `apply` has nothing to mutate and is inert. The log
@@ -85,6 +85,20 @@ pub enum Command {
     /// Carries the removed run itself, so undo never has to re-parse a
     /// stream that no longer contains it (mirrors `RemoveAnnotation`).
     RemoveTextRun(TextRun),
+    /// Repositions an existing run — `item.bbox` is where it was, `to` is
+    /// where it goes. Applied by rewriting the text matrix that placed it,
+    /// then restoring the text state the following operators expect, so
+    /// nothing but this run moves.
+    ///
+    /// Only `to`'s origin is meaningful. A run's width and height come from
+    /// its font and its text, which is the structural difference from
+    /// `MoveImage`: an image is painted into whatever rectangle its matrix
+    /// names, so for images a move and a resize are the same rewrite told
+    /// apart by intent, while a text run has no resize at all.
+    MoveTextRun {
+        item: TextRun,
+        to: Rect,
+    },
     /// Adds an image to the page.
     ///
     /// `source` carries the encoded image (PNG/JPEG) when this brings a
@@ -133,7 +147,7 @@ pub enum Command {
 }
 
 impl Command {
-    /// Whether this command edits page content (the eight "Page content
+    /// Whether this command edits page content (the nine "Page content
     /// (Batch 21)" variants above) rather than an annotation or a page
     /// operation.
     ///
@@ -149,6 +163,7 @@ impl Command {
             Command::ReplaceTextRunContent { .. }
                 | Command::InsertTextRun(_)
                 | Command::RemoveTextRun(_)
+                | Command::MoveTextRun { .. }
                 | Command::InsertImage { .. }
                 | Command::RemoveImage { .. }
                 | Command::MoveImage { .. }
@@ -198,6 +213,7 @@ impl Command {
             Command::ReplaceTextRunContent { .. }
             | Command::InsertTextRun(_)
             | Command::RemoveTextRun(_)
+            | Command::MoveTextRun { .. }
             | Command::InsertImage { .. }
             | Command::RemoveImage { .. }
             | Command::MoveImage { .. }
@@ -243,6 +259,23 @@ impl Command {
             }
             Command::InsertTextRun(run) => Command::RemoveTextRun(run.clone()),
             Command::RemoveTextRun(run) => Command::InsertTextRun(run.clone()),
+            // The same swap `MoveImage` makes, and for the same reason: the
+            // item snapshot carries the box it came from, so undoing is
+            // re-targeting the run where this command left it and sending it
+            // back. Only the origin is read, so the untouched width/height
+            // ride along unchanged.
+            Command::MoveTextRun { item, to } => {
+                let mut moved = item.clone();
+                moved.bbox = Rect {
+                    x: to.x,
+                    y: to.y,
+                    ..item.bbox
+                };
+                Command::MoveTextRun {
+                    item: moved,
+                    to: item.bbox,
+                }
+            }
             Command::InsertImage { item, source } => Command::RemoveImage {
                 item: item.clone(),
                 source: source.clone(),
@@ -343,7 +376,7 @@ impl EditLog {
     /// take the whole save down with it. Amending keeps exactly one command
     /// per item, still keyed to the untouched original.
     ///
-    /// **Why amending in place is safe here and nowhere else.** The eight
+    /// **Why amending in place is safe here and nowhere else.** The nine
     /// page-content variants are inert on `apply` (see their own docs): the
     /// log entry *is* the edit, so there is no applied effect on the model to
     /// unwind before swapping it. Every other variant has already mutated the
@@ -674,6 +707,10 @@ mod tests {
             },
             Command::InsertTextRun(sample_text_run()),
             Command::RemoveTextRun(sample_text_run()),
+            Command::MoveTextRun {
+                item: sample_text_run(),
+                to: sample_rect(300.0, 200.0),
+            },
             Command::InsertImage {
                 item: sample_image(),
                 source: Some(vec![0x89, b'P']),
@@ -776,6 +813,40 @@ mod tests {
         assert_eq!(after, "before", "and restores the original");
         assert_eq!(item.id, ContentItemId(1), "targeting the same run");
         assert_eq!(item.resource_font_name, "F1", "with the same font");
+    }
+
+    /// A text run's size is the font's to decide, so undo restores where it
+    /// was without ever claiming to restore how big it was.
+    #[test]
+    fn the_inverse_of_a_text_move_swaps_the_origins_and_keeps_the_measured_size() {
+        let destination = Rect {
+            x: 300.0,
+            y: 200.0,
+            width: 0.0,
+            height: 0.0,
+        };
+
+        let inverse = Command::MoveTextRun {
+            item: sample_text_run(),
+            to: destination,
+        }
+        .inverse();
+
+        let Command::MoveTextRun { item, to } = inverse else {
+            panic!("the inverse of a move is a move");
+        };
+        assert_eq!(
+            (item.bbox.x, item.bbox.y),
+            (destination.x, destination.y),
+            "undo starts from where it landed"
+        );
+        assert_eq!(
+            (item.bbox.width, item.bbox.height),
+            (sample_text_run().bbox.width, sample_text_run().bbox.height),
+            "carrying the size the font gave it, not the destination's"
+        );
+        assert_eq!(to, sample_text_run().bbox, "and puts it back");
+        assert_eq!(item.text, "before", "still the same run");
     }
 
     #[test]
@@ -1051,7 +1122,7 @@ mod tests {
 
     // --- Command::is_content_edit / EditLog::peek_undo/peek_redo (T-163) --
 
-    /// Every one of the eight page-content variants reports itself as a
+    /// Every one of the nine page-content variants reports itself as a
     /// content edit — this is the whole set T-163's refresh path must react
     /// to, so a variant silently missing here would silently skip the
     /// re-render it needs.

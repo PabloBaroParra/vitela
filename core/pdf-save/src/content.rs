@@ -39,6 +39,7 @@ fn is_content_edit(command: &Command) -> bool {
         Command::ReplaceTextRunContent { .. }
             | Command::InsertTextRun(_)
             | Command::RemoveTextRun(_)
+            | Command::MoveTextRun { .. }
             | Command::InsertImage { .. }
             | Command::RemoveImage { .. }
             | Command::MoveImage { .. }
@@ -100,6 +101,7 @@ fn content_page(command: &Command) -> Option<PageId> {
     match command {
         Command::ReplaceTextRunContent { item, .. } => Some(item.page),
         Command::InsertTextRun(run) | Command::RemoveTextRun(run) => Some(run.page),
+        Command::MoveTextRun { item, .. } => Some(item.page),
         Command::InsertImage { item, .. }
         | Command::RemoveImage { item, .. }
         | Command::MoveImage { item, .. }
@@ -120,6 +122,9 @@ fn apply(
         }
         Command::InsertTextRun(run) => pdf_edit::insert_text_run(working, page_object, run)?,
         Command::RemoveTextRun(run) => pdf_edit::remove_text_run(working, page_object, run)?,
+        Command::MoveTextRun { item, to } => {
+            pdf_edit::move_text_run(working, page_object, item, *to)?
+        }
         Command::InsertImage { item, source } => {
             pdf_edit::insert_image(working, page_object, item, source.as_deref())?
         }
