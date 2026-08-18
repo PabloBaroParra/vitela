@@ -418,6 +418,54 @@ pub(crate) struct ImageDrag {
     pub(crate) current: (f64, f64),
 }
 
+/// A text run being dragged across the page right now, in content-edit
+/// mode — the text twin of [`ImageDrag`].
+///
+/// Simpler than its image sibling in one way and richer in another. There is
+/// no `mode`: a run has no resize handles, because its width and height come
+/// from its font rather than from a box anyone may pull on. But it carries
+/// the reason it may not be moved, resolved once when the press lands (what
+/// makes a run unmovable is a pending command, and the log cannot change
+/// while the pointer is down) and reported only if the press turns out to be
+/// a drag.
+pub(crate) struct TextDrag {
+    pub(crate) page_index: usize,
+    /// The page as it is rendered right now, captured once when the press
+    /// lands, so the drag can show the *text* moving rather than an empty
+    /// box. `None` when the page's pixels could not be read — the outline
+    /// still follows the pointer, which is the same feedback an image drag
+    /// gives.
+    pub(crate) preview: Option<DragPreview>,
+    /// The run being moved. Held by value for the same reason
+    /// [`ContentEditor`] holds one: page content has no document-wide id to
+    /// re-fetch by, only the snapshot the parser handed back.
+    pub(crate) run: TextRun,
+    /// Why this run cannot be moved, if it cannot.
+    pub(crate) refusal: Option<&'static str>,
+    /// Where the pointer went down, in PDF page space.
+    pub(crate) origin: (f64, f64),
+    /// Where the pointer is now, in PDF page space.
+    pub(crate) current: (f64, f64),
+}
+
+/// A copy of a page's rendered pixels, taken when a text drag begins.
+///
+/// Captured once rather than per frame: downloading a page texture is
+/// megabytes of memcpy, and nothing about the page changes while the pointer
+/// is down — only where the run is being carried to.
+pub(crate) struct DragPreview {
+    /// The page's rendered bitmap.
+    pub(crate) page: cairo::ImageSurface,
+    /// Bitmap pixels per widget unit, so the patch can be cut out of the
+    /// bitmap using coordinates computed in the widget's own space.
+    pub(crate) scale: f64,
+    /// What to paint over the area the run is being carried away from,
+    /// sampled from the page just outside the run's own box — a page is not
+    /// necessarily white, and a white hole on a coloured one would read as
+    /// damage rather than as a preview.
+    pub(crate) background: (f64, f64, f64),
+}
+
 /// An image selected in content-edit mode, if any (T-162).
 ///
 /// Like [`ContentEditor`], this holds the item by value rather than an id:
@@ -589,6 +637,10 @@ pub(crate) struct DocumentSession {
     /// flight. Lives on the session for the same reason `annotation_drag`
     /// does: nothing reaches the `EditLog` until the pointer comes up.
     pub(crate) image_drag: Option<ImageDrag>,
+    /// The text run being dragged across the page right now, if any. Same
+    /// reasoning as `image_drag`, and mutually exclusive with it in
+    /// practice: a press is claimed by at most one item.
+    pub(crate) text_drag: Option<TextDrag>,
     pub(crate) physical_width: u32,
     pub(crate) physical_height: u32,
     pub(crate) scale_factor: i32,

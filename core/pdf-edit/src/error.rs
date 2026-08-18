@@ -39,6 +39,16 @@ pub enum EditError {
     /// edit at all: extending a subsetted CID font's glyph coverage means
     /// re-subsetting it, which is a separate category of work.
     CompositeFontNotEditable { resource_font_name: String },
+    /// The run is painted by an operator whose own side effects a
+    /// reposition cannot reproduce, so moving it would change the page
+    /// beyond the run being moved.
+    ///
+    /// Only `"` qualifies today: it sets word and character spacing for
+    /// **everything that follows it** before showing its string, and
+    /// [`crate::move_text_run`] rewrites the operation into a plain `Tj`
+    /// preceded by a `Tm`, which would silently drop those two state
+    /// changes. `Tj`, `TJ` and `'` carry no such baggage and move fine.
+    TextRunNotMovable { operator: String },
     /// The font resource named by a run is missing from the page's
     /// `/Resources /Font`, or is not a font dictionary — a malformed file
     /// rather than an unsupported one.
@@ -118,6 +128,12 @@ impl fmt::Display for EditError {
                 f,
                 "font {resource_font_name} is a composite (Type0/CID) font, \
                  which cannot be edited in this version"
+            ),
+            EditError::TextRunNotMovable { operator } => write!(
+                f,
+                "this text is painted with the {operator} operator, which also sets the \
+                 spacing for the text after it — moving it would change more than the \
+                 text being moved"
             ),
             EditError::FontResourceMissing { resource_font_name } => {
                 write!(f, "font resource {resource_font_name} is missing")

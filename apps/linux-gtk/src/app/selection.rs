@@ -46,6 +46,9 @@ const HANDLE_PX: f64 = 8.0;
 const HANDLE_RGB: (f64, f64, f64) = (0.10, 0.35, 0.85);
 /// Outline for a content-edit-mode text run that can be retyped.
 const CONTENT_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.55);
+/// The run being dragged right now, brighter than a resting one — same
+/// posture as `SELECTED_CONTENT_IMAGE_RGBA` beside its own resting colour.
+const DRAGGED_CONTENT_RUN_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.90);
 /// Outline for a composite-font run: distinct colour *and* dashed, so the
 /// difference reads even to a colour-blind user — T-161's "shown
 /// distinguishable" requirement for runs `pdf-edit` will never accept an edit
@@ -134,7 +137,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
     let scale = page.budget.factor;
 
     if content_edit::mode_is_active(viewer) {
-        draw_content_run_outlines(context, page, scale);
+        draw_content_run_outlines(context, page, session, page_index, scale);
         draw_content_image_outlines(context, page, session, page_index, scale);
     }
 
@@ -229,17 +232,44 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
 /// (`content_edit::load_all_page_content` does this eagerly the moment the
 /// mode turns on) — draw funcs must not have side effects, so this never
 /// triggers the parse itself.
-fn draw_content_run_outlines(context: &cairo::Context, page: &PageSlot, scale: f64) {
+fn draw_content_run_outlines(
+    context: &cairo::Context,
+    page: &PageSlot,
+    session: &DocumentSession,
+    page_index: usize,
+    scale: f64,
+) {
     let Some(content) = page.content.as_ref() else {
         return;
     };
+    // The run being dragged is painted where the pointer has it, not where
+    // the file still holds it — the same "what the user drags is what they
+    // get" posture `draw_content_image_outlines` and `annotation_drag`
+    // already use. A run refused a move deliberately gets no live rect: the
+    // outline stays put, so nothing promises a move that will not happen.
+    let dragged = session
+        .text_drag
+        .as_ref()
+        .filter(|drag| drag.page_index == page_index && drag.refusal.is_none());
+
+    // The carried pixels go down before any outline, so no box is buried
+    // under the patch that is meant to sit inside it.
+    if let Some(drag) = dragged {
+        draw_dragged_run(context, page, drag, scale);
+    }
+
     for run in &content.text_runs {
+        let dragging = dragged.filter(|drag| drag.run.id == run.id);
+        let rect = match dragging {
+            Some(drag) => content_edit::text::dragged_origin(drag),
+            None => run.bbox,
+        };
         let placed = place_rect(
             TextRect {
-                x_pt: run.bbox.x as f32,
-                y_pt: run.bbox.y as f32,
-                width_pt: run.bbox.width as f32,
-                height_pt: run.bbox.height as f32,
+                x_pt: rect.x as f32,
+                y_pt: rect.y as f32,
+                width_pt: rect.width as f32,
+                height_pt: rect.height as f32,
             },
             page.height_pt,
             scale,
@@ -249,13 +279,82 @@ fn draw_content_run_outlines(context: &cairo::Context, page: &PageSlot, scale: f
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&COMPOSITE_RUN_DASH, 0.0);
         } else {
-            let (red, green, blue, alpha) = CONTENT_RUN_OUTLINE_RGBA;
+            let (red, green, blue, alpha) = if dragging.is_some() {
+                DRAGGED_CONTENT_RUN_RGBA
+            } else {
+                CONTENT_RUN_OUTLINE_RGBA
+            };
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&[], 0.0);
         }
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
     }
+}
+
+/// Carries the dragged run's own pixels with the pointer: the page as
+/// rendered is cut out under the run's box, the space it came from is filled
+/// with the page's own colour, and the patch is drawn where the pointer has
+/// it now.
+///
+/// This is why a drag shows *text* moving rather than an empty rectangle
+/// sliding over stationary words. It is a preview and nothing more — the
+/// real move happens in the file when the pointer comes up, and until then
+/// the bitmap underneath is untouched.
+///
+/// Silently does nothing without a captured page (`DragPreview` is `None`
+/// when the pixels could not be read). The outline still tracks the pointer
+/// in that case, so the drag remains usable, just less vivid.
+fn draw_dragged_run(
+    context: &cairo::Context,
+    page: &PageSlot,
+    drag: &crate::app::state::TextDrag,
+    scale: f64,
+) {
+    let Some(preview) = drag.preview.as_ref() else {
+        return;
+    };
+    let placed = |rect: Rect| {
+        place_rect(
+            TextRect {
+                x_pt: rect.x as f32,
+                y_pt: rect.y as f32,
+                width_pt: rect.width as f32,
+                height_pt: rect.height as f32,
+            },
+            page.height_pt,
+            scale,
+        )
+    };
+    // Both boxes come from one place, so neither can be grown differently
+    // from the other — see `content_edit::text::preview_rects`.
+    let (source, destination) = content_edit::text::preview_rects(drag);
+    let (source, destination) = (placed(source), placed(destination));
+
+    let (red, green, blue) = preview.background;
+    context.set_source_rgb(red, green, blue);
+    context.rectangle(source.left, source.top, source.width, source.height);
+    let _ = context.fill();
+
+    context.save().ok();
+    context.rectangle(
+        destination.left,
+        destination.top,
+        destination.width,
+        destination.height,
+    );
+    context.clip();
+    // The bitmap is in its own pixels; this puts one of its pixels on one
+    // widget unit and slides the run's own corner under the destination.
+    context.translate(destination.left, destination.top);
+    context.scale(1.0 / preview.scale, 1.0 / preview.scale);
+    let _ = context.set_source_surface(
+        &preview.page,
+        -source.left * preview.scale,
+        -source.top * preview.scale,
+    );
+    let _ = context.paint();
+    let _ = context.restore();
 }
 
 /// Paints one outline per image on `page`, while content-edit mode is on —
@@ -723,6 +822,15 @@ fn extend_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
         {
             return;
         }
+    }
+    // Content-edit mode never selects text, and `begin_selection` already
+    // returns before starting one. That alone is not enough: a selection made
+    // *before* the mode was armed is still on the session, and without this
+    // guard a drag here would go on moving its focus — the text visibly
+    // re-selecting under a pointer the user thinks is moving a run, and
+    // collapsing again only if they drag back to where it started.
+    if content_edit::mode_is_active(viewer) {
+        return;
     }
     {
         let mut state = viewer.state.borrow_mut();

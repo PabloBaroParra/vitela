@@ -27,6 +27,27 @@ pub(super) fn validate_replacement(
     Ok(())
 }
 
+/// Attempts repositioning `run` so its origin lands at `to` against the real
+/// `pdf-edit` call — the drag-to-move twin of [`validate_replacement`], same
+/// probe-clone-then-real-call contract, writing nothing for real.
+///
+/// Worth validating up front for a reason a replacement does not have:
+/// `pdf_edit::move_text_run` refuses a run painted by the `\"` operator
+/// outright (`EditError::TextRunNotMovable`), and a whole class of real
+/// files use it. Recording that move unchecked would fail the *save* — every
+/// other queued edit along with it — long after the drag it came from.
+pub(super) fn validate_move_text(
+    base: &lopdf::Document,
+    page_index: usize,
+    run: &TextRun,
+    to: Rect,
+) -> Result<(), EditError> {
+    let mut probe = base.clone();
+    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    pdf_edit::move_text_run(&mut probe, page_object, run, to)?;
+    Ok(())
+}
+
 /// Attempts moving `item` to `to` against the real `pdf-edit` call, the image
 /// twin of [`validate_replacement`] — same probe-clone-then-real-call
 /// contract, writing nothing for real.
@@ -93,7 +114,7 @@ pub(super) fn validate_replace(
 /// Structurally lower-risk than a replacement (batch decision 4: no existing
 /// font to collide with), but still validated up front rather than only at
 /// save time, for the same reason every other content command here is: the
-/// eight page-content `Command` variants are inert on `Document::apply`
+/// nine page-content `Command` variants are inert on `Document::apply`
 /// (`pdf_document::edit_log`'s own module docs), so a bad insertion recorded
 /// without checking would only surface when the whole save runs.
 pub(super) fn validate_insert_text(
@@ -270,16 +291,100 @@ pub(super) fn pending_text_command(document: &Document, target: &TextRun) -> Pen
 /// `None` for any other command, which [`pending_text_command`]'s own
 /// matching already rules out — an unreachable case kept total rather than
 /// asserted, since the alternative is a panic in a UI callback.
-pub(super) fn retyped_command(existing: &Command, after: &str) -> Option<Command> {
+pub(super) fn amended_command(
+    existing: &Command,
+    after: &str,
+    moved_to: Option<Rect>,
+) -> Option<Command> {
     match existing {
         Command::InsertTextRun(run) => {
             let mut retyped = run.clone();
             retyped.text = after.to_string();
+            // An insertion is the one pending shape a move folds into rather
+            // than joining: the run does not exist in any saved file yet, so
+            // moving it is not an edit of page content at all — it is the
+            // same not-yet-written run described at a different spot. The
+            // size stays whatever the insertion box already carries.
+            if let Some(to) = moved_to {
+                retyped.bbox = Rect {
+                    x: to.x,
+                    y: to.y,
+                    ..retyped.bbox
+                };
+            }
             Some(Command::InsertTextRun(retyped))
         }
+        // No `moved_to` arm here, and none is missing: a run with a pending
+        // replacement is refused a drag before one can start (see
+        // [`text_move_refusal`]), so this arm is only ever reached with
+        // `moved_to` at `None`.
         Command::ReplaceTextRunContent { item, .. } => Some(Command::ReplaceTextRunContent {
             item: item.clone(),
             after: after.to_string(),
+        }),
+        _ => None,
+    }
+}
+
+/// Why `run` cannot be dragged right now, or `None` when it can.
+///
+/// One case says no: a run carrying a **pending replacement** that has not
+/// reached the disk yet. The order the two edits replay in is what makes
+/// this a refusal rather than a second command. `pdf-save` replays the log
+/// in order against a document it mutates as it goes, and each command
+/// re-resolves its target by text, font and box against that progressively
+/// edited state — so a move recorded *after* a replacement would have to
+/// carry the box the replaced text ended up occupying, and the shell can
+/// only estimate that box ([`super::model::pending_text_bbox`]), never read
+/// it back. An estimate half a point out resolves against nothing and fails
+/// the entire save.
+///
+/// The reverse order has no such problem, which is why it is the order the
+/// shell always produces: a move's destination is exact, so a replacement
+/// recorded after one simply carries it. Moving a run and *then* retyping it
+/// in the same editor works; retyping, committing, and coming back to drag
+/// it needs a save in between.
+///
+/// The message is deliberately about what to do, not about replay order.
+pub(super) fn text_move_refusal(document: &Document, run: &TextRun) -> Option<&'static str> {
+    let already_retyped = document.pending_edits.entries().iter().any(|command| {
+        matches!(
+            command,
+            Command::ReplaceTextRunContent { item, .. }
+                if item.id == run.id && item.page == run.page
+        )
+    });
+    already_retyped.then_some("This text has an unsaved edit — save the document before moving it.")
+}
+
+/// Where `run`'s pending [`Command::MoveTextRun`] sits in the log, if it has
+/// one.
+///
+/// A second drag amends that entry rather than appending another, for the
+/// same reason a second retype amends rather than appends
+/// ([`pending_text_command`]): the entry's `item` is still the run as the
+/// *file* holds it, so only the destination is out of date. Appending
+/// instead would leave a second move whose `item` describes a box the first
+/// one already vacated — resolvable against nothing at save time.
+pub(super) fn pending_move_index(document: &Document, run: &TextRun) -> Option<usize> {
+    document.pending_edits.entries().iter().position(|command| {
+        matches!(
+            command,
+            Command::MoveTextRun { item, .. }
+                if item.id == run.id && item.page == run.page
+        )
+    })
+}
+
+/// The command that replaces a pending [`Command::MoveTextRun`] so the run it
+/// describes lands at `to` instead — built from the *recorded* command, so
+/// the original snapshot every save-time resolution keys against is carried
+/// through untouched. Only the destination changes.
+pub(super) fn moved_text_command(existing: &Command, to: Rect) -> Option<Command> {
+    match existing {
+        Command::MoveTextRun { item, .. } => Some(Command::MoveTextRun {
+            item: item.clone(),
+            to,
         }),
         _ => None,
     }
@@ -773,6 +878,125 @@ mod tests {
         );
     }
 
+    // --- drag to move -----------------------------------------------------
+
+    fn a_destination() -> Rect {
+        Rect {
+            x: 300.0,
+            y: 200.0,
+            width: 0.0,
+            height: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_run_with_nothing_queued_against_it_can_be_moved() {
+        let document = Document::default();
+
+        assert_eq!(text_move_refusal(&document, &sample_run()), None);
+    }
+
+    /// The one refusal, and the reason the shell can always record a move
+    /// *before* a retype: the other order needs a box only the file can give
+    /// back, and it has not been written yet.
+    #[test]
+    fn a_run_with_an_unsaved_retype_refuses_to_be_moved() {
+        let mut document = Document::default();
+        apply_command(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_run(),
+                after: "Adios".to_string(),
+            },
+        );
+
+        assert!(text_move_refusal(&document, &sample_run()).is_some());
+    }
+
+    /// A queued move is not itself a reason to refuse another one — the
+    /// second amends the first.
+    #[test]
+    fn a_run_that_was_already_moved_can_be_moved_again() {
+        let mut document = Document::default();
+        apply_command(
+            &mut document,
+            Command::MoveTextRun {
+                item: sample_run(),
+                to: a_destination(),
+            },
+        );
+
+        assert_eq!(text_move_refusal(&document, &sample_run()), None);
+        assert_eq!(pending_move_index(&document, &sample_run()), Some(0));
+    }
+
+    /// A move recorded against a *different* run must not be mistaken for
+    /// this one's, or the second drag would amend the wrong entry.
+    #[test]
+    fn another_runs_move_is_not_this_runs_move() {
+        let mut document = Document::default();
+        let mut other = sample_run();
+        other.id = ContentItemId(7);
+        apply_command(
+            &mut document,
+            Command::MoveTextRun {
+                item: other,
+                to: a_destination(),
+            },
+        );
+
+        assert_eq!(pending_move_index(&document, &sample_run()), None);
+    }
+
+    /// Amending a move keeps the snapshot the save resolves against and
+    /// changes only where the run is going — the same contract retyping has.
+    #[test]
+    fn moving_a_moved_run_keeps_the_original_item_and_swaps_the_destination() {
+        let existing = Command::MoveTextRun {
+            item: sample_run(),
+            to: a_destination(),
+        };
+        let further = Rect {
+            x: 400.0,
+            y: 100.0,
+            ..a_destination()
+        };
+
+        let Some(Command::MoveTextRun { item, to }) = moved_text_command(&existing, further) else {
+            panic!("amending a move stays a move");
+        };
+        assert_eq!(item, sample_run(), "still keyed to the run as parsed");
+        assert_eq!(to, further);
+    }
+
+    #[test]
+    fn a_command_that_is_not_a_move_has_no_moved_form() {
+        assert!(
+            moved_text_command(&Command::InsertTextRun(sample_run()), a_destination()).is_none()
+        );
+    }
+
+    /// Dragging a box that is only on the page because of a pending
+    /// insertion moves the insertion itself: there is no saved run to move,
+    /// so nothing new is recorded and the run keeps the size its box has.
+    #[test]
+    fn dragging_a_pending_insertion_moves_the_insertion_rather_than_recording_one() {
+        let existing = Command::InsertTextRun(sample_run());
+
+        let Some(Command::InsertTextRun(moved)) =
+            amended_command(&existing, "Adios", Some(a_destination()))
+        else {
+            panic!("amending an insertion stays an insertion");
+        };
+        assert_eq!((moved.bbox.x, moved.bbox.y), (300.0, 200.0));
+        assert_eq!(
+            (moved.bbox.width, moved.bbox.height),
+            (sample_run().bbox.width, sample_run().bbox.height),
+            "the insertion box keeps the size it was composed with"
+        );
+        assert_eq!(moved.text, "Adios", "and the retype rides along with it");
+    }
+
     /// The amendment keeps the recorded snapshot — the id, box, and font the
     /// save resolves against — and changes only the text.
     #[test]
@@ -783,7 +1007,7 @@ mod tests {
         };
 
         let Some(Command::ReplaceTextRunContent { item, after }) =
-            retyped_command(&existing, "Adios")
+            amended_command(&existing, "Adios", None)
         else {
             panic!("retyping a replacement stays a replacement");
         };
@@ -798,7 +1022,7 @@ mod tests {
         inserted.resource_font_name = "FIns1".to_string();
 
         let Some(Command::InsertTextRun(retyped)) =
-            retyped_command(&Command::InsertTextRun(inserted), "Adios")
+            amended_command(&Command::InsertTextRun(inserted), "Adios", None)
         else {
             panic!("retyping an insertion stays an insertion");
         };
@@ -809,12 +1033,13 @@ mod tests {
 
     #[test]
     fn a_command_that_is_not_a_text_edit_has_no_retyped_form() {
-        assert!(retyped_command(
+        assert!(amended_command(
             &Command::MoveImage {
                 item: sample_image_item(),
                 to: sample_image_item().bbox,
             },
-            "Adios"
+            "Adios",
+            None
         )
         .is_none());
     }
@@ -839,7 +1064,7 @@ mod tests {
             panic!("a replacement was just recorded for this run");
         };
 
-        let amended = retyped_command(&document.pending_edits.entries()[index], "Adios")
+        let amended = amended_command(&document.pending_edits.entries()[index], "Adios", None)
             .expect("a replacement has a retyped form");
         assert!(amend_command(&mut document, index, amended));
 
