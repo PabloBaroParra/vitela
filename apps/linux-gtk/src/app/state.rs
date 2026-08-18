@@ -371,6 +371,17 @@ pub(crate) struct ContentEditor {
     /// what makes the existing "no-op when nothing changed" check double as
     /// "close without recording an empty insertion".
     pub(crate) is_insertion: bool,
+    /// The position in the document's `EditLog` of the command this edit must
+    /// be folded into, when `run` already has one queued against it — an
+    /// insertion made this session, or a replacement already recorded.
+    ///
+    /// `None` is the ordinary case: the run comes from the file as last
+    /// saved, and committing records a new command. When it is `Some`,
+    /// `commit` amends that entry instead, and takes precedence over
+    /// `is_insertion` — see `content_edit::command::pending_text_command_index`
+    /// for why a second command against one item could never resolve at save
+    /// time.
+    pub(crate) amends: Option<usize>,
 }
 
 /// A selected annotation being moved or resized right now.

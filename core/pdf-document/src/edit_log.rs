@@ -327,6 +327,48 @@ impl EditLog {
         }
     }
 
+    /// Replaces the page-content command at `index` with `command`, folding a
+    /// further edit of the same item into the entry already describing it
+    /// instead of queueing a second one. Returns `false` — changing nothing —
+    /// when `index` is out of range or either command is not a page-content
+    /// edit.
+    ///
+    /// **Why a second entry is not an option.** `pdf-save` replays queued
+    /// content commands in order against a document it mutates as it goes,
+    /// re-resolving each one's `item` by content and geometry against that
+    /// progressively-edited state (`pdf-edit`'s own "the item is what
+    /// identifies the target, not its id"). A second command still carrying
+    /// the *pre-first-edit* snapshot — which is all a shell has, there being
+    /// no re-parse between the two edits — would resolve against nothing and
+    /// take the whole save down with it. Amending keeps exactly one command
+    /// per item, still keyed to the untouched original.
+    ///
+    /// **Why amending in place is safe here and nowhere else.** The eight
+    /// page-content variants are inert on `apply` (see their own docs): the
+    /// log entry *is* the edit, so there is no applied effect on the model to
+    /// unwind before swapping it. Every other variant has already mutated the
+    /// document, and replacing its entry would leave the log describing a
+    /// past the model never had. Hence the `is_content_edit` guard on both
+    /// sides.
+    ///
+    /// The redo stack is cleared, exactly as [`Self::apply`] does — an
+    /// amendment is a fresh edit, and a fresh edit invalidates any
+    /// previously-undone future. Undo granularity is the deliberate cost:
+    /// successive edits of one item coalesce into a single undo step whose
+    /// inverse restores the value the item had before *any* of them, since
+    /// `item` never stops being the original snapshot.
+    pub fn amend(&mut self, index: usize, command: Command) -> bool {
+        let Some(existing) = self.entries.get_mut(index) else {
+            return false;
+        };
+        if !existing.is_content_edit() || !command.is_content_edit() {
+            return false;
+        }
+        *existing = command;
+        self.redo_stack.clear();
+        true
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.entries.is_empty()
     }
@@ -844,6 +886,167 @@ mod tests {
 
         assert_eq!(source, Some(vec![0x89, b'P', b'N', b'G']));
         assert_eq!(insertion.inverse().inverse(), insertion);
+    }
+
+    // --- EditLog::amend ---------------------------------------------------
+
+    /// The case `amend` exists for: retyping a run that already has a queued
+    /// replacement updates that entry rather than adding a second command no
+    /// save could resolve.
+    #[test]
+    fn amending_a_content_command_replaces_the_entry_in_place() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "first".to_string(),
+            },
+        );
+
+        let amended = log.amend(
+            0,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "second".to_string(),
+            },
+        );
+
+        assert!(amended);
+        assert_eq!(
+            log.entries(),
+            &[Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "second".to_string(),
+            }],
+            "one command per item, still keyed to the original snapshot"
+        );
+    }
+
+    /// The amended entry keeps the *original* `item`, so undoing it once
+    /// restores the value the run had before either edit — the coalescing
+    /// this method's doc calls out as its deliberate cost.
+    #[test]
+    fn undoing_an_amended_replacement_restores_the_original_text() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "first".to_string(),
+            },
+        );
+        log.amend(
+            0,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "second".to_string(),
+            },
+        );
+
+        let Command::ReplaceTextRunContent { item, after } = log
+            .peek_undo()
+            .expect("the amended command is still the one to undo")
+            .inverse()
+        else {
+            panic!("the inverse of a text replacement is a text replacement");
+        };
+        assert_eq!(item.text, "second", "undo starts from the amended text");
+        assert_eq!(after, "before", "and lands on the run as it was parsed");
+    }
+
+    #[test]
+    fn amending_clears_the_redo_stack_like_a_fresh_edit() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(&mut document, Command::InsertTextRun(sample_text_run()));
+        log.apply(
+            &mut document,
+            Command::AddAnnotation(sample_annotation(1, PageId(0))),
+        );
+        log.undo(&mut document);
+        assert!(log.can_redo());
+
+        let mut retyped = sample_text_run();
+        retyped.text = "retyped".to_string();
+        assert!(log.amend(0, Command::InsertTextRun(retyped)));
+
+        assert!(!log.can_redo());
+    }
+
+    #[test]
+    fn amending_an_index_no_entry_lives_at_changes_nothing() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(&mut document, Command::InsertTextRun(sample_text_run()));
+        let before = log.clone();
+
+        assert!(!log.amend(7, Command::InsertTextRun(sample_text_run())));
+        assert_eq!(log, before);
+    }
+
+    /// The guard that keeps this method honest: an annotation command has
+    /// already mutated the model, so swapping its entry would leave the log
+    /// describing a past the document never had.
+    #[test]
+    fn a_non_content_entry_cannot_be_amended() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::AddAnnotation(sample_annotation(1, PageId(0))),
+        );
+        let before = log.clone();
+
+        assert!(!log.amend(0, Command::InsertTextRun(sample_text_run())));
+        assert_eq!(log, before);
+    }
+
+    #[test]
+    fn a_content_entry_cannot_be_amended_into_a_non_content_command() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(&mut document, Command::InsertTextRun(sample_text_run()));
+        let before = log.clone();
+
+        assert!(!log.amend(0, Command::AddAnnotation(sample_annotation(1, PageId(0)))));
+        assert_eq!(log, before);
+    }
+
+    /// Amending must not disturb the entries around it: the log's order is
+    /// what `pdf-save`'s replay depends on.
+    #[test]
+    fn amending_leaves_the_surrounding_entries_untouched() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        let first = Command::InsertTextRun(sample_text_run());
+        let last = Command::MoveImage {
+            item: sample_image(),
+            to: sample_rect(200.0, 400.0),
+        };
+        log.apply(&mut document, first.clone());
+        log.apply(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "first".to_string(),
+            },
+        );
+        log.apply(&mut document, last.clone());
+
+        assert!(log.amend(
+            1,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "second".to_string(),
+            }
+        ));
+
+        assert_eq!(log.entries().len(), 3);
+        assert_eq!(log.entries()[0], first);
+        assert_eq!(log.entries()[2], last);
     }
 
     // --- Command::is_content_edit / EditLog::peek_undo/peek_redo (T-163) --

@@ -297,10 +297,17 @@ pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// closing the gap this doc used to describe. Reparsing from `save_backing`
 /// rather than the refreshed bytes still matters: it is what the log was
 /// recorded against, so hit-testing and validation keep agreeing with the
-/// commands already queued. A second edit on an item the overlay only shows
-/// because of a pending command is still refused — see
-/// `command::{image,text_run}_already_edited` — since there is no live
-/// re-render to re-read a fresh bbox from for a *third* edit to key against.
+/// commands already queued.
+///
+/// A second edit on an item the overlay only shows because of a pending
+/// command splits by kind. **Text** is retyped again freely: the edit folds
+/// into the command already describing that run
+/// (`command::pending_text_command_index`), so the log keeps exactly one
+/// entry per run, still keyed to the snapshot the base document holds.
+/// **Images** are still refused (`command::image_already_edited`) — a move
+/// followed by a resize is two operations against two different geometries,
+/// and the second would need a fresh bbox no live re-render exists to
+/// re-read.
 pub(crate) fn load_all_page_content(viewer: &Viewer) {
     let mut state = viewer.state.borrow_mut();
     let Some(session) = state.session.as_mut() else {

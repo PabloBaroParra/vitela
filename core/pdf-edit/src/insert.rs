@@ -255,6 +255,23 @@ fn append_to_content(
     Ok(())
 }
 
+/// The font resource [`ensure_font_resource`] registers for a name the page
+/// does not define yet.
+///
+/// Factored out rather than written inline so measurement and writing cannot
+/// drift apart: [`crate::edit::text_run_bbox`] resolves *this* dictionary to
+/// size a run the shell has composed but not inserted yet, and a run measured
+/// against different metrics than it is later drawn with would report a box
+/// that does not match the glyphs.
+pub(crate) fn inserted_font_dictionary() -> Dictionary {
+    dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => INSERTED_BASE_FONT,
+        "Encoding" => "WinAnsiEncoding",
+    }
+}
+
 /// Adds a standard font under `name` unless the page already has a font
 /// resource by that name.
 fn ensure_font_resource(
@@ -266,12 +283,7 @@ fn ensure_font_resource(
         return Ok(());
     }
 
-    let font_id = document.add_object(dictionary! {
-        "Type" => "Font",
-        "Subtype" => "Type1",
-        "BaseFont" => INSERTED_BASE_FONT,
-        "Encoding" => "WinAnsiEncoding",
-    });
+    let font_id = document.add_object(inserted_font_dictionary());
 
     add_resource(
         document,
