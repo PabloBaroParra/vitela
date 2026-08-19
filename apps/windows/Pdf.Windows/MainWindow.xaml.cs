@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Pdf.Windows.Facade;
@@ -43,6 +44,31 @@ public sealed partial class MainWindow : Window
     private readonly PdfDocumentFacade _facade = new(new GeneratedPdfCore(), new FileDiagnosticLogger(FileDiagnosticLogger.DefaultPath));
     private DocumentSession? _session;
     private bool _isBusy;
+
+    /// <summary>
+    /// Whether a <see cref="ContentDialog"/> is on screen right now, so
+    /// <see cref="ShowModalAsync"/> never starts a second one — WinUI throws
+    /// on a concurrent <c>ShowAsync</c>, and the three flows that prompt are
+    /// all <c>async void</c>, where that throw is an unhandled exception
+    /// rather than a failed operation.
+    /// </summary>
+    /// <remarks>
+    /// A guard, not a fix for an observed bug. The suspicion was that the
+    /// accelerators reach the prompts behind an open dialog — they carry no
+    /// <c>ScopeOwner</c>, and <see cref="_isBusy"/> is already false by then,
+    /// since every prompt is raised after <c>SetBusy(false)</c> precisely so
+    /// the window stays responsive while the reader decides. Measured instead
+    /// (2026-08-19, x64 Debug): with the pending-edit dialog up, Ctrl+N and
+    /// Ctrl+O do nothing at all, while the same Ctrl+O with no dialog open
+    /// raises the file picker — so WinUI blocks main-tree accelerators for the
+    /// duration. No reachable crash path is known today.
+    ///
+    /// It stays because nothing else in the shell enforces one-dialog-at-a-
+    /// time, and the flows chain: the pending-edit Save branch runs
+    /// <see cref="SaveToPickedFileAsync"/>, which can raise a second prompt of
+    /// its own. Do not weaken it into an assertion of the behaviour above.
+    /// </remarks>
+    private bool _dialogOpen;
 
     public MainWindow()
     {
@@ -110,7 +136,29 @@ public sealed partial class MainWindow : Window
     /// picker or a failed write has to abandon the open too, or the work they
     /// just asked to keep would be dropped anyway.
     /// </summary>
+    /// <remarks>
+    /// The wrapper exists for the <c>finally</c>. A save never replaces the
+    /// document — it is still open and still editable on every path out,
+    /// including the one that says so out loud ("Annotations remain editable
+    /// in this session") — so the annotation toolbar
+    /// <see cref="SetBusy"/> blanked has to come back no matter how this
+    /// returns. Restoring at each <c>return</c> instead would be five call
+    /// sites to keep in step, and missing one is precisely the bug this
+    /// fixes.
+    /// </remarks>
     private async Task<bool> SaveToPickedFileAsync()
+    {
+        try
+        {
+            return await PickDestinationAndWriteAsync();
+        }
+        finally
+        {
+            RestoreAnnotationControls();
+        }
+    }
+
+    private async Task<bool> PickDestinationAndWriteAsync()
     {
         if (_session is null) return false;
 
@@ -221,6 +269,7 @@ public sealed partial class MainWindow : Window
             if (unlocked is null)
             {
                 // The user dismissed the prompt; leave the current view as-is.
+                RestoreAnnotationControls();
                 return;
             }
 
@@ -235,16 +284,86 @@ public sealed partial class MainWindow : Window
             switch (await AskPendingEditDecisionAsync())
             {
                 case PendingEditDecision.Cancel:
+                    RestoreAnnotationControls();
                     return;
                 case PendingEditDecision.Save when !await SaveToPickedFileAsync():
                     // A cancelled picker or a failed write means the work they
                     // asked to keep is still unsaved; opening now would drop it.
+                    RestoreAnnotationControls();
                     return;
                 case PendingEditDecision.Save:
                     result = await _facade.OpenAsync(new DocumentSource(displayName, bytes));
                     break;
                 case PendingEditDecision.Discard:
                     result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), discardPendingEdits: true);
+                    break;
+            }
+        }
+
+        if (!result.IsSuccess)
+        {
+            ReportFailedOpen(result.Error!);
+            return;
+        }
+
+        ShowOpenedDocument(result.Value!);
+    }
+
+    /// <summary>
+    /// Ctrl+N replaces the open document with a new blank one. It reuses the
+    /// same pending-edit guard as opening a file, because it replaces the
+    /// current document the same way — the only thing missing is a file to
+    /// read, so <see cref="PdfDocumentFacade.CreateBlankAsync"/> stands in for
+    /// <see cref="PdfDocumentFacade.OpenAsync"/> and the rest of the flow
+    /// (Save/Discard/Cancel, then <see cref="ShowOpenedDocument"/>) is
+    /// unchanged. There is no toolbar button for it, matching the GTK shell:
+    /// it exists as a shortcut only.
+    /// </summary>
+    /// <remarks>
+    /// KNOWN GAP — what this produces is not yet usable. The core's
+    /// <c>create_blank_document</c> makes a document of ZERO pages, taking the
+    /// page size and orientation as the default for pages inserted later, so
+    /// the reader lands on "This document has no pages." with every annotation
+    /// tool disabled and no way to add one: this shell exposes no page
+    /// insertion at all. The GTK shell's <c>new_blank_document</c> is the
+    /// behaviour to match — it follows <c>create_blank_document</c> with
+    /// <c>insert_blank_page</c> on the base document, so the reader gets a
+    /// real A4 page and a session that starts clean.
+    ///
+    /// Porting that here is not a transcription: <c>InsertBlankPage</c>
+    /// reaches this shell only as an <c>FfiEditCommand</c>, so routing through
+    /// it would open the new document already carrying an unsaved edit, which
+    /// is not what GTK does. Verified by hand 2026-08-19; the facade tests
+    /// cannot see it, because <c>FakeCore.CreateBlank</c> returns the same
+    /// non-zero page count as an opened document.
+    /// </remarks>
+    private async void NewDocument_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        if (_isBusy) return;
+
+        SetBusy(true);
+        var result = await _facade.CreateBlankAsync();
+        SetBusy(false);
+
+        if (!result.IsSuccess && result.Error!.RequiresPendingEditDecision)
+        {
+            switch (await AskPendingEditDecisionAsync())
+            {
+                case PendingEditDecision.Cancel:
+                    RestoreAnnotationControls();
+                    return;
+                case PendingEditDecision.Save when !await SaveToPickedFileAsync():
+                    // A cancelled picker or a failed write means the work they
+                    // asked to keep is still unsaved; creating a new document
+                    // now would drop it.
+                    RestoreAnnotationControls();
+                    return;
+                case PendingEditDecision.Save:
+                    result = await _facade.CreateBlankAsync();
+                    break;
+                case PendingEditDecision.Discard:
+                    result = await _facade.CreateBlankAsync(discardPendingEdits: true);
                     break;
             }
         }
@@ -329,8 +448,42 @@ public sealed partial class MainWindow : Window
             XamlRoot = Content.XamlRoot,
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;
+        if (await ShowModalAsync(dialog) != ContentDialogResult.Primary) return null;
         return true;
+    }
+
+    /// <summary>
+    /// Shows a dialog, or answers <see cref="ContentDialogResult.None"/> when
+    /// one is already up, so a second prompt can never reach WinUI's "only a
+    /// single ContentDialog can be open at any time". See
+    /// <see cref="_dialogOpen"/> for what this is and is not evidence of.
+    /// </summary>
+    /// <remarks>
+    /// <c>None</c> costs the callers nothing to honour: all three already read
+    /// "not Primary" as the dismissed case — abandon the save, keep the
+    /// pending edits, leave the document alone — so refusing degrades to the
+    /// choice that changes least, which is the rule the prompts follow
+    /// anyway.
+    ///
+    /// A flag rather than disabling the accelerators, because there is no one
+    /// place to re-enable them from: the prompts come from three flows, and
+    /// <see cref="OpenWithPasswordAsync"/> re-shows the same dialog in a loop.
+    /// Releasing in <c>finally</c> keeps the flag honest even if a dialog
+    /// throws.
+    /// </remarks>
+    private async Task<ContentDialogResult> ShowModalAsync(ContentDialog dialog)
+    {
+        if (_dialogOpen) return ContentDialogResult.None;
+
+        _dialogOpen = true;
+        try
+        {
+            return await dialog.ShowAsync();
+        }
+        finally
+        {
+            _dialogOpen = false;
+        }
     }
 
     private enum PendingEditDecision { Cancel, Save, Discard }
@@ -357,7 +510,7 @@ public sealed partial class MainWindow : Window
             XamlRoot = Content.XamlRoot,
         };
 
-        return await dialog.ShowAsync() switch
+        return await ShowModalAsync(dialog) switch
         {
             ContentDialogResult.Primary => PendingEditDecision.Save,
             ContentDialogResult.Secondary => PendingEditDecision.Discard,
@@ -385,11 +538,22 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // SetBusy blanked the annotation toolbar on the way in and only
-        // ShowOpenedDocument ever restores it, which this path never reaches.
         AnnotationStatus.Text = error.Message;
-        UpdateAnnotationControls(_annotationState);
+        RestoreAnnotationControls();
     }
+
+    /// <summary>
+    /// Hands the annotation toolbar back to the document still on screen.
+    ///
+    /// <see cref="SetBusy"/> blanks it on both edges — it calls
+    /// <c>UpdateAnnotationControls(null)</c> going in *and* coming out — and
+    /// only <see cref="ShowOpenedDocument"/> ever restores it. So every way of
+    /// leaving an open or a create without a new document owes the reader this
+    /// call, or they are left looking at their own document with Highlight,
+    /// Delete and — worst of it — Undo greyed out, which is the one control
+    /// that would clear the pending edits the prompt was asking about.
+    /// </summary>
+    private void RestoreAnnotationControls() => UpdateAnnotationControls(_annotationState);
 
     private void ShowOpenedDocument(DocumentSession session)
     {
@@ -451,7 +615,7 @@ public sealed partial class MainWindow : Window
 
         while (true)
         {
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            if (await ShowModalAsync(dialog) != ContentDialogResult.Primary)
             {
                 return null;
             }

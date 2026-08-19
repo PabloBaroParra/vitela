@@ -67,14 +67,14 @@ public sealed class PdfDocumentFacade : IDisposable
         return OperationResult<SavedDocument>.Failure(MapUnexpected(error, "save", null, null));
     }
 
-    public async Task<OperationResult<DocumentSession>> CreateBlankAsync()
+    public async Task<OperationResult<DocumentSession>> CreateBlankAsync(bool discardPendingEdits = false)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         try
         {
             lock (_gate)
             {
-                if (_currentSession is { } current && current.HasUnsavedEdits(_core))
+                if (!discardPendingEdits && _currentSession is { } current && current.HasUnsavedEdits(_core))
                 {
                     return OperationResult<DocumentSession>.Failure(CreateError("Save or undo the pending annotation changes before creating another document.", PdfCoreError.UnsavedChanges, "create_blank", current.Id, null));
                 }

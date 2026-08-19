@@ -65,6 +65,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("releases the guard once the edits are saved", ReleasesTheGuardOnceEditsAreSavedAsync)
     ,("flags the refused open as a decision the reader can make", FlagsPendingEditDecisionAsync)
     ,("opens over pending edits once the reader chose to discard them", DiscardsPendingEditsOnRequestAsync)
+    ,("blocks creating a blank document with unsaved annotations", BlocksCreateBlankWithUnsavedAnnotationsAsync)
+    ,("creates a blank document over pending edits once the reader chose to discard them", CreatesBlankDocumentOverPendingEditsOnRequestAsync)
     ,("keeps stamp previews scoped to their document session", KeepsStampPreviewsScopedToSession)
     ,("reconciles one inserted stamp from an annotation snapshot", ReconcilesInsertedStamp)
     ,("rejects stale stamp input sessions", RejectsStaleStampInputSession)
@@ -1059,6 +1061,30 @@ static async Task DiscardsPendingEditsOnRequestAsync()
 
     var edits = await facade.AnnotationStateAsync(opened.Value.SessionId);
     Assert(edits.IsSuccess && edits.Value!.Annotations.Count == 0, "the discarded work must not follow the reader into the new document");
+}
+
+static async Task BlocksCreateBlankWithUnsavedAnnotationsAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    var created = await facade.CreateBlankAsync();
+    Assert(!created.IsSuccess, "creating a blank document must not discard unsaved annotation edits");
+    Assert(created.Error!.RequiresPendingEditDecision, "the shell must be able to offer Save/Discard/Cancel for this refusal");
+}
+
+static async Task CreatesBlankDocumentOverPendingEditsOnRequestAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+
+    var created = await facade.CreateBlankAsync(discardPendingEdits: true);
+    Assert(created.IsSuccess, "an explicit discard must get past the guard");
+    Assert(created.Value!.SessionId != session.SessionId, "the blank document must be a new session");
+
+    var edits = await facade.AnnotationStateAsync(created.Value.SessionId);
+    Assert(edits.IsSuccess && edits.Value!.Annotations.Count == 0, "the discarded work must not follow the reader into the blank document");
 }
 
 static async Task MapsUnexpectedSaveFailureAsync()

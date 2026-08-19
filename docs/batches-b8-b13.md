@@ -487,6 +487,60 @@ ninguno de los dos.
       texto y confirmar el resaltado + Ctrl+C queda pendiente de una pasada manual.)**
 - [x] T-062 PrintDocument vía render_page. [Print]
 - [ ] T-063 WinRT Clipboard/DataPackage paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
+      **(2026-08-19 — parcial: el paste de bitmap del portapapeles y el drag-and-drop
+      (abrir PDF / stamp de imagen) ya estaban resueltos por PRs anteriores
+      (`MainWindow.FileDrop.cs`, T-049/T-050) — el gap real era los shortcuts. Del set
+      C/V/Z/Y/P/S/F/O/N solo C/V/Z/Y estaban cableados. Se agregaron Ctrl+O/Ctrl+S/Ctrl+P
+      como `KeyboardAccelerator` en los botones Open/Save/Print (WinUI invoca el `Click`
+      del botón automáticamente cuando el accelerator no declara `Invoked`, el mismo patrón
+      ya usado por Ctrl+Z/Ctrl+Y en Undo/Redo), Ctrl+F mueve el foco a `SearchBox` sin
+      disparar la búsqueda (paridad con la acción `win.find` del shell GTK, que solo hace
+      `grab_focus`), y Ctrl+N pide un documento nuevo.
+      Ctrl+N expuso que `PdfDocumentFacade.CreateBlankAsync` no tenía forma de discardear
+      ediciones pendientes — a diferencia de `OpenAsync`, no aceptaba `discardPendingEdits`,
+      así que el flujo Save/Discard/Cancel no podía completar la rama Discard. Se le agregó
+      el mismo parámetro que `OpenAsync` ya tiene. `MainWindow.xaml.cs` reusa el mismo guard
+      de ediciones pendientes (`AskPendingEditDecisionAsync` + `ReportFailedOpen` +
+      `ShowOpenedDocument`) que ya protegía Open, así que Ctrl+N no es un camino nuevo de
+      pérdida de datos. No hay botón de "New" en la UI — el shell GTK tampoco lo tiene,
+      Ctrl+N es shortcut-only en ambos.
+      2 tests nuevos en `Pdf.Windows.Facade.Tests` cubren el guard de `CreateBlankAsync`
+      (bloqueo con ediciones sin guardar + discard explícito). Gate: MSBuild real de Visual
+      Studio (`dotnet build` no compila este shell) con 0 warnings/0 errores, y
+      `Pdf.Windows.Facade.Tests` 83/83 vía `dotnet run`.
+
+      **Verificado a mano en la app corriendo (2026-08-19, x64 Debug).** Andan: Ctrl+O
+      (abre el file picker), Ctrl+S (picker + guardado real a disco) y el guard de
+      ediciones pendientes de Ctrl+N con su rama Cancel. Sin probar todavía: Ctrl+F,
+      Ctrl+P, la rama Discard de Ctrl+N y C/V/Z/Y.
+
+      **Por qué queda sin marcar: Ctrl+N no produce un documento usable.** El
+      `create_blank_document` del core crea un PDF de CERO páginas — el `PageSize`/
+      `Orientation` son el default para páginas insertadas después, no una página que
+      te crea — así que el lector cae en "This document has no pages." con toda la
+      barra de anotaciones deshabilitada y sin forma de agregar una: este shell no
+      expone inserción de páginas. El shell GTK es la referencia a igualar
+      (`new_blank_document` en `apps/linux-gtk/src/app/document.rs`): encadena
+      `create_blank_document` con `insert_blank_page` sobre el documento base, y así
+      entrega una A4 real con la sesión limpia. Portarlo no es transcribir:
+      `InsertBlankPage` llega a este shell sólo como `FfiEditCommand`, o sea que
+      pasar por ahí abriría el documento nuevo ya con una edición sin guardar, que no
+      es lo que hace GTK.
+
+      Los 83 tests no lo ven, y vale entender por qué antes de confiar en ese número:
+      `FakeCore.CreateBlank` devuelve el mismo `PageCount` distinto de cero que
+      `OpenFromBytes`, así que el doble nunca modela el contrato de cero páginas del
+      core real. Verde sobre un fake que miente.
+
+      Arreglos de shell que salieron de la pasada manual y sí entran acá:
+      `SetBusy` blanquea la barra de anotaciones en AMBOS bordes, y sólo
+      `ShowOpenedDocument`/`ReportFailedOpen` la restauran, así que toda salida
+      temprana la dejaba gris. Pasaba en tres lugares — `OpenDocumentAsync`,
+      `NewDocument_Invoked` y `SaveToPickedFileAsync`, este último contradiciendo su
+      propio "PDF saved. Annotations remain editable in this session." Ahora hay un
+      helper `RestoreAnnotationControls()` en las salidas tempranas, y el save quedó
+      como wrapper con `finally` sobre `PickDestinationAndWriteAsync` para que la
+      invariante viva en un solo lugar. Los tres verificados a mano.)**
 - [ ] T-064 Bundling .dll + firma Authenticode en windows.yml. [pdfium dist]
       **(2026-07-19 — parcial: build del shell WinUI en CI; firma Authenticode pendiente)**
 
