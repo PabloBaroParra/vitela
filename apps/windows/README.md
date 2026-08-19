@@ -68,6 +68,53 @@ Facade behavior is checked without a WinUI runtime dependency:
 dotnet run --project Pdf.Windows.Facade.Tests/Pdf.Windows.Facade.Tests.csproj
 ```
 
+## Packaging and signing
+
+The distribution is a self-contained zip: the shell, the .NET and Windows App
+SDK runtimes, `pdf_ffi.dll`, and **PDFium**. That last one is the reason the
+packaging step exists at all. `pdf-render` resolves PDFium at runtime through
+`PDFIUM_DYNAMIC_LIB_PATH`, then a path into the build machine's own
+`core/pdf-render/vendor/pdfium` tree that is baked in at compile time, then the
+bare library name. Only the first describes a shipped app — so
+`Facade/BundledPdfium.cs` points the core at the copy staged beside the
+executable, and a build that skips the staging renders on the machine that
+produced it and nowhere else.
+
+Build self-contained, then package:
+
+```powershell
+& (& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1) Pdf.Windows/Pdf.Windows.csproj -restore -p:Configuration=Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:SelfContained=true -p:WindowsAppSDKSelfContained=true
+```
+
+**Do not use `-t:Publish` here.** Publishing this project drops the compiled
+XAML (`App.xbf`, `MainWindow.xbf`) and the app's resource index
+(`Pdf.Windows.pri`); the published app then dies on its first frame inside
+`Microsoft.UI.Xaml.dll` with a stowed `E_FAIL` (`0xC000027B`). The complete,
+runnable app is the build output at
+`Pdf.Windows\bin\x64\Release\<tfm>\win-x64`, which is what the packaging script
+picks up — and it fails closed if those three files are missing.
+
+Run the two scripts below from the repository root.
+
+```powershell
+./scripts/package-windows.ps1 -DevelopmentSigningCertificate
+./scripts/verify-windows-package.ps1 -AllowUntrustedSignature
+```
+
+`package-windows.ps1` expects the pinned `pdfium-win-x64.tgz` at
+`build/windows/tools/` (or `-PdfiumArchive`) and refuses anything that is not
+the checksummed Windows/x64/non-V8/non-XFA build. `verify-windows-package.ps1`
+works from the produced zip — contents, Authenticode signature, and a render of
+page one performed by `Pdf.Windows.PackageSmoke` using nothing but the packaged
+files, with `PDFIUM_DYNAMIC_LIB_PATH` cleared.
+
+The two signing modes are not interchangeable. `-DevelopmentSigningCertificate`
+mints a throwaway certificate no machine trusts; a release passes
+`-SigningPfxBase64`/`-SigningPfxPassword`, which `windows.yml` supplies from the
+`WINDOWS_SIGNING_PFX_BASE64` and `WINDOWS_SIGNING_PFX_PASSWORD` secrets. Until
+those secrets exist, every CI package is development-signed and says so in the
+job log.
+
 ## Diagnosing a reported failure
 
 Failures shown to the user are deliberately vague — the shell never puts a

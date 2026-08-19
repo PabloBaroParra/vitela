@@ -583,6 +583,120 @@ ninguno de los dos.
       invariante viva en un solo lugar. Los tres verificados a mano.)**
 - [ ] T-064 Bundling .dll + firma Authenticode en windows.yml. [pdfium dist]
       **(2026-07-19 — parcial: build del shell WinUI en CI; firma Authenticode pendiente)**
+      **(2026-08-19 — bundling, empaquetado, firma y verificación hechos; queda
+      SOLO el certificado real, que no es trabajo de ingeniería. Por eso la casilla
+      sigue abierta, igual que T-059 en macOS mientras falta su identidad de firma.
+
+      **El bug que destapó la tarea.** El publish del shell NO llevaba `pdfium.dll`:
+      ni el `.csproj` ni `build.ps1` lo copiaban. Andaba igual en la máquina que
+      compilaba porque el paso 2 de `pdf_render::library::resolve_library_path` es
+      `<crate>/vendor/pdfium/bin/<lib>` resuelto con `CARGO_MANIFEST_DIR` —
+      o sea, una ruta absoluta al checkout del que compiló, horneada en la DLL.
+      En cualquier otra máquina el paso 3 (nombre pelado) queda a merced del orden
+      de búsqueda del loader. Un instalable no puede depender de ninguno de los dos.
+      `Facade/BundledPdfium.cs` (llamado desde el constructor de `App`, antes de la
+      primera llamada al core) apunta `PDFIUM_DYNAMIC_LIB_PATH` a la copia que el
+      paquete deja al lado del ejecutable — el paso 1, el único que describe una app
+      distribuida, y lo mismo que hace el launcher del .deb/.AppImage en Linux. Un
+      override que ya venga en el entorno gana: así apuntan el loader la CI y los
+      tests del core. 3 tests nuevos en `Pdf.Windows.Facade.Tests` (87/87) cubren
+      las tres ramas.
+
+      **El paquete.** `scripts/package-windows.ps1` es el espejo de
+      `package-linux.sh`: no compila, recibe el build self-contained y el `.tgz`
+      pinneado, y
+      valida el input de PDFium antes de copiar nada — sha256 del archive, `VERSION`
+      = 148.0.7763.0, `args.gn` con `target_os="win"`, `target_cpu="x64"`, V8 y XFA
+      en false, y la cabecera PE con máquina COFF 0x8664 (los runners de Windows no
+      tienen `file` ni `readelf`; el header son cuatro bytes definidos). Sale un zip
+      self-contained (~71 MB, 511 archivos): shell + runtimes de .NET y Windows App
+      SDK + `pdf_ffi.dll` + `pdfium.dll` + licencias (MIT/Apache del proyecto, LICENSE
+      y avisos de terceros de PDFium), sin `.pdb`. Self-contained a propósito: una app
+      WinUI desempaquetada que no lo sea le pide al lector instalar dos runtimes antes
+      de abrir un PDF.
+
+      **`msbuild -t:Publish` no sirve para este proyecto, y lo aprendí corriendo el
+      paquete.** El primer zip se armó desde un `PublishDir` y la app crasheaba al
+      arrancar: `0xC000027B` (stowed exception) dentro de `Microsoft.UI.Xaml.dll`,
+      HRESULT 0x80004005. El publish deja afuera el XAML compilado (`App.xbf`,
+      `MainWindow.xbf`) y el índice de recursos de la app (`Pdf.Windows.pri`); el
+      build con RID (`bin\x64\Release\<tfm>\win-x64`, 405 archivos) los tiene y corre.
+      El empaquetado toma ese directorio y exige los tres archivos por nombre, porque
+      su ausencia es silenciosa: el resto del paquete se ve perfecto y la app muere en
+      el primer frame. Vale marcar el contraste: los tres jobs previos de windows.yml
+      compilan y testean, y NINGUNO habría visto esto — sólo se ve ejecutando lo que
+      se empaqueta.
+
+      **La firma.** `scripts/sign-windows-binaries.ps1` firma sólo lo que este
+      proyecto produce o empaqueta (`Pdf.Windows.exe`, `Pdf.Windows.dll`,
+      `pdf_ffi.dll`, `pdfium.dll` — que viene sin firmar de bblanchon); el resto ya
+      está firmado por Microsoft y re-firmarlo cambiaría esa evidencia por una
+      afirmación más débil. Dos modos: PFX real desde los secrets
+      `WINDOWS_SIGNING_PFX_BASE64`/`WINDOWS_SIGNING_PFX_PASSWORD` (con timestamp,
+      para que la firma sobreviva al certificado), o `-DevelopmentCertificate`, un
+      autofirmado descartable que vive un día. El segundo existe para que la ruta de
+      firma se ejercite en TODO pull request —los secrets no existen en forks— en vez
+      de saltearse justo donde un cambio de afuera la rompería; es la misma postura
+      que macos.yml con su artefacto ad-hoc. Se usa `Set-AuthenticodeSignature`, no
+      `signtool.exe`: es Authenticode igual, toma el mismo PFX y no hay que cazar el
+      Windows SDK. Una identidad EV/HSM sí necesitaría signtool, y ese cambio entra
+      en ese único script.
+
+      **La verificación.** `scripts/verify-windows-package.ps1` trabaja sobre el zip,
+      no sobre el staging, así que inspecciona lo que se descargaría. Contenido, PE
+      x64, versión de PDFium leída del recurso de versión (el sha256 ya no sirve
+      después de firmar — firmar cambia los bytes; el pin del checksum vive en el
+      script de empaquetado, donde el archivo está intacto), firma Authenticode de
+      los cuatro binarios, y el smoke.
+
+      **El smoke necesitó un binario nuevo.** El equivalente Linux es
+      `--package-smoke` sobre el propio ejecutable, pero una app WinUI no tiene
+      consola, ni código de salida legible, ni forma de renderizar sin ventana. Así
+      que `apps/windows/Pdf.Windows.PackageSmoke/` es una consola net9.0 que compila
+      (linkeados, no copiados) los bindings generados y el MISMO
+      `Facade/BundledPdfium.cs` del shell, para que la resolución que se prueba sea la
+      que se envía. La verificación copia los archivos del paquete AL harness, nunca
+      al revés — el paquete queda intacto. El recibo trae `pdfium=<ruta cargada>`
+      (la línea que distingue "encontró la copia empaquetada" de "encontró el vendor
+      tree del que compiló"), `width`/`height`, `ink` (píxeles no blancos: un PDFium
+      que falló en silencio devuelve una hoja en blanco) y `pixels_sha256`, este
+      último como evidencia y deliberadamente NO pinneado: a diferencia del job de
+      Linux acá no hay promesa sobre el stack de fuentes del host, y un hash pinneado
+      sin esa promesa falla por el motivo equivocado.
+
+      **El job `package` de windows.yml no puebla `core/pdf-render/vendor/pdfium`**
+      —cachea el `.tgz` crudo en `build/windows/tools/`, como hace linux.yml— porque
+      si lo poblara el smoke pasaría con o sin bundling, que es exactamente el bug a
+      cazar. Corre en `shell: powershell` (Windows PowerShell 5.1), no en el pwsh por
+      defecto: `New-SelfSignedCertificate` vive en el módulo PKI y pwsh 7 sólo lo
+      alcanza vía compatibilidad con Windows PowerShell, que devuelve un certificado
+      *deserializado* con el que `Set-AuthenticodeSignature` no puede firmar. Sin paso
+      de upload, mismo criterio que linux.yml: el job prueba que el paquete se arma,
+      está firmado y renderiza; publicarlo es otro proceso.
+
+      **Verificado a mano (2026-08-19, esta máquina, x64 Release).** Build MSBuild
+      self-contained → `package-windows.ps1 -DevelopmentSigningCertificate` → 4
+      binarios firmados → zip de 71 MB → `verify-windows-package.ps1
+      -AllowUntrustedSignature` verde, con recibo `width=612 height=792 ink=7978`
+      cargando `evidence\smoke\pdfium.dll` (la copia sacada del paquete, ya firmada —
+      que la DLL firmada siga cargando era un riesgo real y quedó probado). Además:
+
+      - **Con `core/pdf-render/vendor/pdfium` renombrado**, o sea sin el fallback de
+        compile-time, la verificación sigue verde con el mismo recibo: los archivos
+        del paquete solos alcanzan. Es el escenario "máquina limpia", probado sin GUI.
+      - **La app extraída del zip arranca y se mantiene viva** (la misma prueba que
+        cazó el crash del publish).
+      - **El caso negativo también**: sacándole `pdfium.dll` al harness, falla con
+        exit 1 y `no pdfium.dll beside <dir>`. Ese chequeo salió de correrlo: un
+        `PDFIUM_DYNAMIC_LIB_PATH` vacío-pero-presente pasaba el `??` del harness y
+        terminaba en un LoadLibrary sobre `""`, que no dice nada sobre el paquete.
+      - `Pdf.Windows.Facade.Tests` 87/87 y MSBuild del shell con 0 warnings/0 errores.
+
+      **No verificado acá**: el job de CI completo (incluida la rama con certificado
+      real, que necesita secrets que no existen), y la app del zip abriendo y
+      renderizando un PDF a mano — el binario de desarrollo no está registrado como
+      app del Start Menu y las herramientas de control de escritorio de esta sesión
+      sólo autorizan apps instaladas.)**
 
 ### Criterios de aceptación
 - Misma batería funcional que B8/B9 vía FFI.
