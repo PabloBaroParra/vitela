@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
 using Windows.System;
@@ -67,10 +68,10 @@ public sealed partial class MainWindow
             return;
         }
 
-        OpenEditorOver(pageIndex, run);
+        OpenEditorOver(pageIndex, run, point.X);
     }
 
-    private void OpenEditorOver(uint pageIndex, ContentTextRun run)
+    private void OpenEditorOver(uint pageIndex, ContentTextRun run, double clickX)
     {
         if (pageIndex >= _slots.Count)
         {
@@ -80,22 +81,27 @@ public sealed partial class MainWindow
         var slot = _slots[(int)pageIndex];
         Brush paper = new SolidColorBrush(Microsoft.UI.Colors.White);
         Brush ink = new SolidColorBrush(Microsoft.UI.Colors.Black);
+        // The paper and the text are two elements, not one box with a
+        // background. The words being replaced have to be hidden by something
+        // shaped exactly like the run — one em tall, no more — while the text
+        // itself needs the taller line box its font asks for. One control
+        // cannot be both without covering the lines above and below.
+        var mask = new Rectangle { Fill = paper, IsHitTestVisible = false };
         var box = new TextBox
         {
             Text = _pendingRunText.TryGetValue((pageIndex, run.Id), out var pending) ? pending : run.Text,
-            // No chrome at all: the box has to read as the page, not as a
-            // field floating over it. It covers the run's own box, so the
-            // words underneath are hidden while the new ones are typed —
-            // without that the reader would see both at once.
+            // No chrome at all: this has to read as the page, not as a field
+            // floating over it.
             BorderThickness = new Thickness(0),
             Padding = new Thickness(0),
             MinWidth = 0,
             MinHeight = 0,
             TextWrapping = TextWrapping.NoWrap,
-            Background = paper,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             Foreground = ink,
             FontFamily = new FontFamily(EditorFontFamily),
             CornerRadius = new CornerRadius(0),
+            VerticalContentAlignment = VerticalAlignment.Top,
         };
         if (!_liveEditWired)
         {
@@ -103,16 +109,21 @@ public sealed partial class MainWindow
             _liveEditWired = true;
         }
 
-        MakeEditorLookLikeThePage(box, paper, ink);
+        MakeEditorLookLikeThePage(box, ink);
         box.KeyDown += ContentEditor_KeyDown;
         box.TextChanged += ContentEditor_TextChanged;
 
-        _contentEditor = new ContentEditor(pageIndex, run, box);
+        _contentEditor = new ContentEditor(pageIndex, run, box, mask, box.Text);
+        slot.Content.Children.Add(mask);
         slot.Content.Children.Add(box);
         PlaceEditor(slot, pageIndex, _contentEditor);
         box.Focus(FocusState.Programmatic);
-        box.SelectAll();
-        AnnotationStatus.Text = "Retype the text and press Enter — Escape cancels.";
+        // The caret lands where the reader clicked instead of the whole run
+        // being selected: they asked to edit this text, not to replace it, and
+        // a run highlighted end to end reads as a field about to be
+        // overwritten.
+        box.Select(CaretIndexFor(run, box.Text, clickX), 0);
+        AnnotationStatus.Text = "Type to edit the text — Escape puts it back.";
     }
 
     private void ContentEditor_KeyDown(object sender, KeyRoutedEventArgs args)
@@ -130,8 +141,7 @@ public sealed partial class MainWindow
         if (args.Key == VirtualKey.Escape)
         {
             args.Handled = true;
-            CancelContentEditor();
-            AnnotationStatus.Text = "Edit cancelled.";
+            _ = AbandonContentEditorAsync();
         }
     }
 
@@ -161,7 +171,9 @@ public sealed partial class MainWindow
         editor.Box.TextChanged -= ContentEditor_TextChanged;
         if (editor.PageIndex < _slots.Count)
         {
-            _slots[(int)editor.PageIndex].Content.Children.Remove(editor.Box);
+            var content = _slots[(int)editor.PageIndex].Content;
+            content.Children.Remove(editor.Box);
+            content.Children.Remove(editor.Mask);
         }
 
         if (ReferenceEquals(_contentEditor, editor))
@@ -184,44 +196,39 @@ public sealed partial class MainWindow
     private const string EditorFontFamily = "Segoe UI";
 
     /// <summary>
-    /// The size at which the stand-in face fills the same box the document's
-    /// own text does.
+    /// Where the baseline sits inside a run's box, as a fraction of the box
+    /// height measured from its top.
     /// </summary>
     /// <remarks>
-    /// Height alone is not enough. A run's box spans ascender to descender, so
-    /// a size set from it draws taller than the glyphs it covers, and two
-    /// faces at the same size still run to different widths — the reader sees
-    /// the replacement land wider or narrower than the words it replaced. So
-    /// the height gives a starting size and the run's own width corrects it:
-    /// whatever size makes the *original* text measure the width the page
-    /// actually gave it is the size that matches the page's density.
-    ///
-    /// Clamped, because the correction is only as good as the measurement: a
-    /// run of one character, or one the layout engine refuses to measure,
-    /// must not be allowed to produce absurd text.
+    /// Not a guess. The parser builds a run's box as exactly one em, from
+    /// 0.75 em above the baseline to 0.25 em below it — <c>FALLBACK_ASCENT</c>
+    /// and <c>FALLBACK_DESCENT</c> in <c>pdf-edit</c>'s
+    /// <c>run_bounding_box</c>. Reading that split the same way here is what
+    /// puts the editor's text on the line the page draws on instead of near
+    /// it. If the parser ever takes real metrics from the font descriptor,
+    /// this has to follow it.
     /// </remarks>
-    private static double FittedFontSize(ContentTextRun run, double heightPx, double widthPx)
+    private const double RunBaselineFromTop = 0.75;
+
+    /// <summary>
+    /// The character the caret goes in front of, for a click at
+    /// <paramref name="xPt"/> in page space.
+    /// </summary>
+    /// <remarks>
+    /// Proportional, because the exact answer needs the advance width of every
+    /// glyph in the document's own font, and the run's box only reports their
+    /// sum. Close enough to land in the word that was clicked, which is what
+    /// the click was asking for.
+    /// </remarks>
+    private static int CaretIndexFor(ContentTextRun run, string text, double xPt)
     {
-        var fromHeight = Math.Max(6, heightPx * 0.82);
-        if (run.Text.Length == 0 || widthPx <= 0)
+        if (text.Length == 0 || run.Bounds.Width <= 0)
         {
-            return fromHeight;
+            return 0;
         }
 
-        var probe = new TextBlock
-        {
-            Text = run.Text,
-            FontFamily = new FontFamily(EditorFontFamily),
-            FontSize = fromHeight,
-        };
-        probe.Measure(new global::Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
-        var measured = probe.DesiredSize.Width;
-        if (measured <= 0)
-        {
-            return fromHeight;
-        }
-
-        return Math.Clamp(fromHeight * (widthPx / measured), fromHeight * 0.6, fromHeight * 1.4);
+        var fraction = (xPt - run.Bounds.X) / run.Bounds.Width;
+        return Math.Clamp((int)Math.Round(fraction * text.Length), 0, text.Length);
     }
 
     /// <summary>
@@ -242,14 +249,14 @@ public sealed partial class MainWindow
     /// honest fix then is to sample the rendered page rather than to guess
     /// harder here.
     /// </remarks>
-    private static void MakeEditorLookLikeThePage(TextBox box, Brush paper, Brush ink)
+    private static void MakeEditorLookLikeThePage(TextBox box, Brush ink)
     {
         var invisible = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var none = new Thickness(0);
-        box.Resources["TextControlBackground"] = paper;
-        box.Resources["TextControlBackgroundPointerOver"] = paper;
-        box.Resources["TextControlBackgroundFocused"] = paper;
-        box.Resources["TextControlBackgroundDisabled"] = paper;
+        box.Resources["TextControlBackground"] = invisible;
+        box.Resources["TextControlBackgroundPointerOver"] = invisible;
+        box.Resources["TextControlBackgroundFocused"] = invisible;
+        box.Resources["TextControlBackgroundDisabled"] = invisible;
         box.Resources["TextControlBorderBrush"] = invisible;
         box.Resources["TextControlBorderBrushPointerOver"] = invisible;
         box.Resources["TextControlBorderBrushFocused"] = invisible;
@@ -287,12 +294,39 @@ public sealed partial class MainWindow
         var page = _session.Pages[(int)pageIndex];
         var scale = slot.Scale;
         var bounds = editor.Run.Bounds;
-        var height = bounds.Height * scale;
-        editor.Box.Width = Math.Max(40, bounds.Width * scale * 1.6);
-        editor.Box.Height = height;
-        editor.Box.FontSize = FittedFontSize(editor.Run, height, bounds.Width * scale);
-        Canvas.SetLeft(editor.Box, bounds.X * scale);
-        Canvas.SetTop(editor.Box, (page.HeightPt - bounds.Y - bounds.Height) * scale);
+        // A run's box is one em tall, so its height *is* the size the page
+        // draws this text at. No fitting, no factor.
+        var em = bounds.Height * scale;
+        var left = bounds.X * scale;
+        var top = (page.HeightPt - bounds.Y - bounds.Height) * scale;
+
+        var probe = new TextBlock
+        {
+            Text = editor.Box.Text,
+            FontFamily = editor.Box.FontFamily,
+            FontSize = em,
+        };
+        probe.Measure(new global::Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var lineHeight = Math.Max(em, probe.DesiredSize.Height);
+        var typedWidth = probe.DesiredSize.Width;
+
+        // The paper covers the run, and once the replacement outgrows it,
+        // whatever the replacement now runs over — which is what the saved
+        // page covers too, since a longer run overprints its neighbour rather
+        // than reflowing away from it.
+        editor.Mask.Width = Math.Max(bounds.Width * scale, typedWidth);
+        editor.Mask.Height = em;
+        Canvas.SetLeft(editor.Mask, left);
+        Canvas.SetTop(editor.Mask, top);
+
+        editor.Box.Width = Math.Max(40, typedWidth + em);
+        editor.Box.Height = lineHeight;
+        editor.Box.FontSize = em;
+        Canvas.SetLeft(editor.Box, left);
+        // Placed by its baseline, not by its top: the control's line box is
+        // taller than the em it draws, and how much taller is the font's
+        // business — so it is measured, not assumed.
+        Canvas.SetTop(editor.Box, top + (em * RunBaselineFromTop) - probe.BaselineOffset);
     }
 
     /// <summary>
@@ -307,5 +341,14 @@ public sealed partial class MainWindow
     private void ForgetPendingContentText() => _pendingRunText.Clear();
 
     /// <summary>The inline editor currently open, and the run it will rewrite.</summary>
-    private sealed record ContentEditor(uint PageIndex, ContentTextRun Run, TextBox Box);
+    /// <summary>
+    /// The editor currently open.
+    /// </summary>
+    /// <param name="OpenedWith">
+    /// What the run said when the box opened — the page's own text, or the
+    /// text an earlier unsaved edit gave it. Escape restores exactly this,
+    /// which is only knowable at open time: by the time it is pressed the
+    /// document has already been written to.
+    /// </param>
+    private sealed record ContentEditor(uint PageIndex, ContentTextRun Run, TextBox Box, Rectangle Mask, string OpenedWith);
 }

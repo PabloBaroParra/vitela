@@ -68,7 +68,18 @@ public sealed partial class MainWindow
         _liveEdit.Start();
     }
 
-    private void ContentEditor_TextChanged(object sender, TextChangedEventArgs args) => ScheduleLiveEdit();
+    private void ContentEditor_TextChanged(object sender, TextChangedEventArgs args)
+    {
+        // Re-laid out on every keystroke, not only on the write: the paper has
+        // to keep covering what the text now spans, or a replacement longer
+        // than the run it replaces would be typed over the words underneath.
+        if (_contentEditor is { } editor && editor.PageIndex < _slots.Count)
+        {
+            PlaceEditor(_slots[(int)editor.PageIndex], editor.PageIndex, editor);
+        }
+
+        ScheduleLiveEdit();
+    }
 
     private void LiveEdit_Tick(object? sender, object args)
     {
@@ -132,6 +143,64 @@ public sealed partial class MainWindow
         {
             CloseEditor(editor);
         }
+    }
+
+    /// <summary>
+    /// Puts the run back the way the editor found it, then closes the box.
+    /// </summary>
+    /// <remarks>
+    /// Escape has real work to do now. When the document only changed on
+    /// Enter, abandoning an edit meant closing a box; with the document
+    /// keeping up with the keyboard, the text the reader is walking away from
+    /// is already in it.
+    ///
+    /// Two ways back, and which one applies is decided by whether this
+    /// session <em>created</em> the queued command or amended one that was
+    /// already there. If the box opened on the page's own text, the command is
+    /// ours and undo removes it — the document returns to having no edit for
+    /// this run at all. If it opened on text an earlier edit had put there,
+    /// undo would throw that edit away too, so the way back is to write the
+    /// earlier text again.
+    ///
+    /// Both rely on the queued command for this run being the last entry in
+    /// the log, which holds while an editor is open: every other way of
+    /// editing goes through a page click or the toolbar, and both close the
+    /// editor before they run.
+    /// </remarks>
+    private async Task AbandonContentEditorAsync()
+    {
+        _liveEdit.Stop();
+        if (_contentCommit is { } inFlight)
+        {
+            await inFlight;
+        }
+
+        if (_contentEditor is not { } editor)
+        {
+            return;
+        }
+
+        var wrote = CurrentTextOf(editor) != editor.OpenedWith;
+        if (!wrote)
+        {
+            CloseEditor(editor);
+            AnnotationStatus.Text = "Edit cancelled.";
+            return;
+        }
+
+        if (editor.OpenedWith == editor.Run.Text)
+        {
+            _pendingRunText.Remove((editor.PageIndex, editor.Run.Id));
+            CloseEditor(editor);
+            await ApplyHistoryAsync(undo: true);
+            AnnotationStatus.Text = "Edit cancelled.";
+            return;
+        }
+
+        editor.Box.Text = editor.OpenedWith;
+        await SendEditorTextAsync(editor, editor.OpenedWith);
+        CloseEditor(editor);
+        AnnotationStatus.Text = "Edit cancelled.";
     }
 
     /// <summary>The text the document currently holds for the run being edited.</summary>

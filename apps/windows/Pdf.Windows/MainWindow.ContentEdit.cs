@@ -237,14 +237,20 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Removes one page's outlines, leaving the inline editor — the one child
-    /// of this canvas that is not a rectangle — where it is.
+    /// Removes one page's run outlines, leaving the open editor — its text box
+    /// and the paper under it — where they are.
     /// </summary>
-    private static void ClearContentOutlines(PageSlot slot)
+    /// <remarks>
+    /// The editor's paper is a rectangle too, so "remove every rectangle"
+    /// would take it out from under the reader mid-edit on the next scroll or
+    /// zoom. It is skipped by identity rather than by shape.
+    /// </remarks>
+    private void ClearContentOutlines(PageSlot slot)
     {
         for (var index = slot.Content.Children.Count - 1; index >= 0; index--)
         {
-            if (slot.Content.Children[index] is Rectangle)
+            var child = slot.Content.Children[index];
+            if (child is Rectangle && !ReferenceEquals(child, _contentEditor?.Mask))
             {
                 slot.Content.Children.RemoveAt(index);
             }
