@@ -563,6 +563,9 @@ public sealed partial class MainWindow : Window
         _annotationState = null;
         _pointerDrag = null;
         ResetSelectionState();
+        // The parsed page content and any open editor belong to the document
+        // being replaced — its run ids mean nothing against the new bytes.
+        ResetContentEditMode();
         _session = session;
         RefreshSessionCommands();
         DocumentTitle.Text = _session.DisplayName;

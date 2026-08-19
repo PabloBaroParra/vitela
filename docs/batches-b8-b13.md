@@ -698,6 +698,94 @@ ninguno de los dos.
       app del Start Menu y las herramientas de control de escritorio de esta sesión
       sólo autorizan apps instaladas.)**
 
+- [x] T-177 (dep B21) Modo edición de contenido en el shell Windows: click sobre un text run
+      existente lo retipea en su lugar, conservando fuente/tamaño/posición; los runs que no se
+      pueden retipear se muestran distinguibles; refresh obligatorio del preview tras cada
+      commit. [ContentEdit]
+      **(2026-08-19 — completo para TEXTO. Las imágenes de página (el equivalente Windows de
+      T-162) y la inserción de contenido nuevo (T-163) siguen siendo solo del shell Linux.
+
+      **Por qué esto empieza en el core y no en C#.** El shell GTK linkea `pdf-edit` directo,
+      así que valida cada comando de contenido contra la llamada real ANTES de grabarlo
+      (`content_edit::command`). Un shell detrás de UniFFI no puede: `apply_edit` solo
+      grababa, y los nueve comandos de contenido son inertes sobre `Document` (el log ES la
+      edición), así que un retipeo inválido no fallaba en el gesto sino en el save entero —
+      arrastrando con él toda edición encolada. Cuatro cosas nuevas en el core, todas
+      compartidas por cualquier shell vía FFI:
+
+      - `pdf_save::validate_content_command` — dry-run de un comando contra un clon
+        descartable del base, la versión Command-level de los ocho probes que el shell GTK
+        tiene a mano.
+      - `pdf_ffi::apply_edit` — gate de permiso `/P` de modificación de contenido (antes solo
+        se gateaban los comandos de anotación), validación antes de grabar, y **amend** en vez
+        de append cuando se retipea el mismo run dos veces (`EditLog::amend`, cuya doc explica
+        por qué un segundo comando resolvería contra nada).
+      - `pdf_ffi::refresh_preview` — reconstruye el `render_doc` desde un snapshot en memoria
+        de las ediciones pendientes, dejando `document`/`base`/`original_bytes` intactos. Es
+        la decisión 6 del batch 21 puesta donde vale para todos los shells FFI, no copiada.
+        **Excluye a propósito las anotaciones de la sesión**: pdfium las renderiza por defecto
+        (`PdfRenderConfig` prende FPDF_ANNOT) y todo shell las dibuja además como overlay, así
+        que hornearlas en el preview las pintaría dos veces. Las que ya venían en el archivo
+        no están en el modelo (`document_from_lopdf` arranca vacío) y siguen renderizando una
+        sola vez.
+      - `DocumentHandle::content_editing_allowed()` — dos preguntas en una respuesta, y a
+        propósito: el bit `/P` de modificación, Y si el full rewrite que toda edición de
+        contenido fuerza podría escribirse siquiera. Un documento cifrado abierto con una sola
+        de sus dos contraseñas no se puede re-cifrar, así que ahí una edición de contenido no
+        es trabajo a guardar después: es trabajo que no se puede guardar nunca. Se rechaza en
+        el gesto, no en el save (y por eso tampoco rompe el refresh, que guarda igual).
+
+      `DocumentState` pasó a guardar `render_password` — sin ella el refresh no puede reabrir
+      el snapshot de un documento cifrado.
+
+      Mapeo de errores: la familia "entendido y rechazado" de `EditError`
+      (`CompositeFontNotEditable`, `TextRunNotMovable`, `ImageSourceNotRecoverable`,
+      `UnsupportedContentStreamFilter`, `PageContentTooLarge`, `AmbiguousItem`, `ItemNotFound`)
+      dejó de caer en `Internal` y sale como `UnsupportedOperation` con el mensaje de
+      `EditError`. `FfiError::EncodingGap` ya existía pero el C# no lo mapeaba; ahora tiene
+      categoría propia y es el ÚNICO error cuyo detalle cruza al lector — el carácter, que
+      lo tecleó él.
+
+      **El lado C#.** `IPdfCore` gana `ReadPageContent`/`RefreshPreview`/`ContentEditingAllowed`
+      y `PdfCoreEdit.ReplaceTextRun`; `DocumentSession` lleva `ContentEditingAllowed` (es una
+      respuesta de por vida de la sesión: los permisos del documento no cambian mientras está
+      abierto). `PdfDocumentFacade.PageContentAsync` parsea fuera del hilo de UI y se niega de
+      entrada en un documento sin permiso; `ReplaceTextRunAsync` aplica, sube la revisión y
+      refresca el preview antes de responder — el shell re-renderiza sobre el resultado. Undo
+      y redo refrescan también, pero solo en una sesión que ya tocó contenido: el paso que
+      **quita** la última edición es justo el que si no dejaría el preview mostrándola.
+      Un refresh fallido NO revierte la edición (queda grabada y deshacible; un preview viejo
+      es mejor trato que tirar trabajo que el lector ya confirmó).
+
+      **La UI.** `MainWindow.ContentEdit.cs` (partial nuevo, como manda CLAUDE.md) + un
+      `ToggleButton` "Edit text". Armado, el modo reclama TODO press sobre la página —
+      es un modo, no una herramienta que compite por el click— y es mutuamente excluyente con
+      las herramientas de anotación en ambas direcciones. Cada slot de página ganó un `Canvas`
+      `Content` encima del de anotaciones para el editor inline y los contornos de los runs:
+      sólido para el que se puede retipear, punteado y más tenue para el que no, porque un run
+      de fuente compuesta se ve igual que cualquier otro y un click que no hace nada no se
+      explica solo. El hit-test (`Viewer/ContentHitTest.cs`, testeable sin runtime de UI) usa
+      el mismo desempate por bbox más chico que `content_edit::model::text_run_at`.
+
+      **Gates.** `cargo fmt`/`clippy -D warnings` limpios, `cargo test --workspace` 624
+      passed, `pdf-ffi` smoke 34/34 (6 tests nuevos: rechazo antes de grabar, encoding gap con
+      carácter, permiso de contenido, credenciales incompletas, refresh que no consume la
+      edición, amend), `Pdf.Windows.Facade.Tests` 95/95 (8 nuevos), y MSBuild de Visual Studio
+      del shell con 0 warnings/0 errores.
+
+      **Verificado contra la DLL real** con un harness de consola descartable sobre los
+      bindings generados (lo que ni los tests de Rust ni los de la facade —que corren contra
+      fakes— tocan), sobre `assets/sample/vitela-sample.pdf`: `content_editing_allowed=True`,
+      6 runs en la página 1, `apply_edit` deja los píxeles idénticos y `refresh_preview` los
+      cambia, el segundo retipeo del mismo run vuelve a renderizar, `U+4E16` sale rechazado
+      como `EncodingGap(character=世, font=F1)`, el save reabre con el texto final y queda UN
+      solo undo (o sea: los dos retipeos se plegaron en un comando).
+
+      **No verificado**: el modo a mano en la app corriendo. El binario de desarrollo no está
+      registrado como app del menú Inicio y las herramientas de control de escritorio de esta
+      sesión solo autorizan apps instaladas. Sí se comprobó que la app arranca y sigue viva
+      con el XAML nuevo (x64 Debug), que es lo que cazaría un XAML roto.)**
+
 ### Criterios de aceptación
 - Misma batería funcional que B8/B9 vía FFI.
 - Los errores FFI llegan a C# como excepciones tipadas anidadas — nunca strings crudos

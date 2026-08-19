@@ -38,7 +38,9 @@ pub use bridge::{
 pub use clock::{
     Clock, FixedClock, IdGenerator, RandomIdGenerator, SequentialIdGenerator, SystemClock,
 };
-pub use content::{has_content_edits, has_signatures, replay_content_edits};
+pub use content::{
+    has_content_edits, has_signatures, replay_content_edits, validate_content_command,
+};
 pub use error::SaveError;
 pub use export::{export_page_as_image, ExportFormat};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};

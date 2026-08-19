@@ -2,7 +2,18 @@ namespace Pdf.Windows.Facade;
 
 public sealed record DocumentSource(string DisplayName, byte[] Bytes);
 
-public sealed record DocumentSession(string SessionId, string DisplayName, uint PageCount, uint PageIndex, DocumentSessionState State, IReadOnlyList<PageDimensions> Pages);
+/// <summary>
+/// One open document, as the shell sees it.
+/// </summary>
+/// <param name="ContentEditingAllowed">
+/// Whether this document permits rewriting the text and images on its pages.
+/// A session-lifetime answer — the document's own permissions decide it and
+/// they cannot change while it is open — which is why it rides here rather
+/// than being re-asked per edit. Gated by a different <c>/P</c> bit than
+/// annotation editing (<see cref="AnnotationState.EditingAllowed"/>): a
+/// document can allow one and refuse the other.
+/// </param>
+public sealed record DocumentSession(string SessionId, string DisplayName, uint PageCount, uint PageIndex, DocumentSessionState State, IReadOnlyList<PageDimensions> Pages, bool ContentEditingAllowed);
 
 /// <summary>One page's layout size in PDF points (1/72 inch).</summary>
 public sealed record PageDimensions(double WidthPt, double HeightPt);
@@ -56,6 +67,70 @@ public sealed class PageCharacters : IDisposable
 
     public void Dispose() => _handle.Dispose();
 }
+
+/// <summary>How a text run's font can be re-encoded — see <see cref="ContentTextRun.IsEditable"/>.</summary>
+public enum ContentFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
+
+/// <summary>
+/// One run of text painted by a page's own content stream — the thing
+/// content-edit mode retypes, as opposed to an annotation drawn over the
+/// page.
+/// </summary>
+/// <remarks>
+/// A class rather than a record because it carries the core's snapshot of
+/// the run privately: that snapshot is how the core re-finds this run when
+/// the edit is written, so it travels back into
+/// <see cref="PdfDocumentFacade.ReplaceTextRunAsync"/> unchanged rather than
+/// being rebuilt from what the reader sees.
+/// </remarks>
+public sealed class ContentTextRun
+{
+    private readonly PdfCoreContentTextRun _source;
+
+    internal ContentTextRun(PdfCoreContentTextRun source)
+    {
+        _source = source;
+        Bounds = new AnnotationRect(source.Bbox.X, source.Bbox.Y, source.Bbox.Width, source.Bbox.Height);
+        FontKind = (ContentFontKind)source.FontKind;
+    }
+
+    internal PdfCoreContentTextRun Source => _source;
+
+    public ulong Id => _source.Id;
+    public uint PageIndex => _source.PageIndex;
+
+    /// <summary>The run's box in PDF space, bottom-left origin — where an inline editor goes.</summary>
+    public AnnotationRect Bounds { get; }
+
+    public ContentFontKind FontKind { get; }
+
+    public string Text => _source.Text;
+
+    /// <summary>
+    /// Whether this run can be retyped at all. A composite (Type0/CID) font
+    /// cannot: extending a subsetted CID font's glyph coverage means
+    /// re-subsetting it, which this version does not do, so the core refuses
+    /// every replacement against one. The shell asks here before opening an
+    /// editor, rather than letting the reader type into a box that can only
+    /// fail.
+    /// </summary>
+    public bool IsEditable => FontKind != ContentFontKind.EmbeddedComposite;
+}
+
+/// <summary>
+/// One page's editable content, parsed on demand.
+/// </summary>
+/// <remarks>
+/// Text runs only for now. The core also reports the page's images, and the
+/// image half of content editing (select/move/resize/replace) is the next
+/// slice; exposing an <c>Images</c> list before anything can act on it would
+/// be a contract nothing honours.
+///
+/// The runs are valid against the bytes the document was opened from. They
+/// survive a preview refresh, which leaves those bytes alone, but a save and
+/// reopen invalidates every id — re-read the page after one.
+/// </remarks>
+public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns);
 
 public enum AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
 public sealed record AnnotationRect(double X, double Y, double Width, double Height);

@@ -52,7 +52,38 @@ internal interface IPdfCore
 
     IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document);
 
+    /// <summary>
+    /// Parses one page's content stream and returns the text runs and images
+    /// it paints — the editable page itself, not the annotations drawn over
+    /// it. Parsed on demand and never cached by the core, so this is a real
+    /// read every time.
+    /// </summary>
+    /// <remarks>
+    /// The ids it hands back are only meaningful against the exact bytes the
+    /// document was opened from. They survive <see cref="RefreshPreview"/>,
+    /// which leaves those bytes alone, but not a save-and-reopen.
+    /// </remarks>
+    PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex);
+
+    /// <summary>
+    /// Re-derives what <see cref="RenderPage"/> draws from the edits queued so
+    /// far, so a retyped text run is visible before anything is saved.
+    /// Retyped text <em>is</em> the page: unlike an annotation, no shell-side
+    /// overlay can show it. Leaves the edit log and the bytes a save is
+    /// computed from untouched, and deliberately excludes this session's own
+    /// annotations, which the shell is already drawing itself.
+    /// </summary>
+    void RefreshPreview(IPdfCoreDocument document);
+
     bool AnnotationEditingAllowed(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Whether this document permits rewriting its page content. Gated by a
+    /// different <c>/P</c> bit than <see cref="AnnotationEditingAllowed"/>: a
+    /// document can allow one and refuse the other, so neither answer may
+    /// stand in for the other.
+    /// </summary>
+    bool ContentEditingAllowed(IPdfCoreDocument document);
 
     bool CanUndo(IPdfCoreDocument document);
 
@@ -133,6 +164,18 @@ internal interface IPdfCorePageCharacters : IDisposable
 }
 
 internal sealed record PdfCoreBitmap(uint Width, uint Height, uint Stride, byte[] Rgba);
+
+/// <summary>
+/// How a text run's font can be re-encoded — the one property that decides
+/// whether a run can be retyped at all. A composite (Type0/CID) font is
+/// refused outright by the core, so a shell asks this before opening an
+/// editor rather than letting the reader type into a box that can only fail.
+/// </summary>
+internal enum PdfCoreFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
+
+internal sealed record PdfCoreContentTextRun(ulong Id, uint PageIndex, PdfCoreRect Bbox, string ResourceFontName, PdfCoreFontKind FontKind, string Text);
+internal sealed record PdfCoreContentImage(ulong Id, uint PageIndex, PdfCoreRect Bbox, string ResourceXObjectName);
+internal sealed record PdfCorePageContent(IReadOnlyList<PdfCoreContentTextRun> TextRuns, IReadOnlyList<PdfCoreContentImage> Images);
 internal sealed record PdfCoreSearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
 internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyList<PdfCoreSearchRect> CharacterBounds);
 internal sealed record PdfCoreRect(double X, double Y, double Width, double Height);
@@ -147,6 +190,14 @@ internal abstract record PdfCoreEdit
     public sealed record Move(ulong AnnotationId, double Dx, double Dy) : PdfCoreEdit;
     public sealed record Resize(ulong AnnotationId, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record Restyle(ulong AnnotationId, PdfCoreColor Color) : PdfCoreEdit;
+
+    /// <summary>
+    /// Retypes an existing text run, keeping its font, size and position.
+    /// Carries the run as it was read from <see cref="IPdfCore.ReadPageContent"/>:
+    /// that snapshot is how the core re-finds the run at save time, so it is
+    /// passed back unchanged rather than rebuilt from what is on screen.
+    /// </summary>
+    public sealed record ReplaceTextRun(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
 }
 
 /// <summary>
@@ -187,6 +238,13 @@ internal enum PdfCoreError
     InvalidSaveRequest,
     SignaturesWouldBeInvalidated,
     UnsupportedOperation,
+    /// <summary>
+    /// The replacement text needs a character the run's font cannot
+    /// represent. Its own category because it is the one content failure the
+    /// reader can fix by typing something else, and the message names the
+    /// character.
+    /// </summary>
+    EncodingGap,
     RenderFailed,
     Io,
     UnsavedChanges,
@@ -195,12 +253,23 @@ internal enum PdfCoreError
 
 internal sealed class PdfCoreException : Exception
 {
-    public PdfCoreException(PdfCoreError category, string diagnosticDetail) : base(diagnosticDetail)
+    public PdfCoreException(PdfCoreError category, string diagnosticDetail, string? readerFacingDetail = null) : base(diagnosticDetail)
     {
         Category = category;
+        ReaderFacingDetail = readerFacingDetail;
     }
 
     public PdfCoreError Category { get; }
+
+    /// <summary>
+    /// The one fragment of this failure that is safe — and useful — to put in
+    /// front of the reader, or <c>null</c> when the category alone says
+    /// everything. Only <see cref="PdfCoreError.EncodingGap"/> fills it in,
+    /// with the character that could not be encoded: the reader typed it, and
+    /// naming it is the difference between "not supported" and "not that
+    /// character".
+    /// </summary>
+    public string? ReaderFacingDetail { get; }
 }
 
 internal interface IDiagnosticLogger

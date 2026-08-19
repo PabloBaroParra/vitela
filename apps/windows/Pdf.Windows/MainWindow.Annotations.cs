@@ -150,6 +150,9 @@ public sealed partial class MainWindow
     private void Arm(AnnotationKind? kind)
     {
         if (_annotationState?.EditingAllowed != true) return;
+        // One mode owns a page click at a time: arming a tool leaves content
+        // editing, exactly as arming content editing disarms the tools.
+        SetContentEditMode(false);
         _armedAnnotation = kind;
         AnnotationStatus.Text = kind is null ? "Pointer mode." : $"{kind} armed. Drag on a page to place it.";
     }
@@ -162,14 +165,20 @@ public sealed partial class MainWindow
         // not at the text underneath it. See `MainWindow.Selection.cs`.
         slot.Annotations.PointerPressed += (_, args) =>
         {
+            // Content editing is asked first, and answers for the whole
+            // gesture when armed: it is a mode, not a tool competing for the
+            // same click. See `MainWindow.ContentEdit.cs`.
+            if (BeginContentEditPointer(slot, pageIndex, args)) return;
             if (!BeginAnnotationPointer(slot, pageIndex, args)) BeginTextSelection(slot, pageIndex, args);
         };
         slot.Annotations.PointerMoved += (_, args) =>
         {
+            if (_contentEditMode) return;
             if (!ContinueAnnotationPointer(slot, pageIndex, args)) ContinueTextSelection(slot, pageIndex, args);
         };
         slot.Annotations.PointerReleased += async (_, args) =>
         {
+            if (_contentEditMode) return;
             if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
         };
         ConnectFileDrop(slot, pageIndex);
@@ -389,6 +398,15 @@ public sealed partial class MainWindow
         AnnotationStatus.Text = undo ? "Edit undone. Changes are pending save." : "Edit redone. Changes are pending save.";
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
+        // A step that moved a page-content edit changes what the PDF itself
+        // paints, and the facade has already rebuilt the preview for it. Only
+        // the pages on screen are left to catch up — and only a session that
+        // has touched content pays for it.
+        if (_pendingRunText.Count > 0)
+        {
+            ForgetPendingContentText();
+            InvalidateRenderedPages();
+        }
     }
 
     private async Task RefreshAnnotationStateAsync()
@@ -407,6 +425,11 @@ public sealed partial class MainWindow
         var selected = _selectedAnnotationId is { } id
             ? state?.Annotations.LastOrDefault(annotation => annotation.Id == id)
             : null;
+        // Its own permission bit, and its own answer: a document can allow
+        // annotations and refuse content changes, or the reverse. It follows
+        // `state` only for the part they share — a blanked toolbar means the
+        // shell is busy or has no document, and nothing may be armed then.
+        ContentEditButton.IsEnabled = state is not null && _session?.ContentEditingAllowed == true;
         HighlightButton.IsEnabled = enabled;
         UnderlineButton.IsEnabled = enabled;
         StrikeoutButton.IsEnabled = enabled;

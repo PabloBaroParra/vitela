@@ -34,7 +34,7 @@ public sealed class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(() => _core.OpenFromBytes(source.Bytes, password)).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document);
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document, _core.ContentEditingAllowed(document));
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -81,7 +81,7 @@ public sealed class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(_core.CreateBlank).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document);
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document, _core.ContentEditingAllowed(document));
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -378,6 +378,148 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+
+    /// <summary>
+    /// Parses one page's editable content — the text runs its content stream
+    /// paints. Dispatched off the UI thread: this re-parses the page's stream
+    /// every call, since the core deliberately never caches page content the
+    /// way it caches annotations.
+    /// </summary>
+    /// <remarks>
+    /// Refused outright on a document whose permissions withhold content
+    /// editing, rather than read and then refused at the edit: offering a
+    /// reader runs they are not allowed to change is worse than telling them
+    /// once.
+    /// </remarks>
+    public async Task<OperationResult<PageContent>> PageContentAsync(string sessionId, uint pageIndex)
+    {
+        SessionEntry session;
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out session))
+            {
+                return OperationResult<PageContent>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_content", sessionId, pageIndex));
+            }
+
+            if (!session.ContentEditingAllowed)
+            {
+                return OperationResult<PageContent>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "page_content", sessionId, pageIndex));
+            }
+        }
+
+        try
+        {
+            var content = await Task.Run(() => _core.ReadPageContent(session.Document, pageIndex)).ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (session.Retired || _currentSession != session)
+                {
+                    // The ids in this parse belong to bytes nobody is looking
+                    // at any more; handing them back would let a later edit
+                    // target the wrong document.
+                    return OperationResult<PageContent>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_content", sessionId, pageIndex));
+                }
+            }
+
+            return OperationResult<PageContent>.Success(new PageContent(pageIndex, [.. content.TextRuns.Select(run => new ContentTextRun(run))]));
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<PageContent>.Failure(MapError(error, "page_content", sessionId, pageIndex));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<PageContent>.Failure(MapUnexpected(error, "page_content", sessionId, pageIndex));
+        }
+    }
+
+    /// <summary>
+    /// Retypes <paramref name="run"/> as <paramref name="text"/>, keeping the
+    /// run's font, size and position, then rebuilds the preview so the page
+    /// shows it.
+    /// </summary>
+    /// <remarks>
+    /// The refresh is not optional and not the caller's to skip: retyped text
+    /// is drawn by the PDF itself, so until the render side is re-derived the
+    /// reader is looking at the old words with a status line claiming
+    /// otherwise. It is also why this returns only after the refresh — the
+    /// shell re-renders on the result.
+    ///
+    /// Retyping the same run twice folds into the first edit rather than
+    /// queueing a second, which the core handles; the caller may simply send
+    /// the run it read and the text it wants.
+    /// </remarks>
+    public async Task<OperationResult<AnnotationState>> ReplaceTextRunAsync(string sessionId, ContentTextRun run, string text)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        SessionEntry session;
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "content_edit", sessionId, run.PageIndex));
+                }
+
+                try
+                {
+                    _core.ApplyEdit(session.Document, new PdfCoreEdit.ReplaceTextRun(run.Source, text));
+                    session.EditRevision++;
+                    session.HasRecordedContentEdit = true;
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, "content_edit", sessionId, run.PageIndex));
+                }
+            }
+
+            return await RefreshPreviewAsync(session, "content_edit", run.PageIndex).ConfigureAwait(false);
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Rebuilds what rendering draws from the edits queued so far, off the UI
+    /// thread — it saves a snapshot in memory and reopens it, which is real
+    /// work on a large document.
+    /// </summary>
+    /// <remarks>
+    /// A failure here is reported but never rolls the edit back. The command
+    /// stays recorded and undoable, and if the failure is real rather than a
+    /// stale session the eventual save hits the same error with the same
+    /// explanation. Dropping an edit the reader already confirmed, to keep a
+    /// preview honest, is the worse trade.
+    /// </remarks>
+    private async Task<OperationResult<AnnotationState>> RefreshPreviewAsync(SessionEntry session, string operation, uint? pageIndex)
+    {
+        try
+        {
+            await Task.Run(() => _core.RefreshPreview(session.Document)).ConfigureAwait(false);
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<AnnotationState>.Failure(MapError(error, operation, session.Id, pageIndex));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<AnnotationState>.Failure(MapUnexpected(error, operation, session.Id, pageIndex));
+        }
+
+        lock (_gate)
+        {
+            if (session.Retired || _currentSession != session)
+            {
+                return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, session.Id, pageIndex));
+            }
+
+            return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+        }
+    }
+
     public Task<OperationResult<AnnotationState>> UndoAsync(string sessionId) => HistoryAsync(sessionId, undo: true);
     public Task<OperationResult<AnnotationState>> RedoAsync(string sessionId) => HistoryAsync(sessionId, undo: false);
 
@@ -469,14 +611,16 @@ public sealed class PdfDocumentFacade : IDisposable
 
     private async Task<OperationResult<AnnotationState>> HistoryAsync(string sessionId, bool undo)
     {
+        var operation = undo ? "undo" : "redo";
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        SessionEntry session;
         try
         {
             lock (_gate)
             {
-                if (!TryGetCurrentSession(sessionId, out var session))
+                if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, undo ? "undo" : "redo", sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 }
                 try
                 {
@@ -484,13 +628,29 @@ public sealed class PdfDocumentFacade : IDisposable
                     {
                         session.EditRevision++;
                     }
-                    return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                    else
+                    {
+                        return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                    }
                 }
                 catch (PdfCoreException error)
                 {
-                    return OperationResult<AnnotationState>.Failure(MapError(error, undo ? "undo" : "redo", sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(MapError(error, operation, sessionId, null));
+                }
+
+                if (!session.HasRecordedContentEdit)
+                {
+                    // Annotation-only history: the shell redraws its own
+                    // overlays and the bitmap underneath never changed.
+                    return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                 }
             }
+
+            // A session that has touched page content refreshes on every step,
+            // without asking which command moved: the step that *removes* the
+            // last content edit is exactly the one whose preview would
+            // otherwise keep showing it.
+            return await RefreshPreviewAsync(session, operation, null).ConfigureAwait(false);
         }
         finally
         {
@@ -820,6 +980,11 @@ public sealed class PdfDocumentFacade : IDisposable
             PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword => "This document requires a password.",
             PdfCoreError.UnsupportedSecurityHandler or PdfCoreError.UnsupportedOperation => "This document or action is not supported.",
             PdfCoreError.InvalidImage => "The image is corrupt or unsupported.",
+            // Named, and with the character in it: this is the one failure the
+            // reader can clear themselves, by typing something else.
+            PdfCoreError.EncodingGap => error.ReaderFacingDetail is { Length: > 0 } character
+                ? $"This text's font cannot show \"{character}\". Try different characters."
+                : "This text's font cannot show one of those characters.",
             PdfCoreError.InvalidSaveRequest => "The requested action could not be completed.",
             // Named rather than folded into the generic message: the user can
             // act on it (save a copy elsewhere, or keep the signed original),
@@ -851,11 +1016,12 @@ public sealed class PdfDocumentFacade : IDisposable
     {
         private readonly Dictionary<uint, PageRenderState> _pages = [];
 
-        public SessionEntry(string id, string displayName, IPdfCoreDocument document)
+        public SessionEntry(string id, string displayName, IPdfCoreDocument document, bool contentEditingAllowed)
         {
             Id = id;
             DisplayName = displayName;
             Document = document;
+            ContentEditingAllowed = contentEditingAllowed;
         }
 
         public string Id { get; }
@@ -868,6 +1034,21 @@ public sealed class PdfDocumentFacade : IDisposable
         public bool Retired { get; set; }
         public ulong EditRevision { get; set; }
         public ulong SavedRevision { get; set; }
+
+        /// <summary>Whether the document's permissions allow rewriting page content.</summary>
+        public bool ContentEditingAllowed { get; }
+
+        /// <summary>
+        /// Whether this session has ever recorded a page-content edit, and so
+        /// owes the render side a refresh after an undo or redo.
+        ///
+        /// Latched on rather than recounted: undoing the last content edit is
+        /// exactly the moment the preview must be rebuilt to drop it, so an
+        /// "are any pending right now" answer would skip the one refresh that
+        /// matters most. Annotation-only sessions never set it and never pay
+        /// for a refresh they would only have to undo.
+        /// </summary>
+        public bool HasRecordedContentEdit { get; set; }
 
         /// <summary>
         /// Whether replacing this document would throw away annotation work.
@@ -921,7 +1102,8 @@ public sealed class PdfDocumentFacade : IDisposable
             Document.PageCount,
             PageIndex,
             Document.PageCount == 0 ? DocumentSessionState.Empty : DocumentSessionState.Ready,
-            [.. Document.PageDimensions.Select(page => new PageDimensions(page.WidthPt, page.HeightPt))]);
+            [.. Document.PageDimensions.Select(page => new PageDimensions(page.WidthPt, page.HeightPt))],
+            ContentEditingAllowed);
 
         public AnnotationState AnnotationState(IPdfCore core) => new(
             Id,
