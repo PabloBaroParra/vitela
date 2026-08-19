@@ -9,6 +9,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("navigates after a page render failure", NavigatesAfterRenderFailureAsync),
     ("discards stale page render results", DiscardsStaleRenderResultAsync),
     ("maps blank render document-not-found to empty", MapsBlankRenderToEmptyAsync),
+    ("creates a document with a page to work on", CreatesADocumentWithAPageToWorkOnAsync),
     ("completes superseded renders after a session swap", CompletesRendersAfterSessionSwapAsync),
     ("defers document disposal until in-flight render completes", DefersDisposalUntilRenderCompletesAsync),
     ("packs padded renderer rows tightly", PacksPaddedRowsTightlyAsync),
@@ -65,6 +66,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("releases the guard once the edits are saved", ReleasesTheGuardOnceEditsAreSavedAsync)
     ,("flags the refused open as a decision the reader can make", FlagsPendingEditDecisionAsync)
     ,("opens over pending edits once the reader chose to discard them", DiscardsPendingEditsOnRequestAsync)
+    ,("blocks creating a blank document with unsaved annotations", BlocksCreateBlankWithUnsavedAnnotationsAsync)
+    ,("creates a blank document over pending edits once the reader chose to discard them", CreatesBlankDocumentOverPendingEditsOnRequestAsync)
     ,("keeps stamp previews scoped to their document session", KeepsStampPreviewsScopedToSession)
     ,("reconciles one inserted stamp from an annotation snapshot", ReconcilesInsertedStamp)
     ,("rejects stale stamp input sessions", RejectsStaleStampInputSession)
@@ -149,13 +152,28 @@ static async Task DiscardsStaleRenderResultAsync()
     Assert(secondResult.Value!.Sequence == 2, "latest render should retain the newest sequence");
 }
 
+// A zero-page PDF is still something a user can *open*, so the empty-state
+// mapping stays — it just no longer describes documents this app creates.
 static async Task MapsBlankRenderToEmptyAsync()
 {
     var core = new FakeCore { PageCount = 0, RenderError = PdfCoreError.DocumentNotFound };
     using var facade = new PdfDocumentFacade(core, new RecordingLogger());
-    var session = (await facade.CreateBlankAsync()).Value!;
+    var session = (await facade.OpenAsync(new DocumentSource("no-pages.pdf", [1]))).Value!;
     var result = await facade.RenderCurrentPageAsync(session.SessionId, 144, false);
-    Assert(result.IsEmpty, "blank document render should be an empty state");
+    Assert(result.IsEmpty, "zero-page document render should be an empty state");
+}
+
+static async Task CreatesADocumentWithAPageToWorkOnAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.CreateBlankAsync()).Value!;
+
+    Assert(session.PageCount >= 1, "a newly created document should arrive with a page to work on");
+    Assert(session.State == DocumentSessionState.Ready, "a newly created document should not open in the empty state");
+
+    var render = await facade.RenderCurrentPageAsync(session.SessionId, 144, false);
+    Assert(render.IsSuccess, "the first page of a newly created document should render");
 }
 
 static async Task CompletesRendersAfterSessionSwapAsync()
@@ -1061,6 +1079,30 @@ static async Task DiscardsPendingEditsOnRequestAsync()
     Assert(edits.IsSuccess && edits.Value!.Annotations.Count == 0, "the discarded work must not follow the reader into the new document");
 }
 
+static async Task BlocksCreateBlankWithUnsavedAnnotationsAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    var created = await facade.CreateBlankAsync();
+    Assert(!created.IsSuccess, "creating a blank document must not discard unsaved annotation edits");
+    Assert(created.Error!.RequiresPendingEditDecision, "the shell must be able to offer Save/Discard/Cancel for this refusal");
+}
+
+static async Task CreatesBlankDocumentOverPendingEditsOnRequestAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+
+    var created = await facade.CreateBlankAsync(discardPendingEdits: true);
+    Assert(created.IsSuccess, "an explicit discard must get past the guard");
+    Assert(created.Value!.SessionId != session.SessionId, "the blank document must be a new session");
+
+    var edits = await facade.AnnotationStateAsync(created.Value.SessionId);
+    Assert(edits.IsSuccess && edits.Value!.Annotations.Count == 0, "the discarded work must not follow the reader into the blank document");
+}
+
 static async Task MapsUnexpectedSaveFailureAsync()
 {
     using var facade = new PdfDocumentFacade(new FakeCore { SaveThrowsUnexpected = true }, new RecordingLogger());
@@ -1229,7 +1271,14 @@ sealed class FakeCore : IPdfCore
         return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt);
     }
 
-    public IPdfCoreDocument CreateBlank() => LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt);
+    /// <summary>
+    /// Deliberately ignores <see cref="PageCount"/>. That knob describes the
+    /// document an <see cref="OpenFromBytes"/> returns; the core's create
+    /// entrypoint always hands back exactly one page, and a fake that echoed
+    /// the opened count would let a zero-page regression pass green — which is
+    /// how T-063's "This document has no pages." shipped.
+    /// </summary>
+    public IPdfCoreDocument CreateBlank() => LastDocument = new FakeDocument(1, PageWidthPt, PageHeightPt);
 
     public PdfCoreBitmap RenderPage(IPdfCoreDocument document, uint pageIndex, uint dpi, bool invertContentColors)
     {

@@ -5,10 +5,10 @@
 //! platform's own CI workflow, e.g. `macos.yml`, T-042).
 
 use pdf_ffi::{
-    apply_edit, create_blank_document, insert_image_stamp, open_from_bytes,
-    open_with_passwords_from_bytes, redo, render_page, save_to_bytes, stamp_placement, undo,
-    FfiColor, FfiEditCommand, FfiError, FfiFontKind, FfiOrientation, FfiPageSize, FfiRect,
-    FfiRenderOptions, FfiSaveIntent, FfiSignatureAcknowledgement,
+    apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp,
+    open_from_bytes, open_with_passwords_from_bytes, redo, render_page, save_to_bytes,
+    stamp_placement, undo, FfiColor, FfiEditCommand, FfiError, FfiFontKind, FfiOrientation,
+    FfiPageSize, FfiRect, FfiRenderOptions, FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -658,4 +658,38 @@ fn replace_text_run_content_with_stale_item_fails_at_save() {
     );
 
     assert!(matches!(result, Err(FfiError::Internal { .. })));
+}
+
+// ---------------------------------------------------------------------
+// create_document_with_blank_page (T-063)
+// ---------------------------------------------------------------------
+
+#[test]
+fn creates_a_document_that_already_has_one_renderable_page() {
+    let handle = create_document_with_blank_page(FfiPageSize::A4, FfiOrientation::Portrait)
+        .expect("one-page document creation should succeed");
+
+    assert_eq!(handle.page_count(), 1);
+
+    let dimensions = handle.page_dimensions();
+    assert_eq!(dimensions.len(), 1);
+    assert!((dimensions[0].width_pt - 595.0).abs() < 0.5);
+    assert!((dimensions[0].height_pt - 842.0).abs() < 0.5);
+
+    // A zero-page document comes back with no render handle at all (pdfium
+    // cannot open one); the whole point of this entrypoint is that a reader
+    // can actually draw what it hands back.
+    render_page(&handle, 0, 72, FfiRenderOptions::default()).expect("the first page should render");
+}
+
+#[test]
+fn the_created_document_starts_with_no_pending_edits() {
+    let handle = create_document_with_blank_page(FfiPageSize::A4, FfiOrientation::Portrait)
+        .expect("one-page document creation should succeed");
+
+    // Routing the first page through `apply_edit` would leave an undoable
+    // command queued, so a shell's unsaved-work guard would fire on a
+    // document nobody has touched yet. The page has to be there before the
+    // handle exists.
+    assert!(!undo(&handle));
 }

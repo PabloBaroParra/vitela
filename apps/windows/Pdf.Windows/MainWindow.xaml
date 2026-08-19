@@ -4,13 +4,14 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="PDF">
     <!--
-        KeyboardAcceleratorPlacementMode=Hidden because the paste and copy
-        accelerators sit on the root Grid to catch Ctrl+V/Ctrl+C anywhere in
-        the window, and Auto would advertise them as tooltips over that whole
-        surface — a "Ctrl+V" label floating in the middle of the page. The
-        property INHERITS, so the toolbar buttons whose shortcut tooltip is
-        worth showing set Auto back locally; dropping that override silently
-        mutes Ctrl+Z and Ctrl+Y too.
+        KeyboardAcceleratorPlacementMode=Hidden because the paste, copy, find
+        and new-document accelerators sit on the root Grid to catch
+        Ctrl+V/Ctrl+C/Ctrl+F/Ctrl+N anywhere in the window, and Auto would
+        advertise them as tooltips over that whole surface — a "Ctrl+V" label
+        floating in the middle of the page. The property INHERITS, so the
+        toolbar buttons whose shortcut tooltip is worth showing set Auto back
+        locally; dropping that override silently mutes Ctrl+O, Ctrl+S,
+        Ctrl+P, Ctrl+Z and Ctrl+Y too.
     -->
     <!--
         Background=Transparent so the window is hit-testable for drag and drop
@@ -23,9 +24,14 @@
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteImage_Invoked" />
             <KeyboardAccelerator Key="C" Modifiers="Control" Invoked="CopySelection_Invoked" />
+            <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FindDocument_Invoked" />
+            <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewDocument_Invoked" />
         </Grid.KeyboardAccelerators>
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
-            <Button x:Name="OpenButton" Click="OpenButton_Click">Open</Button>
+            <Button x:Name="OpenButton" Click="OpenButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+                Open
+                <Button.KeyboardAccelerators><KeyboardAccelerator Key="O" Modifiers="Control" /></Button.KeyboardAccelerators>
+            </Button>
             <Button x:Name="OpenSampleButton" Content="Open sample">
                 <Button.Flyout>
                     <MenuFlyout>
@@ -35,8 +41,14 @@
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
-            <Button x:Name="PrintButton" Click="PrintButton_Click">Print</Button>
-            <Button x:Name="SaveButton" Click="SaveButton_Click">Save</Button>
+            <Button x:Name="PrintButton" Click="PrintButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+                Print
+                <Button.KeyboardAccelerators><KeyboardAccelerator Key="P" Modifiers="Control" /></Button.KeyboardAccelerators>
+            </Button>
+            <Button x:Name="SaveButton" Click="SaveButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+                Save
+                <Button.KeyboardAccelerators><KeyboardAccelerator Key="S" Modifiers="Control" /></Button.KeyboardAccelerators>
+            </Button>
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
             <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>

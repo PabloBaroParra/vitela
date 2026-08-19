@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Xaml;
@@ -12,6 +13,18 @@ namespace Pdf.Windows;
 /// </summary>
 public sealed partial class MainWindow
 {
+    /// <summary>
+    /// Ctrl+F moves focus to the search box rather than running a search —
+    /// there is nothing to search for yet, and this is the same "get me to
+    /// the query field" behaviour the GTK shell's <c>win.find</c> action
+    /// gives Ctrl+F.
+    /// </summary>
+    private void FindDocument_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = true;
+        SearchBox.Focus(FocusState.Programmatic);
+    }
+
     private async void SearchButton_Click(object sender, RoutedEventArgs e)
     {
         if (_session is null)

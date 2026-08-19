@@ -2,7 +2,8 @@
 //! and `BitmapHandle` as UniFFI interface objects (Arc-based reference
 //! types, never inline `Vec<u8>` records), FFI commands (open/
 //! open_from_bytes/open_with_passwords/open_with_passwords_from_bytes/
-//! create_blank_document/render_page/apply_edit/insert_image_stamp/
+//! create_blank_document/create_document_with_blank_page/render_page/
+//! apply_edit/insert_image_stamp/
 //! read_page_content/save_to_bytes/save_to_path/undo/redo), and `FfiError`
 //! mirroring the core crates' error types. See Batch 7 (T-039..T-043,
 //! T-068 DELTA) and `design.md` "FFI Design (pdf-ffi / UniFFI)".
@@ -42,9 +43,10 @@ mod types;
 
 pub use bitmap::BitmapHandle;
 pub use document::{
-    apply_edit, create_blank_document, insert_image_stamp, open, open_from_bytes,
-    open_with_passwords, open_with_passwords_from_bytes, redo, render_page, render_page_tiles,
-    save_to_bytes, save_to_path, stamp_placement, undo, will_invalidate_signatures, DocumentHandle,
+    apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp, open,
+    open_from_bytes, open_with_passwords, open_with_passwords_from_bytes, redo, render_page,
+    render_page_tiles, save_to_bytes, save_to_path, stamp_placement, undo,
+    will_invalidate_signatures, DocumentHandle,
 };
 pub use error::FfiError;
 pub use selection::FfiPageCharacters;
