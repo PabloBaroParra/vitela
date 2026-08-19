@@ -237,6 +237,48 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+    /// <summary>
+    /// Loads and flattens one page's characters for caret hit-testing and
+    /// selection-rect queries. Dispatched off the UI thread because it reads
+    /// text runs from pdfium; the returned handle is then queried
+    /// synchronously by the shell on every pointer-move of a drag-select — no
+    /// per-move round trip.
+    /// </summary>
+    public async Task<OperationResult<PageCharacters>> PageCharactersAsync(string sessionId, uint pageIndex)
+    {
+        SessionEntry session;
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out session))
+            {
+                return OperationResult<PageCharacters>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
+            }
+        }
+
+        try
+        {
+            var handle = await Task.Run(() => _core.PageCharacters(session.Document, pageIndex)).ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (session.Retired || _currentSession != session)
+                {
+                    handle.Dispose();
+                    return OperationResult<PageCharacters>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
+                }
+
+                return OperationResult<PageCharacters>.Success(new PageCharacters(pageIndex, handle));
+            }
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<PageCharacters>.Failure(MapError(error, "page_characters", sessionId, pageIndex));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<PageCharacters>.Failure(MapUnexpected(error, "page_characters", sessionId, pageIndex));
+        }
+    }
+
     public Task<OperationResult<AnnotationState>> AnnotationStateAsync(string sessionId)
     {
         lock (_gate)

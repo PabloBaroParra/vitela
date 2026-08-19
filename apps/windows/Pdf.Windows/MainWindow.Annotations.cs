@@ -156,38 +156,64 @@ public sealed partial class MainWindow
 
     private void ConnectAnnotationPointer(PageSlot slot, int pageIndex)
     {
-        slot.Annotations.PointerPressed += (_, args) => BeginAnnotationPointer(slot, pageIndex, args);
-        slot.Annotations.PointerMoved += (_, args) => ContinueAnnotationPointer(slot, pageIndex, args);
-        slot.Annotations.PointerReleased += async (_, args) => await EndAnnotationPointerAsync(slot, pageIndex, args);
+        // Text selection is tried only once annotations refuse the gesture —
+        // an armed tool placing an annotation, or a press landing on an
+        // existing annotation's handle or body, is aimed at the annotation,
+        // not at the text underneath it. See `MainWindow.Selection.cs`.
+        slot.Annotations.PointerPressed += (_, args) =>
+        {
+            if (!BeginAnnotationPointer(slot, pageIndex, args)) BeginTextSelection(slot, pageIndex, args);
+        };
+        slot.Annotations.PointerMoved += (_, args) =>
+        {
+            if (!ContinueAnnotationPointer(slot, pageIndex, args)) ContinueTextSelection(slot, pageIndex, args);
+        };
+        slot.Annotations.PointerReleased += async (_, args) =>
+        {
+            if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
+        };
         ConnectFileDrop(slot, pageIndex);
     }
 
-    private void BeginAnnotationPointer(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
+    /// <summary>Returns whether the press was claimed as an annotation gesture.</summary>
+    private bool BeginAnnotationPointer(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
-        if (_session is null || _annotationState?.EditingAllowed != true) return;
+        if (_session is null) return false;
+        // Annotation editing being refused does not claim the gesture: the
+        // document may still permit text selection (placing an annotation and
+        // extracting text are gated by different permission bits).
+        if (_annotationState?.EditingAllowed != true) return false;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
 
+        bool claimed;
         if (_armedAnnotation is { } kind)
         {
             _pointerDrag = new PointerDrag(pageIndex, point, null, kind, null)
             {
                 Points = kind == AnnotationKind.Ink ? [point] : null,
             };
+            claimed = true;
         }
         else if (TryGrabSelected(pageIndex, point, slot.Scale, out var grabbed))
         {
             _pointerDrag = grabbed;
+            claimed = true;
         }
         else
         {
+            // A press that hits no annotation is a deselection, not a claim:
+            // the gesture goes on to select text, same as a press that never
+            // reached here because editing was refused.
             var hit = HitTest((uint)pageIndex, point);
             _selectedAnnotationId = hit?.Id;
             _pointerDrag = hit is not null ? new PointerDrag(pageIndex, point, hit, null, null) : null;
+            claimed = hit is not null;
         }
 
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
-        slot.Annotations.CapturePointer(args.Pointer);
+        if (claimed) slot.Annotations.CapturePointer(args.Pointer);
+        return claimed;
     }
 
     /// <summary>
@@ -218,18 +244,21 @@ public sealed partial class MainWindow
         return false;
     }
 
-    private void ContinueAnnotationPointer(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
+    /// <summary>Returns whether an annotation drag was in flight for this page.</summary>
+    private bool ContinueAnnotationPointer(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
-        if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return;
+        if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return false;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _pointerDrag = drag with { Current = point };
         drag.Points?.Add(point);
         RedrawAnnotations();
+        return true;
     }
 
-    private async Task EndAnnotationPointerAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
+    /// <summary>Returns whether an annotation drag was in flight for this page.</summary>
+    private async Task<bool> EndAnnotationPointerAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
-        if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return;
+        if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return false;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _pointerDrag = drag with { Current = point };
         drag.Points?.Add(point);
@@ -253,6 +282,7 @@ public sealed partial class MainWindow
             if (dx != 0 || dy != 0) await ApplyEditAsync(new PdfCoreEdit.Move(annotation.Id, dx, dy));
         }
         RedrawAnnotations();
+        return true;
     }
 
     /// <summary>

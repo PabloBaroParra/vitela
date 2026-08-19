@@ -398,6 +398,7 @@ public sealed partial class MainWindow : Window
         _selectedAnnotationId = null;
         _annotationState = null;
         _pointerDrag = null;
+        ResetSelectionState();
         _session = session;
         RefreshSessionCommands();
         DocumentTitle.Text = _session.DisplayName;

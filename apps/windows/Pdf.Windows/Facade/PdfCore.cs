@@ -31,6 +31,14 @@ internal interface IPdfCore
 
     IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query);
 
+    /// <summary>
+    /// Loads and flattens one page's characters for caret hit-testing and
+    /// selection-rect queries — the geometry a drag-select needs on every
+    /// pointer-move. Callers should hold the returned handle for the life of
+    /// one drag (or the page's lifetime) rather than reloading it per move.
+    /// </summary>
+    IPdfCorePageCharacters PageCharacters(IPdfCoreDocument document, uint pageIndex);
+
     IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document);
 
     bool AnnotationEditingAllowed(IPdfCoreDocument document);
@@ -87,6 +95,30 @@ internal interface IPdfCore
     /// verifies.
     /// </param>
     byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged);
+}
+
+/// <summary>
+/// One page's characters, flattened for repeated caret/selection queries by
+/// the shell — mirrors <c>pdf_render::PageCharacters</c>, the geometry both
+/// this shell and the GTK one build a drag-select from (the GTK shell links
+/// it directly; this shell reaches it through the FFI's <c>FfiPageCharacters</c>).
+/// </summary>
+internal interface IPdfCorePageCharacters : IDisposable
+{
+    /// <summary>
+    /// The caret nearest a PDF-space point (bottom-left origin), or
+    /// <c>null</c> on a page with no positioned text.
+    /// </summary>
+    uint? CaretAt(double xPt, double yPt);
+
+    /// <summary>
+    /// The text between two carets, for the clipboard. Order does not
+    /// matter — a drag started rightward or leftward reports the same text.
+    /// </summary>
+    string TextIn(uint anchor, uint focus);
+
+    /// <summary>The rects a shell paints between two carets: one per visual line, not one per glyph.</summary>
+    IReadOnlyList<PdfCoreSearchRect> RectsIn(uint anchor, uint focus);
 }
 
 internal sealed record PdfCoreBitmap(uint Width, uint Height, uint Stride, byte[] Rgba);

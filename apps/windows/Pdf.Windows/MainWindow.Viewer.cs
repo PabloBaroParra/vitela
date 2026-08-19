@@ -128,6 +128,7 @@ public sealed partial class MainWindow
         // geometry stays on screen until some unrelated edit repaints it.
         RedrawAnnotations();
         RedrawSearchHighlight();
+        RedrawSelection();
     }
 
     /// <summary>
@@ -144,17 +145,20 @@ public sealed partial class MainWindow
         {
             var image = new Image { Stretch = Stretch.Fill };
             var tiles = new Canvas { IsHitTestVisible = false };
-            // Search hits and annotations get a canvas each. Sharing one meant
-            // every repaint of either wiped the other, because a repaint starts
-            // by clearing the canvas it draws on. Search sits underneath and
-            // takes no input: annotations are the layer the reader points at,
-            // and a hit highlight must never intercept a click or a drop.
+            // Search hits, the text-selection highlight and annotations each get
+            // their own canvas. Sharing one meant every repaint of any of them
+            // wiped the others, because a repaint starts by clearing the canvas
+            // it draws on. Search and selection sit underneath and take no
+            // input: annotations are the layer the reader points at, and a
+            // highlight must never intercept a click or a drop.
             var searchHighlights = new Canvas { IsHitTestVisible = false };
+            var selection = new Canvas { IsHitTestVisible = false };
             var annotations = new Canvas { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
             var pageLayer = new Grid();
             pageLayer.Children.Add(image);
             pageLayer.Children.Add(tiles);
             pageLayer.Children.Add(searchHighlights);
+            pageLayer.Children.Add(selection);
             pageLayer.Children.Add(annotations);
             var container = new Border
             {
@@ -164,7 +168,7 @@ public sealed partial class MainWindow
                 Background = new SolidColorBrush(Microsoft.UI.Colors.White),
                 Child = pageLayer,
             };
-            var slot = new PageSlot(container, image, tiles, searchHighlights, annotations);
+            var slot = new PageSlot(container, image, tiles, searchHighlights, selection, annotations);
             ConnectAnnotationPointer(slot, _slots.Count);
             _slots.Add(slot);
             PageStack.Children.Add(container);
@@ -477,13 +481,15 @@ public sealed partial class MainWindow
     /// <summary>Where the reader was, in page-relative terms a zoom cannot invalidate.</summary>
     private readonly record struct ScrollAnchor(int PageIndex, double Fraction);
 
-    private sealed class PageSlot(Border container, Image image, Canvas tiles, Canvas searchHighlights, Canvas annotations)
+    private sealed class PageSlot(Border container, Image image, Canvas tiles, Canvas searchHighlights, Canvas selection, Canvas annotations)
     {
         public Border Container { get; } = container;
         public Image Image { get; } = image;
         public Canvas TileCanvas { get; } = tiles;
         /// <summary>Search hit geometry. Owned by <c>MainWindow.Search.cs</c> alone.</summary>
         public Canvas SearchHighlights { get; } = searchHighlights;
+        /// <summary>Text-selection highlight geometry. Owned by <c>MainWindow.Selection.cs</c> alone.</summary>
+        public Canvas Selection { get; } = selection;
         /// <summary>Annotation visuals and the pointer surface. Owned by the annotation and file-drop partials.</summary>
         public Canvas Annotations { get; } = annotations;
         /// <summary>DIPs per PDF point at the current zoom — how overlays map page geometry.</summary>

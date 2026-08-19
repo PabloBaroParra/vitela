@@ -82,6 +82,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refuses to silently break a signature", RefusesToSilentlyBreakASignatureAsync)
     ,("reports whether saving breaks a signature", ReportsWhetherSavingBreaksASignatureAsync)
     ,("saves a signed document once acknowledged", SavesASignedDocumentOnceAcknowledgedAsync)
+    ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
+    ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
 };
 
 foreach (var test in tests)
@@ -265,6 +267,32 @@ static async Task NavigatesToSearchResultAsync()
     var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
     var result = await facade.NavigateToSearchResultAsync(session.SessionId, new SearchHit(2, "match", []));
     Assert(result.IsSuccess && result.Value!.PageIndex == 2, "selected search result should navigate to its page");
+}
+
+static async Task LoadsPageCharactersAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.PageCharactersAsync(session.SessionId, 0);
+
+    Assert(result.IsSuccess, "loading a live session's page characters should succeed");
+    using var characters = result.Value!;
+    Assert(characters.PageIndex == 0, "the handle should report the page it was loaded for");
+    Assert(characters.CaretAt(100, 700) == 0, "the fake's single character should resolve to caret 0");
+    Assert(characters.TextIn(0, 1) == "A", "text between carets should come from the fake's page");
+    Assert(characters.RectsIn(0, 1) is [{ WidthPt: 12 }], "rects between carets should come from the fake's page");
+}
+
+static async Task RefusesPageCharactersAfterSessionSwapAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var first = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.OpenAsync(new DocumentSource("second.pdf", [1]));
+
+    var result = await facade.PageCharactersAsync(first.SessionId, 0);
+
+    Assert(!result.IsSuccess, "a session id from before the last open should be refused");
 }
 
 static Task ResolvesHundredPercentZoom()
@@ -1240,6 +1268,15 @@ sealed class FakeCore : IPdfCore
         return [new PdfCoreSearchHit(0, query, [new PdfCoreSearchRect(100, 700, 24, 24)])];
     }
 
+    /// <summary>How many times <see cref="PageCharacters"/> was called, and with which page index.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<uint> PageCharactersCalls { get; } = new();
+
+    public IPdfCorePageCharacters PageCharacters(IPdfCoreDocument document, uint pageIndex)
+    {
+        PageCharactersCalls.Enqueue(pageIndex);
+        return new FakePageCharacters();
+    }
+
     public IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document) => ((FakeDocument)document).Annotations;
     public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document).EditingAllowed;
     public bool CanUndo(IPdfCoreDocument document) => ((FakeDocument)document).CanUndo;
@@ -1298,6 +1335,21 @@ sealed class FakeCore : IPdfCore
         }
         return [1];
     }
+}
+
+/// <summary>
+/// Stands in for one flattened page's characters: a single "A" glyph at
+/// (100, 700), 12pt square — enough for a test to exercise caret/text/rect
+/// queries without a real content stream.
+/// </summary>
+sealed class FakePageCharacters : IPdfCorePageCharacters
+{
+    public bool Disposed { get; private set; }
+    public uint? CaretAt(double xPt, double yPt) => xPt <= 100 ? 0u : 1u;
+    public string TextIn(uint anchor, uint focus) => anchor == focus ? "" : "A";
+    public IReadOnlyList<PdfCoreSearchRect> RectsIn(uint anchor, uint focus) =>
+        anchor == focus ? [] : [new PdfCoreSearchRect(100, 700, 12, 12)];
+    public void Dispose() => Disposed = true;
 }
 
 sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt = 842) : IPdfCoreDocument
