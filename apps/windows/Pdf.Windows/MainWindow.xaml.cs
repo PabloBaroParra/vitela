@@ -567,6 +567,11 @@ public sealed partial class MainWindow : Window
         RefreshSessionCommands();
         DocumentTitle.Text = _session.DisplayName;
         ClearSearchResults();
+        // The status line describes the *previous* document's last action, so it
+        // has to go with everything else that document owned. Leaving it behind
+        // makes a brand-new file open under "Edit redone. Changes are pending
+        // save." — a claim about pending edits it does not have.
+        AnnotationStatus.Text = "";
         if (_session.State == DocumentSessionState.Empty)
         {
             ShowEmpty("This document has no pages.");
