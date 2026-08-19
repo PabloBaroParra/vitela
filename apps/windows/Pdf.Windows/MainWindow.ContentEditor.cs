@@ -1,11 +1,13 @@
-using Microsoft.UI.Xaml;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
 using Windows.System;
+using Windows.UI.Text;
 
 namespace Pdf.Windows;
 
@@ -53,7 +55,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (ContentHitTest.TextRunAt(content.TextRuns, point.X, point.Y) is not { } run)
+        if (ContentHitTest.TextRunAt(content.TextRuns, BoundsOf, point.X, point.Y) is not { } run)
         {
             AnnotationStatus.Text = "No editable text there — click a word to retype it.";
             return;
@@ -99,10 +101,10 @@ public sealed partial class MainWindow
             TextWrapping = TextWrapping.NoWrap,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             Foreground = ink,
-            FontFamily = new FontFamily(EditorFontFamily),
             CornerRadius = new CornerRadius(0),
             VerticalContentAlignment = VerticalAlignment.Top,
         };
+        DressForRun(box, run);
         if (!_liveEditWired)
         {
             _liveEdit.Tick += LiveEdit_Tick;
@@ -183,17 +185,23 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// The face the editor types in until the page is re-rendered.
+    /// Dresses the editor in the face the page paints this run with.
     /// </summary>
     /// <remarks>
-    /// A stand-in, and only for the seconds between the first keystroke and
-    /// the commit: once the edit lands, PDFium redraws the page in the
-    /// document's own font. A run reports its <em>kind</em>, not its family,
-    /// so matching the document properly would mean carrying the base font
-    /// across the FFI — a core change for a few seconds of fidelity, and a
-    /// candidate for later if this reads wrong in practice.
+    /// Not a nicety. The editor draws over the page, so a face with different
+    /// advance widths puts the reader's text where the document's would never
+    /// be — every letter drifting further from the one it replaced. The
+    /// document names its font, the core reports that name
+    /// (<c>page_font_families</c>), and <see cref="PdfFontMatch"/> decides
+    /// which local face answers to it.
     /// </remarks>
-    private const string EditorFontFamily = "Segoe UI";
+    private static void DressForRun(Control box, ContentTextRun run)
+    {
+        var (families, bold, italic) = PdfFontMatch.ForBaseFont(run.BaseFont);
+        box.FontFamily = new FontFamily(families);
+        box.FontWeight = bold ? FontWeights.Bold : FontWeights.Normal;
+        box.FontStyle = italic ? FontStyle.Italic : FontStyle.Normal;
+    }
 
     /// <summary>
     /// Where the baseline sits inside a run's box, as a fraction of the box
@@ -293,7 +301,7 @@ public sealed partial class MainWindow
 
         var page = _session.Pages[(int)pageIndex];
         var scale = slot.Scale;
-        var bounds = editor.Run.Bounds;
+        var bounds = BoundsOf(editor.Run);
         // A run's box is one em tall, so its height *is* the size the page
         // draws this text at. No fitting, no factor.
         var em = bounds.Height * scale;
@@ -304,6 +312,8 @@ public sealed partial class MainWindow
         {
             Text = editor.Box.Text,
             FontFamily = editor.Box.FontFamily,
+            FontWeight = editor.Box.FontWeight,
+            FontStyle = editor.Box.FontStyle,
             FontSize = em,
         };
         probe.Measure(new global::Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -338,7 +348,11 @@ public sealed partial class MainWindow
     /// itself stays — its ids are keyed to the opened bytes, which a history
     /// step does not touch.
     /// </summary>
-    private void ForgetPendingContentText() => _pendingRunText.Clear();
+    private void ForgetPendingContentText()
+    {
+        _pendingRunText.Clear();
+        _pendingRunBounds.Clear();
+    }
 
     /// <summary>The inline editor currently open, and the run it will rewrite.</summary>
     /// <summary>

@@ -799,6 +799,41 @@ fn a_single_password_open_refuses_content_edits_it_could_never_save() {
 }
 
 #[test]
+fn page_font_families_name_the_font_each_run_is_painted_with() {
+    let handle = open_single_line_fixture("Hello world");
+    let run = handle
+        .read_page_content(0)
+        .unwrap()
+        .text_runs
+        .first()
+        .unwrap()
+        .clone();
+
+    let families = handle
+        .page_font_families(0)
+        .expect("the page's fonts should be readable");
+
+    // The join a shell makes: a run reports the resource, this reports what
+    // the resource is.
+    let base_font = families
+        .get(&run.resource_font_name)
+        .expect("the run's own resource must be in the table");
+    assert_eq!(base_font, "Helvetica");
+}
+
+#[test]
+fn page_font_families_are_denied_when_the_document_forbids_text_extraction() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    assert!(matches!(
+        handle.page_font_families(0),
+        Err(FfiError::UnsupportedOperation { .. })
+    ));
+}
+
+#[test]
 fn refresh_preview_renders_the_pending_edit_without_consuming_it() {
     let handle = open_single_line_fixture("Hello world");
     let before = render_page(&handle, 0, 72, FfiRenderOptions::default())

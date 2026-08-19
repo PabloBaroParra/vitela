@@ -95,6 +95,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refreshes the preview on history only after a content edit", RefreshesThePreviewOnHistoryOnlyAfterAContentEditAsync)
     ,("refuses page content once the session is retired", RefusesPageContentAfterSessionSwapAsync)
     ,("picks the smallest text run under a content-edit click", PicksTheSmallestRunUnderTheClick)
+    ,("matches a PDF font name to a local face", MatchesPdfFontsToLocalFaces)
     ,("aims the core at the PDFium shipped beside the app", AimsTheCoreAtTheBundledPdfium)
     ,("leaves an operator's PDFium override alone", LeavesAnExistingPdfiumOverrideAlone)
     ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
@@ -1299,6 +1300,7 @@ static async Task ReadsPageContentForEditingAsync()
     Assert(run.Text == "Hello world", "the run's text should reach the shell");
     Assert(run.IsEditable, "a standard-14 run is editable");
     Assert(run.Bounds.X == 100 && run.Bounds.Y == 700, "the run's PDF-space box should reach the shell");
+    Assert(run.BaseFont == "Helvetica", "the run should be joined to the font its resource name points at");
 }
 
 static async Task RefusesPageContentWhenTheDocumentForbidsItAsync()
@@ -1401,13 +1403,47 @@ static Task PicksTheSmallestRunUnderTheClick()
     var line = new PdfCoreContentTextRun(2, 0, new PdfCoreRect(90, 695, 300, 24), "F1", PdfCoreFontKind.Standard14, "Hello world and then some");
     IReadOnlyList<ContentTextRun> runs = [ContentRun(line), ContentRun(word)];
 
-    Assert(ContentHitTest.TextRunAt(runs, 110, 705)!.Id == 1, "overlapping runs resolve to the smaller, more specific one");
-    Assert(ContentHitTest.TextRunAt(runs, 350, 705)!.Id == 2, "a point only the wide run covers resolves to it");
-    Assert(ContentHitTest.TextRunAt(runs, 50, 400) is null, "a point outside every run resolves to nothing");
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 110, 705)!.Id == 1, "overlapping runs resolve to the smaller, more specific one");
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 350, 705)!.Id == 2, "a point only the wide run covers resolves to it");
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 50, 400) is null, "a point outside every run resolves to nothing");
+
+    // A retyped run no longer occupies the box it was parsed with, and the
+    // reader points at what the page shows now.
+    var stretched = (ContentTextRun run) => run.Id == 1
+        ? new AnnotationRect(100, 700, 200, 12)
+        : run.Bounds;
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 250, 705)!.Id == 2, "the parsed box stops where it was parsed");
+    Assert(ContentHitTest.TextRunAt(runs, stretched, 250, 705)!.Id == 1, "a run that grew is picked up over its whole new width");
     return Task.CompletedTask;
 }
 
-static ContentTextRun ContentRun(PdfCoreContentTextRun source) => new(source);
+static Task MatchesPdfFontsToLocalFaces()
+{
+    // The three Standard-14 families are PostScript names for faces Windows
+    // ships under other names — the only ones worth translating.
+    Assert(PdfFontMatch.ForBaseFont("Helvetica").Families.StartsWith("Arial", StringComparison.Ordinal), "Helvetica is Arial here");
+    Assert(PdfFontMatch.ForBaseFont("Times-Roman").Families.StartsWith("Times New Roman", StringComparison.Ordinal), "Times is Times New Roman here");
+    Assert(PdfFontMatch.ForBaseFont("Courier").Families.StartsWith("Courier New", StringComparison.Ordinal), "Courier is Courier New here");
+
+    // A subset tag says what was embedded, not which face to ask for.
+    Assert(PdfFontMatch.ForBaseFont("ABCDEF+Times-BoldItalic").Families.StartsWith("Times New Roman", StringComparison.Ordinal), "the subset prefix is dropped");
+    var styled = PdfFontMatch.ForBaseFont("ABCDEF+Times-BoldItalic");
+    Assert(styled.Bold && styled.Italic, "the style the name declares is carried across");
+
+    // Anything else is asked for by its own name, with the neutral face
+    // behind it, so an installed font is used and a missing one falls back.
+    var embedded = PdfFontMatch.ForBaseFont("Georgia,Bold");
+    Assert(embedded.Families == $"Georgia, {PdfFontMatch.Fallback}", "an unknown family keeps its name and gains a fallback");
+    Assert(embedded.Bold && !embedded.Italic, "comma-spelled styles are read too");
+
+    Assert(PdfFontMatch.ForBaseFont(null).Families == PdfFontMatch.Fallback, "a page that does not say gets the fallback");
+    return Task.CompletedTask;
+}
+
+static ContentTextRun ContentRun(PdfCoreContentTextRun source) => new(source, null);
+
+/// <summary>Runs sitting exactly where they were parsed — nothing retyped yet.</summary>
+static AnnotationRect Parsed(ContentTextRun run) => run.Bounds;
 
 sealed class FakeCore : IPdfCore
 {
@@ -1527,6 +1563,12 @@ sealed class FakeCore : IPdfCore
         PageContentReads.Enqueue(pageIndex);
         return new PdfCorePageContent([.. PageTextRuns.Select(run => run with { PageIndex = pageIndex })], []);
     }
+
+    /// <summary>What <see cref="PageFontFamilies"/> reports, keyed by resource name.</summary>
+    public IReadOnlyDictionary<string, string> FontFamilies { get; init; } =
+        new Dictionary<string, string> { ["F1"] = "Helvetica" };
+
+    public IReadOnlyDictionary<string, string> PageFontFamilies(IPdfCoreDocument document, uint pageIndex) => FontFamilies;
 
     public void RefreshPreview(IPdfCoreDocument document)
     {

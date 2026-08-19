@@ -141,6 +141,15 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public IReadOnlyDictionary<string, string> PageFontFamilies(IPdfCoreDocument document, uint pageIndex)
+    {
+        try
+        {
+            return ((GeneratedDocument)document).Handle.PageFontFamilies(pageIndex);
+        }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     public void RefreshPreview(IPdfCoreDocument document)
     {
         try { PdfFfiMethods.RefreshPreview(((GeneratedDocument)document).Handle); }

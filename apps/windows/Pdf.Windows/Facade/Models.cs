@@ -87,11 +87,12 @@ public sealed class ContentTextRun
 {
     private readonly PdfCoreContentTextRun _source;
 
-    internal ContentTextRun(PdfCoreContentTextRun source)
+    internal ContentTextRun(PdfCoreContentTextRun source, string? baseFont)
     {
         _source = source;
         Bounds = new AnnotationRect(source.Bbox.X, source.Bbox.Y, source.Bbox.Width, source.Bbox.Height);
         FontKind = (ContentFontKind)source.FontKind;
+        BaseFont = baseFont;
     }
 
     internal PdfCoreContentTextRun Source => _source;
@@ -103,6 +104,17 @@ public sealed class ContentTextRun
     public AnnotationRect Bounds { get; }
 
     public ContentFontKind FontKind { get; }
+
+    /// <summary>
+    /// The font this run is painted with, as the file names it —
+    /// <c>Helvetica-Bold</c>, <c>ABCDEF+Times New Roman</c> — or <c>null</c>
+    /// when the page's resources do not say.
+    /// </summary>
+    /// <remarks>
+    /// Raw on purpose. Which local font stands in for it is a platform
+    /// decision, and one the core has no business making.
+    /// </remarks>
+    public string? BaseFont { get; }
 
     public string Text => _source.Text;
 

@@ -215,10 +215,11 @@ public sealed partial class MainWindow
         var scale = slot.Scale;
         foreach (var run in content.TextRuns)
         {
+            var bounds = BoundsOf(run);
             var outline = new Rectangle
             {
-                Width = Math.Max(1, run.Bounds.Width * scale),
-                Height = Math.Max(1, run.Bounds.Height * scale),
+                Width = Math.Max(1, bounds.Width * scale),
+                Height = Math.Max(1, bounds.Height * scale),
                 StrokeThickness = 1,
                 Stroke = new SolidColorBrush(run.IsEditable
                     ? global::Windows.UI.Color.FromArgb(120, 40, 120, 235)
@@ -230,8 +231,8 @@ public sealed partial class MainWindow
                 outline.StrokeDashArray = [2, 2];
             }
 
-            Canvas.SetLeft(outline, run.Bounds.X * scale);
-            Canvas.SetTop(outline, (page.HeightPt - run.Bounds.Y - run.Bounds.Height) * scale);
+            Canvas.SetLeft(outline, bounds.X * scale);
+            Canvas.SetTop(outline, (page.HeightPt - bounds.Y - bounds.Height) * scale);
             slot.Content.Children.Add(outline);
         }
     }
@@ -287,6 +288,7 @@ public sealed partial class MainWindow
         ClearContentEditVisuals();
         _pageContent.Clear();
         _pendingRunText.Clear();
+        _pendingRunBounds.Clear();
         _contentEditedPages.Clear();
     }
 

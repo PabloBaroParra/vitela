@@ -243,6 +243,7 @@ public sealed partial class MainWindow
         }
 
         _pendingRunText[(editor.PageIndex, editor.Run.Id)] = text;
+        RecordPendingBounds(editor.Run, text);
         _contentEditedPages.Add(editor.PageIndex);
         // The page says something else now, so the characters cached for
         // drag-select no longer describe it.

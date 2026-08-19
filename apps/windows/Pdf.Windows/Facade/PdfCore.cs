@@ -66,6 +66,17 @@ internal interface IPdfCore
     PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex);
 
     /// <summary>
+    /// The <c>/BaseFont</c> name of each font a page declares, keyed by the
+    /// resource name its text runs report. Empty when the page names none.
+    /// </summary>
+    /// <remarks>
+    /// A run says which resource paints it, not what that resource is — and a
+    /// shell drawing its own editing overlay needs the second question
+    /// answered, or it draws in a face the page does not use.
+    /// </remarks>
+    IReadOnlyDictionary<string, string> PageFontFamilies(IPdfCoreDocument document, uint pageIndex);
+
+    /// <summary>
     /// Re-derives what <see cref="RenderPage"/> draws from the edits queued so
     /// far, so a retyped text run is visible before anything is saved.
     /// Retyped text <em>is</em> the page: unlike an annotation, no shell-side

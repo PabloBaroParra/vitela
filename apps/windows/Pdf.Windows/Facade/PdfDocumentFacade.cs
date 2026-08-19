@@ -409,7 +409,12 @@ public sealed class PdfDocumentFacade : IDisposable
 
         try
         {
-            var content = await Task.Run(() => _core.ReadPageContent(session.Document, pageIndex)).ConfigureAwait(false);
+            // One dispatch for both: the fonts are only useful joined to the
+            // runs that name them, and asking twice would parse the page's
+            // resources on two different threads for one answer.
+            var (content, fonts) = await Task.Run(() => (
+                _core.ReadPageContent(session.Document, pageIndex),
+                _core.PageFontFamilies(session.Document, pageIndex))).ConfigureAwait(false);
             lock (_gate)
             {
                 if (session.Retired || _currentSession != session)
@@ -421,7 +426,9 @@ public sealed class PdfDocumentFacade : IDisposable
                 }
             }
 
-            return OperationResult<PageContent>.Success(new PageContent(pageIndex, [.. content.TextRuns.Select(run => new ContentTextRun(run))]));
+            return OperationResult<PageContent>.Success(new PageContent(
+                pageIndex,
+                [.. content.TextRuns.Select(run => new ContentTextRun(run, fonts.GetValueOrDefault(run.ResourceFontName)))]));
         }
         catch (PdfCoreException error)
         {

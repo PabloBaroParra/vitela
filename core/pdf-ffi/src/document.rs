@@ -33,6 +33,7 @@
 //! established (no live pdfium-sync mechanism exists yet) and is deferred as
 //! a follow-up, not a Batch 7 regression.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -568,6 +569,31 @@ impl DocumentHandle {
         }
         pdf_save::read_page_content(&state.base, PageId(page))
             .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    /// The `/BaseFont` name of each font `page` declares, keyed by the
+    /// resource name its text runs report.
+    ///
+    /// For a shell drawing its own editing overlay: a run says which resource
+    /// paints it, not what that resource is, and an overlay in a face the page
+    /// does not use lands at the wrong width however carefully it is placed.
+    /// The names come back raw — subset prefix and style suffix included — so
+    /// each platform can decide which local font stands in for them, which is
+    /// a question only it can answer.
+    ///
+    /// Behind the same permission as `read_page_content`: it describes the
+    /// text on the page, and a document that withholds extraction withholds
+    /// this too.
+    pub fn page_font_families(&self, page: u32) -> Result<HashMap<String, String>, FfiError> {
+        let state = self.lock();
+        if !text_extraction_is_allowed(&state.document) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "text extraction is not permitted".to_string(),
+            });
+        }
+        pdf_edit::page_font_families(state.base.as_lopdf(), PageId(page))
+            .map(|families| families.into_iter().collect())
             .map_err(Into::into)
     }
 

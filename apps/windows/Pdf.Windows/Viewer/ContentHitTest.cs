@@ -20,13 +20,19 @@ public static class ContentHitTest
     /// one run to retype, and the smaller of two overlapping runs is the more
     /// specific — and so the more likely intended — target.
     /// </remarks>
-    public static ContentTextRun? TextRunAt(IReadOnlyList<ContentTextRun> runs, double xPt, double yPt)
+    /// <param name="boundsOf">
+    /// Where each run sits <em>now</em>. A run that has been retyped no longer
+    /// occupies the box it was parsed with — the replacement is longer or
+    /// shorter than what it replaced — and the reader points at what is on the
+    /// page, not at what was parsed.
+    /// </param>
+    public static ContentTextRun? TextRunAt(IReadOnlyList<ContentTextRun> runs, Func<ContentTextRun, AnnotationRect> boundsOf, double xPt, double yPt)
     {
         ContentTextRun? best = null;
         var bestArea = double.MaxValue;
         foreach (var run in runs)
         {
-            var bounds = run.Bounds;
+            var bounds = boundsOf(run);
             if (xPt < bounds.X || xPt > bounds.X + bounds.Width || yPt < bounds.Y || yPt > bounds.Y + bounds.Height)
             {
                 continue;
