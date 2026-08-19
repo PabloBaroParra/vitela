@@ -65,6 +65,16 @@ jobs:
       # dpkg-dev/file/binutils for package-linux.sh's own tool checks, and
       # libfuse2 so linuxdeploy/appimagetool's AppImage runtime can mount
       # itself instead of failing closed with no /dev/fuse.
+      - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
+        # GitHub's Azure-hosted Ubuntu runners point apt at a regional mirror
+        # (azure.archive.ubuntu.com, listed first in /etc/apt/apt-mirrors.txt)
+        # that is sometimes unreachable or very slow. apt falls back to
+        # archive.ubuntu.com for the InRelease files but has been observed
+        # hanging for 15+ minutes retrying the package indexes against the
+        # dead mirror instead of moving on. Rewriting the mirror list to the
+        # reliable host directly avoids the wait rather than just timing out
+        # faster.
+        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
       - name: Install packaging and GTK4 build dependencies
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev dpkg-dev file binutils libfuse2
       # The same pinned chromium/7763 Linux/x64 input core.yml's test job

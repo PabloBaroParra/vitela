@@ -52,6 +52,16 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
       # -sys crates resolve GTK through pkg-config at build time.
+      - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
+        # GitHub's Azure-hosted Ubuntu runners point apt at a regional mirror
+        # (azure.archive.ubuntu.com, listed first in /etc/apt/apt-mirrors.txt)
+        # that is sometimes unreachable or very slow. apt falls back to
+        # archive.ubuntu.com for the InRelease files but has been observed
+        # hanging for 15+ minutes retrying the package indexes against the
+        # dead mirror instead of moving on. Rewriting the mirror list to the
+        # reliable host directly avoids the wait rather than just timing out
+        # faster.
+        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
       - name: Install GTK4 development libraries (apps/linux-gtk)
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev
       - name: Clippy (workspace, all targets)
@@ -100,6 +110,16 @@ jobs:
           echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
       # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
       # -sys crates resolve GTK through pkg-config at build time.
+      - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
+        # GitHub's Azure-hosted Ubuntu runners point apt at a regional mirror
+        # (azure.archive.ubuntu.com, listed first in /etc/apt/apt-mirrors.txt)
+        # that is sometimes unreachable or very slow. apt falls back to
+        # archive.ubuntu.com for the InRelease files but has been observed
+        # hanging for 15+ minutes retrying the package indexes against the
+        # dead mirror instead of moving on. Rewriting the mirror list to the
+        # reliable host directly avoids the wait rather than just timing out
+        # faster.
+        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
       - name: Install GTK4 development libraries (apps/linux-gtk)
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev
       - name: Build workspace
@@ -151,6 +171,16 @@ jobs:
           echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
       # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
       # -sys crates resolve GTK through pkg-config at build time.
+      - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
+        # GitHub's Azure-hosted Ubuntu runners point apt at a regional mirror
+        # (azure.archive.ubuntu.com, listed first in /etc/apt/apt-mirrors.txt)
+        # that is sometimes unreachable or very slow. apt falls back to
+        # archive.ubuntu.com for the InRelease files but has been observed
+        # hanging for 15+ minutes retrying the package indexes against the
+        # dead mirror instead of moving on. Rewriting the mirror list to the
+        # reliable host directly avoids the wait rather than just timing out
+        # faster.
+        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
       - name: Install GTK4 development libraries (apps/linux-gtk)
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev
       # Build/fetch everything BEFORE entering the network namespace: cargo
