@@ -20,14 +20,25 @@ jobs:
   gtk-ui-tests:
     name: GTK UI tests (Linux/X11)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
+      - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
+        # GitHub's Azure-hosted Ubuntu runners point apt at a regional mirror
+        # (azure.archive.ubuntu.com, listed first in /etc/apt/apt-mirrors.txt)
+        # that is sometimes unreachable or very slow. apt falls back to
+        # archive.ubuntu.com for the InRelease files but has been observed
+        # hanging for 15+ minutes retrying the package indexes against the
+        # dead mirror instead of moving on. Rewriting the mirror list to the
+        # reliable host directly avoids the wait rather than just timing out
+        # faster.
+        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
       - name: Install GTK4 and Xvfb
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev pkg-config xvfb
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev pkg-config xvfb
       - name: Run focused GTK tests under Xvfb
         run: >-
           xvfb-run --auto-servernum --server-args='-screen 0 1280x800x24'
