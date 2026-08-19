@@ -129,7 +129,35 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
+    {
+        try
+        {
+            var content = ((GeneratedDocument)document).Handle.ReadPageContent(pageIndex);
+            return new PdfCorePageContent(
+                [.. content.TextRuns.Select(run => new PdfCoreContentTextRun(run.Id, run.Page, Rect(run.Bbox), run.ResourceFontName, FontKind(run.FontKind), run.Text))],
+                [.. content.Images.Select(image => new PdfCoreContentImage(image.Id, image.Page, Rect(image.Bbox), image.ResourceXobjectName))]);
+        }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public IReadOnlyDictionary<string, string> PageFontFamilies(IPdfCoreDocument document, uint pageIndex)
+    {
+        try
+        {
+            return ((GeneratedDocument)document).Handle.PageFontFamilies(pageIndex);
+        }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public void RefreshPreview(IPdfCoreDocument document)
+    {
+        try { PdfFfiMethods.RefreshPreview(((GeneratedDocument)document).Handle); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.AnnotationEditingAllowed();
+    public bool ContentEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.ContentEditingAllowed();
     public bool CanUndo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanUndo();
     public bool CanRedo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanRedo();
 
@@ -192,7 +220,28 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.Move value => new FfiEditCommand.MoveAnnotation(value.AnnotationId, value.Dx, value.Dy),
         PdfCoreEdit.Resize value => new FfiEditCommand.ResizeAnnotation(value.AnnotationId, Rect(value.Rect)),
         PdfCoreEdit.Restyle value => new FfiEditCommand.RestyleAnnotation(value.AnnotationId, Color(value.Color)),
+        PdfCoreEdit.ReplaceTextRun value => new FfiEditCommand.ReplaceTextRunContent(ContentRun(value.Item), value.After),
         _ => throw new InvalidOperationException("Unsupported annotation edit."),
+    };
+
+    private static FfiContentTextRun ContentRun(PdfCoreContentTextRun run) =>
+        new(run.Id, run.PageIndex, Rect(run.Bbox), run.ResourceFontName, FontKind(run.FontKind), run.Text);
+
+    private static PdfCoreFontKind FontKind(FfiFontKind kind) => kind switch
+    {
+        FfiFontKind.Standard14 => PdfCoreFontKind.Standard14,
+        FfiFontKind.EmbeddedSimple => PdfCoreFontKind.EmbeddedSimple,
+        // Composite is also where an unrecognised future kind lands, which is
+        // the conservative answer: the shell treats it as "cannot be retyped"
+        // rather than opening an editor the core would refuse.
+        _ => PdfCoreFontKind.EmbeddedComposite,
+    };
+
+    private static FfiFontKind FontKind(PdfCoreFontKind kind) => kind switch
+    {
+        PdfCoreFontKind.Standard14 => FfiFontKind.Standard14,
+        PdfCoreFontKind.EmbeddedSimple => FfiFontKind.EmbeddedSimple,
+        _ => FfiFontKind.EmbeddedComposite,
     };
 
     private static FfiRect Rect(PdfCoreRect rect) => new(rect.X, rect.Y, rect.Width, rect.Height);
@@ -215,11 +264,16 @@ internal sealed class GeneratedPdfCore : IPdfCore
             FfiException.InvalidSaveRequest => PdfCoreError.InvalidSaveRequest,
             FfiException.SignaturesWouldBeInvalidated => PdfCoreError.SignaturesWouldBeInvalidated,
             FfiException.UnsupportedOperation => PdfCoreError.UnsupportedOperation,
+            FfiException.EncodingGap => PdfCoreError.EncodingGap,
             FfiException.RenderFailed => PdfCoreError.RenderFailed,
             FfiException.Io => PdfCoreError.Io,
             _ => PdfCoreError.Internal
         };
-        return new PdfCoreException(category, error.GetType().Name);
+        // The character is the only detail that crosses: everything else in a
+        // typed failure is diagnostic, and the reader is the one who typed
+        // this one.
+        var readerFacingDetail = error is FfiException.EncodingGap gap ? gap.character : null;
+        return new PdfCoreException(category, error.GetType().Name, readerFacingDetail);
     }
 
     private sealed class GeneratedPageCharacters(FfiPageCharacters handle) : IPdfCorePageCharacters

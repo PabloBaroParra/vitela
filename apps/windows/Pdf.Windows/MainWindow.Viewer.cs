@@ -154,12 +154,18 @@ public sealed partial class MainWindow
             var searchHighlights = new Canvas { IsHitTestVisible = false };
             var selection = new Canvas { IsHitTestVisible = false };
             var annotations = new Canvas { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+            // Above annotations, and with no background of its own: the inline
+            // editor and the run outlines have to sit over everything, but the
+            // canvas itself must stay invisible to the pointer so a press on
+            // empty page still reaches the annotation surface underneath.
+            var content = new Canvas();
             var pageLayer = new Grid();
             pageLayer.Children.Add(image);
             pageLayer.Children.Add(tiles);
             pageLayer.Children.Add(searchHighlights);
             pageLayer.Children.Add(selection);
             pageLayer.Children.Add(annotations);
+            pageLayer.Children.Add(content);
             var container = new Border
             {
                 BorderThickness = new Thickness(1),
@@ -168,7 +174,7 @@ public sealed partial class MainWindow
                 Background = new SolidColorBrush(Microsoft.UI.Colors.White),
                 Child = pageLayer,
             };
-            var slot = new PageSlot(container, image, tiles, searchHighlights, selection, annotations);
+            var slot = new PageSlot(container, image, tiles, searchHighlights, selection, annotations, content);
             ConnectAnnotationPointer(slot, _slots.Count);
             _slots.Add(slot);
             PageStack.Children.Add(container);
@@ -277,6 +283,11 @@ public sealed partial class MainWindow
                 slot.Render.DropBitmap();
             }
         }
+
+        // Last, and only once the scroll settles: content-edit overlays are
+        // laid out in page space, so they follow both the pages that came into
+        // view and the scale a zoom just changed. No-op unless the mode is on.
+        UpdateContentEditOverlays(visible);
     }
 
     private void RequestRender(string sessionId, int pageIndex)
@@ -481,7 +492,7 @@ public sealed partial class MainWindow
     /// <summary>Where the reader was, in page-relative terms a zoom cannot invalidate.</summary>
     private readonly record struct ScrollAnchor(int PageIndex, double Fraction);
 
-    private sealed class PageSlot(Border container, Image image, Canvas tiles, Canvas searchHighlights, Canvas selection, Canvas annotations)
+    private sealed class PageSlot(Border container, Image image, Canvas tiles, Canvas searchHighlights, Canvas selection, Canvas annotations, Canvas content)
     {
         public Border Container { get; } = container;
         public Image Image { get; } = image;
@@ -492,6 +503,8 @@ public sealed partial class MainWindow
         public Canvas Selection { get; } = selection;
         /// <summary>Annotation visuals and the pointer surface. Owned by the annotation and file-drop partials.</summary>
         public Canvas Annotations { get; } = annotations;
+        /// <summary>Content-edit run outlines and the inline editor. Owned by <c>MainWindow.ContentEdit.cs</c> alone.</summary>
+        public Canvas Content { get; } = content;
         /// <summary>DIPs per PDF point at the current zoom — how overlays map page geometry.</summary>
         public double Scale { get; set; }
         public double Factor { get; set; }

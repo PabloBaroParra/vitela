@@ -95,6 +95,37 @@ pub fn replay_content_edits(
     Ok(())
 }
 
+/// Dry-runs one page-content command against a throwaway clone of `base`,
+/// reporting the error a save would hit — and writing nothing anywhere.
+///
+/// Exists because the nine page-content `Command` variants are inert on
+/// `Document::apply` (page content is a snapshot, never cached state — see
+/// `pdf_document::content`'s module docs). Recording one unchecked means a
+/// text run whose font cannot encode the new characters, or an image paint
+/// operation `pdf-edit` refuses to rewrite, only surfaces when the *whole*
+/// save runs — failing every other queued edit along with it, long after the
+/// gesture that caused it.
+///
+/// Callers therefore validate before recording. The GTK4 shell does this by
+/// probing `pdf-edit` directly (`content_edit::command`), which it can only
+/// do because it links the core crates; every shell behind the FFI reaches
+/// the same gate through `pdf_ffi::apply_edit`, which calls this.
+///
+/// `base` is the document as opened, not as pending page ops would leave it:
+/// this resolves the target page positionally, like the shells' own probes,
+/// so a command queued behind an unsaved page reorder is validated against
+/// the pre-reorder position. `replay_content_edits` is the one that must be
+/// exact, and it takes a resolved page map for precisely that reason.
+pub fn validate_content_command(base: &LopdfDoc, command: &Command) -> Result<(), SaveError> {
+    let Some(page) = content_page(command) else {
+        return Ok(());
+    };
+
+    let mut probe = base.clone();
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
+    apply(&mut probe, command, page_object)
+}
+
 /// The page a content command targets, or `None` if it is not a content
 /// command at all.
 fn content_page(command: &Command) -> Option<PageId> {

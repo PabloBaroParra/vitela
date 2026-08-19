@@ -44,8 +44,8 @@ mod types;
 pub use bitmap::BitmapHandle;
 pub use document::{
     apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp, open,
-    open_from_bytes, open_with_passwords, open_with_passwords_from_bytes, redo, render_page,
-    render_page_tiles, save_to_bytes, save_to_path, stamp_placement, undo,
+    open_from_bytes, open_with_passwords, open_with_passwords_from_bytes, redo, refresh_preview,
+    render_page, render_page_tiles, save_to_bytes, save_to_path, stamp_placement, undo,
     will_invalidate_signatures, DocumentHandle,
 };
 pub use error::FfiError;
