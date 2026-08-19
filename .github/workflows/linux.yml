@@ -66,7 +66,7 @@ jobs:
       # libfuse2 so linuxdeploy/appimagetool's AppImage runtime can mount
       # itself instead of failing closed with no /dev/fuse.
       - name: Install packaging and GTK4 build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev dpkg-dev file binutils libfuse2
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev dpkg-dev file binutils libfuse2
       # The same pinned chromium/7763 Linux/x64 input core.yml's test job
       # downloads for pdf-render's own tests — cached separately because this
       # job feeds it to package-linux.sh as a raw archive, not as an

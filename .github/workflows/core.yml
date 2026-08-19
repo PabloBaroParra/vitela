@@ -34,6 +34,7 @@ jobs:
   clippy:
     name: cargo clippy -D warnings
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust (stable)
@@ -52,13 +53,14 @@ jobs:
       # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
       # -sys crates resolve GTK through pkg-config at build time.
       - name: Install GTK4 development libraries (apps/linux-gtk)
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev
       - name: Clippy (workspace, all targets)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
     name: cargo test (workspace)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust (stable)
@@ -99,7 +101,7 @@ jobs:
       # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
       # -sys crates resolve GTK through pkg-config at build time.
       - name: Install GTK4 development libraries (apps/linux-gtk)
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev
       - name: Build workspace
         run: cargo build --workspace --locked
       # apps/linux-gtk's #[gtk::test]s need a real display (gtk_init_check
@@ -116,6 +118,7 @@ jobs:
     name: zero-network enforcement (T-005)
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust (stable)
@@ -149,7 +152,7 @@ jobs:
       # apps/linux-gtk's gtk4 dependency is active on Linux runners and its
       # -sys crates resolve GTK through pkg-config at build time.
       - name: Install GTK4 development libraries (apps/linux-gtk)
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev
       # Build/fetch everything BEFORE entering the network namespace: cargo
       # itself needs network access to resolve/download crates, but the test
       # *run* must not. Compiling test binaries ahead of time means the
