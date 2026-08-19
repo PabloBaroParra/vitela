@@ -29,8 +29,15 @@ namespace Pdf.Windows;
 /// </summary>
 public sealed partial class MainWindow
 {
-    /// <summary>Page content, parsed once per page and kept for the session's lifetime.</summary>
-    private readonly Dictionary<uint, PageContentState> _pageContent = [];
+    /// <summary>
+    /// Every page this session has retyped something on.
+    ///
+    /// Grows only — an undo does not remove a page from it, because the page
+    /// still has to be re-rendered to show the text coming back. Cleared with
+    /// the document, like everything else keyed to the bytes it was parsed
+    /// from.
+    /// </summary>
+    private readonly HashSet<uint> _contentEditedPages = [];
 
     private bool _contentEditMode;
 
@@ -99,20 +106,42 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Throws away every page bitmap and tile so the next viewport pass asks
-    /// the core again.
+    /// Throws away one page's bitmap and tiles so the next viewport pass asks
+    /// the core for it again.
     ///
-    /// Only the *bitmap* is dropped, never the <see cref="Image"/> source: the
-    /// page keeps showing the old render, scaled as usual, until the new one
-    /// lands. Blanking it instead would flash white on every keystroke-sized
-    /// edit.
+    /// One page, not the document: a content edit rewrites the stream of the
+    /// page it targeted and leaves every other page byte-identical, so
+    /// dropping them all would re-render the whole visible window to redraw a
+    /// single word. Only the *bitmap* is dropped, never the
+    /// <see cref="Image"/> source — the page keeps showing the old render,
+    /// scaled as usual, until the new one lands, instead of flashing white.
     /// </summary>
-    private void InvalidateRenderedPages()
+    private void InvalidatePageRender(uint pageIndex)
     {
-        foreach (var slot in _slots)
+        if (pageIndex >= _slots.Count)
         {
-            slot.Render.DropBitmap();
-            slot.Tiles.Clear();
+            return;
+        }
+
+        var slot = _slots[(int)pageIndex];
+        slot.Render.DropBitmap();
+        slot.Tiles.Clear();
+        UpdateViewport(intermediate: false);
+    }
+
+    /// <summary>
+    /// Re-renders every page this session has retyped something on — what an
+    /// undo or a redo needs, since neither says which page it moved.
+    /// </summary>
+    private void InvalidateContentEditedPages()
+    {
+        foreach (var pageIndex in _contentEditedPages)
+        {
+            if (pageIndex < _slots.Count)
+            {
+                _slots[(int)pageIndex].Render.DropBitmap();
+                _slots[(int)pageIndex].Tiles.Clear();
+            }
         }
 
         UpdateViewport(intermediate: false);
@@ -222,69 +251,6 @@ public sealed partial class MainWindow
         }
     }
 
-    /// <summary>
-    /// Loads and caches one page's content. A refusal is cached too, so a
-    /// document that withholds content editing does not re-ask the facade on
-    /// every click.
-    /// </summary>
-    private async Task<PageContent?> EnsurePageContentAsync(uint pageIndex)
-    {
-        if (_session is null)
-        {
-            return null;
-        }
-
-        if (!_pageContent.TryGetValue(pageIndex, out var state))
-        {
-            state = new PageContentState();
-            _pageContent[pageIndex] = state;
-        }
-
-        if (state.Content is not null || state.Denied)
-        {
-            return state.Content;
-        }
-
-        if (state.Loading is { } inFlight)
-        {
-            return await inFlight;
-        }
-
-        var sessionId = _session.SessionId;
-        var load = LoadPageContentAsync(sessionId, pageIndex, state);
-        state.Loading = load;
-        try
-        {
-            return await load;
-        }
-        finally
-        {
-            state.Loading = null;
-        }
-    }
-
-    private async Task<PageContent?> LoadPageContentAsync(string sessionId, uint pageIndex, PageContentState state)
-    {
-        var result = await _facade.PageContentAsync(sessionId, pageIndex);
-        if (_session is null || _session.SessionId != sessionId)
-        {
-            // A different document opened while this was in flight — the cache
-            // it would populate has already been cleared.
-            return null;
-        }
-
-        if (!result.IsSuccess)
-        {
-            state.Denied = true;
-            AnnotationStatus.Text = result.Error!.Message;
-            return null;
-        }
-
-        state.Content = result.Value;
-        DrawContentOutlines(pageIndex);
-        return state.Content;
-    }
-
     /// <summary>The pages the viewport covers right now, or an empty run before the first layout.</summary>
     private PageWindow VisiblePageWindow() =>
         _slots.Count == 0 ? PageWindow.Empty : PageWindow.Resolve(_spans, PageScroller.VerticalOffset, PageScroller.ViewportHeight);
@@ -315,6 +281,7 @@ public sealed partial class MainWindow
         ClearContentEditVisuals();
         _pageContent.Clear();
         _pendingRunText.Clear();
+        _contentEditedPages.Clear();
     }
 
     /// <summary>
@@ -328,12 +295,4 @@ public sealed partial class MainWindow
         ContentEditButton.IsChecked = false;
         ResetContentEditState();
     }
-
-    private sealed class PageContentState
-    {
-        public PageContent? Content { get; set; }
-        public Task<PageContent?>? Loading { get; set; }
-        public bool Denied { get; set; }
-    }
-
 }

@@ -180,6 +180,30 @@ public sealed partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// Drops one page's cached characters, after its content changed.
+    /// </summary>
+    /// <remarks>
+    /// The cache describes the words that were on the page when it was
+    /// loaded. Retyping a run rewrites them, so keeping it would let a
+    /// drag-select highlight one thing and copy another.
+    /// </remarks>
+    private void InvalidatePageCharacters(uint pageIndex)
+    {
+        if (!_pageText.Remove(pageIndex, out var state))
+        {
+            return;
+        }
+
+        state.Handle?.Dispose();
+        if (_textSelection?.PageIndex == pageIndex)
+        {
+            _textSelection = null;
+            _textDragActive = false;
+            RedrawSelection();
+        }
+    }
+
     /// <summary>Drops every cached page's characters and the live selection — called when a new document replaces the session.</summary>
     private void ResetSelectionState()
     {

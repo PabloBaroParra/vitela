@@ -402,10 +402,10 @@ public sealed partial class MainWindow
         // paints, and the facade has already rebuilt the preview for it. Only
         // the pages on screen are left to catch up — and only a session that
         // has touched content pays for it.
-        if (_pendingRunText.Count > 0)
+        if (_contentEditedPages.Count > 0)
         {
             ForgetPendingContentText();
-            InvalidateRenderedPages();
+            InvalidateContentEditedPages();
         }
     }
 

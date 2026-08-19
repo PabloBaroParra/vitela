@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
 using Windows.System;
@@ -32,9 +33,6 @@ public sealed partial class MainWindow
     private readonly Dictionary<(uint Page, ulong Run), string> _pendingRunText = [];
 
     private ContentEditor? _contentEditor;
-
-    /// <summary>The commit in flight, so a second one waits for it instead of racing it.</summary>
-    private Task? _contentCommit;
 
     /// <summary>
     /// Resolves whatever editor is open, then opens one over the run under
@@ -80,16 +78,34 @@ public sealed partial class MainWindow
         }
 
         var slot = _slots[(int)pageIndex];
+        Brush paper = new SolidColorBrush(Microsoft.UI.Colors.White);
+        Brush ink = new SolidColorBrush(Microsoft.UI.Colors.Black);
         var box = new TextBox
         {
             Text = _pendingRunText.TryGetValue((pageIndex, run.Id), out var pending) ? pending : run.Text,
-            BorderThickness = new Thickness(1),
+            // No chrome at all: the box has to read as the page, not as a
+            // field floating over it. It covers the run's own box, so the
+            // words underneath are hidden while the new ones are typed —
+            // without that the reader would see both at once.
+            BorderThickness = new Thickness(0),
             Padding = new Thickness(0),
             MinWidth = 0,
             MinHeight = 0,
             TextWrapping = TextWrapping.NoWrap,
+            Background = paper,
+            Foreground = ink,
+            FontFamily = new FontFamily(EditorFontFamily),
+            CornerRadius = new CornerRadius(0),
         };
+        if (!_liveEditWired)
+        {
+            _liveEdit.Tick += LiveEdit_Tick;
+            _liveEditWired = true;
+        }
+
+        MakeEditorLookLikeThePage(box, paper, ink);
         box.KeyDown += ContentEditor_KeyDown;
+        box.TextChanged += ContentEditor_TextChanged;
 
         _contentEditor = new ContentEditor(pageIndex, run, box);
         slot.Content.Children.Add(box);
@@ -101,6 +117,9 @@ public sealed partial class MainWindow
 
     private void ContentEditor_KeyDown(object sender, KeyRoutedEventArgs args)
     {
+        // Whatever was refused is being retyped, so let the pump try again.
+        _liveEditFailed = false;
+
         if (args.Key == VirtualKey.Enter)
         {
             args.Handled = true;
@@ -114,91 +133,6 @@ public sealed partial class MainWindow
             CancelContentEditor();
             AnnotationStatus.Text = "Edit cancelled.";
         }
-    }
-
-    /// <summary>
-    /// Resolves the open editor: records its text if it changed, then closes
-    /// it. Concurrent callers await the same commit rather than starting a
-    /// second one — a click on another run resolves the box in progress, and
-    /// pressing Enter and clicking away are the same gesture arriving twice.
-    /// </summary>
-    private async Task CommitContentEditorAsync()
-    {
-        if (_contentCommit is { } inFlight)
-        {
-            await inFlight;
-            return;
-        }
-
-        if (_contentEditor is not { } editor || _session is null)
-        {
-            return;
-        }
-
-        var text = editor.Box.Text;
-        var current = _pendingRunText.TryGetValue((editor.PageIndex, editor.Run.Id), out var pending) ? pending : editor.Run.Text;
-        if (text == current)
-        {
-            CloseEditor(editor);
-            return;
-        }
-
-        // Assigned before the first continuation runs — this all happens on
-        // the UI thread — so a reentrant caller sees the task, not a null.
-        var commit = RecordEditorTextAsync(editor, text);
-        _contentCommit = commit;
-        try
-        {
-            await commit;
-        }
-        finally
-        {
-            _contentCommit = null;
-        }
-    }
-
-    /// <summary>
-    /// Sends one editor's text to the core, then re-renders the pages so the
-    /// reader sees the words the PDF now paints.
-    /// </summary>
-    /// <remarks>
-    /// A failure keeps the editor open with the text still in it. The one that
-    /// matters is a character the run's font cannot encode: the reader can fix
-    /// that by typing something else, and closing the box would make them find
-    /// the run again first.
-    /// </remarks>
-    private async Task RecordEditorTextAsync(ContentEditor editor, string text)
-    {
-        if (_session is null)
-        {
-            return;
-        }
-
-        var sessionId = _session.SessionId;
-        editor.Box.IsEnabled = false;
-        var result = await _facade.ReplaceTextRunAsync(sessionId, editor.Run, text);
-        if (_session is null || _session.SessionId != sessionId)
-        {
-            // Another document arrived while the edit was in flight; its own
-            // reset already cleared this editor.
-            return;
-        }
-
-        if (!result.IsSuccess)
-        {
-            editor.Box.IsEnabled = true;
-            editor.Box.Focus(FocusState.Programmatic);
-            AnnotationStatus.Text = result.Error!.Message;
-            return;
-        }
-
-        _pendingRunText[(editor.PageIndex, editor.Run.Id)] = text;
-        CloseEditor(editor);
-        _annotationState = result.Value;
-        UpdateAnnotationControls(_annotationState);
-        RedrawAnnotations();
-        InvalidateRenderedPages();
-        AnnotationStatus.Text = "Text updated. Save to keep the change.";
     }
 
     /// <summary>Closes the open editor without recording anything.</summary>
@@ -221,7 +155,10 @@ public sealed partial class MainWindow
     /// </remarks>
     private void CloseEditor(ContentEditor editor)
     {
+        _liveEdit.Stop();
+        _liveEditFailed = false;
         editor.Box.KeyDown -= ContentEditor_KeyDown;
+        editor.Box.TextChanged -= ContentEditor_TextChanged;
         if (editor.PageIndex < _slots.Count)
         {
             _slots[(int)editor.PageIndex].Content.Children.Remove(editor.Box);
@@ -234,11 +171,112 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Puts the editor box exactly over the run it is editing, at the current
-    /// zoom. The font size follows the run's own height, so what the reader
-    /// types is about the size of what the page will paint — the page itself
-    /// is the authority, once the edit lands.
+    /// The face the editor types in until the page is re-rendered.
     /// </summary>
+    /// <remarks>
+    /// A stand-in, and only for the seconds between the first keystroke and
+    /// the commit: once the edit lands, PDFium redraws the page in the
+    /// document's own font. A run reports its <em>kind</em>, not its family,
+    /// so matching the document properly would mean carrying the base font
+    /// across the FFI — a core change for a few seconds of fidelity, and a
+    /// candidate for later if this reads wrong in practice.
+    /// </remarks>
+    private const string EditorFontFamily = "Segoe UI";
+
+    /// <summary>
+    /// The size at which the stand-in face fills the same box the document's
+    /// own text does.
+    /// </summary>
+    /// <remarks>
+    /// Height alone is not enough. A run's box spans ascender to descender, so
+    /// a size set from it draws taller than the glyphs it covers, and two
+    /// faces at the same size still run to different widths — the reader sees
+    /// the replacement land wider or narrower than the words it replaced. So
+    /// the height gives a starting size and the run's own width corrects it:
+    /// whatever size makes the *original* text measure the width the page
+    /// actually gave it is the size that matches the page's density.
+    ///
+    /// Clamped, because the correction is only as good as the measurement: a
+    /// run of one character, or one the layout engine refuses to measure,
+    /// must not be allowed to produce absurd text.
+    /// </remarks>
+    private static double FittedFontSize(ContentTextRun run, double heightPx, double widthPx)
+    {
+        var fromHeight = Math.Max(6, heightPx * 0.82);
+        if (run.Text.Length == 0 || widthPx <= 0)
+        {
+            return fromHeight;
+        }
+
+        var probe = new TextBlock
+        {
+            Text = run.Text,
+            FontFamily = new FontFamily(EditorFontFamily),
+            FontSize = fromHeight,
+        };
+        probe.Measure(new global::Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var measured = probe.DesiredSize.Width;
+        if (measured <= 0)
+        {
+            return fromHeight;
+        }
+
+        return Math.Clamp(fromHeight * (widthPx / measured), fromHeight * 0.6, fromHeight * 1.4);
+    }
+
+    /// <summary>
+    /// Strips a <see cref="TextBox"/> of every piece of chrome its default
+    /// template paints.
+    /// </summary>
+    /// <remarks>
+    /// The plain properties are not enough. WinUI's template swaps the
+    /// background and border to theme brushes in its pointer-over, focused and
+    /// disabled visual states, so a box de-chromed only through
+    /// <c>Background</c> and <c>BorderThickness</c> grows a border and a grey
+    /// fill the moment it takes focus — which is always, since it is opened to
+    /// be typed in. Overriding the theme resources on the instance is what
+    /// makes the states agree with the properties.
+    ///
+    /// The fill is the page's paper, not transparent: it is what hides the
+    /// words being replaced. A page that is not white will show this, and the
+    /// honest fix then is to sample the rendered page rather than to guess
+    /// harder here.
+    /// </remarks>
+    private static void MakeEditorLookLikeThePage(TextBox box, Brush paper, Brush ink)
+    {
+        var invisible = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        var none = new Thickness(0);
+        box.Resources["TextControlBackground"] = paper;
+        box.Resources["TextControlBackgroundPointerOver"] = paper;
+        box.Resources["TextControlBackgroundFocused"] = paper;
+        box.Resources["TextControlBackgroundDisabled"] = paper;
+        box.Resources["TextControlBorderBrush"] = invisible;
+        box.Resources["TextControlBorderBrushPointerOver"] = invisible;
+        box.Resources["TextControlBorderBrushFocused"] = invisible;
+        box.Resources["TextControlBorderBrushDisabled"] = invisible;
+        box.Resources["TextControlBorderThemeThickness"] = none;
+        box.Resources["TextControlBorderThemeThicknessFocused"] = none;
+        box.Resources["TextControlForeground"] = ink;
+        box.Resources["TextControlForegroundPointerOver"] = ink;
+        box.Resources["TextControlForegroundFocused"] = ink;
+        box.Resources["TextControlForegroundDisabled"] = ink;
+        box.Resources["TextControlThemePadding"] = none;
+    }
+
+    /// <summary>
+    /// Puts the editor box exactly over the run it is editing, at the current
+    /// zoom, so typing happens where the words are rather than in a panel over
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// The box matches the run's height exactly — that is what makes it cover
+    /// the old text — and the font size is read from that height, since a
+    /// run's box is drawn around the glyphs it paints. It is allowed to be
+    /// wider than the run, because a replacement is usually longer than what
+    /// it replaces and a box clipped to the old text would hide what is being
+    /// typed; the saved page will overflow to the right in exactly the same
+    /// way.
+    /// </remarks>
     private void PlaceEditor(PageSlot slot, uint pageIndex, ContentEditor editor)
     {
         if (_session is null || pageIndex >= _session.Pages.Count)
@@ -249,12 +287,10 @@ public sealed partial class MainWindow
         var page = _session.Pages[(int)pageIndex];
         var scale = slot.Scale;
         var bounds = editor.Run.Bounds;
-        // Wider than the run: the replacement is usually longer than what it
-        // replaces, and a box clipped to the old text hides what is being
-        // typed.
-        editor.Box.Width = Math.Max(60, bounds.Width * scale * 1.5);
-        editor.Box.Height = Math.Max(18, bounds.Height * scale * 1.6);
-        editor.Box.FontSize = Math.Max(8, bounds.Height * scale);
+        var height = bounds.Height * scale;
+        editor.Box.Width = Math.Max(40, bounds.Width * scale * 1.6);
+        editor.Box.Height = height;
+        editor.Box.FontSize = FittedFontSize(editor.Run, height, bounds.Width * scale);
         Canvas.SetLeft(editor.Box, bounds.X * scale);
         Canvas.SetTop(editor.Box, (page.HeightPt - bounds.Y - bounds.Height) * scale);
     }
