@@ -40,6 +40,7 @@ use pdf_document::{Annotation, AnnotationId, AnnotationKind, Command, Document, 
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
+use crate::selection::FfiPageCharacters;
 use crate::types::{
     FfiAnnotation, FfiAnnotationKind, FfiEditCommand, FfiOrientation, FfiPageContent,
     FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile,
@@ -414,6 +415,32 @@ impl DocumentHandle {
             .wait()
             .map(|runs| runs.into_iter().map(Into::into).collect())
             .map_err(Into::into)
+    }
+
+    /// Loads and flattens one page's characters for caret hit-testing and
+    /// selection-rect queries (`FfiPageCharacters`) — the geometry a
+    /// drag-select needs on every pointer-move. Same source and same
+    /// permission gate as `text_runs`: this is text extraction with the
+    /// paint deferred to the shell, not extraction with the pixels
+    /// stripped out. Callers should hold the returned handle for the life
+    /// of one drag rather than reloading it per pointer-move.
+    pub fn page_characters(&self, page_index: u32) -> Result<Arc<FfiPageCharacters>, FfiError> {
+        let render_doc = {
+            let state = self.lock();
+            if !text_extraction_is_allowed(&state.document) {
+                return Err(FfiError::UnsupportedOperation {
+                    detail: "text extraction is not permitted".to_string(),
+                });
+            }
+            state.render_doc.ok_or(FfiError::DocumentNotFound)?
+        };
+        let runs = pdf_render::PdfiumRenderer::new()
+            .text_runs(render_doc, page_index, pdf_render::Priority::Visible)
+            .wait()
+            .map_err(FfiError::from)?;
+        Ok(Arc::new(FfiPageCharacters::new(
+            pdf_render::PageCharacters::from_runs(&runs),
+        )))
     }
 
     /// Finds exact, case-sensitive text matches in render-side page order.

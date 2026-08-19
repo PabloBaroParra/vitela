@@ -100,6 +100,19 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
+    public IPdfCorePageCharacters PageCharacters(IPdfCoreDocument document, uint pageIndex)
+    {
+        try
+        {
+            var generated = ((GeneratedDocument)document).Handle;
+            return new GeneratedPageCharacters(generated.PageCharacters(pageIndex));
+        }
+        catch (FfiException error)
+        {
+            throw Translate(error);
+        }
+    }
+
     public IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document)
     {
         try
@@ -200,6 +213,15 @@ internal sealed class GeneratedPdfCore : IPdfCore
             _ => PdfCoreError.Internal
         };
         return new PdfCoreException(category, error.GetType().Name);
+    }
+
+    private sealed class GeneratedPageCharacters(FfiPageCharacters handle) : IPdfCorePageCharacters
+    {
+        public uint? CaretAt(double xPt, double yPt) => handle.CaretAt((float)xPt, (float)yPt);
+        public string TextIn(uint anchor, uint focus) => handle.TextIn(anchor, focus);
+        public IReadOnlyList<PdfCoreSearchRect> RectsIn(uint anchor, uint focus) =>
+            [.. handle.RectsIn(anchor, focus).Select(bounds => new PdfCoreSearchRect(bounds.XPt, bounds.YPt, bounds.WidthPt, bounds.HeightPt))];
+        public void Dispose() => handle.Dispose();
     }
 
     private sealed class GeneratedDocument : IPdfCoreDocument

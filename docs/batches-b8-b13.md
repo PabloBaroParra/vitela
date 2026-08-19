@@ -449,8 +449,42 @@ ninguno de los dos.
       `PageZoom.BridgeDpi` le da a la página tileada un bitmap base puente (2 MP) en lugar de
       dejarla con el render del zoom anterior. Carril propio para los lotes de tiles en
       `PdfDocumentFacade`, para que no se cancelen contra el render de página completa)**
-- [ ] T-061 Prompt de contraseña, selección/búsqueda, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
+- [x] T-061 Prompt de contraseña, selección/búsqueda, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
       **(2026-07-19 — parcial: prompt de contraseña + búsqueda con matches navegables hechos; anotaciones + undo/redo pendientes)**
+      **(2026-08-04 — anotaciones + undo/redo cerrados en el PR #37 "reach annotation parity
+      with the Linux shell" y los PR #44-47 subsiguientes (preview de stamp, paste/drop de
+      imagen, canvas dedicado). Esta ficha había quedado desactualizada.)**
+      **(2026-08-19 — completo: selección de texto arrastrando + copiar (Ctrl+C). El gap real
+      era que `pdf-ffi` no exponía la geometría de selección — `pdf_render::selection`
+      (caret hit-test línea-primero, unión de rects por línea) es la misma que usa el shell
+      Linux, pero ese shell la consume linkeando `pdf-render` directo (bypass FFI); Windows
+      no puede, todo pasa por la facade C# (`apps/windows/CONTRACT.md`: "no view calls
+      generated bindings directly"). Se agregó `core/pdf-ffi/src/selection.rs`:
+      `FfiPageCharacters`, un objeto de interfaz UniFFI que envuelve
+      `pdf_render::PageCharacters` (`caret_at`/`text_in`/`rects_in`), más
+      `DocumentHandle::page_characters(page_index)` con el mismo gate de permisos que
+      `text_runs`/`search`. Ningún otro shell reimplementa el hit-test — sigue viviendo una
+      sola vez en `pdf_render`.
+      El lado C#: `IPdfCorePageCharacters`/`GeneratedPageCharacters` en la capa Facade,
+      `PdfDocumentFacade.PageCharactersAsync` (despachada fuera del hilo de UI porque lee
+      text runs de pdfium), y `MainWindow.Selection.cs` nuevo. La carga de `PageCharacters`
+      es async (una vez por página, cacheada); una vez cargada, cada `PointerMoved` de un
+      arrastre la consulta de forma síncrona — igual criterio que ya usa el hit-test de
+      anotaciones, para no pagar un round-trip de facade por cada movimiento del mouse.
+      **Orden de prioridad del gesto de puntero, igual que el shell Linux
+      (`app/selection.rs`'s `begin_selection`):** una herramienta de anotación armada, o un
+      press que cae sobre el handle/cuerpo de una anotación existente, reclama el gesto;
+      si ninguna de las dos lo reclama —incluyendo cuando `AnnotationEditingAllowed` es
+      falso, que antes cortaba toda interacción del canvas— el gesto cae a selección de
+      texto. Esto exigió que `BeginAnnotationPointer`/`ContinueAnnotationPointer`/
+      `EndAnnotationPointerAsync` devuelvan `bool` (¿reclamado?) en vez de `void`.
+      Gate en Windows: MSBuild real de Visual Studio (`dotnet build` no compila este shell,
+      ver Gotchas críticos) con 0 warnings/0 errores, y la suite completa de
+      `Pdf.Windows.Facade.Tests` (79/79, incluye 2 tests nuevos de `PageCharactersAsync`)
+      vía `dotnet run`. **No verificado a mano en la app corriendo**: el binario de
+      desarrollo no está registrado como app de Start Menu, y las herramientas de control de
+      escritorio de esta sesión sólo autorizan apps instaladas/registradas — arrastrar sobre
+      texto y confirmar el resaltado + Ctrl+C queda pendiente de una pasada manual.)**
 - [x] T-062 PrintDocument vía render_page. [Print]
 - [ ] T-063 WinRT Clipboard/DataPackage paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
 - [ ] T-064 Bundling .dll + firma Authenticode en windows.yml. [pdfium dist]

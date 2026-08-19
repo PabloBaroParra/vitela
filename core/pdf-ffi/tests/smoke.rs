@@ -69,6 +69,47 @@ fn text_runs_expose_one_pdf_space_rectangle_per_character() {
 }
 
 #[test]
+fn page_characters_support_caret_hit_testing_and_selection_text() {
+    let handle = open_single_line_fixture("Hello world");
+
+    let characters = handle
+        .page_characters(0)
+        .expect("text extraction should succeed");
+
+    assert!(!characters.is_empty());
+    assert_eq!(characters.len(), "Hello world".chars().count() as u32);
+    // Far left of the 700pt baseline lands before the first character; far
+    // right lands after the last — same line-then-column resolution
+    // `PageCharacters::caret_at` is tested against directly in `pdf-render`.
+    assert_eq!(characters.caret_at(-1_000.0, 700.0), Some(0));
+    assert_eq!(characters.caret_at(1_000.0, 700.0), Some(characters.len()));
+
+    let anchor = characters.caret_at(-1_000.0, 700.0).unwrap();
+    let focus = characters.caret_at(1_000.0, 700.0).unwrap();
+    assert_eq!(characters.text_in(anchor, focus), "Hello world");
+    // A backwards drag (focus before anchor) must report the same text.
+    assert_eq!(characters.text_in(focus, anchor), "Hello world");
+
+    let rects = characters.rects_in(anchor, focus);
+    assert_eq!(rects.len(), 1, "a single-line selection is one bar");
+    assert!(rects[0].width_pt > 0.0 && rects[0].height_pt > 0.0);
+}
+
+#[test]
+fn page_characters_is_denied_when_the_document_forbids_text_extraction() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    let result = handle.page_characters(0);
+
+    assert!(
+        matches!(result, Err(FfiError::UnsupportedOperation { .. })),
+        "a /P without the copy bit must deny page_characters, same as text_runs/search"
+    );
+}
+
+#[test]
 fn search_returns_page_index_and_matching_pdf_space_geometry() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
     let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();

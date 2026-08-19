@@ -16,6 +16,9 @@
 //!   their conversions to/from the real core types.
 //! - [`bitmap`] (T-039): [`BitmapHandle`], wrapping `pdf_render::BitmapHandle`
 //!   with release-on-drop lifecycle (spec "Bitmap Handle Lifecycle").
+//! - [`selection`] (T-061 DELTA): [`FfiPageCharacters`], wrapping
+//!   `pdf_render::PageCharacters` for caret hit-testing and selection-rect
+//!   queries in shells that cannot link `pdf-render` directly.
 //! - [`document`] (T-039, T-040, T-068 DELTA): [`DocumentHandle`] and every
 //!   FFI command function.
 //!
@@ -34,6 +37,7 @@
 mod bitmap;
 mod document;
 mod error;
+mod selection;
 mod types;
 
 pub use bitmap::BitmapHandle;
@@ -43,6 +47,7 @@ pub use document::{
     save_to_bytes, save_to_path, stamp_placement, undo, will_invalidate_signatures, DocumentHandle,
 };
 pub use error::FfiError;
+pub use selection::FfiPageCharacters;
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,
     FfiEditCommand, FfiFontKind, FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize,

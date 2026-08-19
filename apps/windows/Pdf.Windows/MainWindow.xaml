@@ -4,12 +4,13 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="PDF">
     <!--
-        KeyboardAcceleratorPlacementMode=Hidden because the paste accelerator
-        sits on the root Grid to catch Ctrl+V anywhere in the window, and Auto
-        would advertise it as a tooltip over that whole surface — a "Ctrl+V"
-        label floating in the middle of the page. The property INHERITS, so the
-        toolbar buttons whose shortcut tooltip is worth showing set Auto back
-        locally; dropping that override silently mutes Ctrl+Z and Ctrl+Y too.
+        KeyboardAcceleratorPlacementMode=Hidden because the paste and copy
+        accelerators sit on the root Grid to catch Ctrl+V/Ctrl+C anywhere in
+        the window, and Auto would advertise them as tooltips over that whole
+        surface — a "Ctrl+V" label floating in the middle of the page. The
+        property INHERITS, so the toolbar buttons whose shortcut tooltip is
+        worth showing set Auto back locally; dropping that override silently
+        mutes Ctrl+Z and Ctrl+Y too.
     -->
     <!--
         Background=Transparent so the window is hit-testable for drag and drop
@@ -21,6 +22,7 @@
           Background="Transparent" AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteImage_Invoked" />
+            <KeyboardAccelerator Key="C" Modifiers="Control" Invoked="CopySelection_Invoked" />
         </Grid.KeyboardAccelerators>
         <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
             <Button x:Name="OpenButton" Click="OpenButton_Click">Open</Button>

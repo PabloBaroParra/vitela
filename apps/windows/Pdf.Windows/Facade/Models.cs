@@ -25,6 +25,38 @@ public sealed record SearchHit(uint PageIndex, string Text, IReadOnlyList<Search
 
 public sealed record SearchResults(string SessionId, ulong Sequence, string Query, IReadOnlyList<SearchHit> Hits);
 
+/// <summary>
+/// One page's characters, ready for repeated caret hit-testing and
+/// selection-rect queries without another round trip to the core. Facade
+/// callers hold this for the life of a drag-select (or the page's lifetime)
+/// and must dispose it when done, same as <see cref="SavedDocument"/>'s
+/// sibling native-backed types.
+/// </summary>
+public sealed class PageCharacters : IDisposable
+{
+    private readonly IPdfCorePageCharacters _handle;
+
+    internal PageCharacters(uint pageIndex, IPdfCorePageCharacters handle)
+    {
+        PageIndex = pageIndex;
+        _handle = handle;
+    }
+
+    public uint PageIndex { get; }
+
+    /// <summary>The caret nearest a PDF-space point, or <c>null</c> on a page with no positioned text.</summary>
+    public uint? CaretAt(double xPt, double yPt) => _handle.CaretAt(xPt, yPt);
+
+    /// <summary>The text between two carets, for the clipboard. Order does not matter.</summary>
+    public string TextIn(uint anchor, uint focus) => _handle.TextIn(anchor, focus);
+
+    /// <summary>The rects a shell paints between two carets: one per visual line.</summary>
+    public IReadOnlyList<SearchRect> RectsIn(uint anchor, uint focus) =>
+        [.. _handle.RectsIn(anchor, focus).Select(rect => new SearchRect(rect.XPt, rect.YPt, rect.WidthPt, rect.HeightPt))];
+
+    public void Dispose() => _handle.Dispose();
+}
+
 public enum AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
 public sealed record AnnotationRect(double X, double Y, double Width, double Height);
 public sealed record AnnotationColor(byte R, byte G, byte B);
