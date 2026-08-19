@@ -17,6 +17,17 @@ internal interface IPdfCore
 {
     IPdfCoreDocument OpenFromBytes(byte[] bytes, string? password);
 
+    /// <summary>
+    /// Returns a new document that already holds one page, ready to annotate.
+    /// A zero-page result is not an acceptable implementation of this method —
+    /// the reader has no way to add the first page.
+    /// </summary>
+    /// <remarks>
+    /// Stated here because the facade tests cannot enforce it: this project
+    /// compiles the facade against fakes only, never <c>GeneratedPdfCore</c>,
+    /// so the guard for the real core call is the <c>pdf-ffi</c> smoke test
+    /// <c>creates_a_document_that_already_has_one_renderable_page</c>.
+    /// </remarks>
     IPdfCoreDocument CreateBlank();
 
     PdfCoreBitmap RenderPage(IPdfCoreDocument document, uint pageIndex, uint dpi, bool invertContentColors);

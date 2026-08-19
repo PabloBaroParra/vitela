@@ -486,8 +486,8 @@ ninguno de los dos.
       escritorio de esta sesión sólo autorizan apps instaladas/registradas — arrastrar sobre
       texto y confirmar el resaltado + Ctrl+C queda pendiente de una pasada manual.)**
 - [x] T-062 PrintDocument vía render_page. [Print]
-- [ ] T-063 WinRT Clipboard/DataPackage paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
-      **(2026-08-19 — parcial: el paste de bitmap del portapapeles y el drag-and-drop
+- [x] T-063 WinRT Clipboard/DataPackage paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
+      **(2026-08-19 — el paste de bitmap del portapapeles y el drag-and-drop
       (abrir PDF / stamp de imagen) ya estaban resueltos por PRs anteriores
       (`MainWindow.FileDrop.cs`, T-049/T-050) — el gap real era los shortcuts. Del set
       C/V/Z/Y/P/S/F/O/N solo C/V/Z/Y estaban cableados. Se agregaron Ctrl+O/Ctrl+S/Ctrl+P
@@ -507,30 +507,70 @@ ninguno de los dos.
       2 tests nuevos en `Pdf.Windows.Facade.Tests` cubren el guard de `CreateBlankAsync`
       (bloqueo con ediciones sin guardar + discard explícito). Gate: MSBuild real de Visual
       Studio (`dotnet build` no compila este shell) con 0 warnings/0 errores, y
-      `Pdf.Windows.Facade.Tests` 83/83 vía `dotnet run`.
+      `Pdf.Windows.Facade.Tests` 84/84 vía `dotnet run`.
 
-      **Verificado a mano en la app corriendo (2026-08-19, x64 Debug).** Andan: Ctrl+O
-      (abre el file picker), Ctrl+S (picker + guardado real a disco) y el guard de
-      ediciones pendientes de Ctrl+N con su rama Cancel. Sin probar todavía: Ctrl+F,
-      Ctrl+P, la rama Discard de Ctrl+N y C/V/Z/Y.
+      **Ctrl+N producía un documento inusable, y ese era el bloqueo para marcar
+      T-063 (resuelto).** El `create_blank_document` del core crea un PDF de CERO
+      páginas — el `PageSize`/`Orientation` son el default para páginas insertadas
+      después, no una página que te crea — así que el lector caía en "This document
+      has no pages." con toda la barra de anotaciones deshabilitada y sin forma de
+      agregar una: este shell no expone inserción de páginas.
 
-      **Por qué queda sin marcar: Ctrl+N no produce un documento usable.** El
-      `create_blank_document` del core crea un PDF de CERO páginas — el `PageSize`/
-      `Orientation` son el default para páginas insertadas después, no una página que
-      te crea — así que el lector cae en "This document has no pages." con toda la
-      barra de anotaciones deshabilitada y sin forma de agregar una: este shell no
-      expone inserción de páginas. El shell GTK es la referencia a igualar
-      (`new_blank_document` en `apps/linux-gtk/src/app/document.rs`): encadena
-      `create_blank_document` con `insert_blank_page` sobre el documento base, y así
-      entrega una A4 real con la sesión limpia. Portarlo no es transcribir:
-      `InsertBlankPage` llega a este shell sólo como `FfiEditCommand`, o sea que
-      pasar por ahí abriría el documento nuevo ya con una edición sin guardar, que no
-      es lo que hace GTK.
+      Se evaluaron dos caminos y se descartó el barato. Rutear la primera página por
+      `apply_edit(InsertBlankPage)` —el único comando page-structural que llega a un
+      shell— no arregla nada: `apply_edit` muta el modelo `Document` sin reconstruir
+      el render handle, y un documento de cero páginas nace con `render_doc = None`
+      porque pdfium no puede abrirlo. O sea que `page_count` diría 1 mientras
+      `render_page` seguiría fallando con `DocumentNotFound`, y encima el documento
+      nuevo arrancaría con una edición sin guardar que dispararía el guard de arriba.
+      La página tiene que existir en los bytes ANTES de que exista el handle.
 
-      Los 83 tests no lo ven, y vale entender por qué antes de confiar en ese número:
-      `FakeCore.CreateBlank` devuelve el mismo `PageCount` distinto de cero que
-      `OpenFromBytes`, así que el doble nunca modela el contrato de cero páginas del
-      core real. Verde sobre un fake que miente.
+      Se agregó entonces `create_document_with_blank_page` a `core/pdf-ffi`
+      (`document.rs`), que encadena `pdf_manip::create_blank_document` con
+      `insert_blank_page` y abre el resultado por `open_from_bytes`, el entrypoint
+      canónico — el mismo par de pasos que el shell GTK hace a mano en
+      `new_blank_document` (`apps/linux-gtk/src/app/document.rs`). Devuelve A4 real,
+      render handle vivo y cero ediciones pendientes. `GeneratedPdfCore.CreateBlank()`
+      pasó a llamar a esa función; `create_blank_document` sigue existiendo sin
+      cambios para quien quiera la base de cero páginas.
+
+      **Por qué los 83 tests no lo veían.** `FakeCore.CreateBlank` devolvía el mismo
+      `PageCount` distinto de cero que `OpenFromBytes`, así que el doble nunca modeló
+      el contrato del core real: verde sobre un fake que miente. Ahora `CreateBlank`
+      del fake devuelve siempre exactamente una página e ignora `PageCount` a
+      propósito (con el comentario que explica por qué), y hay un test nuevo —
+      "creates a document with a page to work on"— que exige `PageCount >= 1`, estado
+      `Ready` y un render exitoso. El viejo test del estado vacío pasó a abrir un PDF
+      de cero páginas en vez de crear uno: un documento así todavía se puede ABRIR,
+      sólo que la app ya no lo crea.
+
+      Vale ser honesto sobre el alcance de ese test: `Pdf.Windows.Facade.Tests` no
+      compila `GeneratedPdfCore.cs` (mirá su `.csproj`), así que estructuralmente no
+      puede ver qué función del FFI se llama. El guard real del contrato son dos tests
+      de `core/pdf-ffi/tests/smoke.rs` —
+      `creates_a_document_that_already_has_one_renderable_page` y
+      `the_created_document_starts_with_no_pending_edits`. El requisito quedó escrito
+      en el `<summary>` de `IPdfCore.CreateBlank()` para quien implemente otro core.
+
+      **Verificado a mano en la app corriendo (2026-08-19, x64 Debug).** Ctrl+N da
+      `Untitled · Page 1 of 1` con la A4 blanca renderizada, Undo/Redo grises (sesión
+      limpia) y la barra de anotaciones habilitada; un Highlight arrastrado sobre la
+      página entra y habilita Undo. Andan también Ctrl+O (file picker), Ctrl+S (picker
+      + guardado real a disco), Ctrl+F (enfoca `SearchBox` sin disparar la búsqueda),
+      Ctrl+P (diálogo de impresión con preview 1/1 de la página nueva), Ctrl+Z/Ctrl+Y
+      sobre la anotación, y las ramas Cancel y Discard del guard de Ctrl+N. Ctrl+C y
+      Ctrl+V no se re-probaron en esta pasada: vienen de T-049/T-050/T-061 y este
+      cambio no los tocó.
+
+      Contra la DLL real (`PdfFfiMethods.CreateDocumentWithBlankPage`):
+      `page_count = 1`, `page_dimensions = [595x842]`, `render_page(0) = 595x842 px`,
+      `undo() = False`; y `create_blank_document` sigue dando `page_count = 0`, que es
+      el bug reproducido.
+
+      Queda pendiente aparte: `ShowOpenedDocument` no resetea el texto de status, así
+      que el mensaje del documento anterior sobrevive al swap — un documento nuevo y
+      limpio puede quedar mostrando "Changes are pending save.". Afecta a Open igual
+      que a Ctrl+N, así que no entró en este cambio.
 
       Arreglos de shell que salieron de la pasada manual y sí entran acá:
       `SetBusy` blanquea la barra de anotaciones en AMBOS bordes, y sólo

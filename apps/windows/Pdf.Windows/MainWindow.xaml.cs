@@ -320,22 +320,22 @@ public sealed partial class MainWindow : Window
     /// it exists as a shortcut only.
     /// </summary>
     /// <remarks>
-    /// KNOWN GAP — what this produces is not yet usable. The core's
-    /// <c>create_blank_document</c> makes a document of ZERO pages, taking the
-    /// page size and orientation as the default for pages inserted later, so
-    /// the reader lands on "This document has no pages." with every annotation
-    /// tool disabled and no way to add one: this shell exposes no page
-    /// insertion at all. The GTK shell's <c>new_blank_document</c> is the
-    /// behaviour to match — it follows <c>create_blank_document</c> with
-    /// <c>insert_blank_page</c> on the base document, so the reader gets a
-    /// real A4 page and a session that starts clean.
+    /// The A4 page the reader lands on comes from the core's
+    /// <c>create_document_with_blank_page</c>, added for this. Its sibling
+    /// <c>create_blank_document</c> is the wrong call here — it returns a
+    /// ZERO-page document, taking the page size and orientation as the default
+    /// for pages inserted later, which left this shell showing "This document
+    /// has no pages." with every annotation tool disabled and no way to add
+    /// one, since it exposes no page insertion at all.
     ///
-    /// Porting that here is not a transcription: <c>InsertBlankPage</c>
-    /// reaches this shell only as an <c>FfiEditCommand</c>, so routing through
-    /// it would open the new document already carrying an unsaved edit, which
-    /// is not what GTK does. Verified by hand 2026-08-19; the facade tests
-    /// cannot see it, because <c>FakeCore.CreateBlank</c> returns the same
-    /// non-zero page count as an opened document.
+    /// Routing the first page through <c>apply_edit(InsertBlankPage)</c> — the
+    /// only page-structural command that reaches a shell — would not have
+    /// fixed it: <c>apply_edit</c> mutates the document model without
+    /// rebuilding the render handle a zero-page document never had, so the
+    /// page count would read 1 while rendering still failed, and the new
+    /// document would carry an unsaved edit into the guard above. The page has
+    /// to exist before the handle does, which is what the new entrypoint (and
+    /// the GTK shell's <c>new_blank_document</c>) does.
     /// </remarks>
     private async void NewDocument_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {

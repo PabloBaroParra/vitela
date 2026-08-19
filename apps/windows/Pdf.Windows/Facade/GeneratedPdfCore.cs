@@ -16,11 +16,18 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
+    /// <remarks>
+    /// <c>CreateDocumentWithBlankPage</c>, not <c>CreateBlankDocument</c>: the
+    /// latter returns a <em>zero-page</em> document whose size/orientation are
+    /// only the defaults for pages inserted afterwards, and this shell exposes
+    /// no page insertion, so it left the reader on "This document has no
+    /// pages." with every annotation tool disabled (T-063).
+    /// </remarks>
     public IPdfCoreDocument CreateBlank()
     {
         try
         {
-            return new GeneratedDocument(PdfFfiMethods.CreateBlankDocument(new FfiPageSize.A4(), FfiOrientation.Portrait));
+            return new GeneratedDocument(PdfFfiMethods.CreateDocumentWithBlankPage(new FfiPageSize.A4(), FfiOrientation.Portrait));
         }
         catch (FfiException error)
         {

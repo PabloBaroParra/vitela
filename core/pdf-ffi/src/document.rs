@@ -695,6 +695,41 @@ pub fn create_blank_document(
     }))
 }
 
+/// Creates a new document that already holds one blank page of the given
+/// size/orientation — the "File > New" entrypoint a reader can actually
+/// display.
+///
+/// [`create_blank_document`] deliberately returns *zero* pages: its size and
+/// orientation are the defaults recorded on the page-tree root for pages
+/// inserted later. That is the right base for an authoring pipeline, but a
+/// shell that offers "new document" and no page-insertion UI hands its user a
+/// dead end, so this wraps the two steps the GTK4 shell already performs by
+/// hand (`create_blank_document` then `insert_blank_page`) and opens the
+/// result through [`open_from_bytes`], the canonical entrypoint.
+///
+/// Going through the bytes lifecycle is what makes the difference, and it is
+/// why the first page cannot simply be an `apply_edit(InsertBlankPage)` on a
+/// zero-page handle: `apply_edit` mutates the `Document` model only, leaving
+/// `render_doc` at the `None` a zero-page document starts with (see module
+/// docs), so `page_count` would report 1 while `render_page` still failed.
+/// The page has to exist in the bytes pdfium opens. It also leaves the
+/// returned handle free of pending edits, so a shell's unsaved-work guard
+/// does not fire on an untouched document.
+#[uniffi::export]
+pub fn create_document_with_blank_page(
+    page_size: FfiPageSize,
+    orientation: FfiOrientation,
+) -> Result<Arc<DocumentHandle>, FfiError> {
+    let size = page_size.into();
+    let orientation = orientation.into();
+    let base = pdf_manip::create_blank_document(size, orientation);
+    let base = pdf_manip::insert_blank_page(&base, 0, size, orientation)?;
+
+    let mut bytes = Vec::new();
+    base.as_lopdf().clone().save_to(&mut bytes)?;
+    open_from_bytes(bytes, None)
+}
+
 /// Renders `page_index` at `dpi`, returning an opaque, explicitly-releasable
 /// [`BitmapHandle`] (spec "Bitmap Handle Lifecycle"). See module docs for
 /// the staleness limitation relative to unsaved `apply_edit` changes.
