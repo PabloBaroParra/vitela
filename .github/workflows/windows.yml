@@ -1,7 +1,6 @@
-# Windows shell CI (T-064 partial: build + tests; Authenticode signing and
-# packaging land separately — they need release secrets).
+# Windows shell CI.
 #
-# Three independent legs:
+# Four independent legs:
 #   rust-tests   — the whole Rust workspace on a Windows runner, same pdfium
 #                  prebuilt convention as core.yml but with the win-x64 dll.
 #   facade-tests — the handwritten C# facade suite. It compiles the facade
@@ -11,6 +10,12 @@
 #                  (pinned, see apps/windows/build.ps1), then MSBuild on the
 #                  WinUI project. Catches XAML/codegen/facade drift that the
 #                  pure-managed tests cannot.
+#   package      — T-064: the self-contained, PDFium-bundled, Authenticode
+#                  signed distribution, verified by rendering a page from the
+#                  packaged files alone. Deliberately a second WinUI build:
+#                  winui-build proves the plain build a developer runs, this
+#                  one proves the RID-specific publish a reader downloads, and
+#                  either can break without the other noticing.
 name: windows
 
 on:
@@ -118,3 +123,115 @@ jobs:
           if (-not $msbuild) { Write-Error "MSBuild not found via vswhere" }
           & $msbuild apps/windows/Pdf.Windows/Pdf.Windows.csproj -restore -p:Configuration=Release -p:Platform=x64 -nologo -v:m
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  # No upload step, for the same reason linux.yml has none: this job proves the
+  # distribution assembles, carries a genuine Windows/x64/non-V8/non-XFA
+  # PDFium, is signed, and renders offline. Publishing it is a separate release
+  # process.
+  package:
+    name: Windows x64 package (bundle + sign)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-package-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache uniffi-bindgen-cs
+        id: bindgen-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/uniffi-bindgen-cs.exe
+          key: uniffi-bindgen-cs-v0.11.0+v0.31.0-windows
+      - name: Install uniffi-bindgen-cs (cache miss)
+        if: steps.bindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.11.0+v0.31.0 --locked
+      # Cached as a raw archive under build/windows/tools, never extracted into
+      # core/pdf-render/vendor/pdfium. That directory is the *second* step of
+      # the core's library resolution and it is baked in at compile time, so a
+      # job that populates it renders happily whether or not the package
+      # bundles PDFium at all — which is precisely the bug this job must catch.
+      - name: Cache pinned Windows PDFium packaging input
+        id: pdfium-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/windows/tools/pdfium-win-x64.tgz
+          key: pdfium-win-x64-7763-package-input
+      - name: Download pinned Windows PDFium packaging input (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: |
+          New-Item -ItemType Directory -Force -Path build/windows/tools | Out-Null
+          curl.exe -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-win-x64.tgz" -o build/windows/tools/pdfium-win-x64.tgz
+      - name: Build native library and regenerate bindings
+        run: ./build.ps1 -Configuration Release
+        working-directory: apps/windows
+      # Self-contained on purpose: an unpackaged WinUI app that is not would
+      # ask every reader to go install the .NET desktop runtime and the Windows
+      # App SDK first. As in winui-build, only Visual Studio's MSBuild can
+      # build this project.
+      #
+      # A build, not `-t:Publish`. Publishing this project drops the compiled
+      # XAML and the app's resource index, and the published app crashes on its
+      # first frame inside Microsoft.UI.Xaml.dll — verified by running both.
+      # The RID build output is the complete app; package-windows.ps1 finds it
+      # and refuses an input missing those files.
+      - name: Build the shell (self-contained, win-x64)
+        run: |
+          $msbuild = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          if (-not $msbuild) { Write-Error "MSBuild not found via vswhere" }
+          & $msbuild apps/windows/Pdf.Windows/Pdf.Windows.csproj -restore `
+            -p:Configuration=Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 `
+            -p:SelfContained=true -p:WindowsAppSDKSelfContained=true -nologo -v:m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # Release secrets are absent on every fork and on every pull request from
+      # one. Rather than skip the signing path exactly where an outside change
+      # would break it, that case signs with a throwaway self-signed
+      # certificate: the pipeline is exercised, and the result is untrusted by
+      # construction. Same posture as macos.yml's ad-hoc signed artifact.
+      # Windows PowerShell, not the default pwsh: New-SelfSignedCertificate
+      # lives in the PKI module, which pwsh 7 can only reach through Windows
+      # PowerShell compatibility — and that hands back a *deserialized*
+      # certificate that Set-AuthenticodeSignature cannot sign with. The
+      # verification step stays on the same host so both run what was tested.
+      - name: Assemble and sign the package
+        id: package
+        shell: powershell
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          if ($env:SIGNING_PFX_BASE64) {
+            "release-signed=true" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+            ./scripts/package-windows.ps1 -SigningPfxBase64 $env:SIGNING_PFX_BASE64 -SigningPfxPassword $env:SIGNING_PFX_PASSWORD
+          } else {
+            "release-signed=false" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT
+            Write-Host "::warning::No code-signing secret available; signing with a development certificate. This build is not distributable."
+            ./scripts/package-windows.ps1 -DevelopmentSigningCertificate
+          }
+      - name: Verify the package (contents, signature, offline render)
+        shell: powershell
+        run: |
+          if ("${{ steps.package.outputs.release-signed }}" -eq "true") {
+            ./scripts/verify-windows-package.ps1
+          } else {
+            ./scripts/verify-windows-package.ps1 -AllowUntrustedSignature
+          }
+      - name: Publish the verification evidence to the job log
+        if: always()
+        run: |
+          foreach ($file in @("signatures.txt", "package-smoke.txt", "artifact-sha256.txt", "result.txt")) {
+            $path = "build/windows/evidence/$file"
+            if (Test-Path -LiteralPath $path) {
+              Write-Host "--- $file"
+              Get-Content -LiteralPath $path -Encoding UTF8 | Write-Host
+            }
+          }

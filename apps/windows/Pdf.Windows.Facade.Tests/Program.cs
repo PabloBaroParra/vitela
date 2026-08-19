@@ -87,6 +87,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("saves a signed document once acknowledged", SavesASignedDocumentOnceAcknowledgedAsync)
     ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
     ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
+    ,("aims the core at the PDFium shipped beside the app", AimsTheCoreAtTheBundledPdfium)
+    ,("leaves an operator's PDFium override alone", LeavesAnExistingPdfiumOverrideAlone)
+    ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
 };
 
 foreach (var test in tests)
@@ -311,6 +314,44 @@ static async Task RefusesPageCharactersAfterSessionSwapAsync()
     var result = await facade.PageCharactersAsync(first.SessionId, 0);
 
     Assert(!result.IsSuccess, "a session id from before the last open should be refused");
+}
+
+// The three branches of the packaged app's PDFium resolution. They matter
+// because the core's own fallbacks cannot serve a shipped build: its second
+// step is a compile-time path into the build machine's vendor tree, so a
+// package that forgets to name its own copy still renders on the machine that
+// built it and nowhere else (T-064).
+static Task AimsTheCoreAtTheBundledPdfium()
+{
+    var resolved = BundledPdfium.ResolveOverride(
+        currentOverride: null,
+        baseDirectory: @"C:\Program Files\Vitela",
+        fileExists: path => path == @"C:\Program Files\Vitela\pdfium.dll");
+
+    Assert(resolved == @"C:\Program Files\Vitela\pdfium.dll", "the copy beside the executable should be named explicitly");
+    return Task.CompletedTask;
+}
+
+static Task LeavesAnExistingPdfiumOverrideAlone()
+{
+    var resolved = BundledPdfium.ResolveOverride(
+        currentOverride: @"D:\ci\pdfium.dll",
+        baseDirectory: @"C:\Program Files\Vitela",
+        fileExists: _ => true);
+
+    Assert(resolved is null, "an override already in the environment is how CI aims the loader and must win");
+    return Task.CompletedTask;
+}
+
+static Task LeavesResolutionToTheCoreWithoutABundledPdfium()
+{
+    var resolved = BundledPdfium.ResolveOverride(
+        currentOverride: null,
+        baseDirectory: @"D:\checkout\apps\windows\Pdf.Windows\bin\x64\Debug",
+        fileExists: _ => false);
+
+    Assert(resolved is null, "a development build without a bundled copy should fall through to the core's own resolution");
+    return Task.CompletedTask;
 }
 
 static Task ResolvesHundredPercentZoom()

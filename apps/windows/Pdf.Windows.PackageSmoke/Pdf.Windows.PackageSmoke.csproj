@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Deterministic, non-GUI package smoke path for the Windows distribution —
+    the counterpart of apps/linux-gtk/src/package_smoke.rs.
+
+    It exists because the shell itself cannot answer the question the package
+    has to answer: "do these files, in one directory, render a page on a
+    machine that never built them?" A WinUI app has no console, no exit code a
+    script can read, and no way to render without a window, so the smoke is a
+    plain console binary that loads the very same native library and PDFium
+    copy the package ships, through the very same resolution the app uses
+    (Facade/BundledPdfium.cs is compiled in, not reimplemented).
+
+    Never part of the package: scripts/verify-windows-package.ps1 copies the
+    packaged runtime files next to this binary, not the other way round.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The generated UniFFI bindings marshal buffers through raw pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Pdf.Windows.PackageSmoke</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Both linked, never copied. The bindings are a build artifact of
+      apps/windows/build.ps1 and must be the ones generated from the shipped
+      pdf_ffi.dll (see CONTRACT.md: bindings and library are one compatibility
+      unit), and the locator has to be the app's own or the smoke would prove a
+      resolution path nothing ships.
+    -->
+    <Compile Include="..\Pdf.Windows\Generated\pdf_ffi.cs" Link="Generated\pdf_ffi.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\BundledPdfium.cs" Link="Facade\BundledPdfium.cs" />
+  </ItemGroup>
+</Project>

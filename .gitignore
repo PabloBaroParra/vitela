@@ -76,3 +76,7 @@ tests/fixtures/large/
 
 # Local Linux distribution outputs and verification receipts (T-053).
 build/linux/
+
+# Local Windows distribution outputs, PDFium packaging input, and verification
+# receipts (T-064).
+build/windows/

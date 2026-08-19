@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Pdf.Windows\Facade\BundledPdfium.cs" Link="Facade\BundledPdfium.cs" />
     <Compile Include="..\Pdf.Windows\Facade\Models.cs" Link="Facade\Models.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfCore.cs" Link="Facade\PdfCore.cs" />
     <Compile Include="..\Pdf.Windows\Facade\DiagnosticLog.cs" Link="Facade\DiagnosticLog.cs" />
