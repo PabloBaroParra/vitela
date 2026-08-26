@@ -33,6 +33,7 @@
 //! established (no live pdfium-sync mechanism exists yet) and is deferred as
 //! a follow-up, not a Batch 7 regression.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -59,6 +60,14 @@ struct DocumentState {
     /// (e.g. a brand-new blank document with zero pages) — `render_page`
     /// reports `FfiError::DocumentNotFound` in that case.
     render_doc: Option<pdf_render::DocumentHandle>,
+    /// The password pdfium needs to reopen this document's bytes, kept only
+    /// so [`refresh_preview`] can rebuild `render_doc` from an encrypted
+    /// snapshot. `None` for an unencrypted or freshly created document.
+    ///
+    /// Held for the life of the handle because that is exactly as long as the
+    /// render side may need to be rebuilt; it never leaves this crate, is
+    /// never logged, and dies with the handle.
+    render_password: Option<String>,
     next_page_id: PageId,
     next_annotation_id: u64,
 }
@@ -306,6 +315,50 @@ fn annotation_editing_is_allowed(document: &Document) -> bool {
     pdf_manip::annotation_editing_is_allowed(document.security.as_ref())
 }
 
+/// The page-content twin of [`annotation_editing_is_allowed`], gated on the
+/// modify-contents bit instead of the annotate one. A document may grant
+/// either without the other, so neither may be inferred from the other.
+///
+/// Two questions, deliberately answered as one: whether the document permits
+/// the change, and whether the result could ever be written. Every page-
+/// content edit forces a full rewrite (Batch 21 decision 5), and an encrypted
+/// document opened with only one of its two passwords cannot be re-encrypted
+/// — so on such a document a content edit is not a change to be saved later,
+/// it is one that can never be saved at all. A shell that offered it would
+/// collect work it has no way to keep.
+fn content_editing_is_allowed(document: &Document) -> bool {
+    pdf_manip::content_editing_is_allowed(document.security.as_ref())
+        && content_edit_could_be_saved(document)
+}
+
+/// Whether a full rewrite of `document` could be produced — see
+/// `pdf_save::build_encryption_state`, which is the rule this mirrors.
+fn content_edit_could_be_saved(document: &Document) -> bool {
+    document
+        .security
+        .as_ref()
+        .is_none_or(|security| security.credentials.complete().is_some())
+}
+
+/// Whether `command` rewrites a page's own content — text runs and images —
+/// as opposed to an annotation drawn over it or the page structure around
+/// it. These are the nine commands `pdf_save::content` replays into the
+/// content stream at save time (Batch 21).
+fn is_content_command(command: &FfiEditCommand) -> bool {
+    matches!(
+        command,
+        FfiEditCommand::ReplaceTextRunContent { .. }
+            | FfiEditCommand::InsertTextRun { .. }
+            | FfiEditCommand::RemoveTextRun { .. }
+            | FfiEditCommand::MoveTextRun { .. }
+            | FfiEditCommand::InsertImage { .. }
+            | FfiEditCommand::RemoveImage { .. }
+            | FfiEditCommand::MoveImage { .. }
+            | FfiEditCommand::ResizeImage { .. }
+            | FfiEditCommand::ReplaceImageSource { .. }
+    )
+}
+
 /// Whether `command` edits an annotation rather than page structure — the
 /// annotate permission bit (`/P` bit 6) has no say over `RotatePage`,
 /// `InsertBlankPage`, `RemovePage`, or any page-content command (Batch 21):
@@ -491,6 +544,16 @@ impl DocumentHandle {
         annotation_editing_is_allowed(&self.lock().document)
     }
 
+    /// Reports whether rewriting this page's own content — retyping a text
+    /// run, moving an image — would be allowed by the PDF's security
+    /// context. Separate from [`Self::annotation_editing_allowed`]: a
+    /// document can grant either permission without the other, so a shell
+    /// must ask this before offering content editing rather than reusing the
+    /// annotation answer.
+    pub fn content_editing_allowed(&self) -> bool {
+        content_editing_is_allowed(&self.lock().document)
+    }
+
     /// Parses `page`'s content stream on demand and returns its text runs
     /// and images (T-158, Batch 21 decision 2 — never cached on the
     /// document, unlike annotations). Reflects the last-opened/saved bytes;
@@ -506,6 +569,31 @@ impl DocumentHandle {
         }
         pdf_save::read_page_content(&state.base, PageId(page))
             .map(Into::into)
+            .map_err(Into::into)
+    }
+
+    /// The `/BaseFont` name of each font `page` declares, keyed by the
+    /// resource name its text runs report.
+    ///
+    /// For a shell drawing its own editing overlay: a run says which resource
+    /// paints it, not what that resource is, and an overlay in a face the page
+    /// does not use lands at the wrong width however carefully it is placed.
+    /// The names come back raw — subset prefix and style suffix included — so
+    /// each platform can decide which local font stands in for them, which is
+    /// a question only it can answer.
+    ///
+    /// Behind the same permission as `read_page_content`: it describes the
+    /// text on the page, and a document that withholds extraction withholds
+    /// this too.
+    pub fn page_font_families(&self, page: u32) -> Result<HashMap<String, String>, FfiError> {
+        let state = self.lock();
+        if !text_extraction_is_allowed(&state.document) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "text extraction is not permitted".to_string(),
+            });
+        }
+        pdf_edit::page_font_families(state.base.as_lopdf(), PageId(page))
+            .map(|families| families.into_iter().collect())
             .map_err(Into::into)
     }
 
@@ -608,6 +696,7 @@ pub fn open_from_bytes(
         base,
         original_bytes: Some(bytes),
         render_doc,
+        render_password: password,
         next_page_id,
         next_annotation_id: 0,
     }))
@@ -657,6 +746,7 @@ pub fn open_with_passwords_from_bytes(
         base,
         original_bytes: Some(bytes),
         render_doc,
+        render_password: Some(owner_password),
         next_page_id,
         next_annotation_id: 0,
     }))
@@ -690,6 +780,7 @@ pub fn create_blank_document(
         base,
         original_bytes: None,
         render_doc,
+        render_password: None,
         next_page_id: PageId(0),
         next_annotation_id: 0,
     }))
@@ -802,8 +893,118 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
             detail: "annotation editing is not permitted".to_string(),
         });
     }
+    let is_content = is_content_command(&command);
+    if is_content && !pdf_manip::content_editing_is_allowed(state.document.security.as_ref()) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "content editing is not permitted".to_string(),
+        });
+    }
+    if is_content && !content_edit_could_be_saved(&state.document) {
+        // Refused here rather than at the save it would fail: an edit that can
+        // never be written is not pending work, and letting it queue would
+        // also break the preview refresh, which saves a snapshot the same way.
+        return Err(FfiError::UnsupportedOperation {
+            detail: "editing page content rewrites the whole file; reopen this encrypted                      document with both its user and owner passwords first"
+                .to_string(),
+        });
+    }
+
     let core_command = state.build_core_command(command)?;
+    if is_content {
+        // Validate before recording, never only at save time — see
+        // `pdf_save::validate_content_command` for why a content command
+        // recorded unchecked can only fail later, and take every other
+        // queued edit down with it.
+        pdf_save::validate_content_command(state.base.as_lopdf(), &core_command)?;
+
+        if let Some(index) = pending_replacement_index(&state.document, &core_command) {
+            // Retyping the same run twice amends the queued command instead
+            // of appending a second one. `EditLog::amend`'s own docs carry
+            // the reasoning: a save replays content commands in order against
+            // a document it mutates as it goes, so a second command still
+            // describing the *pre-first-edit* run — all a caller can have,
+            // since `read_page_content` reads the untouched base — would
+            // resolve against nothing and take the whole save down.
+            state.document.pending_edits.amend(index, core_command);
+            return Ok(());
+        }
+    }
     apply_command(&mut state.document, core_command);
+    Ok(())
+}
+
+/// The queued command `command` should replace rather than follow, if any.
+///
+/// Only text replacement folds today, because it is the only content edit a
+/// caller can repeat against the same target without re-reading the page:
+/// the run it names keeps its identity through the edit. The move/resize
+/// variants describe geometry the caller cannot recompute against a pending
+/// state, and are refused rather than folded by the shells that offer them
+/// (see the GTK shell's `text_move_refusal`); they append here, as before.
+fn pending_replacement_index(document: &Document, command: &Command) -> Option<usize> {
+    let Command::ReplaceTextRunContent { item, .. } = command else {
+        return None;
+    };
+
+    document.pending_edits.entries().iter().position(|queued| {
+        matches!(
+            queued,
+            Command::ReplaceTextRunContent { item: queued_item, .. }
+                if queued_item.id == item.id && queued_item.page == item.page
+        )
+    })
+}
+
+/// Re-derives the render-side document from the pending edits, so
+/// `render_page` shows page-content changes that have not been saved to a
+/// destination yet (Batch 21 decision 6).
+///
+/// Page content is not something a shell can draw over the bitmap the way an
+/// annotation overlay can: retyped text *is* the page, and only pdfium can
+/// show it. So this saves the current model to an in-memory snapshot and
+/// reopens **that** as the render document, leaving `document`, `base` and
+/// `original_bytes` — the edit log and everything a real save is computed
+/// from — exactly as they were. Nothing touches disk, the handle keeps its
+/// full undo history, and the next `save_to_bytes` is still computed from the
+/// originally opened bytes rather than from this snapshot.
+///
+/// Signatures are acknowledged silently here for the same reason: this
+/// produces pixels, not a file. Anything the reader could keep still goes
+/// through `save_to_bytes`, which refuses an unacknowledged
+/// signature-breaking save as before.
+///
+/// A shell calls this after every committed content edit, and after an
+/// undo/redo that moved one. An annotation-only session never needs it.
+///
+/// The snapshot deliberately leaves this session's **annotations** out. Every
+/// shell draws those as its own overlay over the bitmap — that is what makes
+/// them selectable and draggable before a save — so baking them in here would
+/// paint each of them twice, once by pdfium and once by the shell. Only the
+/// session's annotations are dropped: annotations the file already carried
+/// are never in this set (`pdf_save::document_from_lopdf` starts it empty)
+/// and reach the snapshot through `base` like the rest of the page, so they
+/// keep rendering exactly once.
+#[uniffi::export]
+pub fn refresh_preview(handle: &DocumentHandle) -> Result<(), FfiError> {
+    let mut state = handle.lock();
+
+    let mut preview = state.document.clone();
+    preview.annotations = Default::default();
+
+    let bytes = pdf_save::save_document(pdf_save::SaveInput {
+        document: &preview,
+        base: &state.base,
+        original_bytes: state.original_bytes.as_deref(),
+        intent: pdf_save::SaveIntent::Default,
+        signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+    })?;
+
+    let refreshed = open_render_doc_from_bytes(bytes, state.render_password.as_deref())?;
+    if let Some(stale) = state.render_doc.replace(refreshed) {
+        // Best-effort, exactly as in `Drop`: a preview that already renders
+        // is not worth failing over a handle pdfium may have closed itself.
+        let _ = pdf_render::PdfiumRenderer::new().close_document(stale);
+    }
     Ok(())
 }
 

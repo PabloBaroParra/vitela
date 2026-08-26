@@ -353,6 +353,15 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
       [ContentEdit]
       **(2026-08-17 — completo, ver la entrada extendida en `docs/batches-b8-b13.md`.)**
 
+## Tareas de UI en otros shells
+
+- [x] T-177 (dep B21) Retipear un text run en el shell Windows (WinUI), a través de la FFI en
+      vez de linkear `pdf-edit`. Lo que ese camino exigía del core — validar antes de grabar,
+      amendar el retipeo repetido, refrescar el preview y gatear el permiso de contenido —
+      vive en `pdf-save`/`pdf-ffi`, no en C#, así que macOS/Android/iOS lo heredan.
+      **(2026-08-19 — completo para texto; ver la entrada extendida en
+      `docs/batches-b8-b13.md`, B10.)**
+
 ## Criterios de aceptación
 
 - Editar un text run en fuente Standard-14/simple con glyphs representables → el PDF

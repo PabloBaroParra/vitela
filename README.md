@@ -143,6 +143,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | 🚧 | — | — | — | — |
+| Edit page content | 🚧 | 🚧 | — | — | — |
 | Save / export | — | — | — | — | — |
 | Sign | — | — | — | — | — |
 | Fillable forms | — | — | — | — | — |
@@ -160,8 +161,13 @@ app entry point, document picking and views are per-platform.
 
 Android has a Compose baseline; its native package still requires externally
 supplied PDFium Android libraries, so its capabilities remain in progress until
-that runtime is validated on devices. Windows deliberately omits editing,
-saving, and password UI in its first vertical.
+that runtime is validated on devices.
+
+Windows no longer omits editing: its first vertical closed in B10 (password
+prompt, annotations with undo/redo, save, print, shortcuts), and retyping a
+text run on the page itself — the Linux shell's content-edit mode, reached
+through the FFI instead of a direct crate link — is now wired up as well. The
+image half of that mode is still Linux-only.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the

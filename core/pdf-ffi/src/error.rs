@@ -179,6 +179,22 @@ impl From<pdf_edit::EditError> for FfiError {
                 resource_font_name,
             },
             E::InvalidImage(message) => FfiError::InvalidImage { detail: message },
+            // Refusals, not malfunctions: the file is intact and the request
+            // was understood — this build simply will not rewrite that run,
+            // that image, or that stream encoding. A shell has to be able to
+            // tell its reader "this one cannot be edited" without the message
+            // reading like a crash, so these carry `EditError`'s own wording
+            // out through the one variant that means "understood and
+            // declined".
+            other @ (E::CompositeFontNotEditable { .. }
+            | E::TextRunNotMovable { .. }
+            | E::ImageSourceNotRecoverable { .. }
+            | E::UnsupportedContentStreamFilter { .. }
+            | E::PageContentTooLarge { .. }
+            | E::AmbiguousItem { .. }
+            | E::ItemNotFound(_)) => FfiError::UnsupportedOperation {
+                detail: other.to_string(),
+            },
             other => FfiError::Internal {
                 detail: other.to_string(),
             },

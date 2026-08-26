@@ -78,6 +78,7 @@
             <Button x:Name="NoteButton" Click="NoteButton_Click">Note</Button>
             <Button x:Name="StampButton" Click="StampButton_Click">Stamp</Button>
             <Button x:Name="PointerButton" Click="PointerButton_Click">Pointer</Button>
+            <ToggleButton x:Name="ContentEditButton" Click="ContentEditButton_Click" ToolTipService.ToolTip="Click a text run on the page to retype it">Edit text</ToggleButton>
             <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="Shift the selected annotation">Nudge</Button>
             <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
             <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color">Color

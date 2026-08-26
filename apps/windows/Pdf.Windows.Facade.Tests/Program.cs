@@ -87,6 +87,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("saves a signed document once acknowledged", SavesASignedDocumentOnceAcknowledgedAsync)
     ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
     ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
+    ,("reads a page's editable text runs", ReadsPageContentForEditingAsync)
+    ,("refuses page content when the document forbids content changes", RefusesPageContentWhenTheDocumentForbidsItAsync)
+    ,("replaces a text run and refreshes the preview", ReplacesATextRunAndRefreshesThePreviewAsync)
+    ,("names the character a font cannot show", NamesTheCharacterAFontCannotShowAsync)
+    ,("keeps a content edit when the preview refresh fails", KeepsTheEditWhenThePreviewRefreshFailsAsync)
+    ,("refreshes the preview on history only after a content edit", RefreshesThePreviewOnHistoryOnlyAfterAContentEditAsync)
+    ,("refuses page content once the session is retired", RefusesPageContentAfterSessionSwapAsync)
+    ,("picks the smallest text run under a content-edit click", PicksTheSmallestRunUnderTheClick)
+    ,("matches a PDF font name to a local face", MatchesPdfFontsToLocalFaces)
     ,("aims the core at the PDFium shipped beside the app", AimsTheCoreAtTheBundledPdfium)
     ,("leaves an operator's PDFium override alone", LeavesAnExistingPdfiumOverrideAlone)
     ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
@@ -1277,6 +1286,165 @@ static void AssertClose(double actual, double expected, string message)
     }
 }
 
+static async Task ReadsPageContentForEditingAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    Assert(session.ContentEditingAllowed, "an unrestricted document should permit content editing");
+
+    var result = await facade.PageContentAsync(session.SessionId, 0);
+
+    Assert(result.IsSuccess, "page content should load");
+    var run = result.Value!.TextRuns.Single();
+    Assert(run.Text == "Hello world", "the run's text should reach the shell");
+    Assert(run.IsEditable, "a standard-14 run is editable");
+    Assert(run.Bounds.X == 100 && run.Bounds.Y == 700, "the run's PDF-space box should reach the shell");
+    Assert(run.BaseFont == "Helvetica", "the run should be joined to the font its resource name points at");
+}
+
+static async Task RefusesPageContentWhenTheDocumentForbidsItAsync()
+{
+    var core = new FakeCore { ContentEditingPermitted = false };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("locked.pdf", [1]))).Value!;
+    Assert(!session.ContentEditingAllowed, "the session should carry the document's refusal");
+
+    var result = await facade.PageContentAsync(session.SessionId, 0);
+
+    Assert(!result.IsSuccess, "content of a document that forbids editing should not be handed out");
+    Assert(result.Error!.Message == "This document does not permit content changes.", "the refusal should be user safe");
+    Assert(core.PageContentReads.IsEmpty, "the core should not even be asked");
+}
+
+static async Task ReplacesATextRunAndRefreshesThePreviewAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var run = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns.Single();
+
+    var result = await facade.ReplaceTextRunAsync(session.SessionId, run, "Goodbye world");
+
+    Assert(result.IsSuccess, "retyping a standard-14 run should succeed");
+    var edit = core.ContentEdits.Single();
+    Assert(edit.After == "Goodbye world", "the typed text should reach the core");
+    Assert(edit.Item.Id == run.Id && edit.Item.Text == "Hello world",
+        "the core's own snapshot of the run must travel back unchanged — it is how the edit is re-found at save time");
+    Assert(core.RefreshPreviewCalls == 1, "a content edit must rebuild the preview, or the page still shows the old words");
+    Assert(result.Value!.CanUndo, "the edit should be undoable");
+}
+
+static async Task NamesTheCharacterAFontCannotShowAsync()
+{
+    var core = new FakeCore { UnencodableCharacter = "\u4e16" };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var run = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns.Single();
+
+    var result = await facade.ReplaceTextRunAsync(session.SessionId, run, "Hello \u4e16");
+
+    Assert(!result.IsSuccess, "a character the font cannot encode must be refused");
+    Assert(result.Error!.Message.Contains('\u4e16'), "the reader typed the character; the message has to name it");
+    Assert(core.RefreshPreviewCalls == 0, "nothing was recorded, so nothing needs re-rendering");
+}
+
+static async Task KeepsTheEditWhenThePreviewRefreshFailsAsync()
+{
+    var core = new FakeCore { RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var run = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns.Single();
+
+    var result = await facade.ReplaceTextRunAsync(session.SessionId, run, "Goodbye world");
+
+    Assert(!result.IsSuccess, "the reader has to be told the preview did not catch up");
+    Assert(core.ContentEdits.Count == 1, "the edit stays recorded: a stale preview is a better outcome than a silently dropped edit");
+    var blocked = await facade.OpenAsync(new DocumentSource("other.pdf", [2]));
+    Assert(!blocked.IsSuccess, "the document should still count as having unsaved work");
+}
+
+static async Task RefreshesThePreviewOnHistoryOnlyAfterAContentEditAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 10, 20, 20), new PdfCoreColor(255, 235, 0)));
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 0, "annotation history never changes what the PDF itself paints");
+
+    var run = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns.Single();
+    await facade.ReplaceTextRunAsync(session.SessionId, run, "Goodbye world");
+    Assert(core.RefreshPreviewCalls == 1, "the edit itself refreshes once");
+
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undoing a content edit must drop it from the preview too");
+    await facade.RedoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 3, "and redoing it must bring it back");
+}
+
+static async Task RefusesPageContentAfterSessionSwapAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+
+    var result = await facade.PageContentAsync(session.SessionId, 0);
+
+    Assert(!result.IsSuccess, "run ids belong to the bytes they were parsed from, not to whatever is open now");
+    Assert(result.Error!.Message == "The document is no longer available.", "the failure should be user safe");
+}
+
+static Task PicksTheSmallestRunUnderTheClick()
+{
+    var word = new PdfCoreContentTextRun(1, 0, new PdfCoreRect(100, 700, 40, 12), "F1", PdfCoreFontKind.Standard14, "Hello");
+    var line = new PdfCoreContentTextRun(2, 0, new PdfCoreRect(90, 695, 300, 24), "F1", PdfCoreFontKind.Standard14, "Hello world and then some");
+    IReadOnlyList<ContentTextRun> runs = [ContentRun(line), ContentRun(word)];
+
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 110, 705)!.Id == 1, "overlapping runs resolve to the smaller, more specific one");
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 350, 705)!.Id == 2, "a point only the wide run covers resolves to it");
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 50, 400) is null, "a point outside every run resolves to nothing");
+
+    // A retyped run no longer occupies the box it was parsed with, and the
+    // reader points at what the page shows now.
+    var stretched = (ContentTextRun run) => run.Id == 1
+        ? new AnnotationRect(100, 700, 200, 12)
+        : run.Bounds;
+    Assert(ContentHitTest.TextRunAt(runs, Parsed, 250, 705)!.Id == 2, "the parsed box stops where it was parsed");
+    Assert(ContentHitTest.TextRunAt(runs, stretched, 250, 705)!.Id == 1, "a run that grew is picked up over its whole new width");
+    return Task.CompletedTask;
+}
+
+static Task MatchesPdfFontsToLocalFaces()
+{
+    // The three Standard-14 families are PostScript names for faces Windows
+    // ships under other names — the only ones worth translating.
+    Assert(PdfFontMatch.ForBaseFont("Helvetica").Families.StartsWith("Arial", StringComparison.Ordinal), "Helvetica is Arial here");
+    Assert(PdfFontMatch.ForBaseFont("Times-Roman").Families.StartsWith("Times New Roman", StringComparison.Ordinal), "Times is Times New Roman here");
+    Assert(PdfFontMatch.ForBaseFont("Courier").Families.StartsWith("Courier New", StringComparison.Ordinal), "Courier is Courier New here");
+
+    // A subset tag says what was embedded, not which face to ask for.
+    Assert(PdfFontMatch.ForBaseFont("ABCDEF+Times-BoldItalic").Families.StartsWith("Times New Roman", StringComparison.Ordinal), "the subset prefix is dropped");
+    var styled = PdfFontMatch.ForBaseFont("ABCDEF+Times-BoldItalic");
+    Assert(styled.Bold && styled.Italic, "the style the name declares is carried across");
+
+    // Anything else is asked for by its own name, with the neutral face
+    // behind it, so an installed font is used and a missing one falls back.
+    var embedded = PdfFontMatch.ForBaseFont("Georgia,Bold");
+    Assert(embedded.Families == $"Georgia, {PdfFontMatch.Fallback}", "an unknown family keeps its name and gains a fallback");
+    Assert(embedded.Bold && !embedded.Italic, "comma-spelled styles are read too");
+
+    Assert(PdfFontMatch.ForBaseFont(null).Families == PdfFontMatch.Fallback, "a page that does not say gets the fallback");
+    return Task.CompletedTask;
+}
+
+static ContentTextRun ContentRun(PdfCoreContentTextRun source) => new(source, null);
+
+/// <summary>Runs sitting exactly where they were parsed — nothing retyped yet.</summary>
+static AnnotationRect Parsed(ContentTextRun run) => run.Bounds;
+
 sealed class FakeCore : IPdfCore
 {
     public uint PageCount { get; init; } = 1;
@@ -1309,7 +1477,7 @@ sealed class FakeCore : IPdfCore
             throw new PdfCoreException(error, "sensitive diagnostic");
         }
 
-        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt);
+        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt) { ContentEditingAllowed = ContentEditingPermitted };
     }
 
     /// <summary>
@@ -1368,12 +1536,72 @@ sealed class FakeCore : IPdfCore
     }
 
     public IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document) => ((FakeDocument)document).Annotations;
+
+    /// <summary>The runs <see cref="ReadPageContent"/> reports, on every page.</summary>
+    public IReadOnlyList<PdfCoreContentTextRun> PageTextRuns { get; init; } =
+        [new PdfCoreContentTextRun(7, 0, new PdfCoreRect(100, 700, 120, 12), "F1", PdfCoreFontKind.Standard14, "Hello world")];
+
+    /// <summary>
+    /// Whether opened documents permit content changes. An <c>init</c>
+    /// property rather than a flag flipped on the document afterwards,
+    /// because the facade reads this permission once, when the session is
+    /// created — exactly as the real core reports it, from the document's own
+    /// <c>/P</c> bits.
+    /// </summary>
+    public bool ContentEditingPermitted { get; init; } = true;
+
+    /// <summary>A character the fake's font cannot encode, mirroring the core's own refusal.</summary>
+    public string? UnencodableCharacter { get; init; }
+
+    public bool RefreshPreviewThrows { get; init; }
+
+    public System.Collections.Concurrent.ConcurrentQueue<uint> PageContentReads { get; } = new();
+    public int RefreshPreviewCalls;
+
+    public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
+    {
+        PageContentReads.Enqueue(pageIndex);
+        return new PdfCorePageContent([.. PageTextRuns.Select(run => run with { PageIndex = pageIndex })], []);
+    }
+
+    /// <summary>What <see cref="PageFontFamilies"/> reports, keyed by resource name.</summary>
+    public IReadOnlyDictionary<string, string> FontFamilies { get; init; } =
+        new Dictionary<string, string> { ["F1"] = "Helvetica" };
+
+    public IReadOnlyDictionary<string, string> PageFontFamilies(IPdfCoreDocument document, uint pageIndex) => FontFamilies;
+
+    public void RefreshPreview(IPdfCoreDocument document)
+    {
+        Interlocked.Increment(ref RefreshPreviewCalls);
+        if (RefreshPreviewThrows) throw new PdfCoreException(PdfCoreError.RenderFailed, "preview refresh failed");
+    }
+
     public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document).EditingAllowed;
+    public bool ContentEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document).ContentEditingAllowed;
     public bool CanUndo(IPdfCoreDocument document) => ((FakeDocument)document).CanUndo;
     public bool CanRedo(IPdfCoreDocument document) => ((FakeDocument)document).CanRedo;
+    /// <summary>The content edits the facade handed the core, newest last.</summary>
+    public List<PdfCoreEdit.ReplaceTextRun> ContentEdits { get; } = [];
+
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.ReplaceTextRun replacement)
+        {
+            // The real core refuses the whole command before recording it, so
+            // the fake does too — a facade that reported success here would be
+            // green against a double that lies.
+            if (!fake.ContentEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            if (UnencodableCharacter is { } character && replacement.After.Contains(character, StringComparison.Ordinal))
+            {
+                throw new PdfCoreException(PdfCoreError.EncodingGap, "EncodingGap", character);
+            }
+
+            ContentEdits.Add(replacement);
+            fake.Apply(edit);
+            return;
+        }
+
         if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "annotation editing is not permitted");
         fake.Apply(edit);
     }
@@ -1449,6 +1677,7 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
         [.. Enumerable.Range(0, (int)pageCount).Select(_ => new PdfCorePageDimensions(widthPt, heightPt))];
     public bool Disposed { get; private set; }
     public bool EditingAllowed { get; set; } = true;
+    public bool ContentEditingAllowed { get; set; } = true;
     public List<PdfCoreAnnotation> Annotations { get; } = [];
     public bool CanUndo { get; private set; }
     public bool CanRedo { get; private set; }
@@ -1463,6 +1692,11 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
                 break;
             case PdfCoreEdit.Remove remove:
                 Annotations.RemoveAll(annotation => annotation.Id == remove.AnnotationId);
+                break;
+            case PdfCoreEdit.ReplaceTextRun:
+                // Page content is not mirrored on the model — the queued
+                // command is the edit — so there is nothing to mutate here
+                // beyond the history the facade reads back.
                 break;
             case PdfCoreEdit.Restyle restyle:
                 var index = Annotations.FindIndex(annotation => annotation.Id == restyle.AnnotationId);

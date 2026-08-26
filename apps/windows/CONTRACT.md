@@ -35,10 +35,18 @@ These are **proposed facade methods**, not additions to `pdf-ffi`.
 | `RenderPageTiles(request)` | `render_page_tiles`, bitmap metadata, `get_pixels` | Dispatch one batch per page off the UI thread, materialize a UI bitmap DTO per tile, discard stale batches. Runs in its own lane, so a tile batch and the page's full-page render never supersede each other. |
 | `Search(request)` | `DocumentHandle.search(query)` | Dispatch off the UI thread, translate page-space matches, and discard stale query results. |
 | `ApplyEdit(request)` / `InsertImageStamp(request)` | `apply_edit` / `insert_image_stamp` | Translate validated UI commands to FFI DTOs; mark session render state stale. |
-| `Undo(sessionId)` / `Redo(sessionId)` | `undo` / `redo` | Return whether state changed and refresh session metadata. |
+| `Undo(sessionId)` / `Redo(sessionId)` | `undo` / `redo` | Return whether state changed and refresh session metadata; rebuild the preview when the session has recorded a page-content edit. |
+| `PageContent(request)` | `DocumentHandle.read_page_content(pageIndex)` | Parse one page's text runs off the UI thread; refuse up front on a document that withholds content editing, and drop a parse whose session has been replaced. |
+| `ReplaceTextRun(request)` | `apply_edit(ReplaceTextRunContent)` then `refresh_preview` | Hand the core its own snapshot of the run back unchanged, mark the session dirty, and rebuild the preview before returning — retyped text is drawn by the PDF, not by an overlay. |
 | `Save(request)` | `save_to_bytes(intent, signatures)` | Write returned bytes through the selected destination; enforce protection consent flow. The acknowledgement is never supplied by the facade — it comes from the reader's answer to `WillInvalidateSignatures`, so an unanswered save is refused rather than silently breaking a signature. |
 | `WillInvalidateSignatures(sessionId)` | `will_invalidate_signatures(intent)` | Answer off the UI thread so the shell can warn before the reader commits to a save. |
 | `ReopenSaved(sessionId, bytes, credentials)` | `open_from_bytes` or `open_with_passwords_from_bytes` | Replace the session handle so rendering reflects saved edits. |
+
+A page-content edit is the one edit whose result no shell can draw for itself.
+Annotations live in an overlay this shell owns until a save; retyped text *is*
+the page, so `refresh_preview` re-derives the render side from the pending
+edits (leaving the edit log and the bytes a save is computed from untouched)
+and the shell re-renders. The facade never leaves that refresh to the caller.
 
 Path-based FFI helpers are not the Windows contract. The facade uses the bytes-based open/save operations, which are the canonical cross-platform entry points.
 

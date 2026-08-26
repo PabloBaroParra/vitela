@@ -6,9 +6,10 @@
 
 use pdf_ffi::{
     apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp,
-    open_from_bytes, open_with_passwords_from_bytes, redo, render_page, save_to_bytes,
-    stamp_placement, undo, FfiColor, FfiEditCommand, FfiError, FfiFontKind, FfiOrientation,
-    FfiPageSize, FfiRect, FfiRenderOptions, FfiSaveIntent, FfiSignatureAcknowledgement,
+    open_from_bytes, open_with_passwords_from_bytes, redo, refresh_preview, render_page,
+    save_to_bytes, stamp_placement, undo, FfiColor, FfiContentTextRun, FfiEditCommand, FfiError,
+    FfiFontKind, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions, FfiSaveIntent,
+    FfiSignatureAcknowledgement,
 };
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -537,6 +538,23 @@ fn open_single_line_fixture(line: &str) -> std::sync::Arc<pdf_ffi::DocumentHandl
 /// exercise the gate, built locally here since that support module is
 /// private to its own crate.
 fn restricted_single_line_pdf(line: &str, user_password: &str, owner_password: &str) -> Vec<u8> {
+    encrypted_single_line_pdf(
+        line,
+        user_password,
+        owner_password,
+        lopdf::Permissions::PRINTABLE,
+    )
+}
+
+/// The same fixture with the `/P` bits the caller asks for — so a test can
+/// separate "the document forbids this" from every other reason an edit can
+/// be refused.
+fn encrypted_single_line_pdf(
+    line: &str,
+    user_password: &str,
+    owner_password: &str,
+    permissions: lopdf::Permissions,
+) -> Vec<u8> {
     use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
     use lopdf::xref::XrefType;
     use std::collections::BTreeMap;
@@ -558,7 +576,7 @@ fn restricted_single_line_pdf(line: &str, user_password: &str, owner_password: &
         string_filter: b"StdCF".to_vec(),
         owner_password,
         user_password,
-        permissions: lopdf::Permissions::PRINTABLE,
+        permissions,
     };
     let state = lopdf::EncryptionState::try_from(version).expect("build encryption state");
     doc.encrypt(&state).expect("encrypt fixture");
@@ -630,11 +648,11 @@ fn editing_a_standard14_run_then_saving_and_reopening_shows_the_new_text() {
 }
 
 #[test]
-fn replace_text_run_content_with_stale_item_fails_at_save() {
-    // Per Batch 21 decision 5, `apply_edit` on a content command only
-    // records the log entry — `pdf-edit` resolves the targeted item against
-    // the real content stream during `save_to_bytes`'s replay, so a stale
-    // item is accepted here and rejected there.
+fn replace_text_run_content_with_a_stale_item_is_refused_before_it_is_recorded() {
+    // A content command is inert on the `Document` model, so recording one
+    // that `pdf-edit` cannot resolve would surface only when the *whole*
+    // save runs — failing every other queued edit with it. `apply_edit`
+    // therefore dry-runs each content command against the base first.
     let handle = open_single_line_fixture("Hello world");
     let content = handle.read_page_content(0).unwrap();
     let mut stale = content.text_runs.first().unwrap().clone();
@@ -642,22 +660,362 @@ fn replace_text_run_content_with_stale_item_fails_at_save() {
     // never assigned this id/text/position combination.
     stale.text = "not what is on the page".to_string();
 
-    apply_edit(
+    let result = apply_edit(
         &handle,
         FfiEditCommand::ReplaceTextRunContent {
             item: stale,
             after: "irrelevant".to_string(),
         },
-    )
-    .expect("apply_edit only records the command, it does not resolve the item yet");
+    );
 
-    let result = save_to_bytes(
+    assert!(
+        matches!(result, Err(FfiError::UnsupportedOperation { .. })),
+        "an unresolvable item is a refusal the shell can report, not an internal error"
+    );
+    assert!(
+        !undo(&handle),
+        "a refused command must leave nothing behind in the edit log"
+    );
+    save_to_bytes(
         &handle,
         FfiSaveIntent::Default,
         FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("the refusal must not have poisoned the save");
+}
+
+#[test]
+fn replacing_text_with_a_character_the_font_cannot_encode_is_refused_with_the_character() {
+    let handle = open_single_line_fixture("Hello world");
+    let content = handle.read_page_content(0).unwrap();
+    let run = content.text_runs.first().unwrap().clone();
+
+    // U+4E16 is outside every simple-font encoding the fixture's Standard-14
+    // font can address, so `pdf-edit` refuses it — and names the character,
+    // which is the only part of the failure a reader can act on.
+    let result = apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: run,
+            after: "Hello \u{4e16}".to_string(),
+        },
     );
 
-    assert!(matches!(result, Err(FfiError::Internal { .. })));
+    match result {
+        Err(FfiError::EncodingGap { character, .. }) => assert_eq!(character, "\u{4e16}"),
+        other => panic!("expected a typed encoding gap, got {other:?}"),
+    }
+    assert!(!undo(&handle), "a refused command must record nothing");
+}
+
+#[test]
+fn content_editing_is_denied_when_the_document_forbids_modifying_contents() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    assert!(!handle.content_editing_allowed());
+
+    let result = apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: FfiContentTextRun {
+                id: 0,
+                page: 0,
+                bbox: FfiRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                resource_font_name: "F1".to_string(),
+                font_kind: FfiFontKind::Standard14,
+                text: "Hello world".to_string(),
+            },
+            after: "irrelevant".to_string(),
+        },
+    );
+
+    assert!(
+        matches!(result, Err(FfiError::UnsupportedOperation { .. })),
+        "a /P without the modify-contents bit must deny content edits"
+    );
+}
+
+#[test]
+fn a_single_password_open_refuses_content_edits_it_could_never_save() {
+    // Every content edit forces a full rewrite, and re-encrypting one needs
+    // both password roles — so this is not work to be saved later, it is work
+    // that can never be saved. Refused at the edit, not at the save.
+    //
+    // The fixture grants modify-contents on purpose: with that bit clear the
+    // permission rule would refuse first and this would prove nothing about
+    // the credential one.
+    let bytes = encrypted_single_line_pdf(
+        "Hello world",
+        "user-modifiable",
+        "owner-modifiable",
+        lopdf::Permissions::PRINTABLE
+            | lopdf::Permissions::MODIFIABLE
+            | lopdf::Permissions::COPYABLE,
+    );
+    let handle = open_from_bytes(bytes.clone(), Some("user-modifiable".to_string()))
+        .expect("should open with the correct user password");
+
+    assert!(!handle.content_editing_allowed());
+
+    let run = handle
+        .read_page_content(0)
+        .expect("the copy bit is set, so the page parses")
+        .text_runs
+        .first()
+        .expect("fixture wrote one text run")
+        .clone();
+    let result = apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: run,
+            after: "Goodbye world".to_string(),
+        },
+    );
+
+    match result {
+        Err(FfiError::UnsupportedOperation { detail }) => assert!(
+            detail.contains("owner password"),
+            "the refusal must say which of the two rules refused it, got {detail:?}"
+        ),
+        other => panic!("expected a typed refusal, got {other:?}"),
+    }
+
+    // With both roles the same document is editable, which is what proves
+    // this is the credential rule and not the permission bits.
+    let both = open_with_passwords_from_bytes(
+        bytes,
+        "user-modifiable".to_string(),
+        "owner-modifiable".to_string(),
+    )
+    .expect("should open with both passwords");
+    assert!(both.content_editing_allowed());
+}
+
+#[test]
+fn page_font_families_name_the_font_each_run_is_painted_with() {
+    let handle = open_single_line_fixture("Hello world");
+    let run = handle
+        .read_page_content(0)
+        .unwrap()
+        .text_runs
+        .first()
+        .unwrap()
+        .clone();
+
+    let families = handle
+        .page_font_families(0)
+        .expect("the page's fonts should be readable");
+
+    // The join a shell makes: a run reports the resource, this reports what
+    // the resource is.
+    let base_font = families
+        .get(&run.resource_font_name)
+        .expect("the run's own resource must be in the table");
+    assert_eq!(base_font, "Helvetica");
+}
+
+#[test]
+fn page_font_families_are_denied_when_the_document_forbids_text_extraction() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    assert!(matches!(
+        handle.page_font_families(0),
+        Err(FfiError::UnsupportedOperation { .. })
+    ));
+}
+
+#[test]
+fn refresh_preview_renders_the_pending_edit_without_consuming_it() {
+    let handle = open_single_line_fixture("Hello world");
+    let before = render_page(&handle, 0, 72, FfiRenderOptions::default())
+        .expect("the fixture page should render")
+        .get_pixels()
+        .expect("pixels should be readable");
+
+    let content = handle.read_page_content(0).unwrap();
+    let run = content.text_runs.first().unwrap().clone();
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: run,
+            after: "Goodbye world".to_string(),
+        },
+    )
+    .expect("replacing standard-14 text should succeed");
+
+    // Without a refresh the render side still holds the bytes the document
+    // was opened from: retyped text *is* the page, not something a shell can
+    // draw over the bitmap the way it draws an annotation overlay.
+    let stale = render_page(&handle, 0, 72, FfiRenderOptions::default())
+        .expect("rendering must keep working while an edit is pending")
+        .get_pixels()
+        .expect("pixels should be readable");
+    assert_eq!(
+        stale, before,
+        "the pending edit is not visible until refreshed"
+    );
+
+    refresh_preview(&handle).expect("refreshing the preview should succeed");
+
+    let refreshed = render_page(&handle, 0, 72, FfiRenderOptions::default())
+        .expect("the refreshed preview should render")
+        .get_pixels()
+        .expect("pixels should be readable");
+    assert_ne!(
+        refreshed, before,
+        "the retyped run should now be on the page"
+    );
+
+    // The point of a *preview* refresh: the edit is still pending, still
+    // undoable, and the real save is still computed from the opened bytes.
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("saving after a refresh should succeed");
+    let reopened = open_from_bytes(saved, None).expect("saved bytes should reopen");
+    assert_eq!(
+        reopened
+            .read_page_content(0)
+            .expect("page content should parse after save")
+            .text_runs
+            .first()
+            .unwrap()
+            .text,
+        "Goodbye world"
+    );
+    assert!(undo(&handle), "the refresh must not have consumed the edit");
+}
+
+#[test]
+fn retyping_the_same_run_twice_amends_the_queued_command_instead_of_stacking_one() {
+    let handle = open_single_line_fixture("Hello world");
+    let run = handle
+        .read_page_content(0)
+        .unwrap()
+        .text_runs
+        .first()
+        .unwrap()
+        .clone();
+
+    for after in ["Goodbye world", "Goodbye moon"] {
+        apply_edit(
+            &handle,
+            FfiEditCommand::ReplaceTextRunContent {
+                item: run.clone(),
+                after: after.to_string(),
+            },
+        )
+        .expect("retyping a standard-14 run should succeed");
+    }
+
+    // Two commands would both describe the pre-edit run and the second would
+    // resolve against nothing at save time.
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("a save after two edits of one run must succeed");
+    let reopened = open_from_bytes(saved, None).expect("saved bytes should reopen");
+    assert_eq!(
+        reopened
+            .read_page_content(0)
+            .unwrap()
+            .text_runs
+            .first()
+            .unwrap()
+            .text,
+        "Goodbye moon"
+    );
+
+    // One entry, so one undo returns the run to what the file holds.
+    assert!(undo(&handle));
+    assert!(!undo(&handle), "the two edits must coalesce into one entry");
+}
+
+#[test]
+fn refreshing_the_preview_leaves_this_session_s_annotations_to_the_shell() {
+    let annotated = open_single_line_fixture("Hello world");
+    let plain = open_single_line_fixture("Hello world");
+
+    for handle in [&annotated, &plain] {
+        let run = handle
+            .read_page_content(0)
+            .unwrap()
+            .text_runs
+            .first()
+            .unwrap()
+            .clone();
+        apply_edit(
+            handle,
+            FfiEditCommand::ReplaceTextRunContent {
+                item: run,
+                after: "Goodbye world".to_string(),
+            },
+        )
+        .expect("replacing standard-14 text should succeed");
+    }
+
+    apply_edit(
+        &annotated,
+        FfiEditCommand::AddHighlight {
+            page: 0,
+            rect: FfiRect {
+                x: 20.0,
+                y: 20.0,
+                width: 200.0,
+                height: 40.0,
+            },
+            color: FfiColor {
+                r: 255,
+                g: 235,
+                b: 0,
+            },
+        },
+    )
+    .expect("highlighting should succeed");
+
+    refresh_preview(&annotated).expect("refreshing the preview should succeed");
+    refresh_preview(&plain).expect("refreshing the preview should succeed");
+
+    let with_annotation = render_page(&annotated, 0, 72, FfiRenderOptions::default())
+        .expect("render")
+        .get_pixels()
+        .expect("pixels should be readable");
+    let without = render_page(&plain, 0, 72, FfiRenderOptions::default())
+        .expect("render")
+        .get_pixels()
+        .expect("pixels should be readable");
+
+    assert_eq!(
+        with_annotation, without,
+        "a pending annotation belongs to the shell's overlay, not to the preview bitmap"
+    );
+
+    // Dropped from the *preview* only: a real save still carries it.
+    let saved = save_to_bytes(
+        &annotated,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save should succeed");
+    assert!(
+        saved
+            .windows(b"/Highlight".len())
+            .any(|window| window == b"/Highlight"),
+        "the annotation must still reach the file the reader keeps"
+    );
 }
 
 // ---------------------------------------------------------------------
