@@ -68,7 +68,7 @@ public sealed class PageCharacters : IDisposable
     public void Dispose() => _handle.Dispose();
 }
 
-/// <summary>How a text run's font can be re-encoded — see <see cref="ContentTextRun.IsEditable"/>.</summary>
+/// <summary>How a text run's font can be re-encoded.</summary>
 public enum ContentFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
 
 /// <summary>
@@ -80,8 +80,8 @@ public enum ContentFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
 /// A class rather than a record because it carries the core's snapshot of
 /// the run privately: that snapshot is how the core re-finds this run when
 /// the edit is written, so it travels back into
-/// <see cref="PdfDocumentFacade.ReplaceTextRunAsync"/> unchanged rather than
-/// being rebuilt from what the reader sees.
+/// the facade's text-replacement methods unchanged rather than being rebuilt
+/// from what the reader sees.
 /// </remarks>
 public sealed class ContentTextRun
 {
@@ -119,14 +119,13 @@ public sealed class ContentTextRun
     public string Text => _source.Text;
 
     /// <summary>
-    /// Whether this run can be retyped at all. A composite (Type0/CID) font
-    /// cannot: extending a subsetted CID font's glyph coverage means
-    /// re-subsetting it, which this version does not do, so the core refuses
-    /// every replacement against one. The shell asks here before opening an
-    /// editor, rather than letting the reader type into a box that can only
-    /// fail.
+    /// Whether retyping this run requires replacing its composite font with
+    /// the standard font used for inserted text.
     /// </summary>
-    public bool IsEditable => FontKind != ContentFontKind.EmbeddedComposite;
+    public bool RequiresFontSubstitution => FontKind == ContentFontKind.EmbeddedComposite;
+
+    /// <summary>Every known font kind is editable, directly or through explicit substitution.</summary>
+    public bool IsEditable => true;
 }
 
 /// <summary>

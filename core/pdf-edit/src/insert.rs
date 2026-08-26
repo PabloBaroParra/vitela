@@ -272,6 +272,51 @@ pub(crate) fn inserted_font_dictionary() -> Dictionary {
     }
 }
 
+/// Returns a page font resource backed by the standard font used for inserted
+/// text, reusing a compatible one or choosing a collision-free name.
+pub(crate) fn inserted_font_resource_name(document: &Document, page_object: ObjectId) -> String {
+    let resources = owned_resources_snapshot(document, page_object);
+    let fonts = resources
+        .get(b"Font")
+        .ok()
+        .and_then(|object| dereferenced_dict(document, object))
+        .unwrap_or_default();
+
+    for (name, object) in fonts.iter() {
+        let Some(font) = dereferenced_dict(document, object) else {
+            continue;
+        };
+        if crate::encoding::resolved_name(document, &font, b"Subtype").as_deref() == Some("Type1")
+            && crate::encoding::resolved_name(document, &font, b"BaseFont").as_deref()
+                == Some(INSERTED_BASE_FONT)
+            && crate::encoding::resolved_name(document, &font, b"Encoding").as_deref()
+                == Some("WinAnsiEncoding")
+        {
+            return String::from_utf8_lossy(name).into_owned();
+        }
+    }
+
+    for suffix in 1_u32.. {
+        let candidate = format!("FVitela{suffix}");
+        if fonts.get(candidate.as_bytes()).is_err() {
+            return candidate;
+        }
+    }
+
+    unreachable!("the finite font dictionary cannot occupy every u32 suffix")
+}
+
+/// Makes the page resolve a collision-free resource name to the inserted
+/// standard font and returns that name.
+pub(crate) fn ensure_inserted_font_resource(
+    document: &mut Document,
+    page_object: ObjectId,
+) -> Result<String, EditError> {
+    let name = inserted_font_resource_name(document, page_object);
+    ensure_font_resource(document, page_object, &name)?;
+    Ok(name)
+}
+
 /// Adds a standard font under `name` unless the page already has a font
 /// resource by that name.
 fn ensure_font_resource(
@@ -416,6 +461,34 @@ mod tests {
             bbox,
             resource_xobject_name: name.to_string(),
         }
+    }
+
+    #[test]
+    fn inserted_font_selection_reuses_a_compatible_resource() {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "Existing" => inserted_font_dictionary(),
+            },
+        };
+        let (document, page) = fixture::document_with_content(b"", resources);
+
+        assert_eq!(inserted_font_resource_name(&document, page), "Existing");
+    }
+
+    #[test]
+    fn inserted_font_selection_skips_an_incompatible_name_collision() {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "FVitela1" => dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => "Courier",
+                },
+            },
+        };
+        let (document, page) = fixture::document_with_content(b"", resources);
+
+        assert_eq!(inserted_font_resource_name(&document, page), "FVitela2");
     }
 
     fn png_bytes(width: u32, height: u32, alpha: bool) -> Vec<u8> {

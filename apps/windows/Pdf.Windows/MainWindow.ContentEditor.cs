@@ -24,18 +24,16 @@ namespace Pdf.Windows;
 public sealed partial class MainWindow
 {
     /// <summary>
-    /// Text committed against a run but not yet re-read from the file, keyed
-    /// by page and run id.
-    ///
-    /// The parse this shell holds describes the document as opened, and a
-    /// pending edit never changes it — that is deliberate, since the ids in it
-    /// are what the core matches an edit against. But the reader sees the new
-    /// words on the page, so re-opening the editor on that run has to show
-    /// them too, not the text they replaced.
+    /// Which editor is open, what has been written for which run, and when a
+    /// write may close a box.
     /// </summary>
-    private readonly Dictionary<(uint Page, ulong Run), string> _pendingRunText = [];
-
-    private ContentEditor? _contentEditor;
+    /// <remarks>
+    /// All of it ordering, all of it under <c>Viewer/</c> where it can be
+    /// exercised without a window — see <see cref="ContentEditPump{TBox}"/>.
+    /// This file supplies the two ends it cannot have: a box made of WinUI,
+    /// and a pause made of a dispatcher timer.
+    /// </remarks>
+    private readonly ContentEditPump<ContentEditor> _pump;
 
     /// <summary>
     /// Resolves whatever editor is open, then opens one over the run under
@@ -61,16 +59,40 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (!run.IsEditable)
+        if (run.RequiresFontSubstitution
+            && _pump.WrittenFor(pageIndex, run.Id) is null
+            && !await ConfirmFontSubstitutionAsync())
         {
-            // Refused before an editor opens rather than after the reader has
-            // typed: the core rejects every replacement against a composite
-            // font, so a box here could only ever fail.
-            AnnotationStatus.Text = "This text uses a font this version cannot retype (composite/CID).";
+            return;
+        }
+
+        if (_session is null || !_contentEditMode)
+        {
             return;
         }
 
         OpenEditorOver(pageIndex, run, point.X);
+    }
+
+    private async Task<bool> ConfirmFontSubstitutionAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Replace this text's font?",
+            Content = new TextBlock
+            {
+                Text = "This PDF uses a composite font that cannot be retyped safely. "
+                    + "Editing will replace this text with Helvetica while keeping its position and size. "
+                    + "The appearance may change slightly.",
+                TextWrapping = TextWrapping.Wrap,
+            },
+            PrimaryButtonText = "Replace font and edit",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = Content.XamlRoot,
+        };
+
+        return await ShowModalAsync(dialog) == ContentDialogResult.Primary;
     }
 
     private void OpenEditorOver(uint pageIndex, ContentTextRun run, double clickX)
@@ -91,7 +113,7 @@ public sealed partial class MainWindow
         var mask = new Rectangle { Fill = paper, IsHitTestVisible = false };
         var box = new TextBox
         {
-            Text = _pendingRunText.TryGetValue((pageIndex, run.Id), out var pending) ? pending : run.Text,
+            Text = _pump.WrittenFor(pageIndex, run.Id) ?? run.Text,
             // No chrome at all: this has to read as the page, not as a field
             // floating over it.
             BorderThickness = new Thickness(0),
@@ -115,23 +137,34 @@ public sealed partial class MainWindow
         box.KeyDown += ContentEditor_KeyDown;
         box.TextChanged += ContentEditor_TextChanged;
 
-        _contentEditor = new ContentEditor(pageIndex, run, box, mask, box.Text);
+        // Opening closes whatever was open — see `ContentEditPump.Open` for
+        // why two of these overlap on a double click.
+        var editor = new ContentEditor(pageIndex, run, box, mask, box.Text) { TakeOffThePage = CloseEditor };
+        _pump.Open(editor);
         slot.Content.Children.Add(mask);
         slot.Content.Children.Add(box);
-        PlaceEditor(slot, pageIndex, _contentEditor);
+        PlaceEditor(slot, pageIndex, editor);
         box.Focus(FocusState.Programmatic);
         // The caret lands where the reader clicked instead of the whole run
         // being selected: they asked to edit this text, not to replace it, and
         // a run highlighted end to end reads as a field about to be
         // overwritten.
-        box.Select(CaretIndexFor(run, box.Text, clickX), 0);
-        AnnotationStatus.Text = "Type to edit the text — Escape puts it back.";
+        if (run.RequiresFontSubstitution)
+        {
+            box.SelectAll();
+            AnnotationStatus.Text = "Type replacement text — it will use Helvetica. Escape puts it back.";
+        }
+        else
+        {
+            box.Select(CaretIndexFor(run, box.Text, clickX), 0);
+            AnnotationStatus.Text = "Type to edit the text — Escape puts it back.";
+        }
     }
 
     private void ContentEditor_KeyDown(object sender, KeyRoutedEventArgs args)
     {
         // Whatever was refused is being retyped, so let the pump try again.
-        _liveEditFailed = false;
+        _pump.Retry();
 
         if (args.Key == VirtualKey.Enter)
         {
@@ -148,27 +181,20 @@ public sealed partial class MainWindow
     }
 
     /// <summary>Closes the open editor without recording anything.</summary>
-    private void CancelContentEditor()
-    {
-        if (_contentEditor is { } editor)
-        {
-            CloseEditor(editor);
-        }
-    }
+    private void CancelContentEditor() => _pump.Close();
 
     /// <summary>
-    /// Takes one editor's box off the page.
+    /// Takes one editor's box off the page — the shell half of closing one.
     /// </summary>
     /// <remarks>
-    /// Named for the editor rather than reading <see cref="_contentEditor"/>
-    /// because a commit finishing late must remove <em>its own</em> box, not
-    /// whichever one happens to be open by then — and must leave the current
-    /// editor alone if a newer one has already replaced it.
+    /// Named for the editor rather than reading the pump because a commit
+    /// finishing late must remove <em>its own</em> box, not whichever one
+    /// happens to be open by then. Which editor is current, and whether the
+    /// current one may close at all, is the pump's answer; this only does what
+    /// that answer implies for the canvas.
     /// </remarks>
     private void CloseEditor(ContentEditor editor)
     {
-        _liveEdit.Stop();
-        _liveEditFailed = false;
         editor.Box.KeyDown -= ContentEditor_KeyDown;
         editor.Box.TextChanged -= ContentEditor_TextChanged;
         if (editor.PageIndex < _slots.Count)
@@ -176,11 +202,6 @@ public sealed partial class MainWindow
             var content = _slots[(int)editor.PageIndex].Content;
             content.Children.Remove(editor.Box);
             content.Children.Remove(editor.Mask);
-        }
-
-        if (ReferenceEquals(_contentEditor, editor))
-        {
-            _contentEditor = null;
         }
     }
 
@@ -197,7 +218,7 @@ public sealed partial class MainWindow
     /// </remarks>
     private static void DressForRun(Control box, ContentTextRun run)
     {
-        var (families, bold, italic) = PdfFontMatch.ForBaseFont(run.BaseFont);
+        var (families, bold, italic) = PdfFontMatch.ForBaseFont(EditingBaseFont(run));
         box.FontFamily = new FontFamily(families);
         box.FontWeight = bold ? FontWeights.Bold : FontWeights.Normal;
         box.FontStyle = italic ? FontStyle.Italic : FontStyle.Normal;
@@ -340,23 +361,8 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Forgets which runs carry an unsaved retype, after an undo or redo.
-    ///
-    /// Nothing here knows which command a history step moved, so the honest
-    /// answer is none of them: the editor then prefills from the parsed page
-    /// rather than from text that may no longer be queued. The parsed content
-    /// itself stays — its ids are keyed to the opened bytes, which a history
-    /// step does not touch.
-    /// </summary>
-    private void ForgetPendingContentText()
-    {
-        _pendingRunText.Clear();
-        _pendingRunBounds.Clear();
-    }
-
-    /// <summary>The inline editor currently open, and the run it will rewrite.</summary>
-    /// <summary>
-    /// The editor currently open.
+    /// One inline editor: the run it rewrites, and the two elements drawn for
+    /// it.
     /// </summary>
     /// <param name="OpenedWith">
     /// What the run said when the box opened — the page's own text, or the
@@ -364,5 +370,31 @@ public sealed partial class MainWindow
     /// which is only knowable at open time: by the time it is pressed the
     /// document has already been written to.
     /// </param>
-    private sealed record ContentEditor(uint PageIndex, ContentTextRun Run, TextBox Box, Rectangle Mask, string OpenedWith);
+    /// <remarks>
+    /// This is the WinUI end of <see cref="IContentEditBox"/>. The pump never
+    /// sees the <see cref="TextBox"/> or the <see cref="Rectangle"/> — only
+    /// the run's identity, the text, and a way to take the whole thing off the
+    /// page.
+    /// </remarks>
+    private sealed record ContentEditor(uint PageIndex, ContentTextRun Run, TextBox Box, Rectangle Mask, string OpenedWith)
+        : IContentEditBox
+    {
+        /// <summary>
+        /// Set at construction, so a box can dismantle itself when the pump
+        /// says it is no longer current.
+        /// </summary>
+        public required Action<ContentEditor> TakeOffThePage { get; init; }
+
+        ulong IContentEditBox.RunId => Run.Id;
+
+        string IContentEditBox.RunText => Run.Text;
+
+        string IContentEditBox.Text
+        {
+            get => Box.Text;
+            set => Box.Text = value;
+        }
+
+        void IContentEditBox.Close() => TakeOffThePage(this);
+    }
 }

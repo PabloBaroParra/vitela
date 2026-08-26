@@ -121,10 +121,15 @@ public sealed partial class MainWindow
     {
         var was = MeasureWidth(run, run.Text);
         var now = MeasureWidth(run, text);
-        var width = was > 0 ? run.Bounds.Width * (now / was) : run.Bounds.Width;
+        var width = run.RequiresFontSubstitution
+            ? now
+            : was > 0 ? run.Bounds.Width * (now / was) : run.Bounds.Width;
         _pendingRunBounds[(run.PageIndex, run.Id)] =
             new AnnotationRect(run.Bounds.X, run.Bounds.Y, width, run.Bounds.Height);
     }
+
+    private static string? EditingBaseFont(ContentTextRun run) =>
+        run.RequiresFontSubstitution ? "Helvetica" : run.BaseFont;
 
     /// <summary>
     /// How wide <paramref name="text"/> runs in the face that stands in for
@@ -137,7 +142,7 @@ public sealed partial class MainWindow
             return 0;
         }
 
-        var (families, bold, italic) = PdfFontMatch.ForBaseFont(run.BaseFont);
+        var (families, bold, italic) = PdfFontMatch.ForBaseFont(EditingBaseFont(run));
         var probe = new TextBlock
         {
             Text = text,

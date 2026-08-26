@@ -220,7 +220,10 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.Move value => new FfiEditCommand.MoveAnnotation(value.AnnotationId, value.Dx, value.Dy),
         PdfCoreEdit.Resize value => new FfiEditCommand.ResizeAnnotation(value.AnnotationId, Rect(value.Rect)),
         PdfCoreEdit.Restyle value => new FfiEditCommand.RestyleAnnotation(value.AnnotationId, Color(value.Color)),
-        PdfCoreEdit.ReplaceTextRun value => new FfiEditCommand.ReplaceTextRunContent(ContentRun(value.Item), value.After),
+        PdfCoreEdit.ReplaceTextRun value =>
+            new FfiEditCommand.ReplaceTextRunContent(ContentRun(value.Item), value.After),
+        PdfCoreEdit.ReplaceTextRunWithInsertedFont value =>
+            new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
         _ => throw new InvalidOperationException("Unsupported annotation edit."),
     };
 

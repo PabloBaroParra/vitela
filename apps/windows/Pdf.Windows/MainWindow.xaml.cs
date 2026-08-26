@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Viewer;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Security.Cryptography;
 using Windows.Storage;
@@ -73,6 +74,10 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // Built here rather than in a field initializer because both of its
+        // ports are this window: the write goes through the facade this
+        // window owns, and the pause is this window's dispatcher timer.
+        _pump = new ContentEditPump<ContentEditor>(new FacadeContentWriter(this), new DispatcherEditPause(_liveEdit));
         Activated += MainWindow_Activated;
     }
 

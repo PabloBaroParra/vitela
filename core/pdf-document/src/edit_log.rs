@@ -79,6 +79,13 @@ pub enum Command {
         item: TextRun,
         after: String,
     },
+    /// Replaces a composite-font run with text painted in a compatible
+    /// standard font. This is one command rather than a removal followed by
+    /// an insertion so validation, undo and repeated typing stay atomic.
+    ReplaceTextRunWithInsertedFont {
+        item: TextRun,
+        after: String,
+    },
     /// Adds a run as real page content — appended to the content stream with
     /// its font registered in `/Resources`, not stamped as an annotation.
     InsertTextRun(TextRun),
@@ -147,7 +154,7 @@ pub enum Command {
 }
 
 impl Command {
-    /// Whether this command edits page content (the nine "Page content
+    /// Whether this command edits page content (the ten "Page content
     /// (Batch 21)" variants above) rather than an annotation or a page
     /// operation.
     ///
@@ -161,6 +168,7 @@ impl Command {
         matches!(
             self,
             Command::ReplaceTextRunContent { .. }
+                | Command::ReplaceTextRunWithInsertedFont { .. }
                 | Command::InsertTextRun(_)
                 | Command::RemoveTextRun(_)
                 | Command::MoveTextRun { .. }
@@ -211,6 +219,7 @@ impl Command {
             // the command in the log is the entire forward action; the file
             // is changed by `pdf-edit` during the save rewrite.
             Command::ReplaceTextRunContent { .. }
+            | Command::ReplaceTextRunWithInsertedFont { .. }
             | Command::InsertTextRun(_)
             | Command::RemoveTextRun(_)
             | Command::MoveTextRun { .. }
@@ -253,6 +262,14 @@ impl Command {
                 let mut replaced = item.clone();
                 replaced.text = after.clone();
                 Command::ReplaceTextRunContent {
+                    item: replaced,
+                    after: item.text.clone(),
+                }
+            }
+            Command::ReplaceTextRunWithInsertedFont { item, after } => {
+                let mut replaced = item.clone();
+                replaced.text = after.clone();
+                Command::ReplaceTextRunWithInsertedFont {
                     item: replaced,
                     after: item.text.clone(),
                 }
@@ -705,6 +722,10 @@ mod tests {
                 item: sample_text_run(),
                 after: "after".to_string(),
             },
+            Command::ReplaceTextRunWithInsertedFont {
+                item: sample_text_run(),
+                after: "after".to_string(),
+            },
             Command::InsertTextRun(sample_text_run()),
             Command::RemoveTextRun(sample_text_run()),
             Command::MoveTextRun {
@@ -1122,7 +1143,7 @@ mod tests {
 
     // --- Command::is_content_edit / EditLog::peek_undo/peek_redo (T-163) --
 
-    /// Every one of the nine page-content variants reports itself as a
+    /// Every one of the ten page-content variants reports itself as a
     /// content edit — this is the whole set T-163's refresh path must react
     /// to, so a variant silently missing here would silently skip the
     /// re-render it needs.

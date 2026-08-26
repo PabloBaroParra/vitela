@@ -457,6 +457,26 @@ public sealed class PdfDocumentFacade : IDisposable
     /// the run it read and the text it wants.
     /// </remarks>
     public async Task<OperationResult<AnnotationState>> ReplaceTextRunAsync(string sessionId, ContentTextRun run, string text)
+        => await WriteTextRunAsync(sessionId, run, new PdfCoreEdit.ReplaceTextRun(run.Source, text)).ConfigureAwait(false);
+
+    /// <summary>
+    /// Retypes a composite-font run using the standard inserted-text font.
+    /// The caller owns the explicit user confirmation because substitution may
+    /// change the text's appearance.
+    /// </summary>
+    public async Task<OperationResult<AnnotationState>> ReplaceTextRunWithInsertedFontAsync(
+        string sessionId,
+        ContentTextRun run,
+        string text)
+        => await WriteTextRunAsync(
+            sessionId,
+            run,
+            new PdfCoreEdit.ReplaceTextRunWithInsertedFont(run.Source, text)).ConfigureAwait(false);
+
+    private async Task<OperationResult<AnnotationState>> WriteTextRunAsync(
+        string sessionId,
+        ContentTextRun run,
+        PdfCoreEdit edit)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         SessionEntry session;
@@ -471,7 +491,7 @@ public sealed class PdfDocumentFacade : IDisposable
 
                 try
                 {
-                    _core.ApplyEdit(session.Document, new PdfCoreEdit.ReplaceTextRun(run.Source, text));
+                    _core.ApplyEdit(session.Document, edit);
                     session.EditRevision++;
                     session.HasRecordedContentEdit = true;
                 }

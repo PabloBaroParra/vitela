@@ -390,6 +390,14 @@ public sealed partial class MainWindow
     private async Task ApplyHistoryAsync(bool undo)
     {
         if (_session is null) return;
+        // The toolbar stays live while the inline editor has focus, so a
+        // history step can arrive with a box open over the run it is about to
+        // move. Resolve the box first — see
+        // `SettleContentEditorForHistoryAsync` for what happens otherwise.
+        // A no-op when no editor is open, which is every annotation-only
+        // session.
+        await SettleContentEditorForHistoryAsync();
+        if (_session is null) return;
         var result = await (undo ? _facade.UndoAsync(_session.SessionId) : _facade.RedoAsync(_session.SessionId));
         if (!result.IsSuccess) { AnnotationStatus.Text = result.Error!.Message; return; }
         var state = result.Value!;

@@ -114,7 +114,7 @@ pub(super) fn validate_replace(
 /// Structurally lower-risk than a replacement (batch decision 4: no existing
 /// font to collide with), but still validated up front rather than only at
 /// save time, for the same reason every other content command here is: the
-/// nine page-content `Command` variants are inert on `Document::apply`
+/// ten page-content `Command` variants are inert on `Document::apply`
 /// (`pdf_document::edit_log`'s own module docs), so a bad insertion recorded
 /// without checking would only surface when the whole save runs.
 pub(super) fn validate_insert_text(

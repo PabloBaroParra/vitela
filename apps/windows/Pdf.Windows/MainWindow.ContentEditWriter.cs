@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -15,16 +16,22 @@ namespace Pdf.Windows;
 /// the single page it changed costs about ten milliseconds, so what the reader
 /// sees stays a fraction of a second behind what they typed.
 ///
-/// Split from <c>MainWindow.ContentEditor.cs</c>, which owns the box itself:
-/// this owns when a write happens, that owns what the reader is looking at.
-/// The same seam the GTK shell draws between <c>content_edit::editor</c> and
+/// The rules about <em>ordering</em> — which write must land before an editor
+/// may close, what a history step owes an open box — are not here. They live
+/// in <see cref="ContentEditPump{TBox}"/> under <c>Viewer/</c>, for the same
+/// reason <see cref="ContentHitTest"/> and <see cref="PdfFontMatch"/> do:
+/// every one of them is a rule about a race on the dispatcher thread, and a
+/// rule that can only be exercised by opening a window is a rule nobody
+/// exercises. What is left in this file is the WinUI end of the pump's three
+/// ports — the pause timer, the box, and the write itself.
+///
+/// Split from <c>MainWindow.ContentEditor.cs</c>, which owns the box's
+/// appearance: this owns what a write does to the shell around it. The same
+/// seam the GTK shell draws between <c>content_edit::editor</c> and
 /// <c>content_edit::command</c>.
 /// </summary>
 public sealed partial class MainWindow
 {
-    /// <summary>The write in flight, so a second one waits for it instead of racing it.</summary>
-    private Task? _contentCommit;
-
     /// <summary>
     /// How long typing has to pause before the document is written to.
     ///
@@ -43,29 +50,10 @@ public sealed partial class MainWindow
     /// </summary>
     private bool _liveEditWired;
 
-    /// <summary>
-    /// Set when the core refused the text in the box, cleared as soon as it
-    /// changes. It stops the pump from re-sending a rejection on every pass,
-    /// and stops Enter from closing an editor whose text never landed.
-    /// </summary>
-    private bool _liveEditFailed;
-
-    /// <summary>
-    /// Queues the editor's current text to be written to the document, after a
-    /// short pause in typing.
-    /// </summary>
-    /// <remarks>
-    /// The document keeps up with the keyboard instead of waiting for Enter,
-    /// which is affordable because the core amends the queued command rather
-    /// than appending one per keystroke — the whole typing session stays a
-    /// single undo step — and because re-rendering one page costs about ten
-    /// milliseconds. The pause exists so a burst of keystrokes is one write,
-    /// not one per letter.
-    /// </remarks>
-    private void ScheduleLiveEdit()
+    private void LiveEdit_Tick(object? sender, object args)
     {
         _liveEdit.Stop();
-        _liveEdit.Start();
+        _ = _pump.PumpAsync();
     }
 
     private void ContentEditor_TextChanged(object sender, TextChangedEventArgs args)
@@ -73,55 +61,12 @@ public sealed partial class MainWindow
         // Re-laid out on every keystroke, not only on the write: the paper has
         // to keep covering what the text now spans, or a replacement longer
         // than the run it replaces would be typed over the words underneath.
-        if (_contentEditor is { } editor && editor.PageIndex < _slots.Count)
+        if (_pump.Box is { } editor && editor.PageIndex < _slots.Count)
         {
             PlaceEditor(_slots[(int)editor.PageIndex], editor.PageIndex, editor);
         }
 
-        ScheduleLiveEdit();
-    }
-
-    private void LiveEdit_Tick(object? sender, object args)
-    {
-        _liveEdit.Stop();
-        _ = PumpEditorTextAsync();
-    }
-
-    /// <summary>
-    /// Writes the editor's text to the document, one write at a time.
-    /// </summary>
-    /// <remarks>
-    /// Keystrokes arriving during a write are not queued behind it: the loop
-    /// re-reads the box afterwards and writes whatever it says now. Only the
-    /// latest text has any meaning, since each write replaces the last rather
-    /// than stacking on it.
-    /// </remarks>
-    private async Task PumpEditorTextAsync()
-    {
-        if (_contentCommit is not null)
-        {
-            return;
-        }
-
-        while (_contentEditor is { } editor && _session is not null && !_liveEditFailed)
-        {
-            var text = editor.Box.Text;
-            if (text == CurrentTextOf(editor))
-            {
-                return;
-            }
-
-            var write = SendEditorTextAsync(editor, text);
-            _contentCommit = write;
-            try
-            {
-                await write;
-            }
-            finally
-            {
-                _contentCommit = null;
-            }
-        }
+        _pump.Schedule();
     }
 
     /// <summary>
@@ -129,83 +74,43 @@ public sealed partial class MainWindow
     /// document, then closes it. A click on another run, leaving the mode, and
     /// pressing Enter all arrive here.
     /// </summary>
-    private async Task CommitContentEditorAsync()
-    {
-        _liveEdit.Stop();
-        if (_contentCommit is { } inFlight)
-        {
-            await inFlight;
-        }
-
-        await PumpEditorTextAsync();
-
-        if (_contentEditor is { } editor && !_liveEditFailed)
-        {
-            CloseEditor(editor);
-        }
-    }
+    private Task CommitContentEditorAsync() => _pump.CommitAsync();
 
     /// <summary>
     /// Puts the run back the way the editor found it, then closes the box.
     /// </summary>
     /// <remarks>
-    /// Escape has real work to do now. When the document only changed on
-    /// Enter, abandoning an edit meant closing a box; with the document
-    /// keeping up with the keyboard, the text the reader is walking away from
-    /// is already in it.
-    ///
-    /// Two ways back, and which one applies is decided by whether this
-    /// session <em>created</em> the queued command or amended one that was
-    /// already there. If the box opened on the page's own text, the command is
-    /// ours and undo removes it — the document returns to having no edit for
-    /// this run at all. If it opened on text an earlier edit had put there,
-    /// undo would throw that edit away too, so the way back is to write the
-    /// earlier text again.
-    ///
-    /// Both rely on the queued command for this run being the last entry in
-    /// the log, which holds while an editor is open: every other way of
-    /// editing goes through a page click or the toolbar, and both close the
-    /// editor before they run.
+    /// The pump decides which way back applies and does the writing; what is
+    /// left here is the half that needs the shell — running the undo through
+    /// the facade, and saying so.
     /// </remarks>
     private async Task AbandonContentEditorAsync()
     {
-        _liveEdit.Stop();
-        if (_contentCommit is { } inFlight)
+        var outcome = await _pump.AbandonAsync();
+        if (outcome == ContentEditAbandon.Undo)
         {
-            await inFlight;
-        }
-
-        if (_contentEditor is not { } editor)
-        {
-            return;
-        }
-
-        var wrote = CurrentTextOf(editor) != editor.OpenedWith;
-        if (!wrote)
-        {
-            CloseEditor(editor);
-            AnnotationStatus.Text = "Edit cancelled.";
-            return;
-        }
-
-        if (editor.OpenedWith == editor.Run.Text)
-        {
-            _pendingRunText.Remove((editor.PageIndex, editor.Run.Id));
-            CloseEditor(editor);
             await ApplyHistoryAsync(undo: true);
-            AnnotationStatus.Text = "Edit cancelled.";
-            return;
         }
 
-        editor.Box.Text = editor.OpenedWith;
-        await SendEditorTextAsync(editor, editor.OpenedWith);
-        CloseEditor(editor);
         AnnotationStatus.Text = "Edit cancelled.";
     }
 
-    /// <summary>The text the document currently holds for the run being edited.</summary>
-    private string CurrentTextOf(ContentEditor editor) =>
-        _pendingRunText.TryGetValue((editor.PageIndex, editor.Run.Id), out var pending) ? pending : editor.Run.Text;
+    /// <summary>
+    /// Settles the inline editor before the edit log itself moves — see
+    /// <see cref="ContentEditPump{TBox}.SettleForHistoryAsync"/> for why a
+    /// history step cannot leave a box open over the run it is about to move.
+    /// </summary>
+    private Task SettleContentEditorForHistoryAsync() => _pump.SettleForHistoryAsync();
+
+    /// <summary>
+    /// Forgets which runs carry an unsaved retype, after an undo or redo — the
+    /// pump's own record, and the boxes this shell measured for them.
+    /// </summary>
+    private void ForgetPendingContentText()
+    {
+        _pump.Forget();
+        _pendingRunBounds.Clear();
+    }
 
     /// <summary>
     /// Sends one editor's text to the core and re-renders the page it is on.
@@ -217,32 +122,30 @@ public sealed partial class MainWindow
     /// character the run's font cannot encode) is fixed by typing something
     /// else rather than by finding the run again.
     /// </remarks>
-    private async Task SendEditorTextAsync(ContentEditor editor, string text)
+    private async Task<ContentWriteOutcome> SendEditorTextAsync(ContentEditor editor, string text)
     {
         if (_session is null)
         {
-            return;
+            return ContentWriteOutcome.Abandoned;
         }
 
         var sessionId = _session.SessionId;
-        var result = await _facade.ReplaceTextRunAsync(sessionId, editor.Run, text);
+        var result = editor.Run.RequiresFontSubstitution
+            ? await _facade.ReplaceTextRunWithInsertedFontAsync(sessionId, editor.Run, text)
+            : await _facade.ReplaceTextRunAsync(sessionId, editor.Run, text);
         if (_session is null || _session.SessionId != sessionId)
         {
             // Another document arrived while the write was in flight; its own
             // reset already cleared this editor.
-            return;
+            return ContentWriteOutcome.Abandoned;
         }
 
         if (!result.IsSuccess)
         {
-            // Latched until the text changes again: without this, the pump
-            // would re-send the same rejected text on every pass.
-            _liveEditFailed = true;
             AnnotationStatus.Text = result.Error!.Message;
-            return;
+            return ContentWriteOutcome.Refused;
         }
 
-        _pendingRunText[(editor.PageIndex, editor.Run.Id)] = text;
         RecordPendingBounds(editor.Run, text);
         _contentEditedPages.Add(editor.PageIndex);
         // The page says something else now, so the characters cached for
@@ -253,5 +156,25 @@ public sealed partial class MainWindow
         RedrawAnnotations();
         InvalidatePageRender(editor.PageIndex);
         AnnotationStatus.Text = "Text updated. Save to keep the change.";
+        return ContentWriteOutcome.Written;
+    }
+
+    /// <summary>The pump's write port, wired to the facade.</summary>
+    private sealed class FacadeContentWriter(MainWindow owner) : IContentEditWriter<ContentEditor>
+    {
+        public Task<ContentWriteOutcome> WriteAsync(ContentEditor box, string text) =>
+            owner.SendEditorTextAsync(box, text);
+    }
+
+    /// <summary>The pump's pause port, wired to the shell's dispatcher timer.</summary>
+    private sealed class DispatcherEditPause(DispatcherTimer timer) : IEditPause
+    {
+        public void Stop() => timer.Stop();
+
+        public void Restart()
+        {
+            timer.Stop();
+            timer.Start();
+        }
     }
 }

@@ -40,11 +40,12 @@ resto exige interpretar el stream completo para saber dónde empieza y termina c
    Fuentes simples (Standard-14, o embebidas con `/Encoding` WinAnsi/MacRoman/Differences
    resoluble) mapean cada carácter a un code byte; si el texto de reemplazo tiene un
    carácter sin code disponible, ESE reemplazo puntual se rechaza como `EncodingGap`
-   ANTES de tocar el stream — nunca se escribe un glyph inválido. **Fuentes compuestas
-   Type0/CID quedan fuera de la edición de texto en v1** (ver "Fuera de scope"): son el
+   ANTES de tocar el stream — nunca se escribe un glyph inválido. **Conservar una fuente
+   compuesta Type0/CID al editar queda fuera de v1** (ver "Fuera de scope"): son el
    caso típico de fuentes embebidas subseteadas donde el mapeo de caracteres a glyphs no
    es trivial de extender sin re-subsetear la fuente, que es una categoría de trabajo
-   aparte. `editable` se evalúa por intento de reemplazo, no es un flag estático del run —
+   aparte. La app puede sustituirla explícitamente por Helvetica/WinAnsi mediante un comando
+   atómico; nunca lo hace en silencio. `editable` se evalúa por intento de reemplazo, no es un flag estático del run —
    un mismo run puede aceptar "café" y rechazar "日本語".
 4. **Insertar texto/imagen nuevos es estructuralmente más simple que editar:** no hay
    encoding gap posible porque el recurso de fuente se crea nuevo (Standard-14 vía el
@@ -164,7 +165,8 @@ resto exige interpretar el stream completo para saber dónde empieza y termina c
 - [x] T-153 `encoding.rs`: mapea el texto de reemplazo/inserción a codes contra el
       `/Encoding` de la fuente del run (Standard-14/WinAnsi/MacRoman/Differences); devuelve
       `EncodingGap` tipado por carácter no representable en vez de escribir un glyph
-      inválido. Fuentes Type0/CID: rechazadas siempre en v1 (decisión 3). [ContentEncoding]
+      inválido. Fuentes Type0/CID: el reemplazo que conserva la fuente se rechaza; la
+      sustitución explícita usa la fuente estándar de inserción (decisión 3). [ContentEncoding]
       Asimetría deliberada: **decodificar** (codes→texto) es best-effort y devuelve U+FFFD
       para lo que no sabe mapear, así el run igual se ve; **codificar** (texto→codes) es
       estricto y falla. Un code sin mapeo conocido produce un `EncodingGap`, nunca un glyph
@@ -366,9 +368,9 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
 
 - Editar un text run en fuente Standard-14/simple con glyphs representables → el PDF
   resultante muestra el texto nuevo en Acrobat/Preview con la misma fuente/tamaño/posición.
-- Un run cuya fuente no puede representar el texto de reemplazo (Type0/CID, o simple sin
-  el glyph pedido) se detecta ANTES de escribir — nunca corrompe el content stream ni
-  produce glyphs erróneos.
+- Un run cuya fuente simple no puede representar el texto de reemplazo se detecta ANTES de
+  escribir. Un run Type0/CID se sustituye solo tras confirmación explícita, usando una fuente
+  estándar compatible. Ninguno de los dos caminos corrompe el content stream.
 - Mover/redimensionar/reemplazar/borrar una imagen existente produce un PDF válido; el
   resto de la página es byte-idéntico donde no fue tocado.
 - Insertar texto/imagen nuevos los agrega como contenido de página real (visible al
@@ -416,8 +418,8 @@ diseño; conviene hacerlo contra el Annex D de la spec, no de memoria.
 ## Fuera de scope (v1)
 
 Reflow de párrafos / wrap de texto (decisión de producto confirmada: sin motor de layout) ·
-edición de texto en fuentes compuestas Type0/CID · cambiar fuente o tamaño de un run
-existente (eso es "restyle", no "edit"; candidato a fase 2 igual que el flatten de
+edición conservando una fuente compuesta Type0/CID (la sustitución explícita sí está
+soportada) · cambiar fuente o tamaño de un run existente (eso es "restyle", no "edit"; candidato a fase 2 igual que el flatten de
 formularios) · OCR de contenido escaneado · redacción — estos dos últimos siguen post-MVP
 per README.
 

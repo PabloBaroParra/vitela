@@ -169,7 +169,11 @@ fn font_kind(document: &Document, font_dict: &Dictionary) -> FontKind {
     FontKind::EmbeddedSimple
 }
 
-fn resolved_name(document: &Document, dictionary: &Dictionary, key: &[u8]) -> Option<String> {
+pub(crate) fn resolved_name(
+    document: &Document,
+    dictionary: &Dictionary,
+    key: &[u8],
+) -> Option<String> {
     let object = resolve(document, dictionary.get(key).ok()?);
     object
         .as_name()

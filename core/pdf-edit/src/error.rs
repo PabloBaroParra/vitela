@@ -6,8 +6,8 @@ use std::fmt;
 /// Errors surfaced by this crate.
 ///
 /// `#[non_exhaustive]`, matching `AnnotateError` and `pdf-document`'s
-/// `Command`: lifting Type0/CID text editing is an explicit post-v1
-/// candidate and will need its own failure modes.
+/// `Command`: preserving Type0/CID fonts while editing remains a future
+/// capability and will need its own failure modes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EditError {
@@ -35,10 +35,14 @@ pub enum EditError {
         character: char,
         resource_font_name: String,
     },
-    /// The run's font is a composite (Type0/CID) font, which v1 does not
-    /// edit at all: extending a subsetted CID font's glyph coverage means
-    /// re-subsetting it, which is a separate category of work.
+    /// The run's font is a composite (Type0/CID) font, so it cannot be edited
+    /// while preserving that font. Extending a subsetted CID font's glyph
+    /// coverage means re-subsetting it; explicit font substitution is the
+    /// supported alternative.
     CompositeFontNotEditable { resource_font_name: String },
+    /// The caller requested explicit inserted-font substitution for a run
+    /// whose font is not composite.
+    FontSubstitutionNotApplicable { resource_font_name: String },
     /// The run is painted by an operator whose own side effects a
     /// reposition cannot reproduce, so moving it would change the page
     /// beyond the run being moved.
@@ -127,7 +131,12 @@ impl fmt::Display for EditError {
             EditError::CompositeFontNotEditable { resource_font_name } => write!(
                 f,
                 "font {resource_font_name} is a composite (Type0/CID) font, \
-                 which cannot be edited in this version"
+                 which cannot be edited without substituting another font"
+            ),
+            EditError::FontSubstitutionNotApplicable { resource_font_name } => write!(
+                f,
+                "font {resource_font_name} is not composite, so inserted-font substitution \
+                 does not apply"
             ),
             EditError::TextRunNotMovable { operator } => write!(
                 f,
