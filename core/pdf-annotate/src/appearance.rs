@@ -96,7 +96,7 @@ pub fn build_stamp_appearance(annotation: &Annotation) -> Result<StampAppearance
     let pixel_count = width as usize * height as usize;
     let mut rgb = Vec::with_capacity(pixel_count * 3);
     let mut alpha = Vec::with_capacity(pixel_count);
-    for pixel in raw.chunks_exact(4) {
+    for pixel in raw.as_chunks::<4>().0 {
         rgb.extend_from_slice(&pixel[0..3]);
         alpha.push(pixel[3]);
     }

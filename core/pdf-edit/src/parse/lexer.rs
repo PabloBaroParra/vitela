@@ -361,7 +361,9 @@ impl<'a> Lexer<'a> {
                         digits.push(b'0');
                     }
                     return Ok(digits
-                        .chunks_exact(2)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|pair| {
                             let high = (pair[0] as char).to_digit(16).unwrap_or(0) as u8;
                             let low = (pair[1] as char).to_digit(16).unwrap_or(0) as u8;

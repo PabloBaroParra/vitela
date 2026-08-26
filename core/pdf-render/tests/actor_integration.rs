@@ -118,8 +118,10 @@ fn dark_mode_inversion_changes_rendered_pixels() {
     // Spot-check a handful of pixels: RGB channels are complements, alpha
     // untouched (see `inversion.rs`).
     for chunk_pair in normal
-        .chunks_exact(4)
-        .zip(inverted.chunks_exact(4))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(inverted.as_chunks::<4>().0.iter())
         .take(64)
     {
         let (n, i) = chunk_pair;
