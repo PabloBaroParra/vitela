@@ -533,6 +533,29 @@ fn open_single_line_fixture(line: &str) -> std::sync::Arc<pdf_ffi::DocumentHandl
     open_from_bytes(bytes, None).expect("fixture should open")
 }
 
+fn open_composite_single_line_fixture(line: &str) -> std::sync::Arc<pdf_ffi::DocumentHandle> {
+    let mut doc = gen_fixtures::build_multi_line_page_document(&[line]);
+    let font = doc
+        .objects
+        .values_mut()
+        .filter_map(|object| object.as_dict_mut().ok())
+        .find(|dictionary| {
+            dictionary
+                .get(b"BaseFont")
+                .ok()
+                .and_then(|object| object.as_name().ok())
+                == Some(b"Helvetica")
+        })
+        .expect("fixture font dictionary");
+    font.set("Subtype", "Type0");
+    font.set("BaseFont", "AAAAAA+NotoSans");
+
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes)
+        .expect("serialize composite single-line fixture");
+    open_from_bytes(bytes, None).expect("fixture should open")
+}
+
 /// Builds a single-line AES-128 PDF whose `/P` grants printing but **not**
 /// copying — same shape `pdf-manip`'s `text_extraction_permission.rs` uses to
 /// exercise the gate, built locally here since that support module is
@@ -645,6 +668,47 @@ fn editing_a_standard14_run_then_saving_and_reopening_shows_the_new_text() {
         .expect("page content should parse after save");
 
     assert_eq!(reread.text_runs.first().unwrap().text, "Goodbye world");
+}
+
+#[test]
+fn substituting_a_composite_run_then_saving_and_reopening_shows_the_new_text() {
+    let handle = open_composite_single_line_fixture("Hello world");
+    let content = handle.read_page_content(0).unwrap();
+    let run = content.text_runs.first().unwrap().clone();
+    assert_eq!(run.font_kind, FfiFontKind::EmbeddedComposite);
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunWithInsertedFont {
+            item: run.clone(),
+            after: "Alberto Baro".to_string(),
+        },
+    )
+    .expect("composite substitution should succeed");
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunWithInsertedFont {
+            item: run,
+            after: "Alberto Baro Parra".to_string(),
+        },
+    )
+    .expect("retyping should amend the same command");
+
+    assert!(undo(&handle), "the whole typing session is one undo step");
+    assert!(!undo(&handle), "no second replacement was stacked");
+    assert!(redo(&handle));
+
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save should succeed");
+    let reopened = open_from_bytes(saved, None).expect("saved bytes should reopen");
+    let reread = reopened.read_page_content(0).unwrap();
+    let replacement = reread.text_runs.first().expect("replacement run");
+    assert_eq!(replacement.text, "Alberto Baro Parra");
+    assert_eq!(replacement.font_kind, FfiFontKind::Standard14);
 }
 
 #[test]

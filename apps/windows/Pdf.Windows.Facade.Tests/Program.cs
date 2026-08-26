@@ -90,12 +90,24 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("reads a page's editable text runs", ReadsPageContentForEditingAsync)
     ,("refuses page content when the document forbids content changes", RefusesPageContentWhenTheDocumentForbidsItAsync)
     ,("replaces a text run and refreshes the preview", ReplacesATextRunAndRefreshesThePreviewAsync)
+    ,("substitutes a composite text run explicitly", SubstitutesACompositeTextRunExplicitlyAsync)
     ,("names the character a font cannot show", NamesTheCharacterAFontCannotShowAsync)
     ,("keeps a content edit when the preview refresh fails", KeepsTheEditWhenThePreviewRefreshFailsAsync)
     ,("refreshes the preview on history only after a content edit", RefreshesThePreviewOnHistoryOnlyAfterAContentEditAsync)
     ,("refuses page content once the session is retired", RefusesPageContentAfterSessionSwapAsync)
     ,("picks the smallest text run under a content-edit click", PicksTheSmallestRunUnderTheClick)
     ,("matches a PDF font name to a local face", MatchesPdfFontsToLocalFaces)
+    ,("opening an editor closes the one already open", OpeningAnEditorClosesTheOneAlreadyOpen)
+    ,("drains a write started while the commit was waiting", CommitDrainsAWriteStartedWhileItWasWaiting)
+    ,("keeps the box open when a write the commit never saw is refused", ARefusalOnAWriteTheCommitNeverSawKeepsTheBoxOpen)
+    ,("lands the writes then closes the box, before history moves", SettlingForHistoryLandsTheWritesThenClosesTheBox)
+    ,("leaves nothing that could write the undone text back", AHistoryStepLeavesNothingThatCouldWriteTheUndoneTextBack)
+    ,("asks for an undo when abandoning an edit it created", AbandoningAnEditThisSessionCreatedAsksForAnUndo)
+    ,("writes the earlier text back when abandoning on top of it", AbandoningAnEditOnTopOfAnEarlierOneWritesTheEarlierTextBack)
+    ,("stops the pump without latching a refusal when the document goes", ADocumentGoingAwayStopsThePumpWithoutLatchingARefusal)
+    ,("sends only the latest text typed during a write", OnlyTheLatestTextIsSentWhenKeystrokesArriveDuringAWrite)
+    ,("lets the pump try again once refused text is retyped", RetypingAfterARefusalLetsThePumpTryAgain)
+    ,("stops the typing pause before a commit waits", CommittingStopsThePauseBeforeItWaits)
     ,("aims the core at the PDFium shipped beside the app", AimsTheCoreAtTheBundledPdfium)
     ,("leaves an operator's PDFium override alone", LeavesAnExistingPdfiumOverrideAlone)
     ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
@@ -1335,6 +1347,27 @@ static async Task ReplacesATextRunAndRefreshesThePreviewAsync()
     Assert(result.Value!.CanUndo, "the edit should be undoable");
 }
 
+static async Task SubstitutesACompositeTextRunExplicitlyAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var run = ContentRun(new PdfCoreContentTextRun(
+        7,
+        0,
+        new PdfCoreRect(100, 700, 80, 12),
+        "F1",
+        PdfCoreFontKind.EmbeddedComposite,
+        "replacement characters"));
+
+    var result = await facade.ReplaceTextRunWithInsertedFontAsync(session.SessionId, run, "Alberto Baro");
+
+    Assert(result.IsSuccess, "an explicitly confirmed composite substitution should succeed");
+    var edit = core.SubstitutionEdits.Single();
+    Assert(edit.After == "Alberto Baro", "the replacement text should reach the dedicated core command");
+    Assert(core.ContentEdits.Count == 0, "font-preserving replacement must not be selected implicitly");
+}
+
 static async Task NamesTheCharacterAFontCannotShowAsync()
 {
     var core = new FakeCore { UnencodableCharacter = "\u4e16" };
@@ -1444,6 +1477,316 @@ static ContentTextRun ContentRun(PdfCoreContentTextRun source) => new(source, nu
 
 /// <summary>Runs sitting exactly where they were parsed — nothing retyped yet.</summary>
 static AnnotationRect Parsed(ContentTextRun run) => run.Bounds;
+
+// ---------------------------------------------------------------------
+// Content-edit pump — see `Viewer/ContentEditPump.cs`.
+//
+// Every rule here is about the order two continuations run in on the
+// dispatcher thread, so these drive `TestDispatcher` by hand rather than
+// awaiting: an ambient thread pool would run the same continuations in
+// whatever order it liked and prove nothing about the one order the shell
+// actually has.
+// ---------------------------------------------------------------------
+
+static Task OpeningAnEditorClosesTheOneAlreadyOpen()
+{
+    var pump = new ContentEditPump<FakeBox>(new GatedWriter(), new FakePause());
+    var first = new FakeBox(0, 1, "Hello", "Hello");
+    var second = new FakeBox(0, 2, "World", "World");
+
+    // Two of these overlap whenever the first parks — on a page's first
+    // content load, or on a commit still draining — because the shell opens
+    // them from a pointer handler that cannot await.
+    pump.Open(first);
+    pump.Open(second);
+
+    Assert(first.Closed, "an editor that stops being current must come off the page, not linger as an orphan");
+    Assert(first.Closes == 1, "and exactly once");
+    Assert(!second.Closed, "the newest one stays open");
+    Assert(ReferenceEquals(pump.Box, second), "and is the current one");
+    return Task.CompletedTask;
+}
+
+static Task CommitDrainsAWriteStartedWhileItWasWaiting()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Hello " };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        Assert(writer.Sent.Count == 1, "the first pass sends what the box says");
+
+        // The reader keeps typing while that write is in flight, then commits.
+        box.Text = "Hello world";
+        var commit = pump.CommitAsync();
+        dispatcher.Drain();
+        Assert(!commit.IsCompleted, "the commit waits on the write already in flight");
+
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        // The pump registered its continuation first, so it woke first, saw
+        // the new keystrokes and started a second write — one the commit has
+        // no handle on.
+        Assert(writer.Sent.Count == 2, "the pump picks up what arrived during the write");
+        Assert(!commit.IsCompleted, "and the commit keeps waiting: it never saw that second write start");
+        Assert(!box.Closed, "closing here would strand a write nobody is watching");
+
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        Assert(commit.IsCompleted, "once the document has caught up, the commit is done");
+        Assert(box.Closed, "and only then does the box come off the page");
+        Assert(pumping.IsCompleted, "the pump loop ends with it");
+    });
+    return Task.CompletedTask;
+}
+
+static Task ARefusalOnAWriteTheCommitNeverSawKeepsTheBoxOpen()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Hello " };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        // U+4E16 is outside every simple-font encoding, so the core declines
+        // it. The reader types it during the first write and presses Enter.
+        box.Text = "Hello 世";
+        var commit = pump.CommitAsync();
+        dispatcher.Drain();
+
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+        writer.Answer(ContentWriteOutcome.Refused);
+        dispatcher.Drain();
+
+        Assert(commit.IsCompleted, "the commit finishes");
+        Assert(!box.Closed, "but the box stays: typing something else is the only way a reader clears a refusal");
+        Assert(ReferenceEquals(pump.Box, box), "and it is still the current editor");
+        Assert(pump.Refused, "the pump waits for different text rather than re-sending the rejection");
+        Assert(pumping.IsCompleted, "the loop stops on the refusal");
+    });
+    return Task.CompletedTask;
+}
+
+static Task SettlingForHistoryLandsTheWritesThenClosesTheBox()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Goodbye" };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        var settling = pump.SettleForHistoryAsync();
+        dispatcher.Drain();
+
+        Assert(!settling.IsCompleted, "a history step waits for the write already on its way");
+        Assert(!box.Closed, "closing first would let that write land after the step and undo it");
+
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        Assert(settling.IsCompleted, "then the step may run");
+        Assert(box.Closed && pump.Box is null, "and the box is gone before the log moves");
+        Assert(pumping.IsCompleted, "the pump loop is done");
+    });
+    return Task.CompletedTask;
+}
+
+static Task AHistoryStepLeavesNothingThatCouldWriteTheUndoneTextBack()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Goodbye" };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+        Assert(pump.WrittenFor(0, 7) == "Goodbye", "the typing reached the document");
+
+        // The reader clicks Undo. The step settles the editor first, and the
+        // shell then forgets what was written, because nothing here knows
+        // which command the step moved.
+        var settling = pump.SettleForHistoryAsync();
+        dispatcher.Drain();
+        pump.Forget();
+
+        // Whatever is pressed next, there is no box left to compare against
+        // the restored text — which is what used to write the undone edit
+        // straight back, with the redo stack cleared behind it.
+        var commit = pump.CommitAsync();
+        dispatcher.Drain();
+
+        Assert(writer.Sent.Count == 1, "no second write: the undone text has nowhere to come from");
+        Assert(pump.WrittenFor(0, 7) is null, "and the run prefills from the parsed page again");
+        Assert(settling.IsCompleted && commit.IsCompleted, "both settle");
+        Assert(pumping.IsCompleted, "the pump loop is done");
+    });
+    return Task.CompletedTask;
+}
+
+static Task AbandoningAnEditThisSessionCreatedAsksForAnUndo()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        // Opened on the page's own text, so the queued command belongs to this
+        // session and undo removes it.
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Goodbye" };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        var abandoning = pump.AbandonAsync();
+        dispatcher.Drain();
+
+        Assert(abandoning.IsCompleted && abandoning.Result == ContentEditAbandon.Undo, "the way back is an undo");
+        Assert(writer.Sent.Count == 1, "nothing is written back");
+        Assert(pump.WrittenFor(0, 7) is null, "and the run stops claiming an unsaved retype");
+        Assert(box.Closed && pumping.IsCompleted, "the box goes with it");
+    });
+    return Task.CompletedTask;
+}
+
+static Task AbandoningAnEditOnTopOfAnEarlierOneWritesTheEarlierTextBack()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        // Opened on text an earlier unsaved edit put there: undo would throw
+        // that edit away too, so the way back is to write it again.
+        var box = new FakeBox(0, 7, "Hello", "Goodbye") { Text = "Goodbye moon" };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        var abandoning = pump.AbandonAsync();
+        dispatcher.Drain();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        Assert(abandoning.IsCompleted && abandoning.Result == ContentEditAbandon.Rewritten, "not an undo");
+        Assert(writer.Sent[^1] == "Goodbye", "the earlier text is what went back");
+        Assert(box.Text == "Goodbye", "and the box shows it");
+        Assert(pump.WrittenFor(0, 7) == "Goodbye", "the document holds it too");
+        Assert(box.Closed && pumping.IsCompleted, "then it closes");
+    });
+    return Task.CompletedTask;
+}
+
+static Task ADocumentGoingAwayStopsThePumpWithoutLatchingARefusal()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Goodbye" };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        writer.Answer(ContentWriteOutcome.Abandoned);
+        dispatcher.Drain();
+
+        Assert(pumping.IsCompleted, "the loop stops rather than re-sending into a document that is gone");
+        Assert(writer.Sent.Count == 1, "exactly one attempt");
+        Assert(!pump.Refused, "not a refusal: latching one would strand the next editor on a failure that was never the reader's");
+        Assert(pump.Box is null, "and no editor is left current");
+        Assert(!box.Closed, "the shell's own reset already took this box off a page that no longer exists");
+    });
+    return Task.CompletedTask;
+}
+
+static Task OnlyTheLatestTextIsSentWhenKeystrokesArriveDuringAWrite()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "H" };
+        pump.Open(box);
+
+        var pumping = pump.PumpAsync();
+        // Three more keystrokes land while the first write is in flight. Each
+        // write replaces the last rather than stacking on it, so only the last
+        // of them means anything.
+        box.Text = "He";
+        box.Text = "Hel";
+        box.Text = "Hell";
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        Assert(writer.Sent.Count == 2, "two writes, not four");
+        Assert(writer.Sent[0] == "H" && writer.Sent[1] == "Hell", "the first, then whatever the box said afterwards");
+        Assert(pumping.IsCompleted, "the loop ends once the document has caught up");
+    });
+    return Task.CompletedTask;
+}
+
+static Task RetypingAfterARefusalLetsThePumpTryAgain()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Hello 世" };
+        pump.Open(box);
+
+        var refused = pump.PumpAsync();
+        writer.Answer(ContentWriteOutcome.Refused);
+        dispatcher.Drain();
+        Assert(pump.Refused, "the refusal latches");
+
+        var ignored = pump.PumpAsync();
+        dispatcher.Drain();
+        Assert(writer.Sent.Count == 1, "so the same rejection is not re-sent on every pass");
+
+        // A key goes down: whatever was refused is being retyped.
+        pump.Retry();
+        box.Text = "Hello world";
+        var again = pump.PumpAsync();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+
+        Assert(writer.Sent.Count == 2 && writer.Sent[1] == "Hello world", "and the new text goes out");
+        Assert(!pump.Refused, "the latch is clear");
+        Assert(refused.IsCompleted && ignored.IsCompleted && again.IsCompleted, "every pass finished");
+    });
+    return Task.CompletedTask;
+}
+
+static Task CommittingStopsThePauseBeforeItWaits()
+{
+    var pause = new FakePause();
+    var pump = new ContentEditPump<FakeBox>(new GatedWriter(), pause);
+
+    pump.Schedule();
+    Assert(pause.Running, "typing arms the pause");
+
+    var commit = pump.CommitAsync();
+
+    Assert(commit.IsCompleted, "with no editor open there is nothing to wait for");
+    Assert(!pause.Running, "and the pause is stopped, or it would fire into an editor that has already closed");
+    return Task.CompletedTask;
+}
 
 sealed class FakeCore : IPdfCore
 {
@@ -1582,6 +1925,7 @@ sealed class FakeCore : IPdfCore
     public bool CanRedo(IPdfCoreDocument document) => ((FakeDocument)document).CanRedo;
     /// <summary>The content edits the facade handed the core, newest last.</summary>
     public List<PdfCoreEdit.ReplaceTextRun> ContentEdits { get; } = [];
+    public List<PdfCoreEdit.ReplaceTextRunWithInsertedFont> SubstitutionEdits { get; } = [];
 
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
@@ -1598,6 +1942,19 @@ sealed class FakeCore : IPdfCore
             }
 
             ContentEdits.Add(replacement);
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.ReplaceTextRunWithInsertedFont substitution)
+        {
+            if (!fake.ContentEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            if (UnencodableCharacter is { } character && substitution.After.Contains(character, StringComparison.Ordinal))
+            {
+                throw new PdfCoreException(PdfCoreError.EncodingGap, "EncodingGap", character);
+            }
+
+            SubstitutionEdits.Add(substitution);
             fake.Apply(edit);
             return;
         }
@@ -1694,6 +2051,7 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
                 Annotations.RemoveAll(annotation => annotation.Id == remove.AnnotationId);
                 break;
             case PdfCoreEdit.ReplaceTextRun:
+            case PdfCoreEdit.ReplaceTextRunWithInsertedFont:
                 // Page content is not mirrored on the model — the queued
                 // command is the edit — so there is nothing to mutate here
                 // beyond the history the facade reads back.
@@ -1722,4 +2080,114 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
 sealed class RecordingLogger : IDiagnosticLogger
 {
     public void Failure(PdfCoreError category, string operation, string correlationId, string? sessionId, uint? pageIndex, string sanitizedDetail) { }
+}
+
+// ---------------------------------------------------------------------
+// Content-edit pump
+//
+// Every rule here is about the order two continuations run in on the
+// dispatcher thread, so every test drives `TestDispatcher` by hand instead
+// of awaiting: an ambient thread pool would run the same continuations in
+// whatever order it liked and prove nothing about the one order the shell
+// actually has.
+// ---------------------------------------------------------------------
+
+/// <summary>
+/// A stand-in for the UI dispatcher: one queue, continuations run in the
+/// order they were registered, and only when the test says so.
+/// </summary>
+sealed class TestDispatcher : SynchronizationContext
+{
+    private readonly Queue<(SendOrPostCallback Callback, object? State)> _queue = new();
+
+    public override void Post(SendOrPostCallback d, object? state) => _queue.Enqueue((d, state));
+
+    public override void Send(SendOrPostCallback d, object? state) => d(state);
+
+    /// <summary>Runs queued continuations, including any they queue in turn.</summary>
+    public void Drain()
+    {
+        while (_queue.Count > 0)
+        {
+            var (callback, state) = _queue.Dequeue();
+            callback(state);
+        }
+    }
+
+    /// <summary>Runs <paramref name="body"/> with this installed as the current context.</summary>
+    public static void Run(Action<TestDispatcher> body)
+    {
+        var dispatcher = new TestDispatcher();
+        var previous = Current;
+        SetSynchronizationContext(dispatcher);
+        try
+        {
+            body(dispatcher);
+        }
+        finally
+        {
+            SetSynchronizationContext(previous);
+        }
+    }
+}
+
+sealed class FakeBox(uint pageIndex, ulong runId, string runText, string openedWith) : IContentEditBox
+{
+    public uint PageIndex { get; } = pageIndex;
+    public ulong RunId { get; } = runId;
+    public string RunText { get; } = runText;
+    public string OpenedWith { get; } = openedWith;
+    public string Text { get; set; } = openedWith;
+    public bool Closed { get; private set; }
+    public int Closes { get; private set; }
+
+    public void Close()
+    {
+        Closed = true;
+        Closes++;
+    }
+}
+
+/// <summary>
+/// A writer whose every call parks until the test releases it, so a test can
+/// stand exactly in the gap the pump's ordering rules are about.
+/// </summary>
+sealed class GatedWriter : IContentEditWriter<FakeBox>
+{
+    private readonly Queue<TaskCompletionSource<ContentWriteOutcome>> _gates = new();
+
+    /// <summary>Every text handed to the writer, oldest first.</summary>
+    public List<string> Sent { get; } = [];
+
+    public int Waiting => _gates.Count;
+
+    public Task<ContentWriteOutcome> WriteAsync(FakeBox box, string text)
+    {
+        Sent.Add(text);
+        var gate = new TaskCompletionSource<ContentWriteOutcome>();
+        _gates.Enqueue(gate);
+        return gate.Task;
+    }
+
+    /// <summary>Answers the oldest write still waiting.</summary>
+    public void Answer(ContentWriteOutcome outcome) => _gates.Dequeue().SetResult(outcome);
+}
+
+sealed class FakePause : IEditPause
+{
+    public int Stops { get; private set; }
+    public int Restarts { get; private set; }
+    public bool Running { get; private set; }
+
+    public void Stop()
+    {
+        Stops++;
+        Running = false;
+    }
+
+    public void Restart()
+    {
+        Restarts++;
+        Running = true;
+    }
 }

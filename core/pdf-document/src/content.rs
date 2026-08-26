@@ -35,12 +35,13 @@ pub struct ContentItemId(pub u64);
 /// This is metadata, not permission: per batch decision 3 a run is not
 /// statically "editable" or not — a simple font may accept `café` and reject
 /// `日本語`. `pdf-edit`'s encoder answers that per attempt. What this enum
-/// carries is the one case that is rejected outright in v1
+/// carries is the case that cannot preserve its original font
 /// (`EmbeddedComposite`, i.e. Type0/CID), because extending a subsetted CID
-/// font's glyph coverage means re-subsetting it.
+/// font's glyph coverage means re-subsetting it. Callers may instead choose an
+/// explicit replacement-font command.
 ///
-/// `#[non_exhaustive]`: Type0/CID editing is explicitly a post-v1 candidate,
-/// and lifting it will likely need to distinguish CID font flavours.
+/// `#[non_exhaustive]`: preserving a Type0/CID font while editing remains a
+/// future capability and will likely need to distinguish CID font flavours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FontKind {
@@ -50,7 +51,7 @@ pub enum FontKind {
     /// An embedded font with a simple (single-byte) `/Encoding`: WinAnsi,
     /// MacRoman, or a resolvable `/Differences` array.
     EmbeddedSimple,
-    /// A composite Type0/CID font. Read-only for text editing in v1.
+    /// A composite Type0/CID font. Retyping requires explicit font substitution.
     EmbeddedComposite,
 }
 
@@ -214,7 +215,7 @@ mod tests {
     /// the check lives in `pdf-edit`'s encoder. What the model must carry is
     /// enough information for that encoder to reject composite fonts.
     #[test]
-    fn font_kind_distinguishes_the_composite_case_editing_rejects_in_v1() {
+    fn font_kind_distinguishes_the_composite_case_that_requires_substitution() {
         let mut run = sample_text_run(1);
         run.font_kind = FontKind::EmbeddedComposite;
 

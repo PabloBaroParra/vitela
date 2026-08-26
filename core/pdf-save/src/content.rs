@@ -37,6 +37,7 @@ fn is_content_edit(command: &Command) -> bool {
     matches!(
         command,
         Command::ReplaceTextRunContent { .. }
+            | Command::ReplaceTextRunWithInsertedFont { .. }
             | Command::InsertTextRun(_)
             | Command::RemoveTextRun(_)
             | Command::MoveTextRun { .. }
@@ -98,7 +99,7 @@ pub fn replay_content_edits(
 /// Dry-runs one page-content command against a throwaway clone of `base`,
 /// reporting the error a save would hit — and writing nothing anywhere.
 ///
-/// Exists because the nine page-content `Command` variants are inert on
+/// Exists because the ten page-content `Command` variants are inert on
 /// `Document::apply` (page content is a snapshot, never cached state — see
 /// `pdf_document::content`'s module docs). Recording one unchecked means a
 /// text run whose font cannot encode the new characters, or an image paint
@@ -131,6 +132,7 @@ pub fn validate_content_command(base: &LopdfDoc, command: &Command) -> Result<()
 fn content_page(command: &Command) -> Option<PageId> {
     match command {
         Command::ReplaceTextRunContent { item, .. } => Some(item.page),
+        Command::ReplaceTextRunWithInsertedFont { item, .. } => Some(item.page),
         Command::InsertTextRun(run) | Command::RemoveTextRun(run) => Some(run.page),
         Command::MoveTextRun { item, .. } => Some(item.page),
         Command::InsertImage { item, .. }
@@ -150,6 +152,9 @@ fn apply(
     match command {
         Command::ReplaceTextRunContent { item, after } => {
             pdf_edit::replace_text_run(working, page_object, item, after)?
+        }
+        Command::ReplaceTextRunWithInsertedFont { item, after } => {
+            pdf_edit::replace_text_run_with_inserted_font(working, page_object, item, after)?
         }
         Command::InsertTextRun(run) => pdf_edit::insert_text_run(working, page_object, run)?,
         Command::RemoveTextRun(run) => pdf_edit::remove_text_run(working, page_object, run)?,

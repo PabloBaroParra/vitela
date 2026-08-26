@@ -178,9 +178,8 @@ internal sealed record PdfCoreBitmap(uint Width, uint Height, uint Stride, byte[
 
 /// <summary>
 /// How a text run's font can be re-encoded — the one property that decides
-/// whether a run can be retyped at all. A composite (Type0/CID) font is
-/// refused outright by the core, so a shell asks this before opening an
-/// editor rather than letting the reader type into a box that can only fail.
+/// whether a run can preserve its font when retyped. A composite (Type0/CID)
+/// run uses the core's explicit inserted-font substitution command instead.
 /// </summary>
 internal enum PdfCoreFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
 
@@ -209,6 +208,7 @@ internal abstract record PdfCoreEdit
     /// passed back unchanged rather than rebuilt from what is on screen.
     /// </summary>
     public sealed record ReplaceTextRun(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
+    public sealed record ReplaceTextRunWithInsertedFont(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
 }
 
 /// <summary>
@@ -287,4 +287,3 @@ internal interface IDiagnosticLogger
 {
     void Failure(PdfCoreError category, string operation, string correlationId, string? sessionId, uint? pageIndex, string sanitizedDetail);
 }
-

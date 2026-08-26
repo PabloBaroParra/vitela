@@ -68,6 +68,9 @@ pub struct TextPlacement {
     /// into page space, and therefore what a page-space displacement has to
     /// be pulled back through.
     pub ctm: Matrix,
+    /// The `Tf` size in effect for this run. Font substitution needs it to
+    /// select a temporary font without changing the run's text geometry.
+    pub font_size: f64,
     /// The run's own horizontal advance, in text space.
     pub advance: f64,
     /// `Tfs × Th` — the factor that turns a `TJ` adjustment into a
@@ -431,6 +434,7 @@ fn show_text(
             text_matrix: state.text_matrix,
             line_matrix: state.line_matrix,
             ctm: state.ctm,
+            font_size: state.font_size,
             advance,
             advance_scale: state.font_size * state.horizontal_scale,
         },

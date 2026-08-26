@@ -187,6 +187,7 @@ impl From<pdf_edit::EditError> for FfiError {
             // out through the one variant that means "understood and
             // declined".
             other @ (E::CompositeFontNotEditable { .. }
+            | E::FontSubstitutionNotApplicable { .. }
             | E::TextRunNotMovable { .. }
             | E::ImageSourceNotRecoverable { .. }
             | E::UnsupportedContentStreamFilter { .. }

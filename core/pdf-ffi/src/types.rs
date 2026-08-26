@@ -516,11 +516,15 @@ pub enum FfiEditCommand {
 
     // --- Page content (Batch 21, T-158) --------------------------------
     //
-    // Mirror `pdf_document::Command`'s nine page-content variants. Each
+    // Mirror `pdf_document::Command`'s ten page-content variants. Each
     // carries the item read from `DocumentHandle::read_page_content` — no
     // id is allocated here, unlike annotations, because the item already
     // carries the identity the parser assigned it.
     ReplaceTextRunContent {
+        item: FfiContentTextRun,
+        after: String,
+    },
+    ReplaceTextRunWithInsertedFont {
         item: FfiContentTextRun,
         after: String,
     },

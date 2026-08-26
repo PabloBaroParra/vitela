@@ -219,6 +219,12 @@ impl DocumentState {
                     after,
                 }
             }
+            FfiEditCommand::ReplaceTextRunWithInsertedFont { item, after } => {
+                Command::ReplaceTextRunWithInsertedFont {
+                    item: item.into(),
+                    after,
+                }
+            }
             FfiEditCommand::InsertTextRun { item } => Command::InsertTextRun(item.into()),
             FfiEditCommand::RemoveTextRun { item } => Command::RemoveTextRun(item.into()),
             FfiEditCommand::MoveTextRun { item, to } => Command::MoveTextRun {
@@ -342,12 +348,13 @@ fn content_edit_could_be_saved(document: &Document) -> bool {
 
 /// Whether `command` rewrites a page's own content — text runs and images —
 /// as opposed to an annotation drawn over it or the page structure around
-/// it. These are the nine commands `pdf_save::content` replays into the
+/// it. These are the ten commands `pdf_save::content` replays into the
 /// content stream at save time (Batch 21).
 fn is_content_command(command: &FfiEditCommand) -> bool {
     matches!(
         command,
         FfiEditCommand::ReplaceTextRunContent { .. }
+            | FfiEditCommand::ReplaceTextRunWithInsertedFont { .. }
             | FfiEditCommand::InsertTextRun { .. }
             | FfiEditCommand::RemoveTextRun { .. }
             | FfiEditCommand::MoveTextRun { .. }
@@ -371,6 +378,7 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::InsertBlankPage { .. }
             | FfiEditCommand::RemovePage { .. }
             | FfiEditCommand::ReplaceTextRunContent { .. }
+            | FfiEditCommand::ReplaceTextRunWithInsertedFont { .. }
             | FfiEditCommand::InsertTextRun { .. }
             | FfiEditCommand::RemoveTextRun { .. }
             | FfiEditCommand::MoveTextRun { .. }
@@ -942,14 +950,17 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
 /// state, and are refused rather than folded by the shells that offer them
 /// (see the GTK shell's `text_move_refusal`); they append here, as before.
 fn pending_replacement_index(document: &Document, command: &Command) -> Option<usize> {
-    let Command::ReplaceTextRunContent { item, .. } = command else {
-        return None;
+    let item = match command {
+        Command::ReplaceTextRunContent { item, .. }
+        | Command::ReplaceTextRunWithInsertedFont { item, .. } => item,
+        _ => return None,
     };
 
     document.pending_edits.entries().iter().position(|queued| {
         matches!(
             queued,
             Command::ReplaceTextRunContent { item: queued_item, .. }
+                | Command::ReplaceTextRunWithInsertedFont { item: queued_item, .. }
                 if queued_item.id == item.id && queued_item.page == item.page
         )
     })

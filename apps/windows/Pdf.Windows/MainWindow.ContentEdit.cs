@@ -181,15 +181,15 @@ public sealed partial class MainWindow
             }
         }
 
-        if (_contentEditor is { } editor && editor.PageIndex < _slots.Count)
+        if (_pump.Box is { } editor && editor.PageIndex < _slots.Count)
         {
             PlaceEditor(_slots[(int)editor.PageIndex], editor.PageIndex, editor);
         }
     }
 
     /// <summary>
-    /// Outlines every text run on one page: solid for a run that can be
-    /// retyped, dashed and dimmer for one that cannot.
+    /// Outlines every text run on one page: solid when its font is preserved,
+    /// dashed when editing will substitute a compatible font.
     /// </summary>
     /// <remarks>
     /// The two are told apart on screen because the alternative is a click
@@ -221,12 +221,12 @@ public sealed partial class MainWindow
                 Width = Math.Max(1, bounds.Width * scale),
                 Height = Math.Max(1, bounds.Height * scale),
                 StrokeThickness = 1,
-                Stroke = new SolidColorBrush(run.IsEditable
-                    ? global::Windows.UI.Color.FromArgb(120, 40, 120, 235)
-                    : global::Windows.UI.Color.FromArgb(90, 130, 130, 130)),
+                Stroke = new SolidColorBrush(run.RequiresFontSubstitution
+                    ? global::Windows.UI.Color.FromArgb(120, 170, 90, 220)
+                    : global::Windows.UI.Color.FromArgb(120, 40, 120, 235)),
                 IsHitTestVisible = false,
             };
-            if (!run.IsEditable)
+            if (run.RequiresFontSubstitution)
             {
                 outline.StrokeDashArray = [2, 2];
             }
@@ -251,7 +251,7 @@ public sealed partial class MainWindow
         for (var index = slot.Content.Children.Count - 1; index >= 0; index--)
         {
             var child = slot.Content.Children[index];
-            if (child is Rectangle && !ReferenceEquals(child, _contentEditor?.Mask))
+            if (child is Rectangle && !ReferenceEquals(child, _pump.Box?.Mask))
             {
                 slot.Content.Children.RemoveAt(index);
             }
@@ -285,9 +285,11 @@ public sealed partial class MainWindow
     /// </remarks>
     private void ResetContentEditState()
     {
+        // Resets the pump too — the open editor and every run it has written
+        // for — which is why this runs before the visuals are cleared.
+        _pump.Reset();
         ClearContentEditVisuals();
         _pageContent.Clear();
-        _pendingRunText.Clear();
         _pendingRunBounds.Clear();
         _contentEditedPages.Clear();
     }

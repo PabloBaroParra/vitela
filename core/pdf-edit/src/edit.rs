@@ -65,6 +65,79 @@ pub fn replace_text_run(
     splice(document, &located, stream_index, span, &replacement)
 }
 
+/// Replaces a Type0/CID run with text in the standard font used for inserted
+/// content.
+///
+/// The show-text operation stays in place and is wrapped in temporary `Tf`
+/// operators: the first selects the inserted font, the second restores the
+/// original font. Keeping the operation in place preserves its text matrix,
+/// graphics state, clipping and paint order. The rewrite happens on a clone
+/// so an encoding or structural failure cannot leave a registered font or a
+/// partially rewritten stream behind.
+pub fn replace_text_run_with_inserted_font(
+    document: &mut Document,
+    page_object: ObjectId,
+    item: &TextRun,
+    after: &str,
+) -> Result<(), EditError> {
+    let located = read_located_content(document, page_object)?;
+    let target = resolve_text_run(&located, item)?;
+    if target.run.font_kind != pdf_document::FontKind::EmbeddedComposite {
+        return Err(EditError::FontSubstitutionNotApplicable {
+            resource_font_name: target.run.resource_font_name.clone(),
+        });
+    }
+
+    let resource_font_name = crate::insert::inserted_font_resource_name(document, page_object);
+    let font = resolve_font(
+        document,
+        &crate::insert::inserted_font_dictionary(),
+        &resource_font_name,
+    )?;
+    let codes = font.encode(after)?;
+    let replacement_operand = if target.operator == "TJ" {
+        let mut array = vec![b'['];
+        array.extend_from_slice(&literal_string(&codes));
+        array.push(b']');
+        array
+    } else {
+        literal_string(&codes)
+    };
+
+    let operation = &located.streams[target.stream_index].bytes[target.operation_span.clone()];
+    let operand_start = target.operand_span.start - target.operation_span.start;
+    let operand_end = target.operand_span.end - target.operation_span.start;
+    let mut replacement = format!(
+        "/{} {} Tf ",
+        resource_font_name,
+        format_number(target.placement.font_size)
+    )
+    .into_bytes();
+    replacement.extend_from_slice(&operation[..operand_start]);
+    replacement.extend_from_slice(&replacement_operand);
+    replacement.extend_from_slice(&operation[operand_end..]);
+    replacement.extend_from_slice(
+        format!(
+            " /{} {} Tf",
+            target.run.resource_font_name,
+            format_number(target.placement.font_size)
+        )
+        .as_bytes(),
+    );
+
+    let mut working = document.clone();
+    crate::insert::ensure_inserted_font_resource(&mut working, page_object)?;
+    splice(
+        &mut working,
+        &located,
+        target.stream_index,
+        target.operation_span.clone(),
+        &replacement,
+    )?;
+    *document = working;
+    Ok(())
+}
+
 /// The box `run` would occupy if it showed `text` instead of `run.text`.
 ///
 /// Writes nothing and resolves nothing on the page beyond the run's font —
@@ -1065,6 +1138,121 @@ mod tests {
 
         assert!(matches!(error, EditError::CompositeFontNotEditable { .. }));
         assert_eq!(stream_bytes(&document), before);
+    }
+
+    #[test]
+    fn inserted_font_substitution_refuses_a_non_composite_run() {
+        let (mut document, page) = text_document(HELLO);
+        let target = run(&document, 0);
+        let before = stream_bytes(&document);
+
+        let error = replace_text_run_with_inserted_font(&mut document, page, &target, "Alberto")
+            .expect_err("the explicit command only applies to composite fonts");
+
+        assert!(matches!(
+            error,
+            EditError::FontSubstitutionNotApplicable { .. }
+        ));
+        assert_eq!(stream_bytes(&document), before);
+    }
+
+    #[test]
+    fn a_composite_run_can_be_replaced_atomically_with_the_inserted_font() {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "F1" => dictionary! {
+                    "Subtype" => "Type0",
+                    "BaseFont" => "AAAAAA+Noto",
+                },
+            },
+        };
+        let (mut document, page) = fixture::document_with_content(HELLO, resources);
+        let target = run(&document, 0);
+
+        replace_text_run_with_inserted_font(&mut document, page, &target, "Alberto")
+            .expect("WinAnsi replacement");
+
+        let content = content_of(&document);
+        assert_eq!(content.text_runs.len(), 1);
+        assert_eq!(content.text_runs[0].text, "Alberto");
+        assert_eq!(
+            content.text_runs[0].font_kind,
+            pdf_document::FontKind::Standard14
+        );
+        assert_eq!(content.text_runs[0].bbox.x, target.bbox.x);
+        assert_eq!(content.text_runs[0].bbox.y, target.bbox.y);
+    }
+
+    #[test]
+    fn a_composite_substitution_keeps_transform_graphics_state_and_following_font() {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "F1" => dictionary! {
+                    "Subtype" => "Type0",
+                    "BaseFont" => "AAAAAA+Noto",
+                },
+            },
+        };
+        let source = b"BT /F1 12 Tf 1 0 0 rg 0 1 -1 0 300 100 Tm (Hello) Tj (World) Tj ET";
+        let (mut document, page) = fixture::document_with_content(source, resources);
+        let target = run(&document, 0);
+        let before_placement = read_located_content(&document, page)
+            .expect("located content")
+            .text_runs[0]
+            .placement;
+
+        replace_text_run_with_inserted_font(&mut document, page, &target, "Alberto")
+            .expect("WinAnsi replacement");
+
+        let content = content_of(&document);
+        assert_eq!(content.text_runs.len(), 2);
+        assert_eq!(content.text_runs[0].text, "Alberto");
+        assert_eq!(
+            content.text_runs[1].font_kind,
+            pdf_document::FontKind::EmbeddedComposite
+        );
+        let after_placement = read_located_content(&document, page)
+            .expect("located content")
+            .text_runs[0]
+            .placement;
+        assert_eq!(after_placement.text_matrix, before_placement.text_matrix);
+        assert_eq!(after_placement.ctm, before_placement.ctm);
+        let bytes = String::from_utf8(stream_bytes(&document)).expect("ASCII content stream");
+        assert!(bytes.contains("1 0 0 rg 0 1 -1 0 300 100 Tm /FVitela1 12 Tf"));
+        assert!(bytes.contains("/F1 12 Tf (World) Tj"));
+    }
+
+    #[test]
+    fn an_unencodable_composite_substitution_leaves_the_document_untouched() {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "F1" => dictionary! {
+                    "Subtype" => "Type0",
+                    "BaseFont" => "AAAAAA+Noto",
+                },
+            },
+        };
+        let (mut document, page) = fixture::document_with_content(HELLO, resources);
+        let target = run(&document, 0);
+        let before_stream = stream_bytes(&document);
+        let before_objects = document.objects.len();
+
+        let error = replace_text_run_with_inserted_font(&mut document, page, &target, "日本語")
+            .expect_err("WinAnsi cannot encode Japanese");
+
+        assert!(matches!(
+            error,
+            EditError::EncodingGap {
+                character: '日',
+                ..
+            }
+        ));
+        assert_eq!(stream_bytes(&document), before_stream);
+        assert_eq!(
+            document.objects.len(),
+            before_objects,
+            "no font was registered"
+        );
     }
 
     #[test]
