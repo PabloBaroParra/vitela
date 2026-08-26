@@ -46,7 +46,7 @@ pub fn image_xobject(bytes: &[u8]) -> Result<ImageXObject, EditError> {
     let pixels = width as usize * height as usize;
     let mut rgb = Vec::with_capacity(pixels * 3);
     let mut alpha = Vec::with_capacity(pixels);
-    for pixel in rgba.chunks_exact(4) {
+    for pixel in rgba.as_chunks::<4>().0 {
         rgb.extend_from_slice(&pixel[0..3]);
         alpha.push(pixel[3]);
     }

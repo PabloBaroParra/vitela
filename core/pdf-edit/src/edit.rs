@@ -512,7 +512,9 @@ fn encode_raw_samples(
         ),
         (3, Some(mask)) => {
             let rgba: Vec<u8> = samples
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .zip(mask.iter())
                 .flat_map(|(rgb, a)| [rgb[0], rgb[1], rgb[2], *a])
                 .collect();
