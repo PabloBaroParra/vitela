@@ -20,7 +20,8 @@ responsibility:
 - `Vitela/PdfCoreClient.swift` — the only file that touches the generated
   UniFFI API, behind a protocol the rest of the app depends on.
 - `Vitela/ViewerStore.swift` — viewer state: page slots, zoom, render requests.
-- `Vitela/ViewerViewModel.swift` — file selection, the render queue, window title.
+- `Vitela/ViewerViewModel.swift` — file selection, the render queue, window
+  title, and opening the bundled sample document.
 - `Vitela/Views/` — one file per view, plus the `RenderedPage → NSImage` bridge.
 
 `ViewerStore` is main-thread only, with one documented exception:

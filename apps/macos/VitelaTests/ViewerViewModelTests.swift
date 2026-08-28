@@ -52,6 +52,53 @@ final class ViewerViewModelTests: XCTestCase {
 
         XCTAssertEqual(model.store.state, .error(.wrongPassword))
     }
+
+    func testOpenSampleLoadsBytesFromTheInjectedLoaderAndOpensThem() throws {
+        let client = FakePagesClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client), sampleLoader: { Data([9, 9, 9]) })
+
+        model.openSample()
+
+        // `openSample` runs on its own queue, same as `open(url:)`, so the
+        // assertion has to wait for the result to land back on main.
+        let loaded = expectation(description: "sample document reaches the store")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
+        wait(for: [loaded], timeout: 2)
+
+        XCTAssertEqual(model.store.state, .loaded)
+    }
+
+    func testOpenSampleWithTheDefaultLoaderReadsTheBundledResource() throws {
+        // No `sampleLoader` override: this exercises the real
+        // `Bundle.main.url(forResource:withExtension:)` lookup against the
+        // "vitela-sample.pdf" Resources build phase, not a test double.
+        let client = FakePagesClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+
+        model.openSample()
+
+        let loaded = expectation(description: "bundled sample document reaches the store")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
+        wait(for: [loaded], timeout: 2)
+
+        XCTAssertEqual(model.store.state, .loaded)
+    }
+
+    func testOpenSampleLoaderFailureIsReportedAsAReadFailure() throws {
+        let model = ViewerViewModel(store: ViewerStore(client: EmptyClient()), sampleLoader: { throw SampleUnavailable() })
+
+        model.openSample()
+
+        let errored = expectation(description: "sample load failure reaches the store")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { errored.fulfill() }
+        wait(for: [errored], timeout: 2)
+
+        XCTAssertEqual(model.store.state, .error(.readFailed("sample document is missing")))
+    }
+}
+
+private struct SampleUnavailable: Error, LocalizedError {
+    var errorDescription: String? { "sample document is missing" }
 }
 
 private struct EmptyClient: PdfCoreClient {

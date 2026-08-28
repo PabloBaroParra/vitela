@@ -11,13 +11,14 @@ shell packages, so a fresh install can render, scroll, search, and print
 without the user first supplying a PDF of their own. Each shell exposes it
 behind an **Open sample** button.
 
-All three shells package this single file rather than keeping their own copy,
-so a rendering difference between platforms is never down to different input:
+All shells package this single file rather than keeping their own copy, so a
+rendering difference between platforms is never down to different input:
 
 | Shell | How it is packaged | How it is read |
 | ----- | ------------------ | -------------- |
 | Linux (GTK4) | `include_bytes!` at compile time (`apps/linux-gtk/src/app/document.rs`) | `PdfiumRenderer::open_document_from_bytes` |
 | Windows (WinUI 3) | `None` item copied to `Assets\vitela-sample.pdf` beside the executable (`Pdf.Windows.csproj`) | `File.ReadAllBytesAsync` from `AppContext.BaseDirectory` |
+| macOS (SwiftUI) | Resources build phase copies it into `Contents/Resources/vitela-sample.pdf` (`Vitela.xcodeproj`) | `Bundle.main.url(forResource:withExtension:)` in `ViewerViewModel.loadBundledSample` |
 | Android (Compose) | `assets.srcDir("../../../assets/sample")` (`app/build.gradle.kts`) | `AssetManager.open` via `SampleDocument` |
 
 The document deliberately contains plain Helvetica text rather than a scanned

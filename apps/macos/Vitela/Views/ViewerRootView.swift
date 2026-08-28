@@ -50,6 +50,7 @@ struct ViewerRootView: View {
     private var toolbar: some View {
         HStack {
             Button("Open PDF", action: model.selectDocument)
+            Button("Open Sample", action: model.openSample)
             Spacer()
             Button("−") { model.store.setZoom(model.store.zoom - Self.zoomStep) }
                 .accessibilityLabel("Zoom out")
