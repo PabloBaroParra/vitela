@@ -50,7 +50,12 @@ final class ViewerStore: ObservableObject {
 
     private let client: PdfCoreClient
     private var document: (any PdfDocument)?
-    private var generation: UInt = 0
+    /// Bumped on every `open`. Exposed (read-only) so a view can key each
+    /// page row's identity to it — `pageSlots` reuses the same `index`
+    /// values across documents, and `ForEach(id: \.index)` alone would treat
+    /// a freshly opened document's rows as the *same* views as the previous
+    /// document's, so `onAppear` would never refire to request their render.
+    private(set) var generation: UInt = 0
     /// The bytes behind the most recent `open` attempt, kept around so a
     /// password prompt can retry without asking the user to re-pick the file.
     private var pendingBytes: Data?

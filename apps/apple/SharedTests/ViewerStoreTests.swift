@@ -17,6 +17,26 @@ final class ViewerStoreTests: XCTestCase {
         XCTAssertEqual(store.state, .loaded)
     }
 
+    /// `pageSlots` reuses the same `index` values (0, 1, 2, …) across every
+    /// document, so a view keying `ForEach` identity only on `slot.index`
+    /// would treat a second document's rows as the *same* views as the
+    /// first's — `onAppear` would never refire and pages would never render.
+    /// `ViewerRootView` keys identity on `generation` too specifically to
+    /// avoid that; this pins the contract it depends on.
+    func testGenerationAdvancesOnEverySuccessfulOpenEvenWithTheSamePageCount() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+
+        store.open(bytes: Data([1]))
+        let firstGeneration = store.generation
+        store.open(bytes: Data([2]))
+
+        XCTAssertNotEqual(store.generation, firstGeneration)
+        // Same single-page shape both times — this is exactly the case where
+        // `slot.index` alone would collide across documents.
+        XCTAssertEqual(store.pageSlots.map(\.index), [0])
+    }
+
     func testOpenFailureIsRecoverableAndDoesNotReplaceExistingDocument() throws {
         let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
         let store = ViewerStore(client: client)

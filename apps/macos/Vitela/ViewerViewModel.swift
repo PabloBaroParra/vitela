@@ -25,6 +25,17 @@ final class ViewerViewModel: ObservableObject {
         store.$state
             .sink { [weak self] state in self?.title = Self.windowTitle(for: state) }
             .store(in: &subscriptions)
+        // `ViewerRootView` observes only this view model (`@ObservedObject var
+        // model`), not `store` directly. `store` is its own `ObservableObject`
+        // with its own `@Published` properties (`pageSlots`, `zoom`), so a page
+        // finishing its render — or a zoom change — fires `store`'s
+        // `objectWillChange`, not this object's. Without forwarding it here,
+        // SwiftUI never re-evaluates the view after the first paint: every
+        // `PageView` stays frozen showing "Rendering page N…" forever, even
+        // though the store already moved the slot to `.rendered`.
+        store.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &subscriptions)
     }
 
     func selectDocument() {

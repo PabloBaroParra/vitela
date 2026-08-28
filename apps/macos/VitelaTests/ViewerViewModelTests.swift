@@ -2,6 +2,35 @@ import XCTest
 @testable import Vitela
 
 final class ViewerViewModelTests: XCTestCase {
+    /// `ViewerRootView` observes only `ViewerViewModel` (`@ObservedObject var
+    /// model`), never `store` directly — so if a `store`-only mutation (like a
+    /// page finishing its render) doesn't also notify `model`, SwiftUI never
+    /// re-renders and every `PageView` stays frozen on its initial
+    /// "Rendering page N…" placeholder forever, no matter how long the wait.
+    /// This reproduces that mutation — a render completing — while `title`
+    /// (a `@Published` property already on `model`) stays untouched, so the
+    /// only way `objectWillChange` can fire here is the forwarding subscription.
+    func testViewModelNotifiesObserversWhenAPageFinishesRenderingEvenThoughTitleIsUnchanged() throws {
+        let client = FakePagesClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+        let titleBeforeRender = model.title
+
+        var notified = false
+        let subscription = model.objectWillChange.sink { notified = true }
+        defer { subscription.cancel() }
+
+        model.render(page: 0)
+
+        let rendered = expectation(description: "page render reaches the store")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { rendered.fulfill() }
+        wait(for: [rendered], timeout: 2)
+
+        XCTAssertEqual(model.store.pageSlots[0].status, .rendered)
+        XCTAssertEqual(model.title, titleBeforeRender)
+        XCTAssertTrue(notified, "a render finishing only changes store.pageSlots; ViewerViewModel must forward store.objectWillChange or views bound to `model` alone never learn about it")
+    }
+
     func testEmptyAndErrorStatesExposeActionableText() throws {
         let model = ViewerViewModel(store: ViewerStore(client: EmptyClient()))
 

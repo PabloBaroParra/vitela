@@ -85,6 +85,13 @@ struct ViewerRootView: View {
                         // re-renders them at the new DPI instead of upscaling.
                         .onAppear { model.render(page: slot.index) }
                         .onChange(of: model.store.zoom) { _ in model.render(page: slot.index) }
+                        // `pageSlots` reuses the same `index` values across
+                        // documents, so without a generation-keyed identity
+                        // here `ForEach` would treat a newly opened document's
+                        // rows as the *same* views as the previous document's:
+                        // `onAppear` would never refire, and every page would
+                        // stay stuck on its "Rendering…" placeholder forever.
+                        .id("\(model.store.generation)-\(slot.index)")
                 }
             }
             .padding()
