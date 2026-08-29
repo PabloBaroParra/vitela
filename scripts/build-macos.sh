@@ -40,6 +40,7 @@ bundle_layout() {
   [[ -f "$app_path/Contents/Info.plist" ]] || die "missing Contents/Info.plist"
   [[ -f "$app_path/Contents/Frameworks/libpdf_ffi.dylib" ]] || die "missing bundled libpdf_ffi.dylib"
   [[ -f "$app_path/Contents/Frameworks/libpdfium.dylib" ]] || die "missing bundled libpdfium.dylib"
+  [[ -f "$app_path/Contents/Resources/vitela-sample.pdf" ]] || die "missing bundled sample document"
 }
 
 collect_bundle_binaries() {

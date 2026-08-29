@@ -136,8 +136,8 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Capability | Linux (GTK4) | Windows (WinUI 3) | macOS (SwiftUI) | Android (Compose) | iOS (SwiftUI) |
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
 | Open a PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Built-in sample document | ✅ | ✅ | — | ✅ | — |
-| Password-protected PDF | ✅ | — | — | 🚧 | — |
+| Built-in sample document | ✅ | ✅ | 🚧 | ✅ | — |
+| Password-protected PDF | ✅ | — | 🚧 | 🚧 | 🚧 |
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |

@@ -23,6 +23,8 @@ write_complete_bundle() {
   touch "$app/Contents/Info.plist"
   touch "$app/Contents/Frameworks/libpdf_ffi.dylib"
   touch "$app/Contents/Frameworks/libpdfium.dylib"
+  mkdir -p "$app/Contents/Resources"
+  touch "$app/Contents/Resources/vitela-sample.pdf"
 }
 
 # Each case removes exactly one required member from an otherwise complete
@@ -48,5 +50,6 @@ assert_rejects_missing "Contents/Frameworks/libpdf_ffi.dylib" "missing bundled l
 assert_rejects_missing "Contents/MacOS/Vitela" "missing application executable"
 # A bundle without Info.plist passes every Mach-O check and still cannot launch.
 assert_rejects_missing "Contents/Info.plist" "missing Contents/Info.plist"
+assert_rejects_missing "Contents/Resources/vitela-sample.pdf" "missing bundled sample document"
 
-printf 'PASS: bundle layout requires the app executable, Info.plist, FFI, and PDFium dylibs\n'
+printf 'PASS: bundle layout requires the app executable, Info.plist, FFI, PDFium dylibs, and the sample document\n'
