@@ -15,10 +15,15 @@ final class ViewerViewModel: ObservableObject {
 
     let store: ViewerStore
     private let operationQueue: OperationQueue
+    private let sampleLoader: () throws -> Data
     private var subscriptions = Set<AnyCancellable>()
 
-    init(store: ViewerStore = ViewerStore(client: UniFfiPdfCoreClient())) {
+    init(
+        store: ViewerStore = ViewerStore(client: UniFfiPdfCoreClient()),
+        sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
+    ) {
         self.store = store
+        self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
         operationQueue.maxConcurrentOperationCount = 1
         // No `receive(on:)` hop: the store already publishes on main, and
@@ -27,6 +32,17 @@ final class ViewerViewModel: ObservableObject {
         // reading `store.state` back, and the update stays synchronous.
         store.$state
             .sink { [weak self] state in self?.title = Self.screenTitle(for: state) }
+            .store(in: &subscriptions)
+        // `ViewerRootView` observes only this view model (`@ObservedObject var
+        // model`), not `store` directly. `store` is its own `ObservableObject`
+        // with its own `@Published` properties (`pageSlots`, `zoom`), so a page
+        // finishing its render — or a zoom change — fires `store`'s
+        // `objectWillChange`, not this object's. Without forwarding it here,
+        // SwiftUI never re-evaluates the view after the first paint: every
+        // `PageView` stays frozen showing "Rendering page N…" forever, even
+        // though the store already moved the slot to `.rendered`.
+        store.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &subscriptions)
     }
 
@@ -57,17 +73,42 @@ final class ViewerViewModel: ObservableObject {
     }
 
     func open(url: URL) {
-        operationQueue.cancelAllOperations()
-        operationQueue.addOperation { [weak self] in
-            guard let self else { return }
+        loadAndOpen {
             // The picker hands back a file outside the app's container. Without
             // claiming the security-scoped resource first, the read fails with
             // a permissions error that reads like a missing file — and unlike
             // macOS, on iOS there is no fallback path that would still work.
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            return try Data(contentsOf: url)
+        }
+    }
+
+    /// Opens the sample document bundled with the app (see the Resources
+    /// build phase in `VitelaIOS.xcodeproj`), so a fresh install has something
+    /// to render without the user supplying a PDF first.
+    func openSample() {
+        loadAndOpen(sampleLoader)
+    }
+
+    /// Opens the AES-128 encrypted sample bundled alongside the plain one, to
+    /// exercise the password prompt. User password: `user-aes-pass` (see
+    /// `tests/fixtures/README.md`).
+    func openAes128Sample() {
+        loadAndOpen { try Self.loadBundledResource(named: "aes_128_user_and_owner") }
+    }
+
+    /// Opens the RC4-128 encrypted sample. User password: `user-rc4-pass`.
+    func openRc4128Sample() {
+        loadAndOpen { try Self.loadBundledResource(named: "rc4_128_user_and_owner") }
+    }
+
+    private func loadAndOpen(_ load: @escaping () throws -> Data) {
+        operationQueue.cancelAllOperations()
+        operationQueue.addOperation { [weak self] in
+            guard let self else { return }
             do {
-                let bytes = try Data(contentsOf: url)
+                let bytes = try load()
                 DispatchQueue.main.async { self.store.open(bytes: bytes) }
             } catch {
                 // A disk-read failure is not a malformed PDF. Reporting it as
@@ -102,6 +143,22 @@ final class ViewerViewModel: ObservableObject {
             let result = self.store.renderResult(for: request)
             DispatchQueue.main.async { self.store.applyRender(result, for: request) }
         }
+    }
+
+    /// Reads `assets/sample/vitela-sample.pdf`, copied into the app bundle by
+    /// the "Sample document" Resources build phase under the same file name
+    /// every shell uses (see assets/README.md).
+    private static func loadBundledSample() throws -> Data {
+        try loadBundledResource(named: "vitela-sample")
+    }
+
+    /// Reads one of the PDFs copied into the app bundle by the Resources
+    /// build phase, by resource name (without the `.pdf` extension).
+    private static func loadBundledResource(named name: String) throws -> Data {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "pdf") else {
+            throw ViewerFailure.readFailed("The bundled sample document is missing.")
+        }
+        return try Data(contentsOf: url)
     }
 
     /// Not named `title(for:)`: that would collide with the `title` property

@@ -21,7 +21,8 @@ apps/apple/Shared/        Shared with the macOS shell. Foundation/CoreGraphics
 apps/apple/SharedTests/   Store tests, compiled into both platforms' test targets
 apps/ios/Vitela/
   VitelaApp.swift         Entry point only
-  ViewerViewModel.swift   Document picking (fileImporter) and render queueing
+  ViewerViewModel.swift   Document picking (fileImporter), render queueing,
+                          and opening the bundled sample document
   Views/                  ViewerRootView, PageView, RenderedPage+Image (UIKit)
 apps/ios/VitelaTests/     iOS-only view-model tests
 apps/ios/Tests/           Portable shell tests for the deployment-floor gate
