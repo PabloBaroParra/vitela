@@ -91,10 +91,68 @@ final class ViewerViewModel: ObservableObject {
 
     func render(page: Int) {
         enqueue(store.beginRender(page: page))
+        // Piggybacks on the render queue rather than its own trigger: a page
+        // becomes selectable at roughly the same time its bitmap appears,
+        // and `beginPageCharactersFetch` is already a no-op once cached.
+        enqueueCharacters(store.beginPageCharactersFetch(page: page))
     }
 
     func retry(page: Int) {
         enqueue(store.retry(page: page))
+    }
+
+    // MARK: - Search
+
+    func runSearch(_ query: String) {
+        guard let request = store.beginSearch(query: query) else {
+            if query.isEmpty { store.clearSearch() }
+            return
+        }
+        operationQueue.addOperation { [weak self] in
+            guard let self else { return }
+            let result = self.store.searchResult(for: request)
+            DispatchQueue.main.async { self.store.applySearch(result, for: request) }
+        }
+    }
+
+    func stepSearchMatch(by delta: Int) {
+        store.stepSearchMatch(by: delta)
+    }
+
+    // MARK: - Selection
+
+    func beginSelection(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
+        let point = Self.pdfPoint(from: location, dimensions: dimensions, zoom: zoom)
+        store.beginSelection(page: page, xPt: point.x, yPt: point.y)
+    }
+
+    func extendSelection(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
+        let point = Self.pdfPoint(from: location, dimensions: dimensions, zoom: zoom)
+        store.extendSelection(page: page, xPt: point.x, yPt: point.y)
+    }
+
+    /// Copies the current selection to the general pasteboard. A no-op when
+    /// there is nothing selected, so wiring this straight to Cmd+C is safe.
+    func copySelection() {
+        guard let text = store.selectedText else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    private func enqueueCharacters(_ request: ViewerStore.PageCharactersRequest?) {
+        guard let request else { return }
+        operationQueue.addOperation { [weak self] in
+            guard let self else { return }
+            let characters = self.store.pageCharactersResult(for: request)
+            DispatchQueue.main.async { self.store.applyPageCharacters(characters, for: request) }
+        }
+    }
+
+    /// View space (top-left origin, in points already — SwiftUI coordinates
+    /// aren't scaled by the screen's backing factor) to PDF space
+    /// (bottom-left origin, unzoomed).
+    private static func pdfPoint(from location: CGPoint, dimensions: PageDimensions, zoom: Double) -> (x: Double, y: Double) {
+        (Double(location.x) / zoom, dimensions.height - Double(location.y) / zoom)
     }
 
     /// Reopens the document last selected, this time with a password the

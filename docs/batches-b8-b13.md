@@ -397,8 +397,28 @@ ninguno de los dos.
 **Dependencias:** B7 ✓. Paralelo con B10.
 
 ### Tareas
-- [ ] T-055 App SwiftUI vía bindings pdf-ffi; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
+- [x] T-055 App SwiftUI vía bindings pdf-ffi; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
 - [ ] T-056 Prompt de contraseña, selección/búsqueda de texto, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
+      **(2026-08-29 — parcial: prompt de contraseña (`ViewerRootView.alert`, ya estaba hecho pero
+      la ficha no lo reflejaba) + selección de texto arrastrando y búsqueda de documento
+      completo cerrados. Mismo patrón que Windows T-061: `pdf-ffi` ya exponía
+      `DocumentHandle.pageCharacters`/`.search` (T-061 los agregó para Windows, que no puede
+      linkear `pdf-render` directo), así que del lado macOS esto fue enteramente trabajo de
+      shell — cero cambios de core.**
+      `ViewerStore+Search.swift`/`ViewerStore+Selection.swift` (nuevos, junto al `ViewerStore.swift`
+      existente en `apps/apple/Shared`) siguen el mismo split
+      request/result/apply-con-guard-de-generación que ya usa `beginRender`/`renderResult`/
+      `applyRender`, para que una búsqueda o un fetch de `PageCharacters` en vuelo no pise un
+      documento reabierto mientras corría. `PageCharacters` por página se cachea una vez
+      (`pageCharactersCache`), refrescada lazy la primera vez que esa página termina de
+      renderizar — no hay spinner de selección aparte, la página queda seleccionable
+      apenas se ve.
+      UI: `SelectionOverlay.swift` (nuevo, `apps/macos/Vitela/Views`) pinta con `Canvas` los
+      rects de selección/match sobre cada página y traduce el `DragGesture` a coordenadas PDF
+      (origen abajo-izquierda); `ViewerRootView` gana una barra de búsqueda (Cmd+F enfoca,
+      Return busca, Previous/Next con wraparound) y un botón Copy con Cmd+C que lee
+      `store.selectedText`.
+      Anotaciones + undo/redo siguen sin empezar.
 - [ ] T-057 NSPrintOperation vía render_page. [Print]
 - [ ] T-058 NSPasteboard paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
 - [ ] T-059 Bundling .dylib, sign + notarize en macos.yml. [pdfium dist]
@@ -416,8 +436,9 @@ ninguno de los dos.
 - macos.yml YA existe con el job `swift-bindings` (T-042) — B9 lo extiende, no crea workflow.
   El job pasó a llamarse `macos-development-artifact` y absorbió la generación de bindings:
   sigue fallando si falta `pdf_ffi.swift`, `pdf_ffiFFI.h` o `pdf_ffiFFI.modulemap`.
-- T-055 está cubierto solo en su porción abrir/render/scroll/zoom. La UI real (contraseña,
-  selección/búsqueda, anotaciones, undo/redo, print, clipboard) sigue sin empezar.
+- T-055 (abrir/render/scroll/zoom) y la porción contraseña/selección/búsqueda de T-056 están
+  cerradas — ver la entrada extendida de T-056 arriba. Lo que sigue sin empezar de T-056 es
+  la toolbar de anotaciones y undo/redo; T-057/T-058 (print, clipboard/DnD/shortcuts) tampoco.
 - **Piso de macOS = 12.0, no 11.0.** El PDFium 7763 pinneado (el mismo que comparten Linux,
   Windows y Android) declara `minos 12.0`. El gate fail-closed de `build-macos.sh` lo detectó
   al verificar el bundle real. Bajarlo de nuevo implica pinnear un PDFium distinto solo para

@@ -37,6 +37,23 @@ struct RenderRequest {
     let zoom: Double
 }
 
+/// One completed document-wide search. Feature logic lives in
+/// `ViewerStore+Search.swift`; this is just the state it publishes.
+struct SearchSession: Equatable {
+    let query: String
+    let matches: [SearchMatch]
+    var currentIndex: Int
+}
+
+/// A drag-select range on one page, in caret indices (`PageCharacters`
+/// space). `anchor`/`focus` need not be ordered — see
+/// `ViewerStore+Selection.swift`.
+struct TextSelection: Equatable {
+    let page: Int
+    var anchor: Int
+    var focus: Int
+}
+
 /// Main-thread only, except for `renderResult(for:)`, which is explicitly
 /// documented as thread-safe. Every stored property is mutated on main.
 final class ViewerStore: ObservableObject {
@@ -47,9 +64,18 @@ final class ViewerStore: ObservableObject {
     @Published private(set) var state: ViewerState = .empty
     @Published private(set) var pageSlots: [PageSlot] = []
     @Published private(set) var zoom = 1.0
+    // Not `private(set)`: `private` extends only to same-file extensions, and
+    // `ViewerStore+Search.swift`/`ViewerStore+Selection.swift` mutate these
+    // from their own files — same reasoning as `pageCharactersCache` below.
+    @Published var search: SearchSession?
+    @Published var searchStatus = ""
+    @Published var selection: TextSelection?
 
-    private let client: PdfCoreClient
-    private var document: (any PdfDocument)?
+    /// Not `private`: `ViewerStore+Search.swift` and `ViewerStore+Selection.swift`
+    /// read it to issue their own background-safe requests, the same way this
+    /// file's own `beginRender`/`renderResult` split works.
+    let client: PdfCoreClient
+    private(set) var document: (any PdfDocument)?
     /// Bumped on every `open`. Exposed (read-only) so a view can key each
     /// page row's identity to it — `pageSlots` reuses the same `index`
     /// values across documents, and `ForEach(id: \.index)` alone would treat
@@ -59,6 +85,10 @@ final class ViewerStore: ObservableObject {
     /// The bytes behind the most recent `open` attempt, kept around so a
     /// password prompt can retry without asking the user to re-pick the file.
     private var pendingBytes: Data?
+    /// One `PageCharacters` per page, populated lazily by
+    /// `ViewerStore+Selection.swift` after that page's bitmap renders. Not
+    /// `private` for the same reason as `client`/`document` above.
+    var pageCharactersCache: [Int: any PageCharacters] = [:]
 
     init(client: PdfCoreClient) {
         self.client = client
@@ -76,6 +106,13 @@ final class ViewerStore: ObservableObject {
             guard attemptedGeneration == generation else { return }
             document = opened
             pageSlots = opened.pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
+            // A previous document's page characters, matches and selection
+            // address pages/carets that may no longer exist or mean the same
+            // thing in the new one.
+            pageCharactersCache = [:]
+            search = nil
+            searchStatus = ""
+            selection = nil
             state = .loaded
         } catch let failure as ViewerFailure {
             guard attemptedGeneration == generation else { return }

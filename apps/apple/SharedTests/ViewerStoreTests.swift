@@ -209,32 +209,5 @@ final class ViewerStoreTests: XCTestCase {
     }
 }
 
-private final class FakePdfCoreClient: PdfCoreClient {
-    let pages: [PageDimensions]
-    var openedBytes: [Data] = []
-    var openedPasswords: [String?] = []
-    var requestedDpi: [Int] = []
-    var openError: ViewerFailure?
-
-    init(pages: [PageDimensions]) {
-        self.pages = pages
-    }
-
-    func open(bytes: Data, password: String?) throws -> any PdfDocument {
-        openedBytes.append(bytes)
-        openedPasswords.append(password)
-        if let openError {
-            throw openError
-        }
-        return FakeDocument(pages: pages)
-    }
-
-    func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage {
-        requestedDpi.append(dpi)
-        return RenderedPage.placeholder
-    }
-}
-
-private struct FakeDocument: PdfDocument {
-    let pages: [PageDimensions]
-}
+// `FakePdfCoreClient`/`FakeDocument` live in FakePdfCoreClient.swift — shared
+// with ViewerStoreSearchTests.swift and ViewerStoreSelectionTests.swift.
