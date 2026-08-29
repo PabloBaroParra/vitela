@@ -19,6 +19,24 @@ rendering difference between platforms is never down to different input:
 | Linux (GTK4) | `include_bytes!` at compile time (`apps/linux-gtk/src/app/document.rs`) | `PdfiumRenderer::open_document_from_bytes` |
 | Windows (WinUI 3) | `None` item copied to `Assets\vitela-sample.pdf` beside the executable (`Pdf.Windows.csproj`) | `File.ReadAllBytesAsync` from `AppContext.BaseDirectory` |
 | macOS (SwiftUI) | Resources build phase copies it into `Contents/Resources/vitela-sample.pdf` (`Vitela.xcodeproj`) | `Bundle.main.url(forResource:withExtension:)` in `ViewerViewModel.loadBundledSample` |
+| iOS (SwiftUI) | Resources build phase copies it into the app bundle (`VitelaIOS.xcodeproj`) | `Bundle.main.url(forResource:withExtension:)` in `ViewerViewModel.loadBundledSample` |
+| Android (Compose) | `assets.srcDir("../../../assets/sample")` (`app/build.gradle.kts`) | `AssetManager.open` via `SampleDocument` |
+
+### Encrypted samples
+
+`sample/aes_128_user_and_owner.pdf` and `sample/rc4_128_user_and_owner.pdf` are
+copies of the corresponding fixtures from `tests/fixtures/encrypted/` (see
+`tests/fixtures/README.md`), packaged the same way as the plain sample so
+every shell's **Open sample** control can also open a password-protected file
+without the user first supplying one. User passwords: `user-aes-pass` /
+`user-rc4-pass`.
+
+| Shell | How it is packaged | How it is read |
+| ----- | ------------------ | -------------- |
+| Linux (GTK4) | `include_bytes!` at compile time (`apps/linux-gtk/src/app/document.rs`) | `PdfiumRenderer::open_document_from_bytes` |
+| Windows (WinUI 3) | `None` items copied to `Assets\` beside the executable (`Pdf.Windows.csproj`) | `File.ReadAllBytesAsync` from `AppContext.BaseDirectory` |
+| macOS (SwiftUI) | Resources build phase copies them into `Contents/Resources/` (`Vitela.xcodeproj`) | `Bundle.main.url(forResource:withExtension:)` in `ViewerViewModel.loadBundledResource(named:)` |
+| iOS (SwiftUI) | Resources build phase copies them into the app bundle (`VitelaIOS.xcodeproj`) | `Bundle.main.url(forResource:withExtension:)` in `ViewerViewModel.loadBundledResource(named:)` |
 | Android (Compose) | `assets.srcDir("../../../assets/sample")` (`app/build.gradle.kts`) | `AssetManager.open` via `SampleDocument` |
 
 The document deliberately contains plain Helvetica text rather than a scanned

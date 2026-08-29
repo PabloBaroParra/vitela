@@ -60,6 +60,18 @@ final class ViewerViewModel: ObservableObject {
         loadAndOpen(sampleLoader)
     }
 
+    /// Opens the AES-128 encrypted sample bundled alongside the plain one, to
+    /// exercise the password prompt. User password: `user-aes-pass` (see
+    /// `tests/fixtures/README.md`).
+    func openAes128Sample() {
+        loadAndOpen { try Self.loadBundledResource(named: "aes_128_user_and_owner") }
+    }
+
+    /// Opens the RC4-128 encrypted sample. User password: `user-rc4-pass`.
+    func openRc4128Sample() {
+        loadAndOpen { try Self.loadBundledResource(named: "rc4_128_user_and_owner") }
+    }
+
     private func loadAndOpen(_ load: @escaping () throws -> Data) {
         operationQueue.cancelAllOperations()
         operationQueue.addOperation { [weak self] in
@@ -106,7 +118,13 @@ final class ViewerViewModel: ObservableObject {
     /// the "Sample document" Resources build phase under the same file name
     /// every shell uses (see assets/README.md).
     private static func loadBundledSample() throws -> Data {
-        guard let url = Bundle.main.url(forResource: "vitela-sample", withExtension: "pdf") else {
+        try loadBundledResource(named: "vitela-sample")
+    }
+
+    /// Reads one of the PDFs copied into the app bundle by the Resources
+    /// build phase, by resource name (without the `.pdf` extension).
+    private static func loadBundledResource(named name: String) throws -> Data {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "pdf") else {
             throw ViewerFailure.readFailed("The bundled sample document is missing.")
         }
         return try Data(contentsOf: url)

@@ -22,7 +22,11 @@ struct ViewerRootView: View {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Menu {
                             Button("Open PDF", action: model.selectDocument)
-                            Button("Open Sample", action: model.openSample)
+                            Menu("Open Sample") {
+                                Button("Vitela sample", action: model.openSample)
+                                Button("AES-128 sample (user-aes-pass)", action: model.openAes128Sample)
+                                Button("RC4-128 sample (user-rc4-pass)", action: model.openRc4128Sample)
+                            }
                         } label: {
                             Label("Open", systemImage: "doc.badge.plus")
                         }

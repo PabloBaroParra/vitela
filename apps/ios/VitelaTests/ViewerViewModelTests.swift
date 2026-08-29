@@ -175,6 +175,35 @@ final class ViewerViewModelTests: XCTestCase {
         XCTAssertEqual(model.store.state, .loaded)
     }
 
+    func testOpenAes128SampleReadsTheBundledResource() throws {
+        // Exercises the real `Bundle.main.url(forResource:withExtension:)`
+        // lookup against the "aes_128_user_and_owner.pdf" Resources build
+        // phase entry, not a test double.
+        let client = FakePagesClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+
+        model.openAes128Sample()
+
+        let loaded = expectation(description: "bundled AES-128 sample reaches the store")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
+        wait(for: [loaded], timeout: 2)
+
+        XCTAssertEqual(model.store.state, .loaded)
+    }
+
+    func testOpenRc4128SampleReadsTheBundledResource() throws {
+        let client = FakePagesClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+
+        model.openRc4128Sample()
+
+        let loaded = expectation(description: "bundled RC4-128 sample reaches the store")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
+        wait(for: [loaded], timeout: 2)
+
+        XCTAssertEqual(model.store.state, .loaded)
+    }
+
     func testOpenSampleLoaderFailureIsReportedAsAReadFailure() throws {
         let model = ViewerViewModel(store: ViewerStore(client: EmptyClient()), sampleLoader: { throw SampleUnavailable() })
 
