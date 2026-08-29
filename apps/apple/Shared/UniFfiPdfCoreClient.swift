@@ -66,9 +66,70 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
             throw ViewerFailure.renderFailed(page: page, message: String(describing: error))
         }
     }
+
+    func search(document: any PdfDocument, query: String) throws -> [SearchMatch] {
+        guard let document = document as? UniFfiDocument else {
+            throw TextQueryFailure.failed("document is not backed by UniFFI")
+        }
+        do {
+            return try document.handle.search(query: query).map { found in
+                SearchMatch(
+                    pageIndex: Int(found.pageIndex),
+                    text: found.text,
+                    characterBounds: found.characterBounds.map(TextRect.init)
+                )
+            }
+        } catch FfiError.UnsupportedOperation {
+            throw TextQueryFailure.notPermitted
+        } catch {
+            throw TextQueryFailure.failed(String(describing: error))
+        }
+    }
+
+    func pageCharacters(document: any PdfDocument, page: Int) throws -> any PageCharacters {
+        guard let document = document as? UniFfiDocument else {
+            throw TextQueryFailure.failed("document is not backed by UniFFI")
+        }
+        do {
+            let handle = try document.handle.pageCharacters(pageIndex: UInt32(page))
+            return UniFfiPageCharacters(handle: handle)
+        } catch FfiError.UnsupportedOperation {
+            throw TextQueryFailure.notPermitted
+        } catch {
+            throw TextQueryFailure.failed(String(describing: error))
+        }
+    }
 }
 
 private struct UniFfiDocument: PdfDocument {
     let handle: DocumentHandle
     let pages: [PageDimensions]
+}
+
+private extension TextRect {
+    init(_ rect: FfiTextRect) {
+        self.init(xPt: rect.xPt, yPt: rect.yPt, widthPt: rect.widthPt, heightPt: rect.heightPt)
+    }
+}
+
+/// Wraps the generated `FfiPageCharacters` object so `ViewerStore` only ever
+/// sees the shared `PageCharacters` protocol, never a UniFFI type.
+private final class UniFfiPageCharacters: PageCharacters {
+    private let handle: FfiPageCharacters
+
+    init(handle: FfiPageCharacters) {
+        self.handle = handle
+    }
+
+    func caretAt(xPt: Double, yPt: Double) -> Int? {
+        handle.caretAt(xPt: Float(xPt), yPt: Float(yPt)).map(Int.init)
+    }
+
+    func textIn(anchor: Int, focus: Int) -> String {
+        handle.textIn(anchor: UInt32(anchor), focus: UInt32(focus))
+    }
+
+    func rectsIn(anchor: Int, focus: Int) -> [TextRect] {
+        handle.rectsIn(anchor: UInt32(anchor), focus: UInt32(focus)).map(TextRect.init)
+    }
 }
