@@ -13,6 +13,7 @@ use crate::annotation::{Annotation, Rect};
 use crate::content::{ImageItem, TextRun};
 use crate::document::PageId;
 use crate::document::{Document, Page};
+use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
 
 /// A single undoable document-content edit.
 ///
@@ -151,6 +152,46 @@ pub enum Command {
         before: Vec<u8>,
         after: Vec<u8>,
     },
+
+    // --- Form fields (Batch 20) -----------------------------------------
+    //
+    // Unlike the page-content commands above, `Document` DOES hold form
+    // field state (`form_fields: FormFieldSet`), so these have a real
+    // `apply`/inverse pair against the model, same shape as the annotation
+    // commands. They carry full inverse data from day one (unlike the B5
+    // gap `ReplaceAnnotation` closed later) because there is no earlier
+    // batch to catch up on here.
+    /// Carries the field itself, so undo (`RemoveFormField`) never needs to
+    /// reconstruct it (mirrors `AddAnnotation`/`RemoveAnnotation`).
+    AddFormField(FormField),
+    RemoveFormField(FormField),
+    /// Repositions an existing field. `from`/`to` name only the rect, not
+    /// the whole field, because `MoveFormField`/`ResizeFormField` share this
+    /// shape while meaning different user intents (drag vs. handle-resize) —
+    /// same reasoning as `MoveImage`/`ResizeImage`.
+    MoveFormField {
+        id: FormFieldId,
+        from: Rect,
+        to: Rect,
+    },
+    ResizeFormField {
+        id: FormFieldId,
+        from: Rect,
+        to: Rect,
+    },
+    RestyleFormField {
+        id: FormFieldId,
+        from: TextStyle,
+        to: TextStyle,
+    },
+    /// Sets the field's current value (what the user typed/checked/chose).
+    /// `pdf-form::ops` (T-134) validates `to` against the field's kind
+    /// before this command is ever recorded — `apply` here trusts it.
+    SetFieldValue {
+        id: FormFieldId,
+        from: FieldValue,
+        to: FieldValue,
+    },
 }
 
 impl Command {
@@ -228,6 +269,27 @@ impl Command {
             | Command::MoveImage { .. }
             | Command::ResizeImage { .. }
             | Command::ReplaceImageSource { .. } => {}
+            Command::AddFormField(field) => {
+                document.form_fields.insert(field.clone());
+            }
+            Command::RemoveFormField(field) => {
+                document.form_fields.remove(field.id);
+            }
+            Command::MoveFormField { id, to, .. } | Command::ResizeFormField { id, to, .. } => {
+                if let Some(field) = document.form_fields.get_mut(*id) {
+                    field.rect = *to;
+                }
+            }
+            Command::RestyleFormField { id, to, .. } => {
+                if let Some(field) = document.form_fields.get_mut(*id) {
+                    field.style = *to;
+                }
+            }
+            Command::SetFieldValue { id, to, .. } => {
+                if let Some(field) = document.form_fields.get_mut(*id) {
+                    field.value = to.clone();
+                }
+            }
         }
     }
 
@@ -325,6 +387,28 @@ impl Command {
                 item: item.clone(),
                 before: after.clone(),
                 after: before.clone(),
+            },
+            Command::AddFormField(field) => Command::RemoveFormField(field.clone()),
+            Command::RemoveFormField(field) => Command::AddFormField(field.clone()),
+            Command::MoveFormField { id, from, to } => Command::MoveFormField {
+                id: *id,
+                from: *to,
+                to: *from,
+            },
+            Command::ResizeFormField { id, from, to } => Command::ResizeFormField {
+                id: *id,
+                from: *to,
+                to: *from,
+            },
+            Command::RestyleFormField { id, from, to } => Command::RestyleFormField {
+                id: *id,
+                from: *to,
+                to: *from,
+            },
+            Command::SetFieldValue { id, from, to } => Command::SetFieldValue {
+                id: *id,
+                from: to.clone(),
+                to: from.clone(),
             },
         }
     }
@@ -457,6 +541,7 @@ mod tests {
     use crate::annotation::{AnnotationId, AnnotationKind, Color};
     use crate::content::{ContentItemId, FontKind};
     use crate::document::{Orientation, PageSize};
+    use crate::form::{FontFamily, FormFieldKind};
 
     fn sample_annotation(id: u64, page: PageId) -> Annotation {
         Annotation {
@@ -1287,5 +1372,248 @@ mod tests {
 
         log.undo(&mut document);
         assert!(document.annotations.is_empty());
+    }
+
+    // --- Form field commands (B20, T-132) ---------------------------------
+
+    fn sample_form_field(id: u64) -> FormField {
+        FormField {
+            id: FormFieldId(id),
+            page: PageId(0),
+            name: format!("Text_{id}"),
+            rect: sample_rect(72.0, 700.0),
+            style: TextStyle {
+                font: FontFamily::Helvetica,
+                size_pt: 12.0,
+                color: Color { r: 0, g: 0, b: 0 },
+            },
+            value: FieldValue::Text(String::new()),
+            kind: FormFieldKind::Text {
+                multiline: false,
+                max_len: None,
+            },
+            origin: crate::form::FieldOrigin::New,
+        }
+    }
+
+    #[test]
+    fn undo_redo_round_trip_add_form_field() {
+        let mut document = Document::blank();
+        let field = sample_form_field(1);
+        let mut log = EditLog::new();
+
+        log.apply(&mut document, Command::AddFormField(field.clone()));
+        assert_eq!(document.form_fields.len(), 1);
+
+        log.undo(&mut document);
+        assert!(document.form_fields.is_empty());
+
+        log.redo(&mut document);
+        assert_eq!(document.form_fields.get(field.id), Some(&field));
+    }
+
+    #[test]
+    fn undo_redo_round_trip_remove_form_field() {
+        let mut document = Document::blank();
+        let field = sample_form_field(1);
+        document.form_fields.insert(field.clone());
+        let mut log = EditLog::new();
+
+        log.apply(&mut document, Command::RemoveFormField(field.clone()));
+        assert!(document.form_fields.is_empty());
+
+        log.undo(&mut document);
+        assert_eq!(document.form_fields.get(field.id), Some(&field));
+
+        log.redo(&mut document);
+        assert!(document.form_fields.is_empty());
+    }
+
+    #[test]
+    fn undo_redo_round_trip_move_form_field() {
+        let mut document = Document::blank();
+        let field = sample_form_field(1);
+        let from = field.rect;
+        let to = sample_rect(200.0, 500.0);
+        document.form_fields.insert(field.clone());
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::MoveFormField {
+                id: field.id,
+                from,
+                to,
+            },
+        );
+        assert_eq!(document.form_fields.get(field.id).unwrap().rect, to);
+
+        log.undo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().rect, from);
+
+        log.redo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().rect, to);
+    }
+
+    #[test]
+    fn undo_redo_round_trip_resize_form_field() {
+        let mut document = Document::blank();
+        let field = sample_form_field(1);
+        let from = field.rect;
+        let to = Rect {
+            width: 200.0,
+            height: 24.0,
+            ..from
+        };
+        document.form_fields.insert(field.clone());
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::ResizeFormField {
+                id: field.id,
+                from,
+                to,
+            },
+        );
+        assert_eq!(document.form_fields.get(field.id).unwrap().rect, to);
+
+        log.undo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().rect, from);
+    }
+
+    #[test]
+    fn undo_redo_round_trip_restyle_form_field() {
+        let mut document = Document::blank();
+        let field = sample_form_field(1);
+        let from = field.style;
+        let to = TextStyle {
+            font: FontFamily::Courier,
+            size_pt: 14.0,
+            color: Color { r: 255, g: 0, b: 0 },
+        };
+        document.form_fields.insert(field.clone());
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::RestyleFormField {
+                id: field.id,
+                from,
+                to,
+            },
+        );
+        assert_eq!(document.form_fields.get(field.id).unwrap().style, to);
+
+        log.undo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().style, from);
+
+        log.redo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().style, to);
+    }
+
+    #[test]
+    fn undo_redo_round_trip_set_field_value() {
+        let mut document = Document::blank();
+        let field = sample_form_field(1);
+        let from = field.value.clone();
+        let to = FieldValue::Text("hello".to_string());
+        document.form_fields.insert(field.clone());
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::SetFieldValue {
+                id: field.id,
+                from,
+                to: to.clone(),
+            },
+        );
+        assert_eq!(document.form_fields.get(field.id).unwrap().value, to);
+
+        log.undo(&mut document);
+        assert_eq!(
+            document.form_fields.get(field.id).unwrap().value,
+            FieldValue::Text(String::new())
+        );
+
+        log.redo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().value, to);
+    }
+
+    #[test]
+    fn a_form_field_edit_and_its_undo_both_keep_the_field_in_place() {
+        let mut document = Document::blank();
+        document.form_fields.insert(sample_form_field(1));
+        let field = sample_form_field(2);
+        document.form_fields.insert(field.clone());
+        document.form_fields.insert(sample_form_field(3));
+        let order: Vec<_> = document.form_fields.iter().map(|f| f.id).collect();
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::SetFieldValue {
+                id: field.id,
+                from: field.value.clone(),
+                to: FieldValue::Text("changed".to_string()),
+            },
+        );
+        assert_eq!(
+            document
+                .form_fields
+                .iter()
+                .map(|f| f.id)
+                .collect::<Vec<_>>(),
+            order,
+            "applying an edit must not move the field"
+        );
+
+        log.undo(&mut document);
+        assert_eq!(
+            document
+                .form_fields
+                .iter()
+                .map(|f| f.id)
+                .collect::<Vec<_>>(),
+            order,
+            "undoing an edit must not move the field either"
+        );
+    }
+
+    #[test]
+    fn form_field_commands_are_not_content_edits() {
+        let field = sample_form_field(1);
+        let non_content_commands = [
+            Command::AddFormField(field.clone()),
+            Command::RemoveFormField(field.clone()),
+            Command::MoveFormField {
+                id: field.id,
+                from: field.rect,
+                to: field.rect,
+            },
+            Command::ResizeFormField {
+                id: field.id,
+                from: field.rect,
+                to: field.rect,
+            },
+            Command::RestyleFormField {
+                id: field.id,
+                from: field.style,
+                to: field.style,
+            },
+            Command::SetFieldValue {
+                id: field.id,
+                from: field.value.clone(),
+                to: field.value.clone(),
+            },
+        ];
+
+        for command in non_content_commands {
+            assert!(
+                !command.is_content_edit(),
+                "{command:?} must not report itself as a content edit"
+            );
+        }
     }
 }

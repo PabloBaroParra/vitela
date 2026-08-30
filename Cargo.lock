@@ -1854,6 +1854,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-form"
+version = "0.1.0"
+dependencies = [
+ "lopdf",
+ "pdf-document",
+ "pdf-edit",
+]
+
+[[package]]
 name = "pdf-manip"
 version = "0.1.0"
 dependencies = [
@@ -1880,6 +1889,7 @@ dependencies = [
  "pdf-annotate",
  "pdf-document",
  "pdf-edit",
+ "pdf-form",
  "pdf-manip",
  "pdf-render",
 ]

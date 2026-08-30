@@ -27,6 +27,7 @@ pub mod clock;
 pub mod content;
 pub mod error;
 pub mod export;
+pub mod forms;
 pub mod security;
 pub mod strategy;
 
@@ -43,6 +44,7 @@ pub use content::{
 };
 pub use error::SaveError;
 pub use export::{export_page_as_image, ExportFormat};
+pub use forms::{ensure_acroform, write_form_fields};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{
     append_incremental_update, save_document, save_document_with_options,

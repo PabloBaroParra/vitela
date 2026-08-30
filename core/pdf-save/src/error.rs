@@ -19,6 +19,10 @@ pub enum SaveError {
     /// Failure building an annotation's PDF-level appearance (from
     /// `pdf-annotate`).
     Annotate(pdf_annotate::AnnotateError),
+    /// Failure building a form field's `/AP` appearance (from `pdf-form`) —
+    /// most often unencodable text (only printable ASCII is supported,
+    /// decision 3's no-embedded-font constraint).
+    Form(pdf_form::FormError),
     /// Failure editing a page's content stream (from `pdf-edit`) — most
     /// often an `EncodingGap`, i.e. the run's font cannot represent the
     /// replacement text, which is refused before anything is written.
@@ -55,6 +59,7 @@ impl fmt::Display for SaveError {
         match self {
             SaveError::Manip(err) => write!(f, "page-op replay failed: {err}"),
             SaveError::Annotate(err) => write!(f, "annotation appearance build failed: {err}"),
+            SaveError::Form(err) => write!(f, "form field appearance build failed: {err}"),
             SaveError::Edit(err) => write!(f, "page content edit failed: {err}"),
             SaveError::Lopdf(err) => write!(f, "lopdf error: {err}"),
             SaveError::Io(err) => write!(f, "I/O error while saving: {err}"),
@@ -76,6 +81,7 @@ impl std::error::Error for SaveError {
         match self {
             SaveError::Manip(err) => Some(err),
             SaveError::Annotate(err) => Some(err),
+            SaveError::Form(err) => Some(err),
             SaveError::Edit(err) => Some(err),
             SaveError::Lopdf(err) => Some(err),
             SaveError::Io(err) => Some(err),
@@ -95,6 +101,12 @@ impl From<pdf_manip::ManipError> for SaveError {
 impl From<pdf_annotate::AnnotateError> for SaveError {
     fn from(err: pdf_annotate::AnnotateError) -> Self {
         SaveError::Annotate(err)
+    }
+}
+
+impl From<pdf_form::FormError> for SaveError {
+    fn from(err: pdf_form::FormError) -> Self {
+        SaveError::Form(err)
     }
 }
 
