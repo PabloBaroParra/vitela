@@ -4,12 +4,18 @@ import UniformTypeIdentifiers
 struct ViewerRootView: View {
     @ObservedObject var model: ViewerViewModel
     @State private var passwordInput = ""
+    @State private var searchQuery = ""
+    @FocusState private var searchFieldFocused: Bool
 
     private static let zoomStep = 0.1
 
     var body: some View {
         NavigationView {
-            content
+            VStack(spacing: 0) {
+                searchBar
+                Divider()
+                content
+            }
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationTitle(model.title)
                 .toolbar {
@@ -30,6 +36,19 @@ struct ViewerRootView: View {
                         } label: {
                             Label("Open", systemImage: "doc.badge.plus")
                         }
+                    }
+                    // A separate leading item rather than a fourth member of
+                    // the trailing zoom group: that group already fills the
+                    // bar's trailing edge on an iPhone in portrait, and a
+                    // fourth item there squeezed the percentage readout down
+                    // to "10…" instead of "100%" — the same overflow this
+                    // file already consolidated the leading menu to avoid.
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button(action: model.copySelection) {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
+                        .keyboardShortcut("c", modifiers: .command)
+                        .disabled(model.store.selectedText == nil)
                     }
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
                         Button("−") { model.store.setZoom(model.store.zoom - Self.zoomStep) }
@@ -83,6 +102,31 @@ struct ViewerRootView: View {
         )
     }
 
+    private var searchBar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                TextField("Find in document", text: $searchQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .submitLabel(.search)
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+                    .focused($searchFieldFocused)
+                    .onSubmit { model.runSearch(searchQuery) }
+                Button("Previous") { model.stepSearchMatch(by: -1) }
+                    .disabled(model.store.search == nil)
+                Button("Next") { model.stepSearchMatch(by: 1) }
+                    .disabled(model.store.search == nil)
+            }
+            if !model.store.searchStatus.isEmpty {
+                Text(model.store.searchStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
     @ViewBuilder
     private var content: some View {
         if model.store.pageSlots.isEmpty {
@@ -94,8 +138,7 @@ struct ViewerRootView: View {
 
     private var placeholder: some View {
         VStack(spacing: 12) {
-            Image(systemName: "doc.richtext")
-                .font(.system(size: 40))
+            AppMarkView()
             Text(model.title)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -103,36 +146,73 @@ struct ViewerRootView: View {
 
     private var pageList: some View {
         GeometryReader { geometry in
-            ScrollView {
-                LazyVStack(spacing: 16) {
-                    ForEach(model.store.pageSlots, id: \.index) { slot in
-                        PageView(slot: slot, zoom: model.store.zoom) { model.retry(page: slot.index) }
-                            // `render` is a no-op when the slot is already current,
-                            // so re-appearing during scroll costs nothing. A zoom
-                            // change makes every visible slot stale, which is what
-                            // re-renders them at the new DPI instead of upscaling.
-                            .onAppear { model.render(page: slot.index) }
-                            .onChange(of: model.store.zoom) { _ in model.render(page: slot.index) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 16) {
+                        ForEach(model.store.pageSlots, id: \.index) { slot in
+                            ZStack(alignment: .topLeading) {
+                                PageView(slot: slot, zoom: model.store.zoom) { model.retry(page: slot.index) }
+                                    // `render` is a no-op when the slot is already
+                                    // current, so re-appearing during scroll costs
+                                    // nothing. A zoom change makes every visible
+                                    // slot stale, which is what re-renders them at
+                                    // the new DPI instead of upscaling.
+                                    .onAppear { model.render(page: slot.index) }
+                                    .onChange(of: model.store.zoom) { _ in model.render(page: slot.index) }
+                                SelectionOverlay(
+                                    dimensions: slot.dimensions,
+                                    zoom: model.store.zoom,
+                                    selectionRects: model.store.selectionRects(forPage: slot.index),
+                                    matchRects: model.store.searchMatchRects(forPage: slot.index),
+                                    currentMatchRects: model.store.currentSearchMatchRects(forPage: slot.index),
+                                    onDragBegan: { location in
+                                        model.beginSelection(
+                                            page: slot.index, location: location,
+                                            dimensions: slot.dimensions, zoom: model.store.zoom
+                                        )
+                                    },
+                                    onDragChanged: { location in
+                                        model.extendSelection(
+                                            page: slot.index, location: location,
+                                            dimensions: slot.dimensions, zoom: model.store.zoom
+                                        )
+                                    }
+                                )
+                                .frame(width: pageWidth(slot), height: pageHeight(slot))
+                            }
                             // `pageSlots` reuses the same `index` values across
                             // documents, so without a generation-keyed identity
                             // here `ForEach` would treat a newly opened document's
                             // rows as the *same* views as the previous document's:
                             // `onAppear` would never refire, and every page would
                             // stay stuck on its "Rendering…" placeholder forever.
-                            .id("\(model.store.generation)-\(slot.index)")
+                            .id(pageId(slot))
+                        }
                     }
+                    .padding(Self.pageListPadding)
                 }
-                .padding(Self.pageListPadding)
+                // `zoom` is a raw scale (1.0 == 1 PDF point per screen point), not
+                // a fit-to-width factor. A US Letter/A4 page is ~612pt wide, well
+                // past an iPhone's screen width, so without this a freshly opened
+                // document renders wider than the screen and the default zoom
+                // starts the reader clipped until the user zooms out by hand.
+                .onChange(of: model.store.generation) { _ in fitToWidth(availableWidth: geometry.size.width) }
+                .onAppear { fitToWidth(availableWidth: geometry.size.width) }
+                .onChange(of: model.store.currentSearchMatchPage) { page in
+                    guard let page else { return }
+                    withAnimation { proxy.scrollTo(pageId(page: page), anchor: .top) }
+                }
             }
-            // `zoom` is a raw scale (1.0 == 1 PDF point per screen point), not
-            // a fit-to-width factor. A US Letter/A4 page is ~612pt wide, well
-            // past an iPhone's screen width, so without this a freshly opened
-            // document renders wider than the screen and the default zoom
-            // starts the reader clipped until the user zooms out by hand.
-            .onChange(of: model.store.generation) { _ in fitToWidth(availableWidth: geometry.size.width) }
-            .onAppear { fitToWidth(availableWidth: geometry.size.width) }
         }
     }
+
+    private func pageId(_ slot: PageSlot) -> String { pageId(page: slot.index) }
+
+    private func pageId(page: Int) -> String { "\(model.store.generation)-\(page)" }
+
+    private func pageWidth(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.width * model.store.zoom) }
+
+    private func pageHeight(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.height * model.store.zoom) }
 
     private static let pageListPadding: CGFloat = 16
 
