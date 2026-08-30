@@ -141,6 +141,19 @@ fn gtk_ui_starts_with_redo_action_present_and_disabled() {
     drain_main_context();
 }
 
+#[gtk::test]
+fn gtk_ui_allows_a_clean_window_to_close_without_a_prompt() {
+    let application = test_application();
+    let built = build_ui(&application);
+    built.window.present();
+    drain_main_context();
+
+    built.window.close();
+    drain_main_context();
+
+    assert!(!built.window.is_visible());
+}
+
 /// `run`'s `activate`/`open` handlers both go through `ensure_built` so a
 /// second file-manager launch (`open`) lands in the window the first launch
 /// (`activate`) already made, instead of spawning a second one.
