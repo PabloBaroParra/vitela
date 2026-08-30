@@ -6,6 +6,7 @@
 use crate::annotation::AnnotationSet;
 use crate::audit_log::AuditLog;
 use crate::edit_log::EditLog;
+use crate::form::FormFieldSet;
 use crate::security::SecurityContext;
 
 /// Identifies a page within a `Document` — a stable identity assigned at
@@ -119,6 +120,7 @@ impl Page {
 pub struct Document {
     pub pages: Vec<Page>,
     pub annotations: AnnotationSet,
+    pub form_fields: FormFieldSet,
     pub pending_edits: EditLog,
     pub audit_log: AuditLog,
     pub security: Option<SecurityContext>,

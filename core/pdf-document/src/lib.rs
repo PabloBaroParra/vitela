@@ -14,6 +14,7 @@ pub mod audit_log;
 pub mod content;
 pub mod document;
 pub mod edit_log;
+pub mod form;
 pub mod security;
 
 pub use annotation::{Annotation, AnnotationId, AnnotationKind, AnnotationSet, Color, Popup, Rect};
@@ -21,6 +22,10 @@ pub use audit_log::{AuditActor, AuditEntry, AuditEvent, AuditLog};
 pub use content::{ContentItemId, FontKind, ImageItem, PageContent, TextRun};
 pub use document::{Document, Orientation, Page, PageId, PageSize, Rotation};
 pub use edit_log::{Command, EditLog};
+pub use form::{
+    FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId, FormFieldKind, FormFieldSet,
+    RadioOption, TextStyle,
+};
 pub use security::{
     Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
 };
