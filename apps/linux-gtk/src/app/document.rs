@@ -803,7 +803,7 @@ pub(crate) fn new_blank_document(window: &ApplicationWindow, viewer: &Viewer) {
 }
 
 /// Every path that replaces the open document funnels through here, so the
-/// prompt guarding unsaved annotation work only has to exist once.
+/// prompt guarding unsaved work only has to exist once.
 fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
     confirm_replacing_edits(window, viewer, {
         let window = window.clone();
@@ -812,7 +812,7 @@ fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSou
     });
 }
 
-/// Save, Discard or Cancel for annotation work the open would replace.
+/// Save, Discard or Cancel for work the open would replace.
 ///
 /// This unifies three behaviours that used to disagree: a drop and Ctrl+N
 /// refused outright, while the file chooser replaced the document and reported
@@ -832,11 +832,48 @@ fn confirm_replacing_edits(
         return;
     }
 
+    confirm_unsaved_edits(
+        window,
+        viewer,
+        "Opening another document will discard them.",
+        proceed,
+    );
+}
+
+/// Stops a close request while unsaved work is being resolved.
+///
+/// The signal itself must return synchronously, while both the confirmation
+/// and save flows are asynchronous. A dirty window therefore stays alive
+/// until Discard is explicit or Save has reached disk successfully.
+pub(crate) fn confirm_closing_edits(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+) -> glib::Propagation {
+    if !has_unsaved_changes(viewer) {
+        return glib::Propagation::Proceed;
+    }
+
+    let window_to_close = window.clone();
+    confirm_unsaved_edits(
+        window,
+        viewer,
+        "Closing Vitela will discard them.",
+        move || window_to_close.destroy(),
+    );
+    glib::Propagation::Stop
+}
+
+fn confirm_unsaved_edits(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    detail: &'static str,
+    proceed: impl Fn() + 'static,
+) {
     let dialog = AlertDialog::builder()
         .message("Unsaved changes")
-        .detail(
-            "The open document has changes that are not saved. Opening another document will discard them.",
-        )
+        .detail(format!(
+            "The open document has changes that are not saved. {detail}"
+        ))
         .buttons(["Cancel", "Discard", "Save"])
         .cancel_button(0)
         .default_button(2)
@@ -847,16 +884,29 @@ fn confirm_replacing_edits(
     dialog.choose(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         let window = window.clone();
-        move |response| match response {
-            Ok(1) => proceed(),
-            Ok(2) => {
+        move |response| match unsaved_decision(response.ok()) {
+            UnsavedDecision::Discard => proceed(),
+            UnsavedDecision::Save => {
                 save_then(&window, &viewer, proceed.clone());
             }
-            _ => viewer
-                .status
-                .set_text("Kept the unsaved annotation changes."),
+            UnsavedDecision::Keep => viewer.status.set_text("Kept the unsaved changes."),
         }
     });
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnsavedDecision {
+    Keep,
+    Discard,
+    Save,
+}
+
+fn unsaved_decision(response: Option<i32>) -> UnsavedDecision {
+    match response {
+        Some(1) => UnsavedDecision::Discard,
+        Some(2) => UnsavedDecision::Save,
+        _ => UnsavedDecision::Keep,
+    }
 }
 
 /// Runs the save chooser and, only if the bytes reach disk, continues.
@@ -1396,7 +1446,10 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{atomic_write, next_generation_if_current, pdf_destination, save_worker_result};
+    use super::{
+        atomic_write, next_generation_if_current, pdf_destination, save_worker_result,
+        unsaved_decision, UnsavedDecision,
+    };
     use crate::app::state::SessionToken;
 
     #[test]
@@ -1435,6 +1488,26 @@ mod tests {
         };
 
         assert_eq!(next_generation_if_current(token, 4, 3), None);
+    }
+
+    #[test]
+    fn cancelling_an_unsaved_changes_prompt_keeps_the_document_open() {
+        assert_eq!(unsaved_decision(Some(0)), UnsavedDecision::Keep);
+    }
+
+    #[test]
+    fn dismissing_an_unsaved_changes_prompt_keeps_the_document_open() {
+        assert_eq!(unsaved_decision(None), UnsavedDecision::Keep);
+    }
+
+    #[test]
+    fn discarding_unsaved_changes_continues_the_blocked_action() {
+        assert_eq!(unsaved_decision(Some(1)), UnsavedDecision::Discard);
+    }
+
+    #[test]
+    fn saving_unsaved_changes_continues_only_through_the_save_path() {
+        assert_eq!(unsaved_decision(Some(2)), UnsavedDecision::Save);
     }
 
     #[test]

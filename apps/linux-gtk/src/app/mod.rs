@@ -37,7 +37,8 @@ use gtk::{
 use annotations::add_annotation_toolbar;
 use brand::build_app_mark;
 use document::{
-    new_blank_document, open_file, open_sample, show_file_chooser, show_save_chooser, SampleKind,
+    confirm_closing_edits, new_blank_document, open_file, open_sample, show_file_chooser,
+    show_save_chooser, SampleKind,
 };
 use editor_toolbar::build_editor_toolbar;
 use layout::{current_zoom_factor, refresh_layout, set_zoom, Zoom};
@@ -432,6 +433,10 @@ fn build_ui(application: &Application) -> BuiltUi {
         let window = window.clone();
         let viewer = viewer.clone();
         move |_| show_save_chooser(&window, &viewer)
+    });
+    window.connect_close_request({
+        let viewer = viewer.clone();
+        move |window| confirm_closing_edits(window, &viewer)
     });
     connect_standard_shortcuts(application, &window, &viewer);
 
