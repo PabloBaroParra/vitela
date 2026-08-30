@@ -200,9 +200,15 @@ pub fn document_from_lopdf(
     lopdf: &LopdfDocument,
     security: Option<pdf_document::SecurityContext>,
 ) -> Result<Document, SaveError> {
+    let mut form_fields = pdf_document::FormFieldSet::new();
+    for field in pdf_form::read_form_fields(lopdf.as_lopdf()) {
+        form_fields.insert(field);
+    }
+
     Ok(Document {
         pages: populate_document(lopdf)?,
         annotations: Default::default(),
+        form_fields,
         pending_edits: Default::default(),
         audit_log: Default::default(),
         security,

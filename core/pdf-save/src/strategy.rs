@@ -13,7 +13,7 @@
 
 use std::sync::Arc;
 
-use lopdf::{Dictionary, IncrementalDocument, Object};
+use lopdf::{Dictionary, IncrementalDocument, Object, ObjectId};
 use pdf_document::{Document, Page};
 use pdf_manip::LopdfDocument;
 
@@ -239,6 +239,14 @@ fn save_full_rewrite(
         &input.document.annotations,
     )?;
 
+    let catalog_id = catalog_object_id(working.as_lopdf())?;
+    crate::forms::write_form_fields(
+        working.as_lopdf_mut(),
+        catalog_id,
+        &page_ids,
+        &input.document.form_fields,
+    )?;
+
     set_mod_date(working.as_lopdf_mut(), options.clock.as_ref());
     ensure_trailer_id(working.as_lopdf_mut(), options.id_generator.as_ref());
 
@@ -288,6 +296,7 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
 
     let page_ids = bridge::page_object_ids(input.base, &input.document.pages)?;
     let existing_annotations = bridge::page_annotation_objects(input.base)?;
+    let catalog_id = catalog_object_id(input.base.as_lopdf())?;
     // The one clone the borrowing API cannot remove: lopdf's
     // `IncrementalDocument::create_from` takes both by value.
     append_incremental_update(original_bytes.to_vec(), input.base.clone(), |incremental| {
@@ -307,8 +316,25 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
             &page_ids,
             &existing_annotations,
             &input.document.annotations,
+        )?;
+
+        crate::forms::write_form_fields(
+            incremental,
+            catalog_id,
+            &page_ids,
+            &input.document.form_fields,
         )
     })
+}
+
+/// Resolves the catalog's own object id from `/Root` — needed to reach
+/// `/AcroForm` (via [`crate::forms::ensure_acroform`]) since neither writer
+/// otherwise tracks it once the page/annotation pipeline is done with it.
+fn catalog_object_id(doc: &lopdf::Document) -> Result<ObjectId, SaveError> {
+    doc.trailer
+        .get(b"Root")
+        .and_then(|object| object.as_reference())
+        .map_err(|_| SaveError::InvalidSaveRequest("document trailer has no valid /Root reference"))
 }
 
 fn set_mod_date(doc: &mut lopdf::Document, clock: &dyn Clock) {
@@ -473,6 +499,52 @@ mod tests {
             .and_then(|o| o.as_array())
             .unwrap();
         assert_eq!(annots.len(), 1);
+    }
+
+    #[test]
+    fn save_document_writes_a_new_form_field_that_reads_back() {
+        let mut fixture = Fixture::blank();
+        let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        apply_command(
+            &mut fixture.document,
+            Command::InsertPage { index: 0, page },
+        );
+        apply_command(
+            &mut fixture.document,
+            Command::AddFormField(pdf_document::FormField {
+                id: pdf_document::FormFieldId(1),
+                page: PageId(0),
+                name: "Name".to_string(),
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 100.0,
+                    height: 20.0,
+                },
+                style: pdf_document::TextStyle {
+                    font: pdf_document::FontFamily::Helvetica,
+                    size_pt: 12.0,
+                    color: Color { r: 0, g: 0, b: 0 },
+                },
+                value: pdf_document::FieldValue::Text("Ada".to_string()),
+                kind: pdf_document::FormFieldKind::Text {
+                    multiline: false,
+                    max_len: None,
+                },
+                origin: pdf_document::FieldOrigin::New,
+            }),
+        );
+
+        let bytes = save_document(fixture.input()).expect("save should succeed");
+        let reloaded = lopdf::Document::load_mem(&bytes).expect("output must reload");
+
+        let fields = pdf_form::read_form_fields(&reloaded);
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].name, "Name");
+        assert_eq!(
+            fields[0].value,
+            pdf_document::FieldValue::Text("Ada".to_string())
+        );
     }
 
     #[test]
