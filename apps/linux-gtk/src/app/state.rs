@@ -146,6 +146,26 @@ pub(crate) struct ViewerState {
     /// the two never disagree about whether content-edit mode is active —
     /// only about what a click inside it does.
     pub(crate) content_insert_mode: Option<ContentInsertKind>,
+    /// Whether a `document::refresh_after_content_edit` preview refresh
+    /// (save-to-buffer, reopen, rebuild every page widget) is currently
+    /// running.
+    ///
+    /// Content-edit commits are recorded from two independent sites that
+    /// never coordinate with each other — `content_edit::editor::commit`
+    /// (retyping a run) and `content_edit::text::finish_text_drag` (dragging
+    /// one) — so two refreshes can be requested back to back before the
+    /// first one's `show_document` has finished tearing down and rebuilding
+    /// `viewer.pages`. A second refresh starting mid-rebuild races the first
+    /// one on that same `GtkBox`, which is unsafe: both `while let Some(child)
+    /// = viewer.pages.first_child()` teardown and its rebuild `append` can
+    /// observe a widget the other side is mutating. `refresh_after_content_edit`
+    /// checks this flag and defers instead of starting a concurrent rebuild.
+    pub(crate) content_refresh_in_flight: bool,
+    /// A refresh message queued because one arrived while
+    /// `content_refresh_in_flight` was already set. Replayed once the
+    /// in-flight refresh finishes, so the second edit's preview still lands
+    /// instead of being silently dropped.
+    pub(crate) content_refresh_pending: Option<&'static str>,
     /// Whether a page click targets a form field instead of selecting text or
     /// placing an annotation (T-141). Shell mode, not document state, for the
     /// same reason `content_edit_mode` is — see `forms::set_mode`. Mutually

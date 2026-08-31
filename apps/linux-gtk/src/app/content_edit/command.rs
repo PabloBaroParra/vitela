@@ -253,6 +253,16 @@ pub(super) enum PendingText {
 /// item `pdf-edit` cannot resolve at save time — and since resolution
 /// failure aborts the save, that one bogus command would take every other
 /// queued edit down with it.
+///
+/// **Deliberately blind to a pending `MoveTextRun`** — `Nothing` is the
+/// answer whether or not one is queued. `text::plan_move` depends on that: it
+/// calls this same function to route a *second* move, and reaching `Nothing`
+/// is what lets it then check `pending_move_index` itself and amend the move
+/// already there instead of stacking a second one. A retype's own caller
+/// (`editor::open_editor`) checks `pending_move_index` separately for the
+/// opposite reason — a move alone is not something a `ReplaceTextRunContent`
+/// can fold into, so `Nothing` there has to be refused before it ever reaches
+/// [`validate_replacement`], not silently returned here for every caller.
 pub(super) fn pending_text_command(document: &Document, target: &TextRun) -> PendingText {
     let entries = document.pending_edits.entries();
     if let Some(index) = super::model::pending_log_index(target.id) {

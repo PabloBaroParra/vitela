@@ -31,8 +31,8 @@ use crate::app::document::refresh_after_content_edit;
 use crate::app::state::{ContentEditor, PageSlot, Viewer};
 
 use super::command::{
-    amend_command, amended_command, apply_command, pending_text_command, validate_insert_text,
-    validate_replacement, PendingText,
+    amend_command, amended_command, apply_command, pending_move_index, pending_text_command,
+    validate_insert_text, validate_replacement, PendingText,
 };
 use super::model;
 use super::CLICK_EPSILON_PX;
@@ -80,16 +80,37 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
     // way its next edit amends the command already describing it instead of
     // queueing a second one no save could resolve; see
     // `command::pending_text_command`.
-    let pending = viewer
-        .state
-        .borrow()
-        .session
-        .as_ref()
-        .and_then(|session| session.document_model.as_ref())
-        .map_or(PendingText::Nothing, |document| {
-            pending_text_command(document, &run)
-        });
+    let (pending, moved) = {
+        let state = viewer.state.borrow();
+        let document = state
+            .session
+            .as_ref()
+            .and_then(|session| session.document_model.as_ref());
+        match document {
+            Some(document) => (
+                pending_text_command(document, &run),
+                pending_move_index(document, &run).is_some(),
+            ),
+            None => (PendingText::Nothing, false),
+        }
+    };
     let amends = match pending {
+        // `pending_text_command` is deliberately blind to a pending
+        // `MoveTextRun` (see its own doc — `text::plan_move` needs `Nothing`
+        // here to amend a second move itself), so a run only moved this
+        // session still has to be caught here before falling through to an
+        // ordinary replacement: `commit`'s replace branch validates against
+        // `base`, which the move never touched, so the run's *current*
+        // (moved) bbox would fail to resolve there with an opaque "no
+        // content item" — the retype and the move are not two operations
+        // `pdf-edit` has a combined command for, unlike two retypes of the
+        // same run.
+        PendingText::Nothing if moved => {
+            viewer.status.set_text(
+                "This text was moved and not yet saved — save and reopen before retyping it.",
+            );
+            return;
+        }
         PendingText::Nothing => None,
         PendingText::Amend(index) => Some(index),
         // A run the overlay showed against a log that no longer holds the
@@ -433,6 +454,12 @@ fn wire_entry(viewer: &Viewer, entry: &Entry, draggable: bool) {
     entry.add_controller(focus);
 
     let keys = EventControllerKey::new();
+    // Capture phase: `Entry`'s own internal key controller (bubble phase, by
+    // default) sees Escape first otherwise and consumes it — the box's
+    // selected text (`select_region` in `open_editor`) means GTK's default
+    // handling has something to do with it, so it never reaches this
+    // controller and `cancel` never fires.
+    keys.set_propagation_phase(PropagationPhase::Capture);
     keys.connect_key_pressed({
         let viewer = viewer.clone();
         move |_, keyval, _keycode, _state| {
