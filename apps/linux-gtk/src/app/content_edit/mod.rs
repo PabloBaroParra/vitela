@@ -178,6 +178,9 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
     viewer.content_edit_button.set_active(active);
     if active {
         annotations::disarm(viewer);
+        // Forms-edit mode (T-141) is the third mode claiming a page click —
+        // same mutual exclusion, extended by one more caller.
+        crate::app::forms::set_mode(viewer, false);
         // A selection made before the mode was armed means nothing inside it
         // — content-edit mode never selects text — and leaving it painted
         // over the page would read as state the next drag is about to act

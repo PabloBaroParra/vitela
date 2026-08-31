@@ -1,17 +1,17 @@
 //! Shared data types for the shell: the widget handle bundle, per-document
 //! session state, and the small value types the feature modules pass around.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    cairo, gio, Box as GtkBox, Button, DrawingArea, Entry, Label, Overlay, Picture, ScrolledWindow,
-    ToggleButton, Window,
+    cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Label, Overlay, Picture,
+    ScrolledWindow, SpinButton, ToggleButton, Window,
 };
-use pdf_document::{AnnotationId, Document, ImageItem, PageContent, TextRun};
+use pdf_document::{AnnotationId, Document, FormFieldId, ImageItem, PageContent, TextRun};
 use pdf_manip::{DocumentInfo, LopdfDocument};
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
@@ -77,6 +77,9 @@ pub(crate) struct Viewer {
     /// Slice 2). Sensitivity is owned by `update_content_edit_controls`
     /// alongside `delete_image_button` — the same selection gates both.
     pub(crate) replace_image_button: Button,
+    /// The forms toolbar (T-141): the mode toggle, the four placement
+    /// toggles, and the style inspector for the selected field.
+    pub(crate) forms: FormFieldToolbar,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -143,6 +146,16 @@ pub(crate) struct ViewerState {
     /// the two never disagree about whether content-edit mode is active —
     /// only about what a click inside it does.
     pub(crate) content_insert_mode: Option<ContentInsertKind>,
+    /// Whether a page click targets a form field instead of selecting text or
+    /// placing an annotation (T-141). Shell mode, not document state, for the
+    /// same reason `content_edit_mode` is — see `forms::set_mode`. Mutually
+    /// exclusive with `active_tool` and `content_edit_mode`.
+    pub(crate) form_edit_mode: bool,
+    /// Which kind of new field a forms-edit-mode click places, if any
+    /// (T-141) — the forms twin of `content_insert_mode`. `None` means an
+    /// ordinary click targets an existing field (select, move, resize)
+    /// instead of creating one.
+    pub(crate) form_field_kind: Option<FieldKind>,
     /// The password prompt for the in-flight open attempt, if any. Tracked so
     /// a new open request (which may supersede this one before the user has
     /// answered) can tear down the stale prompt instead of leaving it
@@ -292,6 +305,65 @@ impl Tool {
 pub(crate) enum ContentInsertKind {
     Text,
     Image,
+}
+
+/// One form field kind the forms toolbar can place (T-141) — the field-kind
+/// twin of `Tool`, minus everything about freehand strokes or markup that has
+/// no meaning for a field.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum FieldKind {
+    Text,
+    Checkbox,
+    RadioGroup,
+    Dropdown,
+}
+
+impl FieldKind {
+    pub(crate) const ALL: [FieldKind; 4] = [
+        FieldKind::Text,
+        FieldKind::Checkbox,
+        FieldKind::RadioGroup,
+        FieldKind::Dropdown,
+    ];
+
+    /// The kind's toolbar button label, also used in status messages.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            FieldKind::Text => "Text field",
+            FieldKind::Checkbox => "Checkbox",
+            FieldKind::RadioGroup => "Radio group",
+            FieldKind::Dropdown => "Dropdown",
+        }
+    }
+
+    /// The base a freshly placed field of this kind's `/T` name is derived
+    /// from — `FormFieldSet::unique_name` appends the first free `_N` suffix.
+    pub(crate) fn name_base(self) -> &'static str {
+        match self {
+            FieldKind::Text => "Text",
+            FieldKind::Checkbox => "Checkbox",
+            FieldKind::RadioGroup => "RadioGroup",
+            FieldKind::Dropdown => "Dropdown",
+        }
+    }
+}
+
+/// The forms toolbar's controls (T-141): the mode toggle, the four placement
+/// toggles paired with the kind each arms, and the style inspector for the
+/// selected field.
+#[derive(Clone)]
+pub(crate) struct FormFieldToolbar {
+    pub(crate) mode: ToggleButton,
+    pub(crate) place: Vec<(FieldKind, ToggleButton)>,
+    pub(crate) font: DropDown,
+    pub(crate) size: SpinButton,
+    pub(crate) color: Button,
+    /// True while the inspector is being written from the selected field's
+    /// style, so the controls' own change handlers know not to treat that
+    /// write-back as a user edit and record a spurious restyle — same guard
+    /// shape `tools_panel::build_tab_switcher` uses to keep its tab strip
+    /// from driving the `Stack` it is only meant to follow.
+    pub(crate) syncing: Rc<Cell<bool>>,
 }
 
 /// The annotation toolbar's buttons, held by name rather than by position.
@@ -476,6 +548,34 @@ pub(crate) struct SelectedImage {
     pub(crate) item: ImageItem,
 }
 
+/// A form field being moved or resized right now, in forms-edit mode
+/// (T-141) — the forms twin of [`AnnotationDrag`].
+///
+/// Id-based, like `AnnotationDrag` and unlike `ImageDrag`/`TextDrag`: a form
+/// field is addressable document state (`FormFieldSet::get`/`get_mut` by
+/// `FormFieldId`), not a page-content snapshot with nothing to re-fetch by.
+pub(crate) struct FormFieldDrag {
+    pub(crate) id: FormFieldId,
+    pub(crate) mode: AnnotationDragMode,
+    /// Where the pointer went down, in PDF page space.
+    pub(crate) origin: (f64, f64),
+    /// Where the pointer is now, in PDF page space.
+    pub(crate) current: (f64, f64),
+}
+
+/// A form field being placed on a page right now, between the pointer going
+/// down and coming back up (T-141) — the forms twin of [`Placement`], minus
+/// `tool`/`points`: a field is never freehand, so there is nothing to record
+/// but the two corners of the drag.
+pub(crate) struct FormPlacement {
+    pub(crate) kind: FieldKind,
+    pub(crate) page_index: usize,
+    /// Where the pointer went down, in PDF page space.
+    pub(crate) origin: (f64, f64),
+    /// Where the pointer is now, in PDF page space.
+    pub(crate) current: (f64, f64),
+}
+
 /// An annotation being drawn on a page right now, between the pointer going
 /// down and coming back up.
 ///
@@ -609,6 +709,20 @@ pub(crate) struct DocumentSession {
     pub(crate) edit_revision: u64,
     pub(crate) next_annotation_id: u64,
     pub(crate) selected_annotation: Option<AnnotationId>,
+    /// Next id a placed form field gets (T-141). Unlike
+    /// `next_annotation_id`, this cannot always start at 0: an opened PDF's
+    /// own AcroForm fields are read into `document.form_fields` at open time
+    /// with ids assigned sequentially from 0 (`pdf_form::read_form_fields`),
+    /// so a freshly placed field's id must continue past whatever that read
+    /// already claimed — see `document::next_form_field_id`.
+    pub(crate) next_form_field_id: u64,
+    pub(crate) selected_form_field: Option<FormFieldId>,
+    /// The form field being placed right now, if a placement drag is in
+    /// flight (T-141).
+    pub(crate) form_placement: Option<FormPlacement>,
+    /// The selected form field being moved or resized right now, if any
+    /// (T-141).
+    pub(crate) form_field_drag: Option<FormFieldDrag>,
     /// Decoded stamp images stay in the GTK session, never in the editable PDF
     /// model, so the pending-save representation remains toolkit-independent.
     ///

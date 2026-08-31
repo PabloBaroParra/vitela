@@ -95,6 +95,7 @@ impl DocumentProperties {
 pub(crate) fn build_tools_panel(
     annotation_row: &ScrolledWindow,
     content_edit_row: &FlowBox,
+    forms_content: &GtkBox,
 ) -> (GtkBox, DocumentProperties) {
     let tools_page = GtkBox::new(Orientation::Vertical, 10);
     tools_page.append(&panel_heading("Annotations"));
@@ -111,10 +112,10 @@ pub(crate) fn build_tools_panel(
         &placeholder_page("Comments aren't available in this shell yet."),
         Some("comments"),
     );
-    stack.add_named(
-        &placeholder_page("Fill & Sign isn't available in this shell yet."),
-        Some("fill-sign"),
-    );
+    // T-141 fills this with the field-placement toolbar and style inspector;
+    // T-142's fill panel joins it later. No placeholder fallback: forms
+    // editing is real here, not deferred like Comments.
+    stack.add_named(forms_content, Some("fill-sign"));
 
     let switcher = build_tab_switcher(&stack);
 
@@ -253,7 +254,10 @@ fn property_row(container: &GtkBox, key: &str) -> Label {
     value_label
 }
 
-fn panel_heading(text: &str) -> Label {
+/// `pub(crate)`: `forms::toolbar` reuses this for its own "Form fields"/
+/// "Field style" section headings, rather than duplicating the CSS-class
+/// wiring a second time.
+pub(crate) fn panel_heading(text: &str) -> Label {
     let label = Label::new(Some(text));
     label.set_xalign(0.0);
     label.add_css_class("panel-heading");

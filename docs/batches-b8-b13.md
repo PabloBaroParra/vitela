@@ -126,10 +126,55 @@ ninguno de los dos.
       `unshare --net` propio del script — de ahí el `sudo` que envuelve todo el paso,
       mismo motivo que el job `zero-network` de `core.yml`. Sin paso de upload: sigue
       sin haber proceso de publicación, igual que macOS/Windows a esta altura.)**
-- [ ] T-141 (dep B20) Modo edición de formularios: colocar campo (texto/checkbox/radio/
+- [x] T-141 (dep B20) Modo edición de formularios: colocar campo (texto/checkbox/radio/
       dropdown) sobre el canvas, arrastrar/resize con handles, inspector de estilo
       (fuente standard-14, tamaño, color) → comandos MoveFormField/ResizeFormField/
       RestyleFormField del EditLog. [FormUI, UndoRedo]
+      **(2026-08-30 — completo: `app/forms/` nuevo (mod/toolbar/geometry/builder/
+      command/gesture/style), wired directo a `pdf-form` (bypass FFI, igual que
+      annotations/content_edit). A diferencia de content_edit, un form field es
+      estado direccionable (`document.form_fields: FormFieldSet` por
+      `FormFieldId`, ya poblado al abrir por `pdf_save::document_from_lopdf`
+      desde T-137/T-138) y `move_field`/`resize_field`/`restyle_field` son
+      infalibles — el plumbing de comandos termina siendo mucho más cercano a
+      `annotations` que a `content_edit`: sin probe de validación previo, sin
+      ciclo save→reopen (ningún variant de formulario es `is_content_edit`), un
+      `selection::redraw` alcanza. Undo/redo salió gratis:
+      `annotations::connect_history_shortcuts` ya es genérico sobre
+      `EditLog`/`Command::is_content_edit`.
+
+      Modo "Edit forms" (toggle) + 4 toggles de colocación (uno por
+      `FieldKind`) en la pestaña "Fill & Sign" del panel de tools (reemplaza el
+      placeholder; T-142 le agrega el panel de relleno al lado). Colocar
+      arrastra-para-dimensionar con default de click (144x24pt, más chico que
+      el de anotaciones) igual que `annotations::geometry`; seleccionar un
+      campo existente arma handles de resize en las 4 esquinas + inspector de
+      estilo (DropDown fuente Standard-14, SpinButton tamaño, Button+
+      ColorDialog color) que restylea en vivo sin paso de "Apply". Un
+      RadioGroup recién colocado arranca con 2 opciones default apiladas
+      ("Option 1"/"Option 2") — T-141 no pide edición de opciones individuales,
+      eso queda para una fase posterior si hace falta.
+
+      Exclusión mutua de tres vías con content-edit y la herramienta de
+      anotación armada (cada modo desarma a los otros dos al armarse; el guard
+      de no-op en cada setter es lo que corta el loop). Gate de permiso
+      reutiliza `annotation_editing_refusal` (bit 6 de `/P`, el mismo que
+      cubre "fill in interactive form fields" en ISO 32000-1) — no hay probe de
+      permiso propio para formularios en este shell.
+
+      Gotcha real: `next_form_field_id` NO puede arrancar en 0 como
+      `next_annotation_id` — un PDF abierto con AcroForm propio ya pobló
+      `document.form_fields` con ids 0..N-1 secuenciales
+      (`pdf_form::read_form_fields`), así que un campo nuevo colisionaría. Se
+      calcula como `max(id) + 1` sobre el modelo recién abierto
+      (`document::next_form_field_id`).
+
+      Verificado bajo WSLg: `cargo clippy -p linux-gtk --all-targets -D
+      warnings` limpio, `cargo fmt --check` limpio, `cargo test -p linux-gtk`
+      250/251 verde (el único rojo, `package_smoke::renders_the_embedded_
+      sample_to_a_nonempty_receipt`, es un fingerprint de pixels de pdfium
+      preexistente y no tocado por este cambio — confirmado con `git diff
+      --stat` contra `package_smoke.rs`, sin diferencias).**
 - [ ] T-142 (dep B20) Modo relleno: panel lateral de inputs generado desde
       `list_form_fields` (o el FormFieldSet directo — B8 bypasea FFI); tipear emite
       SetFieldValue y dibuja el valor como overlay en vivo sobre el rect del widget
