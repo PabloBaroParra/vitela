@@ -4,7 +4,8 @@
 //! rows, one function owning every sensitivity rule) applied to
 //! `document.form_fields` instead of `document.annotations`.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -128,6 +129,7 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
             syncing: Rc::new(Cell::new(false)),
             fill_placeholder,
             fill_rows,
+            focus_targets: Rc::new(RefCell::new(HashMap::new())),
         },
         content,
     )
@@ -168,11 +170,21 @@ pub(crate) fn connect_forms_toolbar(viewer: &Viewer) {
 /// values) from the current session — the forms twin of
 /// `annotations::toolbar::update_annotation_controls`.
 pub(crate) fn update_forms_controls(viewer: &Viewer) {
+    refresh_controls(viewer);
+    refresh_fill(viewer);
+}
+
+/// The non-fill half of [`update_forms_controls`]: sensitivity and the style
+/// inspector only, never `fill_rows` itself. `fill::mark_selected` calls
+/// this instead of the full function when a fill-panel control gains
+/// keyboard focus (T-143) — rebuilding `fill_rows` right then would tear
+/// down the very control that just received focus, the same hazard
+/// `fill::refresh`'s own doc already calls out for a fill commit.
+pub(super) fn refresh_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
     let Some(session) = state.session.as_ref() else {
         drop(state);
         refresh_style(viewer, None, false);
-        refresh_fill(viewer);
         return;
     };
     // Mirrors `command::structural_edit_refusal`: creating or modifying a
@@ -193,7 +205,6 @@ pub(crate) fn update_forms_controls(viewer: &Viewer) {
         .map(|field| field.style);
     drop(state);
     refresh_style(viewer, selected_style, enabled);
-    refresh_fill(viewer);
 }
 
 #[cfg(test)]

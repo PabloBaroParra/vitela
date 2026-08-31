@@ -17,6 +17,16 @@
 //! vocabulary `content_edit`'s retype editor and this module's own style
 //! inspector already use elsewhere in the shell, rather than introducing a
 //! multi-line text widget this codebase has never needed before.
+//!
+//! **Focus sync with the canvas (T-143):** every control built here is
+//! registered in `viewer.forms.focus_targets` and watched with an
+//! `EventControllerFocus`. Gaining keyboard focus selects the field on the
+//! canvas ([`mark_selected`]) — but only while Edit forms mode (T-141) is
+//! armed, so tabbing through this panel to fill in values (its ordinary,
+//! edit-mode-free use) never fights with that. [`focus_field`] is the other
+//! direction: `forms::gesture` calls it after a canvas click changes
+//! `selected_form_field` while that mode is armed, so the panel's own
+//! keyboard focus follows the canvas selection back.
 
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, CheckButton, DropDown, Entry, Label, Orientation, StringList};
@@ -25,6 +35,7 @@ use pdf_document::{Command, FieldValue, FormField, FormFieldId, FormFieldKind, R
 use crate::app::state::Viewer;
 
 use super::command::{apply_command, fill_command, model};
+use super::toolbar::refresh_controls;
 use super::SELECTION_GONE;
 
 /// The dropdown/choice entry meaning "nothing selected" — index 0 in every
@@ -51,6 +62,7 @@ pub(super) fn refresh(viewer: &Viewer) {
     while let Some(child) = viewer.forms.fill_rows.first_child() {
         viewer.forms.fill_rows.remove(&child);
     }
+    viewer.forms.focus_targets.borrow_mut().clear();
     viewer.forms.fill_placeholder.set_visible(fields.is_empty());
     viewer.forms.fill_rows.set_visible(!fields.is_empty());
 
@@ -97,6 +109,7 @@ fn build_control(viewer: &Viewer, field: &FormField, enabled: bool) -> gtk::Widg
                     commit_value(&viewer, id, FieldValue::Text(entry.text().to_string()));
                 }
             });
+            register_focus_target(viewer, id, entry.clone().upcast());
             entry.upcast()
         }
         FormFieldKind::Checkbox => {
@@ -109,6 +122,7 @@ fn build_control(viewer: &Viewer, field: &FormField, enabled: bool) -> gtk::Widg
                     commit_value(&viewer, id, FieldValue::Checked(check.is_active()));
                 }
             });
+            register_focus_target(viewer, id, check.clone().upcast());
             check.upcast()
         }
         FormFieldKind::RadioGroup { options } => {
@@ -132,6 +146,7 @@ fn build_control(viewer: &Viewer, field: &FormField, enabled: bool) -> gtk::Widg
                     commit_value(&viewer, id, FieldValue::Choice(value));
                 }
             });
+            register_focus_target(viewer, id, entry.clone().upcast());
             entry.upcast()
         }
         FormFieldKind::Dropdown { options, .. } => {
@@ -189,6 +204,7 @@ fn build_dropdown(
             commit_value(&viewer, id, FieldValue::Choice(value));
         }
     });
+    register_focus_target(viewer, id, dropdown.clone().upcast());
     dropdown.upcast()
 }
 
@@ -237,7 +253,80 @@ fn build_radio_group(
         });
         column.append(button);
     }
+    // GTK4 gives a grouped `CheckButton` set roving tab navigation — only
+    // the active member is a Tab stop, and it changes as the selection does
+    // — so every button is watched for the panel→canvas direction, but
+    // `focus_field`'s canvas→panel `grab_focus()` targets `buttons[0]`
+    // unconditionally: a *programmatic* grab bypasses the roving tabindex
+    // (unlike Tab itself), so it lands regardless of which option is active.
+    for button in &buttons {
+        watch_focus(viewer, id, button.upcast_ref());
+    }
+    viewer
+        .forms
+        .focus_targets
+        .borrow_mut()
+        .insert(id, buttons[0].clone().upcast());
     column.upcast()
+}
+
+/// Watches `widget` so gaining keyboard focus selects `id` on the canvas —
+/// the panel→canvas half of T-143's focus sync (see the module doc).
+fn watch_focus(viewer: &Viewer, id: FormFieldId, widget: &gtk::Widget) {
+    let controller = gtk::EventControllerFocus::new();
+    controller.connect_enter({
+        let viewer = viewer.clone();
+        move |_| mark_selected(&viewer, id)
+    });
+    widget.add_controller(controller);
+}
+
+/// [`watch_focus`], plus recording `widget` as the target [`focus_field`]
+/// grabs focus on for the opposite direction. Every control built above
+/// calls this on itself except a radio group, which watches every button
+/// but records only `buttons[0]` — see [`build_radio_group`]'s own doc.
+fn register_focus_target(viewer: &Viewer, id: FormFieldId, widget: gtk::Widget) {
+    watch_focus(viewer, id, &widget);
+    viewer.forms.focus_targets.borrow_mut().insert(id, widget);
+}
+
+/// Selects `id` on the canvas when its fill-panel control gains keyboard
+/// focus — a no-op outside Edit forms mode (T-141), so tabbing through this
+/// panel while just filling in values never fights with that workflow, and
+/// a no-op if `id` is already selected, so it never rebuilds `fill_rows`
+/// (via [`refresh_controls`]) while one of its own controls is mid-focus.
+fn mark_selected(viewer: &Viewer, id: FormFieldId) {
+    if !super::mode_is_active(viewer) {
+        return;
+    }
+    let changed = {
+        let mut state = viewer.state.borrow_mut();
+        let Some(session) = state.session.as_mut() else {
+            return;
+        };
+        if session.selected_form_field == Some(id) {
+            false
+        } else {
+            session.selected_form_field = Some(id);
+            true
+        }
+    };
+    if changed {
+        refresh_controls(viewer);
+        crate::app::selection::redraw(viewer);
+    }
+}
+
+/// Grabs keyboard focus for `id`'s fill-panel control, if it has one right
+/// now — the canvas→panel half of T-143's focus sync. Called by
+/// `forms::gesture` after a canvas gesture changes `selected_form_field`
+/// while Edit forms mode is armed; a no-op otherwise (no document, no
+/// fields, or `id` no longer exists), matching every other "selection gone"
+/// path in this module rather than panicking on stale state.
+pub(super) fn focus_field(viewer: &Viewer, id: FormFieldId) {
+    if let Some(widget) = viewer.forms.focus_targets.borrow().get(&id) {
+        widget.grab_focus();
+    }
 }
 
 /// Validates and records one `SetFieldValue`, the fill twin of
