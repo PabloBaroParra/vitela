@@ -168,7 +168,7 @@ mod tests {
     use super::*;
 
     #[gtk::test]
-    fn gtk_the_toolbar_offers_one_button_per_field_kind() {
+    fn gtk_ui_the_toolbar_offers_one_button_per_field_kind() {
         let (toolbar, _content) = build_forms_content();
         assert_eq!(toolbar.place.len(), FieldKind::ALL.len());
     }
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[gtk::test]
-    fn gtk_forms_content_starts_with_every_control_insensitive() {
+    fn gtk_ui_forms_content_starts_with_every_control_insensitive() {
         let (toolbar, _content) = build_forms_content();
 
         assert!(!toolbar.mode.is_sensitive());
