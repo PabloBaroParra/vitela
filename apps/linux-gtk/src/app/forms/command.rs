@@ -91,3 +91,47 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
     log.apply(document, command);
     document.pending_edits = log;
 }
+
+/// Runs one form-field **fill** command — setting a field's current value
+/// (T-142) — then reports the outcome and repaints. The fill twin of
+/// [`command`], with two deliberate differences:
+///
+/// - Gated on [`Viewer::annotation_editing_refusal`] alone, not
+///   [`structural_edit_refusal`]: filling in an *existing* field is covered
+///   by ISO 32000-1 Table 22 bit 6 by itself — see that function's own doc
+///   for why placing/moving/restyling a field needs the extra bit and this
+///   does not.
+/// - Never calls `update_forms_controls`: that rebuilds the fill panel's
+///   rows from the model (`fill::refresh`), and this is what just recorded
+///   the very value that would be rebuilt from — running it here would
+///   destroy the `Entry`/`DropDown`/`CheckButton` the user is still
+///   interacting with and drop focus on every keystroke. Nothing else the
+///   forms toolbar's sensitivity depends on can change from a fill, so
+///   skipping it costs nothing.
+pub(super) fn fill_command(
+    viewer: &Viewer,
+    operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
+) {
+    if let Some(refusal) = viewer.annotation_editing_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
+    let result = {
+        let mut state = viewer.state.borrow_mut();
+        match state.session.as_mut() {
+            Some(session) => operation(session),
+            None => Err(NO_DOCUMENT.to_string()),
+        }
+    };
+    match result {
+        Ok(message) => {
+            if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
+                session.edit_revision += 1;
+                session.unsaved_to_disk = true;
+            }
+            viewer.status.set_text(&message);
+        }
+        Err(error) => viewer.status.set_text(&error),
+    }
+    selection::redraw(viewer);
+}

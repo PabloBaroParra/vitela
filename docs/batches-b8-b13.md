@@ -175,10 +175,76 @@ ninguno de los dos.
       sample_to_a_nonempty_receipt`, es un fingerprint de pixels de pdfium
       preexistente y no tocado por este cambio — confirmado con `git diff
       --stat` contra `package_smoke.rs`, sin diferencias).**
-- [ ] T-142 (dep B20) Modo relleno: panel lateral de inputs generado desde
+- [x] T-142 (dep B20) Modo relleno: panel lateral de inputs generado desde
       `list_form_fields` (o el FormFieldSet directo — B8 bypasea FFI); tipear emite
       SetFieldValue y dibuja el valor como overlay en vivo sobre el rect del widget
       (sin re-render pdfium; /V + /AP se escriben al guardar). [FormUI]
+      **(2026-08-31 — completo: `app/forms/fill.rs` nuevo, wired directo a
+      `pdf-form`/`pdf-document` (bypass FFI, igual que T-141). Se suma como
+      tercera sección ("Fill fields") dentro del mismo `forms_content` de
+      T-141 en la pestaña "Fill & Sign" — no un modo de canvas propio: a
+      diferencia de colocar/mover un campo, rellenarlo pasa enteramente por
+      el panel lateral, así que no hace falta gesture-dispatch en la página
+      ni exclusión mutua con "Edit forms" — ambos coexisten.
+
+      Un control por tipo: `Entry` para texto (single y multiline — este
+      shell no tenía ni tiene un widget multilínea, así que un campo
+      multilínea sigue aceptando texto largo, solo sin saltos de línea
+      tipeados; `set_max_length` desde `max_len` hace la validación de
+      longitud imposible de violar en vez de rechazarla después), `CheckButton`
+      para checkbox, `DropDown` (con una entrada "(none)" en el índice 0)
+      para RadioGroup/Dropdown no editable, y otro `Entry` para un Dropdown
+      `editable` (acepta texto libre, que `pdf-form::ops::set_value` sí
+      permite en ese caso). RadioGroup se modela como N `CheckButton`
+      agrupados (radio real, no una lista) — construidos en tres pasadas
+      (agrupar → fijar estado inicial → conectar `toggled`) para que armar
+      el grupo nunca dispare un commit espurio por el estado con el que
+      arranca cada fila.
+
+      Cada control commitea en vivo, sin paso "Apply" — misma postura que
+      `style::connect_style_controls` ya documenta para el inspector. La
+      validación (`pdf_form::set_value` sobre un clon del campo) corre antes
+      de grabar el comando aunque cada control ya está construido para no
+      poder *ofrecer* un valor inválido — defensa en profundidad, no la
+      única defensa.
+
+      **El gate de permiso es distinto al de T-141 a propósito:**
+      `command::fill_command` nuevo, gateado solo en
+      `Viewer::annotation_editing_refusal` (bit 6 de ISO 32000-1 Table 22),
+      no en `structural_edit_refusal` (bit 6 + bit 4) — rellenar un campo
+      existente no necesita el permiso de modificar contenido, solo el de
+      anotar/rellenar, tal como el propio comentario de
+      `structural_edit_refusal` ya señalaba como pendiente de T-142.
+
+      **Por qué `fill_command` nunca llama `update_forms_controls`:** esa
+      función reconstruye el panel de relleno desde cero
+      (`fill::refresh`) — si un commit disparado por un `Entry` en pleno
+      tipeo la llamara, destruiría el propio widget en el que el usuario
+      está escribiendo y perdería el foco en cada tecla. En cambio
+      `fill::refresh` sí corre desde `update_forms_controls` (selección,
+      undo/redo, apertura/cierre de documento, comandos estructurales de
+      T-141) — son exactamente los casos donde el modelo cambió por fuera
+      del panel y las filas tienen que reflejarlo.
+
+      Overlay en el canvas (`selection.rs::draw_form_field_values`):
+      siempre activo, independiente del modo "Edit forms" — a diferencia
+      de `draw_form_field_outlines` (T-141), porque rellenar pasa por el
+      panel, no por un click en la página, así que el valor tiene que
+      seguir visible con el modo de edición apagado. Dibuja antes que los
+      overlays gateados por modo, para que el outline/handles de edición
+      pinten encima del valor y no debajo. Preview de baja fidelidad (sin
+      word-wrap, una tilde simple para checkbox marcado) — no intenta
+      replicar el `/AP` real que `pdf-form::appearance` genera recién al
+      guardar (decisión 4).
+
+      Verificado bajo WSLg: `cargo fmt --check` limpio, `cargo clippy -p
+      linux-gtk --all-targets -D warnings` limpio, `cargo test -p
+      linux-gtk` 237/238 + 22/22 `gtk_ui_` verde (el único rojo,
+      `package_smoke::renders_the_embedded_sample_to_a_nonempty_receipt`,
+      es el mismo fingerprint de pixels de pdfium preexistente que T-141 ya
+      dejó documentado, no tocado por este cambio). Verificación visual en
+      la ventana real no se pudo completar en esta sesión — el usuario no
+      concedió acceso a `msrdc.exe` para controlar la ventana WSLg.)**
 - [ ] T-143 (dep B20) Tab-order del panel = orden del FormFieldSet; foco en el input
       del panel resalta el widget correspondiente en el canvas y viceversa. [FormUI]
 - [x] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run

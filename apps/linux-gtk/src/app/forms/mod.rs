@@ -36,6 +36,7 @@
 
 mod builder;
 mod command;
+mod fill;
 pub(crate) mod geometry;
 mod gesture;
 mod style;
