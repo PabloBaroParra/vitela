@@ -82,7 +82,10 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
     // `command::pending_text_command`.
     let (pending, moved) = {
         let state = viewer.state.borrow();
-        let document = state.session.as_ref().and_then(|session| session.document_model.as_ref());
+        let document = state
+            .session
+            .as_ref()
+            .and_then(|session| session.document_model.as_ref());
         match document {
             Some(document) => (
                 pending_text_command(document, &run),
