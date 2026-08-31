@@ -9,13 +9,14 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    Adjustment, Box as GtkBox, Button, DropDown, FlowBox, Orientation, PolicyType, ScrolledWindow,
-    SelectionMode, SpinButton, StringList, ToggleButton,
+    Adjustment, Box as GtkBox, Button, DropDown, FlowBox, Label, Orientation, PolicyType,
+    ScrolledWindow, SelectionMode, SpinButton, StringList, ToggleButton,
 };
 
 use crate::app::state::{FieldKind, FormFieldToolbar, Viewer};
 use crate::app::tools_panel::panel_heading;
 
+use super::fill::refresh as refresh_fill;
 use super::style::{connect_style_controls, refresh as refresh_style};
 
 /// Builds the forms toolbar and the "Fill & Sign" page content it lives on.
@@ -83,11 +84,39 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
         .propagate_natural_height(true)
         .build();
 
+    // T-142: one row per form field, generated from the document rather than
+    // a fixed set of controls like `place_row`/`style_row` above — see
+    // `fill::refresh`'s own doc for why it is a `GtkBox` torn down and
+    // rebuilt rather than a `FlowBox` of persistent widgets.
+    let fill_placeholder = Label::new(Some(
+        "Open a PDF with form fields to fill them in, or place one in Edit forms mode.",
+    ));
+    fill_placeholder.set_wrap(true);
+    fill_placeholder.set_xalign(0.0);
+    fill_placeholder.add_css_class("tools-placeholder");
+
+    let fill_rows = GtkBox::new(Orientation::Vertical, 6);
+    fill_rows.set_visible(false);
+
+    let fill_container = GtkBox::new(Orientation::Vertical, 6);
+    fill_container.append(&fill_placeholder);
+    fill_container.append(&fill_rows);
+
+    let fill_scroller = ScrolledWindow::builder()
+        .child(&fill_container)
+        .hscrollbar_policy(PolicyType::Never)
+        .vscrollbar_policy(PolicyType::Automatic)
+        .vexpand(true)
+        .min_content_height(120)
+        .build();
+
     let content = GtkBox::new(Orientation::Vertical, 10);
     content.append(&panel_heading("Form fields"));
     content.append(&place_row);
     content.append(&panel_heading("Field style"));
     content.append(&style_row);
+    content.append(&panel_heading("Fill fields"));
+    content.append(&fill_scroller);
 
     (
         FormFieldToolbar {
@@ -97,6 +126,8 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
             size,
             color,
             syncing: Rc::new(Cell::new(false)),
+            fill_placeholder,
+            fill_rows,
         },
         content,
     )
@@ -141,6 +172,7 @@ pub(crate) fn update_forms_controls(viewer: &Viewer) {
     let Some(session) = state.session.as_ref() else {
         drop(state);
         refresh_style(viewer, None, false);
+        refresh_fill(viewer);
         return;
     };
     // Mirrors `command::structural_edit_refusal`: creating or modifying a
@@ -161,6 +193,7 @@ pub(crate) fn update_forms_controls(viewer: &Viewer) {
         .map(|field| field.style);
     drop(state);
     refresh_style(viewer, selected_style, enabled);
+    refresh_fill(viewer);
 }
 
 #[cfg(test)]
@@ -171,6 +204,17 @@ mod tests {
     fn gtk_ui_the_toolbar_offers_one_button_per_field_kind() {
         let (toolbar, _content) = build_forms_content();
         assert_eq!(toolbar.place.len(), FieldKind::ALL.len());
+    }
+
+    /// T-142: with no document open yet, the fill panel shows its
+    /// placeholder rather than an empty row list.
+    #[gtk::test]
+    fn gtk_ui_fill_panel_starts_with_the_placeholder_and_no_rows_visible() {
+        let (toolbar, _content) = build_forms_content();
+
+        assert!(toolbar.fill_placeholder.is_visible());
+        assert!(!toolbar.fill_rows.is_visible());
+        assert!(toolbar.fill_rows.first_child().is_none());
     }
 
     #[test]

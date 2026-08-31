@@ -9,7 +9,7 @@
 
 use gtk::prelude::*;
 use gtk::{cairo, gdk, gio, glib, DrawingArea, GestureDrag};
-use pdf_document::{Annotation, AnnotationKind, Color, FontKind, Rect};
+use pdf_document::{Annotation, AnnotationKind, Color, FieldValue, FontFamily, FontKind, Rect};
 use pdf_render::{
     caret_range, line_rects, place_rect, point_to_pdf, DocumentHandle, PageCharacters,
     PdfiumRenderer, PlacedRect, Priority, RenderError, TextRect, TextRun,
@@ -147,6 +147,14 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         return;
     };
     let scale = page.budget.factor;
+
+    // Always on, independent of forms-edit mode (T-142): filling a field
+    // happens from the side panel, not by clicking the page, so the value a
+    // user just typed has to stay visible whether or not "Edit forms" is
+    // armed. Drawn before the mode-gated layers below so a field's outline
+    // and resize handles, when edit mode is on, paint on top of its value
+    // rather than under it.
+    draw_form_field_values(context, page, session, page_index, scale);
 
     if content_edit::mode_is_active(viewer) {
         draw_content_run_outlines(context, page, session, page_index, scale);
@@ -466,6 +474,137 @@ fn draw_corner_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32
         );
     }
     let _ = context.fill();
+}
+
+/// Maps a form field's Standard-14 font to a Cairo font family Pango can
+/// resolve on any system — no embedded font backs these (decision 3,
+/// `docs/batch-forms.md`), so a generic family stands in the same way it
+/// does for `pdf-form::appearance`'s own `/AP` streams.
+fn cairo_font_family(font: FontFamily) -> &'static str {
+    match font {
+        FontFamily::Helvetica => "sans-serif",
+        FontFamily::TimesRoman => "serif",
+        FontFamily::Courier => "monospace",
+    }
+}
+
+/// Draws `text` inside `placed`, one line per `\n`-separated line, clipped
+/// to the field's own rect by the caller. A low-fidelity live preview, not
+/// the real `/AP` appearance stream `pdf-form::appearance` builds at save
+/// time (decision 4) — no word-wrap, so a line wider than the field simply
+/// runs past its clip edge instead of reflowing.
+fn draw_field_text(context: &cairo::Context, text: &str, placed: &PlacedRect, font_size: f64) {
+    let line_height = font_size * 1.2;
+    let mut baseline = placed.top + font_size;
+    for line in text.split('\n') {
+        if baseline > placed.top + placed.height {
+            break;
+        }
+        context.move_to(placed.left + 2.0, baseline);
+        let _ = context.show_text(line);
+        baseline += line_height;
+    }
+}
+
+/// Draws a checkmark inside `placed` for a checked checkbox — a live stand-in
+/// for the ZapfDingbats glyph `pdf-form::appearance` writes into the real
+/// `/AP /N` stream at save time, not an attempt to reproduce it exactly.
+fn draw_field_checkmark(context: &cairo::Context, placed: &PlacedRect) {
+    let side = placed.width.min(placed.height);
+    let inset = side * 0.2;
+    let PlacedRect {
+        left,
+        top,
+        width,
+        height,
+    } = *placed;
+    context.set_line_width((side * 0.15).max(1.5));
+    context.move_to(left + inset, top + height * 0.55);
+    context.line_to(left + width * 0.4, top + height - inset);
+    context.line_to(left + width - inset, top + inset);
+    let _ = context.stroke();
+}
+
+/// Paints every form field's current value on `page` — text content, a
+/// checkmark, or the selected choice — using the field's own `style` for
+/// font/size/color (T-142). Unlike [`draw_form_field_outlines`] this is not
+/// gated on forms-edit mode: see the call site in [`draw_highlights`].
+fn draw_form_field_values(
+    context: &cairo::Context,
+    page: &PageSlot,
+    session: &DocumentSession,
+    page_index: usize,
+    scale: f64,
+) {
+    let Some(document) = session.document_model.as_ref() else {
+        return;
+    };
+
+    for field in document
+        .form_fields
+        .iter()
+        .filter(|field| field.page.0 as usize == page_index)
+    {
+        // Nothing to paint for an empty text field, an unset choice, or an
+        // unchecked box — skip before touching the context at all, mirroring
+        // `pdf-form::appearance`'s own "an unmarked control paints nothing"
+        // rule for the real `/AP` stream.
+        if matches!(&field.value, FieldValue::Text(text) if text.is_empty())
+            || matches!(
+                &field.value,
+                FieldValue::Choice(None) | FieldValue::Checked(false)
+            )
+        {
+            continue;
+        }
+
+        let placed = place_rect(
+            TextRect {
+                x_pt: field.rect.x as f32,
+                y_pt: field.rect.y as f32,
+                width_pt: field.rect.width as f32,
+                height_pt: field.rect.height as f32,
+            },
+            page.height_pt,
+            scale,
+        );
+
+        let _ = context.save();
+        context.rectangle(placed.left, placed.top, placed.width, placed.height);
+        context.clip();
+        context.set_source_rgba(
+            f64::from(field.style.color.r) / 255.0,
+            f64::from(field.style.color.g) / 255.0,
+            f64::from(field.style.color.b) / 255.0,
+            1.0,
+        );
+
+        match &field.value {
+            FieldValue::Text(text) => {
+                let font_size = (field.style.size_pt * scale).max(1.0);
+                context.select_font_face(
+                    cairo_font_family(field.style.font),
+                    cairo::FontSlant::Normal,
+                    cairo::FontWeight::Normal,
+                );
+                context.set_font_size(font_size);
+                draw_field_text(context, text, &placed, font_size);
+            }
+            FieldValue::Choice(Some(chosen)) => {
+                let font_size = (field.style.size_pt * scale).max(1.0);
+                context.select_font_face(
+                    cairo_font_family(field.style.font),
+                    cairo::FontSlant::Normal,
+                    cairo::FontWeight::Normal,
+                );
+                context.set_font_size(font_size);
+                draw_field_text(context, chosen, &placed, font_size);
+            }
+            FieldValue::Checked(true) => draw_field_checkmark(context, &placed),
+            _ => {}
+        }
+        let _ = context.restore();
+    }
 }
 
 /// Paints one outline per form field on `page`, while forms-edit mode is on

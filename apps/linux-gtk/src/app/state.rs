@@ -364,6 +364,14 @@ pub(crate) struct FormFieldToolbar {
     /// shape `tools_panel::build_tab_switcher` uses to keep its tab strip
     /// from driving the `Stack` it is only meant to follow.
     pub(crate) syncing: Rc<Cell<bool>>,
+    /// Shown instead of `fill_rows` when the open document has no form
+    /// fields (or none is open) — T-142's twin of `tools_panel`'s own
+    /// "Comments aren't available" placeholder.
+    pub(crate) fill_placeholder: Label,
+    /// One row per form field, torn down and rebuilt by `forms::fill::refresh`
+    /// on every document/selection/undo change — see that module's own doc
+    /// for why a fill commit itself never triggers a rebuild.
+    pub(crate) fill_rows: GtkBox,
 }
 
 /// The annotation toolbar's buttons, held by name rather than by position.
