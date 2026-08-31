@@ -245,8 +245,59 @@ ninguno de los dos.
       dejó documentado, no tocado por este cambio). Verificación visual en
       la ventana real no se pudo completar en esta sesión — el usuario no
       concedió acceso a `msrdc.exe` para controlar la ventana WSLg.)**
-- [ ] T-143 (dep B20) Tab-order del panel = orden del FormFieldSet; foco en el input
+- [x] T-143 (dep B20) Tab-order del panel = orden del FormFieldSet; foco en el input
       del panel resalta el widget correspondiente en el canvas y viceversa. [FormUI]
+      **(2026-08-31 — completo: alcance acordado con el usuario antes de tocar
+      código — el resaltado bidireccional solo aplica con "Edit forms" (T-141)
+      armado, no en el relleno normal sin ese modo, para no introducir un
+      segundo estado de "campo activo" ni un hit-test de click nuevo fuera de
+      edición. Eso permitió reutilizar `selected_form_field` y el outline que
+      `draw_form_field_outlines` ya pinta, en vez de agregar estado o dibujo
+      nuevos.
+
+      Tab-order: `fill::refresh` ya recorría `document.form_fields.iter()` en
+      orden y `FormFieldSet` es un `Vec` que solo hace `push` (no hay comando
+      de borrado todavía) — el orden de las filas ya coincidía con el
+      `FormFieldSet` sin cambios; GTK4 deriva el orden de Tab del orden de
+      hijos de un `GtkBox`, así que alcanzó con dejarlo documentado.
+
+      Foco panel→canvas: cada control de `fill.rs` (incluida cada opción de
+      un `RadioGroup`, por la tabulación rotativa que GTK4 da a un grupo
+      agrupado — solo el miembro activo es alcanzable por Tab) se registra en
+      `viewer.forms.focus_targets` (mapa nuevo en `FormFieldToolbar`) y se
+      observa con un `EventControllerFocus`. Al ganar foco, `fill::mark_selected`
+      selecciona el campo — pero llama a `toolbar::refresh_controls` (mitad de
+      `update_forms_controls` sin `refresh_fill`, extraída para esto), nunca a
+      `update_forms_controls` completo: ese reconstruye `fill_rows` y
+      destruiría el propio control que acaba de recibir el foco, la misma
+      trampa que la doc de `fill::refresh` ya señalaba para un commit.
+      `mark_selected` es no-op fuera de "Edit forms" y si el campo ya estaba
+      seleccionado (evita reconstruir el panel en cada Tab dentro de la misma
+      fila).
+
+      Foco canvas→panel: `forms::gesture` llama `fill::focus_field(id)` justo
+      después de que `begin_field_drag` (click sobre un campo existente) o
+      `finish_placement` (campo recién colocado) cambian
+      `selected_form_field` — ambos sitios corren solo con el modo armado, así
+      que no hace falta un guard extra ahí. Para un `RadioGroup`,
+      `focus_field` siempre apunta al primer botón del grupo: un
+      `grab_focus()` programático no respeta la tabulación rotativa (a
+      diferencia de la tecla Tab), así que aterriza igual sin importar cuál
+      opción esté activa.
+
+      Verificado bajo WSLg: `cargo fmt --check` limpio, `cargo clippy -p
+      linux-gtk --all-targets -- -D warnings` limpio, `cargo build -p
+      linux-gtk` limpio, `cargo test -p linux-gtk` 237/238 (no-display) +
+      22/22 `gtk_ui_` verde — el único rojo es el mismo
+      `package_smoke::renders_the_embedded_sample_to_a_nonempty_receipt` de
+      siempre, por falta de `libpdfium.so` en esta imagen de WSL, no tocado
+      por este cambio. No se agregó un test end-to-end nuevo para el
+      resaltado en sí: como el resto de `forms::gesture`/`forms::command`, el
+      camino depende de una sesión GTK real con `document_model` y este
+      módulo nunca tuvo ese arnés de test — se mantiene la convención
+      existente y la verificación de la interacción en vivo (Tab/click reales
+      con un PDF con campos) queda pendiente de que el usuario la confirme en
+      la ventana real.)**
 - [x] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
       existente abre un editor inline que preserva fuente/tamaño/posición; los runs no
       editables por `EncodingGap` se muestran distinguibles con explicación al usuario —

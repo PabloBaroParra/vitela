@@ -12,6 +12,7 @@ use crate::app::state::{AnnotationDragMode, FormFieldDrag, FormPlacement, Viewer
 
 use super::builder::field_for_placement;
 use super::command::{apply_command, command, model, structural_edit_refusal};
+use super::fill::focus_field;
 use super::geometry::{contains, corner_at, dragged_rect};
 use super::toolbar::update_forms_controls;
 use super::SELECTION_GONE;
@@ -86,6 +87,19 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
             placement.kind.label()
         ))
     });
+    // T-143: the panel's own focus follows the field this placement just
+    // selected — read back from state rather than threading `id` out of the
+    // closure above, since `command` already rebuilt `fill_rows` (and with
+    // it `focus_targets`) by the time this runs.
+    if let Some(id) = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.selected_form_field)
+    {
+        focus_field(viewer, id);
+    }
 }
 
 /// Grabs a field under the pointer: a corner handle of the selected one
@@ -160,6 +174,9 @@ pub(crate) fn begin_field_drag(
             drop(state);
             update_forms_controls(viewer);
             selection::redraw(viewer);
+            // T-143: clicking a different field into selection also moves
+            // the panel's keyboard focus to it.
+            focus_field(viewer, id);
             true
         }
         None => {

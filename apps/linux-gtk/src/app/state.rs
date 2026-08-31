@@ -372,6 +372,12 @@ pub(crate) struct FormFieldToolbar {
     /// on every document/selection/undo change — see that module's own doc
     /// for why a fill commit itself never triggers a rebuild.
     pub(crate) fill_rows: GtkBox,
+    /// The control `forms::fill::focus_field` grabs keyboard focus on for a
+    /// given field, rebuilt alongside `fill_rows` by `forms::fill::refresh`
+    /// (T-143). Keyed separately from the row widgets themselves because a
+    /// radio group's target is one of several buttons, not the row's own
+    /// container.
+    pub(crate) focus_targets: Rc<RefCell<HashMap<FormFieldId, gtk::Widget>>>,
 }
 
 /// The annotation toolbar's buttons, held by name rather than by position.
