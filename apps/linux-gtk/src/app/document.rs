@@ -472,7 +472,19 @@ fn save_snapshot_and_reopen(
 /// The file on disk is still behind, which is what `unsaved_to_disk` tracks.
 pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str) {
     let (token, document, backing) = {
-        let state = viewer.state.borrow();
+        let mut state = viewer.state.borrow_mut();
+        // Two independent sites can each ask for a refresh off the same
+        // click — `content_edit::editor::commit` (retyping a run) and
+        // `content_edit::text::finish_text_drag` (dragging one) never
+        // coordinate with each other. Starting a second `show_document`
+        // teardown/rebuild while the first is still running would race both
+        // on the same `viewer.pages` `GtkBox`; deferring the second one
+        // until the first finishes (see the tail of the spawned future
+        // below) keeps exactly one rebuild in flight at a time.
+        if state.content_refresh_in_flight {
+            state.content_refresh_pending = Some(message);
+            return;
+        }
         let Some(session) = state.session.as_ref() else {
             return;
         };
@@ -482,14 +494,12 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
         let Some(backing) = session.save_backing.clone() else {
             return;
         };
-        (
-            super::state::SessionToken {
-                generation: state.generation,
-                edit_revision: session.edit_revision,
-            },
-            document,
-            backing,
-        )
+        let token = super::state::SessionToken {
+            generation: state.generation,
+            edit_revision: session.edit_revision,
+        };
+        state.content_refresh_in_flight = true;
+        (token, document, backing)
     };
 
     viewer.status.set_text("Refreshing preview...");
@@ -541,6 +551,19 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
                     .status
                     .set_text(&format!("Could not refresh preview: {error}")),
                 Err(_) => {}
+            }
+
+            // Replay a refresh that arrived while this one was running
+            // instead of dropping it — its edit is already recorded, only
+            // the preview is still stale. Cleared first so the replay does
+            // not immediately defer against itself.
+            let pending = {
+                let mut state = viewer.state.borrow_mut();
+                state.content_refresh_in_flight = false;
+                state.content_refresh_pending.take()
+            };
+            if let Some(pending_message) = pending {
+                refresh_after_content_edit(&viewer, pending_message);
             }
         }
     });

@@ -361,6 +361,8 @@ fn build_ui(application: &Application) -> BuiltUi {
             active_tool: None,
             content_edit_mode: false,
             content_insert_mode: None,
+            content_refresh_in_flight: false,
+            content_refresh_pending: None,
             form_edit_mode: false,
             form_field_kind: None,
             password_dialog: None,
