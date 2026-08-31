@@ -20,6 +20,7 @@ pdf-render = { path = "../../core/pdf-render" }
 pdf-annotate = { path = "../../core/pdf-annotate" }
 pdf-document = { path = "../../core/pdf-document" }
 pdf-edit = { path = "../../core/pdf-edit" }
+pdf-form = { path = "../../core/pdf-form" }
 pdf-save = { path = "../../core/pdf-save" }
 sha2 = "0.10.9"
 # Content-edit mode (T-161) validates a replacement by cloning the base

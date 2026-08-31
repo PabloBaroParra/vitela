@@ -5,7 +5,7 @@
 //! from the other end.
 
 use gtk::prelude::*;
-use pdf_document::{AnnotationId, Command, Document};
+use pdf_document::{AnnotationId, Command, Document, FormFieldId};
 
 use crate::app::document::refresh_after_content_edit;
 use crate::app::selection;
@@ -66,6 +66,18 @@ fn history(viewer: &Viewer, undo: bool) {
         match step_history(document, session.selected_annotation, undo) {
             Some(surviving) => {
                 session.selected_annotation = surviving;
+                // The log is shared: an undo/redo step here may just as
+                // easily have moved a form-field command (T-141) as an
+                // annotation one, and `step_history` only ever resolves
+                // `selected_annotation`. Without this, undoing an
+                // `AddFormField` leaves `selected_form_field` pointing at an
+                // id `document.form_fields` no longer holds — the style
+                // inspector stays sensitive on a field that is gone, and the
+                // next restyle attempt fails with "no longer exists" instead
+                // of the inspector simply going blank. Same reasoning as
+                // `step_history`'s own filter, just for the other selection.
+                session.selected_form_field =
+                    surviving_form_field(document, session.selected_form_field);
                 session.edit_revision += 1;
                 // Unconditional, content edit or not. A content command's
                 // refresh (`document::refresh_after_content_edit`) does
@@ -90,6 +102,10 @@ fn history(viewer: &Viewer, undo: bool) {
     // a failed refresh must not leave the toolbar describing a history that
     // no longer exists.
     update_annotation_controls(viewer);
+    // The forms inspector's sensitivity and displayed style depend on
+    // `selected_form_field`, which the step above may just have cleared —
+    // see that assignment's own comment.
+    crate::app::forms::update_forms_controls(viewer);
     selection::redraw(viewer);
 
     // Only a full refresh shows the real result of undoing/redoing a content
@@ -134,6 +150,16 @@ fn step_history(
     };
     document.pending_edits = log;
     changed.then(|| selected.filter(|id| document.annotations.get(*id).is_some()))
+}
+
+/// The form-field selection that survives an undo/redo step already applied
+/// to `document` — the T-141 twin of `step_history`'s own annotation filter,
+/// pulled out separately because the log is shared: whichever kind of
+/// command the step actually replayed, both selections need re-checking
+/// against the document it left behind, not just the one `step_history`
+/// already knows about.
+fn surviving_form_field(document: &Document, selected: Option<FormFieldId>) -> Option<FormFieldId> {
+    selected.filter(|id| document.form_fields.get(*id).is_some())
 }
 
 /// Runs one annotation command against the open document, then reports the
@@ -317,5 +343,60 @@ mod tests {
         let mut document = with_added(&annotation(1));
 
         assert_eq!(step_history(&mut document, None, true), Some(None));
+    }
+
+    fn a_form_field(id: u64) -> pdf_document::FormField {
+        pdf_document::FormField {
+            id: FormFieldId(id),
+            page: pdf_document::PageId(0),
+            name: format!("Text_{id}"),
+            rect: pdf_document::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 20.0,
+            },
+            style: pdf_document::TextStyle {
+                font: pdf_document::FontFamily::Helvetica,
+                size_pt: 12.0,
+                color: pdf_document::Color { r: 0, g: 0, b: 0 },
+            },
+            value: pdf_document::FieldValue::Text(String::new()),
+            kind: pdf_document::FormFieldKind::Text {
+                multiline: false,
+                max_len: None,
+            },
+            origin: pdf_document::FieldOrigin::New,
+        }
+    }
+
+    #[test]
+    fn a_field_still_in_the_document_survives() {
+        let mut document = Document::blank();
+        document.form_fields.insert(a_form_field(1));
+
+        assert_eq!(
+            surviving_form_field(&document, Some(FormFieldId(1))),
+            Some(FormFieldId(1))
+        );
+    }
+
+    /// The bug this function exists to fix: undoing the `AddFormField` that
+    /// created the selected field must drop the selection along with it, the
+    /// same way `step_history` already does for an annotation — otherwise
+    /// the style inspector stays sensitive on a field the document no longer
+    /// holds.
+    #[test]
+    fn a_field_removed_by_the_step_no_longer_survives() {
+        let document = Document::blank();
+
+        assert_eq!(surviving_form_field(&document, Some(FormFieldId(1))), None);
+    }
+
+    #[test]
+    fn no_selection_survives_as_no_selection() {
+        let document = Document::blank();
+
+        assert_eq!(surviving_form_field(&document, None), None);
     }
 }

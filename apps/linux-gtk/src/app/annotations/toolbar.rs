@@ -182,8 +182,9 @@ fn arm_tool(viewer: &Viewer, tool: Tool, active: bool) {
     if active {
         // Mutual exclusion with content-edit mode, the other direction from
         // `content_edit::set_mode`'s call to `disarm` — one mode claims a
-        // page click at a time.
+        // page click at a time. Forms-edit mode (T-141) is the third.
         crate::app::content_edit::set_mode(viewer, false);
+        crate::app::forms::set_mode(viewer, false);
     }
     {
         let mut state = viewer.state.borrow_mut();

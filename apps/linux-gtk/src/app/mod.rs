@@ -11,6 +11,7 @@ mod brand;
 mod content_edit;
 mod document;
 mod editor_toolbar;
+mod forms;
 mod input;
 mod layout;
 mod print;
@@ -197,6 +198,11 @@ fn build_ui(application: &Application) -> BuiltUi {
     content_edit_row.append(&delete_image_button);
     content_edit_row.append(&replace_image_button);
 
+    // The forms-edit toolbar and style inspector (T-141), destined for the
+    // tools panel's "Fill & Sign" page rather than this row — see
+    // `tools_panel::build_tools_panel`'s `forms_content` parameter.
+    let (form_field_toolbar, forms_content) = forms::build_forms_content();
+
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
     let scroll = ScrolledWindow::builder()
@@ -240,7 +246,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     navigation_panel.append(&page_navigation_scroll);
 
     let (tools_content, document_properties) =
-        tools_panel::build_tools_panel(&annotation_row, &content_edit_row);
+        tools_panel::build_tools_panel(&annotation_row, &content_edit_row, &forms_content);
     let tools_panel = GtkBox::new(Orientation::Vertical, 10);
     tools_panel.add_css_class("tools-panel");
     tools_panel.update_property(&[gtk::accessible::Property::Label("Tools and properties")]);
@@ -347,6 +353,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         insert_image_button,
         delete_image_button,
         replace_image_button,
+        forms: form_field_toolbar,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,
@@ -354,6 +361,8 @@ fn build_ui(application: &Application) -> BuiltUi {
             active_tool: None,
             content_edit_mode: false,
             content_insert_mode: None,
+            form_edit_mode: false,
+            form_field_kind: None,
             password_dialog: None,
         })),
     };
@@ -362,6 +371,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     annotations::connect_annotation_toolbar(&viewer);
     content_edit::connect_toggle(&viewer);
     content_edit::connect_insert_toggles(&viewer);
+    forms::connect_forms_toolbar(&viewer);
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| content_edit::image::delete_selected(&viewer)

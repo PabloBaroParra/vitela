@@ -1546,6 +1546,7 @@ dependencies = [
  "pdf-annotate",
  "pdf-document",
  "pdf-edit",
+ "pdf-form",
  "pdf-manip",
  "pdf-render",
  "pdf-save",

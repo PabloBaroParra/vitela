@@ -17,6 +17,7 @@ use pdf_render::{
 
 use super::annotations;
 use super::content_edit;
+use super::forms;
 use super::state::{DocumentSession, PageSlot, Selection, Viewer};
 
 /// Selection fill. Alpha rather than an opaque box because the glyphs have to
@@ -62,6 +63,13 @@ const CONTENT_IMAGE_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.55
 /// The selected image's outline/handles, brighter than an unselected one —
 /// same posture as `SELECTED_ANNOTATION_ALPHA` vs `ANNOTATION_ALPHA`.
 const SELECTED_CONTENT_IMAGE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.85);
+/// Outline for a form field in forms-edit mode (T-141) — an amber distinct
+/// from every other overlay colour, so a field never reads as an annotation,
+/// an image, or a content-run outline.
+const FORM_FIELD_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.85, 0.55, 0.10, 0.55);
+/// The selected field's outline/handles, brighter than a resting one — same
+/// posture as `SELECTED_CONTENT_IMAGE_RGBA` beside its own resting colour.
+const SELECTED_FORM_FIELD_RGBA: (f64, f64, f64, f64) = (0.85, 0.55, 0.10, 0.85);
 
 /// Builds the transparent layer that paints one page's highlights and
 /// receives its drag gestures.
@@ -95,6 +103,10 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         move |gesture, offset_x, offset_y| {
             if content_edit::mode_is_active(&viewer) {
                 content_edit::handle_drag_end(&viewer, page_index, gesture, offset_x, offset_y);
+                return;
+            }
+            if forms::mode_is_active(&viewer) {
+                forms::finish_drag(&viewer);
                 return;
             }
             annotations::finish_placement(&viewer);
@@ -139,6 +151,10 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
     if content_edit::mode_is_active(viewer) {
         draw_content_run_outlines(context, page, session, page_index, scale);
         draw_content_image_outlines(context, page, session, page_index, scale);
+    }
+
+    if forms::mode_is_active(viewer) {
+        draw_form_field_outlines(context, page, session, page_index, scale);
     }
 
     if let Some(search) = session.search.as_ref() {
@@ -413,15 +429,17 @@ fn draw_content_image_outlines(
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
         if selected {
-            draw_image_handles(context, rect, page.height_pt, scale);
+            draw_corner_handles(context, rect, page.height_pt, scale);
         }
     }
 }
 
-/// Paints the four corner handles of the selected image — the image twin of
-/// [`draw_handles`] (T-162), over a plain [`Rect`] rather than an
-/// `Annotation`, since an image has no annotation kind of its own.
-fn draw_image_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32, scale: f64) {
+/// Paints the four corner handles of a selected rect — shared by every
+/// selectable kind this shell paints its own handles for (annotation, image,
+/// form field): the geometry is identical regardless of what the rect
+/// belongs to, so [`draw_handles`] (annotations) computes its rect from
+/// `annotations::bounds` and calls this rather than repeating the paint.
+fn draw_corner_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32, scale: f64) {
     let placed = place_rect(
         TextRect {
             x_pt: rect.x as f32,
@@ -448,6 +466,93 @@ fn draw_image_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32,
         );
     }
     let _ = context.fill();
+}
+
+/// Paints one outline per form field on `page`, while forms-edit mode is on
+/// (T-141) — the form-field twin of [`draw_content_image_outlines`].
+///
+/// The selected field (or the one being dragged) is painted at its live
+/// rect — sourced from `forms::geometry::dragged_rect`, the same "what the
+/// user drags is what they get" posture used throughout this function — with
+/// its handles; every other field is painted at its committed rect. A
+/// placement in progress previews as its own field, always at the traced
+/// rect (`forms::geometry::traced_rect`), so the shape never pops as the
+/// click/drag threshold is crossed.
+fn draw_form_field_outlines(
+    context: &cairo::Context,
+    page: &PageSlot,
+    session: &DocumentSession,
+    page_index: usize,
+    scale: f64,
+) {
+    let Some(document) = session.document_model.as_ref() else {
+        return;
+    };
+
+    for field in document
+        .form_fields
+        .iter()
+        .filter(|field| field.page.0 as usize == page_index)
+    {
+        let selected = session.selected_form_field == Some(field.id);
+        // While the field is being dragged, paint where it is heading rather
+        // than where it still sits in the model — mirrors `draw_highlights`'s
+        // own `live` computation for `session.annotation_drag`, matched here
+        // by id inside the loop rather than looked up once outside it, so a
+        // drag in flight costs one extra comparison per field instead of a
+        // second full-set lookup before the loop starts.
+        let live = session
+            .form_field_drag
+            .as_ref()
+            .filter(|drag| drag.id == field.id)
+            .map(|drag| forms::geometry::dragged_rect(field.rect, drag));
+        let rect = live.unwrap_or(field.rect);
+        let placed = place_rect(
+            TextRect {
+                x_pt: rect.x as f32,
+                y_pt: rect.y as f32,
+                width_pt: rect.width as f32,
+                height_pt: rect.height as f32,
+            },
+            page.height_pt,
+            scale,
+        );
+        let (red, green, blue, alpha) = if selected {
+            SELECTED_FORM_FIELD_RGBA
+        } else {
+            FORM_FIELD_OUTLINE_RGBA
+        };
+        context.set_source_rgba(red, green, blue, alpha);
+        context.set_dash(&[], 0.0);
+        context.rectangle(placed.left, placed.top, placed.width, placed.height);
+        let _ = context.stroke();
+        if selected {
+            draw_corner_handles(context, rect, page.height_pt, scale);
+        }
+    }
+
+    if let Some(placement) = session
+        .form_placement
+        .as_ref()
+        .filter(|placement| placement.page_index == page_index)
+    {
+        let rect = forms::geometry::traced_rect(placement);
+        let placed = place_rect(
+            TextRect {
+                x_pt: rect.x as f32,
+                y_pt: rect.y as f32,
+                width_pt: rect.width as f32,
+                height_pt: rect.height as f32,
+            },
+            page.height_pt,
+            scale,
+        );
+        let (red, green, blue, alpha) = SELECTED_FORM_FIELD_RGBA;
+        context.set_source_rgba(red, green, blue, alpha);
+        context.set_dash(&[], 0.0);
+        context.rectangle(placed.left, placed.top, placed.width, placed.height);
+        let _ = context.stroke();
+    }
 }
 
 /// Paints one annotation from the editable model onto its page's layer.
@@ -622,23 +727,7 @@ fn draw_handles(
     let Some(rect) = annotations::bounds(annotation) else {
         return;
     };
-    let placed = place_annotation(rect, page_height_pt, scale);
-    let (red, green, blue) = HANDLE_RGB;
-    context.set_source_rgb(red, green, blue);
-    for (x, y) in [
-        (placed.left, placed.top),
-        (placed.left + placed.width, placed.top),
-        (placed.left, placed.top + placed.height),
-        (placed.left + placed.width, placed.top + placed.height),
-    ] {
-        context.rectangle(
-            x - HANDLE_PX / 2.0,
-            y - HANDLE_PX / 2.0,
-            HANDLE_PX,
-            HANDLE_PX,
-        );
-    }
-    let _ = context.fill();
+    draw_corner_handles(context, rect, page_height_pt, scale);
 }
 
 /// How far, in PDF points, a press may land from a corner and still count as
@@ -760,6 +849,15 @@ fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
         }
         return;
     }
+    // Forms-edit mode (T-141) claims the whole gesture the same way
+    // content-edit mode does, just above: placing a new field or dragging an
+    // existing one both live-claim the press here, at press time.
+    if forms::mode_is_active(viewer) {
+        if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
+            forms::begin_drag(viewer, page_index, point, handle_reach(viewer, page_index));
+        }
+        return;
+    }
     // An armed creation tool claims the drag: the user is drawing an
     // annotation, not selecting text. Checked before the extraction refusal
     // below, because placing an annotation extracts nothing — a document may
@@ -819,6 +917,7 @@ fn extend_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
         if annotations::extend_placement(viewer, point)
             || annotations::extend_annotation_drag(viewer, point)
             || content_edit::extend_drag(viewer, point)
+            || forms::extend_drag(viewer, point)
         {
             return;
         }
@@ -830,6 +929,10 @@ fn extend_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
     // re-selecting under a pointer the user thinks is moving a run, and
     // collapsing again only if they drag back to where it started.
     if content_edit::mode_is_active(viewer) {
+        return;
+    }
+    // Forms-edit mode never selects text either — same guard, same reason.
+    if forms::mode_is_active(viewer) {
         return;
     }
     {

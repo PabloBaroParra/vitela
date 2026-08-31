@@ -1155,6 +1155,22 @@ fn read_editable_model(
     ))
 }
 
+/// The id a freshly placed form field should get (T-141).
+///
+/// Cannot always start at 0 the way `next_annotation_id` does: an opened
+/// PDF's own AcroForm fields are read into `document.form_fields` at open
+/// time with ids assigned sequentially from 0
+/// (`pdf_form::read_form_fields`), so starting a new field at 0 as well would
+/// collide with whatever that read already claimed the moment a document
+/// with existing fields is opened. One past the highest id already in use —
+/// `0` for an empty (or field-less) set, same as annotations.
+fn next_form_field_id(document_model: Option<&Document>) -> u64 {
+    document_model
+        .map(|document| document.form_fields.iter().map(|field| field.id.0).max())
+        .unwrap_or(None)
+        .map_or(0, |max| max + 1)
+}
+
 fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     if !is_current(viewer, generation) {
         close_document_in_background(document.document);
@@ -1236,6 +1252,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     }
 
     let page_count = slots.len();
+    let next_form_field_id = next_form_field_id(document.document_model.as_ref());
     {
         let mut state = viewer.state.borrow_mut();
         state.session_id += 1;
@@ -1255,6 +1272,10 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             edit_revision: 0,
             next_annotation_id: 0,
             selected_annotation: None,
+            next_form_field_id,
+            selected_form_field: None,
+            form_placement: None,
+            form_field_drag: None,
             stamp_surfaces: HashMap::new(),
             placement: None,
             annotation_drag: None,
@@ -1284,6 +1305,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     super::annotations::update_annotation_controls(viewer);
     super::content_edit::update_controls(viewer);
     super::update_content_edit_controls(viewer);
+    super::forms::update_forms_controls(viewer);
     // The mode outlives the document it was armed on, so a session installed
     // while it is on has to be given the same start `set_mode` would have —
     // see `content_edit::rearm_for_session`.
@@ -1447,10 +1469,59 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        atomic_write, next_generation_if_current, pdf_destination, save_worker_result,
-        unsaved_decision, UnsavedDecision,
+        atomic_write, next_form_field_id, next_generation_if_current, pdf_destination,
+        save_worker_result, unsaved_decision, UnsavedDecision,
     };
     use crate::app::state::SessionToken;
+    use pdf_document::{
+        Color, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId,
+        FormFieldKind, PageId, Rect, TextStyle,
+    };
+
+    fn a_form_field(id: u64) -> FormField {
+        FormField {
+            id: FormFieldId(id),
+            page: PageId(0),
+            name: format!("Text_{id}"),
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 100.0,
+                height: 20.0,
+            },
+            style: TextStyle {
+                font: FontFamily::Helvetica,
+                size_pt: 12.0,
+                color: Color { r: 0, g: 0, b: 0 },
+            },
+            value: FieldValue::Text(String::new()),
+            kind: FormFieldKind::Text {
+                multiline: false,
+                max_len: None,
+            },
+            origin: FieldOrigin::Existing((id as u32, 0)),
+        }
+    }
+
+    #[test]
+    fn a_document_with_no_model_starts_form_field_ids_at_zero() {
+        assert_eq!(next_form_field_id(None), 0);
+    }
+
+    #[test]
+    fn a_document_with_no_existing_fields_starts_at_zero() {
+        assert_eq!(next_form_field_id(Some(&Document::blank())), 0);
+    }
+
+    #[test]
+    fn a_document_with_existing_fields_continues_past_the_highest_id() {
+        let mut document = Document::blank();
+        document.form_fields.insert(a_form_field(0));
+        document.form_fields.insert(a_form_field(1));
+        document.form_fields.insert(a_form_field(2));
+
+        assert_eq!(next_form_field_id(Some(&document)), 3);
+    }
 
     #[test]
     fn a_panicked_save_worker_returns_a_typed_save_error() {
