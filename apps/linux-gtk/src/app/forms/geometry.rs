@@ -11,13 +11,18 @@
 
 use pdf_document::Rect;
 
-use crate::app::state::{AnnotationDragMode, Corner, FormFieldDrag, FormPlacement};
+use crate::app::state::{AnnotationDragMode, Corner, FieldKind, FormFieldDrag, FormPlacement};
 
 /// Size given to a field the user placed with a click rather than a drag, in
 /// PDF points. Narrower than `annotations::geometry::CLICK_SIZE_PT`'s own
 /// 144x36: a form field's default height is closer to a line of text than to
 /// a markup annotation's band.
 pub(super) const CLICK_SIZE_PT: (f64, f64) = (144.0, 24.0);
+/// Click size for a [`FieldKind::Checkbox`] specifically: a checkbox reads as
+/// a small square everywhere real PDF viewers render one, not a text-field
+/// band, so it gets its own default rather than [`CLICK_SIZE_PT`] — matches
+/// the 18x18 a drag already produces for a checkbox in `builder`'s own tests.
+pub(super) const CHECKBOX_CLICK_SIZE_PT: (f64, f64) = (18.0, 18.0);
 /// How far the pointer must travel from the press point before the gesture
 /// counts as a drag rather than a click — mirrors
 /// `annotations::geometry::MIN_DRAG_PT`.
@@ -46,12 +51,21 @@ pub(crate) fn traced_rect(placement: &FormPlacement) -> Rect {
 /// space has a bottom-left origin, so "top-left" is `y - height`.
 fn click_rect(placement: &FormPlacement) -> Rect {
     let (origin_x, origin_y) = placement.origin;
-    let (width, height) = CLICK_SIZE_PT;
+    let (width, height) = click_size(placement.kind);
     Rect {
         x: origin_x,
         y: origin_y - height,
         width,
         height,
+    }
+}
+
+/// The click-to-place size for `kind` — [`CHECKBOX_CLICK_SIZE_PT`] for a
+/// checkbox, [`CLICK_SIZE_PT`] for everything else.
+fn click_size(kind: FieldKind) -> (f64, f64) {
+    match kind {
+        FieldKind::Checkbox => CHECKBOX_CLICK_SIZE_PT,
+        _ => CLICK_SIZE_PT,
     }
 }
 
@@ -151,7 +165,6 @@ pub(crate) fn dragged_rect(bbox: Rect, drag: &FormFieldDrag) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::FieldKind;
 
     fn a_rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
         Rect {
@@ -163,8 +176,16 @@ mod tests {
     }
 
     fn placement(origin: (f64, f64), current: (f64, f64)) -> FormPlacement {
+        placement_of_kind(FieldKind::Text, origin, current)
+    }
+
+    fn placement_of_kind(
+        kind: FieldKind,
+        origin: (f64, f64),
+        current: (f64, f64),
+    ) -> FormPlacement {
         FormPlacement {
-            kind: FieldKind::Text,
+            kind,
             page_index: 0,
             origin,
             current,
@@ -186,6 +207,21 @@ mod tests {
 
         assert_eq!((rect.width, rect.height), (width, height));
         assert_eq!((rect.x, rect.y), (200.0, 500.0 - height));
+    }
+
+    #[test]
+    fn a_clicked_checkbox_commits_its_own_smaller_default_size() {
+        let rect = committed_rect(&placement_of_kind(
+            FieldKind::Checkbox,
+            (200.0, 500.0),
+            (200.0, 500.0),
+        ));
+
+        assert_eq!((rect.width, rect.height), CHECKBOX_CLICK_SIZE_PT);
+        assert_ne!(
+            CHECKBOX_CLICK_SIZE_PT, CLICK_SIZE_PT,
+            "the checkbox default must actually differ from the general one"
+        );
     }
 
     #[test]
