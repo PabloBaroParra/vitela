@@ -165,6 +165,7 @@ fn gtk_ui_starts_with_choose_signing_certificate_enabled() {
 
     assert!(built.viewer.choose_signing_certificate.is_sensitive());
     assert!(built.viewer.choose_pkcs11_certificate.is_sensitive());
+    assert!(built.viewer.choose_nss_certificate.is_sensitive());
 
     built.window.close();
     drain_main_context();

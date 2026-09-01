@@ -92,6 +92,12 @@ pub(crate) struct Viewer {
     /// `choose_signing_certificate`'s twin for a card or token instead of a
     /// `.pfx` file. Lives alongside it for the same reason.
     pub(crate) choose_pkcs11_certificate: Button,
+    /// Opens the NSS shared certificate database flow — `choose_signing_certificate`'s
+    /// twin for certificates already imported into `~/.pki/nssdb` (Chrome,
+    /// most Firefox profiles) instead of a standalone `.pfx` file or a
+    /// separate smart card/token. Lives alongside the other two for the same
+    /// reason.
+    pub(crate) choose_nss_certificate: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -203,6 +209,10 @@ pub(crate) struct ViewerState {
     /// The PKCS#11 PIN prompt for the in-flight token load, if any (Batch B23
     /// Fase 3) — `pfx_dialog`'s twin for the card/token flow, same reason.
     pub(crate) pkcs11_dialog: Option<Window>,
+    /// The NSS certificate database password prompt for the in-flight load,
+    /// if any — `pfx_dialog`/`pkcs11_dialog`'s twin for the shared
+    /// `~/.pki/nssdb` flow, same reason.
+    pub(crate) nss_dialog: Option<Window>,
     /// The identity picker opened once a `.pfx` password or a PKCS#11 PIN
     /// unlocks at least one identity (Batch B23 Fase 4) — tracked for the
     /// same supersede/dismiss reason as `pfx_dialog`/`pkcs11_dialog`: a fresh

@@ -250,7 +250,8 @@ mod tests {
         let annotation_row = ScrolledWindow::new();
         let content_edit_row = FlowBox::new();
         let (_forms_toolbar, forms_content) = crate::app::forms::build_forms_content();
-        let (_choose_pfx, _choose_pkcs11, sign_content) = crate::app::sign::build_sign_content();
+        let (_choose_pfx, _choose_pkcs11, _choose_nss, sign_content) =
+            crate::app::sign::build_sign_content();
         let (_metadata_panel, metadata_content) = crate::app::metadata::build_metadata_panel();
 
         let (_panel, stack) = build_tools_panel(

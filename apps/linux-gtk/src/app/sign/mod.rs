@@ -20,6 +20,15 @@
 //! that button along with `choose_pfx`/`choose_pkcs11` on the same
 //! decision-5 criterion `begin_sign_from_picker` already enforces — see
 //! `update_sign_controls` below.
+//!
+//! A later flow adds the NSS shared certificate database twin: the closest
+//! thing Linux has to a system certificate store, `~/.pki/nssdb` (what
+//! Chrome and most Firefox profiles read software certificates from). Same
+//! module-discovery-then-fallback shape as PKCS#11 (`libsoftokn3.so` instead
+//! of an OpenSC driver), plus a profile-directory fallback of its own, ending
+//! in `pdf_sign_nss::load` rather than `Pkcs11CertificateSource::load`
+//! directly — see that crate for why the NSS-specific `unsafe` FFI lives
+//! there and not in `pdf-sign-pkcs11`.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -31,6 +40,7 @@ use gtk::{
     Label, Orientation as GtkOrientation, PasswordEntry, Window,
 };
 use pdf_sign::{CertificateSourcePort, SigningIdentity};
+use pdf_sign_nss::NssAdapterError;
 use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 use pdf_sign_pkcs11::{Pkcs11AdapterError, Pkcs11CertificateSource};
 
@@ -43,16 +53,18 @@ use crate::app::tools_panel::panel_heading;
 /// `connect_sign_toolbar` wires them; this only builds the widgets so
 /// `mod.rs` can compose them alongside `forms::build_forms_content`'s own
 /// section on the same page.
-pub(crate) fn build_sign_content() -> (Button, Button, GtkBox) {
+pub(crate) fn build_sign_content() -> (Button, Button, Button, GtkBox) {
     let choose_pfx = Button::with_label("Choose signing certificate (.pfx)…");
     let choose_pkcs11 = Button::with_label("Use card or token…");
+    let choose_nss = Button::with_label("Use a certificate from this computer…");
 
     let content = GtkBox::new(GtkOrientation::Vertical, 8);
     content.append(&panel_heading("Signing"));
     content.append(&choose_pfx);
     content.append(&choose_pkcs11);
+    content.append(&choose_nss);
 
-    (choose_pfx, choose_pkcs11, content)
+    (choose_pfx, choose_pkcs11, choose_nss, content)
 }
 
 /// T-186: refreshes the signing section's own sensitivity — the signing
@@ -67,6 +79,7 @@ pub(crate) fn update_sign_controls(viewer: &Viewer) {
     let enabled = signing_refusal(viewer).is_none();
     viewer.choose_signing_certificate.set_sensitive(enabled);
     viewer.choose_pkcs11_certificate.set_sensitive(enabled);
+    viewer.choose_nss_certificate.set_sensitive(enabled);
 }
 
 pub(crate) fn connect_sign_toolbar(window: &ApplicationWindow, viewer: &Viewer) {
@@ -79,6 +92,11 @@ pub(crate) fn connect_sign_toolbar(window: &ApplicationWindow, viewer: &Viewer) 
         let window = window.clone();
         let viewer = viewer.clone();
         move |_| begin_pkcs11_flow(&window, &viewer)
+    });
+    viewer.choose_nss_certificate.connect_clicked({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_| begin_nss_flow(&window, &viewer)
     });
 }
 
@@ -523,6 +541,278 @@ async fn load_pkcs11_in_background(
         .expect("PKCS#11 load task panicked")
 }
 
+/// Typical install paths for NSS's software token module across the major
+/// Linux packaging layouts — the NSS twin of `PKCS11_MODULE_CANDIDATES`.
+/// Tried in order by `find_nss_module` before falling back to a manual file
+/// chooser, same reasoning as decision 2 in `docs/batch-digital-signature.md`.
+const NSS_MODULE_CANDIDATES: &[&str] = &[
+    "/usr/lib/x86_64-linux-gnu/nss/libsoftokn3.so",
+    "/usr/lib/i386-linux-gnu/nss/libsoftokn3.so",
+    "/usr/lib64/libsoftokn3.so",
+    "/usr/lib64/nss/libsoftokn3.so",
+    "/usr/lib/libsoftokn3.so",
+    "/usr/lib/nss/libsoftokn3.so",
+];
+
+/// The NSS twin of `find_pkcs11_module`.
+fn find_nss_module() -> Option<PathBuf> {
+    NSS_MODULE_CANDIDATES
+        .iter()
+        .map(Path::new)
+        .find(|path| path.exists())
+        .map(Path::to_path_buf)
+}
+
+/// The shared NSS certificate database most Linux desktops keep certificates
+/// in — the database Chrome always reads, and most Firefox profiles are
+/// configured to share. `None` when `$HOME` is unset or the directory does
+/// not exist, in which case `begin_nss_flow` asks the user to point at their
+/// own profile directory instead.
+fn default_nss_profile_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    let candidate = Path::new(&home).join(".pki").join("nssdb");
+    candidate.is_dir().then_some(candidate)
+}
+
+/// Entry point for the "Use a certificate from this computer…" button: tries
+/// the typical NSS module path and the shared `~/.pki/nssdb` profile first,
+/// only asking the user to navigate to either by hand when they are not
+/// found — the NSS twin of `begin_pkcs11_flow`.
+fn begin_nss_flow(window: &ApplicationWindow, viewer: &Viewer) {
+    match find_nss_module() {
+        Some(module_path) => continue_nss_flow_with_module(window, viewer, module_path),
+        None => show_nss_module_chooser(window, viewer),
+    }
+}
+
+/// Once the NSS module is known (found automatically or chosen by hand),
+/// resolves the profile directory the same way: the shared default first,
+/// a manual folder chooser only if that default is not present.
+fn continue_nss_flow_with_module(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    module_path: PathBuf,
+) {
+    match default_nss_profile_dir() {
+        Some(profile_dir) => prompt_for_nss_password(window, viewer, module_path, profile_dir),
+        None => show_nss_profile_chooser(window, viewer, module_path),
+    }
+}
+
+/// The manual fallback for `begin_nss_flow`'s module step — the NSS twin of
+/// `show_pkcs11_module_chooser`.
+fn show_nss_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
+    let filter = FileFilter::new();
+    filter.set_name(Some("NSS modules"));
+    filter.add_pattern("*.so");
+
+    let chooser = FileDialog::builder()
+        .title("Choose the NSS certificate module (libsoftokn3.so)")
+        .accept_label("Open")
+        .default_filter(&filter)
+        .build();
+    chooser.open(Some(window), None::<&gio::Cancellable>, {
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |result| {
+            let Ok(file) = result else {
+                return;
+            };
+            let Some(path) = file.path() else {
+                viewer
+                    .status
+                    .set_text("The selected location is not a local file.");
+                return;
+            };
+            continue_nss_flow_with_module(&window, &viewer, path);
+        }
+    });
+}
+
+/// The manual fallback for `begin_nss_flow`'s profile-directory step: a
+/// folder picker rather than a file picker, since a certificate database is
+/// a directory (`cert9.db`/`key4.db`/`pkcs11.txt`), not a single file.
+fn show_nss_profile_chooser(window: &ApplicationWindow, viewer: &Viewer, module_path: PathBuf) {
+    let chooser = FileDialog::builder()
+        .title("Choose the certificate database folder")
+        .accept_label("Open")
+        .build();
+    chooser.select_folder(Some(window), None::<&gio::Cancellable>, {
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |result| {
+            let Ok(folder) = result else {
+                return;
+            };
+            let Some(path) = folder.path() else {
+                viewer
+                    .status
+                    .set_text("The selected location is not a local folder.");
+                return;
+            };
+            prompt_for_nss_password(&window, &viewer, module_path.clone(), path);
+        }
+    });
+}
+
+/// The password prompt for the NSS certificate database, and the
+/// `pdf_sign_nss::load` call it gates. Same visual pattern as
+/// `prompt_for_pkcs11_pin` — most `~/.pki/nssdb` databases have no password
+/// set, so an empty submission is expected to succeed rather than being
+/// treated as a mistake.
+fn prompt_for_nss_password(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    module_path: PathBuf,
+    profile_dir: PathBuf,
+) {
+    let content = GtkBox::new(GtkOrientation::Vertical, 8);
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(12);
+    content.set_margin_end(12);
+    let dialog = Window::builder()
+        .transient_for(window)
+        .modal(true)
+        .title("Certificate database password")
+        .child(&content)
+        .build();
+
+    // Tracked so a later "Use a certificate from this computer" attempt (which
+    // may supersede this one before the background load resolves) can tear
+    // this dialog down instead of leaving it stacked underneath a second one —
+    // mirrors `prompt_for_pkcs11_pin`/`dismiss_nss_dialog`.
+    let stale_dialog = viewer.state.borrow_mut().nss_dialog.replace(dialog.clone());
+    if let Some(stale_dialog) = stale_dialog {
+        stale_dialog.destroy();
+    }
+
+    content.append(&Label::new(Some(
+        "Leave this blank if your certificates have no password set.",
+    )));
+    let password_entry = PasswordEntry::builder().show_peek_icon(true).build();
+    let error_label = Label::new(None);
+    error_label.set_xalign(0.0);
+    let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
+    let cancel = Button::with_label("Cancel");
+    let unlock = Button::with_label("Unlock");
+    buttons.append(&cancel);
+    buttons.append(&unlock);
+    content.append(&password_entry);
+    content.append(&error_label);
+    content.append(&buttons);
+    password_entry.grab_focus();
+
+    let submit: Rc<dyn Fn()> = Rc::new({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        let dialog = dialog.clone();
+        let password_entry = password_entry.clone();
+        let error_label = error_label.clone();
+        let module_path = module_path.clone();
+        let profile_dir = profile_dir.clone();
+        move || {
+            viewer.status.set_text("Reading certificate database...");
+            dialog.set_sensitive(false);
+            glib::spawn_future_local({
+                let window = window.clone();
+                let viewer = viewer.clone();
+                let dialog = dialog.clone();
+                let password_entry = password_entry.clone();
+                let error_label = error_label.clone();
+                let module_path = module_path.clone();
+                let profile_dir = profile_dir.clone();
+                async move {
+                    // A newer attempt may have already superseded this dialog
+                    // while this load was in flight — same hazard
+                    // `is_pfx_dialog_current`/`is_pkcs11_dialog_current` guard.
+                    if !is_nss_dialog_current(&viewer, &dialog) {
+                        return;
+                    }
+                    let password = password_entry.text().to_string();
+                    match load_nss_in_background(module_path, profile_dir, password).await {
+                        Ok(source) => {
+                            let identities = source.list_identities();
+                            if identities.is_empty() {
+                                dialog.set_sensitive(true);
+                                viewer
+                                    .status
+                                    .set_text("Waiting for the certificate database password.");
+                                error_label.set_text(
+                                    "No signing certificates were found. Check the password and \
+                                     that this computer has certificates imported.",
+                                );
+                                password_entry.set_text("");
+                                password_entry.grab_focus();
+                                return;
+                            }
+                            viewer
+                                .status
+                                .set_text(&format_found_identities(&identities));
+                            open_identity_picker(&window, &viewer, Arc::new(source), identities);
+                            dismiss_nss_dialog(&viewer, &dialog);
+                        }
+                        Err(NssAdapterError::Pkcs11(Pkcs11AdapterError::Module(message))) => {
+                            viewer.status.set_text(&format!(
+                                "Could not load the certificate database: {message}"
+                            ));
+                            dismiss_nss_dialog(&viewer, &dialog);
+                        }
+                        Err(NssAdapterError::InvalidProfilePath(path)) => {
+                            viewer.status.set_text(&format!(
+                                "The certificate database path {} cannot be used.",
+                                path.display()
+                            ));
+                            dismiss_nss_dialog(&viewer, &dialog);
+                        }
+                    }
+                }
+            });
+        }
+    });
+    unlock.connect_clicked({
+        let submit = submit.clone();
+        move |_| submit()
+    });
+    password_entry.connect_activate(move |_| submit());
+    cancel.connect_clicked({
+        let viewer = viewer.clone();
+        let dialog = dialog.clone();
+        move |_| {
+            viewer.status.set_text("Certificate selection cancelled.");
+            dismiss_nss_dialog(&viewer, &dialog);
+        }
+    });
+    dialog.present();
+}
+
+/// Whether `dialog` is still the tracked in-flight NSS password prompt — the
+/// NSS twin of `is_pkcs11_dialog_current`.
+fn is_nss_dialog_current(viewer: &Viewer, dialog: &Window) -> bool {
+    viewer.state.borrow().nss_dialog.as_ref() == Some(dialog)
+}
+
+/// Clears the tracked NSS dialog and tears it down — but only if it still
+/// points at `dialog`. The NSS twin of `dismiss_pkcs11_dialog`.
+fn dismiss_nss_dialog(viewer: &Viewer, dialog: &Window) {
+    let mut state = viewer.state.borrow_mut();
+    if state.nss_dialog.as_ref() == Some(dialog) {
+        state.nss_dialog = None;
+    }
+    drop(state);
+    dialog.destroy();
+}
+
+async fn load_nss_in_background(
+    module_path: PathBuf,
+    profile_dir: PathBuf,
+    password: String,
+) -> Result<Pkcs11CertificateSource, NssAdapterError> {
+    gio::spawn_blocking(move || pdf_sign_nss::load(module_path, profile_dir, Some(password)))
+        .await
+        .expect("NSS load task panicked")
+}
+
 /// T-184: shows the identities `source` reports and lets the user pick one
 /// to sign with. Opened automatically once a `.pfx` password or a PKCS#11
 /// PIN unlocks at least one identity — the module doc's "confirming which
@@ -813,6 +1103,13 @@ mod tests {
         assert_eq!(find_pkcs11_module(), None);
     }
 
+    /// The NSS twin of the test above.
+    #[test]
+    fn no_nss_candidate_exists_on_the_test_host() {
+        assert!(!NSS_MODULE_CANDIDATES.is_empty());
+        assert_eq!(find_nss_module(), None);
+    }
+
     /// `update_sign_controls`'s own gate (`signing_refusal`) reports no
     /// refusal when there is no open document — mirrors
     /// `ui_tests::gtk_ui_starts_with_choose_signing_certificate_enabled`'s
@@ -827,13 +1124,14 @@ mod tests {
 
         assert!(built.viewer.choose_signing_certificate.is_sensitive());
         assert!(built.viewer.choose_pkcs11_certificate.is_sensitive());
+        assert!(built.viewer.choose_nss_certificate.is_sensitive());
 
         built.window.close();
     }
 
     #[gtk::test]
     fn gtk_ui_choose_signing_certificate_button_has_the_expected_label() {
-        let (button, choose_pkcs11, content) = build_sign_content();
+        let (button, choose_pkcs11, choose_nss, content) = build_sign_content();
 
         assert_eq!(
             button.label().as_deref(),
@@ -842,6 +1140,11 @@ mod tests {
         assert!(button.is_sensitive());
         assert_eq!(choose_pkcs11.label().as_deref(), Some("Use card or token…"));
         assert!(choose_pkcs11.is_sensitive());
+        assert_eq!(
+            choose_nss.label().as_deref(),
+            Some("Use a certificate from this computer…")
+        );
+        assert!(choose_nss.is_sensitive());
         assert!(content.first_child().is_some());
     }
 
@@ -922,6 +1225,49 @@ mod tests {
         assert!(first_dialog != second_dialog);
         assert!(is_pkcs11_dialog_current(&built.viewer, &second_dialog));
         assert!(!is_pkcs11_dialog_current(&built.viewer, &first_dialog));
+
+        built.window.close();
+    }
+
+    /// The NSS twin of the PFX/PKCS#11 tests above: a second "Use a
+    /// certificate from this computer" attempt must tear down and stop
+    /// tracking the first password prompt.
+    #[gtk::test]
+    fn gtk_ui_a_second_nss_prompt_supersedes_and_destroys_the_first() {
+        let application = test_application();
+        let built = crate::app::build_ui(&application);
+
+        prompt_for_nss_password(
+            &built.window,
+            &built.viewer,
+            PathBuf::from("first.so"),
+            PathBuf::from("/first/nssdb"),
+        );
+        let first_dialog = built
+            .viewer
+            .state
+            .borrow()
+            .nss_dialog
+            .clone()
+            .expect("the first prompt must track its dialog");
+
+        prompt_for_nss_password(
+            &built.window,
+            &built.viewer,
+            PathBuf::from("second.so"),
+            PathBuf::from("/second/nssdb"),
+        );
+        let second_dialog = built
+            .viewer
+            .state
+            .borrow()
+            .nss_dialog
+            .clone()
+            .expect("the second prompt must track its own dialog");
+
+        assert!(first_dialog != second_dialog);
+        assert!(is_nss_dialog_current(&built.viewer, &second_dialog));
+        assert!(!is_nss_dialog_current(&built.viewer, &first_dialog));
 
         built.window.close();
     }

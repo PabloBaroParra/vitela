@@ -1551,6 +1551,7 @@ dependencies = [
  "pdf-render",
  "pdf-save",
  "pdf-sign",
+ "pdf-sign-nss",
  "pdf-sign-pfx",
  "pdf-sign-pkcs11",
  "sha2 0.10.9",
@@ -1913,6 +1914,14 @@ dependencies = [
  "spki 0.7.3",
  "thiserror",
  "x509-cert 0.2.5",
+]
+
+[[package]]
+name = "pdf-sign-nss"
+version = "0.1.0"
+dependencies = [
+ "pdf-sign-pkcs11",
+ "thiserror",
 ]
 
 [[package]]
