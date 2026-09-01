@@ -8,8 +8,16 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
+/// Re-exported for adapters (such as `pdf-sign-nss`) that need to build their
+/// own module-specific `C_Initialize` argument for
+/// [`Pkcs11CertificateSource::load_with_init_args`] — this crate stays
+/// `#![forbid(unsafe_code)]`, so constructing anything beyond the plain flags
+/// this module uses in [`Pkcs11CertificateSource::load`] is the caller's
+/// responsibility (and, for a module like NSS's that requires a raw
+/// `pReserved` string, the caller's `unsafe`).
+pub use cryptoki::context::{CInitializeArgs, CInitializeFlags};
 use cryptoki::{
-    context::{CInitializeArgs, CInitializeFlags, Pkcs11},
+    context::Pkcs11,
     error::{Error as CryptokiError, RvError},
     mechanism::Mechanism,
     object::{Attribute, AttributeType, CertificateType, KeyType, ObjectClass},
@@ -51,7 +59,10 @@ fn modules() -> &'static Mutex<HashMap<PathBuf, ModuleEntry>> {
     MODULES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn acquire_module(path: &Path) -> Result<(PathBuf, Pkcs11), Pkcs11AdapterError> {
+fn acquire_module(
+    path: &Path,
+    init_args: CInitializeArgs,
+) -> Result<(PathBuf, Pkcs11), Pkcs11AdapterError> {
     let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut modules = modules().lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(entry) = modules.get_mut(&key) {
@@ -60,12 +71,11 @@ fn acquire_module(path: &Path) -> Result<(PathBuf, Pkcs11), Pkcs11AdapterError> 
     }
     let module =
         Pkcs11::new(path).map_err(|error| Pkcs11AdapterError::Module(error.to_string()))?;
-    let owns_initialization =
-        match module.initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK)) {
-            Ok(()) => true,
-            Err(error) if module_is_already_initialized(&error) => false,
-            Err(error) => return Err(Pkcs11AdapterError::Module(error.to_string())),
-        };
+    let owns_initialization = match module.initialize(init_args) {
+        Ok(()) => true,
+        Err(error) if module_is_already_initialized(&error) => false,
+        Err(error) => return Err(Pkcs11AdapterError::Module(error.to_string())),
+    };
     modules.insert(
         key.clone(),
         ModuleEntry {
@@ -99,7 +109,26 @@ impl Pkcs11CertificateSource {
         module_path: impl AsRef<Path>,
         user_pin: Option<String>,
     ) -> Result<Self, Pkcs11AdapterError> {
-        let (module_key, module) = acquire_module(module_path.as_ref())?;
+        Self::load_with_init_args(
+            module_path,
+            CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK),
+            user_pin,
+        )
+    }
+
+    /// Like [`Self::load`], but lets the caller supply the module's
+    /// `C_Initialize` argument directly — for adapters (such as
+    /// `pdf-sign-nss`) whose module needs configuration this crate has no
+    /// reason to know about, and which can only be built through
+    /// `cryptoki`'s own `unsafe` API. This crate stays
+    /// `#![forbid(unsafe_code)]`: building `init_args` is entirely the
+    /// caller's doing.
+    pub fn load_with_init_args(
+        module_path: impl AsRef<Path>,
+        init_args: CInitializeArgs,
+        user_pin: Option<String>,
+    ) -> Result<Self, Pkcs11AdapterError> {
+        let (module_key, module) = acquire_module(module_path.as_ref(), init_args)?;
         Ok(Self {
             module,
             module_key,

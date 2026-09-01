@@ -12,6 +12,7 @@ members = [
     "core/pdf-sign",
     "core/pdf-sign-pkcs11",
     "core/pdf-sign-pfx",
+    "core/pdf-sign-nss",
     "apps/linux-gtk",
     "tests/fixtures/gen-fixtures",
     "tools/gen-sample",

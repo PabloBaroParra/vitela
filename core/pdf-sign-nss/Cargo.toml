@@ -1,0 +1,11 @@
+[package]
+name = "pdf-sign-nss"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "NSS shared certificate database (~/.pki/nssdb) certificate source adapter for pdf-sign."
+publish = false
+
+[dependencies]
+pdf-sign-pkcs11 = { path = "../pdf-sign-pkcs11" }
+thiserror = "2"
