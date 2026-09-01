@@ -20,8 +20,13 @@ use gtk::{
 const TABS: [(&str, &str); 3] = [
     ("tools", "Tools"),
     ("comments", "Comments"),
-    ("fill-sign", "Fill & Sign"),
+    (FILL_SIGN_PAGE, "Fill & Sign"),
 ];
+
+/// The `Stack` child name for the "Fill & Sign" page — shared with `build_ui`
+/// so the app rail's "Sign" button (T-186) can switch to it by name instead
+/// of duplicating the literal.
+pub(crate) const FILL_SIGN_PAGE: &str = "fill-sign";
 
 /// Shown for a property this document simply does not have, and for every
 /// field before any document is open. Distinguishes "read and empty" from a
@@ -40,13 +45,18 @@ pub(crate) const EMPTY: &str = "\u{2013}";
 /// (T-141/T-142's field placement and fill controls) over `sign_content`
 /// (Batch B23 Fase 2's certificate chooser) — two features sharing one tab,
 /// the way Adobe's own "Fill & Sign" does.
+///
+/// Returns the `Stack` alongside the panel so `build_ui` can drive it from
+/// outside — T-186 needs it to switch to `FILL_SIGN_PAGE` when the app
+/// rail's "Sign" button is clicked, the same way the tab switcher itself
+/// does internally.
 pub(crate) fn build_tools_panel(
     annotation_row: &ScrolledWindow,
     content_edit_row: &FlowBox,
     forms_content: &GtkBox,
     sign_content: &GtkBox,
     metadata_content: &GtkBox,
-) -> GtkBox {
+) -> (GtkBox, Stack) {
     let tools_page = GtkBox::new(Orientation::Vertical, 10);
     tools_page.append(&panel_heading("Annotations"));
     tools_page.append(annotation_row);
@@ -78,7 +88,7 @@ pub(crate) fn build_tools_panel(
     let fill_sign_page = GtkBox::new(Orientation::Vertical, 10);
     fill_sign_page.append(forms_content);
     fill_sign_page.append(sign_content);
-    stack.add_named(&fill_sign_page, Some("fill-sign"));
+    stack.add_named(&fill_sign_page, Some(FILL_SIGN_PAGE));
 
     let switcher = build_tab_switcher(&stack);
 
@@ -91,7 +101,7 @@ pub(crate) fn build_tools_panel(
     panel.append(&switcher);
     panel.append(&stack);
 
-    panel
+    (panel, stack)
 }
 
 /// The panel's tab strip, driving `stack`.
@@ -228,6 +238,33 @@ fn placeholder_page(message: &str) -> Label {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T-186: the app rail's "Sign" button (`shell::build_app_rail`) drives
+    /// this exact `Stack` by name from outside `tools_panel` — this pins the
+    /// two facts that call site depends on: `build_tools_panel` hands the
+    /// `Stack` back, and `FILL_SIGN_PAGE` is a real page on it (built from
+    /// the same `forms_content`/`sign_content` widgets `build_ui` passes in,
+    /// not a placeholder), reachable by `set_visible_child_name`.
+    #[gtk::test]
+    fn gtk_ui_the_stack_switches_to_the_fill_sign_page_by_its_shared_constant() {
+        let annotation_row = ScrolledWindow::new();
+        let content_edit_row = FlowBox::new();
+        let (_forms_toolbar, forms_content) = crate::app::forms::build_forms_content();
+        let (_choose_pfx, _choose_pkcs11, sign_content) = crate::app::sign::build_sign_content();
+        let (_metadata_panel, metadata_content) = crate::app::metadata::build_metadata_panel();
+
+        let (_panel, stack) = build_tools_panel(
+            &annotation_row,
+            &content_edit_row,
+            &forms_content,
+            &sign_content,
+            &metadata_content,
+        );
+
+        assert_eq!(stack.visible_child_name().as_deref(), Some("tools"));
+        stack.set_visible_child_name(FILL_SIGN_PAGE);
+        assert_eq!(stack.visible_child_name().as_deref(), Some(FILL_SIGN_PAGE));
+    }
 
     fn stack_of_tabs() -> Stack {
         let stack = Stack::new();

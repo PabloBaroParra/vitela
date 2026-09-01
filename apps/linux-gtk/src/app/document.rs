@@ -1479,6 +1479,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     super::content_edit::update_controls(viewer);
     super::update_content_edit_controls(viewer);
     super::forms::update_forms_controls(viewer);
+    super::sign::update_sign_controls(viewer);
     // The mode outlives the document it was armed on, so a session installed
     // while it is on has to be given the same start `set_mode` would have —
     // see `content_edit::rearm_for_session`.

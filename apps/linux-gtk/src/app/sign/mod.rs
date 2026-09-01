@@ -14,8 +14,12 @@
 //! `SignRequest` itself documents), then hands off to
 //! `document::begin_sign` — the destination chooser, background
 //! `pdf_sign::sign_document` call, and save→reopen cycle, T-185's half of
-//! this batch. Fase 5 wires both flows into the rail's disabled "Sign"
-//! button and the "Fill & Sign" tab this module's buttons live on.
+//! this batch. Fase 5 (T-186) wires both flows into the rail's "Sign" button
+//! (see `shell::build_app_rail`/`app::build_ui`, which switch the tools
+//! panel to the "Fill & Sign" tab this module's buttons live on) and gates
+//! that button along with `choose_pfx`/`choose_pkcs11` on the same
+//! decision-5 criterion `begin_sign_from_picker` already enforces — see
+//! `update_sign_controls` below.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -49,6 +53,20 @@ pub(crate) fn build_sign_content() -> (Button, Button, GtkBox) {
     content.append(&choose_pkcs11);
 
     (choose_pfx, choose_pkcs11, content)
+}
+
+/// T-186: refreshes the signing section's own sensitivity — the signing
+/// twin of `forms::toolbar::update_forms_controls`'s `refresh_controls`
+/// half. Gated on [`signing_refusal`], the same decision-5 criterion
+/// `begin_sign_from_picker` already enforces at the end of the flow; this
+/// keeps the front door (the certificate/token buttons) from inviting a
+/// click that step would refuse anyway. Called from `document::show_document`
+/// whenever a document opens, closes, or is reloaded (including the
+/// save→reopen cycle a completed signature itself triggers).
+pub(crate) fn update_sign_controls(viewer: &Viewer) {
+    let enabled = signing_refusal(viewer).is_none();
+    viewer.choose_signing_certificate.set_sensitive(enabled);
+    viewer.choose_pkcs11_certificate.set_sensitive(enabled);
 }
 
 pub(crate) fn connect_sign_toolbar(window: &ApplicationWindow, viewer: &Viewer) {
@@ -784,6 +802,24 @@ mod tests {
         // an empty candidate list).
         assert!(!PKCS11_MODULE_CANDIDATES.is_empty());
         assert_eq!(find_pkcs11_module(), None);
+    }
+
+    /// `update_sign_controls`'s own gate (`signing_refusal`) reports no
+    /// refusal when there is no open document — mirrors
+    /// `ui_tests::gtk_ui_starts_with_choose_signing_certificate_enabled`'s
+    /// premise, but exercises the function directly rather than relying on
+    /// the buttons' untouched construction-time sensitivity.
+    #[gtk::test]
+    fn gtk_ui_update_sign_controls_leaves_the_certificate_buttons_enabled_with_no_document_open() {
+        let application = test_application();
+        let built = crate::app::build_ui(&application);
+
+        update_sign_controls(&built.viewer);
+
+        assert!(built.viewer.choose_signing_certificate.is_sensitive());
+        assert!(built.viewer.choose_pkcs11_certificate.is_sensitive());
+
+        built.window.close();
     }
 
     #[gtk::test]

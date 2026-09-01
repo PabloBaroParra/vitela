@@ -255,7 +255,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     navigation_panel.append(&page_navigation_scroll);
 
     let (metadata_panel, metadata_content) = metadata::build_metadata_panel();
-    let tools_content = tools_panel::build_tools_panel(
+    let (tools_content, tools_stack) = tools_panel::build_tools_panel(
         &annotation_row,
         &content_edit_row,
         &forms_content,
@@ -433,6 +433,20 @@ fn build_ui(application: &Application) -> BuiltUi {
             if viewer.content_edit_button.is_sensitive() {
                 viewer.content_edit_button.set_active(true);
             }
+        }
+    });
+    // T-186: switches to the "Fill & Sign" tab and, like `annotate` above,
+    // focuses the first live control there — `update_sign_controls` (called
+    // from `document::show_document`) is what keeps
+    // `choose_signing_certificate` insensitive when the open document
+    // refuses signing, so an insensitive button here simply does not take
+    // focus rather than needing a separate check.
+    app_rail.sign.connect_clicked({
+        let tools_stack = tools_stack.clone();
+        let viewer = viewer.clone();
+        move |_| {
+            tools_stack.set_visible_child_name(tools_panel::FILL_SIGN_PAGE);
+            viewer.choose_signing_certificate.grab_focus();
         }
     });
     // Window-level, not page-level: the pointer is rarely over the page that

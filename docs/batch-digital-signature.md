@@ -188,9 +188,21 @@ shell.
         descartaría en silencio al reabrir.
 
 ### Fase 5 — Wiring final
-- [ ] T-186 Habilita el botón "Sign" del rail (`shell.rs`) y la pestaña "Fill & Sign"
+- [x] T-186 Habilita el botón "Sign" del rail (`shell.rs`) y la pestaña "Fill & Sign"
       deja de ser un placeholder — conecta al flujo de las Fases 2-4, gateado por el
       criterio de la decisión 5. [LinuxSignUI]
+      - Entregado como `rail_item(&rail, "Sign", true)` (`shell.rs`), cuyo click
+        (`app::build_ui`) llama a `tools_panel::build_tools_panel`'s ahora expuesto
+        `Stack` (`stack.set_visible_child_name(FILL_SIGN_PAGE)`) y enfoca
+        `choose_signing_certificate` — el mismo gesto de navegación que `annotate`/
+        `edit_pdf` ya usan. La sensibilidad de ese botón y de `choose_pkcs11_certificate`
+        la mantiene `sign::update_sign_controls`, llamada desde
+        `document::show_document` en cada apertura/cierre/recarga (incluido el
+        ciclo guardar→reabrir que dispara firmar), gateada con el mismo
+        `signing_refusal` (decisión 5) que ya usaba `begin_sign_from_picker` al final
+        del flujo — así el botón de rail y los de "Fill & Sign" quedan insensibles
+        cuando el documento no permite firmar, en vez de dejar avanzar hasta el
+        selector de identidad para recién ahí rechazar.
 
 ## Criterios de aceptación
 
