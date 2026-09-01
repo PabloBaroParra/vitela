@@ -633,6 +633,15 @@ fn build_identity_rows(identities: &[SigningIdentity]) -> (GtkBox, Vec<CheckButt
 
 /// Whether `dialog` is still the tracked identity picker — the signing twin
 /// of `is_pfx_dialog_current`.
+///
+/// `#[cfg(test)]`, unlike its PFX/PKCS#11 siblings: those guard a real race
+/// (a background load resolving after a newer prompt superseded it, checked
+/// from inside `glib::spawn_future_local`), but `open_identity_picker` opens
+/// synchronously and `sign.connect_clicked` dismisses this dialog right in
+/// its own handler, never from an async continuation — so there is no
+/// production call site to race against, only the supersede test below that
+/// asserts the tracking itself.
+#[cfg(test)]
 fn is_sign_picker_current(viewer: &Viewer, dialog: &Window) -> bool {
     viewer.state.borrow().sign_picker_dialog.as_ref() == Some(dialog)
 }
