@@ -29,12 +29,14 @@
 //! keyboard focus follows the canvas selection back.
 
 use gtk::prelude::*;
-use gtk::{Box as GtkBox, CheckButton, DropDown, Entry, Label, Orientation, StringList};
+use gtk::{
+    Box as GtkBox, CheckButton, DropDown, EditableLabel, Entry, Label, Orientation, StringList,
+};
 use pdf_document::{Command, FieldValue, FormField, FormFieldId, FormFieldKind, RadioOption};
 
 use crate::app::state::Viewer;
 
-use super::command::{apply_command, fill_command, model};
+use super::command::{apply_command, command, fill_command, model};
 use super::toolbar::refresh_controls;
 use super::SELECTION_GONE;
 
@@ -78,17 +80,47 @@ fn build_row(viewer: &Viewer, field: &FormField, enabled: bool) -> GtkBox {
     let row = GtkBox::new(Orientation::Horizontal, 8);
     row.add_css_class("fill-field-row");
 
-    let label = Label::new(Some(&field.name));
-    label.set_xalign(0.0);
-    label.set_width_chars(12);
-    label.set_wrap(true);
-    row.append(&label);
+    row.append(&build_name_label(viewer, field, enabled));
 
     let control = build_control(viewer, field, enabled);
     control.set_hexpand(true);
     row.append(&control);
 
     row
+}
+
+/// The field's name, shown read-only until the user double-clicks it (the
+/// widget's own default binding — see the `EditableLabel` module docs) to
+/// give it something more identifiable than the auto-generated
+/// `"{kind}_{n}"` (`FormFieldSet::unique_name`) another user opening the
+/// filled PDF would otherwise have to guess the meaning of.
+fn build_name_label(viewer: &Viewer, field: &FormField, enabled: bool) -> EditableLabel {
+    let label = EditableLabel::new(&field.name);
+    label.set_alignment(0.0);
+    label.set_width_chars(12);
+    label.set_sensitive(enabled);
+
+    let id = field.id;
+    let original = field.name.clone();
+    label.connect_editing_notify({
+        let viewer = viewer.clone();
+        move |label| {
+            // Fires on both entering and leaving edit mode; only leaving is
+            // a candidate commit. `Escape` also fires this (GTK reverts
+            // `text()` to `original` itself before emitting it), so
+            // comparing against `original` here is what tells a real rename
+            // from a cancel.
+            if label.is_editing() {
+                return;
+            }
+            let renamed = label.text().to_string();
+            if renamed != original {
+                rename_field(&viewer, id, renamed);
+            }
+        }
+    });
+
+    label
 }
 
 fn build_control(viewer: &Viewer, field: &FormField, enabled: bool) -> gtk::Widget {
@@ -354,6 +386,37 @@ fn commit_value(viewer: &Viewer, id: FormFieldId, value: FieldValue) {
             },
         );
         Ok("Field value set. Changes are pending save.".to_string())
+    });
+}
+
+/// Validates and records one `RenameFormField` — the naming twin of
+/// `commit_value`'s clone-probe-validate shape, but gated like every other
+/// edit to a field's own definition (`super::command::command`, not
+/// `fill_command`): a `/T` name is part of what the field *is*, not the
+/// value a user fills in, same distinction `style::restyle_selected` draws
+/// for a field's appearance. The one-time rebuild `command` triggers on
+/// success is safe here because it only ever fires once editing has already
+/// ended (see [`build_name_label`]), never mid-keystroke.
+fn rename_field(viewer: &Viewer, id: FormFieldId, to: String) {
+    command(viewer, move |session| {
+        let document = model(session)?;
+        let mut probe = document
+            .form_fields
+            .get(id)
+            .cloned()
+            .ok_or_else(|| SELECTION_GONE.to_string())?;
+        let before = probe.name.clone();
+        pdf_form::rename_field(&mut probe, &document.form_fields, to)
+            .map_err(|error| error.to_string())?;
+        apply_command(
+            document,
+            Command::RenameFormField {
+                id,
+                from: before,
+                to: probe.name,
+            },
+        );
+        Ok("Field renamed. Changes are pending save.".to_string())
     });
 }
 
