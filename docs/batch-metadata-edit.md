@@ -93,19 +93,25 @@ que convivir con ambos hechos, no reinventarlos.
 ## Tareas
 
 ### Fase 1 — Modelo (`core/pdf-document`)
-- [ ] T-167 Módulo `metadata.rs`: `DocumentInfo { title, author, subject, keywords,
+- [x] T-167 Módulo `metadata.rs`: `DocumentInfo { title, author, subject, keywords,
       creator, producer: Option<String>, creation_date, mod_date: Option<PdfDate> }`
       (decisión 3). `PdfDate`: parse + format de `D:YYYYMMDDHHmmSSOHH'mm'` con test de
       round-trip (decisión 4). [MetadataModel]
-- [ ] T-168 `Command::SetDocumentInfo { before: DocumentInfo, after: DocumentInfo }` en
+- [x] T-168 `Command::SetDocumentInfo { before: DocumentInfo, after: DocumentInfo }` en
       `edit_log.rs` (decisión 5), `#[non_exhaustive]` en `Command`, cero breaking
       change. Apply/inverse + tests: `inverse().inverse() == self`, round-trip
       undo/redo, aplicar es inerte sobre `Document` (mismo criterio que B21 decisión 2
       — el log es la fuente de verdad, `pdf-save` lo replay al guardar), y que un log
       mixto metadatos+anotación/contenido se deshaga en orden. [MetadataModel, UndoRedo]
-- [ ] T-169 Lectura lazy: `pdf_document::read_document_info(&lopdf::Document) ->
-      DocumentInfo`, snapshot del `/Info` actual — no se cuelga de `Document` (mismo
-      criterio lazy que `PageContent` de B21/T-149). [MetadataModel]
+- [x] T-169 Lectura lazy: `LopdfDocument::document_info(&self) -> pdf_document::DocumentInfo`
+      en `core/pdf-manip` (no en `pdf-document` — esa crate se mantiene sin lopdf; y no
+      `pdf_document::read_document_info` como decía este ficha originalmente), snapshot
+      del `/Info` actual — no se cuelga de `Document`/`LopdfDocument` (mismo criterio
+      lazy que `PageContent` de B21/T-149). Reusa el `decode_pdf_text_string`
+      (UTF-16BE+BOM / PDFDocEncoding) que ya tenía `LopdfDocument::info()` — un
+      `DocumentInfo` de 4 campos preexistente, sin relación con el de este batch, que
+      sigue intacto porque respalda la propiedades read-only ya shippeada del shell
+      Linux. [MetadataModel]
 
 ### Fase 2 — Serialización (`core/pdf-save`)
 - [ ] T-170 `metadata.rs`: aplica `SetDocumentInfo.after` al `/Info` dict. Precedencia
