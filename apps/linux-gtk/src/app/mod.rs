@@ -21,6 +21,7 @@ mod search;
 mod selection;
 mod shell;
 mod side_panel;
+mod sign;
 mod state;
 mod tools_panel;
 
@@ -49,6 +50,7 @@ use render::update_viewport;
 use search::{run_search, step_match};
 use shell::{build_app_rail, install_shell_css};
 use side_panel::{collapsible, Column};
+use sign::{build_sign_content, connect_sign_toolbar};
 use state::{Viewer, ViewerState};
 
 const APPLICATION_ID: &str = "org.vitela.Pdf";
@@ -203,6 +205,11 @@ fn build_ui(application: &Application) -> BuiltUi {
     // tools panel's "Fill & Sign" page rather than this row — see
     // `tools_panel::build_tools_panel`'s `forms_content` parameter.
     let (form_field_toolbar, forms_content) = forms::build_forms_content();
+    // The signing section of the same "Fill & Sign" page (Batch B23 Fase 2),
+    // destined for `tools_panel::build_tools_panel`'s `sign_content`
+    // parameter alongside `forms_content` — see that function for how the
+    // two are stacked on one page.
+    let (choose_signing_certificate, sign_content) = build_sign_content();
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
@@ -251,6 +258,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         &annotation_row,
         &content_edit_row,
         &forms_content,
+        &sign_content,
         &metadata_content,
     );
     let tools_panel = GtkBox::new(Orientation::Vertical, 10);
@@ -360,6 +368,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         delete_image_button,
         replace_image_button,
         forms: form_field_toolbar,
+        choose_signing_certificate,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,
@@ -372,6 +381,7 @@ fn build_ui(application: &Application) -> BuiltUi {
             form_edit_mode: false,
             form_field_kind: None,
             password_dialog: None,
+            pfx_dialog: None,
         })),
     };
     connect_viewport_updates(&viewer);
@@ -380,6 +390,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     content_edit::connect_toggle(&viewer);
     content_edit::connect_insert_toggles(&viewer);
     forms::connect_forms_toolbar(&viewer);
+    connect_sign_toolbar(&window, &viewer);
     metadata::connect_metadata_panel(&viewer);
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();

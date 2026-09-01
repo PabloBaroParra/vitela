@@ -120,13 +120,20 @@ shell.
       [SignOrchestration]
 
 ### Fase 2 — Linux: identidad desde archivo `.pfx`/`.p12`
-- [ ] T-180 Diálogo de archivo (`GtkFileDialog`) filtrado a `.pfx`/`.p12` + prompt de
+- [x] T-180 Diálogo de archivo (`GtkFileDialog`) filtrado a `.pfx`/`.p12` + prompt de
       contraseña — mismo patrón visual que el prompt de contraseña ya existente para
       abrir un PDF cifrado. [LinuxSignUI]
-- [ ] T-181 `PfxCertificateSource::from_file(path, password)` → si falla (contraseña
+- [x] T-181 `PfxCertificateSource::from_file(path, password)` → si falla (contraseña
       incorrecta, archivo corrupto), mensaje de error claro, sin dejar el diálogo en
       un estado ambiguo. Si funciona, pasa a la Fase 4 con las identidades listadas.
       [LinuxSignUI]
+      - Entregado como un botón real "Choose signing certificate (.pfx)…" en la
+        pestaña "Fill & Sign" (`apps/linux-gtk/src/app/sign/mod.rs`) — necesario
+        para que el código no quede muerto bajo `-D warnings` antes de que la Fase 4
+        exista. Reporta las identidades encontradas por la barra de estado; no
+        persiste nada todavía (ni el `PfxCertificateSource` cargado ni la lista de
+        `SigningIdentity`) — la Fase 4 diseñará su propio estado para eso, informada
+        también por lo que necesite la Fase 3 (PKCS#11).
 
 ### Fase 3 — Linux: identidad desde tarjeta/token PKCS#11
 - [ ] T-182 Lista corta de rutas de módulo PKCS#11 típicas de Linux, probadas en

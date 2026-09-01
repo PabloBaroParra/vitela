@@ -35,12 +35,16 @@ pub(crate) const EMPTY: &str = "\u{2013}";
 /// over a `Stack`, with `annotation_row`/`content_edit_row` embedded
 /// unchanged under Tools, followed by the document-properties panel
 /// (`metadata_content`, built and owned by the `metadata` module — T-176).
-/// Comments and Fill & Sign have no feature behind them yet, so their pages
-/// say so rather than showing empty space that looks broken.
+/// Comments has no feature behind it yet, so its page says so rather than
+/// showing empty space that looks broken. Fill & Sign stacks `forms_content`
+/// (T-141/T-142's field placement and fill controls) over `sign_content`
+/// (Batch B23 Fase 2's certificate chooser) — two features sharing one tab,
+/// the way Adobe's own "Fill & Sign" does.
 pub(crate) fn build_tools_panel(
     annotation_row: &ScrolledWindow,
     content_edit_row: &FlowBox,
     forms_content: &GtkBox,
+    sign_content: &GtkBox,
     metadata_content: &GtkBox,
 ) -> GtkBox {
     let tools_page = GtkBox::new(Orientation::Vertical, 10);
@@ -52,15 +56,29 @@ pub(crate) fn build_tools_panel(
 
     let stack = Stack::new();
     stack.set_vexpand(true);
+    // Same reasoning as `side_panel::collapsible`'s own `hhomogeneous(false)`/
+    // `vhomogeneous(false)`: a `Stack` otherwise allocates every page the
+    // size of its tallest/widest one, so Tools' page (annotations +
+    // content-edit + the full metadata panel) would force Comments and
+    // Fill & Sign to carry its height — and, now that Fill & Sign stacks
+    // `forms_content` under `sign_content`, the reverse direction is live
+    // too: whichever page is tallest would pad every other page's blank
+    // space instead of each page sizing to its own content.
+    stack.set_hhomogeneous(false);
+    stack.set_vhomogeneous(false);
     stack.add_named(&tools_page, Some("tools"));
     stack.add_named(
         &placeholder_page("Comments aren't available in this shell yet."),
         Some("comments"),
     );
-    // T-141 fills this with the field-placement toolbar and style inspector;
-    // T-142's fill panel joins it later. No placeholder fallback: forms
-    // editing is real here, not deferred like Comments.
-    stack.add_named(forms_content, Some("fill-sign"));
+    // T-141 fills `forms_content` with the field-placement toolbar and style
+    // inspector; T-142's fill panel joins it later. `sign_content` (Fase 2)
+    // adds the certificate chooser below it. No placeholder fallback: both
+    // are real here, not deferred like Comments.
+    let fill_sign_page = GtkBox::new(Orientation::Vertical, 10);
+    fill_sign_page.append(forms_content);
+    fill_sign_page.append(sign_content);
+    stack.add_named(&fill_sign_page, Some("fill-sign"));
 
     let switcher = build_tab_switcher(&stack);
 

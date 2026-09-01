@@ -82,6 +82,12 @@ pub(crate) struct Viewer {
     /// The forms toolbar (T-141): the mode toggle, the four placement
     /// toggles, and the style inspector for the selected field.
     pub(crate) forms: FormFieldToolbar,
+    /// Opens the `.pfx`/`.p12` chooser and password prompt (Batch B23 Fase
+    /// 2). Lives on the "Fill & Sign" tab alongside `forms`, but is its own
+    /// field rather than folded into `FormFieldToolbar`: signing identities
+    /// are not form fields, and `sign` is expected to grow its own toolbar
+    /// struct once Fase 3 (PKCS#11) and Fase 4 (the identity picker) land.
+    pub(crate) choose_signing_certificate: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -184,6 +190,12 @@ pub(crate) struct ViewerState {
     /// stacked underneath a second one — see `document::begin_loading` and
     /// `document::dismiss_password_dialog`.
     pub(crate) password_dialog: Option<Window>,
+    /// The `.pfx`/`.p12` password prompt for the in-flight certificate load,
+    /// if any (Batch B23 Fase 2) — the signing twin of `password_dialog`,
+    /// same reason: a later attempt can supersede this one before the
+    /// background load resolves, and the stale attempt's result must not
+    /// clobber the newer one's — see `sign::dismiss_pfx_dialog`.
+    pub(crate) pfx_dialog: Option<Window>,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.
