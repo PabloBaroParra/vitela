@@ -183,6 +183,11 @@ pub(crate) const SHELL_CSS: &str = r#"
   color: #625b72;
   padding-top: 8px;
 }
+
+.signed-indicator {
+  color: #1f8a4c;
+  font-weight: 700;
+}
 "#;
 
 /// The app rail buttons `build_ui` wires up after construction. Recent/

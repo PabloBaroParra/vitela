@@ -213,6 +213,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         choose_signing_certificate,
         choose_pkcs11_certificate,
         choose_nss_certificate,
+        signed_indicator,
         sign_content,
     ) = build_sign_content();
 
@@ -376,6 +377,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         choose_signing_certificate,
         choose_pkcs11_certificate,
         choose_nss_certificate,
+        signed_indicator,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,

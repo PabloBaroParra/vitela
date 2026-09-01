@@ -6,10 +6,11 @@ use cms::signed_data::{
     CertificateSet, DigestAlgorithmIdentifiers, EncapsulatedContentInfo, SignedAttributes,
     SignedData, SignerIdentifier, SignerInfo, SignerInfos,
 };
-use der::asn1::{Any, ObjectIdentifier, OctetString, SetOfVec, UintRef};
+use der::asn1::{Any, ObjectIdentifier, OctetString, SetOfVec, UintRef, UtcTime};
 use der::{Decode, Encode};
 use sha2::{Digest, Sha256, Sha384, Sha512};
 use spki::AlgorithmIdentifierOwned;
+use std::time::SystemTime;
 use x509_cert::attr::{Attribute, AttributeValue};
 use x509_cert::Certificate;
 
@@ -22,6 +23,7 @@ const ID_DATA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1
 const ID_SIGNED_DATA: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.2");
 const ID_CONTENT_TYPE: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.3");
 const ID_MESSAGE_DIGEST: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.4");
+const ID_SIGNING_TIME: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.9.5");
 const ID_SHA_256: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.1");
 const ID_SHA_384: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.2");
 const ID_SHA_512: ObjectIdentifier = ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.2.3");
@@ -217,8 +219,22 @@ fn signed_attributes(document_digest: &DocumentDigest) -> Result<SignedAttribute
         ])
         .map_err(cms_encoding)?,
     };
+    // Unverified local-time hint (RFC 5652 §11.3) — same reasoning and the
+    // same "not a TSA timestamp" caveat as the PDF `/M` entry
+    // `SignatureFieldBuilder::build` stamps; a verifier that reads this
+    // attribute instead of `/M` (`pdfsig` does) still gets a real time rather
+    // than an absent-attribute default.
+    let signing_time_value = UtcTime::from_system_time(SystemTime::now()).map_err(cms_encoding)?;
+    let signing_time = Attribute {
+        oid: ID_SIGNING_TIME,
+        values: SetOfVec::<AttributeValue>::try_from(vec![
+            Any::encode_from(&signing_time_value).map_err(cms_encoding)?
+        ])
+        .map_err(cms_encoding)?,
+    };
 
-    SignedAttributes::try_from(vec![content_type, message_digest]).map_err(cms_encoding)
+    SignedAttributes::try_from(vec![content_type, message_digest, signing_time])
+        .map_err(cms_encoding)
 }
 
 fn certificate_set(certificates: Vec<Certificate>) -> Result<CertificateSet, SignError> {
@@ -284,6 +300,7 @@ fn cms_encoding(error: der::Error) -> SignError {
 mod tests {
     use std::str::FromStr;
     use std::sync::Mutex;
+    use std::time::Duration;
 
     use der::asn1::{BitString, UtcTime};
     use der::DateTime;
@@ -505,6 +522,40 @@ mod tests {
             .expect("recording lock should be available");
 
         assert_eq!(calls.as_slice(), &[(expected_digest.to_vec(), algorithm)]);
+    }
+
+    #[test]
+    fn builder_stamps_a_recent_signing_time_attribute() {
+        let source = RecordingCertificateSource::default();
+        let algorithm = SigningAlgorithm::RsaPkcs1v15(DigestAlgorithm::Sha256);
+        let identity = identity(algorithm);
+        let document_digest = document_digest(DigestAlgorithm::Sha256);
+        let before = SystemTime::now();
+
+        let cms_der = CmsSignedDataBuilder::new(&source, &identity, &document_digest, algorithm)
+            .build()
+            .expect("valid inputs should build CMS SignedData");
+        let after = SystemTime::now();
+        let signed_data = decode_signed_data(&cms_der);
+        let signer = signed_data
+            .signer_infos
+            .0
+            .iter()
+            .next()
+            .expect("one signer should be present");
+        let signing_time = signed_attribute(signer, ID_SIGNING_TIME)
+            .values
+            .iter()
+            .next()
+            .expect("signing-time should have one value")
+            .decode_as::<UtcTime>()
+            .expect("signing-time should be a UTCTime")
+            .to_system_time();
+
+        // Not exactly `before..=after` — UTCTime truncates to whole seconds,
+        // so the decoded value can round down a fraction of a second earlier
+        // than `before` itself.
+        assert!(signing_time >= before - Duration::from_secs(1) && signing_time <= after);
     }
 
     #[test]

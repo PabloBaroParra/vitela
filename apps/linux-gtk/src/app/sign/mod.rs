@@ -53,18 +53,34 @@ use crate::app::tools_panel::panel_heading;
 /// `connect_sign_toolbar` wires them; this only builds the widgets so
 /// `mod.rs` can compose them alongside `forms::build_forms_content`'s own
 /// section on the same page.
-pub(crate) fn build_sign_content() -> (Button, Button, Button, GtkBox) {
+pub(crate) fn build_sign_content() -> (Button, Button, Button, Label, GtkBox) {
     let choose_pfx = Button::with_label("Choose signing certificate (.pfx)…");
     let choose_pkcs11 = Button::with_label("Use card or token…");
     let choose_nss = Button::with_label("Use a certificate from this computer…");
 
+    // Hidden until `update_sign_controls` finds a signature on the open
+    // document — the one place in this shell a user can tell a signing
+    // attempt actually landed, since `document::begin_sign`'s status-bar
+    // message (T-185) is overwritten by the very next unrelated action.
+    let signed_indicator = Label::new(Some("✓ This document is digitally signed."));
+    signed_indicator.set_xalign(0.0);
+    signed_indicator.add_css_class("signed-indicator");
+    signed_indicator.set_visible(false);
+
     let content = GtkBox::new(GtkOrientation::Vertical, 8);
     content.append(&panel_heading("Signing"));
+    content.append(&signed_indicator);
     content.append(&choose_pfx);
     content.append(&choose_pkcs11);
     content.append(&choose_nss);
 
-    (choose_pfx, choose_pkcs11, choose_nss, content)
+    (
+        choose_pfx,
+        choose_pkcs11,
+        choose_nss,
+        signed_indicator,
+        content,
+    )
 }
 
 /// T-186: refreshes the signing section's own sensitivity — the signing
@@ -80,6 +96,23 @@ pub(crate) fn update_sign_controls(viewer: &Viewer) {
     viewer.choose_signing_certificate.set_sensitive(enabled);
     viewer.choose_pkcs11_certificate.set_sensitive(enabled);
     viewer.choose_nss_certificate.set_sensitive(enabled);
+    viewer
+        .signed_indicator
+        .set_visible(document_is_signed(viewer));
+}
+
+/// Whether the open document (if any) already carries a signature —
+/// `pdf_save::has_signatures`'s own structural scan (`/AcroForm /SigFlags` or
+/// any `/FT /Sig` object), the same check `document::confirm_signature_loss`
+/// asks before a rewrite that would break one.
+fn document_is_signed(viewer: &Viewer) -> bool {
+    viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.save_backing.as_ref())
+        .is_some_and(|backing| pdf_save::has_signatures(backing.base.as_lopdf()))
 }
 
 pub(crate) fn connect_sign_toolbar(window: &ApplicationWindow, viewer: &Viewer) {
@@ -1125,13 +1158,17 @@ mod tests {
         assert!(built.viewer.choose_signing_certificate.is_sensitive());
         assert!(built.viewer.choose_pkcs11_certificate.is_sensitive());
         assert!(built.viewer.choose_nss_certificate.is_sensitive());
+        // No document open means `document_is_signed` has nothing to check —
+        // the indicator must default to hidden rather than stay however its
+        // caller last left it.
+        assert!(!built.viewer.signed_indicator.is_visible());
 
         built.window.close();
     }
 
     #[gtk::test]
     fn gtk_ui_choose_signing_certificate_button_has_the_expected_label() {
-        let (button, choose_pkcs11, choose_nss, content) = build_sign_content();
+        let (button, choose_pkcs11, choose_nss, signed_indicator, content) = build_sign_content();
 
         assert_eq!(
             button.label().as_deref(),
@@ -1145,6 +1182,7 @@ mod tests {
             Some("Use a certificate from this computer…")
         );
         assert!(choose_nss.is_sensitive());
+        assert!(!signed_indicator.is_visible());
         assert!(content.first_child().is_some());
     }
 

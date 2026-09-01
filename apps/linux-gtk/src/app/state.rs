@@ -98,6 +98,11 @@ pub(crate) struct Viewer {
     /// separate smart card/token. Lives alongside the other two for the same
     /// reason.
     pub(crate) choose_nss_certificate: Button,
+    /// Hidden until the open document has a signature — the persistent twin
+    /// of `document::begin_sign`'s one-shot status-bar message. Kept current
+    /// by `sign::update_sign_controls`, same lifecycle as the three buttons
+    /// above.
+    pub(crate) signed_indicator: Label,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
