@@ -193,6 +193,14 @@ pub enum Command {
         from: FieldValue,
         to: FieldValue,
     },
+    /// Renames a field's `/T`. `pdf-form::ops::rename_field` validates `to`
+    /// (non-empty, unique within the set) before this is ever recorded —
+    /// `apply` here trusts it, same posture as `SetFieldValue`.
+    RenameFormField {
+        id: FormFieldId,
+        from: String,
+        to: String,
+    },
 
     // --- Document metadata (Batch 22) -----------------------------------
     //
@@ -307,6 +315,11 @@ impl Command {
             Command::SetFieldValue { id, to, .. } => {
                 if let Some(field) = document.form_fields.get_mut(*id) {
                     field.value = to.clone();
+                }
+            }
+            Command::RenameFormField { id, to, .. } => {
+                if let Some(field) = document.form_fields.get_mut(*id) {
+                    field.name = to.clone();
                 }
             }
             // Inert for the same reason as the page-content variants above:
@@ -429,6 +442,11 @@ impl Command {
                 to: *from,
             },
             Command::SetFieldValue { id, from, to } => Command::SetFieldValue {
+                id: *id,
+                from: to.clone(),
+                to: from.clone(),
+            },
+            Command::RenameFormField { id, from, to } => Command::RenameFormField {
                 id: *id,
                 from: to.clone(),
                 to: from.clone(),
@@ -1569,6 +1587,32 @@ mod tests {
     }
 
     #[test]
+    fn undo_redo_round_trip_rename_form_field() {
+        let mut document = Document::blank();
+        let field = sample_form_field(1);
+        let from = field.name.clone();
+        let to = "Signature_1".to_string();
+        document.form_fields.insert(field.clone());
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::RenameFormField {
+                id: field.id,
+                from: from.clone(),
+                to: to.clone(),
+            },
+        );
+        assert_eq!(document.form_fields.get(field.id).unwrap().name, to);
+
+        log.undo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().name, from);
+
+        log.redo(&mut document);
+        assert_eq!(document.form_fields.get(field.id).unwrap().name, to);
+    }
+
+    #[test]
     fn a_form_field_edit_and_its_undo_both_keep_the_field_in_place() {
         let mut document = Document::blank();
         document.form_fields.insert(sample_form_field(1));
@@ -1633,6 +1677,11 @@ mod tests {
                 id: field.id,
                 from: field.value.clone(),
                 to: field.value.clone(),
+            },
+            Command::RenameFormField {
+                id: field.id,
+                from: field.name.clone(),
+                to: field.name.clone(),
             },
         ];
 

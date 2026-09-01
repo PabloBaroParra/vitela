@@ -12,7 +12,7 @@
 //! validated value as its `to`.
 
 use crate::error::FormError;
-use pdf_document::{FieldValue, FormField, FormFieldKind, Rect, TextStyle};
+use pdf_document::{FieldValue, FormField, FormFieldKind, FormFieldSet, Rect, TextStyle};
 
 /// Replaces a field's `rect`.
 pub fn move_field(field: &mut FormField, to: Rect) {
@@ -30,6 +30,34 @@ pub fn resize_field(field: &mut FormField, to: Rect) {
 /// Replaces a field's `style`.
 pub fn restyle_field(field: &mut FormField, to: TextStyle) {
     field.style = to;
+}
+
+/// Renames a field's `/T`, after checking `to` against the rest of `fields`:
+/// trimmed of surrounding whitespace, must not end up empty, and must not
+/// collide with another field's name (`field` itself is exempt, so renaming
+/// a field to the name it already has is a no-op success rather than a
+/// spurious collision).
+pub fn rename_field(
+    field: &mut FormField,
+    fields: &FormFieldSet,
+    to: String,
+) -> Result<(), FormError> {
+    let trimmed = to.trim();
+    if trimmed.is_empty() {
+        return Err(FormError::InvalidValue(
+            "a field name cannot be empty".to_string(),
+        ));
+    }
+    let taken = fields
+        .iter()
+        .any(|other| other.id != field.id && other.name == trimmed);
+    if taken {
+        return Err(FormError::InvalidValue(format!(
+            "\"{trimmed}\" is already used by another field"
+        )));
+    }
+    field.name = trimmed.to_string();
+    Ok(())
 }
 
 /// Sets a field's value, after checking it against the field's kind:
@@ -198,6 +226,54 @@ mod tests {
         };
         restyle_field(&mut field, to);
         assert_eq!(field.style, to);
+    }
+
+    #[test]
+    fn rename_field_accepts_a_free_name() {
+        let mut field = text_field(None);
+        let fields = FormFieldSet::new();
+        rename_field(&mut field, &fields, "Full Name".to_string()).expect("name is free");
+        assert_eq!(field.name, "Full Name");
+    }
+
+    #[test]
+    fn rename_field_trims_surrounding_whitespace() {
+        let mut field = text_field(None);
+        let fields = FormFieldSet::new();
+        rename_field(&mut field, &fields, "  Full Name  ".to_string()).expect("name is free");
+        assert_eq!(field.name, "Full Name");
+    }
+
+    #[test]
+    fn rename_field_rejects_an_empty_name() {
+        let mut field = text_field(None);
+        let fields = FormFieldSet::new();
+        let result = rename_field(&mut field, &fields, "   ".to_string());
+        assert!(matches!(result, Err(FormError::InvalidValue(_))));
+        assert_eq!(
+            field.name, "Text_1",
+            "a rejected rename must not change the field"
+        );
+    }
+
+    #[test]
+    fn rename_field_rejects_a_name_another_field_already_uses() {
+        let mut field = text_field(None);
+        let mut fields = FormFieldSet::new();
+        fields.insert(field.clone());
+        fields.insert(checkbox_field());
+        let result = rename_field(&mut field, &fields, "Checkbox_1".to_string());
+        assert!(matches!(result, Err(FormError::InvalidValue(_))));
+    }
+
+    #[test]
+    fn rename_field_to_its_own_current_name_is_not_a_collision() {
+        let mut field = text_field(None);
+        let mut fields = FormFieldSet::new();
+        fields.insert(field.clone());
+        rename_field(&mut field, &fields, "Text_1".to_string())
+            .expect("a field is not its own collision");
+        assert_eq!(field.name, "Text_1");
     }
 
     #[test]

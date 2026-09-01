@@ -28,5 +28,5 @@ pub use appearance::{
 pub use builders::{checkbox, dropdown, radio_group, text_field};
 pub use da::{base_font_name, format_da, parse_da, resource_name};
 pub use error::FormError;
-pub use ops::{move_field, resize_field, restyle_field, set_value};
+pub use ops::{move_field, rename_field, resize_field, restyle_field, set_value};
 pub use read::read_form_fields;
