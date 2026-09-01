@@ -16,6 +16,8 @@
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
 //! - [`content`] (T-156): replays page-content edits (Batch 21) at save
 //!   time, and reports whether the rewrite invalidates existing signatures.
+//! - [`metadata`] (T-170, Batch 22): applies `Command::SetDocumentInfo` to
+//!   the `/Info` dict at save time.
 //! - [`strategy`] (T-032, T-033): writer selection and
 //!   the [`save_document`] auto-selection entry point.
 //! - [`export`] (T-037): page export as PNG/JPEG at selectable DPI.
@@ -28,6 +30,7 @@ pub mod content;
 pub mod error;
 pub mod export;
 pub mod forms;
+pub mod metadata;
 pub mod security;
 pub mod strategy;
 
@@ -45,6 +48,7 @@ pub use content::{
 pub use error::SaveError;
 pub use export::{export_page_as_image, ExportFormat};
 pub use forms::{ensure_acroform, write_form_fields};
+pub use metadata::{apply_document_info, pending_document_info};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{
     append_incremental_update, save_document, save_document_with_options,

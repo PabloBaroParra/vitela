@@ -114,9 +114,10 @@ que convivir con ambos hechos, no reinventarlos.
       Linux. [MetadataModel]
 
 ### Fase 2 — Serialización (`core/pdf-save`)
-- [ ] T-170 `metadata.rs`: aplica `SetDocumentInfo.after` al `/Info` dict. Precedencia
+- [x] T-170 `metadata.rs`: aplica `SetDocumentInfo.after` al `/Info` dict. Precedencia
       de `ModDate` explícito sobre `set_mod_date` (decisión 6). Codificación
-      PDFDocEncoding/UTF-16BE+BOM según el texto (decisión 7). [MetadataSave]
+      PDFDocEncoding/UTF-16BE+BOM según el texto (decisión 7). Cableado en
+      `save_full_rewrite` únicamente — `save_incremental` es T-171. [MetadataSave]
 - [ ] T-171 Cierra el diferido de `strategy.rs:256-264` en `save_incremental`: clona
       `/Info` en `new_document` antes de mutar, solo cuando hay `SetDocumentInfo`
       pendiente (decisión 8). Sin ese comando, el incremental sigue sin tocar `/Info`
