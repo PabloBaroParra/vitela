@@ -7,26 +7,31 @@
 //! before falling back to a manual `.so` file chooser, then a PIN prompt
 //! gating `Pkcs11CertificateSource::load`.
 //!
-//! This is deliberately a self-contained slice: nothing downstream of
-//! `list_identities` exists yet. Fase 4 adds an identity picker that
-//! actually calls `pdf_sign::orchestrate::sign_document`, and Fase 5 wires
-//! both flows into the rail's disabled "Sign" button and the "Fill & Sign"
-//! tab this module's buttons live on. Until then, confirming which
-//! certificates a `.pfx` or a token unlocks is already useful on its own.
+//! Fase 4 adds the identity picker: once either flow above unlocks at least
+//! one identity, `open_identity_picker` opens automatically and lets the
+//! user choose one to sign with. Confirming runs `begin_sign_from_picker`,
+//! which gates the action (batch decision 5, and the `unsaved_to_disk` check
+//! `SignRequest` itself documents), then hands off to
+//! `document::begin_sign` — the destination chooser, background
+//! `pdf_sign::sign_document` call, and save→reopen cycle, T-185's half of
+//! this batch. Fase 5 wires both flows into the rail's disabled "Sign"
+//! button and the "Fill & Sign" tab this module's buttons live on.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, ApplicationWindow, Box as GtkBox, Button, FileDialog, FileFilter, Label,
-    Orientation as GtkOrientation, PasswordEntry, Window,
+    gio, glib, ApplicationWindow, Box as GtkBox, Button, CheckButton, FileDialog, FileFilter,
+    Label, Orientation as GtkOrientation, PasswordEntry, Window,
 };
 use pdf_sign::{CertificateSourcePort, SigningIdentity};
 use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 use pdf_sign_pkcs11::{Pkcs11AdapterError, Pkcs11CertificateSource};
 
-use crate::app::state::Viewer;
+use crate::app::document::{self, SignRequest};
+use crate::app::state::{SessionToken, Viewer};
 use crate::app::tools_panel::panel_heading;
 
 /// Builds the "Fill & Sign" page's signing section: a heading and the
@@ -133,6 +138,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
     password_entry.grab_focus();
 
     let submit: Rc<dyn Fn()> = Rc::new({
+        let window = window.clone();
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         let password_entry = password_entry.clone();
@@ -142,6 +148,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
             viewer.status.set_text("Reading certificate file...");
             dialog.set_sensitive(false);
             glib::spawn_future_local({
+                let window = window.clone();
                 let viewer = viewer.clone();
                 let dialog = dialog.clone();
                 let password_entry = password_entry.clone();
@@ -160,10 +167,19 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                     let password = password_entry.text().to_string();
                     match load_pfx_in_background(path, password).await {
                         Ok(source) => {
+                            let identities = source.list_identities();
                             viewer.status.set_text(&identities_status_message(
-                                &source.list_identities(),
+                                &identities,
                                 "This certificate file has no usable signing identities.",
                             ));
+                            if !identities.is_empty() {
+                                open_identity_picker(
+                                    &window,
+                                    &viewer,
+                                    Arc::new(source),
+                                    identities,
+                                );
+                            }
                             dismiss_pfx_dialog(&viewer, &dialog);
                         }
                         Err(PfxAdapterError::Pkcs12(_)) => {
@@ -389,6 +405,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
     pin_entry.grab_focus();
 
     let submit: Rc<dyn Fn()> = Rc::new({
+        let window = window.clone();
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         let pin_entry = pin_entry.clone();
@@ -398,6 +415,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
             viewer.status.set_text("Reading card or token...");
             dialog.set_sensitive(false);
             glib::spawn_future_local({
+                let window = window.clone();
                 let viewer = viewer.clone();
                 let dialog = dialog.clone();
                 let pin_entry = pin_entry.clone();
@@ -429,6 +447,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
                             viewer
                                 .status
                                 .set_text(&format_found_identities(&identities));
+                            open_identity_picker(&window, &viewer, Arc::new(source), identities);
                             dismiss_pkcs11_dialog(&viewer, &dialog);
                         }
                         Err(Pkcs11AdapterError::Module(message)) => {
@@ -486,6 +505,215 @@ async fn load_pkcs11_in_background(
         .expect("PKCS#11 load task panicked")
 }
 
+/// T-184: shows the identities `source` reports and lets the user pick one
+/// to sign with. Opened automatically once a `.pfx` password or a PKCS#11
+/// PIN unlocks at least one identity — the module doc's "confirming which
+/// certificates a file or token unlocks is already useful on its own" was
+/// true before this existed; now it is also the entry point into T-185.
+fn open_identity_picker(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    source: Arc<dyn CertificateSourcePort>,
+    identities: Vec<SigningIdentity>,
+) {
+    let content = GtkBox::new(GtkOrientation::Vertical, 8);
+    content.set_margin_top(12);
+    content.set_margin_bottom(12);
+    content.set_margin_start(12);
+    content.set_margin_end(12);
+    let dialog = Window::builder()
+        .transient_for(window)
+        .modal(true)
+        .title("Choose a signing identity")
+        .child(&content)
+        .build();
+
+    // Tracked so a later successful certificate/token load (which may
+    // supersede this one before the user confirms) can tear this dialog
+    // down instead of leaving it stacked underneath a second one — mirrors
+    // `prompt_for_pfx_password`/`dismiss_pfx_dialog`.
+    let stale_dialog = viewer
+        .state
+        .borrow_mut()
+        .sign_picker_dialog
+        .replace(dialog.clone());
+    if let Some(stale_dialog) = stale_dialog {
+        stale_dialog.destroy();
+    }
+
+    content.append(&Label::new(Some("Sign this document with:")));
+
+    let (rows, radio_buttons) = build_identity_rows(&identities);
+    content.append(&rows);
+
+    let error_label = Label::new(None);
+    error_label.set_xalign(0.0);
+    let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
+    let cancel = Button::with_label("Cancel");
+    let sign = Button::with_label("Sign");
+    buttons.append(&cancel);
+    buttons.append(&sign);
+    content.append(&error_label);
+    content.append(&buttons);
+
+    sign.connect_clicked({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        let dialog = dialog.clone();
+        let identities = identities.clone();
+        let radio_buttons = radio_buttons.clone();
+        let source = source.clone();
+        let error_label = error_label.clone();
+        move |_| {
+            let Some(chosen) = radio_buttons
+                .iter()
+                .position(CheckButton::is_active)
+                .and_then(|index| identities.get(index))
+            else {
+                error_label.set_text("Choose a signing identity.");
+                return;
+            };
+            match begin_sign_from_picker(&window, &viewer, source.clone(), chosen.id.clone()) {
+                Ok(()) => dismiss_sign_picker(&viewer, &dialog),
+                Err(message) => error_label.set_text(message),
+            }
+        }
+    });
+    cancel.connect_clicked({
+        let viewer = viewer.clone();
+        let dialog = dialog.clone();
+        move |_| {
+            viewer.status.set_text("Signing cancelled.");
+            dismiss_sign_picker(&viewer, &dialog);
+        }
+    });
+    dialog.present();
+}
+
+/// Builds the picker's identity rows — one grouped `CheckButton` per
+/// identity, first pre-selected — separately from the dialog chrome around
+/// them, so the row-building itself (labels, grouping, initial selection) is
+/// testable without a live dialog. Mirrors `build_sign_content`'s own split,
+/// and `forms::fill::build_radio_group`'s grouped-`CheckButton` shape.
+fn build_identity_rows(identities: &[SigningIdentity]) -> (GtkBox, Vec<CheckButton>) {
+    let rows = GtkBox::new(GtkOrientation::Vertical, 4);
+    let radio_buttons: Vec<CheckButton> = identities
+        .iter()
+        .map(|identity| CheckButton::with_label(&identity.display_name))
+        .collect();
+    for button in radio_buttons.iter().skip(1) {
+        button.set_group(Some(&radio_buttons[0]));
+    }
+    if let Some(first) = radio_buttons.first() {
+        first.set_active(true);
+    }
+    for button in &radio_buttons {
+        rows.append(button);
+    }
+    (rows, radio_buttons)
+}
+
+/// Whether `dialog` is still the tracked identity picker — the signing twin
+/// of `is_pfx_dialog_current`.
+fn is_sign_picker_current(viewer: &Viewer, dialog: &Window) -> bool {
+    viewer.state.borrow().sign_picker_dialog.as_ref() == Some(dialog)
+}
+
+/// Clears the tracked identity picker and tears it down — but only if it
+/// still points at `dialog`, so this cannot clobber a newer picker's slot.
+/// The signing twin of `dismiss_pfx_dialog`.
+fn dismiss_sign_picker(viewer: &Viewer, dialog: &Window) {
+    let mut state = viewer.state.borrow_mut();
+    if state.sign_picker_dialog.as_ref() == Some(dialog) {
+        state.sign_picker_dialog = None;
+    }
+    drop(state);
+    dialog.destroy();
+}
+
+/// T-185: the gate and session-state extraction behind the picker's "Sign"
+/// button, ending in `document::begin_sign` (the destination chooser,
+/// background `pdf_sign::sign_document` call, and save→reopen cycle). `Err`
+/// carries the message to show inline in the picker rather than the status
+/// bar, so the user can fix the problem — no document, or unsaved changes —
+/// without re-choosing a certificate or token.
+fn begin_sign_from_picker(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    source: Arc<dyn CertificateSourcePort>,
+    identity_id: String,
+) -> Result<(), &'static str> {
+    if let Some(refusal) = signing_refusal(viewer) {
+        return Err(refusal);
+    }
+    let request = {
+        let state = viewer.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return Err("Open a PDF before signing.");
+        };
+        // `sign_document` writes straight from `backing.original_bytes`,
+        // bypassing `document_model`/`EditLog` entirely (batch decision 1:
+        // `pdf-sign` never depends on `pdf-document`'s editable model).
+        // Signing now would silently drop any edit recorded since the last
+        // save/reopen — refusing is cheaper and safer than folding those
+        // edits in here, and matches this shell's existing care around
+        // unsaved work (see the window-close guard in `document.rs`).
+        if session.unsaved_to_disk {
+            return Err("Save your changes before signing this document.");
+        }
+        let Some(backing) = session.save_backing.as_ref() else {
+            return Err("This document cannot be signed.");
+        };
+        SignRequest {
+            token: SessionToken {
+                generation: state.generation,
+                edit_revision: session.edit_revision,
+            },
+            bytes: backing.original_bytes.clone(),
+            password: backing.password.clone(),
+            page_number: 1,
+            field_name: next_signature_field_name(&backing.base),
+            source,
+            identity_id,
+        }
+    };
+    document::begin_sign(window, viewer, request);
+    Ok(())
+}
+
+/// The permission gate for signing: a signed field is a new `/FT /Sig` entry
+/// in `/AcroForm`/`/Annots`, structurally the same kind of change as placing
+/// a form field (batch decision 5). Mirrors
+/// `forms::command::structural_edit_refusal` rather than importing it —
+/// that function is `pub(super)` to `forms`, so duplicating its one line is
+/// cheaper than widening its visibility for this single caller outside it.
+fn signing_refusal(viewer: &Viewer) -> Option<&'static str> {
+    viewer
+        .annotation_editing_refusal()
+        .or_else(|| viewer.content_edit_refusal())
+}
+
+/// A signature field name unique among any this document's base already
+/// carries — `Signature_1`, `Signature_2`, ... — so re-signing an
+/// already-signed document (T-179 proves `sign_document` itself allows it)
+/// does not collide `/AcroForm /Fields` on a repeated literal name.
+fn next_signature_field_name(base: &pdf_manip::LopdfDocument) -> String {
+    let existing = base
+        .as_lopdf()
+        .objects
+        .values()
+        .filter(|object| {
+            object
+                .as_dict()
+                .ok()
+                .and_then(|dict| dict.get(b"FT").ok())
+                .and_then(|value| value.as_name().ok())
+                == Some(b"Sig".as_slice())
+        })
+        .count();
+    format!("Signature_{}", existing + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,6 +724,28 @@ mod tests {
             display_name: display_name.to_owned(),
             certificate_chain_der: vec![vec![0]],
             supported_algorithms: vec![],
+        }
+    }
+
+    /// A `CertificateSourcePort` whose `list_identities` never changes — all
+    /// the identity-picker tests below need, since none of them exercise
+    /// `sign_digest_raw` (that path is `pdf-sign`'s own, already covered by
+    /// `orchestrate.rs`'s tests and `pdf-sign-pfx`/`pdf-sign-pkcs11`'s real
+    /// adapters).
+    struct StaticCertificateSource(Vec<SigningIdentity>);
+
+    impl CertificateSourcePort for StaticCertificateSource {
+        fn list_identities(&self) -> Vec<SigningIdentity> {
+            self.0.clone()
+        }
+
+        fn sign_digest_raw(
+            &self,
+            _identity_id: &str,
+            _digest: &[u8],
+            _algorithm: pdf_sign::SigningAlgorithm,
+        ) -> Result<Vec<u8>, pdf_sign::SignError> {
+            unimplemented!("not exercised by identity-picker UI tests")
         }
     }
 
@@ -629,5 +879,113 @@ mod tests {
         assert!(!is_pkcs11_dialog_current(&built.viewer, &first_dialog));
 
         built.window.close();
+    }
+
+    #[gtk::test]
+    fn gtk_ui_identity_rows_are_labeled_and_the_first_is_preselected() {
+        let identities = vec![identity("Alice Doe"), identity("Signing Cert 2")];
+
+        let (_rows, radio_buttons) = build_identity_rows(&identities);
+
+        assert_eq!(radio_buttons.len(), 2);
+        assert_eq!(radio_buttons[0].label().as_deref(), Some("Alice Doe"));
+        assert_eq!(radio_buttons[1].label().as_deref(), Some("Signing Cert 2"));
+        assert!(radio_buttons[0].is_active());
+        assert!(!radio_buttons[1].is_active());
+    }
+
+    #[gtk::test]
+    fn gtk_ui_identity_rows_for_a_single_identity_preselect_it() {
+        let identities = vec![identity("Only Signer")];
+
+        let (_rows, radio_buttons) = build_identity_rows(&identities);
+
+        assert_eq!(radio_buttons.len(), 1);
+        assert!(radio_buttons[0].is_active());
+    }
+
+    /// T-184: opening the picker a second time (a later certificate/token
+    /// load resolving while the first picker is still open) must tear down
+    /// and stop tracking the first one — the identity-picker twin of the
+    /// PFX/PKCS#11 supersede tests above.
+    #[gtk::test]
+    fn gtk_ui_a_second_identity_picker_supersedes_and_destroys_the_first() {
+        let application = test_application();
+        let built = crate::app::build_ui(&application);
+        let identities = vec![identity("Alice Doe")];
+        let source = || -> Arc<dyn CertificateSourcePort> {
+            Arc::new(StaticCertificateSource(identities.clone()))
+        };
+
+        open_identity_picker(&built.window, &built.viewer, source(), identities.clone());
+        let first_dialog = built
+            .viewer
+            .state
+            .borrow()
+            .sign_picker_dialog
+            .clone()
+            .expect("the first picker must track its dialog");
+
+        open_identity_picker(&built.window, &built.viewer, source(), identities);
+        let second_dialog = built
+            .viewer
+            .state
+            .borrow()
+            .sign_picker_dialog
+            .clone()
+            .expect("the second picker must track its own dialog");
+
+        assert!(first_dialog != second_dialog);
+        assert!(is_sign_picker_current(&built.viewer, &second_dialog));
+        assert!(!is_sign_picker_current(&built.viewer, &first_dialog));
+
+        built.window.close();
+    }
+
+    /// T-185's gate: signing with no document open is refused before any
+    /// destination is asked for, with a message specific enough to act on —
+    /// mirrors how `forms::command::command` refuses with `NO_DOCUMENT`.
+    #[gtk::test]
+    fn gtk_ui_signing_without_an_open_document_is_refused() {
+        let application = test_application();
+        let built = crate::app::build_ui(&application);
+        let identities = vec![identity("Alice Doe")];
+        let source: Arc<dyn CertificateSourcePort> = Arc::new(StaticCertificateSource(identities));
+
+        let error =
+            begin_sign_from_picker(&built.window, &built.viewer, source, "Alice Doe".to_owned())
+                .expect_err("signing with no open document must be refused");
+
+        assert_eq!(error, "Open a PDF before signing.");
+
+        built.window.close();
+    }
+
+    #[test]
+    fn next_signature_field_name_starts_at_one_for_a_document_with_no_signatures() {
+        let base = pdf_manip::create_blank_document(
+            pdf_document::PageSize::A4,
+            pdf_document::Orientation::Portrait,
+        );
+
+        assert_eq!(next_signature_field_name(&base), "Signature_1");
+    }
+
+    /// A re-signed document (T-179 proves `sign_document` allows signing
+    /// twice) must not repeat a field name already present in the base —
+    /// this is what keeps the second signature from colliding with the
+    /// first in `/AcroForm /Fields`.
+    #[test]
+    fn next_signature_field_name_counts_past_an_existing_signature_field() {
+        let mut base = pdf_manip::create_blank_document(
+            pdf_document::PageSize::A4,
+            pdf_document::Orientation::Portrait,
+        );
+        let mut field = lopdf::Dictionary::new();
+        field.set("FT", lopdf::Object::Name(b"Sig".to_vec()));
+        base.as_lopdf_mut()
+            .add_object(lopdf::Object::Dictionary(field));
+
+        assert_eq!(next_signature_field_name(&base), "Signature_2");
     }
 }

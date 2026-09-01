@@ -8,6 +8,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
@@ -17,6 +18,7 @@ use gtk::{
 use pdf_document::{Document, Orientation, PageSize, SecurityContext};
 use pdf_manip::ManipError;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
+use pdf_sign::CertificateSourcePort;
 
 use super::layout::set_placeholder_size;
 use super::render::update_viewport;
@@ -412,6 +414,162 @@ fn save_snapshot_and_reopen(
     open_document(
         &DocumentSource::File(destination.to_path_buf()),
         backing.password.as_deref(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// The inputs [`begin_sign`] threads through the destination chooser to
+/// [`spawn_sign`], bundled so the same handful of values do not repeat
+/// field-by-field across every step of the chooser → confirm → background-
+/// sign chain — the same reason [`SaveBacking`](super::state::SaveBacking)
+/// bundles what a save needs instead of three separate parameters.
+#[derive(Clone)]
+pub(crate) struct SignRequest {
+    pub(crate) token: super::state::SessionToken,
+    /// `SaveBacking::original_bytes` at the moment the identity was
+    /// confirmed. [`super::sign::begin_sign_from_picker`] has already
+    /// refused to build this request when `unsaved_to_disk` is set, so this
+    /// always matches what the reopened session will show.
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) password: Option<String>,
+    pub(crate) page_number: u32,
+    pub(crate) field_name: String,
+    pub(crate) source: Arc<dyn CertificateSourcePort>,
+    pub(crate) identity_id: String,
+}
+
+/// Batch B23 Fase 4/5: the signing twin of [`show_save_chooser`]/
+/// [`save_current_to`]. This shell has no notion of "the current file" to
+/// overwrite implicitly — even an ordinary Save always asks where to write
+/// (`show_save_chooser`) — so signing asks the same way, then runs
+/// [`pdf_sign::sign_document`] on a worker thread and reopens the result
+/// exactly like a real disk save does.
+pub(crate) fn begin_sign(window: &ApplicationWindow, viewer: &Viewer, request: SignRequest) {
+    let filter = FileFilter::new();
+    filter.set_name(Some("PDF files"));
+    filter.add_mime_type("application/pdf");
+    filter.add_pattern("*.pdf");
+    filter.add_pattern("*.PDF");
+
+    let chooser = FileDialog::builder()
+        .title("Save signed PDF")
+        .accept_label("Save")
+        .default_filter(&filter)
+        .initial_name("document.pdf")
+        .build();
+    chooser.save(Some(window), None::<&gio::Cancellable>, {
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |result| {
+            let Ok(file) = result else {
+                viewer.status.set_text("Signing cancelled.");
+                return;
+            };
+            let Some(path) = file.path() else {
+                viewer
+                    .status
+                    .set_text("The selected location is not a local file.");
+                return;
+            };
+            confirm_sign_destination(&window, &viewer, request.clone(), pdf_destination(path));
+        }
+    });
+}
+
+/// [`confirm_save_destination`]'s signing twin: the same "Replace existing
+/// PDF?" guard, ending in [`spawn_sign`] instead of [`spawn_save`].
+fn confirm_sign_destination(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    request: SignRequest,
+    destination: PathBuf,
+) {
+    match destination.try_exists() {
+        Ok(false) => spawn_sign(viewer, request, destination),
+        Err(error) => viewer.status.set_text(&format!(
+            "Could not check whether {} already exists: {error}",
+            destination.display()
+        )),
+        Ok(true) => {
+            let dialog = AlertDialog::builder()
+                .message("Replace existing PDF?")
+                .buttons(["Cancel", "Replace"])
+                .cancel_button(0)
+                .default_button(1)
+                .modal(true)
+                .build();
+            dialog.choose(Some(window), None::<&gio::Cancellable>, {
+                let viewer = viewer.clone();
+                move |response| {
+                    if response == Ok(1) {
+                        spawn_sign(&viewer, request.clone(), destination.clone());
+                    } else {
+                        viewer.status.set_text("Signing cancelled.");
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// Runs [`pdf_sign::sign_document`] on a worker thread and folds the result
+/// back into the session — the signing twin of [`spawn_save`].
+fn spawn_sign(viewer: &Viewer, request: SignRequest, destination: PathBuf) {
+    viewer.status.set_text("Signing PDF...");
+    glib::spawn_future_local({
+        let viewer = viewer.clone();
+        async move {
+            let token = request.token;
+            let result =
+                gio::spawn_blocking(move || sign_snapshot_and_reopen(request, &destination)).await;
+            let result = save_worker_result(result);
+            match result {
+                Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
+                    show_document(&viewer, generation, reopened);
+                    viewer.status.set_text("PDF signed and reopened.");
+                }
+                Ok(reopened) => close_document_in_background(reopened.document),
+                Err(error) if session_matches(&viewer, token) => viewer
+                    .status
+                    .set_text(&format!("Could not sign PDF: {error}")),
+                Err(_) => {}
+            }
+        }
+    });
+}
+
+/// [`save_snapshot_and_reopen`]'s signing twin: signs `request.bytes` instead
+/// of serializing a `Document` model, then validates, writes, and reopens
+/// exactly the same way.
+fn sign_snapshot_and_reopen(
+    request: SignRequest,
+    destination: &Path,
+) -> Result<OpenedDocument, String> {
+    let password = request.password;
+    let signed = pdf_sign::sign_document(
+        request.bytes,
+        password.as_deref(),
+        request.page_number,
+        request.field_name,
+        request.source.as_ref(),
+        &request.identity_id,
+    )
+    .map_err(|error| error.to_string())?;
+    // Validate before replacing a destination: persisted bytes must be usable
+    // by the same renderer path that will display them.
+    PdfiumRenderer::new()
+        .open_document_from_bytes(signed.clone(), password.as_deref())
+        .map_err(|error| error.to_string())
+        .and_then(|handle| {
+            PdfiumRenderer::new()
+                .close_document(handle)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        })?;
+    atomic_write(destination, &signed)?;
+    open_document(
+        &DocumentSource::File(destination.to_path_buf()),
+        password.as_deref(),
     )
     .map_err(|error| error.to_string())
 }

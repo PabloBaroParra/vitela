@@ -203,6 +203,13 @@ pub(crate) struct ViewerState {
     /// The PKCS#11 PIN prompt for the in-flight token load, if any (Batch B23
     /// Fase 3) — `pfx_dialog`'s twin for the card/token flow, same reason.
     pub(crate) pkcs11_dialog: Option<Window>,
+    /// The identity picker opened once a `.pfx` password or a PKCS#11 PIN
+    /// unlocks at least one identity (Batch B23 Fase 4) — tracked for the
+    /// same supersede/dismiss reason as `pfx_dialog`/`pkcs11_dialog`: a fresh
+    /// "Choose signing certificate" or "Use card or token" attempt while this
+    /// picker is still open must tear it down rather than stack a second
+    /// dialog underneath it — see `sign::dismiss_sign_picker`.
+    pub(crate) sign_picker_dialog: Option<Window>,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.

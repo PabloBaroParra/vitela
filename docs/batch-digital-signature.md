@@ -159,13 +159,33 @@ shell.
         ambas fuentes.
 
 ### Fase 4 — Selector de identidad y acción de firmar
-- [ ] T-184 Panel/diálogo que lista `SigningIdentity::display_name` de las
+- [x] T-184 Panel/diálogo que lista `SigningIdentity::display_name` de las
       identidades encontradas (de cualquiera de las dos fases anteriores), el
       usuario elige una y confirma. [LinuxSignUI]
-- [ ] T-185 Al confirmar: llama a `sign_document` (T-178), sobrescribe/guarda el
+      - Entregado como `open_identity_picker` (`apps/linux-gtk/src/app/sign/mod.rs`):
+        se abre automáticamente en cuanto la Fase 2 o la Fase 3 desbloquea al menos
+        una identidad — una lista de `CheckButton` agrupados como radio (mismo
+        patrón que `forms::fill::build_radio_group`), la primera preseleccionada.
+- [x] T-185 Al confirmar: llama a `sign_document` (T-178), sobrescribe/guarda el
       resultado, recarga el documento como cualquier otro cambio estructural (mismo
       ciclo guardar→reabrir que ya usa el resto del shell), y reporta éxito/error en
       la barra de estado. [LinuxSignUI]
+      - Entregado como `begin_sign_from_picker` (gate + extracción de estado) →
+        `document::begin_sign` (`apps/linux-gtk/src/app/document.rs`), gemelo de
+        `show_save_chooser_then`/`save_current_to`/`spawn_save`: este shell no
+        recuerda "el archivo actual" para sobrescribirlo implícitamente — ni
+        siquiera un Save ordinario lo hace — así que firmar también pregunta el
+        destino con un diálogo, corre `pdf_sign::sign_document` en un hilo de
+        fondo, valida el resultado con pdfium, escribe atómicamente y reabre.
+        Dos decisiones no cubiertas por la ficha: (1) el nombre del campo se
+        genera contando cuántos `/FT /Sig` ya tiene la base (`Signature_N+1`) en
+        vez de un literal fijo, porque T-179 ya prueba que `sign_document` permite
+        refirmar un documento ya firmado y un nombre repetido colisionaría en
+        `/AcroForm /Fields`; (2) firmar se rechaza (con un error inline en el
+        selector, sin cerrar el diálogo) si `session.unsaved_to_disk` está en
+        `true` — `sign_document` firma `SaveBacking::original_bytes` sin pasar por
+        `document_model`/`EditLog`, así que firmar con ediciones pendientes las
+        descartaría en silencio al reabrir.
 
 ### Fase 5 — Wiring final
 - [ ] T-186 Habilita el botón "Sign" del rail (`shell.rs`) y la pestaña "Fill & Sign"

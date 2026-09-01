@@ -385,6 +385,7 @@ fn build_ui(application: &Application) -> BuiltUi {
             password_dialog: None,
             pfx_dialog: None,
             pkcs11_dialog: None,
+            sign_picker_dialog: None,
         })),
     };
     connect_viewport_updates(&viewer);
