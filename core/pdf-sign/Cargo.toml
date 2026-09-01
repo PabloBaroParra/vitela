@@ -20,10 +20,10 @@ spki = { version = "0.7.3", features = ["alloc", "std"] }
 thiserror = "2"
 x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }
 
-# T-076 round-trip test only: production pdf-sign stays an isolated leaf and
-# must not pull the save/render dependency graph. Promote to [dependencies]
-# only when signing orchestration code actually calls into pdf-save.
-[dev-dependencies]
+# Promoted from [dev-dependencies] (T-177, docs/batch-digital-signature.md):
+# `orchestrate::sign_document` now calls into `pdf-save` for real, so
+# `pdf-sign` is no longer an isolated leaf that omits the save/render
+# dependency graph — a build that signs documents needs this graph anyway.
 pdf-document = { path = "../pdf-document" }
 pdf-manip = { path = "../pdf-manip" }
 pdf-save = { path = "../pdf-save" }
