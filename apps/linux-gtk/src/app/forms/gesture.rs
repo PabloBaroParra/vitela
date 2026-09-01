@@ -91,13 +91,24 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
     // selected — read back from state rather than threading `id` out of the
     // closure above, since `command` already rebuilt `fill_rows` (and with
     // it `focus_targets`) by the time this runs.
-    if let Some(id) = viewer
+    //
+    // The lookup is bound to `selected` *before* the `if let`, not inlined
+    // into its scrutinee: a `Ref` produced there would otherwise stay
+    // borrowed for the whole block (temporary lifetime extension), including
+    // the `focus_field` call below. `focus_field` calls `grab_focus`, which
+    // GTK dispatches synchronously — it re-enters `fill::mark_selected`
+    // through the widget's focus-enter signal before returning, and that
+    // handler needs its own `borrow_mut()` on the same `RefCell`. With the
+    // outer borrow still held, that collision panicked with "RefCell already
+    // borrowed" inside a GTK C callback, which cannot unwind — aborting the
+    // whole process instead of just this handler.
+    let selected = viewer
         .state
         .borrow()
         .session
         .as_ref()
-        .and_then(|session| session.selected_form_field)
-    {
+        .and_then(|session| session.selected_form_field);
+    if let Some(id) = selected {
         focus_field(viewer, id);
     }
 }
