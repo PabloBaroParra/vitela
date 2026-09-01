@@ -130,4 +130,32 @@ pub enum SignError {
         /// Maximum DER bytes the `/Contents` placeholder can hold.
         capacity: usize,
     },
+    /// The requested page number does not exist in the document.
+    #[error("page {page_number} does not exist in this document")]
+    PageNotFound {
+        /// One-based page number requested by the caller.
+        page_number: u32,
+    },
+    /// The selected identity advertises no signing algorithm at all, so
+    /// [`crate::orchestrate::sign_document`] has nothing to pick automatically
+    /// (batch decision 7 in `docs/batch-digital-signature.md`: the caller is
+    /// never asked to choose one by hand).
+    #[error("signing identity `{identity_id}` supports no signing algorithm")]
+    NoSupportedAlgorithm {
+        /// Opaque identifier originally returned by the certificate source.
+        identity_id: String,
+    },
+    /// `pdf-manip` could not open the document bytes being signed.
+    #[error("could not open the document to sign: {message}")]
+    DocumentOpen {
+        /// Underlying `pdf_manip::ManipError` diagnostic.
+        message: String,
+    },
+    /// `pdf-save` could not append the incremental revision carrying the new
+    /// signature field.
+    #[error("could not write the signature field: {message}")]
+    IncrementalWrite {
+        /// Underlying `pdf_save::SaveError` diagnostic.
+        message: String,
+    },
 }

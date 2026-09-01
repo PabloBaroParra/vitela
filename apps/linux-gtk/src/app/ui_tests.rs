@@ -154,6 +154,22 @@ fn gtk_ui_allows_a_clean_window_to_close_without_a_prompt() {
     assert!(!built.window.is_visible());
 }
 
+/// Batch B23 Fase 2/3: choosing a signing certificate never depends on a
+/// document being open (you might unlock your `.pfx` or token before you
+/// even pick a file to sign), unlike `print_button`/`save_button` above — so
+/// these buttons start enabled rather than disabled.
+#[gtk::test]
+fn gtk_ui_starts_with_choose_signing_certificate_enabled() {
+    let application = test_application();
+    let built = build_ui(&application);
+
+    assert!(built.viewer.choose_signing_certificate.is_sensitive());
+    assert!(built.viewer.choose_pkcs11_certificate.is_sensitive());
+
+    built.window.close();
+    drain_main_context();
+}
+
 /// `run`'s `activate`/`open` handlers both go through `ensure_built` so a
 /// second file-manager launch (`open`) lands in the window the first launch
 /// (`activate`) already made, instead of spawning a second one.

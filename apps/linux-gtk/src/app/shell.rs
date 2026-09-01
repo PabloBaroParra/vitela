@@ -186,8 +186,8 @@ pub(crate) const SHELL_CSS: &str = r#"
 "#;
 
 /// The app rail buttons `build_ui` wires up after construction. Recent/
-/// Organize pages/Sign/Protect are built and appended by [`build_app_rail`]
-/// like the rest, but this shell has no feature behind them yet, so nothing
+/// Organize pages/Protect are built and appended by [`build_app_rail`] like
+/// the rest, but this shell has no feature behind them yet, so nothing
 /// downstream ever needs to address them again by name — they are left out
 /// of this struct rather than kept as fields no caller reads (see
 /// `rail_item`'s `enabled: false` for how they end up disabled on screen).
@@ -201,11 +201,16 @@ pub(crate) struct AppRail {
     /// Wired by the caller once a [`super::state::Viewer`] exists — see
     /// `build_ui`.
     pub(crate) edit_pdf: Button,
+    /// Wired by the caller once a [`super::state::Viewer`] exists — see
+    /// `build_ui`. Batch B23 Fase 5 (T-186): switches the tools panel to its
+    /// "Fill & Sign" page, the same navigation gesture `annotate`/`edit_pdf`
+    /// already perform for their own pages.
+    pub(crate) sign: Button,
 }
 
 /// Builds the rail widget. Callers wire `files` to `win.open` themselves
 /// (a plain `set_action_name`, no closure needed) and connect `annotate`/
-/// `edit_pdf` once a `Viewer` exists to open onto — see `build_ui`.
+/// `edit_pdf`/`sign` once a `Viewer` exists to open onto — see `build_ui`.
 pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     let rail = GtkBox::new(Orientation::Vertical, 4);
     rail.add_css_class("app-rail");
@@ -227,7 +232,10 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     let annotate = rail_item(&rail, "Annotate", true);
     let edit_pdf = rail_item(&rail, "Edit PDF", true);
     rail_item(&rail, "Organize pages", false);
-    rail_item(&rail, "Sign", false);
+    // T-186: Batch B23's signing flow (Fases 1-4) is wired end to end, so
+    // this is no longer a "nothing behind it yet" section like its
+    // Organize-pages/Protect neighbors.
+    let sign = rail_item(&rail, "Sign", true);
     rail_item(&rail, "Protect", false);
 
     (
@@ -235,6 +243,7 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
             files,
             annotate,
             edit_pdf,
+            sign,
         },
         rail,
     )
@@ -242,7 +251,7 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
 
 /// Appends one nav button to `rail` and returns it. `enabled` is `false` for
 /// sections this shell has no feature behind yet (Recent/Organize pages/
-/// Sign/Protect) — disabled with a tooltip rather than left clickable and
+/// Protect) — disabled with a tooltip rather than left clickable and
 /// silently doing nothing.
 fn rail_item(rail: &GtkBox, label: &str, enabled: bool) -> Button {
     let button = Button::with_label(label);
@@ -276,4 +285,36 @@ pub(crate) fn install_shell_css() {
         &provider,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T-186's own regression lock: `rail_item(&rail, "Sign", false)` is what
+    /// this batch changes to `true` — a silent revert back to `false` would
+    /// otherwise only show up as a manual-QA finding, not a test failure.
+    #[gtk::test]
+    fn gtk_ui_the_sign_rail_button_is_enabled() {
+        let (app_rail, _rail_box) = build_app_rail();
+
+        assert_eq!(app_rail.sign.label().as_deref(), Some("Sign"));
+        assert!(app_rail.sign.is_sensitive());
+        assert!(app_rail.sign.tooltip_text().is_none());
+    }
+
+    /// Sections still without a feature behind them keep the disabled
+    /// treatment `rail_item` gives every `enabled: false` entry.
+    #[gtk::test]
+    fn gtk_ui_sections_without_a_feature_stay_disabled() {
+        let (_app_rail, rail_box) = build_app_rail();
+
+        let recent = std::iter::successors(rail_box.first_child(), |child| child.next_sibling())
+            .filter_map(|child| child.downcast::<Button>().ok())
+            .find(|button| button.label().as_deref() == Some("Recent"))
+            .expect("the rail must still offer a Recent button");
+
+        assert!(!recent.is_sensitive());
+        assert_eq!(recent.tooltip_text().as_deref(), Some("Not available yet"));
+    }
 }
