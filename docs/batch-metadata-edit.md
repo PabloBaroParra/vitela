@@ -127,7 +127,7 @@ que convivir con ambos hechos, no reinventarlos.
       clone-before-mutate sale gratis reusando `page_dict_mut` para el id del `/Info`.
       Dos tests de integración nuevos en `save_roundtrip.rs` contra un archivo real.
       [MetadataSave]
-- [ ] T-172 Test de regresión: guardar sin ningún `SetDocumentInfo` en el log es
+- [x] T-172 Test de regresión: guardar sin ningún `SetDocumentInfo` en el log es
       byte-idéntico a hoy (ningún campo nuevo se escribe motu proprio). [Parity]
 
 ### Fase 3 — FFI (`core/pdf-ffi`)

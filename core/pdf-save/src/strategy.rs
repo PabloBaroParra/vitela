@@ -755,4 +755,120 @@ mod tests {
             "set_mod_date's unconditional auto-stamp must still run"
         );
     }
+
+    /// T-172 regression: a base document that already carries a fully
+    /// populated `/Info` dict, saved through a full rewrite (forced here by
+    /// a structural page insert) with no `SetDocumentInfo` pending at all —
+    /// `apply_document_info` must never run, so every pre-existing field
+    /// must survive byte-for-byte and no field beyond `/ModDate` (the
+    /// pre-existing, unrelated auto-stamp) may appear.
+    fn base_with_populated_info() -> LopdfDocument {
+        use lopdf::{content::Content, content::Operation, dictionary, Stream};
+
+        let mut doc = lopdf::Document::with_version("1.5");
+        let content = Content {
+            operations: vec![Operation::new("Tj", vec![Object::string_literal("hola")])],
+        };
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Contents" => content_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let pages_id = doc.add_object(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        });
+        if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(page_id) {
+            dict.set("Parent", pages_id);
+        }
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+
+        let mut info = Dictionary::new();
+        info.set("Title", Object::string_literal("Original Title"));
+        info.set("Author", Object::string_literal("Original Author"));
+        info.set("Subject", Object::string_literal("Original Subject"));
+        info.set("Keywords", Object::string_literal("orig, keywords"));
+        info.set("Creator", Object::string_literal("Original Creator"));
+        info.set("Producer", Object::string_literal("Original Producer"));
+        info.set("CreationDate", Object::string_literal("D:20200101000000Z"));
+        let info_id = doc.add_object(Object::Dictionary(info));
+        doc.trailer.set("Info", info_id);
+
+        LopdfDocument::from_lopdf(doc)
+    }
+
+    #[test]
+    fn full_rewrite_without_pending_document_info_leaves_existing_info_byte_for_byte() {
+        let base = base_with_populated_info();
+        let document = bridge::document_from_lopdf(&base, None).unwrap();
+        let mut fixture = Fixture {
+            document,
+            base,
+            original_bytes: None,
+            intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
+        };
+        let page = pdf_document::Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
+        apply_command(
+            &mut fixture.document,
+            Command::InsertPage { index: 1, page },
+        );
+
+        let original_pages = fixture.original_pages();
+        let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
+            .expect("save should succeed");
+        let dict = reloaded_info_dict(&bytes);
+
+        assert_eq!(
+            dict.get(b"Title").unwrap().as_str().unwrap(),
+            b"Original Title"
+        );
+        assert_eq!(
+            dict.get(b"Author").unwrap().as_str().unwrap(),
+            b"Original Author"
+        );
+        assert_eq!(
+            dict.get(b"Subject").unwrap().as_str().unwrap(),
+            b"Original Subject"
+        );
+        assert_eq!(
+            dict.get(b"Keywords").unwrap().as_str().unwrap(),
+            b"orig, keywords"
+        );
+        assert_eq!(
+            dict.get(b"Creator").unwrap().as_str().unwrap(),
+            b"Original Creator"
+        );
+        assert_eq!(
+            dict.get(b"Producer").unwrap().as_str().unwrap(),
+            b"Original Producer"
+        );
+        assert_eq!(
+            dict.get(b"CreationDate").unwrap().as_str().unwrap(),
+            b"D:20200101000000Z"
+        );
+
+        let mut keys: Vec<Vec<u8>> = dict.iter().map(|(k, _)| k.clone()).collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec![
+                b"Author".to_vec(),
+                b"CreationDate".to_vec(),
+                b"Creator".to_vec(),
+                b"Keywords".to_vec(),
+                b"ModDate".to_vec(),
+                b"Producer".to_vec(),
+                b"Subject".to_vec(),
+                b"Title".to_vec(),
+            ],
+            "no field beyond the pre-existing ModDate auto-stamp may be written on its own"
+        );
+    }
 }
