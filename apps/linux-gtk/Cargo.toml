@@ -24,6 +24,7 @@ pdf-form = { path = "../../core/pdf-form" }
 pdf-save = { path = "../../core/pdf-save" }
 pdf-sign = { path = "../../core/pdf-sign" }
 pdf-sign-pfx = { path = "../../core/pdf-sign-pfx" }
+pdf-sign-pkcs11 = { path = "../../core/pdf-sign-pkcs11" }
 sha2 = "0.10.9"
 # Content-edit mode (T-161) validates a replacement by cloning the base
 # document and probing `pdf-edit`'s real encoder against it — same version

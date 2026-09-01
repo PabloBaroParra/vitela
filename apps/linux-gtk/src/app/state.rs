@@ -88,6 +88,10 @@ pub(crate) struct Viewer {
     /// are not form fields, and `sign` is expected to grow its own toolbar
     /// struct once Fase 3 (PKCS#11) and Fase 4 (the identity picker) land.
     pub(crate) choose_signing_certificate: Button,
+    /// Opens the PKCS#11 module discovery/PIN flow (Batch B23 Fase 3) —
+    /// `choose_signing_certificate`'s twin for a card or token instead of a
+    /// `.pfx` file. Lives alongside it for the same reason.
+    pub(crate) choose_pkcs11_certificate: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -196,6 +200,9 @@ pub(crate) struct ViewerState {
     /// background load resolves, and the stale attempt's result must not
     /// clobber the newer one's — see `sign::dismiss_pfx_dialog`.
     pub(crate) pfx_dialog: Option<Window>,
+    /// The PKCS#11 PIN prompt for the in-flight token load, if any (Batch B23
+    /// Fase 3) — `pfx_dialog`'s twin for the card/token flow, same reason.
+    pub(crate) pkcs11_dialog: Option<Window>,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.

@@ -136,13 +136,27 @@ shell.
         también por lo que necesite la Fase 3 (PKCS#11).
 
 ### Fase 3 — Linux: identidad desde tarjeta/token PKCS#11
-- [ ] T-182 Lista corta de rutas de módulo PKCS#11 típicas de Linux, probadas en
+- [x] T-182 Lista corta de rutas de módulo PKCS#11 típicas de Linux, probadas en
       orden (decisión 2) antes de ofrecer "elegir archivo `.so` manualmente" como
       alternativa. [LinuxSignUI]
-- [ ] T-183 Prompt de PIN (no "contraseña" — es la terminología que el propio token
+- [x] T-183 Prompt de PIN (no "contraseña" — es la terminología que el propio token
       usa) + `Pkcs11CertificateSource::load(module_path, pin)`. Mismo manejo de error
       que T-181: un PIN bloqueado o un módulo que no carga tiene que decir por qué,
       no fallar en silencio. [LinuxSignUI]
+      - Entregado como el botón "Use card or token…" en la pestaña "Fill & Sign"
+        (`apps/linux-gtk/src/app/sign/mod.rs`), junto al de PFX. `find_pkcs11_module`
+        prueba las rutas típicas de `opensc-pkcs11.so` (Debian/Ubuntu multiarch,
+        Fedora/RHEL/openSUSE `lib64`, y variantes sin subcarpeta `pkcs11`) por
+        existencia de archivo; si ninguna existe, abre un `GtkFileDialog` filtrado a
+        `*.so`. A diferencia del PFX, `Pkcs11CertificateSource::load` no valida el PIN
+        — un PIN incorrecto degrada silenciosamente a listar solo los certificados
+        públicos del token (ver `pin_attempt_is_safe` en el crate), así que un PIN
+        malo y un token vacío llegan aquí como "cero identidades"; el prompt trata
+        ambos casos igual, dejando reintentar el PIN sin tener que re-elegir el
+        módulo. Un módulo que no carga (`Pkcs11AdapterError::Module`) sí es un error
+        real y cierra el diálogo con el mensaje de la librería. No persiste nada
+        todavía, mismo punto que T-181 — la Fase 4 diseñará el estado compartido para
+        ambas fuentes.
 
 ### Fase 4 — Selector de identidad y acción de firmar
 - [ ] T-184 Panel/diálogo que lista `SigningIdentity::display_name` de las

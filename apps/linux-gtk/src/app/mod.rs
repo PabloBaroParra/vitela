@@ -209,7 +209,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     // destined for `tools_panel::build_tools_panel`'s `sign_content`
     // parameter alongside `forms_content` — see that function for how the
     // two are stacked on one page.
-    let (choose_signing_certificate, sign_content) = build_sign_content();
+    let (choose_signing_certificate, choose_pkcs11_certificate, sign_content) =
+        build_sign_content();
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
@@ -369,6 +370,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         replace_image_button,
         forms: form_field_toolbar,
         choose_signing_certificate,
+        choose_pkcs11_certificate,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,
@@ -382,6 +384,7 @@ fn build_ui(application: &Application) -> BuiltUi {
             form_field_kind: None,
             password_dialog: None,
             pfx_dialog: None,
+            pkcs11_dialog: None,
         })),
     };
     connect_viewport_updates(&viewer);
