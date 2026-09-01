@@ -22,6 +22,7 @@ use crate::bridge;
 use crate::clock::{Clock, IdGenerator, RandomIdGenerator, SystemClock};
 use crate::content;
 use crate::error::SaveError;
+use crate::metadata;
 use crate::security::{self, SaveIntent};
 
 /// Injectable clock/id-generator hooks (T-036), shared by both writers.
@@ -247,7 +248,22 @@ fn save_full_rewrite(
         &input.document.form_fields,
     )?;
 
-    set_mod_date(working.as_lopdf_mut(), options.clock.as_ref());
+    // Decision 6: an explicit `/ModDate` from `SetDocumentInfo` must win this
+    // save over `set_mod_date`'s auto-stamp. Applying the pending
+    // `DocumentInfo` first and then telling `set_mod_date` whether an
+    // explicit value just landed keeps that a one-way override — a save with
+    // no pending metadata edit (`pending_info` is `None`) takes the exact
+    // path it always has.
+    let pending_info = metadata::pending_document_info(input.document);
+    if let Some(info) = pending_info {
+        metadata::apply_document_info(working.as_lopdf_mut(), info)?;
+    }
+    let explicit_mod_date = pending_info.is_some_and(|info| info.mod_date.is_some());
+    set_mod_date(
+        working.as_lopdf_mut(),
+        options.clock.as_ref(),
+        explicit_mod_date,
+    );
     ensure_trailer_id(working.as_lopdf_mut(), options.id_generator.as_ref());
 
     security::apply_encryption_for_full_rewrite(
@@ -261,15 +277,19 @@ fn save_full_rewrite(
     Ok(bytes)
 }
 
-/// Deliberately leaves `/Info`/`/ModDate` and the trailer `/ID` untouched: an
-/// incremental update's `new_document.trailer` starts as a clone of the
-/// previous revision's trailer (see `lopdf::Document::new_from_prev`), so
-/// `/Info`/`/ID` already carry over pointing at objects that still live in
-/// the previous, unmodified revision. Updating them correctly would require
-/// cloning the `/Info` dict into `new_document` first (mirroring
-/// `page_dict_mut`'s clone-before-mutate pattern) — deferred as a follow-up;
-/// the saved output remains a fully valid PDF either way (an unmodified
-/// `/ModDate` on an incremental update is not a spec violation).
+/// `/Info` gains a write path here only when a `SetDocumentInfo` is pending
+/// (decision 8, T-171) — `metadata::apply_document_info` uses
+/// `ObjectSink::page_dict_mut`, so the incremental writer clones the `/Info`
+/// dict into `new_document` before mutating it, the same clone-before-mutate
+/// every other trailer-reachable dict this writer touches already gets.
+/// Without a pending command, `/Info` is untouched, exactly as before this
+/// batch: `new_document.trailer` starts as a full clone of the previous
+/// revision's trailer (`Document::new_from_prev`), so an unmodified `/Info`
+/// reference simply keeps pointing at the object the previous revision left
+/// behind. `/ModDate` is never auto-stamped on this path (unrelated to
+/// metadata editing, unchanged by this batch) and the trailer `/ID` is left
+/// untouched too — an unmodified `/ModDate`/`/ID` on an incremental update is
+/// not a spec violation.
 fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec<u8>, SaveError> {
     let original_bytes = input.original_bytes.ok_or(SaveError::InvalidSaveRequest(
         "incremental save requires original_bytes (a freshly created document has nothing to \
@@ -297,9 +317,14 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
     let page_ids = bridge::page_object_ids(input.base, &input.document.pages)?;
     let existing_annotations = bridge::page_annotation_objects(input.base)?;
     let catalog_id = catalog_object_id(input.base.as_lopdf())?;
+    let pending_info = metadata::pending_document_info(input.document);
     // The one clone the borrowing API cannot remove: lopdf's
     // `IncrementalDocument::create_from` takes both by value.
     append_incremental_update(original_bytes.to_vec(), input.base.clone(), |incremental| {
+        if let Some(info) = pending_info {
+            metadata::apply_document_info(incremental, info)?;
+        }
+
         for (page_id, rotation) in bridge::rotation_changes(original_pages, &input.document.pages) {
             let page_object_id = *page_ids.get(&page_id).ok_or(SaveError::InvalidSaveRequest(
                 "rotation change references a page id absent from the base document",
@@ -337,7 +362,17 @@ fn catalog_object_id(doc: &lopdf::Document) -> Result<ObjectId, SaveError> {
         .map_err(|_| SaveError::InvalidSaveRequest("document trailer has no valid /Root reference"))
 }
 
-fn set_mod_date(doc: &mut lopdf::Document, clock: &dyn Clock) {
+/// `explicit_mod_date`: whether this save's pending `SetDocumentInfo` (if
+/// any) carried a `Some` `mod_date` — [`crate::metadata::apply_document_info`]
+/// already wrote it to `/ModDate` before this runs, and decision 6 says that
+/// explicit value wins over the auto-stamp for this save. `true` here is the
+/// only thing that changes this function's behavior; everything else is the
+/// unmodified auto-stamp this crate has always done.
+fn set_mod_date(doc: &mut lopdf::Document, clock: &dyn Clock, explicit_mod_date: bool) {
+    if explicit_mod_date {
+        return;
+    }
+
     let date = Object::string_literal(clock.pdf_date_string());
     let info_ref = doc
         .trailer
@@ -632,5 +667,208 @@ mod tests {
         let result = append_incremental_update(Vec::new(), base, |_| Ok(()));
 
         assert!(matches!(result, Err(SaveError::InvalidSaveRequest(_))));
+    }
+
+    // --- SetDocumentInfo at save time (B22, T-170) --------------------------
+
+    fn sample_document_info() -> pdf_document::DocumentInfo {
+        pdf_document::DocumentInfo {
+            title: Some("Contrato".to_string()),
+            author: Some("Ada".to_string()),
+            ..pdf_document::DocumentInfo::default()
+        }
+    }
+
+    fn reloaded_info_dict(bytes: &[u8]) -> lopdf::Dictionary {
+        let reloaded = lopdf::Document::load_mem(bytes).expect("output must reload");
+        let info_id = reloaded
+            .trailer
+            .get(b"Info")
+            .expect("saved document must have an /Info entry")
+            .as_reference()
+            .expect("/Info must be an indirect reference");
+        reloaded.get_dictionary(info_id).unwrap().clone()
+    }
+
+    #[test]
+    fn a_pending_set_document_info_reaches_the_saved_info_dict() {
+        let mut fixture = Fixture::blank();
+        apply_command(
+            &mut fixture.document,
+            Command::SetDocumentInfo {
+                before: pdf_document::DocumentInfo::default(),
+                after: sample_document_info(),
+            },
+        );
+
+        let bytes = save_document(fixture.input()).expect("save should succeed");
+        let dict = reloaded_info_dict(&bytes);
+
+        assert_eq!(dict.get(b"Title").unwrap().as_str().unwrap(), b"Contrato");
+        assert_eq!(dict.get(b"Author").unwrap().as_str().unwrap(), b"Ada");
+    }
+
+    /// Decision 6: an explicit `mod_date` from `SetDocumentInfo` wins this
+    /// save over `set_mod_date`'s auto-stamp — the fixed clock's timestamp
+    /// must not appear.
+    #[test]
+    fn an_explicit_mod_date_wins_over_the_auto_stamp() {
+        let mut fixture = Fixture::blank();
+        let explicit = pdf_document::PdfDate::parse("D:20200101000000Z").unwrap();
+        apply_command(
+            &mut fixture.document,
+            Command::SetDocumentInfo {
+                before: pdf_document::DocumentInfo::default(),
+                after: pdf_document::DocumentInfo {
+                    mod_date: Some(explicit),
+                    ..pdf_document::DocumentInfo::default()
+                },
+            },
+        );
+
+        let original_pages = fixture.original_pages();
+        let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
+            .expect("save should succeed");
+        let dict = reloaded_info_dict(&bytes);
+
+        assert_eq!(
+            dict.get(b"ModDate").unwrap().as_str().unwrap(),
+            b"D:20200101000000Z",
+            "the explicit mod_date must survive, not the fixed clock's stamp"
+        );
+    }
+
+    /// The common case decision 6 says must not change: no pending
+    /// `SetDocumentInfo` at all still auto-stamps `/ModDate` exactly as
+    /// before this batch.
+    #[test]
+    fn without_a_pending_set_document_info_mod_date_is_still_auto_stamped() {
+        let fixture = Fixture::blank();
+
+        let original_pages = fixture.original_pages();
+        let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
+            .expect("save should succeed");
+        let dict = reloaded_info_dict(&bytes);
+
+        assert!(
+            dict.has(b"ModDate"),
+            "set_mod_date's unconditional auto-stamp must still run"
+        );
+    }
+
+    /// T-172 regression: a base document that already carries a fully
+    /// populated `/Info` dict, saved through a full rewrite (forced here by
+    /// a structural page insert) with no `SetDocumentInfo` pending at all —
+    /// `apply_document_info` must never run, so every pre-existing field
+    /// must survive byte-for-byte and no field beyond `/ModDate` (the
+    /// pre-existing, unrelated auto-stamp) may appear.
+    fn base_with_populated_info() -> LopdfDocument {
+        use lopdf::{content::Content, content::Operation, dictionary, Stream};
+
+        let mut doc = lopdf::Document::with_version("1.5");
+        let content = Content {
+            operations: vec![Operation::new("Tj", vec![Object::string_literal("hola")])],
+        };
+        let content_id = doc.add_object(Stream::new(dictionary! {}, content.encode().unwrap()));
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Contents" => content_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        let pages_id = doc.add_object(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id)],
+            "Count" => 1,
+        });
+        if let Ok(Object::Dictionary(dict)) = doc.get_object_mut(page_id) {
+            dict.set("Parent", pages_id);
+        }
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+
+        let mut info = Dictionary::new();
+        info.set("Title", Object::string_literal("Original Title"));
+        info.set("Author", Object::string_literal("Original Author"));
+        info.set("Subject", Object::string_literal("Original Subject"));
+        info.set("Keywords", Object::string_literal("orig, keywords"));
+        info.set("Creator", Object::string_literal("Original Creator"));
+        info.set("Producer", Object::string_literal("Original Producer"));
+        info.set("CreationDate", Object::string_literal("D:20200101000000Z"));
+        let info_id = doc.add_object(Object::Dictionary(info));
+        doc.trailer.set("Info", info_id);
+
+        LopdfDocument::from_lopdf(doc)
+    }
+
+    #[test]
+    fn full_rewrite_without_pending_document_info_leaves_existing_info_byte_for_byte() {
+        let base = base_with_populated_info();
+        let document = bridge::document_from_lopdf(&base, None).unwrap();
+        let mut fixture = Fixture {
+            document,
+            base,
+            original_bytes: None,
+            intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
+        };
+        let page = pdf_document::Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
+        apply_command(
+            &mut fixture.document,
+            Command::InsertPage { index: 1, page },
+        );
+
+        let original_pages = fixture.original_pages();
+        let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
+            .expect("save should succeed");
+        let dict = reloaded_info_dict(&bytes);
+
+        assert_eq!(
+            dict.get(b"Title").unwrap().as_str().unwrap(),
+            b"Original Title"
+        );
+        assert_eq!(
+            dict.get(b"Author").unwrap().as_str().unwrap(),
+            b"Original Author"
+        );
+        assert_eq!(
+            dict.get(b"Subject").unwrap().as_str().unwrap(),
+            b"Original Subject"
+        );
+        assert_eq!(
+            dict.get(b"Keywords").unwrap().as_str().unwrap(),
+            b"orig, keywords"
+        );
+        assert_eq!(
+            dict.get(b"Creator").unwrap().as_str().unwrap(),
+            b"Original Creator"
+        );
+        assert_eq!(
+            dict.get(b"Producer").unwrap().as_str().unwrap(),
+            b"Original Producer"
+        );
+        assert_eq!(
+            dict.get(b"CreationDate").unwrap().as_str().unwrap(),
+            b"D:20200101000000Z"
+        );
+
+        let mut keys: Vec<Vec<u8>> = dict.iter().map(|(k, _)| k.clone()).collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec![
+                b"Author".to_vec(),
+                b"CreationDate".to_vec(),
+                b"Creator".to_vec(),
+                b"Keywords".to_vec(),
+                b"ModDate".to_vec(),
+                b"Producer".to_vec(),
+                b"Subject".to_vec(),
+                b"Title".to_vec(),
+            ],
+            "no field beyond the pre-existing ModDate auto-stamp may be written on its own"
+        );
     }
 }

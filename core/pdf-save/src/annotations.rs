@@ -25,13 +25,23 @@ use pdf_document::{Annotation, AnnotationKind, AnnotationSet, Color, PageId, Rec
 
 use crate::error::SaveError;
 
-/// Abstracts "add/replace an object, and get a page dict ready to mutate"
-/// over `lopdf::Document` (full-rewrite) and `lopdf::IncrementalDocument`
-/// (incremental — must clone-before-mutate).
+/// Abstracts "add/replace an object, get a page dict ready to mutate, and
+/// read/mutate the trailer" over `lopdf::Document` (full-rewrite) and
+/// `lopdf::IncrementalDocument` (incremental — must clone-before-mutate).
+///
+/// The trailer accessors exist for [`crate::metadata::apply_document_info`]
+/// (T-171): resolving and, when absent, creating the `/Info` dictionary
+/// needs to read the trailer's `/Info` reference and, on a fresh dict, point
+/// the trailer at it — on the incremental side that means
+/// `new_document.trailer`, which starts as a full clone of the previous
+/// revision's trailer (`Document::new_from_prev`) and is what a save
+/// actually writes.
 pub trait ObjectSink {
     fn add_object(&mut self, object: Object) -> ObjectId;
     fn set_object(&mut self, id: ObjectId, object: Object);
     fn page_dict_mut(&mut self, page_object_id: ObjectId) -> Result<&mut Dictionary, SaveError>;
+    fn trailer(&self) -> &Dictionary;
+    fn trailer_mut(&mut self) -> &mut Dictionary;
 }
 
 impl ObjectSink for lopdf::Document {
@@ -45,6 +55,14 @@ impl ObjectSink for lopdf::Document {
 
     fn page_dict_mut(&mut self, page_object_id: ObjectId) -> Result<&mut Dictionary, SaveError> {
         self.get_dictionary_mut(page_object_id).map_err(Into::into)
+    }
+
+    fn trailer(&self) -> &Dictionary {
+        &self.trailer
+    }
+
+    fn trailer_mut(&mut self) -> &mut Dictionary {
+        &mut self.trailer
     }
 }
 
@@ -63,6 +81,14 @@ impl ObjectSink for lopdf::IncrementalDocument {
             .get_object_mut(page_object_id)
             .and_then(Object::as_dict_mut)
             .map_err(Into::into)
+    }
+
+    fn trailer(&self) -> &Dictionary {
+        &self.new_document.trailer
+    }
+
+    fn trailer_mut(&mut self) -> &mut Dictionary {
+        &mut self.new_document.trailer
     }
 }
 

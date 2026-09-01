@@ -93,39 +93,51 @@ que convivir con ambos hechos, no reinventarlos.
 ## Tareas
 
 ### Fase 1 — Modelo (`core/pdf-document`)
-- [ ] T-167 Módulo `metadata.rs`: `DocumentInfo { title, author, subject, keywords,
+- [x] T-167 Módulo `metadata.rs`: `DocumentInfo { title, author, subject, keywords,
       creator, producer: Option<String>, creation_date, mod_date: Option<PdfDate> }`
       (decisión 3). `PdfDate`: parse + format de `D:YYYYMMDDHHmmSSOHH'mm'` con test de
       round-trip (decisión 4). [MetadataModel]
-- [ ] T-168 `Command::SetDocumentInfo { before: DocumentInfo, after: DocumentInfo }` en
+- [x] T-168 `Command::SetDocumentInfo { before: DocumentInfo, after: DocumentInfo }` en
       `edit_log.rs` (decisión 5), `#[non_exhaustive]` en `Command`, cero breaking
       change. Apply/inverse + tests: `inverse().inverse() == self`, round-trip
       undo/redo, aplicar es inerte sobre `Document` (mismo criterio que B21 decisión 2
       — el log es la fuente de verdad, `pdf-save` lo replay al guardar), y que un log
       mixto metadatos+anotación/contenido se deshaga en orden. [MetadataModel, UndoRedo]
-- [ ] T-169 Lectura lazy: `pdf_document::read_document_info(&lopdf::Document) ->
-      DocumentInfo`, snapshot del `/Info` actual — no se cuelga de `Document` (mismo
-      criterio lazy que `PageContent` de B21/T-149). [MetadataModel]
+- [x] T-169 Lectura lazy: `LopdfDocument::document_info(&self) -> pdf_document::DocumentInfo`
+      en `core/pdf-manip` (no en `pdf-document` — esa crate se mantiene sin lopdf; y no
+      `pdf_document::read_document_info` como decía este ficha originalmente), snapshot
+      del `/Info` actual — no se cuelga de `Document`/`LopdfDocument` (mismo criterio
+      lazy que `PageContent` de B21/T-149). Reusa el `decode_pdf_text_string`
+      (UTF-16BE+BOM / PDFDocEncoding) que ya tenía `LopdfDocument::info()` — un
+      `DocumentInfo` de 4 campos preexistente, sin relación con el de este batch, que
+      sigue intacto porque respalda la propiedades read-only ya shippeada del shell
+      Linux. [MetadataModel]
 
 ### Fase 2 — Serialización (`core/pdf-save`)
-- [ ] T-170 `metadata.rs`: aplica `SetDocumentInfo.after` al `/Info` dict. Precedencia
+- [x] T-170 `metadata.rs`: aplica `SetDocumentInfo.after` al `/Info` dict. Precedencia
       de `ModDate` explícito sobre `set_mod_date` (decisión 6). Codificación
-      PDFDocEncoding/UTF-16BE+BOM según el texto (decisión 7). [MetadataSave]
-- [ ] T-171 Cierra el diferido de `strategy.rs:256-264` en `save_incremental`: clona
+      PDFDocEncoding/UTF-16BE+BOM según el texto (decisión 7). Cableado en
+      `save_full_rewrite` únicamente — `save_incremental` es T-171. [MetadataSave]
+- [x] T-171 Cierra el diferido de `strategy.rs:256-264` en `save_incremental`: clona
       `/Info` en `new_document` antes de mutar, solo cuando hay `SetDocumentInfo`
       pendiente (decisión 8). Sin ese comando, el incremental sigue sin tocar `/Info`
-      — test de regresión que fija el comportamiento actual intacto. [MetadataSave]
-- [ ] T-172 Test de regresión: guardar sin ningún `SetDocumentInfo` en el log es
+      — test de regresión que fija el comportamiento actual intacto.
+      `apply_document_info`/`info_dict_mut` pasaron a ser genéricos sobre `ObjectSink`
+      (como `forms.rs`/`annotations.rs`), que ganó `trailer()`/`trailer_mut()`; el
+      clone-before-mutate sale gratis reusando `page_dict_mut` para el id del `/Info`.
+      Dos tests de integración nuevos en `save_roundtrip.rs` contra un archivo real.
+      [MetadataSave]
+- [x] T-172 Test de regresión: guardar sin ningún `SetDocumentInfo` en el log es
       byte-idéntico a hoy (ningún campo nuevo se escribe motu proprio). [Parity]
 
 ### Fase 3 — FFI (`core/pdf-ffi`)
-- [ ] T-173 `FfiDocumentInfo`/`FfiPdfDate` en `types.rs`; `FfiEditCommand` gana
+- [x] T-173 `FfiDocumentInfo`/`FfiPdfDate` en `types.rs`; `FfiEditCommand` gana
       `SetDocumentInfo`; `DocumentHandle::read_document_info() -> FfiDocumentInfo`
       (carga lazy). Smoke test: editar título + fecha de creación → `save_to_bytes` →
       reabrir → `read_document_info` devuelve los valores nuevos. [MetadataFFI]
 
 ### Fase 4 — Fixtures e interop
-- [ ] T-174 Fixtures: un PDF con `/Info` completo (los siete campos + fechas válidas),
+- [x] T-174 Fixtures: un PDF con `/Info` completo (los siete campos + fechas válidas),
       uno sin `/Info` (documento mínimo/nuevo), uno con texto no-Latin1 en `/Title`
       (para fijar el camino UTF-16BE). Validador externo (pypdf o exiftool) que
       confirma los valores tras guardar. [MetadataFixtures, Parity]

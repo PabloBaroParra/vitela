@@ -7,9 +7,9 @@
 use pdf_ffi::{
     apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp,
     open_from_bytes, open_with_passwords_from_bytes, redo, refresh_preview, render_page,
-    save_to_bytes, stamp_placement, undo, FfiColor, FfiContentTextRun, FfiEditCommand, FfiError,
-    FfiFontKind, FfiOrientation, FfiPageSize, FfiRect, FfiRenderOptions, FfiSaveIntent,
-    FfiSignatureAcknowledgement,
+    save_to_bytes, stamp_placement, undo, FfiColor, FfiContentTextRun, FfiDocumentInfo,
+    FfiEditCommand, FfiError, FfiFontKind, FfiOrientation, FfiPageSize, FfiPdfDate,
+    FfiPdfDateOffset, FfiRect, FfiRenderOptions, FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -1114,4 +1114,79 @@ fn the_created_document_starts_with_no_pending_edits() {
     // document nobody has touched yet. The page has to be there before the
     // handle exists.
     assert!(!undo(&handle));
+}
+
+// ---------------------------------------------------------------------
+// Document metadata (Batch 22, T-173): FfiDocumentInfo/FfiPdfDate,
+// FfiEditCommand::SetDocumentInfo, read_document_info.
+// ---------------------------------------------------------------------
+
+#[test]
+fn read_document_info_reflects_a_pending_edit_before_any_save() {
+    let handle = open_single_line_fixture("Hello world");
+    assert_eq!(handle.read_document_info(), FfiDocumentInfo::default());
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::SetDocumentInfo {
+            after: FfiDocumentInfo {
+                title: Some("Contrato".to_string()),
+                ..FfiDocumentInfo::default()
+            },
+        },
+    )
+    .expect("setting document info should succeed");
+
+    assert_eq!(
+        handle.read_document_info().title,
+        Some("Contrato".to_string())
+    );
+}
+
+#[test]
+fn editing_title_and_creation_date_then_saving_and_reopening_shows_the_new_values() {
+    let handle = open_single_line_fixture("Hello world");
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::SetDocumentInfo {
+            after: FfiDocumentInfo {
+                title: Some("Contrato".to_string()),
+                creation_date: Some(FfiPdfDate {
+                    year: 2026,
+                    month: 8,
+                    day: 31,
+                    hour: 12,
+                    minute: 0,
+                    second: 0,
+                    offset: FfiPdfDateOffset::Utc,
+                }),
+                ..FfiDocumentInfo::default()
+            },
+        },
+    )
+    .expect("setting document info should succeed");
+
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save should succeed");
+
+    let reopened = open_from_bytes(saved, None).expect("saved bytes should reopen");
+    let info = reopened.read_document_info();
+    assert_eq!(info.title, Some("Contrato".to_string()));
+    assert_eq!(
+        info.creation_date,
+        Some(FfiPdfDate {
+            year: 2026,
+            month: 8,
+            day: 31,
+            hour: 12,
+            minute: 0,
+            second: 0,
+            offset: FfiPdfDateOffset::Utc,
+        })
+    );
 }

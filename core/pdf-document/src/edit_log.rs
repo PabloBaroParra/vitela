@@ -14,6 +14,7 @@ use crate::content::{ImageItem, TextRun};
 use crate::document::PageId;
 use crate::document::{Document, Page};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
+use crate::metadata::DocumentInfo;
 
 /// A single undoable document-content edit.
 ///
@@ -192,6 +193,24 @@ pub enum Command {
         from: FieldValue,
         to: FieldValue,
     },
+
+    // --- Document metadata (Batch 22) -----------------------------------
+    //
+    // Like the page-content commands above, `Document` does not hold a
+    // `DocumentInfo` — it is read lazily from the file (T-169), not mirrored
+    // into the model (same batch-22 decision 2 rationale content editing
+    // used for B21). `apply` is therefore inert here too; the log entry is
+    // the whole record, and `pdf-save` (T-170) replays it into `/Info` at
+    // write time.
+    /// Edits the `/Info` dictionary as a whole rather than per-field
+    /// (batch decision 5) — the dict is small and edited from a single
+    /// panel, so undo restores the panel's entire prior state in one step
+    /// rather than letting eight granular commands get interleaved with
+    /// other edits.
+    SetDocumentInfo {
+        before: DocumentInfo,
+        after: DocumentInfo,
+    },
 }
 
 impl Command {
@@ -290,6 +309,10 @@ impl Command {
                     field.value = to.clone();
                 }
             }
+            // Inert for the same reason as the page-content variants above:
+            // the model carries no `DocumentInfo` to mutate. `pdf-save`
+            // applies `after` to `/Info` during the write.
+            Command::SetDocumentInfo { .. } => {}
         }
     }
 
@@ -409,6 +432,10 @@ impl Command {
                 id: *id,
                 from: to.clone(),
                 to: from.clone(),
+            },
+            Command::SetDocumentInfo { before, after } => Command::SetDocumentInfo {
+                before: after.clone(),
+                after: before.clone(),
             },
         }
     }
@@ -1615,5 +1642,165 @@ mod tests {
                 "{command:?} must not report itself as a content edit"
             );
         }
+    }
+
+    // --- Document metadata commands (B22, T-168) ---------------------------
+
+    use crate::metadata::{PdfDate, PdfDateOffset};
+
+    fn sample_document_info(title: &str) -> DocumentInfo {
+        DocumentInfo {
+            title: Some(title.to_string()),
+            author: Some("Ada Lovelace".to_string()),
+            subject: None,
+            keywords: None,
+            creator: Some("pdf-editor-mvp".to_string()),
+            producer: None,
+            creation_date: Some(PdfDate {
+                year: 2026,
+                month: 8,
+                day: 31,
+                hour: 12,
+                minute: 0,
+                second: 0,
+                offset: PdfDateOffset::Utc,
+            }),
+            mod_date: None,
+        }
+    }
+
+    /// Batch decision 2: `Document` carries no `DocumentInfo` to mutate — the
+    /// rewrite happens in `pdf-save` at write time. Applying must therefore
+    /// be inert on the model, and the log entry is the whole record of the
+    /// edit, mirroring the page-content commands (B21).
+    #[test]
+    fn applying_a_set_document_info_command_leaves_the_document_model_untouched() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        document.annotations.insert(sample_annotation(1, PageId(0)));
+        let untouched = document.clone();
+
+        let command = Command::SetDocumentInfo {
+            before: DocumentInfo::default(),
+            after: sample_document_info("Report"),
+        };
+        let mut log = EditLog::new();
+        log.apply(&mut document, command.clone());
+
+        assert_eq!(
+            document, untouched,
+            "SetDocumentInfo must not mutate the pure document model"
+        );
+        assert_eq!(
+            log.entries(),
+            &[command],
+            "but it must still be recorded for pdf-save to route"
+        );
+    }
+
+    /// The bar B20/B21 set: a complete inverse from day one, not a subset.
+    #[test]
+    fn set_document_info_is_its_own_inverses_inverse() {
+        let command = Command::SetDocumentInfo {
+            before: DocumentInfo::default(),
+            after: sample_document_info("Report"),
+        };
+
+        assert_eq!(command.inverse().inverse(), command);
+    }
+
+    /// The inverse swaps `before`/`after` wholesale (decision 5) — same
+    /// shape as `ReplaceAnnotation`'s inverse, not a per-field diff.
+    #[test]
+    fn the_inverse_of_a_set_document_info_swaps_before_and_after() {
+        let before = DocumentInfo::default();
+        let after = sample_document_info("Report");
+
+        let inverse = Command::SetDocumentInfo {
+            before: before.clone(),
+            after: after.clone(),
+        }
+        .inverse();
+
+        assert_eq!(
+            inverse,
+            Command::SetDocumentInfo {
+                before: after,
+                after: before,
+            }
+        );
+    }
+
+    #[test]
+    fn set_document_info_round_trips_through_undo_and_redo() {
+        let mut document = Document::blank();
+        let command = Command::SetDocumentInfo {
+            before: DocumentInfo::default(),
+            after: sample_document_info("Report"),
+        };
+        let mut log = EditLog::new();
+
+        log.apply(&mut document, command.clone());
+        assert!(log.can_undo());
+
+        assert!(log.undo(&mut document));
+        assert!(log.entries().is_empty(), "the command was not undone");
+        assert!(log.can_redo());
+
+        assert!(log.redo(&mut document));
+        assert_eq!(log.entries(), &[command]);
+    }
+
+    #[test]
+    fn set_document_info_is_not_a_content_edit() {
+        let command = Command::SetDocumentInfo {
+            before: DocumentInfo::default(),
+            after: sample_document_info("Report"),
+        };
+        assert!(!command.is_content_edit());
+    }
+
+    /// A metadata edit shares the log with annotation and content edits, so
+    /// undo has to unwind all three in the order they were made.
+    #[test]
+    fn a_mixed_log_of_metadata_annotation_and_content_edits_undoes_in_order() {
+        let mut document = Document::blank();
+        let annotation = sample_annotation(1, PageId(0));
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::SetDocumentInfo {
+                before: DocumentInfo::default(),
+                after: sample_document_info("Report"),
+            },
+        );
+        log.apply(&mut document, Command::AddAnnotation(annotation.clone()));
+        log.apply(
+            &mut document,
+            Command::ReplaceTextRunContent {
+                item: sample_text_run(),
+                after: "after".to_string(),
+            },
+        );
+
+        assert!(log.undo(&mut document));
+        assert!(
+            matches!(log.peek_undo(), Some(Command::AddAnnotation(_))),
+            "the content edit undoes first"
+        );
+
+        assert!(log.undo(&mut document));
+        assert!(document.annotations.is_empty());
+        assert!(matches!(
+            log.peek_undo(),
+            Some(Command::SetDocumentInfo { .. })
+        ));
+
+        assert!(log.undo(&mut document));
+        assert!(log.entries().is_empty());
+        assert!(!log.can_undo());
     }
 }

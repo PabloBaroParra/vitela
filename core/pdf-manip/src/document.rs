@@ -105,6 +105,48 @@ impl LopdfDocument {
         let bytes = resolve(&self.0, dict.get(key).ok()?).as_str().ok()?;
         (!bytes.is_empty()).then(|| decode_pdf_text_string(bytes))
     }
+
+    /// Reads the trailer's `/Info` dictionary as `pdf_document`'s full
+    /// Batch-22 model (T-169) — the seven standard text keys plus the two
+    /// dates, vs. [`Self::info`]'s narrower four-field `DocumentInfo` (no
+    /// subject/keywords/dates) that already backs the Linux shell's
+    /// read-only properties display. Neither replaces the other: `info`
+    /// stays as-is for that display, this is what T-176's editable
+    /// metadata panel will read from and, via `Command::SetDocumentInfo`
+    /// (T-168), write back through.
+    ///
+    /// Not cached on `LopdfDocument` — read on demand, same lazy-read
+    /// criterion `pdf-edit::read_page_content` (T-149) uses for page
+    /// content: the majority of sessions never open the metadata panel, so
+    /// there is nothing to keep in sync if the trailer's `/Info` reference
+    /// changes underneath a cached copy.
+    ///
+    /// A date string that fails [`pdf_document::PdfDate::parse`] reports
+    /// `None` for that field rather than failing the whole read — same
+    /// "never guessed" fallback `info_field` already uses for text.
+    pub fn document_info(&self) -> pdf_document::DocumentInfo {
+        let Some(dict) = self.info_dictionary() else {
+            return pdf_document::DocumentInfo::default();
+        };
+        pdf_document::DocumentInfo {
+            title: self.info_field(dict, b"Title"),
+            author: self.info_field(dict, b"Author"),
+            subject: self.info_field(dict, b"Subject"),
+            keywords: self.info_field(dict, b"Keywords"),
+            creator: self.info_field(dict, b"Creator"),
+            producer: self.info_field(dict, b"Producer"),
+            creation_date: self.info_date_field(dict, b"CreationDate"),
+            mod_date: self.info_date_field(dict, b"ModDate"),
+        }
+    }
+
+    fn info_date_field(
+        &self,
+        dict: &lopdf::Dictionary,
+        key: &[u8],
+    ) -> Option<pdf_document::PdfDate> {
+        pdf_document::PdfDate::parse(&self.info_field(dict, key)?).ok()
+    }
 }
 
 /// Decodes a PDF text string (ISO 32000-2 §7.9.2.2): UTF-16BE when the bytes
@@ -395,5 +437,96 @@ mod tests {
         let document = document_with_info(&[("Title", Object::string_literal(Vec::new()))]);
 
         assert_eq!(document.info().title, None);
+    }
+
+    // --- LopdfDocument::document_info (T-169) ------------------------------
+
+    #[test]
+    fn document_info_is_the_default_without_a_trailer_info_entry() {
+        let document = two_page_a4();
+
+        assert_eq!(
+            document.document_info(),
+            pdf_document::DocumentInfo::default()
+        );
+    }
+
+    #[test]
+    fn document_info_reads_all_seven_text_fields() {
+        let document = document_with_info(&[
+            ("Title", Object::string_literal("Contrato".to_string())),
+            ("Author", Object::string_literal("Ada".to_string())),
+            ("Subject", Object::string_literal("Servicios".to_string())),
+            (
+                "Keywords",
+                Object::string_literal("pdf, contrato".to_string()),
+            ),
+            (
+                "Creator",
+                Object::string_literal("pdf-editor-mvp".to_string()),
+            ),
+            ("Producer", Object::string_literal("pdf-save".to_string())),
+        ]);
+
+        let info = document.document_info();
+        assert_eq!(info.title.as_deref(), Some("Contrato"));
+        assert_eq!(info.author.as_deref(), Some("Ada"));
+        assert_eq!(info.subject.as_deref(), Some("Servicios"));
+        assert_eq!(info.keywords.as_deref(), Some("pdf, contrato"));
+        assert_eq!(info.creator.as_deref(), Some("pdf-editor-mvp"));
+        assert_eq!(info.producer.as_deref(), Some("pdf-save"));
+    }
+
+    #[test]
+    fn document_info_parses_creation_and_mod_dates() {
+        let document = document_with_info(&[
+            (
+                "CreationDate",
+                Object::string_literal("D:20260831120000Z".to_string()),
+            ),
+            (
+                "ModDate",
+                Object::string_literal("D:20260901083000+05'30'".to_string()),
+            ),
+        ]);
+
+        let info = document.document_info();
+        assert_eq!(
+            info.creation_date,
+            Some(pdf_document::PdfDate::parse("D:20260831120000Z").unwrap())
+        );
+        assert_eq!(
+            info.mod_date,
+            Some(pdf_document::PdfDate::parse("D:20260901083000+05'30'").unwrap())
+        );
+    }
+
+    /// Malformed date bytes fall back to `None` on that field alone, same
+    /// "never guessed" behavior `info_field` already uses for unreadable
+    /// text — the rest of the dictionary must still come through.
+    #[test]
+    fn document_info_reports_none_for_an_unparseable_date_without_failing_the_whole_read() {
+        let document = document_with_info(&[
+            ("Title", Object::string_literal("Contrato".to_string())),
+            (
+                "CreationDate",
+                Object::string_literal("not a pdf date".to_string()),
+            ),
+        ]);
+
+        let info = document.document_info();
+        assert_eq!(info.title.as_deref(), Some("Contrato"));
+        assert_eq!(info.creation_date, None);
+    }
+
+    #[test]
+    fn document_info_decodes_utf16_be_title() {
+        let mut utf16_be = vec![0xFE, 0xFF];
+        for unit in "Título".encode_utf16() {
+            utf16_be.extend_from_slice(&unit.to_be_bytes());
+        }
+        let document = document_with_info(&[("Title", Object::string_literal(utf16_be))]);
+
+        assert_eq!(document.document_info().title.as_deref(), Some("Título"));
     }
 }
