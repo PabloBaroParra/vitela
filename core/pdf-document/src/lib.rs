@@ -15,6 +15,7 @@ pub mod content;
 pub mod document;
 pub mod edit_log;
 pub mod form;
+pub mod metadata;
 pub mod security;
 
 pub use annotation::{Annotation, AnnotationId, AnnotationKind, AnnotationSet, Color, Popup, Rect};
@@ -26,6 +27,7 @@ pub use form::{
     FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId, FormFieldKind, FormFieldSet,
     RadioOption, TextStyle,
 };
+pub use metadata::{DocumentInfo, PdfDate, PdfDateOffset, PdfDateParseError};
 pub use security::{
     Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
 };
