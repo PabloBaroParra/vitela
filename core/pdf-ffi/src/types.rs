@@ -7,7 +7,8 @@
 //! not break every time an internal core type gains a field.
 
 use pdf_document::{
-    ContentItemId, FontKind, ImageItem, Orientation, PageContent, PageId, PageSize, Rect, TextRun,
+    ContentItemId, DocumentInfo, FontKind, ImageItem, Orientation, PageContent, PageId, PageSize,
+    PdfDate, PdfDateOffset, Rect, TextRun,
 };
 
 /// Mirrors `pdf_document::PageSize`.
@@ -448,6 +449,123 @@ impl From<PageContent> for FfiPageContent {
     }
 }
 
+/// Mirrors `pdf_document::PdfDateOffset` (T-173, Batch 22): the relationship
+/// of a [`FfiPdfDate`]'s local time to UT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiPdfDateOffset {
+    Utc,
+    Plus { hours: u8, minutes: u8 },
+    Minus { hours: u8, minutes: u8 },
+}
+
+impl From<PdfDateOffset> for FfiPdfDateOffset {
+    fn from(offset: PdfDateOffset) -> Self {
+        match offset {
+            PdfDateOffset::Utc => FfiPdfDateOffset::Utc,
+            PdfDateOffset::Plus { hours, minutes } => FfiPdfDateOffset::Plus { hours, minutes },
+            PdfDateOffset::Minus { hours, minutes } => FfiPdfDateOffset::Minus { hours, minutes },
+        }
+    }
+}
+
+impl From<FfiPdfDateOffset> for PdfDateOffset {
+    fn from(offset: FfiPdfDateOffset) -> Self {
+        match offset {
+            FfiPdfDateOffset::Utc => PdfDateOffset::Utc,
+            FfiPdfDateOffset::Plus { hours, minutes } => PdfDateOffset::Plus { hours, minutes },
+            FfiPdfDateOffset::Minus { hours, minutes } => PdfDateOffset::Minus { hours, minutes },
+        }
+    }
+}
+
+/// Mirrors `pdf_document::PdfDate` (T-173, Batch 22) — a parsed
+/// `/CreationDate`/`/ModDate` value, not a raw PDF date string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct FfiPdfDate {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    pub offset: FfiPdfDateOffset,
+}
+
+impl From<PdfDate> for FfiPdfDate {
+    fn from(date: PdfDate) -> Self {
+        Self {
+            year: date.year,
+            month: date.month,
+            day: date.day,
+            hour: date.hour,
+            minute: date.minute,
+            second: date.second,
+            offset: date.offset.into(),
+        }
+    }
+}
+
+impl From<FfiPdfDate> for PdfDate {
+    fn from(date: FfiPdfDate) -> Self {
+        Self {
+            year: date.year,
+            month: date.month,
+            day: date.day,
+            hour: date.hour,
+            minute: date.minute,
+            second: date.second,
+            offset: date.offset.into(),
+        }
+    }
+}
+
+/// Mirrors `pdf_document::DocumentInfo` (T-167/T-173, Batch 22) — the
+/// `/Info` dict's seven standard text keys plus its two dates. `None` means
+/// the key is absent from `/Info`, never "present with an empty string"
+/// (batch decision 3) — a shell that clears a field must send `None`, not
+/// `Some(String::new())`, unless it deliberately wants that distinct state.
+#[derive(Debug, Clone, PartialEq, Eq, Default, uniffi::Record)]
+pub struct FfiDocumentInfo {
+    pub title: Option<String>,
+    pub author: Option<String>,
+    pub subject: Option<String>,
+    pub keywords: Option<String>,
+    pub creator: Option<String>,
+    pub producer: Option<String>,
+    pub creation_date: Option<FfiPdfDate>,
+    pub mod_date: Option<FfiPdfDate>,
+}
+
+impl From<DocumentInfo> for FfiDocumentInfo {
+    fn from(info: DocumentInfo) -> Self {
+        Self {
+            title: info.title,
+            author: info.author,
+            subject: info.subject,
+            keywords: info.keywords,
+            creator: info.creator,
+            producer: info.producer,
+            creation_date: info.creation_date.map(Into::into),
+            mod_date: info.mod_date.map(Into::into),
+        }
+    }
+}
+
+impl From<FfiDocumentInfo> for DocumentInfo {
+    fn from(info: FfiDocumentInfo) -> Self {
+        Self {
+            title: info.title,
+            author: info.author,
+            subject: info.subject,
+            keywords: info.keywords,
+            creator: info.creator,
+            producer: info.producer,
+            creation_date: info.creation_date.map(Into::into),
+            mod_date: info.mod_date.map(Into::into),
+        }
+    }
+}
+
 /// The FFI-facing shape of `pdf_document::Command` (T-040's `apply_edit`
 /// surface). One variant per real `Command`/annotation-kind combination
 /// this workspace supports as of Batch 7 — `move`/`resize`/`restyle` are
@@ -558,5 +676,16 @@ pub enum FfiEditCommand {
         item: FfiContentImageItem,
         before: Vec<u8>,
         after: Vec<u8>,
+    },
+
+    // --- Document metadata (Batch 22, T-173) ----------------------------
+    //
+    // `before` is not part of this variant: `DocumentState::build_core_command`
+    // resolves it itself, from the last pending `SetDocumentInfo` if one is
+    // already queued (decision 5's "last one wins") or from the file's
+    // current `/Info` otherwise — a caller only ever states the value it
+    // wants next.
+    SetDocumentInfo {
+        after: FfiDocumentInfo,
     },
 }

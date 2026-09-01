@@ -43,9 +43,9 @@ use pdf_manip::LopdfDocument;
 use crate::error::FfiError;
 use crate::selection::FfiPageCharacters;
 use crate::types::{
-    FfiAnnotation, FfiAnnotationKind, FfiEditCommand, FfiOrientation, FfiPageContent,
-    FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile,
-    FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
+    FfiAnnotation, FfiAnnotationKind, FfiDocumentInfo, FfiEditCommand, FfiOrientation,
+    FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions,
+    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -256,6 +256,15 @@ impl DocumentState {
                 before,
                 after,
             },
+            FfiEditCommand::SetDocumentInfo { after } => {
+                let before = pdf_save::pending_document_info(&self.document)
+                    .cloned()
+                    .unwrap_or_else(|| self.base.document_info());
+                Command::SetDocumentInfo {
+                    before,
+                    after: after.into(),
+                }
+            }
         })
     }
 
@@ -387,6 +396,7 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::MoveImage { .. }
             | FfiEditCommand::ResizeImage { .. }
             | FfiEditCommand::ReplaceImageSource { .. }
+            | FfiEditCommand::SetDocumentInfo { .. }
     )
 }
 
@@ -603,6 +613,21 @@ impl DocumentHandle {
         pdf_edit::page_font_families(state.base.as_lopdf(), PageId(page))
             .map(|families| families.into_iter().collect())
             .map_err(Into::into)
+    }
+
+    /// Current Document Info Dictionary snapshot (T-173, Batch 22): the last
+    /// pending `SetDocumentInfo`'s value if one is queued (decision 5's
+    /// "last one wins", same rule `pdf_save::pending_document_info` applies
+    /// at save time), otherwise the value already in the file's bytes —
+    /// `LopdfDocument::document_info`'s lazy read (T-169). Not cached, same
+    /// criterion `read_page_content` uses: most sessions never open a
+    /// metadata panel, so there is nothing to keep in sync.
+    pub fn read_document_info(&self) -> FfiDocumentInfo {
+        let state = self.lock();
+        pdf_save::pending_document_info(&state.document)
+            .cloned()
+            .unwrap_or_else(|| state.base.document_info())
+            .into()
     }
 
     pub fn can_undo(&self) -> bool {

@@ -131,7 +131,7 @@ que convivir con ambos hechos, no reinventarlos.
       byte-idéntico a hoy (ningún campo nuevo se escribe motu proprio). [Parity]
 
 ### Fase 3 — FFI (`core/pdf-ffi`)
-- [ ] T-173 `FfiDocumentInfo`/`FfiPdfDate` en `types.rs`; `FfiEditCommand` gana
+- [x] T-173 `FfiDocumentInfo`/`FfiPdfDate` en `types.rs`; `FfiEditCommand` gana
       `SetDocumentInfo`; `DocumentHandle::read_document_info() -> FfiDocumentInfo`
       (carga lazy). Smoke test: editar título + fecha de creación → `save_to_bytes` →
       reabrir → `read_document_info` devuelve los valores nuevos. [MetadataFFI]

@@ -52,9 +52,10 @@ pub use error::FfiError;
 pub use selection::FfiPageCharacters;
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,
-    FfiEditCommand, FfiFontKind, FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize,
-    FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult,
-    FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun,
+    FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiOrientation, FfiPageContent,
+    FfiPageDimensions, FfiPageSize, FfiPdfDate, FfiPdfDateOffset, FfiPoint, FfiRect,
+    FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement,
+    FfiTextRect, FfiTextRun,
 };
 
 uniffi::setup_scaffolding!();
