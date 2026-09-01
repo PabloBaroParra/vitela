@@ -280,3 +280,45 @@ jobs:
           sudo -E env "PATH=$PATH" unshare --net \
             sh -c 'ip link set lo up && exec python3 tools/pypdf-validation/validate_content_roundtrip.py "$1"' \
             sh "$output"
+
+  metadata-roundtrip-validation:
+    name: /Info dict round-trip validation (T-174)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v3.13.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned pypdf before network isolation
+        run: python3 -m pip install --require-hashes -r tools/pypdf-validation/requirements.txt
+      # Two independent scenarios (batch decision list, T-174): editing only
+      # `/Title` (to a non-Latin1 string) on a document that already has a
+      # fully populated `/Info`, and writing a brand-new `/Info` from scratch
+      # onto a document that started with none. pypdf — not pdf-save's own
+      # reader — confirms every field, proving the UTF-16BE+BOM path
+      # (decision 7) round-trips through an independent library.
+      - name: Produce and validate the populated-/Info scenario offline
+        run: |
+          output="$RUNNER_TEMP/t174 populated;info.pdf"
+          trap 'rm -f "$output"' EXIT
+          PDF_METADATA_VALIDATION_OUTPUT_POPULATED="$output" \
+            cargo test -p pdf-save --locked --test metadata_roundtrip \
+            write_pypdf_validation_output_for_populated_info -- --ignored --exact
+          sudo -E env "PATH=$PATH" unshare --net \
+            sh -c 'ip link set lo up && exec python3 tools/pypdf-validation/validate_metadata_roundtrip.py "$1" populated' \
+            sh "$output"
+      - name: Produce and validate the created-/Info scenario offline
+        run: |
+          output="$RUNNER_TEMP/t174 created;info.pdf"
+          trap 'rm -f "$output"' EXIT
+          PDF_METADATA_VALIDATION_OUTPUT_CREATED="$output" \
+            cargo test -p pdf-save --locked --test metadata_roundtrip \
+            write_pypdf_validation_output_for_created_info -- --ignored --exact
+          sudo -E env "PATH=$PATH" unshare --net \
+            sh -c 'ip link set lo up && exec python3 tools/pypdf-validation/validate_metadata_roundtrip.py "$1" created' \
+            sh "$output"

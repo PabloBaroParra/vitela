@@ -137,7 +137,7 @@ que convivir con ambos hechos, no reinventarlos.
       reabrir → `read_document_info` devuelve los valores nuevos. [MetadataFFI]
 
 ### Fase 4 — Fixtures e interop
-- [ ] T-174 Fixtures: un PDF con `/Info` completo (los siete campos + fechas válidas),
+- [x] T-174 Fixtures: un PDF con `/Info` completo (los siete campos + fechas válidas),
       uno sin `/Info` (documento mínimo/nuevo), uno con texto no-Latin1 en `/Title`
       (para fijar el camino UTF-16BE). Validador externo (pypdf o exiftool) que
       confirma los valores tras guardar. [MetadataFixtures, Parity]
