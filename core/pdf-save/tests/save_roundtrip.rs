@@ -158,6 +158,96 @@ fn incremental_save_happy_path_rotates_and_annotates_real_file() {
     }
 }
 
+/// T-171: a pending `SetDocumentInfo` must reach `/Info` even when nothing
+/// else in the edit forces a full rewrite — decision 8's whole point is that
+/// metadata alone must not force one. `unencrypted_two_page_pdf` has no
+/// `/Info` dict at all, so this also exercises `apply_document_info`
+/// creating one (and pointing the incremental writer's trailer at it) for
+/// real, not just against a bare `lopdf::IncrementalDocument` in a unit test.
+#[test]
+fn incremental_save_writes_a_pending_document_info() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+    assert!(base.as_lopdf().trailer.get(b"Info").is_err());
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    apply_command(
+        &mut document,
+        Command::SetDocumentInfo {
+            before: pdf_document::DocumentInfo::default(),
+            after: pdf_document::DocumentInfo {
+                title: Some("Contrato".to_string()),
+                ..pdf_document::DocumentInfo::default()
+            },
+        },
+    );
+
+    let input = SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+    };
+    let saved = save_document(input).expect("save should succeed");
+    assert!(
+        saved.starts_with(&original_bytes[..original_bytes.len().min(8)]),
+        "a metadata-only edit must still select the incremental writer"
+    );
+
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    let info_id = reloaded
+        .trailer
+        .get(b"Info")
+        .expect("save must have created an /Info entry")
+        .as_reference()
+        .unwrap();
+    let title = reloaded
+        .get_dictionary(info_id)
+        .unwrap()
+        .get(b"Title")
+        .unwrap()
+        .as_str()
+        .unwrap();
+    assert_eq!(title, b"Contrato");
+}
+
+/// The other half of decision 8: a save with no pending `SetDocumentInfo`
+/// must leave `/Info` exactly as absent as it started — the incremental
+/// writer gaining metadata support must not mean it starts inventing one.
+#[test]
+fn incremental_save_without_a_pending_document_info_creates_no_info_dict() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    let page1 = document.pages[1].id;
+    apply_command(
+        &mut document,
+        Command::RotatePage {
+            page: page1,
+            delta_degrees: 90,
+        },
+    );
+
+    let input = SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+    };
+    let saved = save_document(input).expect("save should succeed");
+
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    assert!(
+        reloaded.trailer.get(b"Info").is_err(),
+        "no pending SetDocumentInfo means /Info stays exactly as absent as before"
+    );
+}
+
 /// T-034: default save behavior on an encrypted document re-encrypts with
 /// the same handler/credentials — the incremental writer gets this for free
 /// via lopdf's `encryption_state` propagation once opened via

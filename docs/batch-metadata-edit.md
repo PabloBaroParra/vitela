@@ -118,10 +118,15 @@ que convivir con ambos hechos, no reinventarlos.
       de `ModDate` explícito sobre `set_mod_date` (decisión 6). Codificación
       PDFDocEncoding/UTF-16BE+BOM según el texto (decisión 7). Cableado en
       `save_full_rewrite` únicamente — `save_incremental` es T-171. [MetadataSave]
-- [ ] T-171 Cierra el diferido de `strategy.rs:256-264` en `save_incremental`: clona
+- [x] T-171 Cierra el diferido de `strategy.rs:256-264` en `save_incremental`: clona
       `/Info` en `new_document` antes de mutar, solo cuando hay `SetDocumentInfo`
       pendiente (decisión 8). Sin ese comando, el incremental sigue sin tocar `/Info`
-      — test de regresión que fija el comportamiento actual intacto. [MetadataSave]
+      — test de regresión que fija el comportamiento actual intacto.
+      `apply_document_info`/`info_dict_mut` pasaron a ser genéricos sobre `ObjectSink`
+      (como `forms.rs`/`annotations.rs`), que ganó `trailer()`/`trailer_mut()`; el
+      clone-before-mutate sale gratis reusando `page_dict_mut` para el id del `/Info`.
+      Dos tests de integración nuevos en `save_roundtrip.rs` contra un archivo real.
+      [MetadataSave]
 - [ ] T-172 Test de regresión: guardar sin ningún `SetDocumentInfo` en el log es
       byte-idéntico a hoy (ningún campo nuevo se escribe motu proprio). [Parity]
 

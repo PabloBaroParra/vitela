@@ -1,15 +1,23 @@
 //! Applies `Command::SetDocumentInfo` to the `/Info` dict at save time
-//! (T-170, Batch 22 — see `docs/batch-metadata-edit.md`).
+//! (T-170/T-171, Batch 22 — see `docs/batch-metadata-edit.md`).
 //!
-//! Works directly against `lopdf::Document`, the same as
-//! [`crate::strategy`]'s own `set_mod_date` — this module's Fase-2 task is
-//! wiring `apply_document_info` into the full-rewrite writer alongside it.
-//! `save_incremental` gaining the same support (decision 8, T-171) is a
-//! separate, later task: it also has to close `strategy.rs`'s
-//! clone-`/Info`-before-mutate deferral, which this module does not touch.
+//! Generic over [`ObjectSink`], like [`crate::forms`] and
+//! [`crate::annotations`]: unlike page-content edits (Batch 21 decision 5,
+//! always a full rewrite), decision 8 has the incremental writer gain
+//! metadata support rather than being routed around it, so
+//! `apply_document_info` has to work against both
+//! `lopdf::Document` (full rewrite) and `lopdf::IncrementalDocument`
+//! (incremental) from the start. `ObjectSink::page_dict_mut` already clones
+//! an object into the incremental writer's `new_document` before handing out
+//! a mutable reference — reusing it for the `/Info` dict's own object id is
+//! what closes `strategy.rs`'s former clone-before-mutate deferral (T-171),
+//! with no extra code of its own.
 
 use lopdf::{Dictionary, Object};
 use pdf_document::{Command, Document, DocumentInfo, PdfDate};
+
+use crate::annotations::ObjectSink;
+use crate::error::SaveError;
 
 /// The most recent `SetDocumentInfo.after` still in `document`'s edit log, if
 /// any. Batch decision 5 edits `/Info` as a whole from one panel, so a
@@ -29,8 +37,8 @@ pub fn pending_document_info(document: &Document) -> Option<&DocumentInfo> {
         })
 }
 
-/// Applies `info` to `doc`'s `/Info` dictionary, creating the dictionary (and
-/// pointing the trailer at it) if the file did not already have one.
+/// Applies `info` to `sink`'s `/Info` dictionary, creating the dictionary
+/// (and pointing the trailer at it) if the file did not already have one.
 ///
 /// Every field follows batch decision 3: `None` removes the key, `Some`
 /// writes it — including `Some(String::new())`, which is a deliberately
@@ -39,12 +47,18 @@ pub fn pending_document_info(document: &Document) -> Option<&DocumentInfo> {
 /// `None` before recording the command is `Command::SetDocumentInfo`'s
 /// caller's job (T-176), not this function's.
 ///
-/// Does not touch `/ModDate` specially — the caller is responsible for
-/// decision 6's precedence (an explicit `info.mod_date` must win over
-/// `set_mod_date`'s auto-stamp for this save); see
-/// [`crate::strategy::save_full_rewrite`].
-pub fn apply_document_info(doc: &mut lopdf::Document, info: &DocumentInfo) {
-    let dict = info_dict_mut(doc);
+/// Does not touch `/ModDate` specially — the full-rewrite caller is
+/// responsible for decision 6's precedence (an explicit `info.mod_date` must
+/// win over `set_mod_date`'s auto-stamp for this save); see
+/// [`crate::strategy::save_full_rewrite`]. The incremental writer never
+/// auto-stamps `/ModDate` at all (a pre-existing, unrelated fact this
+/// function does not change), so no such precedence question arises there —
+/// see [`crate::strategy::save_incremental`].
+pub fn apply_document_info<S: ObjectSink>(
+    sink: &mut S,
+    info: &DocumentInfo,
+) -> Result<(), SaveError> {
+    let dict = info_dict_mut(sink)?;
     set_text_field(dict, "Title", &info.title);
     set_text_field(dict, "Author", &info.author);
     set_text_field(dict, "Subject", &info.subject);
@@ -53,28 +67,32 @@ pub fn apply_document_info(doc: &mut lopdf::Document, info: &DocumentInfo) {
     set_text_field(dict, "Producer", &info.producer);
     set_date_field(dict, "CreationDate", info.creation_date);
     set_date_field(dict, "ModDate", info.mod_date);
+    Ok(())
 }
 
 /// Resolves the trailer's `/Info` dictionary, creating an empty one (and
 /// pointing the trailer at it) if the file has none yet — same fallback
 /// `set_mod_date` already uses when it needs to write `/ModDate` into a file
-/// with no prior `/Info`.
-fn info_dict_mut(doc: &mut lopdf::Document) -> &mut Dictionary {
-    let info_ref = doc
-        .trailer
+/// with no prior `/Info`. On the incremental writer, `sink.page_dict_mut`
+/// clones the dictionary into `new_document` before handing back a mutable
+/// reference — the same clone-before-mutate `add_xobject` and this crate's
+/// own `write_form_fields` already rely on for other trailer-reachable
+/// dicts, which is what makes editing `/Info` on an incremental save safe.
+fn info_dict_mut<S: ObjectSink>(sink: &mut S) -> Result<&mut Dictionary, SaveError> {
+    let info_ref = sink
+        .trailer()
         .get(b"Info")
         .ok()
         .and_then(|object| object.as_reference().ok());
     let info_id = match info_ref {
-        Some(id) if doc.get_dictionary(id).is_ok() => id,
-        _ => {
-            let id = doc.add_object(Object::Dictionary(Dictionary::new()));
-            doc.trailer.set("Info", id);
+        Some(id) => id,
+        None => {
+            let id = sink.add_object(Object::Dictionary(Dictionary::new()));
+            sink.trailer_mut().set("Info", id);
             id
         }
     };
-    doc.get_dictionary_mut(info_id)
-        .expect("info_id was just resolved to an existing dictionary or freshly created")
+    sink.page_dict_mut(info_id)
 }
 
 fn set_text_field(dict: &mut Dictionary, key: &str, value: &Option<String>) {
@@ -173,7 +191,7 @@ mod tests {
         let mut doc = blank_lopdf_document();
         assert!(doc.trailer.get(b"Info").is_err());
 
-        apply_document_info(&mut doc, &sample_info());
+        apply_document_info(&mut doc, &sample_info()).unwrap();
 
         assert_eq!(
             text_field(info_dict(&doc), b"Title"),
@@ -184,7 +202,7 @@ mod tests {
     #[test]
     fn writes_every_present_text_field() {
         let mut doc = blank_lopdf_document();
-        apply_document_info(&mut doc, &sample_info());
+        apply_document_info(&mut doc, &sample_info()).unwrap();
 
         let dict = info_dict(&doc);
         assert_eq!(text_field(dict, b"Title"), Some("Contrato".to_string()));
@@ -203,7 +221,7 @@ mod tests {
     #[test]
     fn absent_fields_are_not_written_at_all() {
         let mut doc = blank_lopdf_document();
-        apply_document_info(&mut doc, &sample_info());
+        apply_document_info(&mut doc, &sample_info()).unwrap();
 
         let dict = info_dict(&doc);
         assert!(!dict.has(b"Subject"));
@@ -219,14 +237,14 @@ mod tests {
     #[test]
     fn clearing_a_field_on_a_later_apply_removes_its_key() {
         let mut doc = blank_lopdf_document();
-        apply_document_info(&mut doc, &sample_info());
+        apply_document_info(&mut doc, &sample_info()).unwrap();
         assert!(info_dict(&doc).has(b"Title"));
 
         let cleared = DocumentInfo {
             title: None,
             ..sample_info()
         };
-        apply_document_info(&mut doc, &cleared);
+        apply_document_info(&mut doc, &cleared).unwrap();
 
         assert!(!info_dict(&doc).has(b"Title"));
     }
@@ -241,7 +259,7 @@ mod tests {
             ..DocumentInfo::default()
         };
 
-        apply_document_info(&mut doc, &info);
+        apply_document_info(&mut doc, &info).unwrap();
 
         assert!(info_dict(&doc).has(b"Title"));
         assert_eq!(text_field(info_dict(&doc), b"Title"), Some(String::new()));
@@ -255,7 +273,7 @@ mod tests {
             ..sample_info()
         };
 
-        apply_document_info(&mut doc, &info);
+        apply_document_info(&mut doc, &info).unwrap();
 
         let dict = info_dict(&doc);
         assert_eq!(
@@ -279,7 +297,7 @@ mod tests {
             ..DocumentInfo::default()
         };
 
-        apply_document_info(&mut doc, &info);
+        apply_document_info(&mut doc, &info).unwrap();
 
         let bytes = info_dict(&doc).get(b"Title").unwrap().as_str().unwrap();
         assert_eq!(bytes, b"Report");
@@ -297,7 +315,7 @@ mod tests {
             ..DocumentInfo::default()
         };
 
-        apply_document_info(&mut doc, &info);
+        apply_document_info(&mut doc, &info).unwrap();
 
         let bytes = info_dict(&doc).get(b"Title").unwrap().as_str().unwrap();
         assert_eq!(&bytes[..2], &[0xFE, 0xFF], "must open with the BOM");

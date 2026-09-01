@@ -256,7 +256,7 @@ fn save_full_rewrite(
     // path it always has.
     let pending_info = metadata::pending_document_info(input.document);
     if let Some(info) = pending_info {
-        metadata::apply_document_info(working.as_lopdf_mut(), info);
+        metadata::apply_document_info(working.as_lopdf_mut(), info)?;
     }
     let explicit_mod_date = pending_info.is_some_and(|info| info.mod_date.is_some());
     set_mod_date(
@@ -277,15 +277,19 @@ fn save_full_rewrite(
     Ok(bytes)
 }
 
-/// Deliberately leaves `/Info`/`/ModDate` and the trailer `/ID` untouched: an
-/// incremental update's `new_document.trailer` starts as a clone of the
-/// previous revision's trailer (see `lopdf::Document::new_from_prev`), so
-/// `/Info`/`/ID` already carry over pointing at objects that still live in
-/// the previous, unmodified revision. Updating them correctly would require
-/// cloning the `/Info` dict into `new_document` first (mirroring
-/// `page_dict_mut`'s clone-before-mutate pattern) — deferred as a follow-up;
-/// the saved output remains a fully valid PDF either way (an unmodified
-/// `/ModDate` on an incremental update is not a spec violation).
+/// `/Info` gains a write path here only when a `SetDocumentInfo` is pending
+/// (decision 8, T-171) — `metadata::apply_document_info` uses
+/// `ObjectSink::page_dict_mut`, so the incremental writer clones the `/Info`
+/// dict into `new_document` before mutating it, the same clone-before-mutate
+/// every other trailer-reachable dict this writer touches already gets.
+/// Without a pending command, `/Info` is untouched, exactly as before this
+/// batch: `new_document.trailer` starts as a full clone of the previous
+/// revision's trailer (`Document::new_from_prev`), so an unmodified `/Info`
+/// reference simply keeps pointing at the object the previous revision left
+/// behind. `/ModDate` is never auto-stamped on this path (unrelated to
+/// metadata editing, unchanged by this batch) and the trailer `/ID` is left
+/// untouched too — an unmodified `/ModDate`/`/ID` on an incremental update is
+/// not a spec violation.
 fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec<u8>, SaveError> {
     let original_bytes = input.original_bytes.ok_or(SaveError::InvalidSaveRequest(
         "incremental save requires original_bytes (a freshly created document has nothing to \
@@ -313,9 +317,14 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
     let page_ids = bridge::page_object_ids(input.base, &input.document.pages)?;
     let existing_annotations = bridge::page_annotation_objects(input.base)?;
     let catalog_id = catalog_object_id(input.base.as_lopdf())?;
+    let pending_info = metadata::pending_document_info(input.document);
     // The one clone the borrowing API cannot remove: lopdf's
     // `IncrementalDocument::create_from` takes both by value.
     append_incremental_update(original_bytes.to_vec(), input.base.clone(), |incremental| {
+        if let Some(info) = pending_info {
+            metadata::apply_document_info(incremental, info)?;
+        }
+
         for (page_id, rotation) in bridge::rotation_changes(original_pages, &input.document.pages) {
             let page_object_id = *page_ids.get(&page_id).ok_or(SaveError::InvalidSaveRequest(
                 "rotation change references a page id absent from the base document",
