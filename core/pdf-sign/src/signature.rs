@@ -3,6 +3,7 @@
 use std::ops::Range;
 
 use lopdf::{Dictionary, Object, ObjectId, StringFormat};
+use pdf_save::{Clock, SystemClock};
 
 use crate::SignError;
 
@@ -117,6 +118,12 @@ impl SignatureFieldBuilder {
             "Contents",
             Object::String(vec![0; self.contents_capacity], StringFormat::Hexadecimal),
         );
+        // Unverified local-time hint (PDF 32000-1 §12.8.1, Table 252) — not a
+        // TSA timestamp (explicitly out of scope, `docs/batch-digital-signature.md`),
+        // just the same wall clock `pdf-save` already stamps `/ModDate` with,
+        // so a viewer with no CMS `signingTime` attribute to fall back on (see
+        // `cms::signed_attributes`) still has something to show.
+        signature_dictionary.set("M", Object::string_literal(SystemClock.pdf_date_string()));
 
         let mut field_dictionary = Dictionary::new();
         field_dictionary.set("Type", "Annot");
@@ -402,6 +409,25 @@ mod tests {
             contents,
             &Object::String(vec![0; 4], StringFormat::Hexadecimal)
         );
+    }
+
+    #[test]
+    fn builder_stamps_signature_dictionary_with_a_pdf_date_string() {
+        let placeholder = SignatureFieldBuilder::new("Signature_1", (1, 0), [0.0; 4])
+            .build()
+            .expect("signature placeholder should build");
+        let mod_date = placeholder
+            .signature_dictionary
+            .get(b"M")
+            .expect("signature dictionary should contain /M")
+            .as_str()
+            .expect("/M should be a string");
+
+        // Exact value is wall-clock time (see the `M` doc comment above), so
+        // this only pins the format `pdf_save::SystemClock` guarantees —
+        // `D:YYYYMMDDHHmmSSZ`, 17 bytes.
+        assert!(mod_date.starts_with(b"D:"));
+        assert_eq!(mod_date.len(), 17);
     }
 
     #[test]
