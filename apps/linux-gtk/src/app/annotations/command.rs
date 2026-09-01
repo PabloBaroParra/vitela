@@ -106,6 +106,10 @@ fn history(viewer: &Viewer, undo: bool) {
     // `selected_form_field`, which the step above may just have cleared —
     // see that assignment's own comment.
     crate::app::forms::update_forms_controls(viewer);
+    // `SetDocumentInfo` (T-176) is neither an annotation nor a form-field
+    // command, so neither call above touches it — the log is shared, and an
+    // undo/redo step here may just as easily have moved a metadata command.
+    crate::app::metadata::refresh(viewer);
     selection::redraw(viewer);
 
     // Only a full refresh shows the real result of undoing/redoing a content

@@ -11,8 +11,10 @@ use gtk::{
     cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Label, Overlay, Picture,
     ScrolledWindow, SpinButton, ToggleButton, Window,
 };
-use pdf_document::{AnnotationId, Document, FormFieldId, ImageItem, PageContent, TextRun};
-use pdf_manip::{DocumentInfo, LopdfDocument};
+use pdf_document::{
+    AnnotationId, Document, FormFieldId, ImageItem, PageContent, PdfDateOffset, TextRun,
+};
+use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
 
 /// Where an open request's bytes come from.
@@ -38,9 +40,9 @@ pub(crate) struct Viewer {
     /// The left-side page navigator. Its contents mirror the current document
     /// session, while the session itself remains owned by [`ViewerState`].
     pub(crate) page_navigation: GtkBox,
-    /// The right panel's document-properties value labels, kept updated by
-    /// `document::show_document` — see `tools_panel::DocumentProperties`.
-    pub(crate) document_properties: super::tools_panel::DocumentProperties,
+    /// The right panel's editable document-properties fields (T-176), kept
+    /// updated by `metadata::refresh` — see `MetadataPanel`.
+    pub(crate) metadata: MetadataPanel,
     /// Brand mark overlaid on the page area. Visible exactly while there is
     /// nothing to show — see `brand::build_app_mark`.
     pub(crate) app_mark: Picture,
@@ -398,6 +400,37 @@ pub(crate) struct FormFieldToolbar {
     /// radio group's target is one of several buttons, not the row's own
     /// container.
     pub(crate) focus_targets: Rc<RefCell<HashMap<FormFieldId, gtk::Widget>>>,
+}
+
+/// The document-properties panel's widgets (T-176): the read-only page count
+/// plus one `Entry` per `/Info` text field and per date field, kept in step
+/// by `metadata::refresh`. Editing a field records `Command::SetDocumentInfo`
+/// — see the `metadata` module doc for why the panel reads the log rather
+/// than a value mirrored on `Document` itself.
+#[derive(Clone)]
+pub(crate) struct MetadataPanel {
+    /// Guards against a programmatic `refresh` write-back being mistaken for
+    /// a user edit by the entries' own `changed`/`activate` handlers — same
+    /// shape as `FormFieldToolbar::syncing`.
+    pub(crate) syncing: Rc<Cell<bool>>,
+    pub(crate) pages: Label,
+    pub(crate) title: Entry,
+    pub(crate) author: Entry,
+    pub(crate) subject: Entry,
+    pub(crate) keywords: Entry,
+    pub(crate) creator: Entry,
+    pub(crate) producer: Entry,
+    pub(crate) creation_date: Entry,
+    pub(crate) mod_date: Entry,
+    /// `creation_date`/`mod_date` show a friendly `YYYY-MM-DD HH:MM:SS` with
+    /// no timezone of its own — these hold the UT offset the last-read
+    /// `PdfDate` actually carried, so committing an edited date preserves it
+    /// instead of silently resetting every edited date to UTC. Defaults to
+    /// `Utc` for a field with no prior date to read one from — the same
+    /// default `PdfDate::parse` itself falls back to for a wholly absent
+    /// offset (PDF 32000-1:2008 §7.9.4).
+    pub(crate) creation_offset: Rc<Cell<PdfDateOffset>>,
+    pub(crate) mod_offset: Rc<Cell<PdfDateOffset>>,
 }
 
 /// The annotation toolbar's buttons, held by name rather than by position.
@@ -909,11 +942,6 @@ pub(crate) struct OpenedDocument {
     pub(crate) content_edit_access: ContentEditAccess,
     pub(crate) document_model: Option<Document>,
     pub(crate) save_backing: Option<SaveBacking>,
-    /// The `/Info` dictionary fields for the properties panel, read from
-    /// `save_backing`'s `LopdfDocument` at open time — see
-    /// `document::open_document`. Defaulted (all `None`) whenever there is no
-    /// `save_backing` to read it from.
-    pub(crate) info: DocumentInfo,
 }
 
 #[cfg(test)]

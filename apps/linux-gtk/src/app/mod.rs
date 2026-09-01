@@ -14,6 +14,7 @@ mod editor_toolbar;
 mod forms;
 mod input;
 mod layout;
+mod metadata;
 mod print;
 mod render;
 mod search;
@@ -245,8 +246,13 @@ fn build_ui(application: &Application) -> BuiltUi {
     navigation_panel.append(&navigation_heading);
     navigation_panel.append(&page_navigation_scroll);
 
-    let (tools_content, document_properties) =
-        tools_panel::build_tools_panel(&annotation_row, &content_edit_row, &forms_content);
+    let (metadata_panel, metadata_content) = metadata::build_metadata_panel();
+    let tools_content = tools_panel::build_tools_panel(
+        &annotation_row,
+        &content_edit_row,
+        &forms_content,
+        &metadata_content,
+    );
     let tools_panel = GtkBox::new(Orientation::Vertical, 10);
     tools_panel.add_css_class("tools-panel");
     tools_panel.update_property(&[gtk::accessible::Property::Label("Tools and properties")]);
@@ -335,7 +341,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         scroll,
         pages,
         page_navigation,
-        document_properties,
+        metadata: metadata_panel,
         app_mark,
         status,
         page_indicator,
@@ -374,6 +380,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     content_edit::connect_toggle(&viewer);
     content_edit::connect_insert_toggles(&viewer);
     forms::connect_forms_toolbar(&viewer);
+    metadata::connect_metadata_panel(&viewer);
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| content_edit::image::delete_selected(&viewer)

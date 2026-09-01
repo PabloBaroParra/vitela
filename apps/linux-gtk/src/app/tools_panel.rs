@@ -25,85 +25,30 @@ const TABS: [(&str, &str); 3] = [
 
 /// Shown for a property this document simply does not have, and for every
 /// field before any document is open. Distinguishes "read and empty" from a
-/// blank label that might just not have painted yet.
-const EMPTY: &str = "\u{2013}";
-
-/// The document-properties value labels, kept so `document::show_document`
-/// can refresh them without rebuilding the panel. `container` is exposed so
-/// the panel builder can place it; the fields are private, updated only
-/// through [`DocumentProperties::set`]/[`DocumentProperties::set_empty`].
-#[derive(Clone)]
-pub(crate) struct DocumentProperties {
-    pub(crate) container: GtkBox,
-    pages: Label,
-    title: Label,
-    author: Label,
-    creator: Label,
-    producer: Label,
-}
-
-impl DocumentProperties {
-    /// Called once from `build_ui`, before any document is open.
-    fn empty(
-        container: GtkBox,
-        pages: Label,
-        title: Label,
-        author: Label,
-        creator: Label,
-        producer: Label,
-    ) -> Self {
-        let properties = Self {
-            container,
-            pages,
-            title,
-            author,
-            creator,
-            producer,
-        };
-        properties.set_empty();
-        properties
-    }
-
-    pub(crate) fn set_empty(&self) {
-        self.pages.set_text(EMPTY);
-        self.title.set_text(EMPTY);
-        self.author.set_text(EMPTY);
-        self.creator.set_text(EMPTY);
-        self.producer.set_text(EMPTY);
-    }
-
-    /// `page_count` comes from the shell's own page slots (`show_document`
-    /// already counts them for the print button), not from `info` — the
-    /// `/Info` dictionary has no reliable page-count field of its own.
-    pub(crate) fn set(&self, page_count: usize, info: &pdf_manip::DocumentInfo) {
-        self.pages.set_text(&page_count.to_string());
-        self.title.set_text(info.title.as_deref().unwrap_or(EMPTY));
-        self.author
-            .set_text(info.author.as_deref().unwrap_or(EMPTY));
-        self.creator
-            .set_text(info.creator.as_deref().unwrap_or(EMPTY));
-        self.producer
-            .set_text(info.producer.as_deref().unwrap_or(EMPTY));
-    }
-}
+/// blank label that might just not have painted yet. Used only by
+/// `metadata`'s read-only "Pages" row now — its editable `/Info` fields show
+/// an empty `Entry` instead, since a blank text box already reads as "no
+/// value" without needing a placeholder glyph.
+pub(crate) const EMPTY: &str = "\u{2013}";
 
 /// Builds the right panel's content: a Tools/Comments/Fill & Sign switcher
 /// over a `Stack`, with `annotation_row`/`content_edit_row` embedded
-/// unchanged under Tools, followed by the document-properties readout.
+/// unchanged under Tools, followed by the document-properties panel
+/// (`metadata_content`, built and owned by the `metadata` module — T-176).
 /// Comments and Fill & Sign have no feature behind them yet, so their pages
 /// say so rather than showing empty space that looks broken.
 pub(crate) fn build_tools_panel(
     annotation_row: &ScrolledWindow,
     content_edit_row: &FlowBox,
     forms_content: &GtkBox,
-) -> (GtkBox, DocumentProperties) {
+    metadata_content: &GtkBox,
+) -> GtkBox {
     let tools_page = GtkBox::new(Orientation::Vertical, 10);
     tools_page.append(&panel_heading("Annotations"));
     tools_page.append(annotation_row);
     tools_page.append(&panel_heading("Content"));
     tools_page.append(content_edit_row);
-    let properties = build_properties_section();
-    tools_page.append(&properties.container);
+    tools_page.append(metadata_content);
 
     let stack = Stack::new();
     stack.set_vexpand(true);
@@ -128,7 +73,7 @@ pub(crate) fn build_tools_panel(
     panel.append(&switcher);
     panel.append(&stack);
 
-    (panel, properties)
+    panel
 }
 
 /// The panel's tab strip, driving `stack`.
@@ -212,22 +157,11 @@ fn build_tab_switcher(stack: &Stack) -> FlowBox {
     switcher
 }
 
-fn build_properties_section() -> DocumentProperties {
-    let container = GtkBox::new(Orientation::Vertical, 6);
-    container.append(&panel_heading("Document properties"));
-
-    let pages = property_row(&container, "Pages");
-    let title = property_row(&container, "Title");
-    let author = property_row(&container, "Author");
-    let creator = property_row(&container, "Creator");
-    let producer = property_row(&container, "Producer");
-
-    DocumentProperties::empty(container, pages, title, author, creator, producer)
-}
-
 /// Appends one "key: value" row to `container` and returns the value label
-/// for later updates.
-fn property_row(container: &GtkBox, key: &str) -> Label {
+/// for later updates. `pub(crate)`: `metadata` reuses this for its read-only
+/// "Pages" row, rather than duplicating the CSS-class wiring a second time —
+/// same reasoning as [`panel_heading`] being shared.
+pub(crate) fn property_row(container: &GtkBox, key: &str) -> Label {
     let row = GtkBox::new(Orientation::Horizontal, 8);
     row.add_css_class("property-row");
 

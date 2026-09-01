@@ -1027,13 +1027,6 @@ fn open_document(
         });
     let annotation_access = annotation_access_from(&security, document_model.is_some());
     let content_edit_access = content_edit_access_from(&security, document_model.is_some());
-    // The `/Info` dict lives on the same `LopdfDocument` `save_backing`
-    // already carries for saving — nothing this shell cannot model gets a
-    // properties readout either, same posture as `document_model`.
-    let info = save_backing
-        .as_ref()
-        .map(|backing| backing.base.info())
-        .unwrap_or_default();
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
@@ -1046,7 +1039,6 @@ fn open_document(
             content_edit_access,
             document_model,
             save_backing,
-            info,
         }),
         Err(error) => {
             let _ = renderer.close_document(document);
@@ -1322,7 +1314,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             active_tiles: HashMap::new(),
         });
     }
-    viewer.document_properties.set(page_count, &document.info);
+    super::metadata::refresh(viewer);
     // A new document invalidates the previous document's matches.
     update_search_controls(viewer);
     super::annotations::update_annotation_controls(viewer);
