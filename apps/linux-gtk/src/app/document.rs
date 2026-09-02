@@ -1109,6 +1109,7 @@ fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSourc
             match open_in_background(source.clone(), None).await {
                 Ok(document) if is_current(&viewer, generation) => {
                     show_document(&viewer, generation, document);
+                    remember_recent(&source);
                 }
                 Ok(document) => close_document_in_background(document.document),
                 Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
@@ -1121,6 +1122,21 @@ fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSourc
             }
         }
     });
+}
+
+/// Registers a successfully opened file with the desktop's recent-files
+/// store, so Home's Recent list — and every other application's — carries it
+/// next time.
+///
+/// Only real files: the compiled-in sample and Ctrl+N's in-memory document
+/// have no path to register, and a recent entry the user cannot get back to
+/// from a file manager is not recent, it is noise. Called on success only —
+/// registering on *attempt* would fill the list with files that turned out
+/// unreadable.
+fn remember_recent(source: &DocumentSource) {
+    if let DocumentSource::File(path) = source {
+        super::home::recents::remember(path);
+    }
 }
 
 /// Marks the start of a new open attempt and returns its generation.
@@ -1350,6 +1366,15 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         return;
     }
 
+    // Before the measuring below, not after: a document on screen means the
+    // editor page, whichever view the open was started from (Home's drop
+    // zone, a recents card, Ctrl+O, a file-manager launch), and `FitRequest::
+    // measure` reads an allocation the stack only gives a page it is showing.
+    // A first open still measures one frame early — `refresh_layout`, wired
+    // to the scroller's page-size change, refits as soon as the real
+    // allocation lands.
+    super::home::show_editor(viewer);
+
     // The new document opened successfully: only now replace the previous
     // one. Cancel its in-flight renders and close it, then clear its page
     // widgets before building the new layout.
@@ -1494,6 +1519,10 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     } else {
         update_viewport(viewer);
     }
+    // Last, so a tool armed on Home before there was a document to apply it
+    // to lands on controls whose sensitivity the `update_*` calls above have
+    // already settled for *this* document.
+    super::home::apply_pending_tool(viewer);
 }
 
 /// Whether the open document carries changes that have not been written to
@@ -1578,9 +1607,10 @@ fn prompt_for_password(
                 let source = source.clone();
                 async move {
                     let password = password_entry.text().to_string();
-                    match open_in_background(source, Some(password)).await {
+                    match open_in_background(source.clone(), Some(password)).await {
                         Ok(document) if is_current(&viewer, generation) => {
                             show_document(&viewer, generation, document);
+                            remember_recent(&source);
                             // See the comment on the cancel branch above:
                             // `close` would re-emit `response(DeleteEvent)`
                             // and stomp the status `show_document` just set.

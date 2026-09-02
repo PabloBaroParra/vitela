@@ -12,6 +12,8 @@ mod content_edit;
 mod document;
 mod editor_toolbar;
 mod forms;
+mod home;
+mod icons;
 mod input;
 mod layout;
 mod metadata;
@@ -34,7 +36,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     gio, glib, Application, ApplicationWindow, Box as GtkBox, Button, FlowBox, Label, Orientation,
-    Overlay, Paned, PolicyType, ScrolledWindow,
+    Overlay, Paned, PolicyType, ScrolledWindow, Stack,
 };
 
 use annotations::add_annotation_toolbar;
@@ -44,14 +46,15 @@ use document::{
     show_save_chooser, SampleKind,
 };
 use editor_toolbar::build_editor_toolbar;
+use home::{build_home, EDITOR_PAGE, HOME_PAGE};
 use layout::{current_zoom_factor, refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
 use search::{run_search, step_match};
-use shell::{build_app_rail, install_shell_css};
+use shell::{build_app_rail, install_shell_css, mark_active};
 use side_panel::{collapsible, Column};
 use sign::{build_sign_content, connect_sign_toolbar};
-use state::{Viewer, ViewerState};
+use state::{HomeTool, Viewer, ViewerState};
 
 const APPLICATION_ID: &str = "org.vitela.Pdf";
 /// Vertical gap between stacked page widgets. Shared by the page box in
@@ -327,16 +330,38 @@ fn build_ui(application: &Application) -> BuiltUi {
     side_panel::connect(&nav_paned, Column::Start, &navigation_slot, &show_pages);
     side_panel::connect(&canvas_tools_paned, Column::End, &tools_slot, &show_tools);
 
+    // The editor is one page of the window's view stack; Home (added below,
+    // once the `Viewer` it wires against exists) is the other. The toolbar
+    // rides *inside* this page rather than above the stack: every control on
+    // it acts on the open document — zoom, print, find-in-page — and none of
+    // them mean anything on Home, which carries a header of its own.
+    let editor_page = GtkBox::new(Orientation::Vertical, 0);
+    nav_paned.set_vexpand(true);
+    editor_page.append(&toolbar);
+    editor_page.append(&nav_paned);
+
+    let view_stack = Stack::new();
+    view_stack.set_hexpand(true);
+    view_stack.set_vexpand(true);
+    // Same reasoning as `tools_panel`'s own stack: left homogeneous, the
+    // stack would allocate every page the size of the widest and tallest
+    // one, so Home's two-column body would become the editor's minimum size
+    // — and the editor's, Home's.
+    view_stack.set_hhomogeneous(false);
+    view_stack.set_vhomogeneous(false);
+    view_stack.add_named(&editor_page, Some(EDITOR_PAGE));
+
+    // The rail and the status bar stay outside the stack: switching views
+    // must not move the navigation or drop the last message shown.
     let main = GtkBox::new(Orientation::Horizontal, 0);
     main.add_css_class("editor-main");
     main.set_vexpand(true);
     main.append(&app_rail_box);
-    main.append(&nav_paned);
+    main.append(&view_stack);
 
     status.add_css_class("status-bar");
     let content = GtkBox::new(Orientation::Vertical, 0);
     content.add_css_class("vitela-shell");
-    content.append(&toolbar);
     content.append(&main);
     content.append(&status);
     window.set_child(Some(&content));
@@ -352,6 +377,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     redo_action.set_enabled(false);
 
     let viewer = Viewer {
+        view_stack,
+        tools_stack,
         scroll,
         pages,
         page_navigation,
@@ -394,8 +421,16 @@ fn build_ui(application: &Application) -> BuiltUi {
             pkcs11_dialog: None,
             nss_dialog: None,
             sign_picker_dialog: None,
+            pending_tool: None,
         })),
     };
+
+    // Built last, and by its own module: every control on Home acts through
+    // the `Viewer`, so there is nothing for this function to wire afterwards
+    // — unlike `editor_toolbar`, whose controls it has to connect itself.
+    let home = build_home(&window, &viewer);
+    viewer.view_stack.add_named(&home.root, Some(HOME_PAGE));
+    viewer.view_stack.set_visible_child_name(HOME_PAGE);
     connect_viewport_updates(&viewer);
     connect_search(&viewer);
     annotations::connect_annotation_toolbar(&viewer);
@@ -413,50 +448,57 @@ fn build_ui(application: &Application) -> BuiltUi {
         let viewer = viewer.clone();
         move |_| content_edit::image::replace_selected(&window, &viewer)
     });
+    // Navigation group. Neither of these closes the open document: coming
+    // back to Home leaves the editor page exactly as it was.
+    app_rail.home.connect_clicked({
+        let viewer = viewer.clone();
+        let rail_box = app_rail_box.clone();
+        move |button| {
+            home::show_home(&viewer);
+            mark_active(&rail_box, button);
+        }
+    });
+    app_rail.recent.connect_clicked({
+        let viewer = viewer.clone();
+        let rail_box = app_rail_box.clone();
+        let recents = home.recents.clone();
+        move |button| {
+            home::show_home(&viewer);
+            mark_active(&rail_box, button);
+            // Home is already the recents list's home; this only puts the
+            // keyboard on it, which is what distinguishes Recent from Home.
+            recents.focus_first_card();
+        }
+    });
     // Same command as the toolbar's Open PDF button, just reachable from the
     // rail — `win.open` is installed once, below, by
-    // `connect_standard_shortcuts`.
+    // `connect_standard_shortcuts`. The extra handler only maintains the
+    // rail's own highlight; the action still does the work.
     app_rail.files.set_action_name(Some("win.open"));
-    // Focuses the first annotation tool rather than arming it: a rail click
-    // is a navigation gesture, not a promise to start drawing a highlight the
-    // moment the page loads. Focusing (rather than `annotation_row.grab_focus`,
-    // which has no button of its own to delegate to) is also what scrolls the
-    // tools panel to reveal the section, via GTK's usual focus-follows-scroll.
-    app_rail.annotate.connect_clicked({
-        let viewer = viewer.clone();
-        move |_| {
-            if let Some((_, button)) = viewer.annotation_buttons.create.first() {
-                button.grab_focus();
+    app_rail.files.connect_clicked({
+        let rail_box = app_rail_box.clone();
+        move |button| mark_active(&rail_box, button)
+    });
+
+    // Document group. All three are the same gesture Home's tool tiles are —
+    // go to this control, picking a document first if there is not one yet —
+    // so they share `home::tools::open_tool` rather than each keeping its own
+    // copy of what "Edit" or "Sign" opens.
+    for (button, tool) in [
+        (&app_rail.annotate, HomeTool::Annotate),
+        (&app_rail.edit_pdf, HomeTool::Edit),
+        (&app_rail.sign, HomeTool::Sign),
+    ] {
+        button.connect_clicked({
+            let window = window.clone();
+            let viewer = viewer.clone();
+            let rail_box = app_rail_box.clone();
+            move |button| {
+                mark_active(&rail_box, button);
+                home::tools::open_tool(&window, &viewer, tool);
             }
-        }
-    });
-    // Unlike `annotate`, this one *is* the real toggle already on the tools
-    // panel (`content_edit_button`) — flips the same switch, just reachable
-    // from the rail. Guarded on sensitivity because `ToggleButton::set_active`
-    // takes effect even on an insensitive widget, and this document may not
-    // permit content edits yet.
-    app_rail.edit_pdf.connect_clicked({
-        let viewer = viewer.clone();
-        move |_| {
-            if viewer.content_edit_button.is_sensitive() {
-                viewer.content_edit_button.set_active(true);
-            }
-        }
-    });
-    // T-186: switches to the "Fill & Sign" tab and, like `annotate` above,
-    // focuses the first live control there — `update_sign_controls` (called
-    // from `document::show_document`) is what keeps
-    // `choose_signing_certificate` insensitive when the open document
-    // refuses signing, so an insensitive button here simply does not take
-    // focus rather than needing a separate check.
-    app_rail.sign.connect_clicked({
-        let tools_stack = tools_stack.clone();
-        let viewer = viewer.clone();
-        move |_| {
-            tools_stack.set_visible_child_name(tools_panel::FILL_SIGN_PAGE);
-            viewer.choose_signing_certificate.grab_focus();
-        }
-    });
+        });
+    }
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);
