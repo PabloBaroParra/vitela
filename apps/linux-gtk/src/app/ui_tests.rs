@@ -9,6 +9,16 @@ use super::{build_ui, ensure_built, BuiltUi, APPLICATION_ID};
 
 static TEST_APPLICATION_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
+/// A whole window, built the way production builds it.
+///
+/// `pub(crate)` and here rather than duplicated per module: the Home view's
+/// controls act through a live [`super::state::Viewer`], and the only honest
+/// way to get one is [`build_ui`]. Every test that takes one is responsible
+/// for closing the window it returns.
+pub(crate) fn built_ui() -> BuiltUi {
+    build_ui(&test_application())
+}
+
 fn test_application() -> Application {
     let sequence = TEST_APPLICATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let application = Application::builder()

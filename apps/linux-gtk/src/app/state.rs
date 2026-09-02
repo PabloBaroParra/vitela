@@ -9,7 +9,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Label, Overlay, Picture,
-    ScrolledWindow, SpinButton, ToggleButton, Window,
+    ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
 };
 use pdf_document::{
     AnnotationId, Document, FormFieldId, ImageItem, PageContent, PdfDateOffset, TextRun,
@@ -35,6 +35,19 @@ pub(crate) enum DocumentSource {
 
 #[derive(Clone)]
 pub(crate) struct Viewer {
+    /// The window's two top-level pages: the Home view and the editor — see
+    /// `home::HOME_PAGE`/`home::EDITOR_PAGE`.
+    ///
+    /// A widget handle rather than something `build_ui` keeps to itself,
+    /// because the switch is not always the shell's to make: opening a
+    /// document has to leave Home, and `document::show_document` is the only
+    /// place that knows an open succeeded.
+    pub(crate) view_stack: Stack,
+    /// The right panel's Tools/Comments/Fill & Sign pages. Held here for the
+    /// same reason `view_stack` is: the app rail's Sign button and Home's
+    /// Sign tile both navigate to a page on it, and neither is built where
+    /// `tools_panel::build_tools_panel` returned it.
+    pub(crate) tools_stack: Stack,
     pub(crate) scroll: ScrolledWindow,
     pub(crate) pages: GtkBox,
     /// The left-side page navigator. Its contents mirror the current document
@@ -225,6 +238,29 @@ pub(crate) struct ViewerState {
     /// picker is still open must tear it down rather than stack a second
     /// dialog underneath it — see `sign::dismiss_sign_picker`.
     pub(crate) sign_picker_dialog: Option<Window>,
+    /// The tool a Home tile armed while there was no document to apply it to.
+    ///
+    /// Shell mode rather than document state, like `active_tool` and
+    /// `content_edit_mode` above — but unlike them it is deliberately
+    /// *short*-lived: `home::apply_pending_tool` takes it at the end of the
+    /// next successful open, so an open the user reached some other way
+    /// (Ctrl+O, a file-manager launch) never inherits a tool armed minutes
+    /// earlier on Home. A cancelled file chooser leaves it set until the next
+    /// open, which is the behaviour the user asked for by clicking the tile.
+    pub(crate) pending_tool: Option<HomeTool>,
+}
+
+/// A tool the Home view can send the user to.
+///
+/// Each variant names a control that already exists in the editor; `home::
+/// tools::apply` is the single place that says which. Deliberately not
+/// `Tool` (the annotation-creation enum above): these are destinations in the
+/// UI, not things that get drawn on a page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HomeTool {
+    Edit,
+    Annotate,
+    Sign,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.

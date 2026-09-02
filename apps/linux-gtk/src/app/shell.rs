@@ -1,17 +1,37 @@
-//! The chrome around the page canvas: the shell-wide CSS and the left app
-//! rail (Files / Recent / Annotate / Edit PDF / Organize pages / Sign /
-//! Protect).
+//! The chrome around both views: the shell-wide CSS and the left app rail.
 //!
-//! Text-only by design, like every other control in this shell — no
-//! `Button::from_icon_name`/`Image::from_icon_name` calls exist anywhere in
-//! `app/`, on purpose: the app ships as an AppImage and a .deb (T-053) meant
+//! The rail is split into two groups. The first navigates — Home, Recent,
+//! My files — and is what the Home view added; the second acts on the open
+//! document — Annotate, Edit, Organize pages, Sign, Protect. The rail itself
+//! sits outside the window's view `Stack`, so it stays on screen for Home and
+//! the editor alike.
+//!
+//! **No icon-theme lookups, here or anywhere in `app/`** — no
+//! `Button::from_icon_name`/`Image::from_icon_name` call exists in this
+//! crate, on purpose: the app ships as an AppImage and a .deb (T-053) meant
 //! to look the same regardless of which icon theme (or lack of one) the host
-//! has installed, so nothing here depends on icon-theme lookups succeeding.
+//! has installed, and a lookup that misses leaves a blank control with no
+//! error anyone sees.
+//!
+//! That rule is about the *source* of an icon, not about having none. The
+//! rail's icons come from `icons`, which ships its own SVGs inside the
+//! binary and rasterises them through librsvg — the same pipeline `brand`
+//! uses for the application mark. Nothing here asks the desktop for a
+//! picture.
 
 use gtk::prelude::*;
 use gtk::{
     style_context_add_provider_for_display, Box as GtkBox, Button, CssProvider, Label, Orientation,
+    Separator,
 };
+
+use super::brand::build_brand_lockup;
+use super::home::HOME_CSS;
+use super::icons::{build_icon, Icon, MUTED_TINT, NEUTRAL_TINT};
+
+/// Icon edge on a rail item. Sized against the label beside it, like the
+/// brand lockup's mark above them both.
+const RAIL_ICON_PX: i32 = 16;
 
 pub(crate) const SHELL_CSS: &str = r#"
 .vitela-shell {
@@ -58,10 +78,15 @@ pub(crate) const SHELL_CSS: &str = r#"
   border-right: 1px solid #e3e0e9;
 }
 
-.app-rail-brand {
-  color: #6b4eff;
-  font-weight: 800;
-  font-size: 1.05em;
+.app-rail .brand-lockup {
+  padding: 2px;
+  margin-bottom: 8px;
+}
+
+/* Between the rail's navigate group and its act-on-the-document group. */
+.app-rail-separator {
+  background-color: #e3e0e9;
+  margin: 6px 2px;
 }
 
 .app-rail-item {
@@ -197,6 +222,13 @@ pub(crate) const SHELL_CSS: &str = r#"
 /// of this struct rather than kept as fields no caller reads (see
 /// `rail_item`'s `enabled: false` for how they end up disabled on screen).
 pub(crate) struct AppRail {
+    /// Switches the window's view `Stack` back to the Home page. Navigation
+    /// only — the open document, if any, stays open behind it.
+    pub(crate) home: Button,
+    /// Home, with the keyboard already in the recents list. Its own button
+    /// rather than a second `home`, because "where was I" and "what is this
+    /// app" are different questions the user arrives with.
+    pub(crate) recent: Button,
     /// Wired to `win.open`, set directly on the widget — the same command as
     /// the toolbar's Open PDF button, just reachable from the rail.
     pub(crate) files: Button,
@@ -225,26 +257,36 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     rail.set_width_request(112);
     rail.update_property(&[gtk::accessible::Property::Label("Vitela sections")]);
 
-    let brand = Label::new(Some("Vitela"));
-    brand.set_xalign(0.0);
-    brand.add_css_class("app-rail-brand");
-    brand.set_margin_bottom(8);
-    rail.append(&brand);
+    // The real mark, not a coloured word. This is now the *only* place the
+    // shell identifies itself: Home's header carried a second lockup for one
+    // revision, and two "Vitela" marks a centimetre apart read as a bug. The
+    // rail keeps it because the rail is on screen for both views.
+    rail.append(&build_brand_lockup());
 
-    let files = rail_item(&rail, "Files", true);
-    files.add_css_class("app-rail-active");
-    rail_item(&rail, "Recent", false);
-    let annotate = rail_item(&rail, "Annotate", true);
-    let edit_pdf = rail_item(&rail, "Edit PDF", true);
-    rail_item(&rail, "Organize pages", false);
+    // Navigate. `home` starts marked active because the window opens on Home.
+    let home = rail_item(&rail, "Home", Icon::Home, true);
+    home.add_css_class("app-rail-active");
+    let recent = rail_item(&rail, "Recent", Icon::Recent, true);
+    let files = rail_item(&rail, "My files", Icon::Files, true);
+
+    let separator = Separator::new(Orientation::Horizontal);
+    separator.add_css_class("app-rail-separator");
+    rail.append(&separator);
+
+    // Act on the open document.
+    let annotate = rail_item(&rail, "Annotate", Icon::Annotate, true);
+    let edit_pdf = rail_item(&rail, "Edit PDF", Icon::Edit, true);
+    rail_item(&rail, "Organize pages", Icon::Organize, false);
     // T-186: Batch B23's signing flow (Fases 1-4) is wired end to end, so
     // this is no longer a "nothing behind it yet" section like its
     // Organize-pages/Protect neighbors.
-    let sign = rail_item(&rail, "Sign", true);
-    rail_item(&rail, "Protect", false);
+    let sign = rail_item(&rail, "Sign", Icon::Sign, true);
+    rail_item(&rail, "Protect", Icon::Protect, false);
 
     (
         AppRail {
+            home,
+            recent,
             files,
             annotate,
             edit_pdf,
@@ -254,23 +296,49 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     )
 }
 
+/// Marks `active` as the current rail section and clears every other one.
+///
+/// The rail is not a `Stack` switcher — its items go to four different places
+/// (a view page, a file chooser, a tools tab, a toggle) — so the highlight
+/// has to be maintained rather than derived. One function doing it for the
+/// whole rail is what stops two items from claiming to be current at once.
+pub(crate) fn mark_active(rail: &GtkBox, active: &Button) {
+    for item in std::iter::successors(rail.first_child(), |child| child.next_sibling())
+        .filter_map(|child| child.downcast::<Button>().ok())
+    {
+        if &item == active {
+            item.add_css_class("app-rail-active");
+        } else {
+            item.remove_css_class("app-rail-active");
+        }
+    }
+}
+
 /// Appends one nav button to `rail` and returns it. `enabled` is `false` for
 /// sections this shell has no feature behind yet (Recent/Organize pages/
 /// Protect) — disabled with a tooltip rather than left clickable and
 /// silently doing nothing.
-fn rail_item(rail: &GtkBox, label: &str, enabled: bool) -> Button {
-    let button = Button::with_label(label);
+fn rail_item(rail: &GtkBox, label: &str, icon: Icon, enabled: bool) -> Button {
+    // An icon and a left-aligned label, so the rail reads as a column of
+    // destinations rather than a stack of centred buttons. The icons are
+    // ours (`icons`), never the desktop's — see this module's header for why
+    // that is not negotiable here.
+    let tint = if enabled { NEUTRAL_TINT } else { MUTED_TINT };
+    let content = GtkBox::new(Orientation::Horizontal, 8);
+    content.append(&build_icon(icon, RAIL_ICON_PX, tint));
+    let caption = Label::new(Some(label));
+    caption.set_xalign(0.0);
+    caption.set_hexpand(true);
+    content.append(&caption);
+
+    let button = Button::new();
+    button.set_child(Some(&content));
     button.set_halign(gtk::Align::Fill);
-    // `Button::with_label` builds its child as a plain `Label`; reaching in to
-    // left-align it is the same trick `Button::label()`/`set_label()` use
-    // under the hood, not a private-API workaround.
-    if let Some(child_label) = button
-        .child()
-        .and_then(|child| child.downcast::<Label>().ok())
-    {
-        child_label.set_xalign(0.0);
-    }
     button.add_css_class("app-rail-item");
+    // A `Button` given a custom child has no label of its own for the
+    // accessibility layer to fall back on, so it is stated rather than
+    // inferred from whichever descendant happens to hold text.
+    button.update_property(&[gtk::accessible::Property::Label(label)]);
     if !enabled {
         button.set_sensitive(false);
         button.set_tooltip_text(Some("Not available yet"));
@@ -284,7 +352,10 @@ pub(crate) fn install_shell_css() {
         return;
     };
     let provider = CssProvider::new();
-    provider.load_from_data(SHELL_CSS);
+    // One provider for both sheets: they share a palette and a cascade, and
+    // two providers at the same priority would leave which one wins a
+    // question of registration order.
+    provider.load_from_data(&format!("{SHELL_CSS}{HOME_CSS}"));
     style_context_add_provider_for_display(
         &display,
         &provider,
@@ -303,9 +374,27 @@ mod tests {
     fn gtk_ui_the_sign_rail_button_is_enabled() {
         let (app_rail, _rail_box) = build_app_rail();
 
-        assert_eq!(app_rail.sign.label().as_deref(), Some("Sign"));
+        assert_eq!(rail_label(&app_rail.sign).as_deref(), Some("Sign"));
         assert!(app_rail.sign.is_sensitive());
         assert!(app_rail.sign.tooltip_text().is_none());
+    }
+
+    /// A rail item's visible text. `rail_item` gives each button an icon and
+    /// a label in a box, so `Button::label` — which only answers for the
+    /// plain-`Label` child `Button::with_label` builds — returns `None`.
+    fn rail_label(button: &Button) -> Option<String> {
+        let content = button.child()?.downcast::<GtkBox>().ok()?;
+        std::iter::successors(content.first_child(), |child| child.next_sibling())
+            .filter_map(|child| child.downcast::<Label>().ok())
+            .map(|label| label.text().to_string())
+            .next()
+    }
+
+    fn rail_button(rail: &GtkBox, label: &str) -> Button {
+        std::iter::successors(rail.first_child(), |child| child.next_sibling())
+            .filter_map(|child| child.downcast::<Button>().ok())
+            .find(|button| rail_label(button).as_deref() == Some(label))
+            .unwrap_or_else(|| panic!("the rail must offer a {label} button"))
     }
 
     /// Sections still without a feature behind them keep the disabled
@@ -314,12 +403,42 @@ mod tests {
     fn gtk_ui_sections_without_a_feature_stay_disabled() {
         let (_app_rail, rail_box) = build_app_rail();
 
-        let recent = std::iter::successors(rail_box.first_child(), |child| child.next_sibling())
-            .filter_map(|child| child.downcast::<Button>().ok())
-            .find(|button| button.label().as_deref() == Some("Recent"))
-            .expect("the rail must still offer a Recent button");
+        let organize = rail_button(&rail_box, "Organize pages");
 
-        assert!(!recent.is_sensitive());
-        assert_eq!(recent.tooltip_text().as_deref(), Some("Not available yet"));
+        assert!(!organize.is_sensitive());
+        assert_eq!(
+            organize.tooltip_text().as_deref(),
+            Some("Not available yet")
+        );
+    }
+
+    /// Recent's own regression lock, the twin of the Sign one above: the Home
+    /// view gave it a feature, so a silent revert to `rail_item(.., false)`
+    /// must fail here rather than only in manual QA.
+    #[gtk::test]
+    fn gtk_ui_the_recent_rail_button_is_enabled() {
+        let (app_rail, _rail_box) = build_app_rail();
+
+        assert!(app_rail.recent.is_sensitive());
+        assert!(app_rail.recent.tooltip_text().is_none());
+    }
+
+    /// The window opens on Home, so Home is the section marked current before
+    /// anything is clicked — and exactly one section is ever marked.
+    #[gtk::test]
+    fn gtk_ui_the_rail_marks_one_active_section_starting_with_home() {
+        let (app_rail, rail_box) = build_app_rail();
+
+        assert!(app_rail.home.has_css_class("app-rail-active"));
+
+        mark_active(&rail_box, &app_rail.annotate);
+
+        assert!(app_rail.annotate.has_css_class("app-rail-active"));
+        assert!(!app_rail.home.has_css_class("app-rail-active"));
+        let marked = std::iter::successors(rail_box.first_child(), |child| child.next_sibling())
+            .filter_map(|child| child.downcast::<Button>().ok())
+            .filter(|button| button.has_css_class("app-rail-active"))
+            .count();
+        assert_eq!(marked, 1);
     }
 }
