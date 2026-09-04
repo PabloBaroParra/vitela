@@ -33,6 +33,10 @@
 //! - [`text`] is the page-gesture half of moving a run — press, drag,
 //!   release — plus `record_move`, the single door every reposition goes
 //!   through, whichever gesture asked for it.
+//! - [`panel`] is the "Edit" page of the right-hand tools panel: the five
+//!   controls above, the cards they sit in, and the two sentences that say
+//!   what each gesture does and why a control is unavailable. It owns
+//!   presentation only — every handler still lives here.
 //!
 //! This module owns the mode toggle, the two insert-kind toggles, and the
 //! gesture dispatch that decides whether a page click is a content edit at
@@ -51,6 +55,7 @@ mod editor;
 pub(crate) mod geometry;
 pub(crate) mod image;
 mod model;
+pub(crate) mod panel;
 pub(crate) mod text;
 
 use gtk::prelude::*;
@@ -60,20 +65,13 @@ use crate::app::annotations;
 use crate::app::selection::{pointer_to_pdf, redraw};
 use crate::app::state::{ContentInsertKind, Viewer};
 
+use panel::NO_DOCUMENT_NOTICE;
+
 /// A drag shorter than this, in device pixels on either axis, is a click —
 /// mirrors the annotation placement gesture's own click collapse
 /// (`annotations::builder`'s "arrastre < 8pt"), in screen space rather than
 /// PDF space because `GestureDrag` reports its offset in the former.
 const CLICK_EPSILON_PX: f64 = 4.0;
-
-/// Builds the mode toggle button. Starts insensitive, like every other
-/// document-scoped control, until a document reports it permits content
-/// changes — see `update_controls`.
-pub(crate) fn build_toggle() -> ToggleButton {
-    let button = ToggleButton::with_label("Edit content");
-    button.set_sensitive(false);
-    button
-}
 
 pub(crate) fn connect_toggle(viewer: &Viewer) {
     viewer.content_edit_button.connect_toggled({
@@ -82,21 +80,10 @@ pub(crate) fn connect_toggle(viewer: &Viewer) {
     });
 }
 
-/// Builds the two "insert new content" toggle buttons (T-163) — the mode
-/// toggle's siblings, not variants of it: `content_edit_button` decides
-/// whether a click can touch content at all, these decide what a click
-/// inside that mode *does*. Both start insensitive, same rule and same call
-/// site (`update_controls`) as `content_edit_button` itself.
-pub(crate) fn build_insert_toggles() -> (ToggleButton, ToggleButton) {
-    let insert_text = ToggleButton::with_label("Insert text");
-    insert_text.set_sensitive(false);
-    let insert_image = ToggleButton::with_label("Insert image");
-    insert_image.set_sensitive(false);
-    (insert_text, insert_image)
-}
-
 /// Wires both insert toggles to [`set_insert_mode`], keeping at most one
-/// active at a time.
+/// active at a time. They are the mode toggle's siblings, not variants of it:
+/// `content_edit_button` decides whether a click can touch content at all,
+/// these decide what a click inside that mode *does*.
 pub(crate) fn connect_insert_toggles(viewer: &Viewer) {
     connect_insert_toggle(viewer, &viewer.insert_text_button, ContentInsertKind::Text);
     connect_insert_toggle(
@@ -131,18 +118,35 @@ fn connect_insert_toggle(viewer: &Viewer, button: &ToggleButton, kind: ContentIn
     });
 }
 
-/// Refreshes the toggle's sensitivity from the open document's permission.
+/// Refreshes the toggle's sensitivity — and the Edit page's stated reason for
+/// it — from the open document's permission.
 ///
 /// Unlike the annotation toolbar, nothing else here depends on a live
 /// selection, so this only needs to run when the document itself changes —
 /// see the call site in `document::show_document`.
+///
+/// The notice is the same fact as the sensitivity, said out loud: a document
+/// whose `/P` bits refuse content changes used to leave five greyed tiles and
+/// nothing at all to explain them, and the app rail's "Edit PDF" button did
+/// visibly nothing on such a file (`home::tools::apply` skips an insensitive
+/// control). Both are read from the one source here so they cannot drift.
 pub(crate) fn update_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
-    let enabled = state
-        .session
-        .as_ref()
-        .is_some_and(|session| session.content_edit_access.refusal().is_none());
+    let refusal = match state.session.as_ref() {
+        Some(session) => session.content_edit_access.refusal(),
+        None => Some(NO_DOCUMENT_NOTICE),
+    };
     drop(state);
+    let enabled = refusal.is_none();
+    match refusal {
+        Some(reason) => {
+            viewer.edit_panel.availability.set_text(reason);
+            viewer.edit_panel.availability.set_visible(true);
+        }
+        // Hidden rather than emptied: an empty notice still carries its own
+        // padding and border, which would read as a box that failed to load.
+        None => viewer.edit_panel.availability.set_visible(false),
+    }
     viewer.content_edit_button.set_sensitive(enabled);
     // Same rule as `content_edit_button` itself (T-163): whether a click can
     // insert new content depends on the document's permission, not on
@@ -532,4 +536,39 @@ fn window_of(viewer: &Viewer) -> Option<ApplicationWindow> {
         .status
         .root()
         .and_then(|root| root.downcast::<ApplicationWindow>().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::ui_tests::built_ui;
+
+    /// The window opens with no document, so the Edit page opens saying so.
+    ///
+    /// This is the branch [`update_controls`] gained along with the page: the
+    /// notice and the controls' sensitivity are read from one answer, so a
+    /// column of greyed-out tiles can never be left standing with nothing to
+    /// explain it.
+    #[gtk::test]
+    fn gtk_ui_the_edit_page_states_that_no_document_is_open() {
+        let built = built_ui();
+
+        update_controls(&built.viewer);
+
+        // `get_visible`, not `is_visible`: the latter is
+        // `gtk_widget_is_visible`, which answers for the whole ancestor chain
+        // — and this notice sits on a `Stack` page inside a window the test
+        // never presents, so it would report `false` however this function
+        // set the flag. The flag itself is what is under test.
+        assert!(built.viewer.edit_panel.availability.get_visible());
+        assert_eq!(
+            built.viewer.edit_panel.availability.text(),
+            NO_DOCUMENT_NOTICE
+        );
+        assert!(!built.viewer.content_edit_button.is_sensitive());
+        assert!(!built.viewer.insert_text_button.is_sensitive());
+        assert!(!built.viewer.insert_image_button.is_sensitive());
+
+        built.window.close();
+    }
 }

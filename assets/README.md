@@ -78,8 +78,8 @@ The Android shell does not show the mark yet.
 ## icons/ — the shell's own icon set
 
 `icons/*.svg` are the line icons the GTK4 shell draws in its app rail, its
-Home tool grid and its quick actions. Hand-authored, like the brand mark, and
-in the same 24x24 stroke style.
+Home tool grid, its quick actions and the tools panel's Edit page.
+Hand-authored, like the brand mark, and in the same 24x24 stroke style.
 
 They exist because **no shell may look an icon up in the desktop's icon
 theme**: the Linux build ships as an AppImage and a `.deb` (T-053) that has to

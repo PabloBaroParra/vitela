@@ -26,6 +26,7 @@ use gtk::{
 };
 
 use super::brand::build_brand_lockup;
+use super::content_edit::panel::EDIT_CSS;
 use super::home::HOME_CSS;
 use super::icons::{build_icon, Icon, MUTED_TINT, NEUTRAL_TINT};
 
@@ -359,10 +360,10 @@ pub(crate) fn install_shell_css() {
         return;
     };
     let provider = CssProvider::new();
-    // One provider for both sheets: they share a palette and a cascade, and
-    // two providers at the same priority would leave which one wins a
+    // One provider for all three sheets: they share a palette and a cascade,
+    // and two providers at the same priority would leave which one wins a
     // question of registration order.
-    provider.load_from_data(&format!("{SHELL_CSS}{HOME_CSS}"));
+    provider.load_from_data(&format!("{SHELL_CSS}{HOME_CSS}{EDIT_CSS}"));
     style_context_add_provider_for_display(
         &display,
         &provider,
