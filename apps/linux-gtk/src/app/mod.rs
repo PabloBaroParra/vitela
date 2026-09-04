@@ -17,6 +17,7 @@ mod icons;
 mod input;
 mod layout;
 mod metadata;
+mod organize;
 mod print;
 mod render;
 mod search;
@@ -351,6 +352,9 @@ fn build_ui(application: &Application) -> BuiltUi {
     view_stack.set_vhomogeneous(false);
     view_stack.add_named(&editor_page, Some(EDITOR_PAGE));
 
+    let (organize_panel, organize_page) = organize::build_organize_panel();
+    view_stack.add_named(&organize_page, Some(organize::ORGANIZE_PAGE));
+
     // The rail and the status bar stay outside the stack: switching views
     // must not move the navigation or drop the last message shown.
     let main = GtkBox::new(Orientation::Horizontal, 0);
@@ -383,6 +387,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         pages,
         page_navigation,
         metadata: metadata_panel,
+        organize: organize_panel,
         app_mark,
         status,
         page_indicator,
@@ -439,6 +444,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     forms::connect_forms_toolbar(&viewer);
     connect_sign_toolbar(&window, &viewer);
     metadata::connect_metadata_panel(&viewer);
+    organize::connect_organize_panel(&window, &viewer);
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| content_edit::image::delete_selected(&viewer)
@@ -480,7 +486,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         move |button| mark_active(&rail_box, button)
     });
 
-    // Document group. All three are the same gesture Home's tool tiles are —
+    // Document group. All four are the same gesture Home's tool tiles are —
     // go to this control, picking a document first if there is not one yet —
     // so they share `home::tools::open_tool` rather than each keeping its own
     // copy of what "Edit" or "Sign" opens.
@@ -488,6 +494,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         (&app_rail.annotate, HomeTool::Annotate),
         (&app_rail.edit_pdf, HomeTool::Edit),
         (&app_rail.sign, HomeTool::Sign),
+        (&app_rail.organize, HomeTool::Organize),
     ] {
         button.connect_clicked({
             let window = window.clone();
