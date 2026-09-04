@@ -40,7 +40,7 @@ use crate::app::tools_panel::{property_row, FILL_SIGN_PAGE};
 /// One tile: its label, the tool it opens (`None` for a section this shell
 /// has no feature behind yet), its icon and accent, and what it is for.
 ///
-/// The three `None` entries are kept visible and disabled rather than dropped,
+/// The remaining `None` entries are kept visible and disabled rather than dropped,
 /// the same treatment `shell::rail_item` gives its own unfinished sections —
 /// a disabled control with a tooltip says "later", an absent one says
 /// "never", and only one of those is true. Their accent is carried here all
@@ -80,10 +80,10 @@ const TOOLS: [ToolTile; 6] = [
     },
     ToolTile {
         label: "Organize",
-        tool: None,
+        tool: Some(HomeTool::Organize),
         icon: Icon::Organize,
         tint: ORGANIZE_TINT,
-        description: "",
+        description: "Reorder and delete pages",
     },
     ToolTile {
         label: "Compress",
@@ -246,6 +246,7 @@ pub(crate) fn apply(viewer: &Viewer, tool: HomeTool) {
             viewer.tools_stack.set_visible_child_name(FILL_SIGN_PAGE);
             viewer.choose_signing_certificate.grab_focus();
         }
+        HomeTool::Organize => crate::app::organize::show(viewer),
     }
 }
 
@@ -370,10 +371,11 @@ mod tests {
 
         assert!(tile(&card, "edit").is_sensitive());
         assert!(tile(&card, "sign").is_sensitive());
-        let organize = tile(&card, "organize");
-        assert!(!organize.is_sensitive());
+        assert!(tile(&card, "organize").is_sensitive());
+        let compress = tile(&card, "compress");
+        assert!(!compress.is_sensitive());
         assert_eq!(
-            organize.tooltip_text().as_deref(),
+            compress.tooltip_text().as_deref(),
             Some("Not available yet")
         );
 

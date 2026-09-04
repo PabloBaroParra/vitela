@@ -215,12 +215,12 @@ pub(crate) const SHELL_CSS: &str = r#"
 }
 "#;
 
-/// The app rail buttons `build_ui` wires up after construction. Recent/
-/// Organize pages/Protect are built and appended by [`build_app_rail`] like
-/// the rest, but this shell has no feature behind them yet, so nothing
-/// downstream ever needs to address them again by name — they are left out
-/// of this struct rather than kept as fields no caller reads (see
-/// `rail_item`'s `enabled: false` for how they end up disabled on screen).
+/// The app rail buttons `build_ui` wires up after construction. `Protect` is
+/// built and appended by [`build_app_rail`] like the rest, but this shell has
+/// no feature behind it yet, so nothing downstream ever needs to address it
+/// again by name — it is left out of this struct rather than kept as a field
+/// no caller reads (see `rail_item`'s `enabled: false` for how it ends up
+/// disabled on screen).
 pub(crate) struct AppRail {
     /// Switches the window's view `Stack` back to the Home page. Navigation
     /// only — the open document, if any, stays open behind it.
@@ -243,6 +243,12 @@ pub(crate) struct AppRail {
     /// "Fill & Sign" page, the same navigation gesture `annotate`/`edit_pdf`
     /// already perform for their own pages.
     pub(crate) sign: Button,
+    /// Wired by the caller once a [`super::state::Viewer`] exists — see
+    /// `build_ui`. Switches `view_stack` to `organize::ORGANIZE_PAGE`, the
+    /// same navigation gesture `annotate`/`edit_pdf`/`sign` perform for
+    /// theirs, just landing on a different top-level page instead of a tab
+    /// inside the editor.
+    pub(crate) organize: Button,
 }
 
 /// Builds the rail widget. Callers wire `files` to `win.open` themselves
@@ -276,10 +282,10 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     // Act on the open document.
     let annotate = rail_item(&rail, "Annotate", Icon::Annotate, true);
     let edit_pdf = rail_item(&rail, "Edit PDF", Icon::Edit, true);
-    rail_item(&rail, "Organize pages", Icon::Organize, false);
+    let organize = rail_item(&rail, "Organize pages", Icon::Organize, true);
     // T-186: Batch B23's signing flow (Fases 1-4) is wired end to end, so
-    // this is no longer a "nothing behind it yet" section like its
-    // Organize-pages/Protect neighbors.
+    // this is no longer a "nothing behind it yet" section like its Protect
+    // neighbor.
     let sign = rail_item(&rail, "Sign", Icon::Sign, true);
     rail_item(&rail, "Protect", Icon::Protect, false);
 
@@ -291,6 +297,7 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
             annotate,
             edit_pdf,
             sign,
+            organize,
         },
         rail,
     )
@@ -379,6 +386,20 @@ mod tests {
         assert!(app_rail.sign.tooltip_text().is_none());
     }
 
+    /// The same regression lock as `gtk_ui_the_sign_rail_button_is_enabled`,
+    /// for the Organize-pages feature this change adds.
+    #[gtk::test]
+    fn gtk_ui_the_organize_rail_button_is_enabled() {
+        let (app_rail, _rail_box) = build_app_rail();
+
+        assert_eq!(
+            rail_label(&app_rail.organize).as_deref(),
+            Some("Organize pages")
+        );
+        assert!(app_rail.organize.is_sensitive());
+        assert!(app_rail.organize.tooltip_text().is_none());
+    }
+
     /// A rail item's visible text. `rail_item` gives each button an icon and
     /// a label in a box, so `Button::label` — which only answers for the
     /// plain-`Label` child `Button::with_label` builds — returns `None`.
@@ -403,13 +424,10 @@ mod tests {
     fn gtk_ui_sections_without_a_feature_stay_disabled() {
         let (_app_rail, rail_box) = build_app_rail();
 
-        let organize = rail_button(&rail_box, "Organize pages");
+        let protect = rail_button(&rail_box, "Protect");
 
-        assert!(!organize.is_sensitive());
-        assert_eq!(
-            organize.tooltip_text().as_deref(),
-            Some("Not available yet")
-        );
+        assert!(!protect.is_sensitive());
+        assert_eq!(protect.tooltip_text().as_deref(), Some("Not available yet"));
     }
 
     /// Recent's own regression lock, the twin of the Sign one above: the Home

@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Label, Overlay, Picture,
-    ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
+    cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, FlowBox, Label, Overlay,
+    Picture, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
 };
 use pdf_document::{
     AnnotationId, Document, FormFieldId, ImageItem, PageContent, PdfDateOffset, TextRun,
@@ -56,6 +56,9 @@ pub(crate) struct Viewer {
     /// The right panel's editable document-properties fields (T-176), kept
     /// updated by `metadata::refresh` — see `MetadataPanel`.
     pub(crate) metadata: MetadataPanel,
+    /// The "Organize pages" screen's thumbnail grid and its own status
+    /// label, kept populated by `organize::show` — see `OrganizePanel`.
+    pub(crate) organize: OrganizePanel,
     /// Brand mark overlaid on the page area. Visible exactly while there is
     /// nothing to show — see `brand::build_app_mark`.
     pub(crate) app_mark: Picture,
@@ -261,6 +264,13 @@ pub(crate) enum HomeTool {
     Edit,
     Annotate,
     Sign,
+    /// Unlike the other three, this does not focus a control inside the
+    /// editor — `home::tools::apply`'s arm for it switches `view_stack` to
+    /// `organize::ORGANIZE_PAGE` instead. Kept in this enum anyway rather
+    /// than a parallel one: the rail, the Home tile, and the cold-start
+    /// `pending_tool` resume path all already dispatch on `HomeTool`, and a
+    /// second enum would only duplicate that plumbing for one entry.
+    Organize,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.
@@ -508,6 +518,22 @@ pub(crate) struct MetadataPanel {
     /// offset (PDF 32000-1:2008 §7.9.4).
     pub(crate) creation_offset: Rc<Cell<PdfDateOffset>>,
     pub(crate) mod_offset: Rc<Cell<PdfDateOffset>>,
+}
+
+/// The "Organize pages" screen's static chrome — see `organize` module docs.
+///
+/// `cards` is the single source of truth for "which card sits where": each
+/// entry is a card's root widget and its page-number label, in display
+/// order, kept in lockstep with `grid`'s own child order by every move and
+/// delete. Nothing caches a position *on* a card — a drag or delete always
+/// looks it up fresh by scanning `cards`, so it can never disagree with what
+/// is actually on screen. Status messages go through the shared
+/// `Viewer::status` bar, the same as every other feature module's.
+#[derive(Clone)]
+pub(crate) struct OrganizePanel {
+    pub(crate) grid: FlowBox,
+    pub(crate) cards: Rc<RefCell<Vec<(GtkBox, Label)>>>,
+    pub(crate) save_button: Button,
 }
 
 /// The annotation toolbar's buttons, held by name rather than by position.

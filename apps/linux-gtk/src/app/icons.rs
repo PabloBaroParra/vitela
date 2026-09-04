@@ -81,12 +81,13 @@ pub(crate) enum Icon {
     Protect,
     NewFile,
     Sample,
+    Delete,
 }
 
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 11] = [
+const ALL_ICONS: [Icon; 12] = [
     Icon::Home,
     Icon::Recent,
     Icon::Files,
@@ -98,6 +99,7 @@ const ALL_ICONS: [Icon; 11] = [
     Icon::Protect,
     Icon::NewFile,
     Icon::Sample,
+    Icon::Delete,
 ];
 
 macro_rules! icon_source {
@@ -124,6 +126,7 @@ impl Icon {
             Icon::Protect => icon_source!("protect.svg"),
             Icon::NewFile => icon_source!("new-file.svg"),
             Icon::Sample => icon_source!("sample.svg"),
+            Icon::Delete => icon_source!("delete.svg"),
         }
     }
 }

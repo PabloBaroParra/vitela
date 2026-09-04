@@ -55,6 +55,17 @@ pub enum Command {
         index: usize,
         page: Page,
     },
+    /// Moves the page at `from` to `to` (`Vec` positions, not `PageId`s —
+    /// matches `InsertPage`/`RemovePage`'s addressing). Carries no `Page`
+    /// value: unlike `RemovePage`, a move destroys nothing, so the inverse
+    /// only needs to swap `from`/`to`. One command per drag-and-drop gesture
+    /// in the Organize screen; a multi-page reorder is simply several of
+    /// these in the log, the same way several drags each get their own
+    /// `MoveFormField`.
+    MovePage {
+        from: usize,
+        to: usize,
+    },
 
     // --- Page content (Batch 21) --------------------------------------
     //
@@ -282,6 +293,10 @@ impl Command {
             Command::RemovePage { index, .. } => {
                 document.pages.remove(*index);
             }
+            Command::MovePage { from, to } => {
+                let page = document.pages.remove(*from);
+                document.pages.insert(*to, page);
+            }
             // Inert by design, not by omission: the model carries no page
             // content to mutate (see the variants' docs above). Recording
             // the command in the log is the entire forward action; the file
@@ -352,6 +367,10 @@ impl Command {
             Command::RemovePage { index, page } => Command::InsertPage {
                 index: *index,
                 page: page.clone(),
+            },
+            Command::MovePage { from, to } => Command::MovePage {
+                from: *to,
+                to: *from,
             },
             // The item snapshot doubles as the "before" value, so undoing a
             // content edit means re-targeting the same item with the two
@@ -784,6 +803,36 @@ mod tests {
         log.undo(&mut document);
         assert_eq!(document.pages.len(), 2);
         assert_eq!(document.pages[1], page1);
+    }
+
+    #[test]
+    fn undo_redo_round_trip_move_page() {
+        let mut document = Document::blank();
+        let page0 = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let page1 = Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
+        let page2 = Page::blank(PageId(2), PageSize::A4, Orientation::Portrait);
+        document.pages.push(page0);
+        document.pages.push(page1);
+        document.pages.push(page2);
+
+        let mut log = EditLog::new();
+        log.apply(&mut document, Command::MovePage { from: 0, to: 2 });
+        assert_eq!(
+            document.pages.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![PageId(1), PageId(2), PageId(0)]
+        );
+
+        log.undo(&mut document);
+        assert_eq!(
+            document.pages.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![PageId(0), PageId(1), PageId(2)]
+        );
+
+        log.redo(&mut document);
+        assert_eq!(
+            document.pages.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![PageId(1), PageId(2), PageId(0)]
+        );
     }
 
     #[test]
