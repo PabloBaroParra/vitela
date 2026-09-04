@@ -36,8 +36,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, Application, ApplicationWindow, Box as GtkBox, Button, FlowBox, Label, Orientation,
-    Overlay, Paned, PolicyType, ScrolledWindow, Stack,
+    gio, glib, Application, ApplicationWindow, Box as GtkBox, Label, Orientation, Overlay, Paned,
+    PolicyType, ScrolledWindow, Stack,
 };
 
 use annotations::add_annotation_toolbar;
@@ -172,38 +172,24 @@ fn build_ui(application: &Application) -> BuiltUi {
     // search/print, and stacking them there pushed the window's minimum width
     // past the screen (see `annotations::add_annotation_toolbar`).
     let (annotation_toolbar, annotation_row) = add_annotation_toolbar();
-    // Next to the annotation row, not inside it: arming this and arming an
-    // annotation tool are mutually exclusive (`content_edit::set_mode`,
-    // `annotations::toolbar::arm_tool`), so it reads as a sibling mode rather
-    // than an eighth annotation type.
-    let content_edit_button = content_edit::build_toggle();
-    // Siblings of the mode toggle, not variants of it (T-163): they decide
-    // what a content-edit-mode click *creates* rather than whether one can
-    // happen at all — see `content_edit::set_insert_mode`.
-    let (insert_text_button, insert_image_button) = content_edit::build_insert_toggles();
-    // Beside the mode toggle rather than in the main toolbar: it only ever
-    // acts on content-edit mode's own selection (T-162 Slice 1), the same
-    // reason the annotation toolbar's own Delete lives in its own row.
-    let delete_image_button = Button::with_label("Delete image");
-    delete_image_button.set_sensitive(false);
-    // Same row, same gate (T-162 Slice 2): a file-picker swap needs exactly
-    // the selection Delete does.
-    let replace_image_button = Button::with_label("Replace image");
-    replace_image_button.set_sensitive(false);
-    // A `FlowBox`, not a plain `GtkBox`, for the same reason
-    // `annotations::add_annotation_toolbar` uses one: it wraps onto more rows
-    // as the resizable tools panel narrows instead of reporting the sum of
-    // five buttons' widths as this panel's minimum.
-    let content_edit_row = FlowBox::new();
-    content_edit_row.set_selection_mode(gtk::SelectionMode::None);
-    content_edit_row.set_row_spacing(4);
-    content_edit_row.set_column_spacing(4);
-    content_edit_row.set_homogeneous(false);
-    content_edit_row.append(&content_edit_button);
-    content_edit_row.append(&insert_text_button);
-    content_edit_row.append(&insert_image_button);
-    content_edit_row.append(&delete_image_button);
-    content_edit_row.append(&replace_image_button);
+    // The content-edit controls and the page they live on, built as one unit
+    // by their own module — the tools panel's "Edit" tab, which is where the
+    // app rail's "Edit PDF" button now lands. They used to be five bare
+    // buttons appended here and dropped into a "Content" section of the Tools
+    // tab; `content_edit::panel` documents what that cost the user.
+    //
+    // Destructured, like `editor_toolbar` above, so the wiring below reads
+    // against the controls themselves rather than through a struct that only
+    // exists to carry them across the module boundary.
+    let (edit_controls, edit_content) = content_edit::panel::build_edit_content();
+    let content_edit::panel::EditContent {
+        mode: content_edit_button,
+        insert_text: insert_text_button,
+        insert_image: insert_image_button,
+        delete_image: delete_image_button,
+        replace_image: replace_image_button,
+        panel: edit_panel,
+    } = edit_controls;
 
     // The forms-edit toolbar and style inspector (T-141), destined for the
     // tools panel's "Fill & Sign" page rather than this row — see
@@ -266,7 +252,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     let (metadata_panel, metadata_content) = metadata::build_metadata_panel();
     let (tools_content, tools_stack) = tools_panel::build_tools_panel(
         &annotation_row,
-        &content_edit_row,
+        &edit_content,
         &forms_content,
         &sign_content,
         &metadata_content,
@@ -405,6 +391,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         insert_image_button,
         delete_image_button,
         replace_image_button,
+        edit_panel,
         forms: form_field_toolbar,
         choose_signing_certificate,
         choose_pkcs11_certificate,
@@ -652,13 +639,23 @@ fn connect_standard_shortcuts(
 /// Called wherever `update_annotation_controls` already is (document
 /// open/close, content-edit mode toggle) plus after every image
 /// select/deselect/delete/replace inside `content_edit::image`.
+///
+/// Also keeps the Edit page's image hint in step, off the same selection:
+/// these two buttons spend most of their life greyed out waiting for an image
+/// to be picked on the page, and until this label existed nothing said so.
 pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
     let enabled = state.session.as_ref().is_some_and(|session| {
         session.content_edit_access.refusal().is_none() && session.selected_image.is_some()
     });
+    drop(state);
     viewer.delete_image_button.set_sensitive(enabled);
     viewer.replace_image_button.set_sensitive(enabled);
+    viewer.edit_panel.image_hint.set_text(if enabled {
+        content_edit::panel::IMAGE_SELECTED
+    } else {
+        content_edit::panel::NO_IMAGE_SELECTED
+    });
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {

@@ -82,12 +82,18 @@ pub(crate) enum Icon {
     NewFile,
     Sample,
     Delete,
+    /// A capital "T". The Edit page's marker for the *text* half of page
+    /// content, as `Image` is for the other half — `Edit` already means the
+    /// feature as a whole (it is the rail's own icon), so it cannot also mean
+    /// one of the two things the feature acts on.
+    Text,
+    Image,
 }
 
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 12] = [
+const ALL_ICONS: [Icon; 14] = [
     Icon::Home,
     Icon::Recent,
     Icon::Files,
@@ -100,6 +106,8 @@ const ALL_ICONS: [Icon; 12] = [
     Icon::NewFile,
     Icon::Sample,
     Icon::Delete,
+    Icon::Text,
+    Icon::Image,
 ];
 
 macro_rules! icon_source {
@@ -127,6 +135,8 @@ impl Icon {
             Icon::NewFile => icon_source!("new-file.svg"),
             Icon::Sample => icon_source!("sample.svg"),
             Icon::Delete => icon_source!("delete.svg"),
+            Icon::Text => icon_source!("text.svg"),
+            Icon::Image => icon_source!("image.svg"),
         }
     }
 }

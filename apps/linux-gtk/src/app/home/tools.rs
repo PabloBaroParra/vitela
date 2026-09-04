@@ -35,7 +35,7 @@ use crate::app::icons::{
     ORGANIZE_TINT, PROTECT_TINT, SIGN_TINT,
 };
 use crate::app::state::{HomeTool, Viewer};
-use crate::app::tools_panel::{property_row, FILL_SIGN_PAGE};
+use crate::app::tools_panel::{property_row, ANNOTATE_PAGE, EDIT_PAGE, FILL_SIGN_PAGE};
 
 /// One tile: its label, the tool it opens (`None` for a section this shell
 /// has no feature behind yet), its icon and accent, and what it is for.
@@ -229,15 +229,27 @@ pub(crate) fn open_tool(window: &ApplicationWindow, viewer: &Viewer, tool: HomeT
 /// widget.
 pub(crate) fn apply(viewer: &Viewer, tool: HomeTool) {
     match tool {
+        // The page switch is unconditional, unlike the arming below. A
+        // document whose permission bits refuse content changes used to make
+        // this arm do nothing whatsoever — the rail's "Edit PDF" button
+        // accepted the click and the shell did not move — because the only
+        // thing here was `set_active` on a control that was insensitive. The
+        // Edit page states that refusal in words (`content_edit::panel`), so
+        // going there is exactly what a refused document needs to do.
         HomeTool::Edit => {
+            viewer.tools_stack.set_visible_child_name(EDIT_PAGE);
             if viewer.content_edit_button.is_sensitive() {
                 viewer.content_edit_button.set_active(true);
             }
         }
         // Focusing rather than arming, and focusing a button rather than the
         // row, is also what scrolls the tools panel to reveal the section,
-        // through GTK's usual focus-follows-scroll.
+        // through GTK's usual focus-follows-scroll. The page switch has to
+        // come first: focus on a widget sitting in a `Stack` page that is not
+        // the visible one reveals nothing, and the annotation toolbar shares
+        // the panel with three other pages now.
         HomeTool::Annotate => {
+            viewer.tools_stack.set_visible_child_name(ANNOTATE_PAGE);
             if let Some((_, button)) = viewer.annotation_buttons.create.first() {
                 button.grab_focus();
             }
@@ -396,6 +408,52 @@ mod tests {
         assert_eq!(
             built.viewer.state.borrow().pending_tool,
             Some(HomeTool::Sign)
+        );
+
+        built.window.close();
+    }
+
+    /// **"Edit PDF" has to go somewhere.**
+    ///
+    /// Before the Edit page existed, this arm's whole effect was arming one
+    /// toggle inside the tab next door — and when that toggle was insensitive
+    /// (no document open, or one whose permission bits refuse content
+    /// changes) the rail button accepted the click and nothing moved on
+    /// screen at all. The page switch is what the user gets instead, and it
+    /// is deliberately not conditional on the toggle: the page is where the
+    /// refusal is written down.
+    #[gtk::test]
+    fn gtk_ui_the_edit_tool_opens_the_edit_page_even_when_editing_is_unavailable() {
+        let built = built_ui();
+        assert!(
+            !built.viewer.content_edit_button.is_sensitive(),
+            "this test is meaningless unless editing starts unavailable"
+        );
+
+        apply(&built.viewer, HomeTool::Edit);
+
+        assert_eq!(
+            built.viewer.tools_stack.visible_child_name().as_deref(),
+            Some(EDIT_PAGE)
+        );
+        assert!(!built.viewer.content_edit_button.is_active());
+
+        built.window.close();
+    }
+
+    /// Annotate reveals a control by focusing it, and focus reveals nothing
+    /// on a `Stack` page that is not the visible one — so it has to bring the
+    /// Annotate page back up first, from whichever page the panel was left on.
+    #[gtk::test]
+    fn gtk_ui_the_annotate_tool_returns_to_the_annotate_page() {
+        let built = built_ui();
+        apply(&built.viewer, HomeTool::Edit);
+
+        apply(&built.viewer, HomeTool::Annotate);
+
+        assert_eq!(
+            built.viewer.tools_stack.visible_child_name().as_deref(),
+            Some(ANNOTATE_PAGE)
         );
 
         built.window.close();

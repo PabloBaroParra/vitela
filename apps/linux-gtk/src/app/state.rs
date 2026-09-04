@@ -43,10 +43,10 @@ pub(crate) struct Viewer {
     /// document has to leave Home, and `document::show_document` is the only
     /// place that knows an open succeeded.
     pub(crate) view_stack: Stack,
-    /// The right panel's Tools/Comments/Fill & Sign pages. Held here for the
-    /// same reason `view_stack` is: the app rail's Sign button and Home's
-    /// Sign tile both navigate to a page on it, and neither is built where
-    /// `tools_panel::build_tools_panel` returned it.
+    /// The right panel's Annotate/Edit/Comments/Fill & Sign pages. Held here
+    /// for the same reason `view_stack` is: three of the app rail's sections
+    /// (and the matching Home tiles) navigate to a page on it, and none of
+    /// them is built where `tools_panel::build_tools_panel` returned it.
     pub(crate) tools_stack: Stack,
     pub(crate) scroll: ScrolledWindow,
     pub(crate) pages: GtkBox,
@@ -95,6 +95,8 @@ pub(crate) struct Viewer {
     /// Slice 2). Sensitivity is owned by `update_content_edit_controls`
     /// alongside `delete_image_button` — the same selection gates both.
     pub(crate) replace_image_button: Button,
+    /// The "Edit" tools page's two explanatory labels — see [`EditPanel`].
+    pub(crate) edit_panel: EditPanel,
     /// The forms toolbar (T-141): the mode toggle, the four placement
     /// toggles, and the style inspector for the selected field.
     pub(crate) forms: FormFieldToolbar,
@@ -534,6 +536,26 @@ pub(crate) struct OrganizePanel {
     pub(crate) grid: FlowBox,
     pub(crate) cards: Rc<RefCell<Vec<(GtkBox, Label)>>>,
     pub(crate) save_button: Button,
+}
+
+/// The two sentences the "Edit" tools page keeps current — see
+/// `content_edit::panel` for why the page states its own condition instead of
+/// leaving a column of greyed-out tiles to be interpreted.
+///
+/// Only the labels live here. The five controls they describe stay flat
+/// `Viewer` fields, because `content_edit`, `content_edit::image` and
+/// `home::tools` all address them by name and moving them would be a rename
+/// across four modules for no behavioural gain.
+#[derive(Clone)]
+pub(crate) struct EditPanel {
+    /// Why content editing is unavailable — no document, or a document whose
+    /// permission bits refuse it. Maintained by `content_edit::update_controls`,
+    /// the same call that owns the controls' sensitivity.
+    pub(crate) availability: Label,
+    /// What the image controls are waiting for, or what they can now do.
+    /// Maintained by `crate::app::update_content_edit_controls`, off the same
+    /// image selection that gates the buttons.
+    pub(crate) image_hint: Label,
 }
 
 /// The annotation toolbar's buttons, held by name rather than by position.

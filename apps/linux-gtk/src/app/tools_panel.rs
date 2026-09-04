@@ -1,10 +1,19 @@
-//! The right-hand panel's own chrome: the Tools/Comments/Fill & Sign tab
-//! switcher and the document-properties readout, mirroring `shell`'s left
+//! The right-hand panel's own chrome: the Annotate/Edit/Comments/Fill & Sign
+//! tab switcher and the document-properties readout, mirroring `shell`'s left
 //! rail on the other side of the canvas.
 //!
-//! The tools tab wraps the existing annotation/content-edit controls
-//! unchanged — this module owns navigation and layout around them, not their
-//! behavior, which stays with `annotations`/`content_edit`.
+//! Each tab wraps a page built by the feature module that owns it —
+//! `annotations` and `metadata` under Annotate, `content_edit::panel` under
+//! Edit, `forms` and `sign` under Fill & Sign. This module owns navigation
+//! and the layout around them, never their behavior.
+//!
+//! **The tabs are named after the rail sections that reach them**, which is
+//! why the first one is "Annotate" and not the "Tools" it was called while it
+//! was the only page holding controls. The rail's Annotate lands on Annotate,
+//! its Edit PDF on Edit, its Sign on Fill & Sign: a user who clicks a section
+//! on the left can see which tab on the right answered. "Tools" named none of
+//! them, and by the time the content-edit controls moved to their own page it
+//! did not describe what was left underneath it either.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -17,8 +26,9 @@ use gtk::{
 /// The panel's pages, in strip order: the `Stack` child name and the label its
 /// tab carries. One list rather than two parallel ones, so a page can never be
 /// added to the stack without a tab to reach it by.
-const TABS: [(&str, &str); 3] = [
-    ("tools", "Tools"),
+const TABS: [(&str, &str); 4] = [
+    (ANNOTATE_PAGE, "Annotate"),
+    (EDIT_PAGE, "Edit"),
     ("comments", "Comments"),
     (FILL_SIGN_PAGE, "Fill & Sign"),
 ];
@@ -28,6 +38,18 @@ const TABS: [(&str, &str); 3] = [
 /// of duplicating the literal.
 pub(crate) const FILL_SIGN_PAGE: &str = "fill-sign";
 
+/// The `Stack` child name for the "Edit" page, shared for the same reason
+/// [`FILL_SIGN_PAGE`] is: the app rail's "Edit PDF" button and Home's "Edit"
+/// tile both navigate to it through `home::tools::apply`.
+pub(crate) const EDIT_PAGE: &str = "edit";
+
+/// The `Stack` child name for the "Annotate" page — the annotation toolbar
+/// and the document properties. Shared for the same reason as its two
+/// neighbours: the rail's "Annotate" button reveals a control on this page,
+/// and focusing a widget on a page the `Stack` is not showing reveals nothing
+/// at all.
+pub(crate) const ANNOTATE_PAGE: &str = "annotate";
+
 /// Shown for a property this document simply does not have, and for every
 /// field before any document is open. Distinguishes "read and empty" from a
 /// blank label that might just not have painted yet. Used only by
@@ -36,47 +58,52 @@ pub(crate) const FILL_SIGN_PAGE: &str = "fill-sign";
 /// value" without needing a placeholder glyph.
 pub(crate) const EMPTY: &str = "\u{2013}";
 
-/// Builds the right panel's content: a Tools/Comments/Fill & Sign switcher
-/// over a `Stack`, with `annotation_row`/`content_edit_row` embedded
-/// unchanged under Tools, followed by the document-properties panel
-/// (`metadata_content`, built and owned by the `metadata` module — T-176).
-/// Comments has no feature behind it yet, so its page says so rather than
-/// showing empty space that looks broken. Fill & Sign stacks `forms_content`
-/// (T-141/T-142's field placement and fill controls) over `sign_content`
-/// (Batch B23 Fase 2's certificate chooser) — two features sharing one tab,
-/// the way Adobe's own "Fill & Sign" does.
+/// Builds the right panel's content: an Annotate/Edit/Comments/Fill & Sign
+/// switcher over a `Stack`, with `annotation_row` embedded unchanged under
+/// Annotate, followed by the document-properties panel (`metadata_content`,
+/// built and owned by the `metadata` module — T-176). Comments has no feature
+/// behind it yet, so its page says so rather than showing empty space that
+/// looks broken. Fill & Sign stacks `forms_content` (T-141/T-142's field
+/// placement and fill controls) over `sign_content` (Batch B23 Fase 2's
+/// certificate chooser) — two features sharing one tab, the way Adobe's own
+/// "Fill & Sign" does.
+///
+/// `edit_content` (built and owned by `content_edit::panel`) is a page of its
+/// own rather than the "Content" section it used to be on the page next door.
+/// That section was five unlabelled buttons wedged between the annotation
+/// toolbar and the document-properties fields, and it was where the app
+/// rail's "Edit PDF" button silently armed a toggle nobody could see. See
+/// that module's own docs for the three defects the move fixes.
 ///
 /// Returns the `Stack` alongside the panel so `build_ui` can drive it from
-/// outside — T-186 needs it to switch to `FILL_SIGN_PAGE` when the app
-/// rail's "Sign" button is clicked, the same way the tab switcher itself
-/// does internally.
+/// outside — the rail's "Sign" (T-186) and "Edit PDF" buttons both switch it
+/// by page name, the same way the tab switcher itself does internally.
 pub(crate) fn build_tools_panel(
     annotation_row: &ScrolledWindow,
-    content_edit_row: &FlowBox,
+    edit_content: &GtkBox,
     forms_content: &GtkBox,
     sign_content: &GtkBox,
     metadata_content: &GtkBox,
 ) -> (GtkBox, Stack) {
-    let tools_page = GtkBox::new(Orientation::Vertical, 10);
-    tools_page.append(&panel_heading("Annotations"));
-    tools_page.append(annotation_row);
-    tools_page.append(&panel_heading("Content"));
-    tools_page.append(content_edit_row);
-    tools_page.append(metadata_content);
+    let annotate_page = GtkBox::new(Orientation::Vertical, 10);
+    annotate_page.append(&panel_heading("Annotations"));
+    annotate_page.append(annotation_row);
+    annotate_page.append(metadata_content);
 
     let stack = Stack::new();
     stack.set_vexpand(true);
     // Same reasoning as `side_panel::collapsible`'s own `hhomogeneous(false)`/
     // `vhomogeneous(false)`: a `Stack` otherwise allocates every page the
-    // size of its tallest/widest one, so Tools' page (annotations +
-    // content-edit + the full metadata panel) would force Comments and
+    // size of its tallest/widest one, so the Annotate page (the annotation
+    // toolbar plus the full metadata panel) would force Comments and
     // Fill & Sign to carry its height — and, now that Fill & Sign stacks
     // `forms_content` under `sign_content`, the reverse direction is live
     // too: whichever page is tallest would pad every other page's blank
     // space instead of each page sizing to its own content.
     stack.set_hhomogeneous(false);
     stack.set_vhomogeneous(false);
-    stack.add_named(&tools_page, Some("tools"));
+    stack.add_named(&annotate_page, Some(ANNOTATE_PAGE));
+    stack.add_named(edit_content, Some(EDIT_PAGE));
     stack.add_named(
         &placeholder_page("Comments aren't available in this shell yet."),
         Some("comments"),
@@ -247,8 +274,36 @@ mod tests {
     /// not a placeholder), reachable by `set_visible_child_name`.
     #[gtk::test]
     fn gtk_ui_the_stack_switches_to_the_fill_sign_page_by_its_shared_constant() {
+        let (stack, _edit_content) = built_panel();
+
+        assert_eq!(stack.visible_child_name().as_deref(), Some(ANNOTATE_PAGE));
+        stack.set_visible_child_name(FILL_SIGN_PAGE);
+        assert_eq!(stack.visible_child_name().as_deref(), Some(FILL_SIGN_PAGE));
+    }
+
+    /// The twin of the test above for the "Edit" page: the app rail's "Edit
+    /// PDF" button drives this `Stack` by name from `home::tools::apply`, so
+    /// the page has to be a real one built from the content `build_ui` passes
+    /// in — not a placeholder, and not missing because a tab was added to
+    /// [`TABS`] without a page behind it.
+    #[gtk::test]
+    fn gtk_ui_the_stack_switches_to_the_edit_page_by_its_shared_constant() {
+        let (stack, edit_content) = built_panel();
+
+        stack.set_visible_child_name(EDIT_PAGE);
+
+        assert_eq!(stack.visible_child_name().as_deref(), Some(EDIT_PAGE));
+        assert_eq!(
+            stack.visible_child().as_ref(),
+            Some(edit_content.upcast_ref::<gtk::Widget>())
+        );
+    }
+
+    /// A panel built the way `build_ui` builds it, returning the `Stack` and
+    /// the Edit page's own root for identity assertions.
+    fn built_panel() -> (Stack, GtkBox) {
         let annotation_row = ScrolledWindow::new();
-        let content_edit_row = FlowBox::new();
+        let (_edit_controls, edit_content) = crate::app::content_edit::panel::build_edit_content();
         let (_forms_toolbar, forms_content) = crate::app::forms::build_forms_content();
         let (_choose_pfx, _choose_pkcs11, _choose_nss, _signed_indicator, sign_content) =
             crate::app::sign::build_sign_content();
@@ -256,15 +311,13 @@ mod tests {
 
         let (_panel, stack) = build_tools_panel(
             &annotation_row,
-            &content_edit_row,
+            &edit_content,
             &forms_content,
             &sign_content,
             &metadata_content,
         );
 
-        assert_eq!(stack.visible_child_name().as_deref(), Some("tools"));
-        stack.set_visible_child_name(FILL_SIGN_PAGE);
-        assert_eq!(stack.visible_child_name().as_deref(), Some(FILL_SIGN_PAGE));
+        (stack, edit_content)
     }
 
     fn stack_of_tabs() -> Stack {
