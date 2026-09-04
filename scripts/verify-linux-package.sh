@@ -7,7 +7,6 @@ readonly EVIDENCE_DIR="${PACKAGE_EVIDENCE_DIR:-$REPO_ROOT/build/linux/evidence}"
 readonly PACKAGE_VERSION="${PACKAGE_VERSION:-$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Cargo.toml")}" 
 readonly DEB="$PACKAGES_DIR/vitela_${PACKAGE_VERSION}_amd64.deb"
 readonly APPIMAGE="$PACKAGES_DIR/Vitela-${PACKAGE_VERSION}-x86_64.AppImage"
-readonly EXPECTED_RENDERED_PIXELS_SHA256='e9a2bea7357da6b4a271e0fe5c9c5767e27f3fc09ba7ae9d2c76d1e2b4b5409f'
 
 fail() { printf 'verify-linux-package: %s\n' "$*" >&2; exit 1; }
 require_file() { [ -f "$1" ] && [ -r "$1" ] || fail "required readable file not found: $1"; }
@@ -61,13 +60,21 @@ if [ "${VERIFY_INSPECT_ONLY:-0}" = 1 ]; then
     exit 0
 fi
 
+# Pixel-exact hashing is deliberately avoided: the sample's /BaseFont
+# /Helvetica has no embedded FontFile, so PDFium substitutes a system font via
+# fontconfig at render time and different machines produce different
+# pixel-exact hashes even with the identical PDFium binary. Page geometry plus
+# a non-blank check (ink=) proves the packaged PDFium actually rendered
+# content without pinning to one machine's font set.
 env -u PDFIUM_DYNAMIC_LIB_PATH unshare --net -- "$deb_usr/bin/vitela" --package-smoke "$EVIDENCE_DIR/deb-smoke.txt"
-grep -Eq '^width=[1-9][0-9]*$' "$EVIDENCE_DIR/deb-smoke.txt" || fail 'deb smoke receipt lacks rendered width'
-grep -Fx "pixels_sha256=$EXPECTED_RENDERED_PIXELS_SHA256" "$EVIDENCE_DIR/deb-smoke.txt" >/dev/null || fail 'deb smoke receipt has an unexpected rendered-pixel hash'
+grep -Eq '^width=612$' "$EVIDENCE_DIR/deb-smoke.txt" || fail 'deb smoke receipt has an unexpected rendered width'
+grep -Eq '^height=792$' "$EVIDENCE_DIR/deb-smoke.txt" || fail 'deb smoke receipt has an unexpected rendered height'
+grep -Eq '^ink=[1-9][0-9]*$' "$EVIDENCE_DIR/deb-smoke.txt" || fail 'deb smoke receipt rendered a blank page'
 
 env -u PDFIUM_DYNAMIC_LIB_PATH unshare --net -- "$APPIMAGE" --appimage-extract-and-run --package-smoke "$EVIDENCE_DIR/appimage-smoke.txt"
-grep -Eq '^width=[1-9][0-9]*$' "$EVIDENCE_DIR/appimage-smoke.txt" || fail 'AppImage smoke receipt lacks rendered width'
-grep -Fx "pixels_sha256=$EXPECTED_RENDERED_PIXELS_SHA256" "$EVIDENCE_DIR/appimage-smoke.txt" >/dev/null || fail 'AppImage smoke receipt has an unexpected rendered-pixel hash'
+grep -Eq '^width=612$' "$EVIDENCE_DIR/appimage-smoke.txt" || fail 'AppImage smoke receipt has an unexpected rendered width'
+grep -Eq '^height=792$' "$EVIDENCE_DIR/appimage-smoke.txt" || fail 'AppImage smoke receipt has an unexpected rendered height'
+grep -Eq '^ink=[1-9][0-9]*$' "$EVIDENCE_DIR/appimage-smoke.txt" || fail 'AppImage smoke receipt rendered a blank page'
 
 sha256sum "$DEB" "$APPIMAGE" > "$EVIDENCE_DIR/artifact-sha256.txt"
 printf 'verified Linux x86_64 packages\n' > "$EVIDENCE_DIR/result.txt"
