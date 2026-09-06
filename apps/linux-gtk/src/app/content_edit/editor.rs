@@ -29,10 +29,11 @@ use pdf_render::{place_rect, TextRect};
 
 use crate::app::document::refresh_after_content_edit;
 use crate::app::state::{ContentEditor, PageSlot, Viewer};
+use crate::app::update_content_edit_controls;
 
 use super::command::{
     amend_command, amended_command, apply_command, pending_move_index, pending_text_command,
-    validate_insert_text, validate_replacement, PendingText,
+    validate_insert_text, validate_remove_text, validate_replacement, PendingText,
 };
 use super::model;
 use super::CLICK_EPSILON_PX;
@@ -155,6 +156,11 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
     wire_entry(viewer, &entry, false);
     entry.grab_focus();
     entry.select_region(0, -1);
+    // The Edit page's "Delete text" is gated on exactly this editor being
+    // open over an existing run, so the page learns about it here — the
+    // image card's controls are refreshed the same way from every
+    // select/deselect in `super::image`.
+    update_content_edit_controls(viewer);
 }
 
 /// Opens a blank inline editor at `point` (PDF page space) to compose a
@@ -252,6 +258,10 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
 
     wire_entry(viewer, &entry, true);
     entry.grab_focus();
+    // Same call as [`open_editor`]'s, for the opposite outcome: an insertion
+    // has no run on the page yet, so this is what keeps "Delete text"
+    // *disabled* while a blank box is open.
+    update_content_edit_controls(viewer);
 }
 
 /// Positions the editor box over `bbox` on `page`, in the page overlay's
@@ -663,6 +673,158 @@ pub(crate) fn commit(viewer: &Viewer) {
     }
 }
 
+/// Why a run that only exists as an unsaved insertion cannot be deleted from
+/// here, said in terms of what to do instead.
+///
+/// `EditLog` has no "drop this entry" door, by design — `apply`, `undo`,
+/// `redo` and `amend` are the whole surface — and neither of the two things
+/// this could otherwise record is honest. A `RemoveTextRun` would name a run
+/// no saved file contains, which resolves against nothing at save time and
+/// fails the *entire* save; amending the insertion into an empty one would
+/// leave a run painting no glyphs on the page and still answering clicks.
+/// Undo removes the insertion outright, which is the operation actually being
+/// asked for.
+pub(crate) const INSERTION_NOT_DELETABLE: &str =
+    "This text hasn't been saved yet — undo the insertion to remove it.";
+
+/// Said when the log moved on underneath an editor opened against it — the
+/// same wording, and the same reasoning, [`commit`]'s two amendment dead ends
+/// already use.
+const NOTHING_RECORDED: &str = "That edit is no longer available — nothing was recorded.";
+
+/// Removes the run the open inline editor sits on, recording
+/// [`Command::RemoveTextRun`] — the Edit page's "Delete text", and the text
+/// half of what the image card has had since T-162.
+///
+/// Whatever is in the box is discarded rather than committed first: a delete
+/// supersedes a retype of the same run, and recording both would queue two
+/// commands against one item — the duplicate `EditLog::amend` exists to
+/// prevent.
+///
+/// # The run's one pending command decides where this lands
+///
+/// - **Nothing queued** (the ordinary case): the run is as the file last
+///   saved it, and a `RemoveTextRun` is appended.
+/// - **A queued retype** (`ReplaceTextRunContent`): that entry is *amended*
+///   into the removal, carrying the original snapshot the recorded command
+///   holds rather than the run this shell hit-tested. Appending instead would
+///   leave a removal whose `item` describes text the replacement already
+///   replaced — resolvable against nothing at save time.
+/// - **A queued insertion**: refused, see [`INSERTION_NOT_DELETABLE`].
+///
+/// A run with a queued **move** is not a case here: `open_editor` refuses to
+/// open over one at all, so no editor is ever sitting on it for this button
+/// to act through.
+pub(crate) fn delete_open_run(viewer: &Viewer) {
+    if let Some(refusal) = viewer.content_edit_refusal() {
+        viewer.status.set_text(refusal);
+        return;
+    }
+
+    /// What this delete does to the log, and the run it does it with. The
+    /// run differs between the two: an amendment must carry the *recorded*
+    /// snapshot, never the one the overlay handed the shell.
+    enum Removal {
+        Append(TextRun),
+        Amend(usize, TextRun),
+    }
+
+    let mut state = viewer.state.borrow_mut();
+    let Some(session) = state.session.as_mut() else {
+        return;
+    };
+    let Some(editor) = session.content_editor.as_ref() else {
+        return;
+    };
+    // A blank insertion box has no run on the page to remove — nothing has
+    // been recorded for it yet, and `Escape` is what closes it. The button is
+    // already insensitive for one (`update_content_edit_controls`); this is
+    // the guard behind that, not a path a click reaches.
+    if editor.is_insertion {
+        return;
+    }
+    let page_index = editor.page_index;
+    let amends = editor.amends;
+    let run = editor.run.clone();
+
+    let removal = match amends {
+        None => Removal::Append(run),
+        Some(index) => {
+            let existing = session
+                .document_model
+                .as_ref()
+                .and_then(|document| document.pending_edits.entries().get(index))
+                .cloned();
+            match existing {
+                Some(Command::ReplaceTextRunContent { item, .. }) => Removal::Amend(index, item),
+                Some(Command::InsertTextRun(_)) => {
+                    drop(state);
+                    viewer.status.set_text(INSERTION_NOT_DELETABLE);
+                    return;
+                }
+                _ => {
+                    drop(state);
+                    viewer.status.set_text(NOTHING_RECORDED);
+                    return;
+                }
+            }
+        }
+    };
+
+    let target = match &removal {
+        Removal::Append(run) | Removal::Amend(_, run) => run,
+    };
+    let base = session
+        .save_backing
+        .as_ref()
+        .expect("content_edit_refusal already required a model, which requires save_backing")
+        .base
+        .as_lopdf();
+    if let Err(error) = validate_remove_text(base, page_index, target) {
+        // The editor stays open holding the run, exactly as a failed
+        // replacement leaves it — the delete did not happen, so the target
+        // has not stopped being one.
+        drop(state);
+        viewer.status.set_text(&error.to_string());
+        return;
+    }
+
+    let document = session
+        .document_model
+        .as_mut()
+        .expect("content_edit_refusal already required a model");
+    let recorded = match removal {
+        Removal::Append(target) => {
+            apply_command(document, Command::RemoveTextRun(target));
+            true
+        }
+        // The log's own refusal is honoured rather than assumed away, the
+        // same posture `commit`'s amendment branch takes: reporting a
+        // deletion the log declined would mark the document dirty and
+        // re-render it unchanged, which reads as the text coming back.
+        Removal::Amend(index, target) => {
+            amend_command(document, index, Command::RemoveTextRun(target))
+        }
+    };
+
+    let editor = session.content_editor.take().expect("checked above");
+    if !recorded {
+        drop(state);
+        detach(viewer, &editor);
+        viewer.status.set_text(NOTHING_RECORDED);
+        return;
+    }
+    session.edit_revision += 1;
+    // Dirty at record time, not at refresh time — same reason every other
+    // branch in this module gives: a refresh that fails still leaves a
+    // recorded edit behind, and a document reporting itself clean is one the
+    // open-another-document guard discards without asking.
+    session.unsaved_to_disk = true;
+    drop(state);
+    detach(viewer, &editor);
+    refresh_after_content_edit(viewer, "Text deleted.");
+}
+
 /// Discards the open editor without recording anything (Escape, or content
 /// edit mode being switched off while one is open).
 pub(crate) fn cancel(viewer: &Viewer) {
@@ -679,13 +841,28 @@ pub(crate) fn cancel(viewer: &Viewer) {
     }
 }
 
+/// Takes the editor box off the page.
+///
+/// The single door every editor teardown goes through — commit, cancel, and
+/// [`delete_open_run`] all end here — which is why the Edit page's controls
+/// are refreshed from this one place rather than from each of the branches
+/// above: "Delete text" is gated on an editor being open, and an editor that
+/// closes without the page hearing about it leaves a live button aimed at a
+/// run nothing is editing any more.
+///
+/// Always called with the `state` borrow already dropped (the callers do so
+/// before detaching), which is what lets both this function and
+/// `update_content_edit_controls` take their own.
 fn detach(viewer: &Viewer, editor: &ContentEditor) {
-    let state = viewer.state.borrow();
-    if let Some(page) = state
-        .session
-        .as_ref()
-        .and_then(|session| session.pages.get(editor.page_index))
     {
-        page.overlay.remove_overlay(&editor.entry);
+        let state = viewer.state.borrow();
+        if let Some(page) = state
+            .session
+            .as_ref()
+            .and_then(|session| session.pages.get(editor.page_index))
+        {
+            page.overlay.remove_overlay(&editor.entry);
+        }
     }
+    update_content_edit_controls(viewer);
 }

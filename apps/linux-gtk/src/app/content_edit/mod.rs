@@ -51,7 +51,11 @@
 //! a stale bitmap.
 
 mod command;
-mod editor;
+// `pub(crate)` for one reason: `build_ui` wires the Edit page's "Delete text"
+// button to `editor::delete_open_run`, the same way it wires the two image
+// buttons to `image`'s handlers. Everything else here is reached through this
+// module.
+pub(crate) mod editor;
 pub(crate) mod geometry;
 pub(crate) mod image;
 mod model;
@@ -568,6 +572,30 @@ mod tests {
         assert!(!built.viewer.content_edit_button.is_sensitive());
         assert!(!built.viewer.insert_text_button.is_sensitive());
         assert!(!built.viewer.insert_image_button.is_sensitive());
+
+        built.window.close();
+    }
+
+    /// "Delete text" reaches the `Viewer` and is driven by the same call that
+    /// drives the image pair.
+    ///
+    /// `panel`'s own tests build the page in isolation, so they can only see
+    /// the button leave the factory disabled — they cannot see whether it was
+    /// ever wired to anything. This one goes through `build_ui`, which is the
+    /// only place `update_content_edit_controls` and the button are joined
+    /// up, and with no document open there is no editor either: the control
+    /// is off and the card says what would turn it on.
+    #[gtk::test]
+    fn gtk_ui_delete_text_is_off_until_a_run_is_being_edited() {
+        let built = built_ui();
+
+        crate::app::update_content_edit_controls(&built.viewer);
+
+        assert!(!built.viewer.delete_text_button.is_sensitive());
+        assert_eq!(
+            built.viewer.edit_panel.text_hint.text(),
+            panel::NO_TEXT_SELECTED
+        );
 
         built.window.close();
     }

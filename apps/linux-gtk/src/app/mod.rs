@@ -185,6 +185,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     let content_edit::panel::EditContent {
         mode: content_edit_button,
         insert_text: insert_text_button,
+        delete_text: delete_text_button,
         insert_image: insert_image_button,
         delete_image: delete_image_button,
         replace_image: replace_image_button,
@@ -388,6 +389,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         annotation_buttons: annotation_toolbar,
         content_edit_button,
         insert_text_button,
+        delete_text_button,
         insert_image_button,
         delete_image_button,
         replace_image_button,
@@ -432,6 +434,10 @@ fn build_ui(application: &Application) -> BuiltUi {
     connect_sign_toolbar(&window, &viewer);
     metadata::connect_metadata_panel(&viewer);
     organize::connect_organize_panel(&window, &viewer);
+    viewer.delete_text_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| content_edit::editor::delete_open_run(&viewer)
+    });
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| content_edit::image::delete_selected(&viewer)
@@ -631,30 +637,51 @@ fn connect_standard_shortcuts(
     application.set_accels_for_action("win.new", &["<Control>n"]);
 }
 
-/// Whether the "Delete image" and "Replace image" controls are usable, and
+/// Whether the Edit page's three target-gated controls are usable, and
 /// applies it — the content-edit twin of
-/// `annotations::toolbar::update_annotation_controls`, scoped to T-162's two
-/// selection-gated buttons.
+/// `annotations::toolbar::update_annotation_controls`.
+///
+/// The three do not share a gate, only a shape. "Delete image" and "Replace
+/// image" (T-162) wait on an image being **selected**; "Delete text" waits on
+/// an inline editor being **open over an existing run**, because content-edit
+/// mode has no text selection at all — clicking a run opens an editor over it
+/// instead of marking it. Both halves still answer the same question, so they
+/// are answered in one place: a control that is off, and a sentence saying
+/// what it is waiting for.
 ///
 /// Called wherever `update_annotation_controls` already is (document
-/// open/close, content-edit mode toggle) plus after every image
-/// select/deselect/delete/replace inside `content_edit::image`.
-///
-/// Also keeps the Edit page's image hint in step, off the same selection:
-/// these two buttons spend most of their life greyed out waiting for an image
-/// to be picked on the page, and until this label existed nothing said so.
+/// open/close, content-edit mode toggle), after every image
+/// select/deselect/delete/replace inside `content_edit::image`, and from
+/// every open and every teardown of an editor in `content_edit::editor`.
 pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
-    let enabled = state.session.as_ref().is_some_and(|session| {
-        session.content_edit_access.refusal().is_none() && session.selected_image.is_some()
+    let (image_enabled, text_enabled) = state.session.as_ref().map_or((false, false), |session| {
+        if session.content_edit_access.refusal().is_some() {
+            return (false, false);
+        }
+        (
+            session.selected_image.is_some(),
+            // An insertion's blank box is not a target: there is no run on
+            // the page to remove, and nothing recorded for it to undo.
+            session
+                .content_editor
+                .as_ref()
+                .is_some_and(|editor| !editor.is_insertion),
+        )
     });
     drop(state);
-    viewer.delete_image_button.set_sensitive(enabled);
-    viewer.replace_image_button.set_sensitive(enabled);
-    viewer.edit_panel.image_hint.set_text(if enabled {
+    viewer.delete_image_button.set_sensitive(image_enabled);
+    viewer.replace_image_button.set_sensitive(image_enabled);
+    viewer.edit_panel.image_hint.set_text(if image_enabled {
         content_edit::panel::IMAGE_SELECTED
     } else {
         content_edit::panel::NO_IMAGE_SELECTED
+    });
+    viewer.delete_text_button.set_sensitive(text_enabled);
+    viewer.edit_panel.text_hint.set_text(if text_enabled {
+        content_edit::panel::TEXT_SELECTED
+    } else {
+        content_edit::panel::NO_TEXT_SELECTED
     });
 }
 
