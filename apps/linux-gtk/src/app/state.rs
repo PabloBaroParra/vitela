@@ -87,6 +87,16 @@ pub(crate) struct Viewer {
     /// Arms "click anywhere to insert a picked image" sub-mode (T-163), the
     /// twin of `insert_text_button` for images. Same sensitivity gate.
     pub(crate) insert_image_button: ToggleButton,
+    /// Removes the text run whose inline editor is open, recording
+    /// `Command::RemoveTextRun` — the text half of what the image card has
+    /// had since T-162, and the reason `pdf-edit::remove_text_run` was
+    /// reachable from `pdf-save` but from no gesture in this shell.
+    ///
+    /// Gated on an editor being open over an *existing* run, not on a
+    /// selection: content-edit mode has no text selection, a click on a run
+    /// opens an editor over it instead. Sensitivity is owned by
+    /// `update_content_edit_controls` alongside the image pair.
+    pub(crate) delete_text_button: Button,
     /// Deletes the selected image in content-edit mode (T-162 Slice 1).
     /// Sensitivity is owned by `update_content_edit_controls`, the
     /// content-edit twin of `annotations::toolbar::update_annotation_controls`.
@@ -95,7 +105,7 @@ pub(crate) struct Viewer {
     /// Slice 2). Sensitivity is owned by `update_content_edit_controls`
     /// alongside `delete_image_button` — the same selection gates both.
     pub(crate) replace_image_button: Button,
-    /// The "Edit" tools page's two explanatory labels — see [`EditPanel`].
+    /// The "Edit" tools page's explanatory labels — see [`EditPanel`].
     pub(crate) edit_panel: EditPanel,
     /// The forms toolbar (T-141): the mode toggle, the four placement
     /// toggles, and the style inspector for the selected field.
@@ -538,11 +548,11 @@ pub(crate) struct OrganizePanel {
     pub(crate) save_button: Button,
 }
 
-/// The two sentences the "Edit" tools page keeps current — see
+/// The three sentences the "Edit" tools page keeps current — see
 /// `content_edit::panel` for why the page states its own condition instead of
 /// leaving a column of greyed-out tiles to be interpreted.
 ///
-/// Only the labels live here. The five controls they describe stay flat
+/// Only the labels live here. The six controls they describe stay flat
 /// `Viewer` fields, because `content_edit`, `content_edit::image` and
 /// `home::tools` all address them by name and moving them would be a rename
 /// across four modules for no behavioural gain.
@@ -556,6 +566,11 @@ pub(crate) struct EditPanel {
     /// Maintained by `crate::app::update_content_edit_controls`, off the same
     /// image selection that gates the buttons.
     pub(crate) image_hint: Label,
+    /// The text card's twin of [`Self::image_hint`], off the open inline
+    /// editor rather than off an image selection — the same call maintains
+    /// both, so the card that has a target and the card that does not always
+    /// say so in the same breath.
+    pub(crate) text_hint: Label,
 }
 
 /// The annotation toolbar's buttons, held by name rather than by position.

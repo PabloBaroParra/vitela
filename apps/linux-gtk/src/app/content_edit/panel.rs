@@ -23,7 +23,25 @@
 //! 3. **"Delete image"/"Replace image" looked broken.** They are gated on an
 //!    image being selected on the page, so they sit greyed out for as long as
 //!    nothing is, with no stated reason. [`EditPanel::image_hint`] is that
-//!    reason, and it tracks the selection.
+//!    reason, and it tracks the selection. "Delete text" carries the same
+//!    pair — [`EditPanel::text_hint`], tracking the open inline editor — for
+//!    the same reason, from the day it was added.
+//!
+//! ## What the text card gained afterwards
+//!
+//! "Delete text" was not part of the move. `pdf-edit::remove_text_run` and
+//! `Command::RemoveTextRun` had been complete since Batch 21 — `pdf-save`
+//! replays them, the FFI exposes them, and this shell's own overlay already
+//! hides a run they remove — and no gesture anywhere in this shell could
+//! record one. The image card had had a Delete since T-162; the text card
+//! had none, so a page's text could be retyped, moved and inserted, but
+//! never taken off.
+//!
+//! It is gated differently from its image twin, and unavoidably so:
+//! content-edit mode has no text *selection*. Clicking a run opens an editor
+//! over it, so "the run this button acts on" is "the run the open editor is
+//! sitting on" — see `editor::delete_open_run`, and see [`build_edit_content`]
+//! for why this one button must refuse the focus a click would give it.
 //!
 //! ## Shape
 //!
@@ -59,6 +77,17 @@ pub(crate) const NO_DOCUMENT_NOTICE: &str = "Open a PDF to edit the text and ima
 /// never disagree.
 pub(crate) const NO_IMAGE_SELECTED: &str = "Click an image on the page to select it.";
 pub(crate) const IMAGE_SELECTED: &str = "Image selected — replace or delete it.";
+
+/// The text card's twin of the two above, maintained by the same call.
+///
+/// The "nothing picked yet" half is the sentence this card already carried as
+/// a fixed hint, kept word for word: describing the page gesture *is* the
+/// answer to "what does Delete text need", so a second permanent line
+/// restating it would be noise. What is new is that the sentence now changes
+/// once the gesture has been made, the way the image card's already did.
+pub(crate) const NO_TEXT_SELECTED: &str =
+    "Click a text run to retype it in place, or drag it to move it.";
+pub(crate) const TEXT_SELECTED: &str = "Text run selected — delete it, or retype it in place.";
 
 /// This page's own styling, installed alongside `shell::SHELL_CSS` and
 /// `home::HOME_CSS` by `shell::install_shell_css`.
@@ -129,13 +158,14 @@ pub(crate) const EDIT_CSS: &str = r#"
 
 /// The page's controls, handed to `build_ui` to place on the `Viewer`.
 ///
-/// The five buttons keep their existing homes as flat `Viewer` fields —
+/// The buttons keep their existing homes as flat `Viewer` fields —
 /// `content_edit`, `image` and `home::tools` all address them by name — so
-/// this struct only carries them across the module boundary. The two labels
-/// are new, and travel together in [`EditPanel`].
+/// this struct only carries them across the module boundary. The labels
+/// travel together in [`EditPanel`].
 pub(crate) struct EditContent {
     pub(crate) mode: ToggleButton,
     pub(crate) insert_text: ToggleButton,
+    pub(crate) delete_text: Button,
     pub(crate) insert_image: ToggleButton,
     pub(crate) delete_image: Button,
     pub(crate) replace_image: Button,
@@ -176,11 +206,36 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
         "Click the page to place a new text box",
     );
     insert_text.set_sensitive(false);
+    let delete_text = Button::new();
+    tile(
+        &delete_text,
+        "Delete text",
+        Icon::Delete,
+        "Remove the text run being edited from the page",
+    );
+    delete_text.set_sensitive(false);
+    // The one control on this page that must not take the keyboard focus when
+    // it is clicked, and the reason is the gate it sits behind.
+    //
+    // "Delete text" acts on the run whose inline editor is open, and that
+    // editor closes itself on focus-out (`editor::wire_entry` commits from
+    // `EventControllerFocus::leave` — clicking anywhere else is how you
+    // finish an edit). A focus-taking button would therefore tear down its
+    // own target between the press and the release, leaving GTK to drop the
+    // `clicked` signal on a control that had just gone insensitive: a button
+    // that does nothing, intermittently, for a reason nothing on screen
+    // explains. Refusing the focus keeps the press from disturbing the
+    // editor at all.
+    //
+    // Not `set_focusable(false)`: the button stays reachable by Tab, it
+    // simply is not focused *by a click*. Losing keyboard reachability would
+    // trade one defect for a worse one.
+    delete_text.set_focus_on_click(false);
     text_row.append(&mode);
     text_row.append(&insert_text);
-    text_card.append(&hint(
-        "Click a text run to retype it in place, or drag it to move it.",
-    ));
+    text_row.append(&delete_text);
+    let text_hint = hint(NO_TEXT_SELECTED);
+    text_card.append(&text_hint);
     root.append(&text_card);
 
     // --- images ------------------------------------------------------------
@@ -220,12 +275,14 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
         EditContent {
             mode,
             insert_text,
+            delete_text,
             insert_image,
             delete_image,
             replace_image,
             panel: EditPanel {
                 availability,
                 image_hint,
+                text_hint,
             },
         },
         root,
@@ -322,11 +379,40 @@ mod tests {
 
         assert!(!content.mode.is_sensitive());
         assert!(!content.insert_text.is_sensitive());
+        assert!(!content.delete_text.is_sensitive());
         assert!(!content.insert_image.is_sensitive());
         assert!(!content.delete_image.is_sensitive());
         assert!(!content.replace_image.is_sensitive());
         assert_eq!(content.panel.availability.text(), NO_DOCUMENT_NOTICE);
         assert_eq!(content.panel.image_hint.text(), NO_IMAGE_SELECTED);
+        assert_eq!(content.panel.text_hint.text(), NO_TEXT_SELECTED);
+    }
+
+    /// The property the whole "Delete text" gate rests on, pinned because
+    /// nothing about the button looks different when it is lost.
+    ///
+    /// The run this button deletes is the one whose inline editor is open,
+    /// and that editor commits and closes itself the moment the entry loses
+    /// focus. A button that took the focus on click would therefore destroy
+    /// its own target mid-press and drop the `clicked` signal — a control
+    /// that silently does nothing, some of the time. Tab still reaches it:
+    /// only the *click* is refused the focus, which is why this asserts
+    /// `focus_on_click` and not `focusable`.
+    #[gtk::test]
+    fn gtk_ui_delete_text_does_not_steal_focus_from_the_editor_it_acts_on() {
+        let (content, _root) = build_edit_content();
+
+        assert!(
+            !content.delete_text.gets_focus_on_click(),
+            "Delete text takes the focus on click, which closes the editor it deletes from"
+        );
+        assert!(
+            content.delete_text.is_focusable(),
+            "Delete text stopped being reachable by keyboard"
+        );
+        // The controls it sits beside keep GTK's default — this is one
+        // button's exception, not a page-wide style.
+        assert!(content.delete_image.gets_focus_on_click());
     }
 
     /// The regression [`tile`]'s doc exists for: a disabled tile must not keep

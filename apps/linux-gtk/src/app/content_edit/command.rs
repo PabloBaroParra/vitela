@@ -48,6 +48,26 @@ pub(super) fn validate_move_text(
     Ok(())
 }
 
+/// Attempts deleting `run` against the real `pdf-edit` call — the text twin
+/// of [`validate_remove`], same probe-clone-then-real-call contract, writing
+/// nothing for real.
+///
+/// Worth the probe for the same reason [`validate_move_text`] is rather than
+/// [`validate_replacement`]: `pdf_edit::remove_text_run` has to resolve the
+/// run inside the real content stream and reproduce the advance it occupied,
+/// and a run it cannot resolve fails at *save* time — taking every other
+/// queued edit down with it — long after the click that asked for it.
+pub(super) fn validate_remove_text(
+    base: &lopdf::Document,
+    page_index: usize,
+    run: &TextRun,
+) -> Result<(), EditError> {
+    let mut probe = base.clone();
+    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    pdf_edit::remove_text_run(&mut probe, page_object, run)?;
+    Ok(())
+}
+
 /// Attempts moving `item` to `to` against the real `pdf-edit` call, the image
 /// twin of [`validate_replacement`] — same probe-clone-then-real-call
 /// contract, writing nothing for real.
@@ -470,6 +490,44 @@ mod tests {
 
         let error =
             validate_replacement(&base, 3, &run, "Adios mundo").expect_err("page 3 does not exist");
+        assert_eq!(error, EditError::PageNotFound(PageId(3)));
+    }
+
+    // --- validate_remove_text --------------------------------------------
+
+    #[test]
+    fn a_removal_of_a_run_the_page_holds_validates_successfully() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let run = first_run(&base);
+
+        assert!(validate_remove_text(&base, 0, &run).is_ok());
+    }
+
+    /// The probe writes nothing for real — the point of cloning the base
+    /// rather than editing it. Asserted here and not only for the removal's
+    /// siblings because this is the one validation whose real call *deletes*:
+    /// a probe leaking through would take the run off the document every
+    /// other queued edit still resolves against.
+    #[test]
+    fn validating_a_removal_leaves_the_base_document_untouched() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let run = first_run(&base);
+
+        validate_remove_text(&base, 0, &run).expect("the run is on the page");
+
+        let after = pdf_edit::read_page_content(&base, PageId(0))
+            .expect("page 0 still parses")
+            .text_runs;
+        assert_eq!(after.len(), 1, "the probe deleted from the base document");
+        assert_eq!(after[0].text, run.text);
+    }
+
+    #[test]
+    fn a_removal_against_a_page_index_with_no_page_is_refused() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let run = first_run(&base);
+
+        let error = validate_remove_text(&base, 3, &run).expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 
