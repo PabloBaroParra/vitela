@@ -101,12 +101,13 @@ pub(crate) enum Icon {
     Previous,
     Next,
     Search,
+    Comments,
 }
 
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 27] = [
+const ALL_ICONS: [Icon; 28] = [
     Icon::Home,
     Icon::Recent,
     Icon::Files,
@@ -134,6 +135,7 @@ const ALL_ICONS: [Icon; 27] = [
     Icon::Previous,
     Icon::Next,
     Icon::Search,
+    Icon::Comments,
 ];
 
 macro_rules! icon_source {
@@ -176,6 +178,7 @@ impl Icon {
             Icon::Previous => icon_source!("previous.svg"),
             Icon::Next => icon_source!("next.svg"),
             Icon::Search => icon_source!("search.svg"),
+            Icon::Comments => icon_source!("comments.svg"),
         }
     }
 }
@@ -378,6 +381,7 @@ mod tests {
             Icon::Delete,
             Icon::Text,
             Icon::Image,
+            Icon::Comments,
         ] {
             let (top, bottom) = vertical_ink_bounds(icon);
             assert!(

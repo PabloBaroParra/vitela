@@ -223,11 +223,24 @@ pub(crate) const SHELL_CSS: &str = r#"
 
 .tools-tab-switcher button {
   min-height: 26px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  transition: background-color 120ms ease, color 120ms ease;
 }
 
 .tools-tab-switcher button:hover,
 .tools-tab-switcher button:focus-visible {
   background: #eee9fa;
+}
+
+/* The open page's own tab — same treatment as `.editor-toolbar button:checked`
+   and `.app-rail-item.app-rail-active`, so which of the four pages is showing
+   reads at a glance instead of relying on the default GTK theme's `:checked`
+   (or lack of one) to say so. */
+.tools-tab-switcher button:checked {
+  background: #f2edff;
+  color: #6b4eff;
+  font-weight: 700;
 }
 
 /* Every reflowing row in this shell is a `FlowBox` — the top editor toolbar
