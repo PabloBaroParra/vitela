@@ -1510,6 +1510,15 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     // see `content_edit::rearm_for_session`.
     super::content_edit::rearm_for_session(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
+    // `save_button` was wired to `show_save_chooser` from the start (see
+    // `mod.rs`'s `connect_clicked`) but never got the other half of the pair
+    // its own comment already describes: nothing ever flipped it back on
+    // after `editor_toolbar::build_editor_toolbar`'s initial `set_sensitive
+    // (false)`, so the toolbar's Save button stayed permanently greyed out —
+    // saving only ever worked through the `Ctrl+S` accelerator. Same gate as
+    // `print_button` right above: there is nothing to save or print with no
+    // pages on screen.
+    viewer.save_button.set_sensitive(page_count > 0);
     // A document with no pages leaves the page area empty, so the mark stays
     // up — the same call the WinUI shell makes when it re-shows its empty
     // state for a pageless document.
