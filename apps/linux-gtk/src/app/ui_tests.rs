@@ -76,6 +76,82 @@ fn gtk_ui_starts_with_find_navigation_disabled() {
 }
 
 #[gtk::test]
+fn gtk_ui_find_shortcut_opens_the_search_popover_and_can_reopen_it() {
+    let built = built_ui();
+    built.viewer.view_stack.set_visible_child_name("editor");
+    built.window.present();
+    drain_main_context();
+    let popover = built
+        .viewer
+        .search_entry
+        .ancestor(gtk::Popover::static_type())
+        .unwrap()
+        .downcast::<gtk::Popover>()
+        .unwrap();
+    assert!(!popover.is_visible());
+    let menu = built
+        .viewer
+        .search_entry
+        .ancestor(gtk::MenuButton::static_type())
+        .unwrap()
+        .downcast::<gtk::MenuButton>()
+        .unwrap();
+    for _ in 0..2 {
+        built.window.lookup_action("find").unwrap().activate(None);
+        drain_main_context();
+        assert!(popover.is_visible());
+        let accessible: &gtk::Accessible = menu.as_ref();
+        let mismatch: Option<glib::GString> = unsafe {
+            from_glib_full(gtk::ffi::gtk_test_accessible_check_state(
+                accessible.to_glib_none().0,
+                gtk::ffi::GTK_ACCESSIBLE_STATE_EXPANDED,
+                1_i32,
+            ))
+        };
+        assert!(
+            mismatch.is_none(),
+            "search menu expanded state: {mismatch:?}"
+        );
+        let focus = gtk::prelude::GtkWindowExt::focus(&built.window).unwrap();
+        assert!(
+            focus == built.viewer.search_entry || focus.is_ancestor(&built.viewer.search_entry)
+        );
+        popover.popdown();
+        drain_main_context();
+    }
+    menu.popup();
+    drain_main_context();
+    assert!(popover.is_visible());
+    menu.popdown();
+    drain_main_context();
+    built.window.close();
+    drain_main_context();
+}
+
+#[gtk::test]
+fn gtk_ui_find_does_not_open_a_popover_anchored_to_a_hidden_editor() {
+    let built = built_ui();
+    built.window.present();
+    drain_main_context();
+    let popover = built
+        .viewer
+        .search_entry
+        .ancestor(gtk::Popover::static_type())
+        .unwrap()
+        .downcast::<gtk::Popover>()
+        .unwrap();
+    for page in [super::home::HOME_PAGE, super::organize::ORGANIZE_PAGE] {
+        built.viewer.view_stack.set_visible_child_name(page);
+        drain_main_context();
+        built.window.lookup_action("find").unwrap().activate(None);
+        drain_main_context();
+        assert!(!popover.is_visible());
+    }
+    built.window.close();
+    drain_main_context();
+}
+
+#[gtk::test]
 fn gtk_ui_builds_an_accessible_three_column_editor_shell() {
     let application = test_application();
     let built = build_ui(&application);
