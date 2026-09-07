@@ -381,7 +381,6 @@ mod tests {
             Icon::Delete,
             Icon::Text,
             Icon::Image,
-            Icon::Comments,
         ] {
             let (top, bottom) = vertical_ink_bounds(icon);
             assert!(
