@@ -23,14 +23,20 @@ use gtk::{
     Box as GtkBox, FlowBox, Label, Orientation, ScrolledWindow, SelectionMode, Stack, ToggleButton,
 };
 
-/// The panel's pages, in strip order: the `Stack` child name and the label its
-/// tab carries. One list rather than two parallel ones, so a page can never be
-/// added to the stack without a tab to reach it by.
-const TABS: [(&str, &str); 4] = [
-    (ANNOTATE_PAGE, "Annotate"),
-    (EDIT_PAGE, "Edit"),
-    ("comments", "Comments"),
-    (FILL_SIGN_PAGE, "Fill & Sign"),
+use super::icons::{build_icon, Icon, NEUTRAL_TINT};
+
+/// The panel's pages, in strip order: the `Stack` child name, the label its
+/// tab carries, and the icon it shows — the same one the app rail uses for
+/// the section that reaches this tab (`Icon::Annotate`/`Edit`/`Sign`), so a
+/// user who clicked a rail button recognises the tab that answered it.
+/// `Comments` has no rail button of its own, so it gets an icon of its own.
+/// One list rather than several parallel ones, so a page can never be added
+/// to the stack without a tab to reach it by.
+const TABS: [(&str, &str, Icon); 4] = [
+    (ANNOTATE_PAGE, "Annotate", Icon::Annotate),
+    (EDIT_PAGE, "Edit", Icon::Edit),
+    ("comments", "Comments", Icon::Comments),
+    (FILL_SIGN_PAGE, "Fill & Sign", Icon::Sign),
 ];
 
 /// The `Stack` child name for the "Fill & Sign" page — shared with `build_ui`
@@ -162,8 +168,14 @@ fn build_tab_switcher(stack: &Stack) -> FlowBox {
 
     let toggles: Rc<Vec<(&'static str, ToggleButton)>> = Rc::new(
         TABS.iter()
-            .map(|(name, title)| {
-                let toggle = ToggleButton::with_label(title);
+            .map(|(name, title, icon)| {
+                let toggle = ToggleButton::new();
+                toggle.set_child(Some(&tab_content(*icon, title)));
+                toggle.set_tooltip_text(Some(*title));
+                // A custom child leaves the button with no label of its own
+                // for the accessibility layer to fall back on — same fix as
+                // `shell::rail_item`'s.
+                toggle.update_property(&[gtk::accessible::Property::Label(title)]);
                 switcher.append(&toggle);
                 (*name, toggle)
             })
@@ -253,6 +265,20 @@ pub(crate) fn panel_heading(text: &str) -> Label {
     label
 }
 
+/// A tab's own child: icon over label, the same `icon_button`/`decorate_button`
+/// shape `editor_toolbar` builds — kept as a small local twin rather than
+/// exported, since the tooltip/accessible-label wiring around it differs
+/// (the toolbar hides a control's label when it has an icon; a tab keeps
+/// both, since a tab strip is navigation to read, not a row of icon-only
+/// commands to scan).
+fn tab_content(icon: Icon, label: &str) -> GtkBox {
+    let content = GtkBox::new(Orientation::Horizontal, 6);
+    content.set_halign(gtk::Align::Center);
+    content.append(&build_icon(icon, 16, NEUTRAL_TINT));
+    content.append(&Label::new(Some(label)));
+    content
+}
+
 fn placeholder_page(message: &str) -> Label {
     let label = Label::new(Some(message));
     label.set_wrap(true);
@@ -322,7 +348,7 @@ mod tests {
 
     fn stack_of_tabs() -> Stack {
         let stack = Stack::new();
-        for (name, _) in TABS {
+        for (name, _, _) in TABS {
             stack.add_named(&Label::new(Some(name)), Some(name));
         }
         stack
@@ -363,6 +389,31 @@ mod tests {
             "tab strip minimum {minimum} is not meaningfully below the {sum_of_tabs} its tabs add \
              up to; it is behaving like the StackSwitcher it replaced and will floor the panel"
         );
+    }
+
+    /// Each tab now shows an icon, the twin of `editor_toolbar`'s own
+    /// `gtk_ui_toolbar_icons_keep_accessible_names_and_tooltips`: checking the
+    /// same two things a `ToggleButton` with a custom icon+label child does
+    /// not get for free — its accessible name and its tooltip.
+    #[gtk::test]
+    fn gtk_ui_tab_toggles_keep_accessible_names_and_tooltips() {
+        use gtk::glib::translate::{from_glib_full, ToGlibPtr};
+
+        let toggles = tab_toggles(&build_tab_switcher(&stack_of_tabs()));
+
+        for (toggle, (_, title, _)) in toggles.iter().zip(TABS.iter()) {
+            let accessible: &gtk::Accessible = toggle.as_ref();
+            let expected = <str as ToGlibPtr<'_, *const std::ffi::c_char>>::to_glib_none(*title);
+            let mismatch: Option<gtk::glib::GString> = unsafe {
+                from_glib_full(gtk::ffi::gtk_test_accessible_check_property(
+                    accessible.to_glib_none().0,
+                    gtk::ffi::GTK_ACCESSIBLE_PROPERTY_LABEL,
+                    expected.0,
+                ))
+            };
+            assert!(mismatch.is_none(), "{title}: {mismatch:?}");
+            assert_eq!(toggle.tooltip_text().as_deref(), Some(*title));
+        }
     }
 
     #[gtk::test]
