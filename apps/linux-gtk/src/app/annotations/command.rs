@@ -56,12 +56,27 @@ fn history(viewer: &Viewer, undo: bool) {
         // read-only (T-163), so this looks at the command about to move
         // without consuming it — `step_history` still has to see it fresh a
         // moment later to actually apply the inverse.
-        let is_content_edit = if undo {
+        let next_command = if undo {
             document.pending_edits.peek_undo()
         } else {
             document.pending_edits.peek_redo()
-        }
-        .is_some_and(Command::is_content_edit);
+        };
+        let is_content_edit = next_command.is_some_and(Command::is_content_edit);
+        // Undo peeks the recorded command, then applies its inverse: an
+        // inserted page is structural just as its removal is.
+        //
+        // `RotatePage` is deliberately absent: it changes no page's position
+        // in `Document.pages`, and the Organize grid's thumbnails come from
+        // pdfium reading the file on disk rather than from the model, so a
+        // rotate would not alter a single card until it is saved. Nothing in
+        // this shell records one today either — if a rotate gesture ever
+        // lands, it needs its own refresh path, not this one.
+        let is_page_structure_edit = matches!(
+            next_command,
+            Some(
+                Command::MovePage { .. } | Command::RemovePage { .. } | Command::InsertPage { .. }
+            )
+        );
 
         match step_history(document, session.selected_annotation, undo) {
             Some(surviving) => {
@@ -86,13 +101,13 @@ fn history(viewer: &Viewer, undo: bool) {
                 // an unsaved change whether or not the preview caught up
                 // with it.
                 session.unsaved_to_disk = true;
-                Some(is_content_edit)
+                Some((is_content_edit, is_page_structure_edit))
             }
             None => None,
         }
     };
 
-    let Some(is_content_edit) = outcome else {
+    let Some((is_content_edit, is_page_structure_edit)) = outcome else {
         return;
     };
 
@@ -111,6 +126,9 @@ fn history(viewer: &Viewer, undo: bool) {
     // undo/redo step here may just as easily have moved a metadata command.
     crate::app::metadata::refresh(viewer);
     selection::redraw(viewer);
+    if is_page_structure_edit {
+        crate::app::organize::refresh_if_visible(viewer);
+    }
 
     // Only a full refresh shows the real result of undoing/redoing a content
     // edit (T-163, decision 6) — an annotation's overlay already painted the

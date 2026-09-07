@@ -99,6 +99,11 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
     let heading = panel_heading("Organize pages");
     heading.set_hexpand(true);
     header.append(&heading);
+    for (label, action) in [("Undo", "win.undo"), ("Redo", "win.redo")] {
+        let button = Button::with_label(label);
+        button.set_action_name(Some(action));
+        header.append(&button);
+    }
     let save = Button::with_label("Save");
     save.add_css_class("home-primary");
     header.append(&save);
@@ -169,6 +174,22 @@ pub(crate) fn show(viewer: &Viewer) {
     }
     populate_grid(viewer);
     viewer.view_stack.set_visible_child_name(ORGANIZE_PAGE);
+}
+
+/// Rebuilds the grid when this screen is the one on show, and does nothing
+/// otherwise. Called from `annotations::command::history` after an undo or
+/// redo that moved a `MovePage`/`RemovePage`/`InsertPage` command: those
+/// change `Document.pages` behind the grid's back, so the cards left on
+/// screen would keep the order the log has just reversed.
+///
+/// Gated on visibility rather than run unconditionally because a rebuild
+/// costs one pdfium render per page (see [`populate_grid`]), and [`show`]
+/// populates the grid on the way in — a hidden grid has nothing to keep
+/// current.
+pub(crate) fn refresh_if_visible(viewer: &Viewer) {
+    if viewer.view_stack.visible_child_name().as_deref() == Some(ORGANIZE_PAGE) {
+        populate_grid(viewer);
+    }
 }
 
 /// Clears the grid and rebuilds one card per page of the current session's
@@ -262,10 +283,11 @@ fn build_card(
             let Some(index) = card_position(&cards, &card) else {
                 return;
             };
-            delete_page(&viewer, index);
-            grid.remove(&card);
-            cards.borrow_mut().remove(index);
-            renumber(&cards);
+            if delete_page(&viewer, index) {
+                grid.remove(&card);
+                cards.borrow_mut().remove(index);
+                renumber(&cards);
+            }
         }
     });
 
@@ -328,17 +350,34 @@ fn handle_drop(viewer: &Viewer, value: &glib::Value, x: f64, y: f64) -> bool {
         return false;
     }
 
-    move_page(viewer, from, to);
+    if !move_page(viewer, from, to) {
+        return false;
+    }
     populate_grid(viewer);
     true
 }
 
+/// Renders one card's thumbnail off the main thread and fills its `Picture`
+/// in when the render lands.
+///
+/// The `cfg(test)` early return is the module's one test seam, and it is here
+/// rather than in the tests because this is the only line where the pairing
+/// under test — *which* pdfium page index a given card asked for — still
+/// exists. `Document.pages` is reordered by `Command::MovePage`, so a card
+/// that rendered by grid position instead of by page identity would still
+/// look right in the model and wrong on screen; capturing the request is what
+/// tells the two apart. The tests cannot let the real path run: their session
+/// carries no pdfium document.
 fn spawn_thumbnail(
     viewer: &Viewer,
     handle: DocumentHandle,
     pdfium_page_index: u32,
     picture: Picture,
 ) {
+    #[cfg(test)]
+    if tests::capture_thumbnail(pdfium_page_index, &picture) {
+        return;
+    }
     let scale_factor = picture.scale_factor().max(1) * RENDER_HEADROOM;
     glib::spawn_future_local({
         let viewer = viewer.clone();
@@ -402,10 +441,10 @@ fn thumbnail_dpi(width_pt: f32, height_pt: f32, scale_factor: i32) -> u32 {
 fn command(
     viewer: &Viewer,
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
-) {
+) -> bool {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(refusal);
-        return;
+        return false;
     }
     let result = {
         let mut state = viewer.state.borrow_mut();
@@ -421,8 +460,13 @@ fn command(
                 session.unsaved_to_disk = true;
             }
             viewer.status.set_text(&message);
+            super::annotations::update_annotation_controls(viewer);
+            true
         }
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => {
+            viewer.status.set_text(&error);
+            false
+        }
     }
 }
 
@@ -439,7 +483,10 @@ fn apply_command(document: &mut Document, command: Command) {
     document.pending_edits = log;
 }
 
-fn move_page(viewer: &Viewer, from: usize, to: usize) {
+fn move_page(viewer: &Viewer, from: usize, to: usize) -> bool {
+    if from == to {
+        return false;
+    }
     command(viewer, |session| {
         let document = model(session)?;
         if from >= document.pages.len() || to >= document.pages.len() {
@@ -447,10 +494,10 @@ fn move_page(viewer: &Viewer, from: usize, to: usize) {
         }
         apply_command(document, Command::MovePage { from, to });
         Ok(format!("Moved page {} to position {}.", from + 1, to + 1))
-    });
+    })
 }
 
-fn delete_page(viewer: &Viewer, index: usize) {
+fn delete_page(viewer: &Viewer, index: usize) -> bool {
     command(viewer, |session| {
         let document = model(session)?;
         let page = document
@@ -460,5 +507,8 @@ fn delete_page(viewer: &Viewer, index: usize) {
             .ok_or_else(|| "Page no longer exists.".to_string())?;
         apply_command(document, Command::RemovePage { index, page });
         Ok(format!("Deleted page {}.", index + 1))
-    });
+    })
 }
+
+#[cfg(test)]
+mod tests;
