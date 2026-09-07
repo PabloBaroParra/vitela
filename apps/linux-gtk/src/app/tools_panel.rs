@@ -175,7 +175,7 @@ fn build_tab_switcher(stack: &Stack) -> FlowBox {
                 // A custom child leaves the button with no label of its own
                 // for the accessibility layer to fall back on — same fix as
                 // `shell::rail_item`'s.
-                toggle.update_property(&[gtk::accessible::Property::Label(*title)]);
+                toggle.update_property(&[gtk::accessible::Property::Label(title)]);
                 switcher.append(&toggle);
                 (*name, toggle)
             })
