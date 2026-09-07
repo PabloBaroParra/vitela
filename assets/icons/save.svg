@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
+ role="img" aria-label="Save">
+<title>Save</title>
+<g fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path d="M5.5 3.5h11l4 4v11a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z"/>
+<path d="M8 3.5V9h7V3.5M7.5 20.5v-7h9v7"/>
+</g>
+</svg>

@@ -48,10 +48,9 @@ pub(crate) const SHELL_CSS: &str = r#"
 
 .editor-toolbar {
   border-bottom: 1px solid #e3e0e9;
-  padding: 8px 12px;
+  padding: 10px 8px;
 }
 
-.editor-toolbar button,
 .page-navigation button,
 .tools-panel button,
 .app-rail-item {
@@ -59,9 +58,76 @@ pub(crate) const SHELL_CSS: &str = r#"
   transition: background-color 120ms ease, color 120ms ease;
 }
 
+.editor-toolbar button,
+.toolbar-search button {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: #302d3a;
+  transition: background-color 120ms ease;
+}
+
 .editor-toolbar button:hover,
-.editor-toolbar button:focus-visible {
-  background: #f2f0f5;
+.toolbar-search button:hover {
+  background: #f5f3fa;
+}
+
+.editor-toolbar button:checked {
+  background: #f2edff;
+  border-color: #ded3ff;
+}
+
+.editor-toolbar button:focus-visible,
+.toolbar-search button:focus-visible {
+  outline: 2px solid #6b4eff;
+  outline-offset: -2px;
+}
+
+.editor-toolbar button:disabled,
+.toolbar-search button:disabled {
+  opacity: 0.38;
+}
+
+.toolbar-group {
+  padding: 0 8px;
+  border-right: 1px solid #eeecf2;
+}
+
+.toolbar-group-last {
+  border-right: none;
+}
+
+.editor-toolbar .page-indicator {
+  min-width: 54px;
+  min-height: 32px;
+  padding: 0 6px;
+  border: 1px solid #e7e4ed;
+  border-radius: 6px;
+  background: #fcfbfe;
+}
+
+.editor-toolbar .zoom-indicator {
+  min-width: 48px;
+  color: #302d3a;
+}
+
+.toolbar-search > contents {
+  padding: 14px;
+  background: #ffffff;
+  color: #302d3a;
+}
+
+.toolbar-search entry {
+  min-height: 32px;
+  border: 1px solid #ded9e9;
+  border-radius: 6px;
+  background: #fcfbfe;
+  color: #302d3a;
+  caret-color: #302d3a;
 }
 
 .editor-main {

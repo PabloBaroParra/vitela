@@ -621,7 +621,14 @@ fn connect_standard_shortcuts(
     find.connect_activate({
         let entry = viewer.search_entry.clone();
         move |_, _| {
-            entry.grab_focus();
+            if let Some(button) = entry
+                .ancestor(gtk::MenuButton::static_type())
+                .and_then(|widget| widget.downcast::<gtk::MenuButton>().ok())
+                .filter(|button| button.is_mapped())
+            {
+                button.popup();
+                entry.grab_focus();
+            }
         }
     });
     window.add_action(&find);

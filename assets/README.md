@@ -78,7 +78,7 @@ The Android shell does not show the mark yet.
 ## icons/ — the shell's own icon set
 
 `icons/*.svg` are the line icons the GTK4 shell draws in its app rail, its
-Home tool grid, its quick actions and the tools panel's Edit page.
+Home tool grid, its quick actions, the editor toolbar and the tools panel's Edit page.
 Hand-authored, like the brand mark, and in the same 24x24 stroke style.
 
 They exist because **no shell may look an icon up in the desktop's icon
@@ -100,13 +100,15 @@ placeholder token so the file stays a valid, previewable SVG.
 `icons::tests::every_icon_carries_exactly_one_tint_token` fails if a new icon
 arrives with none (it would paint black everywhere) or with two (one stroke
 would silently stay black), and
-`gtk_ui_every_icon_rasterises_at_both_sizes` fails if a path is malformed —
+`gtk_ui_every_icon_rasterises_at_toolbar_and_panel_sizes` fails if a path is malformed —
 neither of which is visible in a diff.
 
 ### The optical grid
 
-**Every icon's strokes span y 3.5 to 20.5 of the 24-unit viewBox, centred on
-12.** A new icon that does not is not finished.
+**Tile and rail icons span y 3.5 to 20.5 of the 24-unit viewBox, centred on
+12.** Toolbar glyphs share that centre but use explicit compact bounds for
+minus/plus, history arrows and chevrons rather than stretching those symbols.
+`gtk_ui_toolbar_icons_have_centered_optical_bounds` checks their ink bounds.
 
 This is not a style preference, it is the fix for a real defect. The first set
 was authored shape by shape and each drawing filled its own box: rendered at

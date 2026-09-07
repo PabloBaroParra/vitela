@@ -88,12 +88,25 @@ pub(crate) enum Icon {
     /// one of the two things the feature acts on.
     Text,
     Image,
+    Save,
+    Print,
+    Undo,
+    Redo,
+    ZoomOut,
+    ZoomIn,
+    FitWidth,
+    FitPage,
+    PanelLeft,
+    PanelRight,
+    Previous,
+    Next,
+    Search,
 }
 
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 14] = [
+const ALL_ICONS: [Icon; 27] = [
     Icon::Home,
     Icon::Recent,
     Icon::Files,
@@ -108,6 +121,19 @@ const ALL_ICONS: [Icon; 14] = [
     Icon::Delete,
     Icon::Text,
     Icon::Image,
+    Icon::Save,
+    Icon::Print,
+    Icon::Undo,
+    Icon::Redo,
+    Icon::ZoomOut,
+    Icon::ZoomIn,
+    Icon::FitWidth,
+    Icon::FitPage,
+    Icon::PanelLeft,
+    Icon::PanelRight,
+    Icon::Previous,
+    Icon::Next,
+    Icon::Search,
 ];
 
 macro_rules! icon_source {
@@ -137,6 +163,19 @@ impl Icon {
             Icon::Delete => icon_source!("delete.svg"),
             Icon::Text => icon_source!("text.svg"),
             Icon::Image => icon_source!("image.svg"),
+            Icon::Save => icon_source!("save.svg"),
+            Icon::Print => icon_source!("print.svg"),
+            Icon::Undo => icon_source!("undo.svg"),
+            Icon::Redo => icon_source!("redo.svg"),
+            Icon::ZoomOut => icon_source!("zoom-out.svg"),
+            Icon::ZoomIn => icon_source!("zoom-in.svg"),
+            Icon::FitWidth => icon_source!("fit-width.svg"),
+            Icon::FitPage => icon_source!("fit-page.svg"),
+            Icon::PanelLeft => icon_source!("panel-left.svg"),
+            Icon::PanelRight => icon_source!("panel-right.svg"),
+            Icon::Previous => icon_source!("previous.svg"),
+            Icon::Next => icon_source!("next.svg"),
+            Icon::Search => icon_source!("search.svg"),
         }
     }
 }
@@ -174,8 +213,8 @@ pub(crate) fn build_icon(icon: Icon, logical_edge: i32, color: &str) -> Image {
     image.set_pixel_size(logical_edge);
     image.set_halign(gtk::Align::Center);
     image.set_valign(gtk::Align::Center);
-    // Decorative: every icon in this shell sits beside its own text label, so
-    // announcing it as well would read the same word twice.
+    // Decorative: callers provide a text label or the button's accessible
+    // name, so announcing the image as well would duplicate that name.
     image.set_can_target(false);
     image.update_property(&[gtk::accessible::Property::Label("")]);
 
@@ -257,19 +296,21 @@ mod tests {
     /// Tinting replaces the token and leaves the drawing alone.
     #[test]
     fn tinting_swaps_the_token_for_the_requested_colour() {
-        let tinted_source = tinted(Icon::Sign.source(), SIGN_TINT);
+        for icon in ALL_ICONS {
+            let tinted_source = tinted(icon.source(), SIGN_TINT);
 
-        assert!(tinted_source.contains(SIGN_TINT));
-        assert!(!tinted_source.contains(TINT_TOKEN));
-        assert_eq!(
-            tinted_source.matches("<path").count(),
-            Icon::Sign.source().matches("<path").count()
-        );
+            assert!(tinted_source.contains(SIGN_TINT));
+            assert!(!tinted_source.contains(TINT_TOKEN));
+            assert_eq!(
+                tinted_source.matches("<path").count(),
+                icon.source().matches("<path").count()
+            );
+        }
     }
 
-    /// The optical grid every icon is drawn on, measured at [`GRID_EDGE_PX`]:
+    /// The original tile/rail icon grid, measured at [`GRID_EDGE_PX`]:
     /// ink from row [`GRID_INK_TOP`] to row [`GRID_INK_BOTTOM`], which is
-    /// y 3.5 to 20.5 of the 24-unit viewBox.
+    /// ink at y 2.5 to 21.5 (stroke centres at 3.5 to 20.5) in the viewBox.
     const GRID_EDGE_PX: i32 = 96;
     const GRID_INK_TOP: i32 = 10;
     const GRID_INK_BOTTOM: i32 = 86;
@@ -307,7 +348,7 @@ mod tests {
         bounds.unwrap_or_else(|| panic!("{icon:?} rasterised to nothing at all"))
     }
 
-    /// **Every icon occupies the same vertical band.**
+    /// **Every original tile/rail icon occupies the same vertical band.**
     ///
     /// The regression this exists for was visible and confusing: the first
     /// set was authored shape by shape, so its ink ran from 60 to 80 pixels
@@ -322,7 +363,22 @@ mod tests {
     /// pixels know. So this measures them.
     #[gtk::test]
     fn gtk_ui_every_icon_is_drawn_on_the_same_optical_grid() {
-        for icon in ALL_ICONS {
+        for icon in [
+            Icon::Home,
+            Icon::Recent,
+            Icon::Files,
+            Icon::Edit,
+            Icon::Annotate,
+            Icon::Sign,
+            Icon::Organize,
+            Icon::Compress,
+            Icon::Protect,
+            Icon::NewFile,
+            Icon::Sample,
+            Icon::Delete,
+            Icon::Text,
+            Icon::Image,
+        ] {
             let (top, bottom) = vertical_ink_bounds(icon);
             assert!(
                 (top - GRID_INK_TOP).abs() <= GRID_TOLERANCE_PX,
@@ -331,6 +387,41 @@ mod tests {
             assert!(
                 (bottom - GRID_INK_BOTTOM).abs() <= GRID_TOLERANCE_PX,
                 "{icon:?} ink ends at row {bottom}, off the shared grid's {GRID_INK_BOTTOM}"
+            );
+        }
+    }
+
+    /// Toolbar glyphs remain centred without stretching compact symbols to
+    /// the tile grid. Bounds are ink rows at 96px, with the bottom exclusive.
+    #[gtk::test]
+    fn gtk_ui_toolbar_icons_have_centered_optical_bounds() {
+        for (icon, expected_top, expected_bottom) in [
+            (Icon::Save, 10, 86),
+            (Icon::Print, 10, 86),
+            (Icon::Undo, 20, 76),
+            (Icon::Redo, 20, 76),
+            (Icon::ZoomOut, 44, 52),
+            (Icon::ZoomIn, 20, 76),
+            (Icon::FitWidth, 10, 86),
+            (Icon::FitPage, 10, 86),
+            (Icon::PanelLeft, 10, 86),
+            (Icon::PanelRight, 10, 86),
+            (Icon::Previous, 20, 76),
+            (Icon::Next, 20, 76),
+            (Icon::Search, 10, 86),
+        ] {
+            let (top, bottom) = vertical_ink_bounds(icon);
+            assert!(
+                (top - expected_top).abs() <= GRID_TOLERANCE_PX,
+                "{icon:?} ink starts at row {top}, expected {expected_top}"
+            );
+            assert!(
+                (bottom - expected_bottom).abs() <= GRID_TOLERANCE_PX,
+                "{icon:?} ink ends at row {bottom}, expected {expected_bottom}"
+            );
+            assert!(
+                (top + bottom - GRID_EDGE_PX).abs() <= GRID_TOLERANCE_PX,
+                "{icon:?} ink is not centred: rows {top}..{bottom}"
             );
         }
     }
@@ -362,13 +453,13 @@ mod tests {
         }
     }
 
-    /// Every icon has to survive the real librsvg pipeline at the two sizes
+    /// Every icon has to survive the real librsvg pipeline at the three sizes
     /// the shell asks for. A malformed path would otherwise reach a user as a
     /// silently missing icon.
     #[gtk::test]
-    fn gtk_ui_every_icon_rasterises_at_both_sizes() {
+    fn gtk_ui_every_icon_rasterises_at_toolbar_and_panel_sizes() {
         for icon in ALL_ICONS {
-            for edge in [16, 24] {
+            for edge in [16, 18, 24] {
                 let svg = tinted(icon.source(), NEUTRAL_TINT);
                 let texture = rasterize(svg.as_bytes(), edge)
                     .unwrap_or_else(|| panic!("{icon:?} must rasterise at {edge}px"));
