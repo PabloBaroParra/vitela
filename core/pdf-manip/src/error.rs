@@ -29,6 +29,11 @@ pub enum ManipError {
     EmptyMerge,
     /// `extract_pages` was called with an empty page selection.
     EmptyPageSelection,
+    /// `graft_pages` was given the same source page more than once. Each
+    /// grafted page keeps its source object id so references between imported
+    /// pages stay valid, and one object cannot sit at two places in a page
+    /// tree, so the duplicate is refused rather than silently collapsed.
+    DuplicatePageSelection(usize),
     /// A 1-indexed page number was zero or beyond the document's page count.
     InvalidPageNumber(u32),
     /// A 0-indexed page/insertion index was beyond the document's bounds.
@@ -58,6 +63,9 @@ impl fmt::Display for ManipError {
             }
             ManipError::EmptyMerge => write!(f, "cannot merge zero documents"),
             ManipError::EmptyPageSelection => write!(f, "page selection must not be empty"),
+            ManipError::DuplicatePageSelection(page) => {
+                write!(f, "page {page} appears more than once in the selection")
+            }
             ManipError::InvalidPageNumber(n) => write!(f, "invalid page number: {n}"),
             ManipError::InvalidPageIndex(i) => write!(f, "invalid page index: {i}"),
             ManipError::InvalidPageRange {

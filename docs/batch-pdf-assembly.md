@@ -106,21 +106,71 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 3. Importación PDF
 
-- [ ] Implementar una operación de injerto de páginas en `pdf-manip`.
-- [ ] Copiar y remapear el grafo de objetos alcanzable desde cada página.
-- [ ] Materializar los atributos heredados necesarios antes de cambiar el
+- [x] Implementar una operación de injerto de páginas en `pdf-manip`.
+- [x] Copiar y remapear el grafo de objetos alcanzable desde cada página.
+- [x] Materializar los atributos heredados necesarios antes de cambiar el
   padre de una página.
-- [ ] Conservar streams de contenido, fuentes, imágenes, XObjects, espacios de
+- [x] Conservar streams de contenido, fuentes, imágenes, XObjects, espacios de
   color y patrones.
-- [ ] Conservar cajas de página, rotación y recursos heredados.
-- [ ] Conservar enlaces, acciones y anotaciones asociados a las páginas.
-- [ ] Evitar colisiones entre identificadores de objetos de distintos PDFs.
-- [ ] Excluir de la copia el catálogo, trailer, cifrado y metadatos globales de
+- [x] Conservar cajas de página, rotación y recursos heredados.
+- [x] Conservar enlaces, acciones y anotaciones asociados a las páginas.
+- [x] Evitar colisiones entre identificadores de objetos de distintos PDFs.
+- [x] Excluir de la copia el catálogo, trailer, cifrado y metadatos globales de
   la fuente cuando no deban gobernar el documento resultante.
-- [ ] Devolver el mapa de objetos necesario para resolver las páginas
+- [x] Devolver el mapa de objetos necesario para resolver las páginas
   importadas después del injerto.
-- [ ] Hacer que una entrada malformada falle sin modificar parcialmente el
+- [x] Hacer que una entrada malformada falle sin modificar parcialmente el
   destino.
+
+### Progreso del injerto
+
+- 2026-09-08: `pdf_manip::graft_pages(destino, índice, fuente, páginas)` copia
+  páginas reales de un PDF a otro y devuelve el documento resultante. No
+  rasteriza nada.
+- No es `merge` y no podía serlo: `merge` construye un documento nuevo a partir
+  de varias fuentes, y aquí el destino ya está abierto — su catálogo, su
+  política de cifrado, su `/Info`, sus identificadores de objeto y sus páginas
+  tienen que sobrevivir intactos, porque hay un `EditLog` entero apuntando a
+  ellos. El injerto clona el destino tal cual y solo trae lo seleccionado.
+- Colisiones de identificadores: se resuelven una sola vez renumerando un clon
+  de la fuente por encima del `max_id` del destino, en vez de remapear
+  referencia por referencia.
+- Atributos heredados (`/Resources`, `/MediaBox`, `/CropBox`, `/Rotate`) se
+  materializan sobre la página antes de reparentarla, porque el nodo `/Pages`
+  del que los heredaba se queda atrás. El aplanado ocurre ANTES del recorrido:
+  materializar `/Resources` mete una referencia nueva en la página que el
+  recorrido después tiene que seguir.
+- El recorrido sigue referencias transitivamente e incluye los diccionarios de
+  los streams, no solo los diccionarios planos: una imagen indexada necesita su
+  tabla de consulta y su `/SMask`, y ambos cuelgan del diccionario del stream.
+  Hay un test que camina esa cadena entera.
+- Referencias a páginas NO seleccionadas: el recorrido se detiene ahí. Seguirlas
+  arrastraría casi toda la fuente detrás de un solo enlace. La referencia queda
+  apuntando a un objeto ausente, que PDF 32000-1:2008 §7.3.10 define como una
+  referencia a null — el enlace queda inerte, no corrupto. Remapear destinos
+  importados y avisar de los que no lo están es trabajo de la fase 4.
+- Resolución posterior al injerto: las páginas injertadas caen contiguas en
+  `índice..índice + páginas.len()` y en el orden pedido, así que el llamador las
+  resuelve por posición igual que ya hace `bridge::page_object_ids`. No se
+  devuelve un mapa de objetos aparte porque no haría falta ninguno.
+- Se rechaza la misma página fuente dos veces
+  (`ManipError::DuplicatePageSelection`): cada página injertada conserva el
+  identificador de objeto de su fuente para que las referencias entre páginas
+  importadas sigan siendo válidas, y un mismo objeto no puede ocupar dos
+  posiciones del árbol de páginas.
+- Atomicidad: la validación entera ocurre antes de copiar el primer objeto, y
+  el destino se recibe por referencia, así que un injerto rechazado no puede
+  dejar un documento a medio importar.
+- Pendiente para que el injerto sea alcanzable desde un guardado (fase 6):
+  `bridge::replay_page_ops` todavía rechaza las páginas `Imported`. Necesita un
+  registro de fuentes importadas que hoy no existe en `SaveInput`, y añadir ese
+  campo toca todos sus sitios de construcción — es una decisión de API propia,
+  no parte del injerto.
+- Verificación: `cargo test -p pdf-manip` (15 tests de injerto, incluido un
+  round trip real de serializar y volver a abrir); `cargo fmt --all -- --check`;
+  `cargo clippy --workspace --all-targets --locked -- -D warnings`;
+  `python3 scripts/check_maintainability.py` (99 avisos, línea base sin
+  cambios).
 
 ## 4. Estructuras de documento
 
