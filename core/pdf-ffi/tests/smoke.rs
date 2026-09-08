@@ -520,6 +520,27 @@ fn remove_page_with_out_of_bounds_index_returns_typed_error() {
     ));
 }
 
+#[test]
+fn insert_blank_page_past_the_end_returns_typed_error() {
+    let handle =
+        create_document_with_blank_page(FfiPageSize::A4, FfiOrientation::Portrait).unwrap();
+    // One page exists, so index 1 would append; 9 addresses nothing. Before
+    // this was checked the index reached `Vec::insert` and aborted the
+    // process — across the FFI boundary a panic is not catchable.
+    let result = apply_edit(
+        &handle,
+        FfiEditCommand::InsertBlankPage {
+            index: 9,
+            size: FfiPageSize::A4,
+            orientation: FfiOrientation::Portrait,
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(FfiError::PageIndexOutOfBounds { index: 9 })
+    ));
+}
+
 // ---------------------------------------------------------------------
 // Page-content editing (Batch 21, T-158): read_page_content + the nine
 // content Command variants through apply_edit.

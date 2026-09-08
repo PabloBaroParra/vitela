@@ -107,6 +107,14 @@ impl DocumentState {
                 size,
                 orientation,
             } => {
+                // Mirrors `RemovePage` below. The bound is `len`, not
+                // `len - 1`: inserting one past the last page appends. The
+                // core rejects an out-of-range index too, but only as
+                // `false` — this is where the index is still around to name
+                // in the error a shell will show.
+                if index as usize > self.document.pages.len() {
+                    return Err(FfiError::PageIndexOutOfBounds { index });
+                }
                 let id = self.allocate_page_id();
                 let page = Page::blank(id, size.into(), orientation.into());
                 Command::InsertPage {
@@ -681,14 +689,19 @@ mod tests {
     }
 }
 
-fn apply_command(document: &mut Document, command: Command) {
+/// Returns `false` when `EditLog::apply` rejected the command, leaving both
+/// the document and the log untouched. Callers map that to an error instead
+/// of dropping it: a rejected command records nothing, so an `Ok(())` would
+/// tell the shell an edit is queued when none is.
+fn apply_command(document: &mut Document, command: Command) -> bool {
     // `EditLog::apply` needs `&mut EditLog` and `&mut Document` at once,
     // which can't both be reached as `document.pending_edits.apply(&mut
     // document, ..)` — same take/apply/restore dance used throughout
     // `pdf-save`/`pdf-document`'s own tests (see e.g. `strategy.rs`).
     let mut log = std::mem::take(&mut document.pending_edits);
-    log.apply(document, command);
+    let applied = log.apply(document, command);
     document.pending_edits = log;
+    applied
 }
 
 fn open_render_doc_from_bytes(
@@ -962,7 +975,11 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
             return Ok(());
         }
     }
-    apply_command(&mut state.document, core_command);
+    if !apply_command(&mut state.document, core_command) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this edit command was rejected against the open document".to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -1087,7 +1104,11 @@ pub fn insert_image_stamp(
     let id = state.allocate_annotation_id();
     let annotation =
         pdf_annotate::stamp_from_image_bytes(id, PageId(page_index), &image_bytes, rect.into())?;
-    apply_command(&mut state.document, Command::AddAnnotation(annotation));
+    if !apply_command(&mut state.document, Command::AddAnnotation(annotation)) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this edit command was rejected against the open document".to_string(),
+        });
+    }
     Ok(())
 }
 
