@@ -32,7 +32,9 @@ fn graft_pages_allows_a_source_whose_unselected_page_has_form_fields() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::pdf_with_a_widget_on_first_page());
 
-    let result = graft_pages(&destination, 1, &source, &[1]).expect("plain page should graft");
+    let result = graft_pages(&destination, 1, &source, &[1])
+        .expect("plain page should graft")
+        .document;
 
     assert_eq!(support::labels(&result), vec!["D1", "Plain"]);
 }

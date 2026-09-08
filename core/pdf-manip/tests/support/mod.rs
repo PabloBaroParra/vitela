@@ -16,6 +16,8 @@ use lopdf::{
 };
 use pdf_manip::LopdfDocument;
 
+pub mod structures;
+
 /// Builds a minimal, valid, unencrypted PDF with one page per label in
 /// `labels`, each page's content stream containing a single `Tj` operation
 /// with that label's text, so tests can verify page identity/order after a

@@ -511,8 +511,14 @@ pub fn replay_page_ops(
                 let document = sources
                     .get(source)
                     .expect("the guard above refused every source this save was not given");
+                // The report is deliberately dropped here: a save is a replay
+                // of an import the user already chose, and `pdf_manip::
+                // graft_report` is what shows them the cost at selection
+                // time. What must not be dropped is a *refusal* — that is an
+                // error, and it still stops the save.
                 working =
-                    pdf_manip::graft_pages(&working, position, document, &[page_index as usize])?;
+                    pdf_manip::graft_pages(&working, position, document, &[page_index as usize])?
+                        .document;
             }
             PageOrigin::Base { .. } => {
                 return Err(SaveError::InvalidSaveRequest(

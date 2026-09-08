@@ -53,6 +53,15 @@ pub enum ManipError {
     /// `docs/batch-pdf-assembly.md` section 4), so the graft is refused
     /// rather than importing a page that silently drops its fields.
     SourceHasFormFields(usize),
+    /// A page selected for `graft_pages` draws optional content (a `/OCG` or
+    /// `/OCMD`, PDF 32000-1:2008 section 8.11). The configuration that says
+    /// whether such a layer is on or off lives in the source catalog's
+    /// `/OCProperties`, which an import must not copy — so the marked content
+    /// would arrive with nothing to say it was hidden, and a viewer would
+    /// show what the author had turned off. That is wrong output rather than
+    /// merely poorer output, so the graft is refused (checklist "Estructuras
+    /// de documento", `docs/batch-pdf-assembly.md` section 4).
+    SourceHasOptionalContent(usize),
 }
 
 impl fmt::Display for ManipError {
@@ -92,6 +101,10 @@ impl fmt::Display for ManipError {
             ManipError::SourceHasFormFields(page) => write!(
                 f,
                 "page {page} has form fields; importing AcroForm fields is not supported yet"
+            ),
+            ManipError::SourceHasOptionalContent(page) => write!(
+                f,
+                "page {page} uses optional content (layers); importing layered content is not supported yet"
             ),
         }
     }

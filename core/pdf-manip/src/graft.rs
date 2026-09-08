@@ -23,37 +23,26 @@
 //! streams. Attributes the page only *inherited* (`/Resources`, `/MediaBox`,
 //! `/CropBox`, `/Rotate` — PDF 32000-1:2008 section 7.7.3.4) are materialized
 //! onto the page first, because the `/Pages` node they were inherited from is
-//! deliberately left behind.
+//! deliberately left behind. That walk lives in [`crate::page_graph`].
 //!
 //! What does not come along: the source's catalog, its page-tree nodes, its
 //! trailer, its `/Encrypt` dictionary and its document-level metadata. None
 //! of those may govern the destination.
 //!
-//! ## References into pages that were not selected
+//! ## Everything the catalog owned
 //!
-//! A link annotation on an imported page can name a destination on a page
-//! that was *not* imported. Following it would drag that page — and
-//! transitively most of the source — in behind it, which is not what the user
-//! asked for. The traversal therefore stops at any page object outside the
-//! selection, and the reference is left pointing at an object that is not
-//! there. PDF 32000-1:2008 section 7.3.10 defines exactly that case: a
-//! reference to an object that does not exist is a reference to null, so the
-//! link is inert rather than corrupt.
+//! Leaving the catalog behind leaves five things behind with it: the
+//! `/AcroForm`, the destination name tree, the outline, the optional-content
+//! configuration and the tagged-structure tree. Each is either refused or
+//! reported, never dropped in silence — [`crate::report`] owns that decision
+//! and states the reasoning, and this function calls it *before* it copies a
+//! single object, so a refused import cannot leave a half-imported document
+//! behind.
 //!
-//! Turning that inert link into something better — remapping destinations
-//! that *were* imported, and telling the user about the ones that were not —
-//! is the bookmarks-and-destinations policy work, not this operation's job.
-//!
-//! ## AcroForm widgets
-//!
-//! A selected page whose `/Annots` includes a `/Subtype /Widget` annotation —
-//! the visible half of an AcroForm field — is refused outright rather than
-//! imported. Copying the widget without merging its field into the
-//! destination's `/AcroForm` would produce an inert box; merging it needs a
-//! name-collision policy this crate does not implement yet (checklist
-//! "Estructuras de documento", `docs/batch-pdf-assembly.md` section 4). The
-//! check only looks at the pages actually being imported — a source document
-//! can have an AcroForm elsewhere and still graft cleanly.
+//! The one thing this module does about them is the rewrite that only works
+//! here: a named destination is resolved against the source, while the source
+//! is still in hand, and written into the imported link as the explicit
+//! destination it meant (see [`crate::destinations`]).
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -62,16 +51,8 @@ use lopdf::{Dictionary, Document as LopdfRawDocument, Object, ObjectId};
 use crate::create_blank::root_pages_id;
 use crate::document::LopdfDocument;
 use crate::error::ManipError;
-
-/// How far up a `/Parent` chain an inherited attribute is looked for before
-/// the page tree is treated as malformed. Mirrors `pdf-edit`'s own cap on the
-/// same walk: real files nest a handful of levels, and a cap is what keeps a
-/// cyclic `/Parent` from hanging the import.
-const MAX_INHERITANCE_DEPTH: usize = 32;
-
-/// Page attributes a page may inherit from an ancestor `/Pages` node
-/// (PDF 32000-1:2008 section 7.7.3.4).
-const INHERITABLE_ATTRIBUTES: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
+use crate::page_graph::{collect_reachable, flattened_page};
+use crate::report::{inspect, rewrite_named_destinations, GraftOutcome};
 
 /// Copies the pages of `source` named by the 0-based indices in `pages` into
 /// `document`, at 0-based position `index`, preserving their real PDF content.
@@ -83,25 +64,22 @@ const INHERITABLE_ATTRIBUTES: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox
 /// any `index` at or past the end — the same convention
 /// [`crate::insert_blank_page`] uses.
 ///
+/// Returns the new document together with a [`crate::GraftReport`] naming
+/// everything the import left behind; an empty report is what says the import
+/// was lossless. [`crate::graft_report`] answers the same question without
+/// importing, for a caller that wants to ask before committing.
+///
 /// Fails without touching anything when the selection is empty, names a page
-/// the source does not have, names one page twice, or names a page that
-/// carries an AcroForm widget annotation (see this module's docs); `document`
-/// is borrowed, so a failed graft cannot leave a half-imported document
-/// behind.
+/// the source does not have, names one page twice, or names a page carrying
+/// structure that cannot be imported correctly (an AcroForm widget, optional
+/// content — see [`crate::report`]); `document` is borrowed, so a failed
+/// graft cannot leave a half-imported document behind.
 pub fn graft_pages(
     document: &LopdfDocument,
     index: usize,
     source: &LopdfDocument,
     pages: &[usize],
-) -> Result<LopdfDocument, ManipError> {
-    if pages.is_empty() {
-        return Err(ManipError::EmptyPageSelection);
-    }
-    let mut seen = HashSet::with_capacity(pages.len());
-    if let Some(&duplicate) = pages.iter().find(|page| !seen.insert(**page)) {
-        return Err(ManipError::DuplicatePageSelection(duplicate));
-    }
-
+) -> Result<GraftOutcome, ManipError> {
     let mut doc = document.0.clone();
     let destination_root = root_pages_id(&doc)?;
 
@@ -112,18 +90,11 @@ pub fn graft_pages(
     let mut donor = source.0.clone();
     donor.renumber_objects_with(doc.max_id + 1);
 
-    let donor_pages: Vec<ObjectId> = donor.get_pages().into_values().collect();
-    // Resolved before a single object is copied, so an out-of-range index is
-    // refused rather than discovered halfway through.
-    let selected: Vec<ObjectId> = pages
-        .iter()
-        .map(|&page| {
-            donor_pages
-                .get(page)
-                .copied()
-                .ok_or(ManipError::InvalidPageIndex(page))
-        })
-        .collect::<Result<_, _>>()?;
+    // Resolved and inspected before a single object is copied, so a bad index
+    // or an unimportable structure is refused rather than discovered halfway
+    // through.
+    let selected = selected_pages(&donor, pages)?;
+    let report = inspect(&donor, &selected, pages)?;
     let selected_set: HashSet<ObjectId> = selected.iter().copied().collect();
 
     // Each page is flattened first and walked afterwards: materializing an
@@ -132,11 +103,8 @@ pub fn graft_pages(
     // would leave the resources behind.
     let mut grafted: Vec<(ObjectId, Dictionary)> = Vec::with_capacity(selected.len());
     let mut reachable: BTreeSet<ObjectId> = BTreeSet::new();
-    for (i, &page_id) in selected.iter().enumerate() {
+    for &page_id in &selected {
         let dict = flattened_page(&donor, page_id)?;
-        if page_has_widget_annotations(&donor, &dict) {
-            return Err(ManipError::SourceHasFormFields(pages[i]));
-        }
         collect_reachable(&donor, &dict, &selected_set, &mut reachable);
         grafted.push((page_id, dict));
     }
@@ -147,6 +115,10 @@ pub fn graft_pages(
         }
     }
     for (page_id, mut dict) in grafted {
+        // Named destinations are rewritten after the annotations are in the
+        // destination and while `donor` still has the name tree to resolve
+        // against — the one moment both halves are available.
+        rewrite_named_destinations(&mut doc, &donor, &dict, &selected_set);
         // Set last: the traversal above must not follow it, and by now every
         // object the page reaches is already in the destination.
         dict.set("Parent", destination_root);
@@ -168,125 +140,36 @@ pub fn graft_pages(
     pages_dict.set("Kids", kids);
     pages_dict.set("Count", count);
 
-    Ok(LopdfDocument(doc))
-}
-
-/// The page's own dictionary with every inherited attribute written onto it
-/// and `/Parent` removed — a page that no longer needs the tree it came from.
-///
-/// `/Parent` is dropped rather than rewritten here so the traversal that
-/// follows cannot walk back up into the source's page tree; the caller sets
-/// the destination's root once the copy is done.
-fn flattened_page(donor: &LopdfRawDocument, page_id: ObjectId) -> Result<Dictionary, ManipError> {
-    let mut dict = donor.get_dictionary(page_id)?.clone();
-    for attribute in INHERITABLE_ATTRIBUTES {
-        if dict.get(attribute).is_ok() {
-            continue;
-        }
-        if let Some(value) = inherited_attribute(donor, page_id, attribute) {
-            dict.set(attribute.to_vec(), value);
-        }
-    }
-    dict.remove(b"Parent");
-    Ok(dict)
-}
-
-/// Walks the page's `/Parent` chain for the nearest ancestor that sets
-/// `attribute`, or `None` when nothing in the chain does.
-fn inherited_attribute(
-    donor: &LopdfRawDocument,
-    page_id: ObjectId,
-    attribute: &[u8],
-) -> Option<Object> {
-    let mut current = donor.get_dictionary(page_id).ok()?.clone();
-    for _ in 0..MAX_INHERITANCE_DEPTH {
-        let parent = current
-            .get(b"Parent")
-            .and_then(|value| value.as_reference())
-            .ok()?;
-        let dict = donor.get_dictionary(parent).ok()?;
-        if let Ok(value) = dict.get(attribute) {
-            return Some(value.clone());
-        }
-        current = dict.clone();
-    }
-    None
-}
-
-/// True when `dict`'s `/Annots` includes a `/Subtype /Widget` annotation —
-/// the visible half of an AcroForm field (PDF 32000-1:2008 section 12.5.6.19).
-/// Checked on the page itself rather than the source's `/AcroForm /Fields`
-/// tree, because a field can only affect an imported page through the widget
-/// sitting in that page's own `/Annots`.
-fn page_has_widget_annotations(donor: &LopdfRawDocument, dict: &Dictionary) -> bool {
-    let Ok(annots) = dict.get(b"Annots").and_then(|value| value.as_array()) else {
-        return false;
-    };
-    annots.iter().any(|annot| {
-        annot
-            .as_reference()
-            .ok()
-            .and_then(|id| donor.get_dictionary(id).ok())
-            .and_then(|annot_dict| annot_dict.get(b"Subtype").and_then(|v| v.as_name()).ok())
-            == Some(b"Widget".as_slice())
+    Ok(GraftOutcome {
+        document: LopdfDocument(doc),
+        report,
     })
 }
 
-/// Adds every object `dict` can reach to `reachable`, following indirect
-/// references transitively.
+/// Resolves a 0-based page selection against `doc`, refusing an empty
+/// selection, a repeated page and an index the document does not have.
 ///
-/// Stops at the two kinds of object that must not be copied: a page outside
-/// `selected` (see this module's docs on why the link is left inert instead)
-/// and the source's own page-tree nodes and catalog, which have no business
-/// governing the destination.
-fn collect_reachable(
-    donor: &LopdfRawDocument,
-    dict: &Dictionary,
-    selected: &HashSet<ObjectId>,
-    reachable: &mut BTreeSet<ObjectId>,
-) {
-    for (_, value) in dict.iter() {
-        collect_from_object(donor, value, selected, reachable);
+/// Shared by [`graft_pages`] and [`crate::graft_report`] so that asking what
+/// an import would cost refuses exactly what the import itself refuses.
+pub(crate) fn selected_pages(
+    doc: &LopdfRawDocument,
+    pages: &[usize],
+) -> Result<Vec<ObjectId>, ManipError> {
+    if pages.is_empty() {
+        return Err(ManipError::EmptyPageSelection);
     }
-}
-
-fn collect_from_object(
-    donor: &LopdfRawDocument,
-    value: &Object,
-    selected: &HashSet<ObjectId>,
-    reachable: &mut BTreeSet<ObjectId>,
-) {
-    match value {
-        Object::Reference(id) => {
-            if reachable.contains(id) {
-                return;
-            }
-            let Ok(object) = donor.get_object(*id) else {
-                return;
-            };
-            match object.type_name().unwrap_or_default() {
-                // A selected page is written by the caller in its flattened
-                // form, so it is neither copied nor descended into here — and
-                // an unselected one is exactly what must not be followed.
-                b"Page" | b"Pages" | b"Catalog" => return,
-                _ => {}
-            }
-            if selected.contains(id) {
-                return;
-            }
-            reachable.insert(*id);
-            collect_from_object(donor, object, selected, reachable);
-        }
-        Object::Array(items) => {
-            for item in items {
-                collect_from_object(donor, item, selected, reachable);
-            }
-        }
-        Object::Dictionary(dict) => collect_reachable(donor, dict, selected, reachable),
-        // A stream's dictionary carries references of its own — `/Length` as
-        // an indirect object, a soft-mask image, a form XObject's own
-        // `/Resources`.
-        Object::Stream(stream) => collect_reachable(donor, &stream.dict, selected, reachable),
-        _ => {}
+    let mut seen = HashSet::with_capacity(pages.len());
+    if let Some(&duplicate) = pages.iter().find(|page| !seen.insert(**page)) {
+        return Err(ManipError::DuplicatePageSelection(duplicate));
     }
+    let document_pages: Vec<ObjectId> = doc.get_pages().into_values().collect();
+    pages
+        .iter()
+        .map(|&page| {
+            document_pages
+                .get(page)
+                .copied()
+                .ok_or(ManipError::InvalidPageIndex(page))
+        })
+        .collect()
 }

@@ -333,14 +333,17 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Definir y probar la política para formularios AcroForm importados.
 - [ ] Resolver colisiones de nombres de campos sin fusionarlos silenciosamente.
 - [ ] Conservar widgets y apariencias cuando se acepten formularios.
-- [ ] Definir y probar la política para marcadores y destinos con nombre.
-- [ ] Remapear destinos que apunten a páginas importadas.
-- [ ] Detectar destinos que apunten a páginas no importadas.
-- [ ] Definir la política para capas opcionales y estructura etiquetada.
-- [ ] Rechazar con un mensaje claro cualquier estructura todavía no soportada
+- [x] Definir y probar la política para marcadores y destinos con nombre.
+- [x] Remapear destinos que apunten a páginas importadas.
+- [x] Detectar destinos que apunten a páginas no importadas.
+- [x] Definir la política para capas opcionales y estructura etiquetada.
+- [x] Rechazar con un mensaje claro cualquier estructura todavía no soportada
   que pudiera perder información.
 - [ ] No ofrecer una importación aparentemente correcta si existe pérdida de
-  datos conocida.
+  datos conocida. **Parcial**: el núcleo ya no puede perder nada en silencio
+  (rechazo o `GraftReport`), pero ningún shell muestra todavía el aviso, así
+  que para el usuario una importación con pérdida sigue pareciendo correcta.
+  Cierra con el ítem nuevo de la sección 8.
 
 ### Progreso de la política de formularios
 
@@ -369,6 +372,65 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   -D warnings`; `python3 scripts/check_maintainability.py` (99 avisos, línea
   base sin cambios — los tests nuevos se separaron en su propio archivo para
   no empujar `tests/graft.rs` sobre el umbral de 350 líneas).
+
+### Progreso de destinos, marcadores, capas y estructura etiquetada
+
+- 2026-09-08 (decisión de contrato): el injerto deja de devolver solo un
+  documento. `graft_pages` devuelve `GraftOutcome { document, report }` y hay
+  un `graft_report(fuente, páginas)` puro que responde lo mismo **sin importar
+  nada** — la puerta que el flujo de importación consulta en el momento de
+  seleccionar, cuando el usuario todavía puede cambiar de opinión. La
+  alternativa era convertir cada estructura no soportada en un `ManipError`
+  como se hizo con AcroForm; se descartó porque rechazaría casi todo PDF de
+  oficina (prácticamente todos vienen etiquetados) y dejaría la importación
+  inservible.
+- Regla: *ninguna importación con pérdida puede parecerse a una sin pérdida*.
+  Cada estructura del catálogo cae en una de dos respuestas, nunca en una
+  tercera. Se **rechaza** lo que saldría MAL (widget AcroForm; contenido
+  opcional, porque su configuración `/OCProperties` se queda atrás y una capa
+  que el autor apagó puede volver visible — eso no es pérdida, es salida
+  incorrecta). Se **avisa** lo que sale íntegro pero más pobre (destinos
+  colgantes, marcadores, estructura etiquetada).
+- Destinos explícitos: ya funcionaban gratis y ahora hay test que lo fija. El
+  injerto renumera la fuente entera una vez y conserva el id de cada página
+  injertada, así que `/Dest [12 0 R /XYZ …]` sigue cayendo en la misma página.
+- Destinos con nombre: NO funcionaban. El mapa nombre→página vive en el
+  catálogo (`/Names /Dests` o el `/Dests` de PDF 1.1) y el catálogo es
+  justamente lo que no se copia. Se resuelven contra la fuente mientras la
+  fuente está a mano y se escribe en el enlace importado el destino explícito
+  que significaban, conservando los parámetros de vista (`/XYZ`, `/FitH`) en
+  vez de inventar uno. Se buscan las dos formas, árbol de nombres y
+  diccionario heredado.
+- El árbol de nombres se recorre entero ignorando `/Limits`: es una pista de
+  orden que un productor puede escribir mal, y confiar en una pista errónea
+  daría un destino por irresoluble en silencio.
+- Marcadores: el `/Outlines` de la fuente no se importa — cuelga del catálogo
+  y está ordenado contra el orden de páginas de la fuente. Se cuentan solo las
+  entradas que apuntaban DENTRO de la selección; contar las demás sería dar
+  falsas alarmas con cualquier PDF que tenga índice.
+- Estructura etiquetada: se avisa, no se rechaza. Se detecta con
+  `/StructParents` en la página MÁS `/StructTreeRoot` en el catálogo: uno sin
+  el otro no apunta a nada y no hay nada que perder.
+- Anotaciones escritas en línea dentro de `/Annots` (sin objeto propio) no se
+  pueden reescribir; se leen para avisar, así que un destino con nombre en una
+  de ellas se reporta como caído en vez de viajar muerto.
+- El guardado descarta el reporte a propósito (`bridge.rs`): un guardado es la
+  reproducción de una importación que el usuario ya eligió, y quien enseña el
+  costo es `graft_report` en el momento de seleccionar. Lo que el guardado no
+  descarta es un rechazo — eso sigue siendo un error que corta el guardado.
+- Reparto de módulos en `pdf-manip`: `page_graph.rs` (cómo una página se
+  desprende de su árbol y qué alcanza — movido tal cual desde `graft.rs`, sin
+  cambio de comportamiento), `destinations.rs` (qué significa un destino),
+  `links.rs` (quién lleva uno: anotaciones y marcadores) y `report.rs` (la
+  política y el reporte). `graft.rs` quedó en 175 líneas.
+- Verificación: `cargo test --workspace --locked` (865 tests, 0 fallos;
+  incluidos `tests/graft_destinations.rs` con 8 y `tests/graft_structures.rs`
+  con 7); `cargo fmt --all -- --check`; `cargo clippy --workspace
+  --all-targets --locked -- -D warnings`;
+  `python3 scripts/check_maintainability.py` (99 avisos, línea base sin
+  cambios — `destinations.rs` se partió en dos y `tests/graft.rs` recuperó un
+  helper para no cruzar el umbral de 350 líneas). Los dos tests del remapeo se
+  comprobaron por mutación: desactivando la reescritura, fallan.
 
 ## 5. Seguridad y firmas
 
@@ -527,6 +589,9 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [ ] Mostrar progreso para operaciones perceptibles.
 - [ ] Permitir cancelar sin modificar documento, historial ni estado sucio.
 - [ ] Mostrar errores por archivo con una explicación accionable.
+- [ ] Mostrar antes de confirmar lo que la importación deja atrás
+  (`pdf_manip::graft_report`): enlaces que dejan de resolver, marcadores y
+  estructura etiquetada. Sin esto, la sección 4 ítem 9 queda sin cerrar.
 - [ ] Añadir inicialmente cada PDF como un bloque al final del documento.
 - [ ] Actualizar controles de guardado, deshacer y rehacer tras importar.
 

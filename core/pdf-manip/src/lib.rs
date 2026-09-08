@@ -13,12 +13,16 @@
 //! placeholder signatures did not match these operations' real contracts.
 
 mod create_blank;
+mod destinations;
 mod document;
 mod error;
 mod graft;
+mod links;
 mod merge_split;
 mod open;
+mod page_graph;
 mod page_ops;
+mod report;
 mod security;
 
 pub use create_blank::{create_blank_document, insert_blank_page, remove_page};
@@ -32,6 +36,7 @@ pub use open::{
     read_security_context_from_bytes,
 };
 pub use page_ops::{delete_pages, extract_pages, reorder_pages, rotate_page};
+pub use report::{graft_report, GraftOutcome, GraftReport, GraftWarning};
 pub use security::{
     annotation_editing_is_allowed, content_editing_is_allowed, text_extraction_is_allowed,
 };

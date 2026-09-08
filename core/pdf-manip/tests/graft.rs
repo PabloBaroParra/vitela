@@ -10,12 +10,26 @@ mod support;
 use lopdf::Document;
 use pdf_manip::{graft_pages, LopdfDocument};
 
+/// The document a successful graft produces. These tests are about what the
+/// copy does to the object graph; what it *reports* is
+/// `tests/graft_destinations.rs` and `tests/graft_structures.rs`.
+fn grafted(
+    destination: &LopdfDocument,
+    index: usize,
+    source: &LopdfDocument,
+    pages: &[usize],
+) -> LopdfDocument {
+    graft_pages(destination, index, source, pages)
+        .expect("graft should succeed")
+        .document
+}
+
 #[test]
 fn graft_pages_inserts_the_source_page_content_at_the_requested_index() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1", "D2"]));
     let source = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["S1", "S2", "S3"]));
 
-    let result = graft_pages(&destination, 1, &source, &[2]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[2]);
 
     assert_eq!(support::labels(&result), vec!["D1", "S3", "D2"]);
 }
@@ -25,7 +39,7 @@ fn graft_pages_keeps_the_selection_order_and_lands_contiguously() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["S1", "S2", "S3"]));
 
-    let result = graft_pages(&destination, 0, &source, &[2, 0]).expect("graft should succeed");
+    let result = grafted(&destination, 0, &source, &[2, 0]);
 
     assert_eq!(support::labels(&result), vec!["S3", "S1", "D1"]);
 }
@@ -35,7 +49,7 @@ fn graft_pages_appends_when_the_index_is_past_the_last_page() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["S1"]));
 
-    let result = graft_pages(&destination, 99, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 99, &source, &[0]);
 
     assert_eq!(support::labels(&result), vec!["D1", "S1"]);
 }
@@ -47,7 +61,7 @@ fn graft_pages_survives_overlapping_object_ids_between_the_two_documents() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1", "D2"]));
     let source = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["S1", "S2"]));
 
-    let result = graft_pages(&destination, 2, &source, &[0, 1]).expect("graft should succeed");
+    let result = grafted(&destination, 2, &source, &[0, 1]);
 
     assert_eq!(support::labels(&result), vec!["D1", "D2", "S1", "S2"]);
 }
@@ -57,7 +71,7 @@ fn graft_pages_materializes_attributes_the_source_page_only_inherited() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::pdf_with_inherited_attributes(&["S1"]));
 
-    let result = graft_pages(&destination, 1, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[0]);
 
     let grafted = *result.as_lopdf().get_pages().get(&2).expect("second page");
     let page = result
@@ -88,7 +102,7 @@ fn graft_pages_copies_the_object_graph_the_page_reaches() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::pdf_with_inherited_attributes(&["S1"]));
 
-    let result = graft_pages(&destination, 1, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[0]);
 
     // The font lives two hops from the page: page -> Resources -> Font -> F9.
     assert!(
@@ -110,7 +124,7 @@ fn graft_pages_reparents_the_page_onto_the_destination_page_tree() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["S1"]));
 
-    let result = graft_pages(&destination, 1, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[0]);
 
     let lopdf = result.as_lopdf();
     let root_pages = lopdf
@@ -136,7 +150,7 @@ fn graft_pages_leaves_the_source_catalog_and_page_tree_behind() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["S1"]));
 
-    let result = graft_pages(&destination, 1, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[0]);
 
     let lopdf = result.as_lopdf();
     let count = |name: &[u8]| {
@@ -163,7 +177,7 @@ fn graft_pages_carries_the_page_annotations() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::pdf_with_a_link_to_its_second_page());
 
-    let result = graft_pages(&destination, 1, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[0]);
 
     let grafted = *result.as_lopdf().get_pages().get(&2).expect("second page");
     let annots = result
@@ -187,7 +201,7 @@ fn graft_pages_does_not_follow_a_reference_into_an_unselected_page() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::pdf_with_a_link_to_its_second_page());
 
-    let result = graft_pages(&destination, 1, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[0]);
 
     assert_eq!(support::labels(&result), vec!["D1", "Linked"]);
     assert_eq!(
@@ -242,7 +256,7 @@ fn a_grafted_document_serializes_and_reloads_with_every_page_intact() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1", "D2"]));
     let source = LopdfDocument::from_lopdf(support::pdf_with_inherited_attributes(&["S1", "S2"]));
 
-    let result = graft_pages(&destination, 1, &source, &[1, 0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[1, 0]);
 
     let mut bytes = Vec::new();
     result
@@ -284,7 +298,7 @@ fn graft_pages_copies_resources_nested_inside_stream_dictionaries() {
     let destination = LopdfDocument::from_lopdf(support::build_pdf_with_pages(&["D1"]));
     let source = LopdfDocument::from_lopdf(support::pdf_with_nested_page_resources("S1"));
 
-    let result = graft_pages(&destination, 1, &source, &[0]).expect("graft should succeed");
+    let result = grafted(&destination, 1, &source, &[0]);
 
     let lopdf = result.as_lopdf();
     let grafted = *lopdf.get_pages().get(&2).expect("second page");
