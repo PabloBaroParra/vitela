@@ -59,8 +59,11 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   procedencias, pero `Imported` todavía no se puede guardar —
   `replay_page_ops` la rechaza hasta que exista el injerto real de páginas
   (fase 3).
-- [x] Mantener `PageId` como identidad estable e independiente del índice
-  visual o de renderizado.
+- [ ] Mantener `PageId` como identidad estable e independiente del índice
+  visual o de renderizado. Parcial: la invariante está declarada en el modelo,
+  pero no se sostiene en el código — `PageId.0` todavía se usa como índice de
+  página en `pdf-edit` y en el shell Linux (anotaciones, formularios,
+  selección). Ver la tarea abierta equivalente de la fase 6.
 - [ ] Asignar identificadores únicos a cada PDF importado.
 - [ ] Registrar cada fuente importada una sola vez en el respaldo de la sesión.
 - [ ] Añadir un comando atómico para insertar todas las páginas seleccionadas
