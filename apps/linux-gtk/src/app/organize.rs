@@ -499,10 +499,16 @@ fn model(session: &mut DocumentSession) -> Result<&mut Document, String> {
         .ok_or_else(|| CONTENT_MODEL_UNAVAILABLE.to_string())
 }
 
-fn apply_command(document: &mut Document, command: Command) {
+/// Returns `false` when `EditLog::apply` rejected the command, leaving both
+/// the document and the log untouched. Every caller turns that into an `Err`
+/// rather than dropping it: a rejected command records nothing, so reporting
+/// success would leave the status line — and the undo stack — describing an
+/// edit that never happened.
+fn apply_command(document: &mut Document, command: Command) -> bool {
     let mut log = std::mem::take(&mut document.pending_edits);
-    log.apply(document, command);
+    let applied = log.apply(document, command);
     document.pending_edits = log;
+    applied
 }
 
 fn move_page(viewer: &Viewer, from: usize, to: usize) -> bool {
@@ -514,7 +520,9 @@ fn move_page(viewer: &Viewer, from: usize, to: usize) -> bool {
         if from >= document.pages.len() || to >= document.pages.len() {
             return Err("Invalid page position.".to_string());
         }
-        apply_command(document, Command::MovePage { from, to });
+        if !apply_command(document, Command::MovePage { from, to }) {
+            return Err("Could not move the page.".to_string());
+        }
         Ok(format!("Moved page {} to position {}.", from + 1, to + 1))
     })
 }
@@ -527,7 +535,9 @@ fn delete_page(viewer: &Viewer, index: usize) -> bool {
             .get(index)
             .cloned()
             .ok_or_else(|| "Page no longer exists.".to_string())?;
-        apply_command(document, Command::RemovePage { index, page });
+        if !apply_command(document, Command::RemovePage { index, page }) {
+            return Err("Could not delete the page.".to_string());
+        }
         Ok(format!("Deleted page {}.", index + 1))
     })
 }
