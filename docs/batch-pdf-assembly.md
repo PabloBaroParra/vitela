@@ -172,6 +172,34 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [ ] Validar el resultado con PDFium antes de instalar la previsualización.
 - [ ] Probar guardar, cerrar y reabrir después de importar, mover y borrar.
 
+### Progreso de resolución de páginas
+
+- 2026-09-08: `pdf-document` expone `Document::render_index`, `page_id_at` y
+  `page_at`. Resuelven `PageId` contra la posición lógica en `Document.pages`,
+  que es el orden que `pdf-save` materializa y contra el que
+  `bridge::page_object_ids` empareja el PDF escrito.
+- Existen DOS posiciones por página y no son intercambiables: la lógica
+  (índice en `Document.pages`) y la del backend (índice de página del PDF que
+  PDFium tiene abierto en ese momento). Coinciden al abrir y después de cada
+  guardar/reabrir; divergen mientras haya operaciones de página sin guardar,
+  porque el handle sigue con el orden previo.
+- El shell Linux depende hoy del contrato `PageId.0` == índice de PDFium del
+  handle abierto, y lo hace a propósito: `organize::populate_grid` pide las
+  miniaturas por `page.id.0` mientras el handle conserva el orden original, y
+  `refresh_snapshot_and_reopen` preserva el modelo (y sus ids) al reabrir.
+- Por eso el orden de trabajo es obligatorio: primero refrescar PDFium después
+  de cada operación de página, y solo entonces migrar los usos de `PageId.0`
+  al mapa. Migrarlos antes introduce un fallo nuevo en vez de arreglar uno,
+  porque el lienzo seguiría mostrando el orden previo.
+- El injerto de páginas importadas va después de ese refresco: una página
+  injertada recibe un `PageId` nuevo que nunca fue índice de nada, y ahí el
+  contrato actual deja de sostenerse.
+- Verificación: `cargo fmt --all -- --check`; `cargo test --workspace --locked
+  -- --skip gtk_ui_` (0 fallos); `cargo clippy --workspace --all-targets
+  --locked -- -D warnings`. La suite GTK4 no se ejecutó: `linux-gtk` está
+  compilado bajo `cfg(target_os = "linux")` y esta verificación corrió en
+  Windows.
+
 ## 7. Actualización de la sesión Linux
 
 - [ ] Generalizar el ciclo de guardar en memoria y reabrir usado por edición de
