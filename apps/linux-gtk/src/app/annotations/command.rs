@@ -71,12 +71,7 @@ fn history(viewer: &Viewer, undo: bool) {
         // rotate would not alter a single card until it is saved. Nothing in
         // this shell records one today either — if a rotate gesture ever
         // lands, it needs its own refresh path, not this one.
-        let is_page_structure_edit = matches!(
-            next_command,
-            Some(
-                Command::MovePage { .. } | Command::RemovePage { .. } | Command::InsertPage { .. }
-            )
-        );
+        let is_page_structure_edit = next_command.is_some_and(Command::is_page_structure_edit);
 
         match step_history(document, session.selected_annotation, undo) {
             Some(surviving) => {
