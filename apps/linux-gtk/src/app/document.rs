@@ -628,7 +628,8 @@ fn sign_snapshot_and_reopen(
 /// updated.", "Image moved.", "Edit undone.") — no "pending save" suffix,
 /// because once this call has run that is no longer true of the *canvas*.
 /// The file on disk is still behind, which is what `unsaved_to_disk` tracks.
-pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str) {
+pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
+    let message = message.into();
     let (token, document, backing) = {
         let mut state = viewer.state.borrow_mut();
         // Two independent sites can each ask for a refresh off the same
@@ -639,8 +640,8 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
         // on the same `viewer.pages` `GtkBox`; deferring the second one
         // until the first finishes (see the tail of the spawned future
         // below) keeps exactly one rebuild in flight at a time.
-        if state.content_refresh_in_flight {
-            state.content_refresh_pending = Some(message);
+        if state.preview_refresh_in_flight {
+            state.preview_refresh_pending = Some(message);
             return;
         }
         let Some(session) = state.session.as_ref() else {
@@ -656,7 +657,7 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
             generation: state.generation,
             edit_revision: session.edit_revision,
         };
-        state.content_refresh_in_flight = true;
+        state.preview_refresh_in_flight = true;
         (token, document, backing)
     };
 
@@ -678,6 +679,12 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
                     show_document(&viewer, generation, reopened);
                     let still_editing = restore_edit_state(&viewer, preserved_edits);
                     restore_view_state(&viewer, generation, preserved_view);
+                    // The reopen replaced the handle every thumbnail on the
+                    // Organize screen was rendered against, and with it the
+                    // backend page order those cards were indexed by. Rebuild
+                    // them against the handle that now exists; does nothing
+                    // when that screen is not the one on show.
+                    super::organize::refresh_if_visible(&viewer);
                     // The reopened session's `PageSlot::content` caches start
                     // out empty again (`show_document` builds fresh
                     // `PageSlot`s) — without re-parsing now, the composite-
@@ -690,7 +697,7 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
                         super::content_edit::load_all_page_content(&viewer);
                         super::selection::redraw(&viewer);
                     }
-                    viewer.status.set_text(message);
+                    viewer.status.set_text(&message);
                 }
                 Ok(reopened) => close_document_in_background(reopened.document),
                 // The command that triggered this refresh stays recorded in
@@ -717,20 +724,33 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
             // not immediately defer against itself.
             let pending = {
                 let mut state = viewer.state.borrow_mut();
-                state.content_refresh_in_flight = false;
-                state.content_refresh_pending.take()
+                state.preview_refresh_in_flight = false;
+                state.preview_refresh_pending.take()
             };
             if let Some(pending_message) = pending {
-                refresh_after_content_edit(&viewer, pending_message);
+                refresh_preview(&viewer, pending_message);
             }
         }
     });
 }
 
+/// The page ids of `model`, in its own page order — the order any bytes
+/// saved from it are written in, and therefore the page order of the pdfium
+/// handle opened from those bytes.
+///
+/// `None` (a document with no editable model) yields an empty order rather
+/// than a guess: without a model there are no page ids to name, and every
+/// consumer treats "not in the backend order" as "nothing to draw".
+fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::PageId> {
+    model
+        .map(|model| model.pages.iter().map(|page| page.id).collect())
+        .unwrap_or_default()
+}
+
 /// The half of a session that describes *what the user has edited*, as
 /// opposed to what is currently being rendered.
 ///
-/// Exists only so [`refresh_after_content_edit`] can carry it across
+/// Exists only so [`refresh_preview`] can carry it across
 /// [`show_document`], which resets it — correctly, for its usual job of
 /// installing a different document, and destructively for a preview refresh
 /// of the same one.
@@ -786,6 +806,12 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
         let mut state = viewer.state.borrow_mut();
         if let Some(session) = state.session.as_mut() {
             if let Some(preserved) = preserved {
+                // The bytes `show_document` just installed were written from
+                // this model, in this model's page order — so its ids, not
+                // the reopened model's fresh 0..n, are what pdfium's pages
+                // are. Set before the move, and before anything can read a
+                // page index off the new session.
+                session.backend_pages = backend_page_order(preserved.document_model.as_ref());
                 session.document_model = preserved.document_model;
                 session.save_backing = preserved.save_backing;
                 session.next_annotation_id = preserved.next_annotation_id;
@@ -890,7 +916,7 @@ fn restore_view_state(viewer: &Viewer, generation: u64, preserved: Option<ViewSt
 
 /// The no-destination twin of [`save_snapshot_and_reopen`]: saves to an
 /// in-memory buffer and reopens *that*, without ever touching disk. See
-/// [`refresh_after_content_edit`]'s own doc for why signatures are
+/// [`refresh_preview`]'s own doc for why signatures are
 /// acknowledged silently here rather than asked about — and why that stays
 /// safe only because the caller keeps the original `SaveBacking`.
 fn refresh_snapshot_and_reopen(
@@ -1451,6 +1477,12 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
 
     let page_count = slots.len();
     let next_form_field_id = next_form_field_id(document.document_model.as_ref());
+    // The handle installed below and the model beside it were read from the
+    // same bytes, so pdfium's page order *is* this model's page order. A
+    // preview refresh reopens with a model that is thrown away again a moment
+    // later, so it re-installs this from the preserved one — see
+    // `restore_edit_state`.
+    let backend_pages = backend_page_order(document.document_model.as_ref());
     {
         let mut state = viewer.state.borrow_mut();
         state.session_id += 1;
@@ -1460,6 +1492,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             annotation_access: document.annotation_access,
             content_edit_access: document.content_edit_access,
             document_model: document.document_model,
+            backend_pages,
             save_backing: document.save_backing,
             // Freshly shown: whatever is on screen right now is exactly what
             // this session's bytes came from, which for an ordinary open or a
@@ -1539,7 +1572,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
 ///
 /// Reads `session.unsaved_to_disk` rather than
 /// `document_model.pending_edits.can_undo()` (T-163). The two now agree in
-/// the ordinary case — [`refresh_after_content_edit`] carries the `EditLog`
+/// the ordinary case — [`refresh_preview`] carries the `EditLog`
 /// across its reopen rather than resetting it — but the flag is still the
 /// right question to ask, because it stays `true` on paths where the log
 /// cannot speak for itself: a refresh that *failed* after its command was

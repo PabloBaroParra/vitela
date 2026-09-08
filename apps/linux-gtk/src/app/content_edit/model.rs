@@ -47,13 +47,13 @@ pub(super) fn pending_log_index(id: ContentItemId) -> Option<usize> {
 pub(crate) fn ensure_page_content<'a>(
     cache: &'a mut Option<PageContent>,
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     pending: Option<&EditLog>,
 ) -> Result<&'a PageContent, EditError> {
     if cache.is_none() {
-        let mut content = pdf_edit::read_page_content(base, PageId(page_index as u32))?;
+        let mut content = pdf_edit::read_page_content(base, page)?;
         if let Some(pending) = pending {
-            overlay_pending_content(&mut content, pending, PageId(page_index as u32), base);
+            overlay_pending_content(&mut content, pending, page, base);
         }
         *cache = Some(content);
     }
@@ -463,7 +463,7 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let mut cache = None;
 
-        let first = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let first = ensure_page_content(&mut cache, &base, PageId(0), None).expect("page 0 exists");
         assert_eq!(first.text_runs.len(), 1);
         assert_eq!(first.text_runs[0].text, "Hello world");
         assert!(cache.is_some());
@@ -471,7 +471,7 @@ mod tests {
         // A second call must not re-parse. We cannot observe "did not
         // re-parse" directly, but it must at least keep returning the same
         // snapshot from the now-populated cache.
-        let second = ensure_page_content(&mut cache, &base, 0, None).expect("still page 0");
+        let second = ensure_page_content(&mut cache, &base, PageId(0), None).expect("still page 0");
         assert_eq!(second.text_runs[0].text, "Hello world");
     }
 
@@ -495,8 +495,8 @@ mod tests {
         let inserted = run(0, 200.0, 200.0, 50.0, 12.0);
         let pending = log_with(vec![Command::InsertTextRun(inserted.clone())]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         let found = text_run_at(content, (210.0, 205.0)).expect("the inserted run is hit-tested");
         assert!(
@@ -515,8 +515,8 @@ mod tests {
             Command::InsertTextRun(run(0, 200.0, 300.0, 50.0, 12.0)),
         ]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         let first = text_run_at(content, (210.0, 205.0)).expect("first insertion is hit-tested");
         let second = text_run_at(content, (210.0, 305.0)).expect("second insertion is hit-tested");
@@ -533,7 +533,8 @@ mod tests {
     fn a_pending_move_updates_an_existing_runs_bbox_for_hit_testing() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let mut cache = None;
-        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let content =
+            ensure_page_content(&mut cache, &base, PageId(0), None).expect("page 0 exists");
         let target = content.text_runs.first().expect("the line parses").clone();
         let inside_original = (
             target.bbox.x as f32 + 2.0,
@@ -550,8 +551,8 @@ mod tests {
             to: moved_to,
         }]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         assert!(
             text_run_at(content, inside_original).is_none(),
@@ -577,7 +578,8 @@ mod tests {
     fn a_pending_move_updates_an_existing_images_bbox_for_hit_testing() {
         let base = gen_fixtures::content_edit::build_roundtrip_image_page_document();
         let mut cache = None;
-        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let content =
+            ensure_page_content(&mut cache, &base, PageId(0), None).expect("page 0 exists");
         let target = image_at(content, (110.0, 610.0))
             .expect("the fixture's target image parses")
             .clone();
@@ -592,8 +594,8 @@ mod tests {
             to: moved_to,
         }]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         assert!(
             image_at(content, (110.0, 610.0)).is_none(),
@@ -608,7 +610,8 @@ mod tests {
     fn a_pending_removal_hides_an_existing_image_from_hit_testing() {
         let base = gen_fixtures::content_edit::build_roundtrip_image_page_document();
         let mut cache = None;
-        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let content =
+            ensure_page_content(&mut cache, &base, PageId(0), None).expect("page 0 exists");
         let target = image_at(content, (110.0, 610.0))
             .expect("the fixture's target image parses")
             .clone();
@@ -618,8 +621,8 @@ mod tests {
             source: None,
         }]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         assert!(
             image_at(content, (110.0, 610.0)).is_none(),
@@ -631,7 +634,8 @@ mod tests {
     fn a_pending_replacement_updates_the_runs_text_for_hit_testing() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let mut cache = None;
-        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let content =
+            ensure_page_content(&mut cache, &base, PageId(0), None).expect("page 0 exists");
         let target = content
             .text_runs
             .first()
@@ -643,8 +647,8 @@ mod tests {
             after: "Goodbye world".to_string(),
         }]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         let found = content
             .text_run(target.id)
@@ -659,7 +663,8 @@ mod tests {
     fn a_pending_replacement_grows_the_box_the_click_lands_in() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hi"]);
         let mut cache = None;
-        let content = ensure_page_content(&mut cache, &base, 0, None).expect("page 0 exists");
+        let content =
+            ensure_page_content(&mut cache, &base, PageId(0), None).expect("page 0 exists");
         let target = content
             .text_runs
             .first()
@@ -681,8 +686,8 @@ mod tests {
             item: target.clone(),
             after: "Hello there, everyone".to_string(),
         }]);
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         let found = text_run_at(content, past_the_original)
             .expect("the replacement's own text is hit-tested");
@@ -701,8 +706,8 @@ mod tests {
         inserted.text = "Hi".to_string();
         let pending = log_with(vec![Command::InsertTextRun(inserted)]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         let found = text_run_at(content, (205.0, 205.0)).expect("the insertion is hit-tested");
         assert!(
@@ -725,8 +730,8 @@ mod tests {
             Command::InsertTextRun(run(0, 200.0, 300.0, 50.0, 12.0)),
         ]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         let first = text_run_at(content, (210.0, 205.0)).expect("first insertion is hit-tested");
         let second = text_run_at(content, (210.0, 305.0)).expect("second insertion is hit-tested");
@@ -748,8 +753,8 @@ mod tests {
         inserted.page = PageId(7);
         let pending = log_with(vec![Command::InsertTextRun(inserted)]);
 
-        let content =
-            ensure_page_content(&mut cache, &base, 0, Some(&pending)).expect("page 0 exists");
+        let content = ensure_page_content(&mut cache, &base, PageId(0), Some(&pending))
+            .expect("page 0 exists");
 
         assert!(text_run_at(content, (210.0, 205.0)).is_none());
     }
@@ -919,8 +924,8 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let mut cache = None;
 
-        let error =
-            ensure_page_content(&mut cache, &base, 7, None).expect_err("page 7 does not exist");
+        let error = ensure_page_content(&mut cache, &base, PageId(7), None)
+            .expect_err("page 7 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(7)));
         assert!(cache.is_none());
     }

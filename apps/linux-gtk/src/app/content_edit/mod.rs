@@ -45,7 +45,7 @@
 //!
 //! Every commit that actually reaches the `EditLog` — from any of the above,
 //! plus undo/redo of one — ends in
-//! `document::refresh_after_content_edit` (T-163, batch decision 6): a
+//! `document::refresh_preview` (T-163, batch decision 6): a
 //! content edit changes what pdfium itself renders, so the canvas has to
 //! show the real, reopened result, not a "pending save" status message over
 //! a stale bitmap.
@@ -70,6 +70,41 @@ use crate::app::selection::{pointer_to_pdf, redraw};
 use crate::app::state::{ContentInsertKind, Viewer};
 
 use panel::NO_DOCUMENT_NOTICE;
+
+/// The id of the page currently shown at canvas position `canvas_index`,
+/// but only when that page really exists in `save_backing.base` — the
+/// document every content-edit parse and validation probe runs against.
+///
+/// Three different numbers name a page in this shell and all three are
+/// `usize`: the canvas/pdfium index a gesture arrives with, the logical index
+/// into `Document.pages`, and the page's index inside the base document.
+/// They were interchangeable while a document could only be annotated; every
+/// page op breaks that, and confusing two of them is a silent wrong-page edit
+/// rather than a crash. So content-edit converts once, here, and passes a
+/// `PageId` from then on — `pdf-edit` and `pdf-save` both resolve that id
+/// positionally against the base, which is exactly what `PageId.0` means for
+/// a page that came from it.
+///
+/// `None` for a page the open handle does not hold, and for one with no base
+/// page at all: a blank page inserted this session, or a page grafted from an
+/// imported PDF. Callers refuse rather than edit whatever unrelated page
+/// happens to sit at the same number.
+pub(crate) fn base_page(
+    session: &crate::app::state::DocumentSession,
+    canvas_index: usize,
+) -> Option<pdf_document::PageId> {
+    let id = session.backend_page_id(canvas_index)?;
+    let page = session
+        .document_model
+        .as_ref()?
+        .pages
+        .iter()
+        .find(|page| page.id == id)?;
+    match page.origin {
+        pdf_document::PageOrigin::Base { .. } => Some(id),
+        pdf_document::PageOrigin::Blank | pdf_document::PageOrigin::Imported { .. } => None,
+    }
+}
 
 /// A drag shorter than this, in device pixels on either axis, is a click —
 /// mirrors the annotation placement gesture's own click collapse
@@ -345,7 +380,7 @@ pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// the call this makes.
 ///
 /// Deliberately a no-op while there is nothing to parse against:
-/// `document::refresh_after_content_edit` lifts `save_backing` out of the
+/// `document::refresh_preview` lifts `save_backing` out of the
 /// session *across* its own `show_document` call, so this runs with nothing
 /// to read there and that path re-parses on its own once it puts the edit
 /// state back.
@@ -369,7 +404,7 @@ pub(crate) fn rearm_for_session(viewer: &Viewer) {
 /// (`handle_drag_end`), so nothing is silently lost, only the proactive
 /// outline for that one page.
 ///
-/// `pub(crate)` rather than private (T-163): `document::refresh_after_content_edit`
+/// `pub(crate)` rather than private (T-163): `document::refresh_preview`
 /// calls this after every content-edit commit's save→reopen cycle, because
 /// the reopened session's `PageSlot::content` caches start out empty again —
 /// without a re-parse here, the outline would stay blank until the user
@@ -411,8 +446,18 @@ pub(crate) fn load_all_page_content(viewer: &Viewer) {
         .document_model
         .as_ref()
         .map(|document| &document.pending_edits);
+    // Resolved for every slot up front: the loop below borrows `pages`
+    // mutably, and `base_page` reads the whole session. A slot with no base
+    // page (a blank or imported one) gets no parse — there is nothing in the
+    // base document to parse for it.
+    let page_ids: Vec<Option<pdf_document::PageId>> = (0..session.pages.len())
+        .map(|index| base_page(session, index))
+        .collect();
     for (index, page) in session.pages.iter_mut().enumerate() {
-        let _ = model::ensure_page_content(&mut page.content, base, index, pending);
+        let Some(page_id) = page_ids[index] else {
+            continue;
+        };
+        let _ = model::ensure_page_content(&mut page.content, base, page_id, pending);
     }
 }
 
@@ -508,10 +553,14 @@ pub(crate) fn handle_drag_end(
             .document_model
             .as_ref()
             .map(|document| &document.pending_edits);
+        // See `base_page`.
+        let Some(page_id) = base_page(session, page_index) else {
+            return;
+        };
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
-        match model::ensure_page_content(&mut page.content, base, page_index, pending) {
+        match model::ensure_page_content(&mut page.content, base, page_id, pending) {
             Ok(content) => model::text_run_at(content, (x as f32, y as f32)).cloned(),
             Err(error) => {
                 drop(state);

@@ -16,9 +16,9 @@
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
-use pdf_document::{Command, ContentItemId, ImageItem, PageId, Rect};
+use pdf_document::{Command, ContentItemId, ImageItem, Rect};
 
-use crate::app::document::refresh_after_content_edit;
+use crate::app::document::refresh_preview;
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
 use crate::app::update_content_edit_controls;
@@ -64,7 +64,7 @@ fn command_for(item: ImageItem, mode: AnnotationDragMode, to: Rect) -> Command {
     }
 }
 
-/// The status text `document::refresh_after_content_edit` shows once the
+/// The status text `document::refresh_preview` shows once the
 /// refresh lands — no "pending save" suffix (T-163): by the time it shows,
 /// the canvas already reflects the edit, only the file on disk is behind.
 fn message_for(mode: AnnotationDragMode) -> &'static str {
@@ -136,10 +136,15 @@ pub(crate) fn begin_image_drag(
         .document_model
         .as_ref()
         .map(|document| &document.pending_edits);
+    // See `super::base_page`: the canvas index names a page id only through
+    // the open handle, and only a base page has content to parse.
+    let Some(page_id) = super::base_page(session, page_index) else {
+        return false;
+    };
     let Some(page) = session.pages.get_mut(page_index) else {
         return false;
     };
-    let hit = match model::ensure_page_content(&mut page.content, base, page_index, pending) {
+    let hit = match model::ensure_page_content(&mut page.content, base, page_id, pending) {
         Ok(content) => model::image_at(content, (point.0 as f32, point.1 as f32)).cloned(),
         Err(error) => {
             drop(state);
@@ -267,10 +272,10 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
         } else {
             let validated = match drag.mode {
                 AnnotationDragMode::Move => {
-                    command::validate_move(base, drag.page_index, &drag.item, to)
+                    command::validate_move(base, drag.item.page, &drag.item, to)
                 }
                 AnnotationDragMode::Resize(_) => {
-                    command::validate_resize(base, drag.page_index, &drag.item, to)
+                    command::validate_resize(base, drag.item.page, &drag.item, to)
                 }
             };
             match validated {
@@ -278,7 +283,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
                     command::apply_command(document, command_for(drag.item.clone(), drag.mode, to));
                     session.edit_revision += 1;
                     // Marked when the command joins the log rather than when
-                    // `refresh_after_content_edit` lands — a refresh that
+                    // `refresh_preview` lands — a refresh that
                     // fails must still leave the document reporting dirty.
                     session.unsaved_to_disk = true;
                     Ok(message_for(drag.mode))
@@ -289,7 +294,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
     };
 
     match result {
-        Ok(message) => refresh_after_content_edit(viewer, message),
+        Ok(message) => refresh_preview(viewer, message),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -339,7 +344,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
                     .to_string(),
             )
         } else {
-            match command::validate_remove(base, selected.page_index, &selected.item) {
+            match command::validate_remove(base, selected.item.page, &selected.item) {
                 Ok(()) => {
                     command::apply_command(
                         document,
@@ -366,7 +371,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
     };
 
     match result {
-        Ok(()) => refresh_after_content_edit(viewer, "Image deleted."),
+        Ok(()) => refresh_preview(viewer, "Image deleted."),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -486,9 +491,9 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
             // way undo can ever restore this image, so an encoding it cannot
             // read back refuses the whole replace rather than recording a
             // command undo could never resolve.
-            let recorded = command::current_source_bytes(base, selected.page_index, &selected.item)
+            let recorded = command::current_source_bytes(base, selected.item.page, &selected.item)
                 .and_then(|before| {
-                    command::validate_replace(base, selected.page_index, &selected.item, &after)
+                    command::validate_replace(base, selected.item.page, &selected.item, &after)
                         .map(|()| before)
                 });
             match recorded {
@@ -517,7 +522,7 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     };
 
     match result {
-        Ok(()) => refresh_after_content_edit(viewer, "Image replaced."),
+        Ok(()) => refresh_preview(viewer, "Image replaced."),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -632,11 +637,15 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
             .document_model
             .as_ref()
             .map(|document| &document.pending_edits);
+        // See `super::base_page`.
+        let Some(page_id) = super::base_page(session, page_index) else {
+            return;
+        };
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
         let resource_xobject_name =
-            match model::ensure_page_content(&mut page.content, base, page_index, pending) {
+            match model::ensure_page_content(&mut page.content, base, page_id, pending) {
                 Ok(content) => model::unused_xobject_resource_name(content, &reserved),
                 Err(error) => {
                     drop(state);
@@ -647,12 +656,12 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
 
         let item = ImageItem {
             id: ContentItemId(0),
-            page: PageId(page_index as u32),
+            page: page_id,
             bbox,
             resource_xobject_name,
         };
 
-        match command::validate_insert_image(base, page_index, &item, &bytes) {
+        match command::validate_insert_image(base, item.page, &item, &bytes) {
             Ok(()) => {
                 let document = session
                     .document_model
@@ -676,7 +685,7 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
     };
 
     match result {
-        Ok(()) => refresh_after_content_edit(viewer, "Image inserted."),
+        Ok(()) => refresh_preview(viewer, "Image inserted."),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);

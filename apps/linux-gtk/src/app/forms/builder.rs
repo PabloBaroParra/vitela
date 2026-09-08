@@ -65,9 +65,9 @@ fn field_at(
 pub(super) fn field_for_placement(
     fields: &FormFieldSet,
     id: FormFieldId,
+    page: PageId,
     placement: &FormPlacement,
 ) -> FormField {
-    let page = PageId(placement.page_index as u32);
     field_at(fields, placement.kind, id, page, committed_rect(placement))
 }
 
@@ -124,6 +124,7 @@ mod tests {
         let field = field_for_placement(
             &fields,
             FormFieldId(1),
+            PageId(0),
             &placement(FieldKind::Text, (100.0, 500.0), (300.0, 540.0)),
         );
 
@@ -146,6 +147,7 @@ mod tests {
         let field = field_for_placement(
             &fields,
             FormFieldId(1),
+            PageId(0),
             &placement(FieldKind::Checkbox, (100.0, 500.0), (118.0, 518.0)),
         );
 
@@ -159,6 +161,7 @@ mod tests {
         let field = field_for_placement(
             &fields,
             FormFieldId(1),
+            PageId(0),
             &placement(FieldKind::RadioGroup, (100.0, 500.0), (300.0, 540.0)),
         );
 
@@ -182,6 +185,7 @@ mod tests {
         let field = field_for_placement(
             &fields,
             FormFieldId(1),
+            PageId(0),
             &placement(FieldKind::Dropdown, (100.0, 500.0), (300.0, 540.0)),
         );
 
@@ -203,12 +207,14 @@ mod tests {
         fields.insert(field_for_placement(
             &fields.clone(),
             FormFieldId(1),
+            PageId(0),
             &placement(FieldKind::Text, (0.0, 0.0), (10.0, 10.0)),
         ));
 
         let second = field_for_placement(
             &fields,
             FormFieldId(2),
+            PageId(0),
             &placement(FieldKind::Text, (0.0, 0.0), (10.0, 10.0)),
         );
 

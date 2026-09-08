@@ -75,9 +75,15 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
     super::set_field_kind(viewer, None);
     command(viewer, move |session| {
         let id = FormFieldId(session.next_form_field_id);
+        // Resolved before the model is borrowed mutably below, and through
+        // the open handle rather than off the canvas index — see
+        // `DocumentSession::backend_pages`.
+        let page = session
+            .backend_page_id(placement.page_index)
+            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
         {
             let document = model(session)?;
-            let field = field_for_placement(&document.form_fields, id, &placement);
+            let field = field_for_placement(&document.form_fields, id, page, &placement);
             apply_command(document, Command::AddFormField(field));
         }
         session.next_form_field_id += 1;
@@ -143,10 +149,13 @@ pub(crate) fn begin_field_drag(
     // The selected field gets first refusal on the press, so its handles
     // stay reachable even where another field overlaps them — mirrors
     // `annotations::gesture::begin_annotation_drag`'s own precedence.
+    // pdfium's page index names a page id only through the open handle's own
+    // order — see `DocumentSession::backend_pages`.
+    let page_id = session.backend_page_id(page_index);
     let selected = session
         .selected_form_field
         .and_then(|id| document.form_fields.get(id))
-        .filter(|field| field.page.0 as usize == page_index);
+        .filter(|field| Some(field.page) == page_id);
     if let Some(field) = selected {
         let mode = match corner_at(field.rect, point, reach) {
             Some(corner) => Some(AnnotationDragMode::Resize(corner)),
@@ -169,7 +178,7 @@ pub(crate) fn begin_field_drag(
     let hit = document
         .form_fields
         .iter()
-        .filter(|field| field.page.0 as usize == page_index)
+        .filter(|field| Some(field.page) == page_id)
         .filter(|field| contains(field.rect, point))
         .last()
         .map(|field| field.id);

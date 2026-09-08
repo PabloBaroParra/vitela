@@ -25,8 +25,19 @@ fn with_organize(test: impl FnOnce(&Viewer)) {
     let built = built_ui();
     let mut document = Document::blank();
     document.pages = (0..3)
-        .map(|id| Page::blank(PageId(id), PageSize::A4, PageOrientation::Portrait))
+        .map(|id| {
+            Page::base(
+                PageId(id),
+                id,
+                PageSize::A4,
+                PageOrientation::Portrait,
+                pdf_document::Rotation::None,
+            )
+        })
         .collect();
+    // A freshly opened document: the handle holds exactly these pages in
+    // exactly this order, which is what `show_document` installs.
+    let backend_pages: Vec<PageId> = document.pages.iter().map(|page| page.id).collect();
     built.viewer.state.borrow_mut().session = Some(DocumentSession {
         // SAFETY: DocumentHandle wraps a u64. This model-only fixture never
         // submits the handle to PDFium; thumbnail requests are captured below.
@@ -35,6 +46,7 @@ fn with_organize(test: impl FnOnce(&Viewer)) {
         annotation_access: AnnotationAccess::Allowed,
         content_edit_access: ContentEditAccess::Allowed,
         document_model: Some(document),
+        backend_pages,
         save_backing: None,
         unsaved_to_disk: false,
         edit_revision: 0,
@@ -119,8 +131,15 @@ fn session(viewer: &Viewer) -> std::cell::RefMut<'_, DocumentSession> {
 
 fn assert_grid(viewer: &Viewer, expected: &[u32]) {
     let session = session(viewer);
-    let document = session.document_model.as_ref().unwrap();
-    let ids: Vec<_> = document.pages.iter().map(|page| page.id.0).collect();
+    let page_ids: Vec<PageId> = session
+        .document_model
+        .as_ref()
+        .unwrap()
+        .pages
+        .iter()
+        .map(|page| page.id)
+        .collect();
+    let ids: Vec<_> = page_ids.iter().map(|id| id.0).collect();
     assert_eq!(ids, expected);
     let grid = &viewer.organize.grid;
     let cards = viewer.organize.cards.borrow();
@@ -130,16 +149,23 @@ fn assert_grid(viewer: &Viewer, expected: &[u32]) {
         let child = grid.child_at_index(index as i32).unwrap().child().unwrap();
         assert_eq!(&child, card.upcast_ref::<gtk::Widget>());
         let picture = card.first_child().unwrap().downcast::<Picture>().unwrap();
+        // A card's thumbnail is asked for by the page's position in the *open
+        // handle*, never by its id — the two stop being the same number the
+        // moment a page op is recorded, and an imported page's id was never a
+        // position at all. A page the handle does not hold (an insert whose
+        // preview refresh has not landed) is not requested and keeps its
+        // placeholder.
+        let expected_backend = session.backend_index(page_ids[index]);
         THUMBNAILS.with_borrow(|requests| {
-            let requests = requests.as_ref().unwrap();
-            let id = requests
+            let requested = requests
+                .as_ref()
+                .unwrap()
                 .iter()
                 .find(|(_, requested)| *requested == picture)
-                .unwrap()
-                .0;
+                .map(|(backend_index, _)| *backend_index as usize);
             assert_eq!(
-                id, expected[index],
-                "thumbnail must use stable page identity"
+                requested, expected_backend,
+                "thumbnail must be requested by backend page position"
             );
         });
     }
@@ -184,7 +210,7 @@ fn gtk_ui_delete_enables_bound_history_and_round_trips_the_grid() {
         let session = state.session.as_ref().unwrap();
         assert_eq!(session.edit_revision, 3);
         assert!(session.unsaved_to_disk);
-        assert!(!state.content_refresh_in_flight);
+        assert!(!state.preview_refresh_in_flight);
     });
 }
 
@@ -302,3 +328,5 @@ fn gtk_ui_insert_page_history_rebuilds_in_both_directions() {
         assert_grid(viewer, &[0, 3, 1, 2]);
     });
 }
+
+mod resolution;

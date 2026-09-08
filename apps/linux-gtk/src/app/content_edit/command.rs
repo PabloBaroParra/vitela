@@ -17,12 +17,12 @@ use pdf_edit::EditError;
 /// queued change along with it.
 pub(super) fn validate_replacement(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     run: &TextRun,
     after: &str,
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::replace_text_run(&mut probe, page_object, run, after)?;
     Ok(())
 }
@@ -38,12 +38,12 @@ pub(super) fn validate_replacement(
 /// other queued edit along with it — long after the drag it came from.
 pub(super) fn validate_move_text(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     run: &TextRun,
     to: Rect,
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::move_text_run(&mut probe, page_object, run, to)?;
     Ok(())
 }
@@ -59,11 +59,11 @@ pub(super) fn validate_move_text(
 /// queued edit down with it — long after the click that asked for it.
 pub(super) fn validate_remove_text(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     run: &TextRun,
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::remove_text_run(&mut probe, page_object, run)?;
     Ok(())
 }
@@ -73,12 +73,12 @@ pub(super) fn validate_remove_text(
 /// contract, writing nothing for real.
 pub(super) fn validate_move(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     item: &ImageItem,
     to: Rect,
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::move_image(&mut probe, page_object, item, to)?;
     Ok(())
 }
@@ -90,12 +90,12 @@ pub(super) fn validate_move(
 /// mirroring `pdf_edit::resize_image` being kept separate from `move_image`.
 pub(super) fn validate_resize(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     item: &ImageItem,
     to: Rect,
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::resize_image(&mut probe, page_object, item, to)?;
     Ok(())
 }
@@ -104,11 +104,11 @@ pub(super) fn validate_resize(
 /// call.
 pub(super) fn validate_remove(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     item: &ImageItem,
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::remove_image(&mut probe, page_object, item)?;
     Ok(())
 }
@@ -118,12 +118,12 @@ pub(super) fn validate_remove(
 /// contract.
 pub(super) fn validate_replace(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     item: &ImageItem,
     after: &[u8],
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::replace_image_source(&mut probe, page_object, item, after)?;
     Ok(())
 }
@@ -139,11 +139,11 @@ pub(super) fn validate_replace(
 /// without checking would only surface when the whole save runs.
 pub(super) fn validate_insert_text(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     run: &TextRun,
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::insert_text_run(&mut probe, page_object, run)?;
     Ok(())
 }
@@ -153,12 +153,12 @@ pub(super) fn validate_insert_text(
 /// [`validate_insert_text`].
 pub(super) fn validate_insert_image(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     item: &ImageItem,
     source: &[u8],
 ) -> Result<(), EditError> {
     let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(&probe, page)?;
     pdf_edit::insert_image(&mut probe, page_object, item, Some(source))?;
     Ok(())
 }
@@ -172,10 +172,10 @@ pub(super) fn validate_insert_image(
 /// than recording a command undo could never restore.
 pub(super) fn current_source_bytes(
     base: &lopdf::Document,
-    page_index: usize,
+    page: PageId,
     item: &ImageItem,
 ) -> Result<Vec<u8>, EditError> {
-    let page_object = pdf_edit::page_object_id(base, PageId(page_index as u32))?;
+    let page_object = pdf_edit::page_object_id(base, page)?;
     pdf_edit::image_source_bytes(base, page_object, item)
 }
 
@@ -470,7 +470,7 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let run = first_run(&base);
 
-        assert!(validate_replacement(&base, 0, &run, "Adios mundo").is_ok());
+        assert!(validate_replacement(&base, PageId(0), &run, "Adios mundo").is_ok());
     }
 
     #[test]
@@ -478,7 +478,7 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let run = first_run(&base);
 
-        let error = validate_replacement(&base, 0, &run, "日本語")
+        let error = validate_replacement(&base, PageId(0), &run, "日本語")
             .expect_err("Helvetica cannot encode this character");
         assert!(matches!(error, EditError::EncodingGap { .. }));
     }
@@ -488,8 +488,8 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let run = first_run(&base);
 
-        let error =
-            validate_replacement(&base, 3, &run, "Adios mundo").expect_err("page 3 does not exist");
+        let error = validate_replacement(&base, PageId(3), &run, "Adios mundo")
+            .expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 
@@ -500,7 +500,7 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let run = first_run(&base);
 
-        assert!(validate_remove_text(&base, 0, &run).is_ok());
+        assert!(validate_remove_text(&base, PageId(0), &run).is_ok());
     }
 
     /// The probe writes nothing for real — the point of cloning the base
@@ -513,7 +513,7 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let run = first_run(&base);
 
-        validate_remove_text(&base, 0, &run).expect("the run is on the page");
+        validate_remove_text(&base, PageId(0), &run).expect("the run is on the page");
 
         let after = pdf_edit::read_page_content(&base, PageId(0))
             .expect("page 0 still parses")
@@ -527,7 +527,8 @@ mod tests {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let run = first_run(&base);
 
-        let error = validate_remove_text(&base, 3, &run).expect_err("page 3 does not exist");
+        let error =
+            validate_remove_text(&base, PageId(3), &run).expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 
@@ -544,7 +545,7 @@ mod tests {
             height: 40.0,
         };
 
-        assert!(validate_move(&base, 0, &item, to).is_ok());
+        assert!(validate_move(&base, PageId(0), &item, to).is_ok());
     }
 
     #[test]
@@ -558,7 +559,7 @@ mod tests {
             height: 80.0,
         };
 
-        assert!(validate_resize(&base, 0, &item, to).is_ok());
+        assert!(validate_resize(&base, PageId(0), &item, to).is_ok());
     }
 
     #[test]
@@ -566,7 +567,7 @@ mod tests {
         let base = gen_fixtures::content_edit::build_image_page_document();
         let item = first_image(&base);
 
-        assert!(validate_remove(&base, 0, &item).is_ok());
+        assert!(validate_remove(&base, PageId(0), &item).is_ok());
     }
 
     #[test]
@@ -580,7 +581,7 @@ mod tests {
             height: 40.0,
         };
 
-        let error = validate_move(&base, 3, &item, to).expect_err("page 3 does not exist");
+        let error = validate_move(&base, PageId(3), &item, to).expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 
@@ -595,7 +596,8 @@ mod tests {
             height: 80.0,
         };
 
-        let error = validate_resize(&base, 3, &item, to).expect_err("page 3 does not exist");
+        let error =
+            validate_resize(&base, PageId(3), &item, to).expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 
@@ -604,7 +606,7 @@ mod tests {
         let base = gen_fixtures::content_edit::build_image_page_document();
         let item = first_image(&base);
 
-        let error = validate_remove(&base, 3, &item).expect_err("page 3 does not exist");
+        let error = validate_remove(&base, PageId(3), &item).expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 
@@ -644,14 +646,14 @@ mod tests {
     fn a_representable_text_insertion_validates_successfully() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
 
-        assert!(validate_insert_text(&base, 0, &new_run("New text")).is_ok());
+        assert!(validate_insert_text(&base, PageId(0), &new_run("New text")).is_ok());
     }
 
     #[test]
     fn an_unrepresentable_text_insertion_is_refused_before_recording() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
 
-        let error = validate_insert_text(&base, 0, &new_run("日本語"))
+        let error = validate_insert_text(&base, PageId(0), &new_run("日本語"))
             .expect_err("Standard14 cannot encode this");
         assert!(matches!(error, EditError::EncodingGap { .. }));
     }
@@ -660,7 +662,7 @@ mod tests {
     fn a_text_insertion_against_a_page_index_with_no_page_is_refused() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
 
-        let error = validate_insert_text(&base, 3, &new_run("New text"))
+        let error = validate_insert_text(&base, PageId(3), &new_run("New text"))
             .expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
@@ -672,7 +674,7 @@ mod tests {
 
         assert!(validate_insert_image(
             &base,
-            0,
+            PageId(0),
             &item,
             &gen_fixtures::content_edit::replacement_image_png_bytes()
         )
@@ -686,7 +688,7 @@ mod tests {
 
         let error = validate_insert_image(
             &base,
-            3,
+            PageId(3),
             &item,
             &gen_fixtures::content_edit::replacement_image_png_bytes(),
         )
@@ -703,7 +705,7 @@ mod tests {
 
         assert!(validate_replace(
             &base,
-            0,
+            PageId(0),
             &item,
             &gen_fixtures::content_edit::replacement_image_png_bytes()
         )
@@ -717,7 +719,7 @@ mod tests {
 
         let error = validate_replace(
             &base,
-            3,
+            PageId(3),
             &item,
             &gen_fixtures::content_edit::replacement_image_png_bytes(),
         )
@@ -730,7 +732,8 @@ mod tests {
         let base = gen_fixtures::content_edit::build_image_page_document();
         let item = first_image(&base);
 
-        let bytes = current_source_bytes(&base, 0, &item).expect("recoverable fixture image");
+        let bytes =
+            current_source_bytes(&base, PageId(0), &item).expect("recoverable fixture image");
 
         assert!(image::load_from_memory(&bytes).is_ok());
     }
@@ -740,7 +743,8 @@ mod tests {
         let base = gen_fixtures::content_edit::build_image_page_document();
         let item = first_image(&base);
 
-        let error = current_source_bytes(&base, 3, &item).expect_err("page 3 does not exist");
+        let error =
+            current_source_bytes(&base, PageId(3), &item).expect_err("page 3 does not exist");
         assert_eq!(error, EditError::PageNotFound(PageId(3)));
     }
 
@@ -759,8 +763,8 @@ mod tests {
             height: 40.0,
         };
 
-        let error =
-            validate_move(&base, 0, &stale, to).expect_err("stale reads must not be applied");
+        let error = validate_move(&base, PageId(0), &stale, to)
+            .expect_err("stale reads must not be applied");
         assert!(matches!(error, EditError::ItemNotFound(_)));
     }
 

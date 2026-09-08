@@ -70,10 +70,14 @@ pub(crate) fn begin_text_drag(viewer: &Viewer, page_index: usize, point: (f64, f
         .document_model
         .as_ref()
         .map(|document| &document.pending_edits);
+    // See `super::base_page`.
+    let Some(page_id) = super::base_page(session, page_index) else {
+        return false;
+    };
     let Some(page) = session.pages.get_mut(page_index) else {
         return false;
     };
-    let hit = match model::ensure_page_content(&mut page.content, base, page_index, pending) {
+    let hit = match model::ensure_page_content(&mut page.content, base, page_id, pending) {
         Ok(content) => model::text_run_at(content, (point.0 as f32, point.1 as f32)).cloned(),
         Err(error) => {
             drop(state);
@@ -287,13 +291,11 @@ pub(crate) fn finish_text_drag(viewer: &Viewer, offset_x: f64, offset_y: f64) ->
         let Some(session) = state.session.as_mut() else {
             return true;
         };
-        record_move(session, drag.page_index, &drag.run, to)
+        record_move(session, &drag.run, to)
     };
 
     match outcome {
-        MoveRecord::Recorded => {
-            crate::app::document::refresh_after_content_edit(viewer, "Text moved.")
-        }
+        MoveRecord::Recorded => crate::app::document::refresh_preview(viewer, "Text moved."),
         MoveRecord::Refused(message) => {
             viewer.status.set_text(&message);
             selection::redraw(viewer);
@@ -369,12 +371,7 @@ enum MoveRecord {
 /// the log, rather than by the refresh that follows — a refresh that fails
 /// still leaves a recorded edit behind, and a document that reports itself
 /// clean is one the open-another-document guard discards without asking.
-fn record_move(
-    session: &mut DocumentSession,
-    page_index: usize,
-    run: &TextRun,
-    to: Rect,
-) -> MoveRecord {
+fn record_move(session: &mut DocumentSession, run: &TextRun, to: Rect) -> MoveRecord {
     // Planned and validated first, against borrows that all end here: the
     // recording below needs the session mutably.
     let plan = {
@@ -392,7 +389,7 @@ fn record_move(
             Ok(plan) => plan,
             Err(record) => return record,
         };
-        if let Err(error) = validate(base, page_index, plan.command()) {
+        if let Err(error) = validate(base, plan.command()) {
             return MoveRecord::Refused(error.to_string());
         }
         plan
@@ -420,14 +417,10 @@ fn record_move(
 /// Runs the command about to be recorded against the real `pdf-edit` call,
 /// on a throwaway clone — the same probe-before-record contract every other
 /// content edit in this shell uses (`command::validate_replacement`).
-fn validate(
-    base: &lopdf::Document,
-    page_index: usize,
-    command: &Command,
-) -> Result<(), pdf_edit::EditError> {
+fn validate(base: &lopdf::Document, command: &Command) -> Result<(), pdf_edit::EditError> {
     match command {
-        Command::MoveTextRun { item, to } => validate_move_text(base, page_index, item, *to),
-        Command::InsertTextRun(run) => validate_insert_text(base, page_index, run),
+        Command::MoveTextRun { item, to } => validate_move_text(base, item.page, item, *to),
+        Command::InsertTextRun(run) => validate_insert_text(base, run.page, run),
         // `plan_move` produces no other shape.
         _ => Ok(()),
     }
@@ -745,7 +738,7 @@ mod tests {
     fn moving_a_run_a_second_time_validates_against_the_box_the_file_still_holds() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
         let mut cache = None;
-        let run = model::ensure_page_content(&mut cache, &base, 0, None)
+        let run = model::ensure_page_content(&mut cache, &base, PageId(0), None)
             .expect("page 0 parses")
             .text_runs
             .first()
@@ -770,7 +763,7 @@ mod tests {
         // re-parsed from the untouched base, with the pending log layered on.
         let mut cache = None;
         let as_hit_tested =
-            model::ensure_page_content(&mut cache, &base, 0, Some(&document.pending_edits))
+            model::ensure_page_content(&mut cache, &base, PageId(0), Some(&document.pending_edits))
                 .expect("page 0 parses")
                 .text_runs
                 .iter()
@@ -789,13 +782,13 @@ mod tests {
             ..run.bbox
         };
         assert!(
-            validate_move_text(&base, 0, &as_hit_tested, second).is_err(),
+            validate_move_text(&base, PageId(0), &as_hit_tested, second).is_err(),
             "the grabbed run's own box is not one the file has ever held —              validating against it is precisely the bug"
         );
 
         let plan = plan_move(&document, &as_hit_tested, second).expect("planned");
 
-        validate(&base, 0, plan.command())
+        validate(&base, plan.command())
             .expect("the planned command must resolve against the base document");
     }
 

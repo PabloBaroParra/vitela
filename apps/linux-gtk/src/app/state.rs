@@ -12,7 +12,7 @@ use gtk::{
     Picture, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
 };
 use pdf_document::{
-    AnnotationId, Document, FormFieldId, ImageItem, PageContent, PdfDateOffset, TextRun,
+    AnnotationId, Document, FormFieldId, ImageItem, PageContent, PageId, PdfDateOffset, TextRun,
 };
 use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
@@ -197,7 +197,7 @@ pub(crate) struct ViewerState {
     /// the two never disagree about whether content-edit mode is active —
     /// only about what a click inside it does.
     pub(crate) content_insert_mode: Option<ContentInsertKind>,
-    /// Whether a `document::refresh_after_content_edit` preview refresh
+    /// Whether a `document::refresh_preview` preview refresh
     /// (save-to-buffer, reopen, rebuild every page widget) is currently
     /// running.
     ///
@@ -209,14 +209,14 @@ pub(crate) struct ViewerState {
     /// `viewer.pages`. A second refresh starting mid-rebuild races the first
     /// one on that same `GtkBox`, which is unsafe: both `while let Some(child)
     /// = viewer.pages.first_child()` teardown and its rebuild `append` can
-    /// observe a widget the other side is mutating. `refresh_after_content_edit`
+    /// observe a widget the other side is mutating. `refresh_preview`
     /// checks this flag and defers instead of starting a concurrent rebuild.
-    pub(crate) content_refresh_in_flight: bool,
+    pub(crate) preview_refresh_in_flight: bool,
     /// A refresh message queued because one arrived while
-    /// `content_refresh_in_flight` was already set. Replayed once the
+    /// `preview_refresh_in_flight` was already set. Replayed once the
     /// in-flight refresh finishes, so the second edit's preview still lands
     /// instead of being silently dropped.
-    pub(crate) content_refresh_pending: Option<&'static str>,
+    pub(crate) preview_refresh_pending: Option<String>,
     /// Whether a page click targets a form field instead of selecting text or
     /// placing an annotation (T-141). Shell mode, not document state, for the
     /// same reason `content_edit_mode` is — see `forms::set_mode`. Mutually
@@ -816,6 +816,12 @@ pub(crate) const ANNOTATION_MODEL_UNAVAILABLE: &str =
 pub(crate) const CONTENT_MODEL_UNAVAILABLE: &str =
     "This document could not be prepared for content changes.";
 
+/// Refusal for a canvas page index that no longer names a page of the open
+/// document — a page removed by a page op whose preview refresh has already
+/// landed, or one the handle never held. Nothing is placed rather than
+/// placed on whatever page inherited that number.
+pub(crate) const PAGE_NO_LONGER_PRESENT: &str = "That page is no longer part of the document.";
+
 /// Whether this document's annotations may be edited — the annotation twin of
 /// [`TextAccess`], read once at open time and cached for the session.
 ///
@@ -893,6 +899,30 @@ pub(crate) struct DocumentSession {
     /// future save/reopen refresh, but every annotation command is recorded in
     /// this model's EditLog immediately.
     pub(crate) document_model: Option<Document>,
+    /// The page ids the **currently open pdfium handle** holds, in that
+    /// handle's own page order — entry `i` is the id of the page pdfium
+    /// answers for page index `i`.
+    ///
+    /// A page has two positions and they are not the same number. The logical
+    /// one is its index into `document_model.pages`, the order `pdf-save`
+    /// materializes. The backend one is its index into whatever bytes pdfium
+    /// currently holds. They agree on open and after every preview refresh,
+    /// and diverge in between: for as long as a recorded page op has not been
+    /// materialized, the handle is still in the pre-op order.
+    ///
+    /// This vector is the backend half, so anything addressing pdfium — a
+    /// thumbnail request, a canvas page index arriving from a gesture — must
+    /// resolve through [`DocumentSession::backend_index`] or
+    /// [`DocumentSession::backend_page_id`] rather than read `PageId.0`. That
+    /// shortcut worked only while every id was an open-time position; a page
+    /// grafted from an imported PDF gets an id that was never a position at
+    /// all.
+    ///
+    /// Installed with the handle (`document::show_document`) and re-installed
+    /// from the preserved model when a preview refresh reopens
+    /// (`document::restore_edit_state`) — those bytes were written in that
+    /// model's page order, so its ids describe the new handle exactly.
+    pub(crate) backend_pages: Vec<PageId>,
     pub(crate) save_backing: Option<SaveBacking>,
     /// Whether the in-memory model — and, since T-163, the pdfium handle
     /// currently rendering `document` — has diverged from whatever is on
@@ -901,7 +931,7 @@ pub(crate) struct DocumentSession {
     /// Set by whatever *records* a command — `annotations::command::command`,
     /// `annotations::command::history`, and each content-edit commit site —
     /// never by the refresh that later catches the canvas up. That ordering
-    /// is the whole point: `document::refresh_after_content_edit` runs a
+    /// is the whole point: `document::refresh_preview` runs a
     /// background save+reopen that can fail, and a document whose edit is
     /// already in the `EditLog` must report itself dirty even when the
     /// preview behind it never updated.
@@ -1013,6 +1043,30 @@ pub(crate) struct Selection {
     pub(crate) page_index: usize,
     pub(crate) anchor: (f32, f32),
     pub(crate) focus: (f32, f32),
+}
+
+impl DocumentSession {
+    /// The pdfium page index currently holding `id`, or `None` when the open
+    /// handle does not hold that page — a page recorded by an insert whose
+    /// preview refresh has not landed yet, or one a `RemovePage` took out.
+    ///
+    /// Use this, never `PageId.0`, whenever a page id has to become a number
+    /// pdfium understands. See [`DocumentSession::backend_pages`] for why the
+    /// two stopped being interchangeable.
+    pub(crate) fn backend_index(&self, id: PageId) -> Option<usize> {
+        self.backend_pages.iter().position(|page| *page == id)
+    }
+
+    /// The page id pdfium's page `index` currently holds, or `None` past the
+    /// end of the open handle.
+    ///
+    /// The inverse of [`DocumentSession::backend_index`], and the one a
+    /// canvas wants: a gesture and a draw call both arrive with a page index,
+    /// so resolve it to an id **once** and then compare ids, rather than
+    /// resolving an index per annotation or per field.
+    pub(crate) fn backend_page_id(&self, index: usize) -> Option<PageId> {
+        self.backend_pages.get(index).copied()
+    }
 }
 
 pub(crate) struct ActiveRender {

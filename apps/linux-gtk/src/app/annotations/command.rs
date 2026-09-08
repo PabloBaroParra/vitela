@@ -7,7 +7,7 @@
 use gtk::prelude::*;
 use pdf_document::{AnnotationId, Command, Document, FormFieldId};
 
-use crate::app::document::refresh_after_content_edit;
+use crate::app::document::refresh_preview;
 use crate::app::selection;
 use crate::app::state::{DocumentSession, Viewer, ANNOTATION_MODEL_UNAVAILABLE};
 
@@ -95,7 +95,7 @@ fn history(viewer: &Viewer, undo: bool) {
                     surviving_form_field(document, session.selected_form_field);
                 session.edit_revision += 1;
                 // Unconditional, content edit or not. A content command's
-                // refresh (`document::refresh_after_content_edit`) does
+                // refresh (`document::refresh_preview`) does
                 // re-assert this on the session it installs, but only when
                 // it succeeds — and a step that has already moved the log is
                 // an unsaved change whether or not the preview caught up
@@ -133,8 +133,14 @@ fn history(viewer: &Viewer, undo: bool) {
     // Only a full refresh shows the real result of undoing/redoing a content
     // edit (T-163, decision 6) — an annotation's overlay already painted the
     // truth in the `redraw` above without one.
-    if is_content_edit {
-        refresh_after_content_edit(viewer, if undo { "Edit undone." } else { "Edit redone." });
+    // A page-structure step needs one for the same reason a content edit
+    // does, and a more pressing one: it has just reordered `Document.pages`
+    // against a pdfium handle still holding the old order, so until the
+    // reopen lands the canvas and the model disagree about which page is
+    // which. The `refresh_if_visible` above keeps the grid honest in the
+    // meantime — it renders against the handle as it still is.
+    if is_content_edit || is_page_structure_edit {
+        refresh_preview(viewer, if undo { "Edit undone." } else { "Edit redone." });
     } else {
         viewer.status.set_text(if undo {
             "Edit undone. Changes are pending save."
@@ -211,7 +217,7 @@ pub(super) fn command(
         Ok(message) => {
             if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
                 session.edit_revision += 1;
-                // Annotation edits never go through `refresh_after_content_edit`'s
+                // Annotation edits never go through `refresh_preview`'s
                 // reopen, so this is the only place that marks them unsaved.
                 session.unsaved_to_disk = true;
             }

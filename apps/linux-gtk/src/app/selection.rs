@@ -185,11 +185,16 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         }
     }
 
+    // `page_index` is pdfium's, so it names a page id only through the open
+    // handle's own order — resolved once here rather than per annotation.
+    // `None` (a page the handle no longer holds) draws nothing, which is what
+    // an unmaterialized insert or a deleted page should look like.
+    let page_id = session.backend_page_id(page_index);
     for annotation in session
         .document_model
         .iter()
         .flat_map(|document| document.annotations.iter())
-        .filter(|annotation| annotation.page.0 as usize == page_index)
+        .filter(|annotation| Some(annotation.page) == page_id)
     {
         let selected = session.selected_annotation == Some(annotation.id);
         // While an annotation is being dragged, paint where it is heading
@@ -540,10 +545,11 @@ fn draw_form_field_values(
         return;
     };
 
+    let page_id = session.backend_page_id(page_index);
     for field in document
         .form_fields
         .iter()
-        .filter(|field| field.page.0 as usize == page_index)
+        .filter(|field| Some(field.page) == page_id)
     {
         // Nothing to paint for an empty text field, an unset choice, or an
         // unchecked box — skip before touching the context at all, mirroring
@@ -628,10 +634,11 @@ fn draw_form_field_outlines(
         return;
     };
 
+    let page_id = session.backend_page_id(page_index);
     for field in document
         .form_fields
         .iter()
-        .filter(|field| field.page.0 as usize == page_index)
+        .filter(|field| Some(field.page) == page_id)
     {
         let selected = session.selected_form_field == Some(field.id);
         // While the field is being dragged, paint where it is heading rather

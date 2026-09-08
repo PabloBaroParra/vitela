@@ -23,11 +23,11 @@ use gtk::{
     gdk, glib, Entry, EventControllerFocus, EventControllerKey, EventSequenceState, GestureDrag,
     PropagationPhase,
 };
-use pdf_document::{Command, ContentItemId, FontKind, PageId, Rect, TextRun};
+use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 use pdf_edit::EditError;
 use pdf_render::{place_rect, TextRect};
 
-use crate::app::document::refresh_after_content_edit;
+use crate::app::document::refresh_preview;
 use crate::app::state::{ContentEditor, PageSlot, Viewer};
 use crate::app::update_content_edit_controls;
 
@@ -201,11 +201,17 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             .document_model
             .as_ref()
             .map(|document| &document.pending_edits);
+        // The canvas index names a page id only through the open handle, and
+        // only a page that came from the base document has content there to
+        // parse — see `super::base_page`.
+        let Some(page_id) = super::base_page(session, page_index) else {
+            return;
+        };
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
         let resource_font_name =
-            match model::ensure_page_content(&mut page.content, base, page_index, pending) {
+            match model::ensure_page_content(&mut page.content, base, page_id, pending) {
                 Ok(content) => model::unused_font_resource_name(content, &reserved),
                 Err(error) => {
                     drop(state);
@@ -231,7 +237,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             // `PageContent`'s real ids come from the *next* parse, once the
             // run this template describes actually exists on the page.
             id: ContentItemId(0),
-            page: PageId(page_index as u32),
+            page: page_id,
             bbox,
             resource_font_name,
             font_kind: FontKind::Standard14,
@@ -523,7 +529,6 @@ pub(crate) fn commit(viewer: &Viewer) {
         return;
     }
 
-    let page_index = editor.page_index;
     let is_insertion = editor.is_insertion;
     let amends = editor.amends;
     let run = editor.run.clone();
@@ -567,9 +572,9 @@ pub(crate) fn commit(viewer: &Viewer) {
         };
 
         let validated = match &amended {
-            Command::InsertTextRun(run) => validate_insert_text(base, page_index, run),
+            Command::InsertTextRun(run) => validate_insert_text(base, run.page, run),
             Command::ReplaceTextRunContent { item, after } => {
-                validate_replacement(base, page_index, item, after)
+                validate_replacement(base, item.page, item, after)
             }
             // `amended_command` produces no other shape.
             _ => Ok(()),
@@ -601,7 +606,7 @@ pub(crate) fn commit(viewer: &Viewer) {
                 session.unsaved_to_disk = true;
                 drop(state);
                 detach(viewer, &editor);
-                refresh_after_content_edit(viewer, "Text updated.");
+                refresh_preview(viewer, "Text updated.");
             }
             Err(error) => {
                 drop(state);
@@ -614,7 +619,7 @@ pub(crate) fn commit(viewer: &Viewer) {
     if is_insertion {
         let mut new_run = run;
         new_run.text = after;
-        match validate_insert_text(base, page_index, &new_run) {
+        match validate_insert_text(base, new_run.page, &new_run) {
             Ok(()) => {
                 let document = session
                     .document_model
@@ -623,7 +628,7 @@ pub(crate) fn commit(viewer: &Viewer) {
                 apply_command(document, Command::InsertTextRun(new_run));
                 session.edit_revision += 1;
                 // Marked here, at the moment the command joins the log, not
-                // when `refresh_after_content_edit` lands: a refresh that
+                // when `refresh_preview` lands: a refresh that
                 // fails still leaves a recorded edit behind, and a document
                 // that reports itself clean is one the open-another-document
                 // guard will discard without asking.
@@ -631,7 +636,7 @@ pub(crate) fn commit(viewer: &Viewer) {
                 let editor = session.content_editor.take().expect("checked above");
                 drop(state);
                 detach(viewer, &editor);
-                refresh_after_content_edit(viewer, "Text inserted.");
+                refresh_preview(viewer, "Text inserted.");
             }
             Err(error) => {
                 drop(state);
@@ -641,7 +646,7 @@ pub(crate) fn commit(viewer: &Viewer) {
         return;
     }
 
-    match validate_replacement(base, page_index, &run, &after) {
+    match validate_replacement(base, run.page, &run, &after) {
         Ok(()) => {
             let document = session
                 .document_model
@@ -661,7 +666,7 @@ pub(crate) fn commit(viewer: &Viewer) {
             let editor = session.content_editor.take().expect("checked above");
             drop(state);
             detach(viewer, &editor);
-            refresh_after_content_edit(viewer, "Text updated.");
+            refresh_preview(viewer, "Text updated.");
         }
         Err(error) => {
             // A move recorded just above stays recorded: it validated on its
@@ -743,7 +748,6 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     if editor.is_insertion {
         return;
     }
-    let page_index = editor.page_index;
     let amends = editor.amends;
     let run = editor.run.clone();
 
@@ -780,7 +784,7 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
         .expect("content_edit_refusal already required a model, which requires save_backing")
         .base
         .as_lopdf();
-    if let Err(error) = validate_remove_text(base, page_index, target) {
+    if let Err(error) = validate_remove_text(base, target.page, target) {
         // The editor stays open holding the run, exactly as a failed
         // replacement leaves it — the delete did not happen, so the target
         // has not stopped being one.
@@ -822,7 +826,7 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     session.unsaved_to_disk = true;
     drop(state);
     detach(viewer, &editor);
-    refresh_after_content_edit(viewer, "Text deleted.");
+    refresh_preview(viewer, "Text deleted.");
 }
 
 /// Discards the open editor without recording anything (Escape, or content

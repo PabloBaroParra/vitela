@@ -202,7 +202,7 @@ fn populate_grid(viewer: &Viewer) {
         grid.remove(&card);
     }
 
-    let (page_ids, handle) = {
+    let (backend_indexes, handle) = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
             return;
@@ -210,11 +210,22 @@ fn populate_grid(viewer: &Viewer) {
         let Some(model) = session.document_model.as_ref() else {
             return;
         };
-        let page_ids: Vec<u32> = model.pages.iter().map(|page| page.id.0).collect();
-        (page_ids, session.document)
+        // One card per *model* page, in model order, but each thumbnail asked
+        // for by the page's index in the open pdfium handle — the two orders
+        // are not the same number while a page op is waiting for its preview
+        // refresh, and `page.id.0` is neither of them once pages can be
+        // imported. `None` is a page the handle does not hold yet (an insert
+        // whose refresh has not landed): its card shows the placeholder until
+        // it does.
+        let backend_indexes: Vec<Option<usize>> = model
+            .pages
+            .iter()
+            .map(|page| session.backend_index(page.id))
+            .collect();
+        (backend_indexes, session.document)
     };
 
-    for (position, pdfium_page_index) in page_ids.into_iter().enumerate() {
+    for (position, backend_index) in backend_indexes.into_iter().enumerate() {
         let (card, picture, number_label) = build_card(viewer, &grid, &viewer.organize.cards);
         number_label.set_text(&(position + 1).to_string());
         grid.append(&card);
@@ -223,7 +234,9 @@ fn populate_grid(viewer: &Viewer) {
             .cards
             .borrow_mut()
             .push((card, number_label));
-        spawn_thumbnail(viewer, handle, pdfium_page_index, picture);
+        if let Some(backend_index) = backend_index {
+            spawn_thumbnail(viewer, handle, backend_index as u32, picture);
+        }
     }
 }
 
@@ -461,6 +474,15 @@ fn command(
             }
             viewer.status.set_text(&message);
             super::annotations::update_annotation_controls(viewer);
+            // A page op moves `Document.pages` out from under the open pdfium
+            // handle, which still holds the pre-op order. Materializing it now
+            // — the same in-memory save+reopen a content edit runs — is what
+            // puts the two back in agreement; without it every page index the
+            // canvas produces would keep naming the old page, and every id
+            // resolved through `DocumentSession::backend_pages` would name the
+            // new one. Bails out on its own (leaving the message above intact)
+            // when there is no `save_backing` to replay against.
+            super::document::refresh_preview(viewer, message);
             true
         }
         Err(error) => {

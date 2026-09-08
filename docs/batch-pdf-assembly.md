@@ -163,8 +163,8 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [ ] Mantener el documento base original inmutable durante la edición.
 - [ ] Resolver cada página importada mediante su fuente y número de página.
 - [ ] Devolver un mapa final de `PageId` a objeto PDF después de materializar.
-- [ ] Resolver explícitamente `PageId` a índice de renderizado actual.
-- [ ] Eliminar los usos que asumen que `PageId.0` es un índice de PDFium.
+- [x] Resolver explícitamente `PageId` a índice de renderizado actual.
+- [x] Eliminar los usos que asumen que `PageId.0` es un índice de PDFium.
 - [ ] Leer anotaciones existentes desde el documento materializado para no
   borrar anotaciones importadas al añadir otras nuevas.
 - [ ] Permitir edición de contenido sobre páginas importadas usando el respaldo
@@ -194,15 +194,53 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - El injerto de páginas importadas va después de ese refresco: una página
   injertada recibe un `PageId` nuevo que nunca fue índice de nada, y ahí el
   contrato actual deja de sostenerse.
-- Verificación: `cargo fmt --all -- --check`; `cargo test --workspace --locked
-  -- --skip gtk_ui_` (0 fallos); `cargo clippy --workspace --all-targets
-  --locked -- -D warnings`. La suite GTK4 no se ejecutó: `linux-gtk` está
-  compilado bajo `cfg(target_os = "linux")` y esta verificación corrió en
-  Windows.
+- Verificación (2026-09-08, primera entrega): `cargo fmt --all -- --check`;
+  `cargo test --workspace --locked -- --skip gtk_ui_` (0 fallos);
+  `cargo clippy --workspace --all-targets --locked -- -D warnings`. La suite
+  GTK4 no se ejecutó en esa entrega: `linux-gtk` está compilado bajo
+  `cfg(target_os = "linux")` y aquella verificación corrió en Windows.
+
+### Progreso del refresco de PDFium
+
+- 2026-09-08: `DocumentSession` guarda `backend_pages`, el orden de páginas
+  del handle de PDFium abierto, con `backend_index` y `backend_page_id` como
+  únicas formas de convertir entre `PageId` e índice de canvas. Se instala en
+  `document::show_document` y se reinstala en `document::restore_edit_state`
+  desde el modelo con el que se escribieron los bytes reabiertos.
+- `document::refresh_after_content_edit` pasó a llamarse `refresh_preview`:
+  el ciclo guardar-en-memoria + reabrir ya no es exclusivo de la edición de
+  contenido. `organize::command` lo dispara después de mover o borrar una
+  página, y `annotations::command::history` después de deshacer o rehacer una
+  operación de página. El mensaje de estado dejó de ser `&'static str` para
+  admitir el texto dinámico de esas operaciones.
+- La rejilla de Organizar pide cada miniatura por la posición de la página en
+  el handle abierto, no por `page.id.0`. Una página que el handle todavía no
+  tiene — una inserción cuyo refresco no llegó — conserva su marcador.
+- Dibujo, hit-testing y colocación de anotaciones y campos resuelven el índice
+  de canvas a `PageId` una sola vez por página en lugar de comparar `.0` por
+  elemento. Una página ausente del handle no dibuja nada y rechaza la
+  colocación en vez de aplicarla a la página que heredó ese número.
+- La edición de contenido convierte una vez, en `content_edit::base_page`, y
+  desde ahí viaja como `PageId`: `ensure_page_content` y los diez validadores
+  de `content_edit::command` dejaron de aceptar un índice de canvas. Una
+  página sin página base — en blanco hoy, importada mañana — devuelve `None` y
+  la edición se rechaza. Los validadores que reciben un item usan `item.page`,
+  que ya es la identidad correcta.
+- Gotcha registrada: el orden importaba. Refrescar PDFium sin migrar antes
+  esos consumidores habría roto anotaciones, formularios y edición de
+  contenido después de cualquier reordenamiento sin guardar — el lienzo habría
+  pasado al orden nuevo mientras cada consumidor seguía leyendo `PageId.0`
+  como posición del orden viejo.
+- Verificación (2026-09-08, este cambio, ejecutada en WSL2/Ubuntu):
+  `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets
+  --locked -- -D warnings`; `cargo test --workspace --locked` (1130 aprobadas,
+  0 fallidas, suite GTK4 incluida — 348 en `linux-gtk`);
+  `python3 scripts/check_maintainability.py` (99 avisos, igual que la línea
+  base previa al cambio).
 
 ## 7. Actualización de la sesión Linux
 
-- [ ] Generalizar el ciclo de guardar en memoria y reabrir usado por edición de
+- [x] Generalizar el ciclo de guardar en memoria y reabrir usado por edición de
   contenido.
 - [ ] Mantener el historial completo durante la actualización de la
   previsualización.

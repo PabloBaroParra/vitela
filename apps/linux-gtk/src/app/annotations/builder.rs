@@ -95,7 +95,11 @@ pub(crate) fn stamp_from_image_bytes(
 ) {
     command(viewer, move |session| {
         let id = AnnotationId(session.next_annotation_id);
-        let page = PageId(page_index as u32);
+        // The canvas index names a page id only through the open handle — see
+        // `DocumentSession::backend_pages`.
+        let page = session
+            .backend_page_id(page_index)
+            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
         let rect = stamp_rect(&image_bytes, point)
             .map_err(|error| format!("Could not use the image: {error}"))?;
         let annotation = pdf_annotate::stamp_from_image_bytes(id, page, &image_bytes, rect)
@@ -136,8 +140,13 @@ fn stamp_rect(image_bytes: &[u8], point: (f64, f64)) -> Result<Rect, pdf_annotat
 pub(crate) fn placement_preview(placement: &Placement) -> Option<Annotation> {
     annotation_at(
         placement,
+        // Both ids are placeholders: this annotation is painted for the
+        // frame and thrown away, never recorded, and `selection::draw_page`
+        // has already picked the page by canvas index before calling. The
+        // real page id is resolved where the drag *commits*
+        // (`gesture::finish_placement`).
         AnnotationId(0),
-        PageId(placement.page_index as u32),
+        PageId(0),
         traced_rect(placement),
     )
     .ok()
