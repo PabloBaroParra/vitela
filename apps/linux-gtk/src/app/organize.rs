@@ -459,6 +459,15 @@ fn command(
         viewer.status.set_text(refusal);
         return false;
     }
+    // Every operation that reaches this funnel changes the page list, which
+    // is the PDF document-assembly permission (`/P` bit 11) and not the
+    // modify-contents bit checked just above. A document can grant one and
+    // withhold the other, so asking only the first would repaginate a file
+    // that forbids exactly that — see `pdf_manip::document_assembly_is_allowed`.
+    if let Some(refusal) = viewer.page_assembly_refusal() {
+        viewer.status.set_text(refusal);
+        return false;
+    }
     let result = {
         let mut state = viewer.state.borrow_mut();
         match state.session.as_mut() {

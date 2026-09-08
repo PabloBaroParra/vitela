@@ -127,7 +127,11 @@ fn search_returns_page_index_and_matching_pdf_space_geometry() {
 #[test]
 fn search_uses_render_side_page_indexes_until_structural_edits_are_saved() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
-    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+    // Owner password: the corpus fixture's `/P` grants printing and copying
+    // only, so a user-credential open cannot assemble it (see
+    // `a_user_open_of_a_restricted_document_cannot_assemble_it`). The subject
+    // here is page indexing, not permissions.
+    let handle = open_from_bytes(bytes, Some("owner-rc4-pass".to_string())).unwrap();
     apply_edit(
         &handle,
         FfiEditCommand::InsertBlankPage {
@@ -258,10 +262,13 @@ fn open_from_bytes_missing_password_is_a_typed_error() {
 #[test]
 fn single_password_open_cannot_full_rewrite_an_encrypted_document() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
-    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+    // Opened with the owner password alone: one password, so the rewrite is
+    // still impossible, and the owner credential is what lets the structural
+    // edit through the assembly gate to reach the writer at all.
+    let handle = open_from_bytes(bytes, Some("owner-rc4-pass".to_string())).unwrap();
 
     // A structural page edit forces the full-rewrite writer, which cannot
-    // reconstruct the unknown owner password — must be a typed error, never
+    // reconstruct the unknown user password — must be a typed error, never
     // a silent security-policy change.
     apply_edit(
         &handle,
@@ -279,6 +286,42 @@ fn single_password_open_cannot_full_rewrite_an_encrypted_document() {
         FfiSignatureAcknowledgement::Unacknowledged,
     );
     assert!(matches!(result, Err(FfiError::InvalidSaveRequest { .. })));
+}
+
+/// `/P` bit 11 (document assembly) reaches this boundary at last: the corpus
+/// fixture grants printing and copying and nothing else, so a user-credential
+/// open may read it and must not repaginate it. Before the gate existed, all
+/// three page commands crossed here unasked — `is_annotation_command` and
+/// `is_content_command` both disclaim them, so nothing checked at all.
+#[test]
+fn a_user_open_of_a_restricted_document_cannot_assemble_it() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+
+    for command in [
+        FfiEditCommand::InsertBlankPage {
+            index: 0,
+            size: FfiPageSize::A4,
+            orientation: FfiOrientation::Portrait,
+        },
+        FfiEditCommand::RemovePage { index: 0 },
+        FfiEditCommand::RotatePage {
+            page: 0,
+            delta_degrees: 90,
+        },
+    ] {
+        assert!(
+            matches!(
+                apply_edit(&handle, command.clone()),
+                Err(FfiError::UnsupportedOperation { .. })
+            ),
+            "{command:?} must be refused without the assembly permission"
+        );
+    }
+
+    // Refused before anything was recorded: a rejected command must not leave
+    // the shell an undo step for an edit that never happened.
+    assert!(!handle.can_undo());
 }
 
 #[test]

@@ -165,6 +165,14 @@ impl Viewer {
             .as_ref()
             .and_then(|session| session.content_edit_access.refusal())
     }
+
+    pub(crate) fn page_assembly_refusal(&self) -> Option<&'static str> {
+        self.state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.page_assembly_access.refusal())
+    }
 }
 
 pub(crate) struct ViewerState {
@@ -889,12 +897,50 @@ impl ContentEditAccess {
     }
 }
 
+/// Whether this document may have its pages inserted, imported, removed,
+/// moved or rotated — the PDF document-assembly permission
+/// (`pdf_manip::document_assembly_is_allowed`).
+///
+/// Shaped like [`TextAccess`] rather than [`ContentEditAccess`]: this asks a
+/// permission question only. Whether the editable model happens to exist is a
+/// separate failure the Organize screen already reports in its own words, and
+/// folding the two together would have the shell claim a restriction the
+/// document never declared.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PageAssemblyAccess {
+    /// Unencrypted, or the permissions (or an owner credential) allow it.
+    Allowed,
+    /// The document's `/P` withholds the assembly permission.
+    Forbidden,
+    /// The document's security could not be read at all. Refused rather than
+    /// assumed permissive, for the same reason as [`TextAccess::Unreadable`];
+    /// the document still renders and can still be read.
+    Unreadable,
+}
+
+impl PageAssemblyAccess {
+    /// The message to show instead of changing the page list, or `None` when
+    /// assembly is allowed.
+    pub(crate) fn refusal(self) -> Option<&'static str> {
+        match self {
+            PageAssemblyAccess::Allowed => None,
+            PageAssemblyAccess::Forbidden => {
+                Some("This document does not permit adding, removing or reordering its pages.")
+            }
+            PageAssemblyAccess::Unreadable => Some(
+                "This document's permissions could not be read, so its pages cannot be changed.",
+            ),
+        }
+    }
+}
+
 pub(crate) struct DocumentSession {
     pub(crate) document: DocumentHandle,
     /// Whether search and text selection may read this document's text.
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
     pub(crate) content_edit_access: ContentEditAccess,
+    pub(crate) page_assembly_access: PageAssemblyAccess,
     /// The editable core model. Rendering remains backed by pdfium until a
     /// future save/reopen refresh, but every annotation command is recorded in
     /// this model's EditLog immediately.
@@ -1134,6 +1180,7 @@ pub(crate) struct OpenedDocument {
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
     pub(crate) content_edit_access: ContentEditAccess,
+    pub(crate) page_assembly_access: PageAssemblyAccess,
     pub(crate) document_model: Option<Document>,
     pub(crate) save_backing: Option<SaveBacking>,
 }

@@ -434,9 +434,9 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 5. Seguridad y firmas
 
-- [ ] Añadir una comprobación específica del permiso PDF de ensamblado de
+- [x] Añadir una comprobación específica del permiso PDF de ensamblado de
   documentos.
-- [ ] Comprobar permisos tanto en el documento principal como en cada fuente.
+- [x] Comprobar permisos tanto en el documento principal como en cada fuente.
 - [ ] Solicitar de forma independiente la contraseña de cada PDF protegido.
 - [ ] Mantener las credenciales fuera del modelo de dominio, logs y mensajes de
   error.
@@ -450,6 +450,63 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   firmas.
 - [ ] Conservar objetos y apariencias de firma solo cuando la política definida
   lo permita.
+
+### Progreso del permiso de ensamblado
+
+- 2026-09-08: `pdf_manip::document_assembly_is_allowed` es la cuarta política
+  de `core/pdf-manip/src/security.rs`, el único sitio donde se interpreta un
+  bit de `/P`. Lee `/P` bit 11 (`1 << 10`, `lopdf::Permissions::ASSEMBLABLE`)
+  **o** el bit 4 de modificación general: la tabla 22 de PDF 1.7 define el bit
+  11 como permitir el ensamblado *"even if bit 4 is clear"*, o sea que el bit
+  4 ya lo lleva consigo. Exigir solo el bit 11 inventaría una restricción que
+  ningún documento con manejador de revisión 2 —donde el bit 11 no significa
+  nada— llegó a declarar.
+- El hueco que cierra era real y silencioso: `RotatePage`, `InsertBlankPage` y
+  `RemovePage` cruzaban `pdf-ffi::apply_edit` sin permiso alguno.
+  `is_annotation_command` los excluye explícitamente y `is_content_command`
+  tampoco los reclama, así que no los comprobaba nadie. Un documento que
+  prohíbe el ensamblado podía ser repaginado igual.
+- `Command::is_document_assembly_edit` (en `pdf-document`) es un predicado
+  aparte de `is_page_structure_edit` y no una ampliación suya: se diferencian
+  en exactamente una variante, `RotatePage`, que no cambia ni la pertenencia
+  ni el orden de las páginas —así que no es un cambio de estructura— pero que
+  la tabla 22 nombra literalmente ("insert, **rotate**, or delete pages").
+- En el shell GTK4 la puerta va en `organize::command`, el embudo por el que
+  ya pasa toda operación de la pantalla, junto al chequeo de edición de
+  contenido que ya había. Un documento puede conceder uno de los dos bits y
+  negar el otro, de modo que preguntar solo por el primero repaginaría un
+  archivo que lo prohíbe. `PageAssemblyAccess` copia la forma de `TextAccess`
+  (tres estados, `Unreadable` incluido) y no la de `ContentEditAccess`: es una
+  pregunta de permiso pura, y la ausencia del modelo editable ya la reporta
+  la propia pantalla con sus palabras.
+- Fuentes: la comprobación por archivo vive en
+  `ImportedSourceRegistry::register`, que ahora recibe el `SecurityContext` de
+  *esa* fuente y devuelve `Result`. Es el único punto por el que una fuente
+  entra en la sesión, así que rechazar ahí impide que un PDF no importable
+  llegue a la lista de páginas y se convierta en un guardado que falla más
+  tarde. El bit que la gobierna es el 5 —el que lee
+  `text_extraction_is_allowed`—, cuyo texto en la tabla 22 es "copy or
+  otherwise extract text **and graphics** from the document": levantar el
+  contenido de una página hacia otro archivo es exactamente eso. El nombre
+  dice *text* porque la extracción de texto fue su primer llamador, no porque
+  el bit sea más estrecho que la operación. Nuevo
+  `SaveError::SourceForbidsImport`.
+- Dos pruebas de `pdf-ffi/tests/smoke.rs` pasaron a abrir con la contraseña de
+  propietario: el corpus `rc4_128_user_and_owner.pdf` concede impresión y
+  copia y nada más, así que una apertura con credencial de usuario ya no puede
+  ensamblarlo. Su asunto es la indexación de páginas y la imposibilidad de
+  reescribir con una sola contraseña, no los permisos; el rechazo en sí tiene
+  su propia prueba nueva.
+- Verificación (2026-09-08, permiso de ensamblado): `cargo test --workspace
+  --locked -- --skip gtk_ui_` (878 aprobadas, 0 fallos); `cargo test -p
+  pdf-document -p pdf-manip -p pdf-ffi -p pdf-save --locked` (0 fallos);
+  `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets
+  --locked -- -D warnings`; `python scripts/check_maintainability.py` (99
+  avisos, línea base sin cambios). `linux-gtk` no compila en Windows: los
+  cambios de `organize.rs`, `state.rs`, `document.rs` y su prueba
+  `gtk_ui_refused_and_failed_commands_leave_cards_and_history_untouched` solo
+  pasaron por el analizador de `cargo fmt`; su verificación real es el CI de
+  Linux.
 
 ## 6. Guardado y resolución de páginas
 

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::app::home::EDITOR_PAGE;
-use crate::app::state::{AnnotationAccess, ContentEditAccess, TextAccess};
+use crate::app::state::{AnnotationAccess, ContentEditAccess, PageAssemblyAccess, TextAccess};
 use crate::app::ui_tests::built_ui;
 use crate::app::BuiltUi;
 use pdf_document::{Orientation as PageOrientation, Page, PageId, PageSize};
@@ -45,6 +45,7 @@ fn with_organize(test: impl FnOnce(&Viewer)) {
         text_access: TextAccess::Allowed,
         annotation_access: AnnotationAccess::Allowed,
         content_edit_access: ContentEditAccess::Allowed,
+        page_assembly_access: PageAssemblyAccess::Allowed,
         document_model: Some(document),
         backend_pages,
         save_backing: None,
@@ -238,6 +239,13 @@ fn gtk_ui_refused_and_failed_commands_leave_cards_and_history_untouched() {
         assert!(!drop_on(viewer, 0, 2));
         assert_grid(viewer, &[0, 1, 2]);
         session(viewer).content_edit_access = ContentEditAccess::Allowed;
+        // The assembly permission is a separate bit: a document may grant
+        // content edits and still forbid changing which pages it has.
+        session(viewer).page_assembly_access = PageAssemblyAccess::Forbidden;
+        delete_button(viewer, 1).emit_clicked();
+        assert!(!drop_on(viewer, 0, 2));
+        assert_grid(viewer, &[0, 1, 2]);
+        session(viewer).page_assembly_access = PageAssemblyAccess::Allowed;
         assert!(!delete_page(viewer, 9));
         assert!(!move_page(viewer, 0, 9));
         // A stale card must also survive a missing model, not just permissions.

@@ -38,5 +38,6 @@ pub use open::{
 pub use page_ops::{delete_pages, extract_pages, reorder_pages, rotate_page};
 pub use report::{graft_report, GraftOutcome, GraftReport, GraftWarning};
 pub use security::{
-    annotation_editing_is_allowed, content_editing_is_allowed, text_extraction_is_allowed,
+    annotation_editing_is_allowed, content_editing_is_allowed, document_assembly_is_allowed,
+    text_extraction_is_allowed,
 };

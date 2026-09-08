@@ -25,7 +25,7 @@ use super::render::update_viewport;
 use super::search::update_search_controls;
 use super::state::{
     AnnotationAccess, ContentEditAccess, DocumentSession, DocumentSource, FitRequest,
-    OpenedDocument, PageSlot, PageState, TextAccess, Viewer,
+    OpenedDocument, PageAssemblyAccess, PageSlot, PageState, TextAccess, Viewer,
 };
 
 /// The sample document, linked into the binary at compile time from the same
@@ -1235,6 +1235,7 @@ fn open_document(
         });
     let annotation_access = annotation_access_from(&security, document_model.is_some());
     let content_edit_access = content_edit_access_from(&security, document_model.is_some());
+    let page_assembly_access = page_assembly_access_from(&security);
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
@@ -1245,6 +1246,7 @@ fn open_document(
             text_access,
             annotation_access,
             content_edit_access,
+            page_assembly_access,
             document_model,
             save_backing,
         }),
@@ -1337,6 +1339,22 @@ fn content_edit_access_from(
         }
         Ok(_) if has_model => ContentEditAccess::Allowed,
         _ => ContentEditAccess::Unavailable,
+    }
+}
+
+/// The page-assembly twin of [`text_access_from`] — the same three-state
+/// shape, because like text extraction this is a pure permission question:
+/// the Organize screen reports a missing editable model separately, in its
+/// own words.
+fn page_assembly_access_from(
+    security: &Result<Option<SecurityContext>, ManipError>,
+) -> PageAssemblyAccess {
+    match security {
+        Ok(security) if pdf_manip::document_assembly_is_allowed(security.as_ref()) => {
+            PageAssemblyAccess::Allowed
+        }
+        Ok(_) => PageAssemblyAccess::Forbidden,
+        Err(_) => PageAssemblyAccess::Unreadable,
     }
 }
 
@@ -1499,6 +1517,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             text_access: document.text_access,
             annotation_access: document.annotation_access,
             content_edit_access: document.content_edit_access,
+            page_assembly_access: document.page_assembly_access,
             document_model: document.document_model,
             backend_pages,
             save_backing: document.save_backing,

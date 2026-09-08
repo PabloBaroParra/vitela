@@ -297,6 +297,19 @@ impl Command {
         )
     }
 
+    /// Whether this command needs the PDF document-assembly permission
+    /// (`/P` bit 11 — see `pdf_manip::document_assembly_is_allowed`).
+    ///
+    /// Wider than [`Self::is_page_structure_edit`] by exactly one variant:
+    /// `RotatePage` changes neither the membership nor the order of the
+    /// pages, so it is not a page-structure edit, but PDF 1.7 table 22
+    /// defines the assembly permission as "insert, **rotate**, or delete
+    /// pages" — the two questions genuinely have different answers and are
+    /// kept as separate predicates rather than one widened to cover both.
+    pub fn is_document_assembly_edit(&self) -> bool {
+        self.is_page_structure_edit() || matches!(self, Command::RotatePage { .. })
+    }
+
     /// Applies this command's forward action to `document`.
     ///
     /// Returns `false` without mutating when the command cannot address the
@@ -1417,6 +1430,60 @@ mod tests {
             to: 1,
         }
         .is_page_structure_edit());
+    }
+
+    /// Rotation is the one command the two predicates disagree about, and
+    /// the disagreement is the point: it reorders nothing, yet the PDF
+    /// assembly permission names it explicitly.
+    #[test]
+    fn rotating_a_page_needs_assembly_permission_but_is_not_a_structure_edit() {
+        let rotate = Command::RotatePage {
+            page: PageId(0),
+            delta_degrees: 90,
+        };
+
+        assert!(rotate.is_document_assembly_edit());
+        assert!(!rotate.is_page_structure_edit());
+    }
+
+    #[test]
+    fn every_page_structure_edit_needs_assembly_permission() {
+        for command in [
+            Command::InsertPage {
+                index: 0,
+                page: Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            },
+            Command::RemovePage {
+                index: 0,
+                page: Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            },
+            Command::MovePage { from: 0, to: 1 },
+            Command::MovePages {
+                from: 0,
+                count: 1,
+                to: 1,
+            },
+            Command::ImportPages {
+                index: 0,
+                pages: vec![imported_page(10, 0)],
+            },
+            Command::RemoveImportedPages {
+                index: 0,
+                pages: vec![imported_page(10, 0)],
+            },
+        ] {
+            assert!(command.is_document_assembly_edit(), "{command:?}");
+        }
+    }
+
+    /// An annotation or content edit must not be dragged through the
+    /// assembly gate: a document may forbid assembly and still permit both.
+    #[test]
+    fn an_edit_that_leaves_the_page_list_alone_needs_no_assembly_permission() {
+        assert!(
+            !Command::AddAnnotation(sample_annotation(1, PageId(0))).is_document_assembly_edit()
+        );
+        assert!(!Command::RemoveFormField(sample_form_field(1)).is_document_assembly_edit());
     }
 
     #[test]

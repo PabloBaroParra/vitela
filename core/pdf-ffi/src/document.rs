@@ -388,6 +388,22 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
 /// `InsertBlankPage`, `RemovePage`, or any page-content command (Batch 21):
 /// editing a page's text/images is a content-modify operation, not an
 /// annotation, the same distinction the PDF permission bits themselves draw.
+/// Whether `command` changes which pages the document has, in what order, or
+/// how they are turned — the PDF document-assembly permission (`/P` bit 11),
+/// which no command crossing this boundary used to be checked against at all.
+///
+/// The core twin is `pdf_document::Command::is_document_assembly_edit`; this
+/// classifies the FFI command instead because the check has to happen before
+/// `build_core_command`, which can allocate ids and read the page model.
+fn is_document_assembly_command(command: &FfiEditCommand) -> bool {
+    matches!(
+        command,
+        FfiEditCommand::RotatePage { .. }
+            | FfiEditCommand::InsertBlankPage { .. }
+            | FfiEditCommand::RemovePage { .. }
+    )
+}
+
 fn is_annotation_command(command: &FfiEditCommand) -> bool {
     !matches!(
         command,
@@ -687,6 +703,29 @@ mod tests {
         document.security.as_mut().unwrap().credential = Credential::Owner;
         assert!(annotation_editing_is_allowed(&document));
     }
+
+    /// The page commands are the ones this boundary used to let through
+    /// unasked: neither `is_annotation_command` nor `is_content_command`
+    /// claims them, so before the assembly gate existed nothing did.
+    #[test]
+    fn the_page_commands_are_the_ones_that_need_assembly_permission() {
+        for command in [
+            FfiEditCommand::RotatePage {
+                page: 0,
+                delta_degrees: 90,
+            },
+            FfiEditCommand::InsertBlankPage {
+                index: 0,
+                size: FfiPageSize::A4,
+                orientation: FfiOrientation::Portrait,
+            },
+            FfiEditCommand::RemovePage { index: 0 },
+        ] {
+            assert!(is_document_assembly_command(&command), "{command:?}");
+            assert!(!is_annotation_command(&command), "{command:?}");
+            assert!(!is_content_command(&command), "{command:?}");
+        }
+    }
 }
 
 /// Returns `false` when `EditLog::apply` rejected the command, leaving both
@@ -937,6 +976,14 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
     if is_annotation_command(&command) && !annotation_editing_is_allowed(&state.document) {
         return Err(FfiError::UnsupportedOperation {
             detail: "annotation editing is not permitted".to_string(),
+        });
+    }
+    if is_document_assembly_command(&command)
+        && !pdf_manip::document_assembly_is_allowed(state.document.security.as_ref())
+    {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this document does not permit inserting, removing or rotating its pages"
+                .to_string(),
         });
     }
     let is_content = is_content_command(&command);
