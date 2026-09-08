@@ -68,12 +68,20 @@ pub enum Command {
     /// Moves the page at `from` to `to` (`Vec` positions, not `PageId`s —
     /// matches `InsertPage`/`RemovePage`'s addressing). Carries no `Page`
     /// value: unlike `RemovePage`, a move destroys nothing, so the inverse
-    /// only needs to swap `from`/`to`. One command per drag-and-drop gesture
-    /// in the Organize screen; a multi-page reorder is simply several of
-    /// these in the log, the same way several drags each get their own
-    /// `MoveFormField`.
+    /// only needs to swap `from`/`to`. One command per page drag-and-drop
+    /// gesture in the Organize screen.
     MovePage {
         from: usize,
+        to: usize,
+    },
+    /// Moves `count` contiguous pages starting at `from` so that the first
+    /// moved page finishes at `to`. `from` addresses the current order; `to`
+    /// is the range's starting position after the move. That makes the inverse
+    /// the same command with `from` and `to` swapped. The moved pages retain
+    /// their exact internal order.
+    MovePages {
+        from: usize,
+        count: usize,
         to: usize,
     },
 
@@ -278,6 +286,7 @@ impl Command {
                 | Command::RemovePage { .. }
                 | Command::RemoveImportedPages { .. }
                 | Command::MovePage { .. }
+                | Command::MovePages { .. }
         )
     }
 
@@ -364,6 +373,21 @@ impl Command {
                 let page = document.pages.remove(*from);
                 document.pages.insert(*to, page);
             }
+            Command::MovePages { from, count, to } => {
+                let len = document.pages.len();
+                let Some(source_end) = from.checked_add(*count) else {
+                    return false;
+                };
+                if *count == 0 || source_end > len || *to > len - *count || from == to {
+                    return false;
+                }
+
+                if from < to {
+                    document.pages[*from..*to + *count].rotate_left(*count);
+                } else {
+                    document.pages[*to..source_end].rotate_right(*count);
+                }
+            }
             // Inert by design, not by omission: the model carries no page
             // content to mutate (see the variants' docs above). Recording
             // the command in the log is the entire forward action; the file
@@ -446,6 +470,11 @@ impl Command {
             },
             Command::MovePage { from, to } => Command::MovePage {
                 from: *to,
+                to: *from,
+            },
+            Command::MovePages { from, count, to } => Command::MovePages {
+                from: *to,
+                count: *count,
                 to: *from,
             },
             // The item snapshot doubles as the "before" value, so undoing a
@@ -718,6 +747,20 @@ mod tests {
             Orientation::Portrait,
             Rotation::None,
         )
+    }
+
+    fn document_with_pages(ids: &[u32]) -> Document {
+        Document {
+            pages: ids
+                .iter()
+                .map(|id| Page::blank(PageId(*id), PageSize::A4, Orientation::Portrait))
+                .collect(),
+            ..Document::default()
+        }
+    }
+
+    fn page_ids(document: &Document) -> Vec<PageId> {
+        document.pages.iter().map(|page| page.id).collect()
     }
 
     #[test]
@@ -1150,6 +1193,180 @@ mod tests {
             document.pages.iter().map(|p| p.id).collect::<Vec<_>>(),
             vec![PageId(1), PageId(2), PageId(0)]
         );
+    }
+
+    #[test]
+    fn move_pages_moves_a_contiguous_range_right_without_reordering_it() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4, 5]);
+
+        let applied = Command::MovePages {
+            from: 1,
+            count: 2,
+            to: 3,
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(
+            page_ids(&document),
+            [
+                PageId(0),
+                PageId(3),
+                PageId(4),
+                PageId(1),
+                PageId(2),
+                PageId(5)
+            ]
+        );
+    }
+
+    #[test]
+    fn move_pages_can_move_a_contiguous_range_from_the_end_to_the_start() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4]);
+
+        let applied = Command::MovePages {
+            from: 3,
+            count: 2,
+            to: 0,
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(
+            page_ids(&document),
+            [PageId(3), PageId(4), PageId(0), PageId(1), PageId(2)]
+        );
+    }
+
+    #[test]
+    fn move_pages_can_append_a_contiguous_range() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4]);
+
+        let applied = Command::MovePages {
+            from: 0,
+            count: 2,
+            to: 3,
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(
+            page_ids(&document),
+            [PageId(2), PageId(3), PageId(4), PageId(0), PageId(1)]
+        );
+    }
+
+    #[test]
+    fn move_pages_is_one_undo_and_redo_step() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4]);
+        let command = Command::MovePages {
+            from: 1,
+            count: 2,
+            to: 3,
+        };
+        let mut log = EditLog::new();
+
+        assert!(log.apply(&mut document, command.clone()));
+        assert!(log.undo(&mut document));
+        assert_eq!(
+            page_ids(&document),
+            [PageId(0), PageId(1), PageId(2), PageId(3), PageId(4)]
+        );
+        assert!(!log.undo(&mut document));
+        assert!(log.redo(&mut document));
+        assert_eq!(
+            page_ids(&document),
+            [PageId(0), PageId(3), PageId(4), PageId(1), PageId(2)]
+        );
+        assert_eq!(log.entries(), &[command]);
+    }
+
+    #[test]
+    fn invalid_move_pages_commands_are_rejected_before_mutating() {
+        let commands = [
+            Command::MovePages {
+                from: 1,
+                count: 0,
+                to: 0,
+            },
+            Command::MovePages {
+                from: usize::MAX,
+                count: 2,
+                to: 0,
+            },
+            Command::MovePages {
+                from: 4,
+                count: 2,
+                to: 0,
+            },
+            Command::MovePages {
+                from: 0,
+                count: 2,
+                to: 4,
+            },
+            Command::MovePages {
+                from: 1,
+                count: 2,
+                to: 1,
+            },
+        ];
+
+        for command in commands {
+            let original = document_with_pages(&[0, 1, 2, 3, 4]);
+            let mut document = original.clone();
+
+            assert!(!command.apply(&mut document), "{command:?} was accepted");
+            assert_eq!(document, original, "{command:?} mutated the document");
+        }
+    }
+
+    #[test]
+    fn rejected_move_pages_preserves_undo_and_redo_history() {
+        let mut document = document_with_pages(&[0, 1, 2]);
+        let mut log = EditLog::new();
+        assert!(log.apply(&mut document, Command::MovePage { from: 0, to: 2 }));
+        assert!(log.undo(&mut document));
+
+        let applied = log.apply(
+            &mut document,
+            Command::MovePages {
+                from: 0,
+                count: 1,
+                to: 0,
+            },
+        );
+
+        assert!(!applied);
+        assert!(!log.can_undo());
+        assert!(log.can_redo());
+    }
+
+    #[test]
+    fn move_pages_inverse_swaps_the_range_positions() {
+        let command = Command::MovePages {
+            from: 1,
+            count: 2,
+            to: 4,
+        };
+
+        assert_eq!(
+            command.inverse(),
+            Command::MovePages {
+                from: 4,
+                count: 2,
+                to: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn move_pages_is_a_page_structure_edit() {
+        assert!(Command::MovePages {
+            from: 0,
+            count: 1,
+            to: 1,
+        }
+        .is_page_structure_edit());
     }
 
     #[test]
@@ -1676,6 +1893,11 @@ mod tests {
                 page: page.clone(),
             },
             Command::RemovePage { index: 0, page },
+            Command::MovePages {
+                from: 0,
+                count: 1,
+                to: 1,
+            },
         ];
 
         for command in non_content_commands {

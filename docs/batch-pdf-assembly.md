@@ -69,20 +69,19 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Añadir un comando atómico para insertar todas las páginas seleccionadas
   de un PDF.
 - [x] Hacer que deshacer y rehacer una importación requiera un único paso.
-- [ ] Añadir un comando atómico para mover un tramo contiguo de páginas.
-- [ ] Hacer que mover un bloque requiera un único paso de deshacer.
+- [x] Añadir un comando atómico para mover un tramo contiguo de páginas.
+- [x] Hacer que mover un bloque requiera un único paso de deshacer.
 - [ ] Añadir validación para impedir identificadores duplicados, rangos inválidos
   y órdenes que no sean permutaciones del estado actual. Parcial: los rangos
   inválidos ya se rechazan en los comandos de página — `Command::apply` acota
   `InsertPage`, `RemovePage`, `MovePage`, `ImportPages` y
-  `RemoveImportedPages`, y devuelve `false` sin mutar en lugar de paniquear.
-  Faltan las otras dos mitades: nada impide todavía un `PageId` o un
-  `ImportedDocumentId` repetido, y la comprobación de permutación no tiene aún
-  comando de reordenamiento por lote al que aplicarse (ver los dos ítems de
-  tramo contiguo más arriba).
+  `RemoveImportedPages` y `MovePages`, y devuelve `false` sin mutar en lugar de
+  paniquear. `MovePages` solo rota un slice validado de las páginas existentes,
+  así que su resultado siempre es una permutación exacta. Falta impedir un
+  `PageId` o un `ImportedDocumentId` repetido.
 - [x] Centralizar en el núcleo la clasificación de comandos estructurales de
   página.
-- [ ] Probar aplicación, inversión, deshacer y rehacer de los nuevos comandos.
+- [x] Probar aplicación, inversión, deshacer y rehacer de los nuevos comandos.
 
 ### Progreso del modelo
 
@@ -96,6 +95,20 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   páginas en su inversa `RemoveImportedPages`; undo y redo mueven todo el lote
   en una sola entrada. `Command::is_page_structure_edit` centraliza la
   clasificación que consume el shell Linux.
+- 2026-09-08: `Command::MovePages { from, count, to }` mueve un tramo contiguo
+  como una sola entrada de historial. `to` es la posición inicial final del
+  tramo, por lo que la inversa intercambia `from` y `to`. La aplicación valida
+  lote vacío, overflow y ambos extremos antes de rotar el slice en memoria;
+  conserva identidad, procedencia, orden interno y la permutación exacta sin
+  clonar páginas. El cableado de este comando al futuro arrastre de tarjetas de
+  documento sigue perteneciendo a la fase 9.
+- Verificación (2026-09-08, movimiento atómico de tramos): `cargo test -p
+  pdf-document --locked` (114 aprobadas, 0 fallos); `cargo test --workspace
+  --locked -- --skip gtk_ui_` (0 fallos); `cargo fmt --all -- --check`; `cargo
+  clippy --workspace --all-targets --locked -- -D warnings`; `python
+  scripts/check_maintainability.py` (99 avisos, línea base sin cambios). No se
+  ejecutó runtime GTK ni smoke de Linux: este paso solo modifica el modelo puro
+  y todavía no tiene caller de plataforma.
 - 2026-09-08: los índices de página dejan de paniquear. `Command::apply`
   valida `InsertPage`, `RemovePage` y `MovePage` y devuelve `false` en vez de
   dejar que `Vec` aborte, igual que ya hacían las variantes por lote. En el
@@ -443,9 +456,9 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 12. Pruebas del núcleo
 
-- [ ] Probar que importar un PDF es un único paso de historial.
-- [ ] Probar que deshacer y rehacer restaura orden y procedencia.
-- [ ] Probar que mover un bloque es un único paso de historial.
+- [x] Probar que importar un PDF es un único paso de historial.
+- [x] Probar que deshacer y rehacer restaura orden y procedencia.
+- [x] Probar que mover un bloque es un único paso de historial.
 - [ ] Probar importación de texto, imágenes y recursos anidados.
 - [ ] Probar páginas con atributos heredados y árboles de páginas anidados.
 - [ ] Probar colisiones de identificadores entre documentos.
