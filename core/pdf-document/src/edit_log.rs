@@ -49,11 +49,21 @@ pub enum Command {
         index: usize,
         page: Page,
     },
+    /// Inserts every selected page from one imported PDF as one undoable edit.
+    ImportPages {
+        index: usize,
+        pages: Vec<Page>,
+    },
     /// Carries the removed `Page` value itself — captured at the moment
     /// the command is recorded (mirrors `RemoveAnnotation`).
     RemovePage {
         index: usize,
         page: Page,
+    },
+    /// Removes a previously imported batch while retaining every page for redo.
+    RemoveImportedPages {
+        index: usize,
+        pages: Vec<Page>,
     },
     /// Moves the page at `from` to `to` (`Vec` positions, not `PageId`s —
     /// matches `InsertPage`/`RemovePage`'s addressing). Carries no `Page`
@@ -259,8 +269,38 @@ impl Command {
         )
     }
 
+    /// Whether this command changes the membership or order of document pages.
+    pub fn is_page_structure_edit(&self) -> bool {
+        matches!(
+            self,
+            Command::InsertPage { .. }
+                | Command::ImportPages { .. }
+                | Command::RemovePage { .. }
+                | Command::RemoveImportedPages { .. }
+                | Command::MovePage { .. }
+        )
+    }
+
     /// Applies this command's forward action to `document`.
-    pub fn apply(&self, document: &mut Document) {
+    ///
+    /// Returns `false` without mutating when the command cannot address the
+    /// document it is given: a page index out of range, an empty imported
+    /// batch, or a retained removal batch the document no longer matches.
+    ///
+    /// Every page command checks its own indices rather than letting `Vec`
+    /// panic on them. The indices are the one part of a command that a
+    /// caller supplies outright — `EditLog` itself only ever replays a
+    /// command against the state it was recorded from — so a shell that
+    /// miscomputes one must get a rejection it can report, not an abort. It
+    /// matters most across the FFI boundary, where a panic cannot be caught
+    /// on the other side and takes the user's unsaved document with it.
+    ///
+    /// The single-page removals bounds-check rather than comparing against
+    /// the `Page` they carry (as `RemoveImportedPages` does). `RotatePage`
+    /// mutates a `Page` in place, so a carried snapshot is not reliably
+    /// equal to the live page at that index, and rejecting on that would
+    /// refuse removals that are perfectly valid.
+    pub fn apply(&self, document: &mut Document) -> bool {
         match self {
             Command::AddAnnotation(annotation) => {
                 document.annotations.insert(annotation.clone());
@@ -288,12 +328,39 @@ impl Command {
                 }
             }
             Command::InsertPage { index, page } => {
+                // `>` not `>=`: inserting at `len` appends, which is valid.
+                if *index > document.pages.len() {
+                    return false;
+                }
                 document.pages.insert(*index, page.clone());
             }
+            Command::ImportPages { index, pages } => {
+                if pages.is_empty() || *index > document.pages.len() {
+                    return false;
+                }
+                document.pages.splice(*index..*index, pages.clone());
+            }
             Command::RemovePage { index, .. } => {
+                if *index >= document.pages.len() {
+                    return false;
+                }
                 document.pages.remove(*index);
             }
+            Command::RemoveImportedPages { index, pages } => {
+                let Some(end) = index.checked_add(pages.len()) else {
+                    return false;
+                };
+                if pages.is_empty() || document.pages.get(*index..end) != Some(pages.as_slice()) {
+                    return false;
+                }
+                document.pages.drain(*index..end);
+            }
             Command::MovePage { from, to } => {
+                // Both bounds are `len - 1`: a move re-inserts into a vector
+                // one shorter than the one `to` was chosen against.
+                if *from >= document.pages.len() || *to >= document.pages.len() {
+                    return false;
+                }
                 let page = document.pages.remove(*from);
                 document.pages.insert(*to, page);
             }
@@ -342,6 +409,7 @@ impl Command {
             // applies `after` to `/Info` during the write.
             Command::SetDocumentInfo { .. } => {}
         }
+        true
     }
 
     /// Computes the inverse command — applying it undoes `self`.
@@ -364,9 +432,17 @@ impl Command {
                 index: *index,
                 page: page.clone(),
             },
+            Command::ImportPages { index, pages } => Command::RemoveImportedPages {
+                index: *index,
+                pages: pages.clone(),
+            },
             Command::RemovePage { index, page } => Command::InsertPage {
                 index: *index,
                 page: page.clone(),
+            },
+            Command::RemoveImportedPages { index, pages } => Command::ImportPages {
+                index: *index,
+                pages: pages.clone(),
             },
             Command::MovePage { from, to } => Command::MovePage {
                 from: *to,
@@ -493,10 +569,14 @@ impl EditLog {
     }
 
     /// Applies `command` to `document` and records it as undoable.
-    pub fn apply(&mut self, document: &mut Document, command: Command) {
-        command.apply(document);
+    /// Returns `false` when the command is rejected without mutation.
+    pub fn apply(&mut self, document: &mut Document, command: Command) -> bool {
+        if !command.apply(document) {
+            return false;
+        }
         self.entries.push(command);
         self.redo_stack.clear();
+        true
     }
 
     /// Undoes the most recent command, if any, by applying its inverse to
@@ -504,7 +584,10 @@ impl EditLog {
     pub fn undo(&mut self, document: &mut Document) -> bool {
         match self.entries.pop() {
             Some(command) => {
-                command.inverse().apply(document);
+                if !command.inverse().apply(document) {
+                    self.entries.push(command);
+                    return false;
+                }
                 self.redo_stack.push(command);
                 true
             }
@@ -517,7 +600,10 @@ impl EditLog {
     pub fn redo(&mut self, document: &mut Document) -> bool {
         match self.redo_stack.pop() {
             Some(command) => {
-                command.apply(document);
+                if !command.apply(document) {
+                    self.redo_stack.push(command);
+                    return false;
+                }
                 self.entries.push(command);
                 true
             }
@@ -604,7 +690,7 @@ mod tests {
     use super::*;
     use crate::annotation::{AnnotationId, AnnotationKind, Color};
     use crate::content::{ContentItemId, FontKind};
-    use crate::document::{Orientation, PageSize};
+    use crate::document::{ImportedDocumentId, Orientation, PageSize, Rotation};
     use crate::form::{FontFamily, FormFieldKind};
 
     fn sample_annotation(id: u64, page: PageId) -> Annotation {
@@ -621,6 +707,17 @@ mod tests {
                 color: Color { r: 255, g: 0, b: 0 },
             },
         }
+    }
+
+    fn imported_page(id: u32, source_page: u32) -> Page {
+        Page::imported(
+            PageId(id),
+            ImportedDocumentId(7),
+            source_page,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )
     }
 
     #[test]
@@ -803,6 +900,226 @@ mod tests {
         log.undo(&mut document);
         assert_eq!(document.pages.len(), 2);
         assert_eq!(document.pages[1], page1);
+    }
+
+    #[test]
+    fn import_pages_inserts_the_whole_batch_in_source_order() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        let pages = vec![imported_page(10, 2), imported_page(11, 0)];
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: pages.clone(),
+            },
+        );
+
+        assert_eq!(&document.pages[1..], pages);
+    }
+
+    #[test]
+    fn undo_removes_an_imported_batch_in_one_step() {
+        let base = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let mut document = Document {
+            pages: vec![base.clone()],
+            ..Document::default()
+        };
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: vec![imported_page(10, 0), imported_page(11, 1)],
+            },
+        );
+
+        assert!(log.undo(&mut document));
+        assert_eq!(document.pages, vec![base]);
+        assert!(!log.undo(&mut document));
+    }
+
+    #[test]
+    fn redo_restores_an_imported_batch_in_one_step() {
+        let mut document = Document::blank();
+        let pages = vec![imported_page(10, 0), imported_page(11, 1)];
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 0,
+                pages: pages.clone(),
+            },
+        );
+        log.undo(&mut document);
+
+        assert!(log.redo(&mut document));
+        assert_eq!(document.pages, pages);
+        assert!(!log.redo(&mut document));
+    }
+
+    #[test]
+    fn import_pages_inverse_retains_the_batch_for_redo() {
+        let pages = vec![imported_page(10, 0), imported_page(11, 1)];
+        let command = Command::ImportPages {
+            index: 3,
+            pages: pages.clone(),
+        };
+
+        assert_eq!(
+            command.inverse(),
+            Command::RemoveImportedPages { index: 3, pages }
+        );
+    }
+
+    #[test]
+    fn import_commands_are_page_structure_edits() {
+        assert!(Command::ImportPages {
+            index: 0,
+            pages: vec![imported_page(10, 0)],
+        }
+        .is_page_structure_edit());
+        assert!(Command::RemoveImportedPages {
+            index: 0,
+            pages: vec![imported_page(10, 0)],
+        }
+        .is_page_structure_edit());
+    }
+
+    #[test]
+    fn an_empty_import_changes_neither_history_nor_redo() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::InsertPage {
+                index: 0,
+                page: Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            },
+        );
+        log.undo(&mut document);
+
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 0,
+                pages: Vec::new(),
+            },
+        );
+
+        assert!(!log.can_undo());
+        assert!(log.can_redo());
+    }
+
+    #[test]
+    fn removing_a_mismatched_imported_batch_is_rejected_before_mutating() {
+        let original = vec![imported_page(10, 0), imported_page(11, 1)];
+        let mut document = Document {
+            pages: original.clone(),
+            ..Document::default()
+        };
+        let command = Command::RemoveImportedPages {
+            index: 0,
+            pages: vec![imported_page(12, 0), imported_page(13, 1)],
+        };
+
+        let applied = command.apply(&mut document);
+
+        assert!(!applied);
+        assert_eq!(document.pages, original);
+    }
+
+    #[test]
+    fn an_out_of_range_import_is_rejected_without_losing_redo() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::InsertPage {
+                index: 0,
+                page: Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            },
+        );
+        log.undo(&mut document);
+
+        let applied = log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: vec![imported_page(10, 0)],
+            },
+        );
+
+        assert!(!applied);
+        assert!(document.pages.is_empty());
+        assert!(log.can_redo());
+    }
+
+    #[test]
+    fn an_out_of_range_insert_page_is_rejected_without_panicking() {
+        let mut document = Document::blank();
+        let command = Command::InsertPage {
+            index: 9,
+            page: Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+        };
+
+        assert!(!command.apply(&mut document));
+        assert!(document.pages.is_empty());
+    }
+
+    #[test]
+    fn inserting_one_past_the_last_page_appends_rather_than_being_rejected() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        let appended = Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
+
+        let applied = Command::InsertPage {
+            index: 1,
+            page: appended.clone(),
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(document.pages[1], appended);
+    }
+
+    #[test]
+    fn an_out_of_range_remove_page_is_rejected_without_panicking() {
+        let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let mut document = Document {
+            pages: vec![page.clone()],
+            ..Document::default()
+        };
+
+        let applied = Command::RemovePage { index: 5, page }.apply(&mut document);
+
+        assert!(!applied);
+        assert_eq!(document.pages.len(), 1);
+    }
+
+    #[test]
+    fn an_out_of_range_move_page_is_rejected_without_panicking() {
+        let original = vec![
+            Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
+        ];
+        let mut document = Document {
+            pages: original.clone(),
+            ..Document::default()
+        };
+
+        // `to` past the end is the half a naive bounds check misses: `from`
+        // is removed first, so an unchecked `insert` would panic on a vector
+        // that had already lost a page.
+        assert!(!Command::MovePage { from: 0, to: 7 }.apply(&mut document));
+        assert!(!Command::MovePage { from: 7, to: 0 }.apply(&mut document));
+        assert_eq!(document.pages, original);
     }
 
     #[test]
