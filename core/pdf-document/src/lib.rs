@@ -11,6 +11,7 @@
 
 pub mod annotation;
 pub mod audit_log;
+pub mod blocks;
 pub mod content;
 pub mod document;
 pub mod edit_log;
@@ -20,6 +21,7 @@ pub mod security;
 
 pub use annotation::{Annotation, AnnotationId, AnnotationKind, AnnotationSet, Color, Popup, Rect};
 pub use audit_log::{AuditActor, AuditEntry, AuditEvent, AuditLog};
+pub use blocks::{derive_blocks, Block, BlockSource};
 pub use content::{ContentItemId, FontKind, ImageItem, PageContent, TextRun};
 pub use document::{
     Document, ImportedDocumentId, Orientation, Page, PageId, PageOrigin, PageSize, Rotation,

@@ -213,18 +213,53 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 2. Derivación de bloques
 
-- [ ] Derivar los bloques recorriendo `Document.pages` de izquierda a derecha.
-- [ ] Agrupar únicamente páginas contiguas procedentes del mismo PDF.
-- [ ] Mantener el orden interno exacto de cada tramo.
-- [ ] Crear un bloque nuevo cuando reaparezca una fuente después de páginas de
+- [x] Derivar los bloques recorriendo `Document.pages` de izquierda a derecha.
+- [x] Agrupar únicamente páginas contiguas procedentes del mismo PDF.
+- [x] Mantener el orden interno exacto de cada tramo.
+- [x] Crear un bloque nuevo cuando reaparezca una fuente después de páginas de
   otra fuente.
-- [ ] Identificar cada bloque mediante datos estables, no mediante su posición
+- [x] Identificar cada bloque mediante datos estables, no mediante su posición
   visual.
-- [ ] Etiquetar tramos divididos como `Part 1`, `Part 2`, etc.
-- [ ] Recalcular los bloques después de importar, mover, borrar, deshacer o
+- [x] Etiquetar tramos divididos como `Part 1`, `Part 2`, etc.
+- [x] Recalcular los bloques después de importar, mover, borrar, deshacer o
   rehacer.
-- [ ] Probar secuencias intercaladas como `A1, A2, B1, A3, B2`.
-- [ ] Verificar que derivar bloques nunca muta el documento.
+- [x] Probar secuencias intercaladas como `A1, A2, B1, A3, B2`.
+- [x] Verificar que derivar bloques nunca muta el documento.
+
+### Progreso de la derivación de bloques
+
+- 2026-09-08: `pdf-document` gana `blocks.rs` (`derive_blocks`, `Block`,
+  `BlockSource`). Es una función pura sobre `&Document`: recorre
+  `Document.pages` una vez y arranca un bloque nuevo cada vez que cambia la
+  fuente respecto de la página anterior — incluida una fuente que ya apareció
+  antes, que es justo lo que la vuelve "no contigua" y hay que partir en
+  bloques separados.
+- `BlockSource` es deliberadamente más angosto que `PageOrigin`: descarta
+  `page_index` porque dos páginas de la misma fuente en índices distintos
+  siguen siendo el mismo bloque. Tiene tres variantes — `Base`, `Blank`,
+  `Imported(ImportedDocumentId)` — así que las páginas en blanco también se
+  agrupan en bloques contiguos aunque no vengan de un PDF.
+- Sin caché: no hay invalidación que mantener. Cada llamada recorre
+  `Document.pages` desde cero, así que recalcular tras importar, mover,
+  borrar, deshacer o rehacer es automático por construcción — no hace falta
+  ningún paso adicional del llamador más que volver a invocar la función.
+  Verificado con un test que aplica `ImportPages`, `MovePages`, `undo` y
+  `redo` en secuencia y deriva bloques después de cada paso.
+- Identidad estable: cada `Block` lleva `anchor`, el `PageId` de su primera
+  página — nunca la posición en el `Vec` que devuelve `derive_blocks`, que
+  cambia en cada recálculo.
+- Etiquetado de partes: `part: Option<u32>` es 1-based y solo se asigna
+  cuando una fuente aparece en más de un bloque. El núcleo no fija el string
+  "Part N" — solo el número — para que la presentación quede del lado de la
+  UI, igual que el resto de los datos de este crate no conoce GTK.
+- Verificación: `cargo test -p pdf-document --locked` (126 aprobadas, 0
+  fallos); `cargo test --workspace --locked -- --skip gtk_ui_` (0 fallos);
+  `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets
+  --locked -- -D warnings`; `python scripts/check_maintainability.py` (99
+  avisos, línea base sin cambios). No se ejecutó runtime GTK ni smoke de
+  Linux: este cambio solo añade un módulo puro en `pdf-document` y todavía
+  no tiene caller de plataforma — cablearlo a la vista "Documents" es la
+  fase 9.
 
 ## 3. Importación PDF
 
