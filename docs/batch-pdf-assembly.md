@@ -71,16 +71,16 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Hacer que deshacer y rehacer una importación requiera un único paso.
 - [x] Añadir un comando atómico para mover un tramo contiguo de páginas.
 - [x] Hacer que mover un bloque requiera un único paso de deshacer.
-- [ ] Añadir validación para impedir identificadores duplicados, rangos inválidos
-  y órdenes que no sean permutaciones del estado actual. Parcial: los rangos
-  inválidos ya se rechazan en los comandos de página — `Command::apply` acota
-  `InsertPage`, `RemovePage`, `MovePage`, `ImportPages` y
-  `RemoveImportedPages` y `MovePages`, y devuelve `false` sin mutar en lugar de
-  paniquear. `MovePages` solo rota un slice validado de las páginas existentes,
-  así que su resultado siempre es una permutación exacta. `InsertPage` e
-  `ImportPages` también rechazan `PageId` repetidos en el documento o dentro
-  del lote. Falta impedir identificadores repetidos en el registro de fuentes
-  `ImportedDocumentId`.
+- [x] Añadir validación para impedir identificadores duplicados, rangos inválidos
+  y órdenes que no sean permutaciones del estado actual. Los rangos inválidos
+  se rechazan en los comandos de página — `Command::apply` acota `InsertPage`,
+  `RemovePage`, `MovePage`, `ImportPages`, `RemoveImportedPages` y `MovePages`,
+  y devuelve `false` sin mutar en lugar de paniquear. `MovePages` solo rota un
+  slice validado de las páginas existentes, así que su resultado siempre es
+  una permutación exacta. `InsertPage` e `ImportPages` rechazan `PageId`
+  repetidos en el documento o dentro del lote. `ImportedSources` (en
+  `pdf-save`) rechaza un `ImportedDocumentId` repetido en el registro de
+  fuentes antes de injertar cualquier página.
 - [x] Centralizar en el núcleo la clasificación de comandos estructurales de
   página.
 - [x] Probar aplicación, inversión, deshacer y rehacer de los nuevos comandos.
@@ -110,6 +110,22 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   validación conjunta preserva la unicidad que necesitan `render_index` y los
   mapas de guardado, y un rechazo conserva documento, undo y redo mediante el
   contrato existente de `EditLog`.
+- 2026-09-08: `ImportedSources::new` (en `pdf-save`) sigue aceptando un
+  `ImportedDocumentId` repetido en construcción — sigue siendo un slice
+  prestado, no un mapa — pero `replay_page_ops` ahora lo rechaza antes de
+  injertar la primera página, con el mismo chequeo "arriba del todo" que ya
+  usa para una fuente ausente. Sin esto, dos entradas con el mismo id
+  resolverían en silencio la segunda fuente bajo el id de la primera, porque
+  `ImportedSources::get` devuelve la primera coincidencia. Cierra el último
+  punto abierto en [[pageid-uniqueness-insert-import]].
+- Verificación (2026-09-08, unicidad de `ImportedDocumentId`): `cargo test -p
+  pdf-save --locked` (24 aprobadas + 8 del roundtrip de importación, 0
+  fallos); `cargo test --workspace --locked -- --skip gtk_ui_` (0 fallos);
+  `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets
+  --locked -- -D warnings`; `python scripts/check_maintainability.py` (99
+  avisos, línea base sin cambios). No se ejecutó runtime GTK ni smoke de
+  Linux: este cambio solo toca `pdf-save` y no tiene caller de plataforma
+  todavía.
 - Verificación (2026-09-08, unicidad de `PageId`): `cargo test -p pdf-document
   --locked` (117 aprobadas, 0 fallos); `cargo test --workspace --locked --
   --skip gtk_ui_` (0 fallos); `cargo fmt --all -- --check`; `cargo clippy

@@ -105,8 +105,10 @@ impl<'a> ImportedSources<'a> {
         Self::default()
     }
 
-    /// A registry over `sources`. A repeated id is not rejected here; the
-    /// first entry for an id wins, matching what a lookup would do anyway.
+    /// A registry over `sources`. Construction does not reject a repeated
+    /// id — [`replay_page_ops`] does, before grafting a single page, so a
+    /// duplicate is a save-time error rather than [`get`](Self::get) silently
+    /// resolving the second source under the first source's id.
     pub fn new(sources: &'a [(ImportedDocumentId, &'a LopdfDocument)]) -> Self {
         Self { sources }
     }
@@ -117,6 +119,12 @@ impl<'a> ImportedSources<'a> {
             .iter()
             .find(|(source, _)| *source == id)
             .map(|(_, document)| *document)
+    }
+
+    /// Whether the same [`ImportedDocumentId`] names more than one entry.
+    fn has_duplicate_ids(&self) -> bool {
+        let mut seen = HashSet::new();
+        !self.sources.iter().all(|(id, _)| seen.insert(*id))
     }
 }
 
@@ -379,6 +387,14 @@ pub fn replay_page_ops(
         return Err(SaveError::InvalidSaveRequest(
             "original_pages does not match base document's page count — \
              populate_document(base) must be re-derived immediately before replay",
+        ));
+    }
+    // Checked up front, not when a lookup is reached: a duplicate id would
+    // otherwise let `sources.get` silently resolve a later source's pages
+    // under an earlier source's id instead of failing loudly.
+    if sources.has_duplicate_ids() {
+        return Err(SaveError::InvalidSaveRequest(
+            "imported sources registry names the same source twice",
         ));
     }
     // Checked up front, not when the insertion is reached: a save that
@@ -828,6 +844,38 @@ mod tests {
         assert_eq!(label_of(&result, 1), "P1");
         assert_eq!(label_of(&result, 2), "S2");
         assert_eq!(label_of(&result, 3), "P2");
+    }
+
+    /// Two different source documents registered under the same
+    /// `ImportedDocumentId` must be refused rather than letting `get`
+    /// silently resolve every lookup to the first one.
+    #[test]
+    fn replay_page_ops_rejects_a_source_registry_with_a_duplicate_id() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let first_source = LopdfDocument::from_lopdf(labeled_pdf(&["S1"]));
+        let second_source = LopdfDocument::from_lopdf(labeled_pdf(&["T1"]));
+        let original = populate_document(&base).unwrap();
+        let mut current = original.clone();
+        current.push(Page::imported(
+            PageId(1),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        ));
+        let sources = [
+            (pdf_document::ImportedDocumentId(4), &first_source),
+            (pdf_document::ImportedDocumentId(4), &second_source),
+        ];
+
+        let error = replay_page_ops(&base, &original, &current, ImportedSources::new(&sources))
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: imported sources registry names the same source twice"
+        );
     }
 
     #[test]
