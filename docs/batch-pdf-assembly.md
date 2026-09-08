@@ -66,14 +66,21 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   selección). Ver la tarea abierta equivalente de la fase 6.
 - [ ] Asignar identificadores únicos a cada PDF importado.
 - [ ] Registrar cada fuente importada una sola vez en el respaldo de la sesión.
-- [ ] Añadir un comando atómico para insertar todas las páginas seleccionadas
+- [x] Añadir un comando atómico para insertar todas las páginas seleccionadas
   de un PDF.
-- [ ] Hacer que deshacer y rehacer una importación requiera un único paso.
+- [x] Hacer que deshacer y rehacer una importación requiera un único paso.
 - [ ] Añadir un comando atómico para mover un tramo contiguo de páginas.
 - [ ] Hacer que mover un bloque requiera un único paso de deshacer.
 - [ ] Añadir validación para impedir identificadores duplicados, rangos inválidos
-  y órdenes que no sean permutaciones del estado actual.
-- [ ] Centralizar en el núcleo la clasificación de comandos estructurales de
+  y órdenes que no sean permutaciones del estado actual. Parcial: los rangos
+  inválidos ya se rechazan en los comandos de página — `Command::apply` acota
+  `InsertPage`, `RemovePage`, `MovePage`, `ImportPages` y
+  `RemoveImportedPages`, y devuelve `false` sin mutar en lugar de paniquear.
+  Faltan las otras dos mitades: nada impide todavía un `PageId` o un
+  `ImportedDocumentId` repetido, y la comprobación de permutación no tiene aún
+  comando de reordenamiento por lote al que aplicarse (ver los dos ítems de
+  tramo contiguo más arriba).
+- [x] Centralizar en el núcleo la clasificación de comandos estructurales de
   página.
 - [ ] Probar aplicación, inversión, deshacer y rehacer de los nuevos comandos.
 
@@ -85,6 +92,49 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - 2026-09-08: `pdf-save` registra como `Base` las páginas abiertas y rechaza
   páginas `Imported` hasta que exista el injerto real, evitando convertirlas
   silenciosamente en páginas en blanco.
+- 2026-09-08: `Command::ImportPages` inserta un lote completo y conserva las
+  páginas en su inversa `RemoveImportedPages`; undo y redo mueven todo el lote
+  en una sola entrada. `Command::is_page_structure_edit` centraliza la
+  clasificación que consume el shell Linux.
+- 2026-09-08: los índices de página dejan de paniquear. `Command::apply`
+  valida `InsertPage`, `RemovePage` y `MovePage` y devuelve `false` en vez de
+  dejar que `Vec` aborte, igual que ya hacían las variantes por lote. En el
+  límite FFI, `FfiEditCommand::InsertBlankPage` no acotaba su índice —
+  a diferencia de `RemovePage`, tres líneas más abajo — así que un índice
+  fuera de rango llegaba a `Vec::insert` y paniqueaba: a través de UniFFI eso
+  es un abort no capturable que se lleva el proceso anfitrión y el documento
+  sin guardar. Ahora devuelve `PageIndexOutOfBounds`. `MovePage` acota sus
+  dos puntas: `from` se quita antes de insertar en `to`, de modo que un `to`
+  sin validar paniquea contra un vector ya acortado. Las eliminaciones de una
+  sola página se acotan por rango en lugar de comparar la `Page` que llevan
+  (como sí hace `RemoveImportedPages`), porque `RotatePage` muta la `Page` en
+  el sitio dentro de `document.pages` y un contraste por igualdad rechazaría
+  eliminaciones válidas.
+- 2026-09-08: el `bool` de `EditLog::apply` deja de descartarse. Los dos
+  ayudantes `apply_command` (shell Linux y `pdf-ffi`) lo propagan; el shell lo
+  convierte en mensaje de estado y el FFI en `UnsupportedOperation`. Sin esto,
+  un lote rechazado se reportaba como éxito y dejaba la línea de estado y la
+  pila de deshacer describiendo una edición que nunca ocurrió. No se marcó
+  `EditLog::apply` como `#[must_use]`: unas 70 llamadas de prueba lo ignoran
+  como sentencia y `-D warnings` tumbaría la verificación entera.
+- Verificación (2026-09-08, índices de página y propagación del rechazo):
+  `cargo test --workspace --locked` (819 aprobadas, 0 fallos); `cargo test -p
+  pdf-document --locked` (106 aprobadas); `cargo test -p pdf-ffi --locked`
+  (61 aprobadas); `cargo fmt --all -- --check`; `cargo clippy --workspace
+  --all-targets --locked -- -D warnings`; `python
+  scripts/check_maintainability.py` (99 avisos, línea base sin cambios).
+  `linux-gtk` no compila en Windows, así que el cambio en `organize.rs` solo
+  pasó por el analizador de `cargo fmt`: su verificación real es el CI de
+  Linux.
+- Verificación (2026-09-08, comandos de importación): `cargo test -p
+  pdf-document --locked` (102 aprobadas); `cargo test --workspace --locked --
+  --skip gtk_ui_` (0 fallos); `cargo fmt --all -- --check`; `cargo clippy
+  --workspace --all-targets --locked -- -D warnings`; `python
+  scripts/check_maintainability.py` (99 avisos, línea base sin cambios). En
+  WSL2/Ubuntu, `cargo test -p linux-gtk --locked -- --skip
+  package_smoke::tests::renders_the_embedded_sample_to_a_nonempty_receipt`
+  (347 aprobadas, 1 filtrada). El package smoke completo no se verificó: esta
+  copia no contiene `libpdfium.so` para Linux.
 - Verificación: `cargo fmt --all -- --check`; `cargo test -p pdf-document`
   (86 aprobadas); `cargo test -p pdf-save` (119 aprobadas, 4 ignoradas);
   `cargo clippy -p pdf-document -p pdf-save --all-targets -- -D warnings`.
