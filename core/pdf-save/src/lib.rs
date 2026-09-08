@@ -21,6 +21,8 @@
 //! - [`strategy`] (T-032, T-033): writer selection and
 //!   the [`save_document`] auto-selection entry point.
 //! - [`export`] (T-037): page export as PNG/JPEG at selectable DPI.
+//! - [`imported_sources`]: session-lifetime registry of imported PDFs,
+//!   feeding [`ImportedSources`] at save time (batch PDF assembly §1).
 //! - [`error`]: [`SaveError`], the shared error type across this crate.
 
 pub mod annotations;
@@ -30,6 +32,7 @@ pub mod content;
 pub mod error;
 pub mod export;
 pub mod forms;
+pub mod imported_sources;
 pub mod metadata;
 pub mod security;
 pub mod strategy;
@@ -48,6 +51,7 @@ pub use content::{
 pub use error::SaveError;
 pub use export::{export_page_as_image, ExportFormat};
 pub use forms::{ensure_acroform, write_form_fields};
+pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{

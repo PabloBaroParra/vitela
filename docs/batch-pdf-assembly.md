@@ -21,7 +21,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 | Área | Estado |
 |------|--------|
-| Modelo y operaciones | En progreso |
+| Modelo y operaciones | Completo |
 | Importación PDF | Pendiente |
 | Guardado y renderizado | Pendiente |
 | Integración Linux | Pendiente |
@@ -54,18 +54,21 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 1. Modelo y operaciones
 
-- [ ] Añadir procedencia explícita para páginas del documento base, páginas en
-  blanco y páginas importadas. Parcial: el modelo ya distingue las tres
-  procedencias, pero `Imported` todavía no se puede guardar —
-  `replay_page_ops` la rechaza hasta que exista el injerto real de páginas
-  (fase 3).
-- [ ] Mantener `PageId` como identidad estable e independiente del índice
-  visual o de renderizado. Parcial: la invariante está declarada en el modelo,
-  pero no se sostiene en el código — `PageId.0` todavía se usa como índice de
-  página en `pdf-edit` y en el shell Linux (anotaciones, formularios,
-  selección). Ver la tarea abierta equivalente de la fase 6.
-- [ ] Asignar identificadores únicos a cada PDF importado.
-- [ ] Registrar cada fuente importada una sola vez en el respaldo de la sesión.
+- [x] Añadir procedencia explícita para páginas del documento base, páginas en
+  blanco y páginas importadas. La nota "Parcial" quedó obsoleta: `b90013c`
+  (fase 3, anterior a esta revisión del checklist) ya cableó el injerto real
+  a `replay_page_ops`, que hoy materializa `PageOrigin::Imported` vía
+  `pdf_manip::graft_pages` en vez de rechazarla (`core/pdf-save/src/bridge.rs`,
+  función `replay_page_ops`, rama `PageOrigin::Imported`).
+- [x] Mantener `PageId` como identidad estable e independiente del índice
+  visual o de renderizado. La nota "Parcial" también quedó obsoleta: `34617d8`
+  ya migró anotaciones, formularios, selección y edición de contenido en el
+  shell Linux a resolver por `backend_index`/`render_index` en vez de
+  `PageId.0`. Verificado por búsqueda: no quedan usos de `.id.0` como índice
+  en `core/pdf-edit` ni en `apps/linux-gtk` (los únicos `.id.0` restantes son
+  de `ContentItemId`/`FieldId`, identidades distintas).
+- [x] Asignar identificadores únicos a cada PDF importado.
+- [x] Registrar cada fuente importada una sola vez en el respaldo de la sesión.
 - [x] Añadir un comando atómico para insertar todas las páginas seleccionadas
   de un PDF.
 - [x] Hacer que deshacer y rehacer una importación requiera un único paso.
@@ -182,6 +185,31 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - Verificación: `cargo fmt --all -- --check`; `cargo test -p pdf-document`
   (86 aprobadas); `cargo test -p pdf-save` (119 aprobadas, 4 ignoradas);
   `cargo clippy -p pdf-document -p pdf-save --all-targets -- -D warnings`.
+- 2026-09-08: `pdf-save` gana `ImportedSourceRegistry`
+  (`core/pdf-save/src/imported_sources.rs`), el registro de sesión que faltaba
+  entre `ImportedSources` (prestado, vive solo durante un guardado) y el shell
+  Linux (que hoy sigue pasando `ImportedSources::none()` en sus tres sitios de
+  guardado — cablearlo es fase 7/8, no este paso). `register()` asigna el
+  siguiente `ImportedDocumentId` libre (máximo actual + 1, mismo patrón que
+  `next_form_field_id` del shell Linux) y añade la fuente una sola vez;
+  `pairs()` expone `(id, &LopdfDocument)` para que el llamador construya un
+  `ImportedSources` en el momento de guardar, igual que ya documenta
+  `ImportedSources::new`.
+- Decisión de arquitectura: el registro vive en `pdf-save` (núcleo, sin
+  dependencias de GTK) y no en `DocumentSession` del shell Linux, para que la
+  asignación de ids y el almacenamiento de fuentes sean testeables en
+  cualquier plataforma — igual que los pasos anteriores de esta fase, que
+  quedaron en el núcleo puro antes de tener un caller en Linux. `DocumentSession`
+  podrá poseer una instancia de `ImportedSourceRegistry` cuando la fase 8 añada
+  el selector de archivos; hasta entonces no hay caller que lo use, y no se ha
+  tocado ningún sitio de guardado del shell.
+- Verificación (2026-09-08, registro de fuentes importadas): `cargo test -p
+  pdf-save --locked` (24 + 8 del roundtrip + 4 nuevas del registro, 0 fallos);
+  `cargo test --workspace --locked -- --skip gtk_ui_` (0 fallos); `cargo fmt
+  --all -- --check`; `cargo clippy --workspace --all-targets --locked -- -D
+  warnings`; `python scripts/check_maintainability.py` (99 avisos, línea base
+  sin cambios). No se ejecutó runtime GTK ni smoke de Linux: este cambio solo
+  añade un tipo nuevo en `pdf-save` y no tiene caller de plataforma todavía.
 
 ## 2. Derivación de bloques
 
