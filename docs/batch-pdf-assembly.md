@@ -54,8 +54,11 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 1. Modelo y operaciones
 
-- [x] Añadir procedencia explícita para páginas del documento base, páginas en
-  blanco y páginas importadas.
+- [ ] Añadir procedencia explícita para páginas del documento base, páginas en
+  blanco y páginas importadas. Parcial: el modelo ya distingue las tres
+  procedencias, pero `Imported` todavía no se puede guardar —
+  `replay_page_ops` la rechaza hasta que exista el injerto real de páginas
+  (fase 3).
 - [x] Mantener `PageId` como identidad estable e independiente del índice
   visual o de renderizado.
 - [ ] Asignar identificadores únicos a cada PDF importado.
