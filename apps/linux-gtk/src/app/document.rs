@@ -284,6 +284,7 @@ fn save_current_to(
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .unwrap_or(false);
 
@@ -397,6 +398,12 @@ fn save_snapshot_and_reopen(
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures,
+        // Disk saves cannot carry imported pages yet: the session has no
+        // registry of imported sources to hand over. `replay_page_ops`
+        // refuses such a page rather than writing a blank one, so this stays
+        // honest until the import feature gives the session somewhere to keep
+        // them.
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .map_err(|error| error.to_string())?;
     // Validate before replacing a destination: persisted bytes must be usable
@@ -929,6 +936,7 @@ fn refresh_snapshot_and_reopen(
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .map_err(|error| error.to_string())?;
     open_document(&DocumentSource::Bytes(bytes), backing.password.as_deref())

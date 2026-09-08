@@ -161,11 +161,10 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - Atomicidad: la validación entera ocurre antes de copiar el primer objeto, y
   el destino se recibe por referencia, así que un injerto rechazado no puede
   dejar un documento a medio importar.
-- Pendiente para que el injerto sea alcanzable desde un guardado (fase 6):
-  `bridge::replay_page_ops` todavía rechaza las páginas `Imported`. Necesita un
-  registro de fuentes importadas que hoy no existe en `SaveInput`, y añadir ese
-  campo toca todos sus sitios de construcción — es una decisión de API propia,
-  no parte del injerto.
+- 2026-09-08 (segunda entrega): el injerto ya es alcanzable desde un guardado.
+  `SaveInput` lleva `imported_sources: ImportedSources<'a>` y
+  `bridge::replay_page_ops` materializa las páginas `Imported` llamando a
+  `graft_pages`.
 - Verificación: `cargo test -p pdf-manip` (15 tests de injerto, incluido un
   round trip real de serializar y volver a abrir); `cargo fmt --all -- --check`;
   `cargo clippy --workspace --all-targets --locked -- -D warnings`;
@@ -207,11 +206,11 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 6. Guardado y resolución de páginas
 
-- [ ] Extender `pdf-save` para distinguir páginas en blanco de páginas
+- [x] Extender `pdf-save` para distinguir páginas en blanco de páginas
   importadas.
-- [ ] Reconstruir el PDF siguiendo exactamente el orden de `Document.pages`.
-- [ ] Mantener el documento base original inmutable durante la edición.
-- [ ] Resolver cada página importada mediante su fuente y número de página.
+- [x] Reconstruir el PDF siguiendo exactamente el orden de `Document.pages`.
+- [x] Mantener el documento base original inmutable durante la edición.
+- [x] Resolver cada página importada mediante su fuente y número de página.
 - [ ] Devolver un mapa final de `PageId` a objeto PDF después de materializar.
 - [x] Resolver explícitamente `PageId` a índice de renderizado actual.
 - [x] Eliminar los usos que asumen que `PageId.0` es un índice de PDFium.
@@ -221,6 +220,37 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   materializado correcto.
 - [ ] Validar el resultado con PDFium antes de instalar la previsualización.
 - [ ] Probar guardar, cerrar y reabrir después de importar, mover y borrar.
+
+### Progreso del registro de fuentes
+
+- `ImportedSources` es un slice prestado de `(ImportedDocumentId,
+  &LopdfDocument)`, no un mapa: un documento tiene un puñado de fuentes
+  importadas, no miles, y prestar un slice deja que quien llama arme uno en el
+  stack sin tener que poseer una colección solo para decir "ninguna".
+  `ImportedSources::none()` es la respuesta correcta para casi todos los
+  guardados.
+- Hacía falta porque `pdf_document` es un modelo puro sin dependencias de E/S:
+  una página `Imported` solo puede nombrar su fuente por identificador, así que
+  alguien tiene que cruzar los bytes en el momento de guardar.
+- La comprobación de fuentes ausentes ocurre ANTES de copiar el primer objeto.
+  Un guardado que no puede materializar una de sus páginas no escribe nada, en
+  vez de frenarse a mitad con las páginas anteriores ya injertadas.
+- Gotcha de rotación: `pdf_manip::rotate_page` aplica un DELTA, y una página
+  injertada llega con el `/Rotate` de su fuente ya puesto (una en blanco llega
+  en cero). La rotación del modelo es absoluta, así que se calcula la
+  diferencia contra lo que la página trae en vez de sumarle: sumar convertiría
+  una página importada que ya estaba a 90 y se modela a 90 en una de 180. Hay
+  dos tests que fijan esto, incluido el de volver a cero.
+- Verificación: `cargo test --workspace --locked` (1154 aprobadas, 0 fallidas,
+  suite GTK4 incluida, ejecutada en WSL2/Ubuntu); `cargo fmt --all -- --check`;
+  `cargo clippy --workspace --all-targets --locked -- -D warnings`;
+  `python3 scripts/check_maintainability.py` (99 avisos, línea base sin
+  cambios).
+- Pendiente para que el usuario pueda importar de verdad: nada en el shell crea
+  todavía páginas `Imported` ni guarda los PDFs importados en la sesión, así
+  que `document::save_snapshot_and_reopen` pasa `ImportedSources::none()`. Eso
+  es la fase 1 (comandos de importación) y la fase 8 (selección de archivos en
+  Linux).
 
 ### Progreso de resolución de páginas
 

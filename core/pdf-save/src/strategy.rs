@@ -18,7 +18,7 @@ use pdf_document::{Document, Page};
 use pdf_manip::LopdfDocument;
 
 use crate::annotations::{self, ObjectSink};
-use crate::bridge;
+use crate::bridge::{self, ImportedSources};
 use crate::clock::{Clock, IdGenerator, RandomIdGenerator, SystemClock};
 use crate::content;
 use crate::error::SaveError;
@@ -73,6 +73,12 @@ pub struct SaveInput<'a> {
     /// Whether the caller has already told the user that this save breaks a
     /// signature the file carries. See [`SignatureAcknowledgement`].
     pub signatures: SignatureAcknowledgement,
+    /// The imported PDFs this save may materialize pages from — see
+    /// [`ImportedSources`]. `ImportedSources::none()` for a document that
+    /// never imported anything, which is every save that predates the import
+    /// feature; a save that meets an imported page without its source is
+    /// refused rather than guessed at.
+    pub imported_sources: ImportedSources<'a>,
 }
 
 /// Whether the caller has dealt with the fact that a save will invalidate a
@@ -220,7 +226,12 @@ fn save_full_rewrite(
     options: &SaveOptions,
     original_pages: &[Page],
 ) -> Result<Vec<u8>, SaveError> {
-    let mut working = bridge::replay_page_ops(input.base, original_pages, &input.document.pages)?;
+    let mut working = bridge::replay_page_ops(
+        input.base,
+        original_pages,
+        &input.document.pages,
+        input.imported_sources,
+    )?;
 
     // Resolved once, before either consumer runs, and against the *replayed*
     // document: page ops have already moved pages around, so this map is the
@@ -465,6 +476,7 @@ mod tests {
                 original_bytes: self.original_bytes.as_deref(),
                 intent: self.intent,
                 signatures: self.signatures,
+                imported_sources: ImportedSources::none(),
             }
         }
 
@@ -513,7 +525,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "invalid save request: imported page materialization is not implemented"
+            "invalid save request: imported page names a source this save was not given"
         );
     }
 

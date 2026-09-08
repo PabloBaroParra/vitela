@@ -1033,6 +1033,7 @@ pub fn refresh_preview(handle: &DocumentHandle) -> Result<(), FfiError> {
         original_bytes: state.original_bytes.as_deref(),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+        imported_sources: pdf_save::ImportedSources::none(),
     })?;
 
     let refreshed = open_render_doc_from_bytes(bytes, state.render_password.as_deref())?;
@@ -1159,6 +1160,7 @@ pub fn save_to_bytes(
         original_bytes: state.original_bytes.as_deref(),
         intent: intent.into(),
         signatures: signatures.into(),
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     pdf_save::save_document(input).map_err(Into::into)
 }
@@ -1184,6 +1186,7 @@ pub fn will_invalidate_signatures(
         // Irrelevant to the question: this reports what the file and the
         // edits imply, not what the caller has agreed to.
         signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .map_err(Into::into)
 }

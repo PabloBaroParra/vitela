@@ -118,6 +118,7 @@ fn incremental_save_happy_path_rotates_and_annotates_real_file() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     // Incremental append must be strictly larger than the original (bytes
     // were appended, not rewritten from scratch).
@@ -189,6 +190,7 @@ fn incremental_save_writes_a_pending_document_info() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
     assert!(
@@ -238,6 +240,7 @@ fn incremental_save_without_a_pending_document_info_creates_no_info_dict() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
 
@@ -269,6 +272,7 @@ fn incremental_save_on_encrypted_document_reencrypts_with_same_credential() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
 
@@ -317,6 +321,7 @@ fn structural_edit_forces_full_rewrite_against_a_real_file() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
     let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
@@ -349,6 +354,7 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("full rewrite should preserve encryption with both passwords");
 
@@ -404,6 +410,7 @@ fn explicit_strip_protection_removes_encryption_and_bypasses_edit_log() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::StripProtection,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
 

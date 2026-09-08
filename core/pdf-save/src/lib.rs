@@ -37,7 +37,7 @@ pub mod strategy;
 pub use annotations::{attach_annotations, ObjectSink};
 pub use bridge::{
     document_from_lopdf, has_structural_page_changes, page_annotation_objects, page_object_ids,
-    populate_document, read_page_content, replay_page_ops, rotation_changes,
+    populate_document, read_page_content, replay_page_ops, rotation_changes, ImportedSources,
 };
 pub use clock::{
     Clock, FixedClock, IdGenerator, RandomIdGenerator, SequentialIdGenerator, SystemClock,
