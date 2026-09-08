@@ -21,7 +21,9 @@ pub mod security;
 pub use annotation::{Annotation, AnnotationId, AnnotationKind, AnnotationSet, Color, Popup, Rect};
 pub use audit_log::{AuditActor, AuditEntry, AuditEvent, AuditLog};
 pub use content::{ContentItemId, FontKind, ImageItem, PageContent, TextRun};
-pub use document::{Document, Orientation, Page, PageId, PageSize, Rotation};
+pub use document::{
+    Document, ImportedDocumentId, Orientation, Page, PageId, PageOrigin, PageSize, Rotation,
+};
 pub use edit_log::{Command, EditLog};
 pub use form::{
     FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId, FormFieldKind, FormFieldSet,

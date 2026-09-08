@@ -490,6 +490,34 @@ mod tests {
     }
 
     #[test]
+    fn save_document_rejects_an_imported_page_that_reuses_a_base_page_id() {
+        let base = base_with_populated_info();
+        let mut document = bridge::document_from_lopdf(&base, None).unwrap();
+        document.pages[0] = pdf_document::Page::imported(
+            PageId(0),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::Letter,
+            Orientation::Portrait,
+            pdf_document::Rotation::None,
+        );
+        let fixture = Fixture {
+            document,
+            base,
+            original_bytes: Some(Vec::new()),
+            intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
+        };
+
+        let error = save_document(fixture.input()).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: imported page materialization is not implemented"
+        );
+    }
+
+    #[test]
     fn save_document_on_freshly_created_blank_doc_produces_a_reloadable_pdf() {
         let fixture = Fixture::blank();
         let bytes = save_document(fixture.input()).expect("save should succeed");

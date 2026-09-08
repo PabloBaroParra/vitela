@@ -70,7 +70,7 @@
 use std::collections::{HashMap, HashSet};
 
 use lopdf::{Object, ObjectId};
-use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
+use pdf_document::{Document, Orientation, Page, PageId, PageOrigin, PageSize, Rotation};
 use pdf_manip::LopdfDocument;
 
 use crate::error::SaveError;
@@ -181,12 +181,13 @@ pub fn populate_document(lopdf: &LopdfDocument) -> Result<Vec<Page>, SaveError> 
                 .unwrap_or(0) as i32;
             let rotation = Rotation::None.rotated_by(rotate_degrees);
 
-            Ok(Page {
-                id: PageId(index as u32),
+            Ok(Page::base(
+                PageId(index as u32),
+                index as u32,
                 size,
                 orientation,
                 rotation,
-            })
+            ))
         })
         .collect()
 }
@@ -289,8 +290,8 @@ pub fn has_structural_page_changes(original: &[Page], current: &[Page]) -> bool 
     }
     original
         .iter()
-        .map(|p| p.id)
-        .ne(current.iter().map(|p| p.id))
+        .map(|page| (page.id, page.origin))
+        .ne(current.iter().map(|page| (page.id, page.origin)))
 }
 
 /// For a non-structural edit set (see [`has_structural_page_changes`]),
@@ -332,6 +333,25 @@ pub fn replay_page_ops(
         return Err(SaveError::InvalidSaveRequest(
             "original_pages does not match base document's page count — \
              populate_document(base) must be re-derived immediately before replay",
+        ));
+    }
+    if current
+        .iter()
+        .any(|page| matches!(page.origin, PageOrigin::Imported { .. }))
+    {
+        return Err(SaveError::InvalidSaveRequest(
+            "imported page materialization is not implemented",
+        ));
+    }
+    let original_origins: HashMap<PageId, PageOrigin> =
+        original.iter().map(|page| (page.id, page.origin)).collect();
+    if current.iter().any(|page| {
+        original_origins
+            .get(&page.id)
+            .is_some_and(|origin| *origin != page.origin)
+    }) {
+        return Err(SaveError::InvalidSaveRequest(
+            "page origin changed for an existing PageId",
         ));
     }
 
@@ -414,12 +434,26 @@ pub fn replay_page_ops(
         if id_to_object.contains_key(&current_page.id) {
             continue; // survivor, already placed
         }
-        working = pdf_manip::insert_blank_page(
-            &working,
-            position,
-            current_page.size,
-            current_page.orientation,
-        )?;
+        match current_page.origin {
+            PageOrigin::Blank => {
+                working = pdf_manip::insert_blank_page(
+                    &working,
+                    position,
+                    current_page.size,
+                    current_page.orientation,
+                )?;
+            }
+            PageOrigin::Imported { .. } => {
+                return Err(SaveError::InvalidSaveRequest(
+                    "imported page materialization is not implemented",
+                ));
+            }
+            PageOrigin::Base { .. } => {
+                return Err(SaveError::InvalidSaveRequest(
+                    "base page has no matching page in the opened document",
+                ));
+            }
+        }
         if current_page.rotation != Rotation::None {
             let degrees = rotation_degrees(current_page.rotation);
             working = pdf_manip::rotate_page(&working, (position + 1) as u32, degrees)?;
@@ -511,6 +545,16 @@ mod tests {
     }
 
     #[test]
+    fn populate_document_records_base_page_indexes() {
+        let lopdf = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2"]));
+
+        let pages = populate_document(&lopdf).expect("populate should succeed");
+
+        assert_eq!(pages[0].origin, PageOrigin::Base { page_index: 0 });
+        assert_eq!(pages[1].origin, PageOrigin::Base { page_index: 1 });
+    }
+
+    #[test]
     fn populate_document_reads_real_media_box_and_orientation() {
         let lopdf = LopdfDocument::from_lopdf(labeled_pdf(&["only"]));
         let pages = populate_document(&lopdf).expect("populate should succeed");
@@ -565,6 +609,27 @@ mod tests {
             Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
         ];
         let current = vec![original[1].clone(), original[0].clone()];
+        assert!(has_structural_page_changes(&original, &current));
+    }
+
+    #[test]
+    fn has_structural_page_changes_true_when_origin_changes() {
+        let original = vec![Page::base(
+            PageId(0),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )];
+        let current = vec![Page::imported(
+            PageId(0),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )];
+
         assert!(has_structural_page_changes(&original, &current));
     }
 
@@ -630,6 +695,66 @@ mod tests {
         assert_eq!(result.as_lopdf().get_pages().len(), 3);
         assert_eq!(label_of(&result, 1), "P1");
         assert_eq!(label_of(&result, 3), "P2");
+    }
+
+    #[test]
+    fn replay_page_ops_rejects_imported_pages_until_grafting_is_available() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let original = populate_document(&base).unwrap();
+        let mut current = original.clone();
+        current.push(Page::imported(
+            PageId(0),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        ));
+
+        let error = replay_page_ops(&base, &original, &current).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: imported page materialization is not implemented"
+        );
+    }
+
+    #[test]
+    fn replay_page_ops_rejects_blank_origin_reusing_a_base_page_id() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let original = populate_document(&base).unwrap();
+        let current = vec![Page::blank(
+            PageId(0),
+            PageSize::Letter,
+            Orientation::Portrait,
+        )];
+
+        let error = replay_page_ops(&base, &original, &current).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: page origin changed for an existing PageId"
+        );
+    }
+
+    #[test]
+    fn replay_page_ops_rejects_changed_base_index_for_an_existing_page_id() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let original = populate_document(&base).unwrap();
+        let current = vec![Page::base(
+            PageId(0),
+            7,
+            PageSize::Letter,
+            Orientation::Portrait,
+            Rotation::None,
+        )];
+
+        let error = replay_page_ops(&base, &original, &current).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: page origin changed for an existing PageId"
+        );
     }
 
     #[test]
