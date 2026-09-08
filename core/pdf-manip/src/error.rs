@@ -46,6 +46,13 @@ pub enum ManipError {
     /// A page object's `/Parent` reference could not be resolved to a page
     /// tree dictionary (malformed or unsupported nested page tree shape).
     MalformedPageTree,
+    /// A page selected for `graft_pages` carries an AcroForm widget
+    /// annotation. Merging an imported field into the destination's
+    /// `/AcroForm` needs a name-collision and appearance policy that does not
+    /// exist yet (checklist "Estructuras de documento",
+    /// `docs/batch-pdf-assembly.md` section 4), so the graft is refused
+    /// rather than importing a page that silently drops its fields.
+    SourceHasFormFields(usize),
 }
 
 impl fmt::Display for ManipError {
@@ -82,6 +89,10 @@ impl fmt::Display for ManipError {
             ManipError::MalformedPageTree => {
                 write!(f, "page object's /Parent could not be resolved")
             }
+            ManipError::SourceHasFormFields(page) => write!(
+                f,
+                "page {page} has form fields; importing AcroForm fields is not supported yet"
+            ),
         }
     }
 }

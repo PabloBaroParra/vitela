@@ -43,6 +43,17 @@
 //! Turning that inert link into something better — remapping destinations
 //! that *were* imported, and telling the user about the ones that were not —
 //! is the bookmarks-and-destinations policy work, not this operation's job.
+//!
+//! ## AcroForm widgets
+//!
+//! A selected page whose `/Annots` includes a `/Subtype /Widget` annotation —
+//! the visible half of an AcroForm field — is refused outright rather than
+//! imported. Copying the widget without merging its field into the
+//! destination's `/AcroForm` would produce an inert box; merging it needs a
+//! name-collision policy this crate does not implement yet (checklist
+//! "Estructuras de documento", `docs/batch-pdf-assembly.md` section 4). The
+//! check only looks at the pages actually being imported — a source document
+//! can have an AcroForm elsewhere and still graft cleanly.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -73,8 +84,10 @@ const INHERITABLE_ATTRIBUTES: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox
 /// [`crate::insert_blank_page`] uses.
 ///
 /// Fails without touching anything when the selection is empty, names a page
-/// the source does not have, or names one page twice; `document` is borrowed,
-/// so a failed graft cannot leave a half-imported document behind.
+/// the source does not have, names one page twice, or names a page that
+/// carries an AcroForm widget annotation (see this module's docs); `document`
+/// is borrowed, so a failed graft cannot leave a half-imported document
+/// behind.
 pub fn graft_pages(
     document: &LopdfDocument,
     index: usize,
@@ -119,8 +132,11 @@ pub fn graft_pages(
     // would leave the resources behind.
     let mut grafted: Vec<(ObjectId, Dictionary)> = Vec::with_capacity(selected.len());
     let mut reachable: BTreeSet<ObjectId> = BTreeSet::new();
-    for &page_id in &selected {
+    for (i, &page_id) in selected.iter().enumerate() {
         let dict = flattened_page(&donor, page_id)?;
+        if page_has_widget_annotations(&donor, &dict) {
+            return Err(ManipError::SourceHasFormFields(pages[i]));
+        }
         collect_reachable(&donor, &dict, &selected_set, &mut reachable);
         grafted.push((page_id, dict));
     }
@@ -195,6 +211,25 @@ fn inherited_attribute(
         current = dict.clone();
     }
     None
+}
+
+/// True when `dict`'s `/Annots` includes a `/Subtype /Widget` annotation —
+/// the visible half of an AcroForm field (PDF 32000-1:2008 section 12.5.6.19).
+/// Checked on the page itself rather than the source's `/AcroForm /Fields`
+/// tree, because a field can only affect an imported page through the widget
+/// sitting in that page's own `/Annots`.
+fn page_has_widget_annotations(donor: &LopdfRawDocument, dict: &Dictionary) -> bool {
+    let Ok(annots) = dict.get(b"Annots").and_then(|value| value.as_array()) else {
+        return false;
+    };
+    annots.iter().any(|annot| {
+        annot
+            .as_reference()
+            .ok()
+            .and_then(|id| donor.get_dictionary(id).ok())
+            .and_then(|annot_dict| annot_dict.get(b"Subtype").and_then(|v| v.as_name()).ok())
+            == Some(b"Widget".as_slice())
+    })
 }
 
 /// Adds every object `dict` can reach to `reachable`, following indirect

@@ -267,7 +267,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 4. Estructuras de documento
 
-- [ ] Definir y probar la política para formularios AcroForm importados.
+- [x] Definir y probar la política para formularios AcroForm importados.
 - [ ] Resolver colisiones de nombres de campos sin fusionarlos silenciosamente.
 - [ ] Conservar widgets y apariencias cuando se acepten formularios.
 - [ ] Definir y probar la política para marcadores y destinos con nombre.
@@ -278,6 +278,34 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   que pudiera perder información.
 - [ ] No ofrecer una importación aparentemente correcta si existe pérdida de
   datos conocida.
+
+### Progreso de la política de formularios
+
+- 2026-09-08: decisión de alcance — `graft_pages` rechaza el injerto en vez de
+  fusionar campos. Fusionar un widget importado en el `/AcroForm` del destino
+  exige una política de colisión de nombres y de conservación de apariencias
+  que todavía no existe; ofrecer una importación que se ve correcta pero
+  arrastra un widget huérfano (sin campo en `/AcroForm`, o con un `/T`
+  duplicado) sería exactamente la pérdida de datos silenciosa que la última
+  regla de esta sección prohíbe. Los ítems 2 y 3 quedan pendientes: son el
+  trabajo de implementar la fusión, no aplicable mientras la política sea
+  "rechazar".
+- La comprobación mira solo las páginas seleccionadas, no el `/AcroForm` de la
+  fuente entera: un PDF fuente puede tener un formulario en páginas que no se
+  importan y el injerto de las demás páginas debe seguir funcionando. Se
+  detecta por página (`/Annots` con un `/Subtype /Widget`) en vez de por
+  `/AcroForm /Fields`, porque un campo solo afecta a una página importada a
+  través del widget que cuelga de su propio `/Annots`.
+- Nuevo `ManipError::SourceHasFormFields(usize)` (índice 0-based de la página
+  en la selección pedida), igual que `InvalidPageIndex`. `pdf-ffi` ya cae en
+  su rama `other => Internal { detail }` sin cambios porque `ManipError` es
+  `#[non_exhaustive]`.
+- Verificación: `cargo test -p pdf-manip` (19 tests, incluidos los 2 nuevos de
+  `tests/graft_form_fields.rs`); `cargo fmt --all -- --check`;
+  `cargo clippy -p pdf-manip -p pdf-save -p pdf-ffi --all-targets --locked --
+  -D warnings`; `python3 scripts/check_maintainability.py` (99 avisos, línea
+  base sin cambios — los tests nuevos se separaron en su propio archivo para
+  no empujar `tests/graft.rs` sobre el umbral de 350 líneas).
 
 ## 5. Seguridad y firmas
 
