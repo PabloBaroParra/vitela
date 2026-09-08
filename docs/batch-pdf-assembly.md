@@ -77,8 +77,10 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   `InsertPage`, `RemovePage`, `MovePage`, `ImportPages` y
   `RemoveImportedPages` y `MovePages`, y devuelve `false` sin mutar en lugar de
   paniquear. `MovePages` solo rota un slice validado de las páginas existentes,
-  así que su resultado siempre es una permutación exacta. Falta impedir un
-  `PageId` o un `ImportedDocumentId` repetido.
+  así que su resultado siempre es una permutación exacta. `InsertPage` e
+  `ImportPages` también rechazan `PageId` repetidos en el documento o dentro
+  del lote. Falta impedir identificadores repetidos en el registro de fuentes
+  `ImportedDocumentId`.
 - [x] Centralizar en el núcleo la clasificación de comandos estructurales de
   página.
 - [x] Probar aplicación, inversión, deshacer y rehacer de los nuevos comandos.
@@ -102,6 +104,19 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   conserva identidad, procedencia, orden interno y la permutación exacta sin
   clonar páginas. El cableado de este comando al futuro arrastre de tarjetas de
   documento sigue perteneciendo a la fase 9.
+- 2026-09-08: los comandos que añaden páginas validan la identidad antes de
+  mutar. `InsertPage` rechaza un `PageId` ya presente e `ImportPages` rechaza
+  tanto colisiones con el documento como duplicados internos del lote. La
+  validación conjunta preserva la unicidad que necesitan `render_index` y los
+  mapas de guardado, y un rechazo conserva documento, undo y redo mediante el
+  contrato existente de `EditLog`.
+- Verificación (2026-09-08, unicidad de `PageId`): `cargo test -p pdf-document
+  --locked` (117 aprobadas, 0 fallos); `cargo test --workspace --locked --
+  --skip gtk_ui_` (0 fallos); `cargo fmt --all -- --check`; `cargo clippy
+  --workspace --all-targets --locked -- -D warnings`; `git diff --check`;
+  `python scripts/check_maintainability.py` (99 avisos, línea base sin cambios).
+  No se ejecutó runtime GTK ni smoke de Linux: esta entrega solo cambia el
+  modelo puro y no añade callers de plataforma.
 - Verificación (2026-09-08, movimiento atómico de tramos): `cargo test -p
   pdf-document --locked` (114 aprobadas, 0 fallos); `cargo test --workspace
   --locked -- --skip gtk_ui_` (0 fallos); `cargo fmt --all -- --check`; `cargo

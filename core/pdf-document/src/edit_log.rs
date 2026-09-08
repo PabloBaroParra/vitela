@@ -9,12 +9,19 @@
 //! consent events (e.g. explicit protection strip) live in the separate,
 //! non-undoable `AuditLog` (T-013) — see that module's docs.
 
+use std::collections::HashSet;
+
 use crate::annotation::{Annotation, Rect};
 use crate::content::{ImageItem, TextRun};
 use crate::document::PageId;
 use crate::document::{Document, Page};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
 use crate::metadata::DocumentInfo;
+
+fn page_ids_are_unique<'a>(pages: impl IntoIterator<Item = &'a Page>) -> bool {
+    let mut ids = HashSet::new();
+    pages.into_iter().all(|page| ids.insert(page.id))
+}
 
 /// A single undoable document-content edit.
 ///
@@ -294,7 +301,8 @@ impl Command {
     ///
     /// Returns `false` without mutating when the command cannot address the
     /// document it is given: a page index out of range, an empty imported
-    /// batch, or a retained removal batch the document no longer matches.
+    /// batch, duplicate page identities, or a retained removal batch the
+    /// document no longer matches.
     ///
     /// Every page command checks its own indices rather than letting `Vec`
     /// panic on them. The indices are the one part of a command that a
@@ -338,13 +346,18 @@ impl Command {
             }
             Command::InsertPage { index, page } => {
                 // `>` not `>=`: inserting at `len` appends, which is valid.
-                if *index > document.pages.len() {
+                if *index > document.pages.len()
+                    || !page_ids_are_unique(document.pages.iter().chain(std::iter::once(page)))
+                {
                     return false;
                 }
                 document.pages.insert(*index, page.clone());
             }
             Command::ImportPages { index, pages } => {
-                if pages.is_empty() || *index > document.pages.len() {
+                if pages.is_empty()
+                    || *index > document.pages.len()
+                    || !page_ids_are_unique(document.pages.iter().chain(pages))
+                {
                     return false;
                 }
                 document.pages.splice(*index..*index, pages.clone());
@@ -966,6 +979,31 @@ mod tests {
     }
 
     #[test]
+    fn import_pages_rejects_an_id_already_in_the_document() {
+        let original = document_with_pages(&[0, 1]);
+        let mut document = original.clone();
+        let command = Command::ImportPages {
+            index: 2,
+            pages: vec![imported_page(1, 0)],
+        };
+
+        assert!(!command.apply(&mut document));
+        assert_eq!(document, original);
+    }
+
+    #[test]
+    fn import_pages_rejects_duplicate_ids_within_the_batch() {
+        let mut document = document_with_pages(&[0]);
+        let command = Command::ImportPages {
+            index: 1,
+            pages: vec![imported_page(10, 0), imported_page(10, 1)],
+        };
+
+        assert!(!command.apply(&mut document));
+        assert_eq!(page_ids(&document), vec![PageId(0)]);
+    }
+
+    #[test]
     fn undo_removes_an_imported_batch_in_one_step() {
         let base = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
         let mut document = Document {
@@ -1112,6 +1150,18 @@ mod tests {
 
         assert!(!command.apply(&mut document));
         assert!(document.pages.is_empty());
+    }
+
+    #[test]
+    fn insert_page_rejects_an_id_already_in_the_document() {
+        let mut document = document_with_pages(&[0, 1]);
+        let command = Command::InsertPage {
+            index: 2,
+            page: Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
+        };
+
+        assert!(!command.apply(&mut document));
+        assert_eq!(page_ids(&document), vec![PageId(0), PageId(1)]);
     }
 
     #[test]
