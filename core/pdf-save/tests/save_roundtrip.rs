@@ -495,3 +495,81 @@ fn explicit_strip_protection_removes_encryption_and_bypasses_edit_log() {
         .unwrap_or(0);
     assert_eq!(rotate, 90);
 }
+
+/// A two-page unsigned file with a signature dictionary added, saved to disk.
+/// Enough for `pdf_manip::document_has_signatures` — which is what decides
+/// whether a save is worth warning about — without needing a real CMS blob.
+fn signed_two_page_pdf() -> std::path::PathBuf {
+    use lopdf::dictionary;
+
+    let source = unencrypted_two_page_pdf();
+    let mut doc = lopdf::Document::load(&source).unwrap();
+    doc.add_object(dictionary! { "Type" => "Sig", "Filter" => "Adobe.PPKLite" });
+    let path = temp_pdf_path("signed-two-page");
+    doc.save(&path).unwrap();
+    path
+}
+
+/// Checklist §5 items 8 and 9 (`docs/batch-pdf-assembly.md`), for the
+/// operation this batch adds: **reordering pages** breaks a signature exactly
+/// as a content edit does, and the save says so instead of doing it quietly.
+///
+/// The existing coverage all went through content edits. Reordering reaches
+/// the same full-rewrite writer by a different route
+/// (`has_structural_page_changes` rather than `has_content_edits`), so a
+/// narrowing of either condition would go unnoticed without this.
+#[test]
+fn reordering_a_signed_document_warns_and_refuses_an_unacknowledged_save() {
+    let path = signed_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    apply_command(&mut document, Command::MovePage { from: 0, to: 1 });
+
+    let input = || SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    };
+
+    assert!(
+        pdf_save::will_invalidate_signatures(input()).expect("the query should succeed"),
+        "a reorder rewrites the file, which breaks the signature it carries"
+    );
+    assert!(
+        matches!(
+            save_document(input()),
+            Err(pdf_save::SaveError::SignaturesWouldBeInvalidated)
+        ),
+        "the save must ask before breaking a signature, not after"
+    );
+}
+
+/// The same reorder, once the caller says the user has been told. The
+/// acknowledgement is the only thing that changes; the work is identical.
+#[test]
+fn an_acknowledged_reorder_of_a_signed_document_saves() {
+    let path = signed_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    apply_command(&mut document, Command::MovePage { from: 0, to: 1 });
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::ProceedAndInvalidate,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("an acknowledged save proceeds");
+
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    assert_eq!(reloaded.get_pages().len(), 2);
+}

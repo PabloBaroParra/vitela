@@ -136,7 +136,7 @@ pub fn save_document_with_options(
     // is not free — so this asks in the one branch where the answer matters,
     // and only when the caller has not already settled it.
     if input.signatures == SignatureAcknowledgement::Unacknowledged
-        && content::has_signatures(input.base.as_lopdf())
+        && pdf_manip::document_has_signatures(input.base)
     {
         return Err(SaveError::SignaturesWouldBeInvalidated);
     }
@@ -213,7 +213,7 @@ fn requires_full_rewrite(input: SaveInput<'_>, original_pages: &[Page]) -> bool 
 /// The `signatures` field of `input` is ignored here: this reports what the
 /// file and the edits imply, not what the caller has agreed to.
 pub fn will_invalidate_signatures(input: SaveInput<'_>) -> Result<bool, SaveError> {
-    if !content::has_signatures(input.base.as_lopdf()) {
+    if !pdf_manip::document_has_signatures(input.base) {
         return Ok(false);
     }
 

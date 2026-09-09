@@ -256,3 +256,35 @@ fn is_goto_action(action: Option<&Dictionary>) -> bool {
     action.and_then(|dict| dict.get(b"S").and_then(|value| value.as_name()).ok())
         == Some(b"GoTo".as_slice())
 }
+
+/// Rewrites every named destination on `page` that resolves to a page in the
+/// selection into the explicit destination it named, so the link keeps
+/// working once the source's name tree is left behind.
+///
+/// `donor` is where names are resolved (it still has the catalog);
+/// `destination` is where the copied annotations now live.
+pub(crate) fn rewrite_named_destinations(
+    destination: &mut LopdfRawDocument,
+    donor: &LopdfRawDocument,
+    page: &Dictionary,
+    selected: &HashSet<ObjectId>,
+) {
+    for slot in destination_slots(donor, page) {
+        let Some(value) = destination_value(donor, slot) else {
+            continue;
+        };
+        if !crate::destinations::is_named_destination(&value) {
+            continue;
+        }
+        let DestinationTarget::Page {
+            page: target,
+            explicit,
+        } = resolve_destination(donor, &value)
+        else {
+            continue;
+        };
+        if selected.contains(&target) {
+            set_destination_value(destination, slot, explicit);
+        }
+    }
+}

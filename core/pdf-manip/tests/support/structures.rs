@@ -196,3 +196,46 @@ pub fn pdf_with_tagged_pages() -> Document {
     }
     doc
 }
+
+/// A two-page source that is **signed on its first page**: a merged
+/// signature field and widget in that page's `/Annots`, its `/V` pointing at
+/// a real signature dictionary, and an `/AcroForm` in the catalog declaring
+/// `/SigFlags` so the document-level scan sees it too.
+///
+/// Both halves matter and they are asked separately. Selecting page 0 must be
+/// refused — that page carries the appearance and none of what backs it.
+/// Selecting page 1 must succeed and merely *warn*, because that page is
+/// intact and it is the whole document, not the page, that was signed.
+pub fn pdf_signed_on_its_first_page() -> Document {
+    let mut doc = build_pdf_with_pages(&["Signed", "Plain"]);
+    let first = *doc.get_pages().values().next().expect("two pages");
+
+    let signature_id = doc.add_object(dictionary! {
+        "Type" => "Sig",
+        "Filter" => "Adobe.PPKLite",
+        "SubFilter" => "adbe.pkcs7.detached",
+        // The range the signature covers is a range of *this* file's bytes,
+        // which is exactly why it cannot travel to another one.
+        "ByteRange" => vec![0.into(), 840.into(), 960.into(), 240.into()],
+    });
+    let widget_id = doc.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Widget",
+        "FT" => "Sig",
+        "T" => Object::string_literal("Signature1"),
+        "V" => Object::Reference(signature_id),
+        "Rect" => vec![0.into(), 0.into(), 180.into(), 40.into()],
+    });
+    doc.get_dictionary_mut(first)
+        .expect("first page")
+        .set("Annots", vec![Object::Reference(widget_id)]);
+    doc.catalog_mut().expect("catalog").set(
+        "AcroForm",
+        dictionary! {
+            "Fields" => vec![Object::Reference(widget_id)],
+            // Bit 1: SignaturesExist.
+            "SigFlags" => 3,
+        },
+    );
+    doc
+}

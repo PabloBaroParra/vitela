@@ -62,6 +62,19 @@ pub enum ManipError {
     /// merely poorer output, so the graft is refused (checklist "Estructuras
     /// de documento", `docs/batch-pdf-assembly.md` section 4).
     SourceHasOptionalContent(usize),
+    /// A page selected for `graft_pages` carries the widget of a **signature**
+    /// field (checklist "Seguridad y firmas",
+    /// `docs/batch-pdf-assembly.md` section 5).
+    ///
+    /// A narrower case of [`Self::SourceHasFormFields`], reported separately
+    /// because the two cost different things and the user is owed the real
+    /// reason. The widget holds the appearance — the signer's name, the date,
+    /// the seal — while the field, its `/V` signature dictionary and the
+    /// `/ByteRange` that dictionary covers all stay in the source. Copying
+    /// the widget alone would put a signature block in the destination
+    /// attesting to a file nobody can check it against, which is worse than
+    /// losing it.
+    SourceHasSignature(usize),
 }
 
 impl fmt::Display for ManipError {
@@ -105,6 +118,10 @@ impl fmt::Display for ManipError {
             ManipError::SourceHasOptionalContent(page) => write!(
                 f,
                 "page {page} uses optional content (layers); importing layered content is not supported yet"
+            ),
+            ManipError::SourceHasSignature(page) => write!(
+                f,
+                "page {page} carries a digital signature; its signature cannot be verified in                  another document, so importing the page is not supported"
             ),
         }
     }

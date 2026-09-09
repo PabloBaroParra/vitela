@@ -51,8 +51,9 @@ use lopdf::{Dictionary, Document as LopdfRawDocument, Object, ObjectId};
 use crate::create_blank::root_pages_id;
 use crate::document::LopdfDocument;
 use crate::error::ManipError;
+use crate::links::rewrite_named_destinations;
 use crate::page_graph::{collect_reachable, flattened_page};
-use crate::report::{inspect, rewrite_named_destinations, GraftOutcome};
+use crate::report::{inspect, GraftOutcome};
 
 /// Copies the pages of `source` named by the 0-based indices in `pages` into
 /// `document`, at 0-based position `index`, preserving their real PDF content.

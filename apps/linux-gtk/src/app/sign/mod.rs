@@ -102,8 +102,9 @@ pub(crate) fn update_sign_controls(viewer: &Viewer) {
 }
 
 /// Whether the open document (if any) already carries a signature —
-/// `pdf_save::has_signatures`'s own structural scan (`/AcroForm /SigFlags` or
-/// any `/FT /Sig` object), the same check `document::confirm_signature_loss`
+/// `pdf_manip::document_has_signatures`' own structural scan (`/AcroForm`
+/// `/SigFlags` or any `/FT /Sig` object), the same check
+/// `document::confirm_signature_loss`
 /// asks before a rewrite that would break one.
 fn document_is_signed(viewer: &Viewer) -> bool {
     viewer
@@ -112,7 +113,7 @@ fn document_is_signed(viewer: &Viewer) -> bool {
         .session
         .as_ref()
         .and_then(|session| session.save_backing.as_ref())
-        .is_some_and(|backing| pdf_save::has_signatures(backing.base.as_lopdf()))
+        .is_some_and(|backing| pdf_manip::document_has_signatures(&backing.base))
 }
 
 pub(crate) fn connect_sign_toolbar(window: &ApplicationWindow, viewer: &Viewer) {

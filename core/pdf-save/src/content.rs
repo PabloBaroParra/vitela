@@ -19,10 +19,16 @@
 //! reports it rather than blocking the save: see
 //! [`crate::strategy::will_invalidate_signatures`]. The shell surfaces the
 //! warning before writing.
+//!
+//! *Detecting* a signature is not this module's job and never was: it is a
+//! question about the PDF object graph, so it lives in
+//! `pdf_manip::document_has_signatures` — the one place both sides of an
+//! import ask it, the destination here and a source at selection time (see
+//! `pdf_manip::signatures`).
 
 use std::collections::HashMap;
 
-use lopdf::{Document as LopdfDoc, Object, ObjectId};
+use lopdf::{Document as LopdfDoc, ObjectId};
 use pdf_document::{Command, Document, PageId};
 
 use crate::error::SaveError;
@@ -177,68 +183,10 @@ fn apply(
     Ok(())
 }
 
-/// Whether the file already contains a signature that a rewrite would break.
-///
-/// Looks for the two shapes a signed PDF takes: an `/AcroForm` that declares
-/// `/SigFlags`, and any object that is a signature dictionary or a signature
-/// form field. Scanning objects rather than only walking `/AcroForm /Fields`
-/// is deliberate — a file whose form tree is damaged can still carry a
-/// signature, and under-reporting here means a user is not warned before
-/// their signature stops verifying.
-pub fn has_signatures(working: &LopdfDoc) -> bool {
-    if acroform_declares_signatures(working) {
-        return true;
-    }
-
-    working
-        .objects
-        .values()
-        .any(|object| object.as_dict().ok().is_some_and(is_signature_dict))
-}
-
-fn acroform_declares_signatures(working: &LopdfDoc) -> bool {
-    let Ok(acroform) = working.trailer.get(b"Root") else {
-        return false;
-    };
-    let Some(catalog) = dereferenced_dict(working, acroform) else {
-        return false;
-    };
-    let Ok(form) = catalog.get(b"AcroForm") else {
-        return false;
-    };
-
-    dereferenced_dict(working, form)
-        .and_then(|form| form.get(b"SigFlags").ok().and_then(|f| f.as_i64().ok()))
-        // Bit 1 of /SigFlags is SignaturesExist.
-        .is_some_and(|flags| flags & 1 != 0)
-}
-
-fn is_signature_dict(dict: &lopdf::Dictionary) -> bool {
-    let name_is = |key: &[u8], expected: &[u8]| {
-        dict.get(key)
-            .ok()
-            .and_then(|value| value.as_name().ok())
-            .is_some_and(|name| name == expected)
-    };
-
-    name_is(b"Type", b"Sig") || name_is(b"FT", b"Sig")
-}
-
-fn dereferenced_dict<'a>(
-    working: &'a LopdfDoc,
-    object: &'a Object,
-) -> Option<&'a lopdf::Dictionary> {
-    match object {
-        Object::Dictionary(dict) => Some(dict),
-        Object::Reference(id) => working.get_object(*id).ok().and_then(|o| o.as_dict().ok()),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lopdf::{dictionary, Stream};
+    use lopdf::{dictionary, Object, Stream};
     use pdf_document::{
         Annotation, AnnotationId, AnnotationKind, Color, ContentItemId, EditLog, FontKind,
         ImageItem, PageId, Rect, TextRun,
@@ -487,58 +435,5 @@ mod tests {
             replay_content_edits(&mut working, &document, &pages).expect_err("must not succeed");
 
         assert!(matches!(error, SaveError::Edit(_)));
-    }
-
-    #[test]
-    fn an_unsigned_document_reports_no_signatures() {
-        assert!(!has_signatures(&document_with(b"")));
-    }
-
-    #[test]
-    fn a_signature_dictionary_is_detected() {
-        let mut working = document_with(b"");
-        working.add_object(dictionary! { "Type" => "Sig", "Filter" => "Adobe.PPKLite" });
-
-        assert!(has_signatures(&working));
-    }
-
-    #[test]
-    fn a_signature_form_field_is_detected() {
-        let mut working = document_with(b"");
-        working.add_object(dictionary! { "FT" => "Sig", "T" => "Signature1" });
-
-        assert!(has_signatures(&working));
-    }
-
-    /// A file whose form tree says signatures exist counts even when the
-    /// field objects themselves cannot be reached.
-    #[test]
-    fn an_acroform_declaring_sigflags_is_detected() {
-        let mut working = document_with(b"");
-        let Ok(Object::Reference(catalog_id)) = working.trailer.get(b"Root") else {
-            panic!("the fixture has a catalog");
-        };
-        let catalog_id = *catalog_id;
-        working
-            .get_dictionary_mut(catalog_id)
-            .expect("catalog")
-            .set("AcroForm", dictionary! { "SigFlags" => 3 });
-
-        assert!(has_signatures(&working));
-    }
-
-    #[test]
-    fn an_acroform_without_the_signatures_exist_bit_is_not_a_signature() {
-        let mut working = document_with(b"");
-        let Ok(Object::Reference(catalog_id)) = working.trailer.get(b"Root") else {
-            panic!("the fixture has a catalog");
-        };
-        let catalog_id = *catalog_id;
-        working
-            .get_dictionary_mut(catalog_id)
-            .expect("catalog")
-            .set("AcroForm", dictionary! { "SigFlags" => 0 });
-
-        assert!(!has_signatures(&working));
     }
 }

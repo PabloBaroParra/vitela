@@ -24,6 +24,7 @@ mod page_graph;
 mod page_ops;
 mod report;
 mod security;
+mod signatures;
 
 pub use create_blank::{create_blank_document, insert_blank_page, remove_page};
 pub use document::{DocumentInfo, LopdfDocument, PageDimensions};
@@ -41,3 +42,4 @@ pub use security::{
     annotation_editing_is_allowed, content_editing_is_allowed, document_assembly_is_allowed,
     text_extraction_is_allowed,
 };
+pub use signatures::document_has_signatures;

@@ -17,6 +17,10 @@
 //! **Refused** ([`ManipError`]) when the imported page would come out
 //! *wrong*, not merely poorer:
 //!
+//! - a **signature** widget, the narrower and worse case of the one below:
+//!   the appearance travels, the signature dictionary and the byte range it
+//!   covers do not, so the imported page would show a signature block
+//!   attesting to a file that is not there. See [`crate::signatures`].
 //! - an AcroForm widget, whose field lives in the source's `/AcroForm`.
 //!   Copying the widget alone yields a box that looks like a field and is
 //!   not one; merging the field needs a name-collision policy this crate does
@@ -48,6 +52,7 @@ use crate::error::ManipError;
 use crate::graft::selected_pages;
 use crate::links;
 use crate::page_graph::{collect_reachable, flattened_page};
+use crate::signatures;
 
 /// Something an import carries out that the imported pages will not have.
 ///
@@ -76,6 +81,16 @@ pub enum GraftWarning {
     /// stays in the source. The page's content is intact; the reading order
     /// and semantics assistive technology reads are not.
     TaggedStructureNotImported { page: usize },
+    /// The source document is signed, and none of that signing travels with
+    /// its pages (checklist "Seguridad y firmas",
+    /// `docs/batch-pdf-assembly.md` section 5).
+    ///
+    /// Not narrowed to particular pages, unlike every warning above it: a
+    /// signature's `/ByteRange` covers the whole file, so it is a fact about
+    /// the source and equally true of any page taken out of it. The source
+    /// file itself is untouched and still verifies — what the user needs to
+    /// know is that the copy they are assembling does not inherit that.
+    SourceSignaturesNotImported,
 }
 
 impl fmt::Display for GraftWarning {
@@ -100,6 +115,10 @@ impl fmt::Display for GraftWarning {
             GraftWarning::TaggedStructureNotImported { page } => write!(
                 f,
                 "page {page} loses its tagged structure; its content is imported in full, its accessibility structure is not"
+            ),
+            GraftWarning::SourceSignaturesNotImported => write!(
+                f,
+                "the source document is signed; the imported pages carry their content but none of its signature"
             ),
         }
     }
@@ -161,6 +180,12 @@ pub(crate) fn inspect(
     for (i, &page_id) in selected.iter().enumerate() {
         let page = pages[i];
         let dict = flattened_page(donor, page_id)?;
+        // Asked before the general widget check, which would also match: a
+        // signature is a form field, and answering "this page has form
+        // fields" would hide the only part that mattered.
+        if signatures::page_has_signature_widget(donor, &dict) {
+            return Err(ManipError::SourceHasSignature(page));
+        }
         if page_has_widget_annotations(donor, &dict) {
             return Err(ManipError::SourceHasFormFields(page));
         }
@@ -176,6 +201,12 @@ pub(crate) fn inspect(
     let entries = links::outline_entries_into(donor, &selected_set);
     if entries > 0 {
         warnings.push(GraftWarning::OutlinesNotImported { entries });
+    }
+    // Document-level, so it is asked once rather than per page — and only
+    // once no page has been refused: a selection that includes the signed
+    // page never reaches here.
+    if signatures::raw_document_has_signatures(donor) {
+        warnings.push(GraftWarning::SourceSignaturesNotImported);
     }
     Ok(GraftReport { warnings })
 }
@@ -255,38 +286,6 @@ fn page_is_tagged(donor: &LopdfRawDocument, dict: &Dictionary) -> bool {
             .catalog()
             .map(|catalog| catalog.get(b"StructTreeRoot").is_ok())
             .unwrap_or(false)
-}
-
-/// Rewrites every named destination on `page` that resolves to a page in the
-/// selection into the explicit destination it named, so the link keeps
-/// working once the source's name tree is left behind.
-///
-/// `donor` is where names are resolved (it still has the catalog);
-/// `destination` is where the copied annotations now live.
-pub(crate) fn rewrite_named_destinations(
-    destination: &mut LopdfRawDocument,
-    donor: &LopdfRawDocument,
-    page: &Dictionary,
-    selected: &HashSet<ObjectId>,
-) {
-    for slot in links::destination_slots(donor, page) {
-        let Some(value) = links::destination_value(donor, slot) else {
-            continue;
-        };
-        if !crate::destinations::is_named_destination(&value) {
-            continue;
-        }
-        let DestinationTarget::Page {
-            page: target,
-            explicit,
-        } = resolve_destination(donor, &value)
-        else {
-            continue;
-        };
-        if selected.contains(&target) {
-            links::set_destination_value(destination, slot, explicit);
-        }
-    }
 }
 
 #[cfg(test)]
