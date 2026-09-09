@@ -438,17 +438,17 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   documentos.
 - [x] Comprobar permisos tanto en el documento principal como en cada fuente.
 - [ ] Solicitar de forma independiente la contraseña de cada PDF protegido.
-- [ ] Mantener las credenciales fuera del modelo de dominio, logs y mensajes de
+- [x] Mantener las credenciales fuera del modelo de dominio, logs y mensajes de
   error.
-- [ ] Verificar antes de editar que un documento principal cifrado puede
+- [x] Verificar antes de editar que un documento principal cifrado puede
   reescribirse correctamente.
-- [ ] Mantener la política de cifrado del documento principal al guardar.
-- [ ] Detectar firmas en el documento principal y en las fuentes activas.
-- [ ] Explicar que una combinación o reordenación invalida criptográficamente
+- [x] Mantener la política de cifrado del documento principal al guardar.
+- [x] Detectar firmas en el documento principal y en las fuentes activas.
+- [x] Explicar que una combinación o reordenación invalida criptográficamente
   las firmas existentes.
-- [ ] Exigir confirmación explícita antes de guardar un resultado que invalide
+- [x] Exigir confirmación explícita antes de guardar un resultado que invalide
   firmas.
-- [ ] Conservar objetos y apariencias de firma solo cuando la política definida
+- [x] Conservar objetos y apariencias de firma solo cuando la política definida
   lo permita.
 
 ### Progreso del permiso de ensamblado
@@ -507,6 +507,146 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   `gtk_ui_refused_and_failed_commands_leave_cards_and_history_untouched` solo
   pasaron por el analizador de `cargo fmt`; su verificación real es el CI de
   Linux.
+
+### Progreso de credenciales, reescritura y política de cifrado
+
+- 2026-09-09 (decisión de contrato): la pregunta *"¿se puede reescribir este
+  documento?"* se separa del codificador que lo reescribe. `pdf-save` gana
+  `rewrite.rs` con `RewriteBlocker` y `full_rewrite_blocker(security)`, y
+  `security::build_encryption_state` pasó a consultarlo en vez de repetir la
+  regla. Son dos responsabilidades y dos momentos —una se pregunta mientras el
+  usuario todavía elige qué hacer, la otra en el último instante del guardado—
+  pero una sola función, de modo que no pueden discrepar. Hay un test que fija
+  exactamente eso: el codificador rechaza con las mismas palabras que reporta
+  el bloqueo.
+- El hueco era el mismo que ya se había cerrado para la edición de contenido,
+  pero para las páginas: un documento cifrado abierto con una sola de sus dos
+  contraseñas aceptaba mover o borrar páginas y recién fallaba al guardar, con
+  el reordenamiento ya hecho. Cualquier cambio estructural fuerza el escritor
+  de reescritura completa (`has_structural_page_changes`), y una reescritura no
+  puede reconstruir la contraseña que falta: la contraseña de propietario de un
+  PDF no se deriva de la de usuario ni al revés.
+- La frontera importa y no es la del permiso: `RotatePage` es una operación de
+  ensamblado (tabla 22 la nombra) pero **no** un cambio de estructura —no
+  cambia ni la pertenencia ni el orden—, así que sigue en el escritor
+  incremental, que reencripta desde el estado que lopdf ya retiene y no
+  necesita ninguna contraseña nuestra. Por eso `pdf-ffi` gana
+  `is_page_structure_command`, gemelo de `Command::is_page_structure_edit`, y
+  la puerta de reescritura pregunta por ese predicado y no por el de
+  ensamblado. Preguntar por el ancho rechazaría una rotación que se guarda
+  perfectamente.
+- Lo mismo vale para el resto del embudo del shell: rellenar formularios,
+  editar metadatos y firmar también son incrementales, así que la comprobación
+  no se plegó dentro de `content_edit_refusal` —que esos tres consultan— sino
+  que vive en `Viewer::full_rewrite_refusal` y la piden solo los embudos que
+  fuerzan la reescritura. Hoy eso es `organize::command` (mover y borrar
+  páginas).
+- La copia local que `pdf-ffi` tenía de la regla (`content_edit_could_be_saved`)
+  miraba solo la mitad de las contraseñas, así que dejaba pasar un documento
+  AES-256 hasta un guardado que después lo rechazaba. Al delegar en
+  `full_rewrite_blocker` esa segunda condición —el manejador sin
+  implementación de reencriptado— quedó cubierta también.
+- Credenciales fuera de los mensajes: `EncryptionCredentials` ya tenía un
+  `Debug` escrito a mano que redacta ambas contraseñas, pero nada impedía que
+  un `#[derive(Debug)]` lo reemplazara y filtrara en silencio; ahora hay
+  pruebas que lo fijan, incluida la del contenedor (`SecurityContext` deriva
+  `Debug`, así que solo es tan seguro como el campo). Del lado de los
+  mensajes, `RewriteBlocker::reason` es `&'static str` por tipo: un motivo
+  nunca se formatea a partir del `SecurityContext` que describe, que es lo
+  único que podría arrastrar una contraseña hasta un log o un informe de
+  error.
+- Política de cifrado al guardar: `apply_encryption_for_full_rewrite` ya la
+  reaplicaba, y la prueba existente fijaba que las dos contraseñas siguen
+  abriendo el resultado. Faltaba la otra mitad —el manejador y el `/P`—, que
+  ahora se comprueba releyendo el archivo reescrito con
+  `read_security_context_from_bytes` después de mover una página. Una
+  reescritura que reencriptara con otro manejador, o con permisos ensanchados,
+  pasaba la prueba anterior y entregaba igual un documento cuyas restricciones
+  ya no dicen lo que su autor escribió.
+- Observación adjunta, fuera del alcance de este lote: en el shell GTK4 la
+  edición de *contenido* todavía no hace esta comprobación (sí la hace
+  `pdf-ffi`, o sea todos los demás shells). Es un hueco del lote 21, no de la
+  ruta de ensamblado, y se cierra donde se decida que va la puerta de
+  `content_edit`.
+- Verificación (2026-09-09, reescritura cifrada y credenciales): `cargo build
+  --workspace --locked`; `cargo test --workspace --locked -- --skip gtk_ui_`
+  (891 aprobadas, 0 fallos); `cargo fmt --all -- --check`; `cargo clippy
+  --workspace --all-targets --locked -- -D warnings`; `git diff --check`;
+  `python scripts/check_maintainability.py` (99 avisos, línea base sin
+  cambios — `pdf-save/src/security.rs` se partió en `rewrite.rs` y el test de
+  rechazos de Organizar se separó en
+  `organize/tests/refusals.rs` para no cruzar el umbral de 350 líneas).
+  `linux-gtk` no compila en Windows: los cambios de `state.rs`, `organize.rs`
+  y el nuevo `organize/tests/refusals.rs` solo pasaron por el analizador de
+  `cargo fmt`; su verificación real es el CI de Linux.
+
+### Progreso de firmas
+
+- 2026-09-09 (decisión de alcance): la detección de firmas pasa a vivir en
+  `pdf-manip` (`core/pdf-manip/src/signatures.rs`), no en `pdf-save`. Es una
+  pregunta sobre el grafo de objetos PDF —el crate cuyo trabajo declarado es
+  justamente ese— y hay dos lados que tienen que responderla igual: el
+  destino, en el momento de guardar, y cada fuente, en el momento de
+  seleccionar. `pdf_save::has_signatures` se retiró y sus llamadores usan
+  `pdf_manip::document_has_signatures`; había una sola definición y ahora
+  sigue habiendo una sola, pero alcanzable desde ambos lados.
+- Son **dos preguntas con dos alcances** y no se pueden confundir. El
+  `/ByteRange` de una firma cubre el archivo entero, así que "¿este archivo
+  está firmado?" es un hecho del documento. "¿esta página lleva el widget de
+  una firma?" es un hecho de la página, y es el único que un injerto puede
+  arrastrar.
+- Política de la fuente (ítem 10): una página seleccionada que lleva un widget
+  de firma se **rechaza** — `ManipError::SourceHasSignature`. El widget es la
+  apariencia ("firmado por …", el nombre, la fecha, el sello); el campo, su
+  diccionario `/V` y el rango de bytes que ese diccionario cubre se quedan en
+  la fuente. Copiar solo el widget pondría en el destino un bloque de firma
+  que da fe de un archivo que nadie puede contrastar: no es una importación
+  más pobre, es una con forma de falsificación, y es lo peor que podía hacer
+  la regla de la sección 4.
+- Se comprueba **antes** que el widget genérico de AcroForm, que también
+  coincidiría: una firma es un campo de formulario, y responder "esta página
+  tiene campos de formulario" escondería lo único que importaba. El error
+  específico gana, y hay una prueba que fija que el mensaje no dice "form
+  fields".
+- El `/FT` puede estar en el propio widget (el caso fusionado, el habitual) o
+  en un ancestro por `/Parent`, así que se recorre la cadena con un tope de
+  profundidad —una cadena malformada que se apunta a sí misma no puede girar—
+  y un `/V` que resuelve a un `/Type /Sig` también cuenta: es la firma misma
+  colgada del campo, y un productor que omita `/FT` en algún eslabón no debe
+  colar una firma real.
+- Fuente firmada, páginas limpias (ítem 7): se **avisa**, no se rechaza —
+  `GraftWarning::SourceSignaturesNotImported`. Es el único aviso que no nombra
+  una página, y a propósito: la firma cubre el archivo entero, así que es un
+  hecho de la fuente e igual de cierto para cualquier página que se saque de
+  ella. El archivo original queda intacto y sigue verificando; lo que el
+  usuario necesita saber es que la copia que está armando no hereda eso.
+- Ítems 8 y 9 (destino) ya estaban implementados desde el lote 21 —
+  `pdf_save::will_invalidate_signatures`, `SignatureAcknowledgement`,
+  `SaveError::SignaturesWouldBeInvalidated` y el diálogo
+  `document::confirm_signature_loss` del shell GTK4, que explica que la firma
+  no se elimina sino que deja de coincidir y que guardar a otro archivo
+  conserva una copia que verifica. Lo que faltaba era la **prueba por la ruta
+  de esta entrega**: toda la cobertura existente pasaba por ediciones de
+  contenido. Reordenar llega al mismo escritor de reescritura completa por
+  otro camino (`has_structural_page_changes` en vez de `has_content_edits`),
+  así que un estrechamiento de cualquiera de las dos condiciones habría
+  pasado inadvertido.
+- El refresco de previsualización sigue reconociendo la invalidación en
+  silencio (`refresh_snapshot_and_reopen` y `pdf_ffi::refresh_preview`), y eso
+  se mantiene: guarda en memoria, nunca toca el disco y el llamador conserva
+  el `SaveBacking` original. El diálogo es para el guardado que sí escribe.
+- Verificación (2026-09-09, firmas): `cargo build --workspace --locked`;
+  `cargo test --workspace --locked -- --skip gtk_ui_` (906 aprobadas, 0
+  fallos; incluidas las 6 nuevas de `pdf-manip/tests/graft_signatures.rs`, las
+  12 de `signatures.rs` y las 2 de reordenamiento firmado en
+  `pdf-save/tests/save_roundtrip.rs`); `cargo fmt --all -- --check`; `cargo
+  clippy --workspace --all-targets --locked -- -D warnings`; `git diff
+  --check`; `python scripts/check_maintainability.py` (99 avisos, línea base
+  sin cambios — `rewrite_named_destinations` se movió de `report.rs` a
+  `links.rs`, que es donde vive escribir un destino de vuelta, para que
+  `report.rs` no cruzara el umbral de 350 líneas). `linux-gtk` no compila en
+  Windows: el cambio de `sign/mod.rs` solo pasó por el analizador de `cargo
+  fmt`; su verificación real es el CI de Linux.
 
 ## 6. Guardado y resolución de páginas
 
@@ -713,7 +853,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [ ] Probar fuentes cifradas y permisos insuficientes.
 - [ ] Probar documentos principales cifrados con credenciales completas e
   incompletas.
-- [ ] Probar advertencias de firma para destino y fuentes.
+- [x] Probar advertencias de firma para destino y fuentes.
 - [ ] Probar que los errores no dejan mutaciones parciales.
 - [ ] Mantener determinismo con reloj e identificadores inyectados.
 
