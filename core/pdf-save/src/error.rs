@@ -76,7 +76,8 @@ impl fmt::Display for SaveError {
             SaveError::InvalidSaveRequest(msg) => write!(f, "invalid save request: {msg}"),
             SaveError::SourceForbidsImport => write!(
                 f,
-                "this PDF does not permit copying or extracting its content,                  so its pages cannot be imported into another document"
+                "this PDF does not permit copying or extracting its content, \
+                 so its pages cannot be imported into another document"
             ),
             SaveError::SignaturesWouldBeInvalidated => write!(
                 f,

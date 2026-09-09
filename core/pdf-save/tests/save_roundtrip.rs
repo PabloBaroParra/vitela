@@ -368,6 +368,46 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
     }
 }
 
+/// Checklist §5 item 6 (`docs/batch-pdf-assembly.md`): the destination's
+/// encryption policy survives a save that reassembles its pages.
+///
+/// Its sibling above pins that both passwords still open the result — which
+/// is the credential half. The policy is the other half: the same security
+/// handler and the same `/P` bitmask. A rewrite that quietly re-encrypted
+/// with a different handler, or with permissions widened to "everything the
+/// writer felt like", would pass that test and still hand the user a
+/// document whose restrictions no longer say what its author wrote.
+#[test]
+fn encrypted_full_rewrite_preserves_the_documents_encryption_policy() {
+    let path = fixture_path("aes_128_user_and_owner.pdf");
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) =
+        pdf_manip::open_document_with_passwords(&path, "user-aes-pass", "owner-aes-pass").unwrap();
+    let before = security.clone().expect("fixture is encrypted");
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    // A page move, not an insertion: reordering is the assembly operation
+    // this batch adds, and it takes the same full-rewrite path.
+    apply_command(&mut document, Command::MovePage { from: 0, to: 1 });
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("full rewrite should preserve encryption with both passwords");
+
+    let after = pdf_manip::read_security_context_from_bytes(&saved, Some("user-aes-pass"))
+        .expect("the rewritten PDF must still be readable as an encrypted document")
+        .expect("the rewritten PDF must still be encrypted");
+
+    assert_eq!(after.handler, before.handler);
+    assert_eq!(after.permissions, before.permissions);
+}
+
 /// T-035: explicit strip-protection removes encryption on save and MUST NOT
 /// touch `EditLog` (spec "Strip is not undoable") — the caller records the
 /// consent event to the audit log itself, independent of pdf-save.

@@ -13,6 +13,9 @@
 //!   builders leave as placeholders.
 //! - [`security`] (T-034, T-035): re-encrypt-by-default / explicit-strip save
 //!   intent for the full-rewrite writer.
+//! - [`rewrite`]: whether an encrypted document could be fully rewritten at
+//!   all — the question a shell asks before letting an edit be recorded
+//!   (batch PDF assembly section 5).
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
 //! - [`content`] (T-156): replays page-content edits (Batch 21) at save
 //!   time, and reports whether the rewrite invalidates existing signatures.
@@ -34,6 +37,7 @@ pub mod export;
 pub mod forms;
 pub mod imported_sources;
 pub mod metadata;
+pub mod rewrite;
 pub mod security;
 pub mod strategy;
 
@@ -53,6 +57,7 @@ pub use export::{export_page_as_image, ExportFormat};
 pub use forms::{ensure_acroform, write_form_fields};
 pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
+pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{
     append_incremental_update, save_document, save_document_with_options,
