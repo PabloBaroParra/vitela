@@ -762,19 +762,48 @@ fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::PageId> {
 /// installing a different document, and destructively for a preview refresh
 /// of the same one.
 ///
-/// The four fields travel together because they are mutually dependent, not
+/// These fields travel together because they are mutually dependent, not
 /// because they happen to be convenient: `document_model` holds the
-/// annotations `selected_annotation` names and the id space
-/// `next_annotation_id` continues, and its `EditLog` is keyed to exactly the
-/// `save_backing` it was recorded against. Restoring any of them without the
-/// others produces a session that contradicts itself — a selection pointing
-/// at nothing, ids colliding with live annotations, or commands replayed
-/// against a base they were never validated against.
+/// annotations and form fields the selections name and the id spaces their
+/// counters continue, and its `EditLog` is keyed to exactly the `save_backing`
+/// it was recorded against. Restoring any of them without the others produces
+/// a session that contradicts itself — a selection pointing at nothing, ids
+/// colliding with live objects, or commands replayed against a base they were
+/// never validated against.
 struct EditState {
     document_model: Option<Document>,
     save_backing: Option<super::state::SaveBacking>,
     next_annotation_id: u64,
     selected_annotation: Option<pdf_document::AnnotationId>,
+    next_form_field_id: u64,
+    selected_form_field: Option<pdf_document::FormFieldId>,
+}
+
+fn surviving_edit_selections(
+    document: Option<&Document>,
+    annotation: Option<pdf_document::AnnotationId>,
+    form_field: Option<pdf_document::FormFieldId>,
+) -> (
+    Option<pdf_document::AnnotationId>,
+    Option<pdf_document::FormFieldId>,
+) {
+    let annotation = annotation.filter(|id| {
+        document.is_some_and(|document| {
+            document
+                .annotations
+                .get(*id)
+                .is_some_and(|annotation| document.render_index(annotation.page).is_some())
+        })
+    });
+    let form_field = form_field.filter(|id| {
+        document.is_some_and(|document| {
+            document
+                .form_fields
+                .get(*id)
+                .is_some_and(|field| document.render_index(field.page).is_some())
+        })
+    });
+    (annotation, form_field)
 }
 
 /// Lifts the edit-side state off the current session, leaving the rest of it
@@ -793,6 +822,8 @@ fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
         save_backing: session.save_backing.take(),
         next_annotation_id: session.next_annotation_id,
         selected_annotation: session.selected_annotation,
+        next_form_field_id: session.next_form_field_id,
+        selected_form_field: session.selected_form_field,
     })
 }
 
@@ -818,17 +849,25 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
                 // the reopened model's fresh 0..n, are what pdfium's pages
                 // are. Set before the move, and before anything can read a
                 // page index off the new session.
+                let (selected_annotation, selected_form_field) = surviving_edit_selections(
+                    preserved.document_model.as_ref(),
+                    preserved.selected_annotation,
+                    preserved.selected_form_field,
+                );
                 session.backend_pages = backend_page_order(preserved.document_model.as_ref());
                 session.document_model = preserved.document_model;
                 session.save_backing = preserved.save_backing;
                 session.next_annotation_id = preserved.next_annotation_id;
-                session.selected_annotation = preserved.selected_annotation;
+                session.selected_annotation = selected_annotation;
+                session.next_form_field_id = preserved.next_form_field_id;
+                session.selected_form_field = selected_form_field;
             }
             session.unsaved_to_disk = true;
         }
         state.content_edit_mode
     };
     super::annotations::update_annotation_controls(viewer);
+    super::forms::update_forms_controls(viewer);
     still_editing
 }
 
@@ -1743,12 +1782,13 @@ mod tests {
 
     use super::{
         atomic_write, next_form_field_id, next_generation_if_current, pdf_destination,
-        save_worker_result, unsaved_decision, UnsavedDecision,
+        save_worker_result, surviving_edit_selections, unsaved_decision, UnsavedDecision,
     };
     use crate::app::state::SessionToken;
     use pdf_document::{
-        Color, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId,
-        FormFieldKind, PageId, Rect, TextStyle,
+        Annotation, AnnotationId, AnnotationKind, Color, Document, FieldOrigin, FieldValue,
+        FontFamily, FormField, FormFieldId, FormFieldKind, Orientation, Page, PageId, PageSize,
+        Rect, TextStyle,
     };
 
     fn a_form_field(id: u64) -> FormField {
@@ -1774,6 +1814,73 @@ mod tests {
             },
             origin: FieldOrigin::Existing((id as u32, 0)),
         }
+    }
+
+    fn an_annotation(id: u64) -> Annotation {
+        Annotation {
+            id: AnnotationId(id),
+            page: PageId(0),
+            kind: AnnotationKind::Highlight {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 100.0,
+                    height: 20.0,
+                },
+                color: Color {
+                    r: 255,
+                    g: 255,
+                    b: 0,
+                },
+            },
+        }
+    }
+
+    #[test]
+    fn edit_selections_survive_when_the_preserved_model_still_holds_them() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        document.annotations.insert(an_annotation(4));
+        document.form_fields.insert(a_form_field(7));
+
+        assert_eq!(
+            surviving_edit_selections(Some(&document), Some(AnnotationId(4)), Some(FormFieldId(7)),),
+            (Some(AnnotationId(4)), Some(FormFieldId(7)))
+        );
+    }
+
+    #[test]
+    fn edit_selections_are_cleared_when_their_page_was_removed() {
+        let mut document = Document::blank();
+        document.annotations.insert(an_annotation(4));
+        document.form_fields.insert(a_form_field(7));
+
+        assert_eq!(
+            surviving_edit_selections(Some(&document), Some(AnnotationId(4)), Some(FormFieldId(7)),),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn edit_selections_are_cleared_when_the_preserved_model_no_longer_holds_them() {
+        assert_eq!(
+            surviving_edit_selections(
+                Some(&Document::blank()),
+                Some(AnnotationId(4)),
+                Some(FormFieldId(7)),
+            ),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn edit_selections_are_cleared_without_an_editable_model() {
+        assert_eq!(
+            surviving_edit_selections(None, Some(AnnotationId(4)), Some(FormFieldId(7))),
+            (None, None)
+        );
     }
 
     #[test]
