@@ -468,6 +468,17 @@ fn command(
         viewer.status.set_text(refusal);
         return false;
     }
+    // Permission granted is not the same as result writable. Moving or
+    // deleting a page changes the page set, which puts the save on the
+    // full-rewrite writer, and an encrypted document opened with only one of
+    // its two passwords cannot be re-encrypted at all. Asked here rather than
+    // at the save it would fail: the refresh below saves a snapshot the same
+    // way, so an edit that can never be written would not merely wait to fail
+    // — it would take the preview down with it on the very next operation.
+    if let Some(refusal) = viewer.full_rewrite_refusal() {
+        viewer.status.set_text(refusal);
+        return false;
+    }
     let result = {
         let mut state = viewer.state.borrow_mut();
         match state.session.as_mut() {

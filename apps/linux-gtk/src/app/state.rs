@@ -173,6 +173,58 @@ impl Viewer {
             .as_ref()
             .and_then(|session| session.page_assembly_access.refusal())
     }
+
+    /// Why an edit that rewrites the whole file cannot be started on this
+    /// document, or `None` when it can (checklist "Seguridad y firmas" item 5,
+    /// `docs/batch-pdf-assembly.md` section 5).
+    ///
+    /// A separate question from [`Self::page_assembly_refusal`], and asked
+    /// second: that one is what the document's `/P` *permits*, this one is
+    /// what its encryption can be *reproduced* as. A document may grant
+    /// assembly freely and still be impossible to rewrite, because a PDF's
+    /// second password cannot be derived from the one it was opened with.
+    ///
+    /// Only funnels whose operations force the full-rewrite writer ask it.
+    /// Rotation, form fills, metadata and signing all stay on the incremental
+    /// writer, which re-encrypts from lopdf's own retained state and needs no
+    /// password of ours — asking there would invent a restriction the
+    /// document never declared.
+    ///
+    /// With no editable model there is nothing to answer; the Organize screen
+    /// already reports that case in its own words.
+    pub(crate) fn full_rewrite_refusal(&self) -> Option<&'static str> {
+        let state = self.state.borrow();
+        let security = state
+            .session
+            .as_ref()?
+            .document_model
+            .as_ref()?
+            .security
+            .as_ref()?;
+        pdf_save::full_rewrite_blocker(Some(security)).map(rewrite_refusal)
+    }
+}
+
+/// The shell's words for a [`pdf_save::RewriteBlocker`].
+///
+/// The core reason is written for a developer reading a log; this is written
+/// for the person looking at the Organize screen, and — like every refusal in
+/// this module — it names no credential.
+fn rewrite_refusal(blocker: pdf_save::RewriteBlocker) -> &'static str {
+    match blocker {
+        pdf_save::RewriteBlocker::IncompleteCredentials => {
+            "Changing this encrypted document's pages rewrites the whole file, which needs \
+             both its user and owner passwords. Reopen it with both to continue."
+        }
+        // Every other blocker is a property of the encryption itself rather
+        // than of what the user supplied, so there is nothing for them to do
+        // differently — say that, instead of asking for a password that would
+        // not help.
+        _ => {
+            "This document's encryption cannot yet be reproduced when the file is rewritten, \
+             so its pages cannot be changed."
+        }
+    }
 }
 
 pub(crate) struct ViewerState {

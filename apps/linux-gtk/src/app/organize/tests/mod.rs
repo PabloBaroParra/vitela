@@ -231,37 +231,6 @@ fn gtk_ui_move_round_trips_order_labels_and_thumbnail_requests() {
 }
 
 #[gtk::test]
-fn gtk_ui_refused_and_failed_commands_leave_cards_and_history_untouched() {
-    with_organize(|viewer| {
-        let cards = viewer.organize.cards.borrow().clone();
-        session(viewer).content_edit_access = ContentEditAccess::Forbidden;
-        delete_button(viewer, 1).emit_clicked();
-        assert!(!drop_on(viewer, 0, 2));
-        assert_grid(viewer, &[0, 1, 2]);
-        session(viewer).content_edit_access = ContentEditAccess::Allowed;
-        // The assembly permission is a separate bit: a document may grant
-        // content edits and still forbid changing which pages it has.
-        session(viewer).page_assembly_access = PageAssemblyAccess::Forbidden;
-        delete_button(viewer, 1).emit_clicked();
-        assert!(!drop_on(viewer, 0, 2));
-        assert_grid(viewer, &[0, 1, 2]);
-        session(viewer).page_assembly_access = PageAssemblyAccess::Allowed;
-        assert!(!delete_page(viewer, 9));
-        assert!(!move_page(viewer, 0, 9));
-        // A stale card must also survive a missing model, not just permissions.
-        session(viewer).document_model = None;
-        delete_button(viewer, 1).emit_clicked();
-        assert!(!drop_on(viewer, 0, 2));
-        assert_eq!(*viewer.organize.cards.borrow(), cards);
-        let state = viewer.state.borrow();
-        let session = state.session.as_ref().unwrap();
-        assert_eq!(session.edit_revision, 0);
-        assert!(!session.unsaved_to_disk);
-        assert!(!viewer.undo_action.is_enabled());
-    });
-}
-
-#[gtk::test]
 fn gtk_ui_no_op_move_preserves_clean_state_and_redo() {
     with_organize(|viewer| {
         assert!(!move_page(viewer, 1, 1));
@@ -337,4 +306,5 @@ fn gtk_ui_insert_page_history_rebuilds_in_both_directions() {
     });
 }
 
+mod refusals;
 mod resolution;
