@@ -351,16 +351,18 @@ fn annotation_editing_is_allowed(document: &Document) -> bool {
 /// collect work it has no way to keep.
 fn content_editing_is_allowed(document: &Document) -> bool {
     pdf_manip::content_editing_is_allowed(document.security.as_ref())
-        && content_edit_could_be_saved(document)
+        && full_rewrite_blocker(document).is_none()
 }
 
-/// Whether a full rewrite of `document` could be produced — see
-/// `pdf_save::build_encryption_state`, which is the rule this mirrors.
-fn content_edit_could_be_saved(document: &Document) -> bool {
-    document
-        .security
-        .as_ref()
-        .is_none_or(|security| security.credentials.complete().is_some())
+/// Why a full rewrite of `document` could not reproduce its encryption, or
+/// `None` when it could.
+///
+/// Delegates to `pdf_save::full_rewrite_blocker`, the same function the save
+/// encoder consults, rather than restating its rule here: this used to be a
+/// local copy that checked only the password half and therefore waved an
+/// AES-256 document through to a save that refused it.
+fn full_rewrite_blocker(document: &Document) -> Option<pdf_save::RewriteBlocker> {
+    pdf_save::full_rewrite_blocker(document.security.as_ref())
 }
 
 /// Whether `command` rewrites a page's own content — text runs and images —
@@ -396,11 +398,23 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
 /// classifies the FFI command instead because the check has to happen before
 /// `build_core_command`, which can allocate ids and read the page model.
 fn is_document_assembly_command(command: &FfiEditCommand) -> bool {
+    is_page_structure_command(command) || matches!(command, FfiEditCommand::RotatePage { .. })
+}
+
+/// Whether `command` changes which pages the document has or in what order —
+/// the FFI twin of `pdf_document::Command::is_page_structure_edit`, and
+/// narrower than [`is_document_assembly_command`] by exactly the same one
+/// variant, `RotatePage`.
+///
+/// The distinction is not cosmetic here: `pdf_save::has_structural_page_changes`
+/// compares page identity and origin, so a rotation stays on the incremental
+/// writer while everything this predicate names forces a full rewrite. Asking
+/// the rewrite question about a rotation would refuse an edit that saves
+/// perfectly well.
+fn is_page_structure_command(command: &FfiEditCommand) -> bool {
     matches!(
         command,
-        FfiEditCommand::RotatePage { .. }
-            | FfiEditCommand::InsertBlankPage { .. }
-            | FfiEditCommand::RemovePage { .. }
+        FfiEditCommand::InsertBlankPage { .. } | FfiEditCommand::RemovePage { .. }
     )
 }
 
@@ -992,14 +1006,24 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
             detail: "content editing is not permitted".to_string(),
         });
     }
-    if is_content && !content_edit_could_be_saved(&state.document) {
-        // Refused here rather than at the save it would fail: an edit that can
-        // never be written is not pending work, and letting it queue would
-        // also break the preview refresh, which saves a snapshot the same way.
-        return Err(FfiError::UnsupportedOperation {
-            detail: "editing page content rewrites the whole file; reopen this encrypted                      document with both its user and owner passwords first"
-                .to_string(),
-        });
+    // Refused here rather than at the save it would fail: an edit that can
+    // never be written is not pending work, and letting it queue would also
+    // break the preview refresh, which saves a snapshot the same way.
+    //
+    // Page-content edits and page-structure edits both force the full-rewrite
+    // writer, so both ask this. `RotatePage` does not: it stays on the
+    // incremental writer, which re-encrypts from lopdf's own retained state
+    // and needs no password of ours (see `is_page_structure_command`).
+    if is_content || is_page_structure_command(&command) {
+        if let Some(blocker) = full_rewrite_blocker(&state.document) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: format!(
+                    "this edit rewrites the whole file, which this document's encryption \
+                     does not allow: {}",
+                    blocker.reason()
+                ),
+            });
+        }
     }
 
     let core_command = state.build_core_command(command)?;
