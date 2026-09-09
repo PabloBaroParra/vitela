@@ -766,16 +766,41 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 - [x] Generalizar el ciclo de guardar en memoria y reabrir usado por edición de
   contenido.
-- [ ] Mantener el historial completo durante la actualización de la
+- [x] Mantener el historial completo durante la actualización de la
   previsualización.
-- [ ] Mantener el estado de cambios sin guardar.
-- [ ] Mantener selecciones y contadores de identificadores que sigan siendo
+- [x] Mantener el estado de cambios sin guardar.
+- [x] Mantener selecciones y contadores de identificadores que sigan siendo
   válidos.
 - [ ] Invalidar selecciones y cachés que apunten a páginas eliminadas.
-- [ ] Instalar conjuntamente el nuevo handle de PDFium y su mapa de páginas.
-- [ ] Evitar que un resultado asíncrono antiguo reemplace una sesión más nueva.
-- [ ] Conservar la sesión anterior intacta si falla la materialización o la
+- [x] Instalar conjuntamente el nuevo handle de PDFium y su mapa de páginas.
+- [x] Evitar que un resultado asíncrono antiguo reemplace una sesión más nueva.
+- [x] Conservar la sesión anterior intacta si falla la materialización o la
   reapertura.
+
+### Progreso de la actualización de sesión
+
+- 2026-09-09: `refresh_preview` conserva el mismo `Document` y con él su
+  `EditLog`, mantiene `unsaved_to_disk`, e instala el handle reabierto junto al
+  orden de `PageId` usado para materializar sus bytes. `SessionToken` impide
+  instalar resultados con una generación o revisión obsoleta y la sesión solo
+  se sustituye después de completar materialización y reapertura, por lo que un
+  fallo deja el handle y el estado anteriores intactos.
+- 2026-09-09: `EditState` conserva conjuntamente los contadores y selecciones
+  de anotaciones y formularios. Al restaurar, las selecciones se filtran contra
+  el mismo modelo preservado y contra la presencia de su página antes de
+  reactivar sus controles, evitando dejar inspectores dirigidos a objetos o
+  páginas que ya no existen. Selección de texto,
+  imágenes, búsqueda y cachés permanecen fuera: todavía usan posiciones del
+  backend o datos del handle reemplazado y requieren una política explícita de
+  remapeo o invalidación antes de cerrar los dos ítems pendientes.
+- Verificación (2026-09-09, estado lógico durante el refresco): en WSL2/Ubuntu,
+  `cargo test -p linux-gtk --locked -- --skip
+  package_smoke::tests::renders_the_embedded_sample_to_a_nonempty_receipt` (351
+  aprobadas, 1 filtrada) y `cargo clippy -p linux-gtk --all-targets --locked --
+  -D warnings`; en el workspace, `cargo fmt --all -- --check`, `git diff
+  --check` y `python scripts/check_maintainability.py` (99 avisos, línea base
+  sin cambios). El package smoke completo sigue sin verificarse porque esta
+  copia no contiene `libpdfium.so` para Linux.
 
 ## 8. Selección e importación en Linux
 
