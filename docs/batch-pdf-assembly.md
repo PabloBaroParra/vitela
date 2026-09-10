@@ -771,7 +771,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Mantener el estado de cambios sin guardar.
 - [x] Mantener selecciones y contadores de identificadores que sigan siendo
   válidos.
-- [ ] Invalidar selecciones y cachés que apunten a páginas eliminadas.
+- [x] Invalidar selecciones y cachés que apunten a páginas eliminadas.
 - [x] Instalar conjuntamente el nuevo handle de PDFium y su mapa de páginas.
 - [x] Evitar que un resultado asíncrono antiguo reemplace una sesión más nueva.
 - [x] Conservar la sesión anterior intacta si falla la materialización o la
@@ -793,6 +793,62 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   imágenes, búsqueda y cachés permanecen fuera: todavía usan posiciones del
   backend o datos del handle reemplazado y requieren una política explícita de
   remapeo o invalidación antes de cerrar los dos ítems pendientes.
+- 2026-09-10: la invalidación pasó a ser una regla explícita en lugar de un
+  efecto secundario. `EditState` (`apps/linux-gtk/src/app/document.rs`)
+  documenta el criterio: **un campo viaja a través del refresco solo si su
+  clave sobrevive a la reapertura**. Los `AnnotationId`/`FormFieldId` la
+  sobreviven (y aun así pasan por `surviving_edit_selections`, porque
+  sobrevivir a la reapertura no es lo mismo que sobrevivir al borrado de una
+  página); la selección de texto, las coincidencias de búsqueda, la imagen o
+  el editor de contenido abiertos, los arrastres en vuelo y las cachés de
+  render están todos indexados por posiciones del handle reemplazado y mueren
+  con la sesión que `show_document` descarta.
+- 2026-09-10: `stamp_surfaces` sí viaja, y antes no lo hacía. Es una caché de
+  decodificación indexada por `AnnotationId`, no una posición, y la anotación
+  cuyos bytes guarda sigue en el modelo preservado. Al perderse, cada sello
+  colocado por el usuario se dibujaba como un contorno vacío (el fallback de
+  `selection::draw_annotation` para un sello sin superficie) desde el primer
+  movimiento de página en adelante.
+- 2026-09-10: el hueco real detrás de este ítem no estaba en el shell sino en
+  el núcleo. `Command::RemovePage` sacaba **solo la página**: las anotaciones
+  y los campos de formulario anclados a ella quedaban en el modelo nombrando
+  un `PageId` inexistente, y tanto `pdf_save::attach_annotations` como
+  `write_form_fields` rechazan ese guardado con `InvalidSaveRequest`. Es
+  decir, subrayar una página y borrarla dejaba el documento **imposible de
+  guardar** — fallaban por igual el refresco de previsualización y cada
+  Ctrl+S — hasta deshacer el borrado.
+- El comando ahora lleva consigo lo que había en la página, y su inverso lo
+  devuelve. `AnnotationSet::take_page`/`restore` y sus gemelos en
+  `FormFieldSet` registran la **posición** de cada elemento, no solo su valor:
+  el orden de esos conjuntos es orden de pintado y está fijado por el check de
+  paridad byte a byte, así que un deshacer que los agregara al final
+  reapilaría la página en silencio. `Command::remove_page(document, index)` es
+  la única forma correcta de construirlo; capturar la página sin lo que hay
+  sobre ella es exactamente el bug que estos campos evitan.
+- Aviso de mantenibilidad: 101 avisos frente a los 99 de la línea base. Los
+  dos nuevos son `core/pdf-document/src/form.rs` (395 líneas, cruza el umbral
+  de 350 al sumar el par `take_page`/`restore` y sus tres pruebas) y
+  `core/pdf-document/src/edit_log.rs` (42 puntos de decisión, cruza el de 40
+  porque las ramas `InsertPage`/`RemovePage` de `apply` ganaron una llamada
+  cada una). Ambos archivos son una sola familia de tipos y un único `match`
+  exhaustivo respectivamente; dividirlos es un refactor que no debe viajar
+  junto a un arreglo de comportamiento. `apps/linux-gtk/src/app/ui_tests.rs`
+  sí se dividió, porque ahí el crecimiento sí era una segunda
+  responsabilidad: los fixtures de modelo se fueron a
+  `apps/linux-gtk/src/app/test_fixtures.rs`.
+- Verificación (2026-09-10, en WSL2/Ubuntu): `cargo test --workspace --locked`
+  (1273 aprobadas, 0 fallidas, suite GTK4 incluida), `cargo clippy --workspace
+  --all-targets --locked -- -D warnings`, `cargo fmt --all -- --check` y
+  `python3 scripts/check_maintainability.py`. La suite GTK4 corrió bajo el
+  display Wayland real de WSLg, no bajo el gate `xvfb-run` que documenta
+  CONTRIBUTING.md: `xvfb-run` no está instalado en esta copia y instalarlo
+  requiere `sudo`. Ese gate concreto queda **sin verificar localmente**. La
+  prueba
+  `deleting_an_annotated_page_leaves_the_document_saveable`
+  (`core/pdf-save/tests/save_roundtrip.rs`) se comprobó en rojo revirtiendo
+  temporalmente la captura en `apply` antes de darla por buena. El empaquetado
+  y smoke test de Linux siguen sin verificarse: esta copia no trae
+  `libpdfium.so` empaquetado para ese gate.
 - Verificación (2026-09-09, estado lógico durante el refresco): en WSL2/Ubuntu,
   `cargo test -p linux-gtk --locked -- --skip
   package_smoke::tests::renders_the_embedded_sample_to_a_nonempty_receipt` (351
