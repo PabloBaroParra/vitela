@@ -713,9 +713,11 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                     // document-open path reset either half.
                     let preserved_edits = take_edit_state(&viewer);
                     let preserved_view = take_view_state(&viewer);
+                    let preserved_screen = take_screen(&viewer);
                     show_document(&viewer, generation, reopened);
                     let still_editing = restore_edit_state(&viewer, preserved_edits);
                     restore_view_state(&viewer, generation, preserved_view);
+                    restore_screen(&viewer, preserved_screen);
                     // The reopen replaced the handle every thumbnail on the
                     // Organize screen was rendered against, and with it the
                     // backend page order those cards were indexed by. Rebuild
@@ -929,6 +931,39 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
     super::annotations::update_annotation_controls(viewer);
     super::forms::update_forms_controls(viewer);
     still_editing
+}
+
+/// Reads which view-stack page is on show, so [`refresh_preview`] can put it
+/// back after the rebuild.
+///
+/// [`show_document`] always lands on the editor page, which is right for an
+/// open — the user asked for a document and a document is what they get — and
+/// wrong for a refresh, which rebuilds the document already on screen rather
+/// than navigating anywhere. Every page operation run from the Organize
+/// screen goes `organize::command` -> [`refresh_preview`], so without this a
+/// single reorder or delete threw the user back to the editor mid-organize
+/// and made them re-enter the screen to move the next page.
+fn take_screen(viewer: &Viewer) -> Option<glib::GString> {
+    viewer.view_stack.visible_child_name()
+}
+
+/// Puts [`take_screen`]'s result back.
+///
+/// Runs *after* [`restore_view_state`], not before: `show_document`'s
+/// measuring and the zoom/scroll restore both read allocations the stack only
+/// hands to the page it is showing, so the editor has to stay on show for the
+/// whole rebuild and step aside only once it is done.
+///
+/// Unconditional on the session, unlike the two restores above it — a screen
+/// is a widget, and where the user is standing in the app has no business
+/// depending on whether a model survived the reopen.
+fn restore_screen(viewer: &Viewer, preserved: Option<glib::GString>) {
+    let Some(screen) = preserved else {
+        return;
+    };
+    if viewer.view_stack.visible_child_name().as_deref() != Some(screen.as_str()) {
+        viewer.view_stack.set_visible_child_name(&screen);
+    }
 }
 
 /// Where the user was looking, as opposed to what they had edited
@@ -1886,11 +1921,66 @@ mod tests {
         reopened_matches_model, save_worker_result, surviving_edit_selections, unsaved_decision,
         UnsavedDecision,
     };
+    use gtk::prelude::*;
+
+    use super::{restore_screen, take_screen};
+    use crate::app::home::{show_editor, EDITOR_PAGE};
+    use crate::app::organize::ORGANIZE_PAGE;
     use crate::app::state::SessionToken;
+    use crate::app::ui_tests::built_ui;
     use pdf_document::{
         AnnotationId, Color, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId,
         FormFieldKind, Orientation, Page, PageId, PageSize, Rect, TextStyle,
     };
+
+    /// A preview refresh rebuilds the document that is already on screen; it
+    /// is not a navigation, so it must leave the user on the screen they were
+    /// using. `show_document` — which every refresh runs through — always
+    /// switches to the editor page, and that is what used to eject the user
+    /// from Organize on every single page move.
+    #[gtk::test]
+    fn gtk_ui_a_rebuild_leaves_the_user_on_the_screen_they_were_using() {
+        let built = built_ui();
+        built
+            .viewer
+            .view_stack
+            .set_visible_child_name(ORGANIZE_PAGE);
+
+        let preserved = take_screen(&built.viewer);
+        // Stands in for `show_document`, whose one effect on the view stack
+        // this is; the rest of it needs an opened pdfium document.
+        show_editor(&built.viewer);
+        assert_eq!(
+            built.viewer.view_stack.visible_child_name().as_deref(),
+            Some(EDITOR_PAGE),
+            "the rebuild is expected to land on the editor — that is the behavior being undone"
+        );
+        restore_screen(&built.viewer, preserved);
+
+        assert_eq!(
+            built.viewer.view_stack.visible_child_name().as_deref(),
+            Some(ORGANIZE_PAGE)
+        );
+        built.window.close();
+    }
+
+    /// The editor is the common case, and putting it back must be a no-op
+    /// rather than a second switch to the page already on show.
+    #[gtk::test]
+    fn gtk_ui_a_rebuild_started_from_the_editor_stays_on_the_editor() {
+        let built = built_ui();
+        built.viewer.view_stack.set_visible_child_name(EDITOR_PAGE);
+
+        let preserved = take_screen(&built.viewer);
+        show_editor(&built.viewer);
+        restore_screen(&built.viewer, preserved);
+
+        assert_eq!(
+            built.viewer.view_stack.visible_child_name().as_deref(),
+            Some(EDITOR_PAGE)
+        );
+        built.window.close();
+    }
 
     fn a_form_field(id: u64) -> FormField {
         FormField {
