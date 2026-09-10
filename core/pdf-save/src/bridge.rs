@@ -269,6 +269,35 @@ pub fn document_from_lopdf(
     })
 }
 
+/// Builds model pages for every page in an imported PDF, preserving the
+/// source document and source-page identity while assigning fresh session
+/// page ids supplied by the caller.
+pub fn imported_pages_from_lopdf(
+    lopdf: &LopdfDocument,
+    source: ImportedDocumentId,
+    first_page_id: u32,
+) -> Result<Vec<Page>, SaveError> {
+    populate_document(lopdf)?
+        .into_iter()
+        .enumerate()
+        .map(|(index, page)| {
+            let offset = u32::try_from(index)
+                .map_err(|_| SaveError::InvalidSaveRequest("imported PDF has too many pages"))?;
+            let id = first_page_id
+                .checked_add(offset)
+                .ok_or(SaveError::InvalidSaveRequest("page id space is exhausted"))?;
+            Ok(Page::imported(
+                PageId(id),
+                source,
+                index as u32,
+                page.size,
+                page.orientation,
+                page.rotation,
+            ))
+        })
+        .collect()
+}
+
 /// Reads a page's text runs and images, on demand (T-157).
 ///
 /// Deliberately **not** part of [`document_from_lopdf`]. Population-on-open
@@ -679,6 +708,36 @@ mod tests {
         assert!(document.annotations.is_empty());
         assert!(!document.pending_edits.can_undo());
         assert!(document.security.is_none());
+    }
+
+    #[test]
+    fn imported_pages_keep_layout_and_receive_sequential_session_ids() {
+        let mut raw = labeled_pdf(&["P1", "P2"]);
+        let second = *raw.get_pages().get(&2).unwrap();
+        raw.get_dictionary_mut(second).unwrap().set("Rotate", 90);
+        let source = LopdfDocument::from_lopdf(raw);
+
+        let pages = imported_pages_from_lopdf(&source, ImportedDocumentId(9), 40)
+            .expect("imported model pages should build");
+
+        assert_eq!(
+            pages.iter().map(|page| page.id).collect::<Vec<_>>(),
+            vec![PageId(40), PageId(41)]
+        );
+        assert_eq!(
+            pages.iter().map(|page| page.origin).collect::<Vec<_>>(),
+            vec![
+                PageOrigin::Imported {
+                    source: ImportedDocumentId(9),
+                    page_index: 0
+                },
+                PageOrigin::Imported {
+                    source: ImportedDocumentId(9),
+                    page_index: 1
+                },
+            ]
+        );
+        assert_eq!(pages[1].rotation, Rotation::Clockwise90);
     }
 
     #[test]

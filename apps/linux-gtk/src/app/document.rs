@@ -26,8 +26,17 @@ use super::render::update_viewport;
 use super::search::update_search_controls;
 use super::state::{
     AnnotationAccess, ContentEditAccess, DocumentSession, DocumentSource, FitRequest,
-    OpenedDocument, PageAssemblyAccess, PageSlot, PageState, TextAccess, Viewer,
+    ImportedSource, OpenedDocument, PageAssemblyAccess, PageSlot, PageState, TextAccess, Viewer,
 };
+
+fn imported_sources(
+    sources: &[ImportedSource],
+) -> Vec<(pdf_document::ImportedDocumentId, &pdf_manip::LopdfDocument)> {
+    sources
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect()
+}
 
 /// The sample document, linked into the binary at compile time from the same
 /// `assets/sample/` file the Windows and Android shells package. Baking it in
@@ -202,8 +211,7 @@ fn confirm_save_destination(
 fn confirm_signature_loss(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    document: Document,
-    backing: super::state::SaveBacking,
+    snapshot: SaveSnapshot,
     destination: PathBuf,
     after_save: Option<Rc<dyn Fn()>>,
     token: super::state::SessionToken,
@@ -231,8 +239,7 @@ fn confirm_signature_loss(
                 spawn_save(
                     &viewer,
                     token,
-                    document.clone(),
-                    backing.clone(),
+                    snapshot.clone(),
                     destination.clone(),
                     after_save.clone(),
                     pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
@@ -250,7 +257,7 @@ fn save_current_to(
     destination: PathBuf,
     after_save: Option<Rc<dyn Fn()>>,
 ) {
-    let (token, document, backing) = {
+    let (token, document, backing, sources) = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
             viewer.status.set_text("Open a PDF before saving.");
@@ -273,19 +280,21 @@ fn save_current_to(
             },
             document,
             backing,
+            session.imported_sources.clone(),
         )
     };
 
     // Asked before the save rather than after a rejected one: `pdf-save`
     // answers the same question either way, and asking here means the user
     // meets the warning as a question instead of an error message.
+    let source_refs = imported_sources(&sources);
     let breaks_signature = pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
         document: &document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-        imported_sources: pdf_save::ImportedSources::none(),
+        imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .unwrap_or(false);
 
@@ -293,8 +302,11 @@ fn save_current_to(
         confirm_signature_loss(
             window,
             viewer,
-            document,
-            backing,
+            SaveSnapshot {
+                document,
+                backing,
+                sources,
+            },
             destination,
             after_save,
             token,
@@ -305,8 +317,11 @@ fn save_current_to(
     spawn_save(
         viewer,
         token,
-        document,
-        backing,
+        SaveSnapshot {
+            document,
+            backing,
+            sources,
+        },
         destination,
         after_save,
         pdf_save::SignatureAcknowledgement::Unacknowledged,
@@ -316,12 +331,10 @@ fn save_current_to(
 /// Runs the save on a worker thread and folds the result back into the
 /// session. Shared by the ordinary path and the one that had to ask about a
 /// signature first, so both reopen and report identically.
-#[allow(clippy::too_many_arguments)]
 fn spawn_save(
     viewer: &Viewer,
     token: super::state::SessionToken,
-    document: Document,
-    backing: super::state::SaveBacking,
+    snapshot: SaveSnapshot,
     destination: PathBuf,
     after_save: Option<Rc<dyn Fn()>>,
     signatures: pdf_save::SignatureAcknowledgement,
@@ -331,7 +344,13 @@ fn spawn_save(
         let viewer = viewer.clone();
         async move {
             let result = gio::spawn_blocking(move || {
-                save_snapshot_and_reopen(&document, &backing, &destination, signatures)
+                save_snapshot_and_reopen(
+                    &snapshot.document,
+                    &snapshot.backing,
+                    &snapshot.sources,
+                    &destination,
+                    signatures,
+                )
             })
             .await;
             let result = save_worker_result(result);
@@ -353,6 +372,13 @@ fn spawn_save(
             }
         }
     });
+}
+
+#[derive(Clone)]
+struct SaveSnapshot {
+    document: Document,
+    backing: super::state::SaveBacking,
+    sources: Vec<ImportedSource>,
 }
 
 fn session_matches(viewer: &Viewer, token: super::state::SessionToken) -> bool {
@@ -390,21 +416,18 @@ fn save_worker_result<T>(
 fn save_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
+    sources: &[ImportedSource],
     destination: &Path,
     signatures: pdf_save::SignatureAcknowledgement,
 ) -> Result<OpenedDocument, String> {
+    let source_refs = imported_sources(sources);
     let bytes = pdf_save::save_document(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures,
-        // Disk saves cannot carry imported pages yet: the session has no
-        // registry of imported sources to hand over. `replay_page_ops`
-        // refuses such a page rather than writing a blank one, so this stays
-        // honest until the import feature gives the session somewhere to keep
-        // them.
-        imported_sources: pdf_save::ImportedSources::none(),
+        imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
     // Validate before replacing a destination: persisted bytes must be usable
@@ -638,7 +661,7 @@ fn sign_snapshot_and_reopen(
 /// The file on disk is still behind, which is what `unsaved_to_disk` tracks.
 pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
     let message = message.into();
-    let (token, document, backing) = {
+    let (token, document, backing, sources) = {
         let mut state = viewer.state.borrow_mut();
         // Two independent sites can each ask for a refresh off the same
         // click — `content_edit::editor::commit` (retyping a run) and
@@ -665,16 +688,19 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
             generation: state.generation,
             edit_revision: session.edit_revision,
         };
+        let sources = session.imported_sources.clone();
         state.preview_refresh_in_flight = true;
-        (token, document, backing)
+        (token, document, backing, sources)
     };
 
     viewer.status.set_text("Refreshing preview...");
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
-            let result =
-                gio::spawn_blocking(move || refresh_snapshot_and_reopen(&document, &backing)).await;
+            let result = gio::spawn_blocking(move || {
+                refresh_snapshot_and_reopen(&document, &backing, &sources)
+            })
+            .await;
             let result = save_worker_result(result);
             match result {
                 Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
@@ -796,6 +822,7 @@ fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::PageId> {
 struct EditState {
     document_model: Option<Document>,
     save_backing: Option<super::state::SaveBacking>,
+    imported_sources: Vec<ImportedSource>,
     next_annotation_id: u64,
     selected_annotation: Option<pdf_document::AnnotationId>,
     next_form_field_id: u64,
@@ -844,6 +871,7 @@ fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
     Some(EditState {
         document_model: session.document_model.take(),
         save_backing: session.save_backing.take(),
+        imported_sources: std::mem::take(&mut session.imported_sources),
         next_annotation_id: session.next_annotation_id,
         selected_annotation: session.selected_annotation,
         next_form_field_id: session.next_form_field_id,
@@ -884,6 +912,7 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
                 session.backend_pages = backend_page_order(preserved.document_model.as_ref());
                 session.document_model = preserved.document_model;
                 session.save_backing = preserved.save_backing;
+                session.imported_sources = preserved.imported_sources;
                 session.next_annotation_id = preserved.next_annotation_id;
                 session.selected_annotation = selected_annotation;
                 session.next_form_field_id = preserved.next_form_field_id;
@@ -996,14 +1025,16 @@ fn restore_view_state(viewer: &Viewer, generation: u64, preserved: Option<ViewSt
 fn refresh_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
+    sources: &[ImportedSource],
 ) -> Result<OpenedDocument, String> {
+    let source_refs = imported_sources(sources);
     let bytes = pdf_save::save_document(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
-        imported_sources: pdf_save::ImportedSources::none(),
+        imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
     open_document(&DocumentSource::Bytes(bytes), backing.password.as_deref())
@@ -1485,6 +1516,8 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         return;
     }
 
+    super::organize::document_changed(viewer);
+
     // Before the measuring below, not after: a document on screen means the
     // editor page, whichever view the open was started from (Home's drop
     // zone, a recents card, Ctrl+O, a file-manager launch), and `FitRequest::
@@ -1588,6 +1621,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             document_model: document.document_model,
             backend_pages,
             save_backing: document.save_backing,
+            imported_sources: Vec::new(),
             // Freshly shown: whatever is on screen right now is exactly what
             // this session's bytes came from, which for an ordinary open or a
             // disk-save reopen means it matches disk. A T-163 preview refresh

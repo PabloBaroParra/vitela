@@ -5,14 +5,17 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
     cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, FlowBox, Label, Overlay,
-    Picture, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
+    Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
 };
 use pdf_document::{
-    AnnotationId, Document, FormFieldId, ImageItem, PageContent, PageId, PdfDateOffset, TextRun,
+    AnnotationId, Document, FormFieldId, ImageItem, ImportedDocumentId, PageContent, PageId,
+    PdfDateOffset, TextRun,
 };
 use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
@@ -293,6 +296,13 @@ pub(crate) struct ViewerState {
     /// stacked underneath a second one — see `document::begin_loading` and
     /// `document::dismiss_password_dialog`.
     pub(crate) password_dialog: Option<Window>,
+    /// The source-password prompt for the active batch import. It is separate
+    /// from `password_dialog`: imported PDFs have independent credentials and
+    /// never replace or reuse the main document's password.
+    pub(crate) import_password_dialog: Option<Window>,
+    /// Cooperative cancellation for the active import worker. Lopdf calls are
+    /// synchronous, so cancellation takes effect at the next stage boundary.
+    pub(crate) import_cancellation: Option<Arc<AtomicBool>>,
     /// The `.pfx`/`.p12` password prompt for the in-flight certificate load,
     /// if any (Batch B23 Fase 2) — the signing twin of `password_dialog`,
     /// same reason: a later attempt can supersede this one before the
@@ -351,6 +361,12 @@ pub(crate) struct SaveBacking {
     pub(crate) base: LopdfDocument,
     pub(crate) original_bytes: Vec<u8>,
     pub(crate) password: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ImportedSource {
+    pub(crate) id: ImportedDocumentId,
+    pub(crate) document: LopdfDocument,
 }
 
 /// Identifies the exact model revision from which asynchronous work started.
@@ -605,6 +621,9 @@ pub(crate) struct MetadataPanel {
 pub(crate) struct OrganizePanel {
     pub(crate) grid: FlowBox,
     pub(crate) cards: Rc<RefCell<Vec<(GtkBox, Label)>>>,
+    pub(crate) add_pdfs_button: Button,
+    pub(crate) import_progress: ProgressBar,
+    pub(crate) cancel_import_button: Button,
     pub(crate) save_button: Button,
 }
 
@@ -1022,6 +1041,10 @@ pub(crate) struct DocumentSession {
     /// model's page order, so its ids describe the new handle exactly.
     pub(crate) backend_pages: Vec<PageId>,
     pub(crate) save_backing: Option<SaveBacking>,
+    /// Parsed PDFs backing every [`pdf_document::PageOrigin::Imported`] page
+    /// in the model. They belong to the session rather than the pure model and
+    /// must survive preview refreshes so save/undo/redo can materialize them.
+    pub(crate) imported_sources: Vec<ImportedSource>,
     /// Whether the in-memory model — and, since T-163, the pdfium handle
     /// currently rendering `document` — has diverged from whatever is on
     /// disk.

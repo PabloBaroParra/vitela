@@ -44,7 +44,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     gdk, gdk_pixbuf, gio, glib, ApplicationWindow, Box as GtkBox, Button, DragSource, DropTarget,
-    FlowBox, Label, Orientation, Picture, PolicyType, ScrolledWindow, SelectionMode,
+    FlowBox, Label, Orientation, Picture, PolicyType, ProgressBar, ScrolledWindow, SelectionMode,
 };
 use pdf_document::{Command, Document};
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderOptions};
@@ -61,6 +61,7 @@ use super::tools_panel::panel_heading;
 pub(crate) const ORGANIZE_PAGE: &str = "organize";
 
 const NO_DOCUMENT: &str = "Open a PDF before organizing its pages.";
+mod import;
 
 /// Logical card size. Larger than Home's recents preview (`THUMB_WIDTH_PX`
 /// there is 108): this grid is the whole point of the screen, not one card
@@ -104,6 +105,16 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
         button.set_action_name(Some(action));
         header.append(&button);
     }
+    let add_pdfs = Button::with_label("Add PDFs");
+    header.append(&add_pdfs);
+    let import_progress = ProgressBar::new();
+    import_progress.set_hexpand(true);
+    import_progress.set_visible(false);
+    import_progress.update_property(&[gtk::accessible::Property::Label("PDF import progress")]);
+    header.append(&import_progress);
+    let cancel_import = Button::with_label("Cancel");
+    cancel_import.set_visible(false);
+    header.append(&cancel_import);
     let save = Button::with_label("Save");
     save.add_css_class("home-primary");
     header.append(&save);
@@ -136,6 +147,9 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
         OrganizePanel {
             grid,
             cards,
+            add_pdfs_button: add_pdfs,
+            import_progress,
+            cancel_import_button: cancel_import,
             save_button: save,
         },
         root,
@@ -147,6 +161,15 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
 /// `metadata::connect_metadata_panel`. Needs `window`, unlike that one,
 /// because saving opens the same file chooser Ctrl+S does.
 pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer) {
+    viewer.organize.add_pdfs_button.connect_clicked({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_| import::show_chooser(&window, &viewer)
+    });
+    viewer.organize.cancel_import_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| import::cancel(&viewer)
+    });
     viewer.organize.save_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
@@ -190,6 +213,10 @@ pub(crate) fn refresh_if_visible(viewer: &Viewer) {
     if viewer.view_stack.visible_child_name().as_deref() == Some(ORGANIZE_PAGE) {
         populate_grid(viewer);
     }
+}
+
+pub(crate) fn document_changed(viewer: &Viewer) {
+    import::document_changed(viewer);
 }
 
 /// Clears the grid and rebuilds one card per page of the current session's

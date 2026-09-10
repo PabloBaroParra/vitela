@@ -413,6 +413,8 @@ fn build_ui(application: &Application) -> BuiltUi {
             form_edit_mode: false,
             form_field_kind: None,
             password_dialog: None,
+            import_password_dialog: None,
+            import_cancellation: None,
             pfx_dialog: None,
             pkcs11_dialog: None,
             nss_dialog: None,

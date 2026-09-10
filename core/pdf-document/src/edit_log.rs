@@ -68,7 +68,10 @@ pub enum Command {
         annotations: Vec<(usize, Annotation)>,
         form_fields: Vec<(usize, FormField)>,
     },
-    /// Inserts every selected page from one imported PDF as one undoable edit.
+    /// Inserts every selected page from one or more imported PDFs as one
+    /// undoable edit. Source boundaries remain encoded in each page's
+    /// [`crate::PageOrigin`], so one command can represent a multi-file picker
+    /// without splitting the user's import into several history entries.
     ImportPages {
         index: usize,
         pages: Vec<Page>,
@@ -879,9 +882,13 @@ mod tests {
     }
 
     fn imported_page(id: u32, source_page: u32) -> Page {
+        imported_page_from(id, 7, source_page)
+    }
+
+    fn imported_page_from(id: u32, source: u64, source_page: u32) -> Page {
         Page::imported(
             PageId(id),
-            ImportedDocumentId(7),
+            ImportedDocumentId(source),
             source_page,
             PageSize::A4,
             Orientation::Portrait,
@@ -1194,6 +1201,35 @@ mod tests {
             },
         );
 
+        assert_eq!(&document.pages[1..], pages);
+    }
+
+    #[test]
+    fn import_pages_from_multiple_sources_is_one_history_step() {
+        let base = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let pages = vec![
+            imported_page_from(10, 7, 0),
+            imported_page_from(11, 7, 1),
+            imported_page_from(12, 8, 0),
+        ];
+        let mut document = Document {
+            pages: vec![base.clone()],
+            ..Document::default()
+        };
+        let mut log = EditLog::new();
+
+        assert!(log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: pages.clone(),
+            },
+        ));
+        assert_eq!(&document.pages[1..], pages);
+        assert!(log.undo(&mut document));
+        assert_eq!(document.pages, vec![base]);
+        assert!(!log.undo(&mut document));
+        assert!(log.redo(&mut document));
         assert_eq!(&document.pages[1..], pages);
     }
 

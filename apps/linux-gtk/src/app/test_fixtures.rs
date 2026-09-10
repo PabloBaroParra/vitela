@@ -64,6 +64,7 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         document_model: Some(document),
         backend_pages,
         save_backing: None,
+        imported_sources: Vec::new(),
         unsaved_to_disk: false,
         edit_revision: 0,
         next_annotation_id: 0,

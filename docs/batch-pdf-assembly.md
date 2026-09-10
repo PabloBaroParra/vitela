@@ -339,11 +339,9 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Definir la política para capas opcionales y estructura etiquetada.
 - [x] Rechazar con un mensaje claro cualquier estructura todavía no soportada
   que pudiera perder información.
-- [ ] No ofrecer una importación aparentemente correcta si existe pérdida de
-  datos conocida. **Parcial**: el núcleo ya no puede perder nada en silencio
-  (rechazo o `GraftReport`), pero ningún shell muestra todavía el aviso, así
-  que para el usuario una importación con pérdida sigue pareciendo correcta.
-  Cierra con el ítem nuevo de la sección 8.
+- [x] No ofrecer una importación aparentemente correcta si existe pérdida de
+  datos conocida. Linux muestra el `GraftReport` completo antes de confirmar;
+  las estructuras que producirían salida incorrecta siguen rechazándose.
 
 ### Progreso de la política de formularios
 
@@ -437,7 +435,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Añadir una comprobación específica del permiso PDF de ensamblado de
   documentos.
 - [x] Comprobar permisos tanto en el documento principal como en cada fuente.
-- [ ] Solicitar de forma independiente la contraseña de cada PDF protegido.
+- [x] Solicitar de forma independiente la contraseña de cada PDF protegido.
 - [x] Mantener las credenciales fuera del modelo de dominio, logs y mensajes de
   error.
 - [x] Verificar antes de editar que un documento principal cifrado puede
@@ -860,18 +858,55 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 8. Selección e importación en Linux
 
-- [ ] Añadir `Add PDFs` a la cabecera de Organizar.
-- [ ] Permitir selección múltiple mediante `FileDialog::open_multiple`.
-- [ ] Respetar el orden devuelto por la selección de archivos.
-- [ ] Ejecutar lectura, validación e importación fuera del hilo principal.
-- [ ] Mostrar progreso para operaciones perceptibles.
-- [ ] Permitir cancelar sin modificar documento, historial ni estado sucio.
-- [ ] Mostrar errores por archivo con una explicación accionable.
-- [ ] Mostrar antes de confirmar lo que la importación deja atrás
+- [x] Añadir `Add PDFs` a la cabecera de Organizar.
+- [x] Permitir selección múltiple mediante `FileDialog::open_multiple`.
+- [x] Respetar el orden devuelto por la selección de archivos.
+- [x] Ejecutar lectura, validación e importación fuera del hilo principal.
+- [x] Mostrar progreso para operaciones perceptibles.
+- [x] Permitir cancelar la selección, el worker, la solicitud de contraseña o
+  la confirmación sin modificar documento, historial ni estado sucio.
+- [x] Mostrar errores por archivo con una explicación accionable.
+- [x] Mostrar antes de confirmar lo que la importación deja atrás
   (`pdf_manip::graft_report`): enlaces que dejan de resolver, marcadores y
   estructura etiquetada. Sin esto, la sección 4 ítem 9 queda sin cerrar.
-- [ ] Añadir inicialmente cada PDF como un bloque al final del documento.
-- [ ] Actualizar controles de guardado, deshacer y rehacer tras importar.
+- [x] Añadir inicialmente cada PDF como un bloque al final del documento.
+- [x] Actualizar controles de guardado, deshacer y rehacer tras importar.
+
+### Progreso de selección e importación
+
+- 2026-09-10: Linux añade `Add PDFs` y usa `FileDialog::open_multiple`. El
+  orden de `gio::ListModel` se conserva al abrir cada archivo y al concatenar
+  sus páginas en un único `Command::ImportPages`, por lo que toda la selección
+  es una sola operación de deshacer y rehacer.
+- La sesión posee un registro de `ImportedDocumentId` a `LopdfDocument`. Ese
+  registro viaja por el refresco de previsualización y se entrega a todas las
+  rutas de guardado; al reabrir un guardado real se vacía porque las páginas ya
+  forman parte del nuevo PDF base.
+- Apertura, permiso de ensamblado, `graft_report` y construcción de páginas se
+  ejecutan mediante `gio::spawn_blocking`. Un `SessionToken` descarta el
+  resultado si el documento o su revisión cambian mientras trabaja.
+- La cabecera muestra progreso por archivo y una acción Cancelar mientras el
+  worker está activo. La cancelación es cooperativa: se comprueba entre lectura,
+  descifrado, análisis e importación de cada fuente; una llamada síncrona de
+  lopdf que ya está ejecutándose termina antes de observarla.
+- Cada fuente cifrada solicita y conserva su propia contraseña dentro de la
+  operación transitoria. Un fallo reabre el diálogo para esa misma fuente y no
+  reutiliza ni modifica la contraseña del documento principal. Cancelar el
+  diálogo cancela el lote completo sin mutar la sesión.
+- La importación se rechaza completa ante el primer archivo inválido, sin
+  páginas, sin permiso de copiar/extraer o con estructura no soportada. Una
+  fuente cifrada pausa el lote para solicitar su contraseña; las advertencias
+  de todos los archivos se presentan juntas y Cancelar no registra fuentes ni
+  comandos.
+- Verificación local: `cargo test -p pdf-document --locked` (145 aprobadas),
+  `cargo test -p pdf-save --locked` (todas aprobadas; 4 pruebas explícitamente
+  ignoradas), `cargo clippy -p pdf-document -p pdf-save --all-targets --locked
+  -- -D warnings` y `cargo fmt --all -- --check`. En WSL2/Ubuntu,
+  `cargo test -p linux-gtk --locked -- --skip package_smoke::tests::
+  renders_the_embedded_sample_to_a_nonempty_receipt` (355 aprobadas, 1
+  filtrada) y los 8 tests `app::organize::tests::gtk_ui_` pasaron. El smoke
+  empaquetado sigue sin verificarse porque esta copia no contiene
+  `libpdfium.so` para Linux.
 
 ## 9. Vista por documentos
 
