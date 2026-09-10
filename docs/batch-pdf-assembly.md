@@ -1101,19 +1101,70 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Probar que importar un PDF es un único paso de historial.
 - [x] Probar que deshacer y rehacer restaura orden y procedencia.
 - [x] Probar que mover un bloque es un único paso de historial.
-- [ ] Probar importación de texto, imágenes y recursos anidados.
+- [x] Probar importación de texto, imágenes y recursos anidados.
 - [ ] Probar páginas con atributos heredados y árboles de páginas anidados.
-- [ ] Probar colisiones de identificadores entre documentos.
-- [ ] Probar enlaces entre páginas importadas.
+- [x] Probar colisiones de identificadores entre documentos.
+- [x] Probar enlaces entre páginas importadas.
 - [ ] Probar anotaciones y sus streams de apariencia.
 - [ ] Probar formularios, campos homónimos y widgets.
-- [ ] Probar marcadores y destinos con nombre según la política acordada.
+- [x] Probar marcadores y destinos con nombre según la política acordada.
 - [ ] Probar fuentes cifradas y permisos insuficientes.
-- [ ] Probar documentos principales cifrados con credenciales completas e
+- [x] Probar documentos principales cifrados con credenciales completas e
   incompletas.
 - [x] Probar advertencias de firma para destino y fuentes.
-- [ ] Probar que los errores no dejan mutaciones parciales.
-- [ ] Mantener determinismo con reloj e identificadores inyectados.
+- [x] Probar que los errores no dejan mutaciones parciales.
+- [x] Mantener determinismo con reloj e identificadores inyectados.
+
+### Auditoría de cobertura (2026-09-10)
+
+Estos ítems no se implementaron ahora: ya estaban cubiertos y nadie los había
+tildado. Cada tilde de arriba apunta a un test que existe hoy y falla si la
+garantía se rompe. Los cuatro que siguen abiertos lo están por un motivo
+concreto, no por olvido.
+
+| Ítem | Dónde está probado |
+|---|---|
+| Texto, imágenes y recursos anidados | `pdf-manip/tests/graft.rs`: `graft_pages_copies_resources_nested_inside_stream_dictionaries` recorre página → XObject → imagen → `/SMask`, y imagen → ColorSpace indexado → tabla de consulta; `graft_pages_copies_the_object_graph_the_page_reaches` cubre la fuente a dos saltos |
+| Colisiones de identificadores | `graft_pages_survives_overlapping_object_ids_between_the_two_documents` (dos fixtures construidas igual, ids solapados exactamente); más `import_pages_rejects_an_id_already_in_the_document` e `import_pages_rejects_duplicate_ids_within_the_batch` en `edit_log` |
+| Enlaces entre páginas importadas | `pdf-manip/tests/graft_destinations.rs` entero (8 casos): destino explícito dentro de la selección, destino con nombre reescrito a explícito, `/Dests` heredado, y los tres casos de destino fuera de la selección que se reportan en vez de romperse |
+| Marcadores y destinos con nombre | `graft_destinations.rs` para destinos; `graft_structures.rs` para marcadores (`only_the_bookmarks_pointing_into_the_selection_are_reported`, `importing_every_page_reports_every_bookmark`, `an_ordinary_import_reports_nothing_at_all`) |
+| Documento principal cifrado, credenciales completas e incompletas | `pdf-manip/tests/encrypted_open.rs`: contraseña de usuario correcta, de propietario correcta, ambas conservando el contrato de cifrado, contraseña incorrecta rechazada sin pánico, y contraseña ausente rechazada |
+| Errores sin mutaciones parciales | `edit_log`: `an_empty_import_changes_neither_history_nor_redo`, `removing_a_mismatched_imported_batch_is_rejected_before_mutating`, `an_out_of_range_import_is_rejected_without_losing_redo`, `invalid_move_pages_commands_are_rejected_before_mutating`, `rejected_move_pages_preserves_undo_and_redo_history`. En el guardado: `a_refused_import_writes_nothing_at_all` y la guarda de `replay_page_ops` que rechaza antes de copiar el primer objeto |
+| Determinismo con reloj e ids inyectados | `strategy::tests::full_rewrite_with_fixed_options_is_byte_identical_across_runs` compara dos guardados completos; `clock.rs` prueba `FixedClock` y `SequentialIdGenerator` por separado, incluido `two_sequential_generators_with_same_seed_produce_identical_sequences` |
+
+Lo que sigue abierto, y por qué:
+
+- **Atributos heredados y árboles de páginas anidados** — la mitad heredada
+  está probada: `pdf_with_inherited_attributes` deja `/MediaBox`,
+  `/Resources` y `/Rotate` solo en la raíz del árbol y
+  `graft_pages_materializes_attributes_the_source_page_only_inherited`
+  comprueba que el injerto los materializa. Lo que falta es el árbol
+  **anidado**: todas las fixtures construyen un único nodo `Pages` con
+  páginas colgando; ninguna mete un `Pages` dentro de otro `Pages`, que es
+  donde la herencia recorre más de un salto y donde un `/Parent` mal
+  reescrito no se notaría.
+- **Anotaciones y sus streams de apariencia** — `graft_pages_carries_the_page_annotations`
+  comprueba que el objeto de la anotación se copia, no solo que se
+  referencia. No comprueba `/AP`. El módulo `graft.rs` dice en su doc que
+  copia las anotaciones "con sus streams de apariencia", y probablemente sea
+  cierto porque el copiado sigue el grafo de objetos — pero **eso no está
+  fijado por ningún test**, y una anotación sin apariencia se dibuja distinta
+  según el visor. Es el hueco más barato de cerrar de los cuatro.
+- **Formularios, campos homónimos y widgets** — no se puede probar todavía.
+  La política de §4 es rechazar una página con widgets AcroForm, y eso sí
+  está probado (`graft_pages_rejects_a_selected_page_with_a_form_field_widget`,
+  `graft_pages_allows_a_source_whose_unselected_page_has_form_fields`). Los
+  campos homónimos solo existen como problema cuando la fusión exista; este
+  ítem se cierra junto con los dos abiertos de §4, no antes.
+- **Fuentes cifradas y permisos insuficientes** — el predicado sí está
+  probado en `pdf-manip/src/security.rs`
+  (`an_unencrypted_document_permits_assembly`,
+  `the_modify_contents_bit_alone_permits_assembly`,
+  `neither_the_annotate_nor_the_copy_bit_permits_assembly`), pero el recorrido
+  de una *fuente* cifrada o sin permiso de copiar/extraer vive hoy en el shell
+  Linux, no en el núcleo. Cerrarlo en §12 exige mover esa comprobación al
+  núcleo o aceptar que el ítem pertenece a §13; conviene decidirlo antes de
+  escribir el test.
 
 ## 13. Pruebas GTK4
 
