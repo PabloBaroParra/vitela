@@ -653,15 +653,15 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Reconstruir el PDF siguiendo exactamente el orden de `Document.pages`.
 - [x] Mantener el documento base original inmutable durante la edición.
 - [x] Resolver cada página importada mediante su fuente y número de página.
-- [ ] Devolver un mapa final de `PageId` a objeto PDF después de materializar.
+- [x] Devolver un mapa final de `PageId` a objeto PDF después de materializar.
 - [x] Resolver explícitamente `PageId` a índice de renderizado actual.
 - [x] Eliminar los usos que asumen que `PageId.0` es un índice de PDFium.
-- [ ] Leer anotaciones existentes desde el documento materializado para no
+- [x] Leer anotaciones existentes desde el documento materializado para no
   borrar anotaciones importadas al añadir otras nuevas.
-- [ ] Permitir edición de contenido sobre páginas importadas usando el respaldo
+- [x] Permitir edición de contenido sobre páginas importadas usando el respaldo
   materializado correcto.
-- [ ] Validar el resultado con PDFium antes de instalar la previsualización.
-- [ ] Probar guardar, cerrar y reabrir después de importar, mover y borrar.
+- [x] Validar el resultado con PDFium antes de instalar la previsualización.
+- [x] Probar guardar, cerrar y reabrir después de importar, mover y borrar.
 
 ### Progreso del registro de fuentes
 
@@ -721,6 +721,145 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   `cargo clippy --workspace --all-targets --locked -- -D warnings`. La suite
   GTK4 no se ejecutó en esa entrega: `linux-gtk` está compilado bajo
   `cfg(target_os = "linux")` y aquella verificación corrió en Windows.
+
+- 2026-09-10: `bridge::replay_page_ops` ya no devuelve solo el documento, sino
+  `ReplayOutcome { document, page_objects }`. El mapa se resuelve donde se
+  establece la invariante en la que descansa —cada paso del replay reconstruye
+  `working` con exactamente el orden de `current`—, en vez de re-derivarlo más
+  tarde desde un documento que el llamante no puede distinguir del que produjo
+  el replay. `strategy::save_full_rewrite` lo consume tal cual.
+- `bridge::page_annotation_objects` toma ahora ese mapa y lee el documento que
+  se le pasa, en vez de recorrer posiciones. Motivo: recorrer posiciones
+  significaba leer las anotaciones existentes desde `base`, y una página
+  importada no está en `base` en absoluto. Su `PageId` no encontraba entrada,
+  `attach_annotations` partía de una lista vacía y el `dict.set("Annots", …)`
+  final sustituía el `/Annots` que el injerto había traído consigo. La ruta
+  incremental pasa el mapa derivado de `base` y se comporta igual que antes.
+- Regresión fijada en `core/pdf-save/tests/imported_page_annotations.rs`: una
+  página importada conserva sus anotaciones; una anotación nueva sobre esa
+  página se añade en vez de sustituirlas; y una página base mantiene las suyas
+  cuando una importación la desplaza. La segunda fallaba antes del cambio
+  (1 anotación en vez de 2).
+- Verificación (2026-09-10): `cargo test --workspace --locked` (0 fallos,
+  ejecutado en Windows, por lo que `linux-gtk` no entra en la compilación),
+  `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+  `cargo fmt --all -- --check` y `python scripts/check_maintainability.py`
+  (104 avisos, línea base sin cambios; la nota de secciones anteriores que
+  cita 99 quedó desactualizada). La suite GTK4 no se ejecutó en esta entrega.
+
+- 2026-09-10: nuevo módulo `core/pdf-save/src/origin.rs`. `page_backing`
+  responde de qué documento y de qué objeto salen los bytes de una página
+  usando su `PageOrigin`: la base para una página del archivo abierto, el PDF
+  de origen para una importada, y `PageBacking::Empty` para una en blanco, que
+  no tiene objeto en ninguna parte hasta que un guardado la materializa.
+  Encima viven `read_page_content_of` y `page_font_families_of`.
+- `pdf-edit` gana las puertas equivalentes por objeto —
+  `read_page_object_content` y `page_object_font_families` (esta última en el
+  nuevo `parse/fonts.rs`)—. La resolución posicional sigue existiendo para
+  quien la quiera, pero ya no es el único camino.
+- `content::validate_content_command` toma ahora el modelo y el registro de
+  fuentes, y prueba el comando contra el documento que la página nombra. Antes
+  clonaba `base` y buscaba la página por posición, algo que no podía alcanzar
+  una página importada: su `PageId` se asigna por encima del de cualquier
+  página base.
+- Un ítem leído del PDF de origen sigue resolviendo contra la página que el
+  injerto produce: `graft_pages` copia el stream de contenido tal cual y
+  conserva los nombres de recurso, así que las posiciones del parse coinciden.
+  Eso no se asume, se fija en
+  `core/pdf-save/tests/imported_page_content_edit.rs`
+  (`editing_an_imported_pages_text_reaches_the_saved_file`).
+- En Linux, `content_edit::base_page` pasa a llamarse `content_page` y acepta
+  páginas importadas; la nueva `content_edit::page_probe` traduce un `PageId`
+  al par documento/objeto contra el que se parsea y se prueba. Los diez
+  validadores de `content_edit::command` y `model::ensure_page_content` toman
+  ese par en vez de `(base, PageId)`, con lo que desaparecen las diez llamadas
+  a `pdf_edit::page_object_id` repartidas por el shell.
+- `ImportedSources` pasa a tener dos tiempos de vida (`'s` para el slice, `'d`
+  para los documentos). Con uno solo, una referencia resuelta quedaba atada a
+  la vida de un registro temporal, y el shell no podía construir el suyo como
+  local sin sostener andamiaje alrededor. Por el mismo motivo `page_probe`
+  toma el modelo con su propio tiempo de vida: nada del resultado apunta a él,
+  y atarlo dejaría `session.document_model` prestado justo cuando el llamante
+  lo necesita mutable.
+- `pdf-ffi` enruta `read_page_content`, `page_font_families` y la validación
+  por el mismo origen, con `ImportedSources::none()`: ese handle no tiene
+  registro de importaciones —importar es del shell Linux por ahora—, así que
+  una página importada se rechaza con un mensaje claro en lugar de leer en
+  silencio la página base que ocupe ese índice.
+- Los ocho tests de `content_edit::command` que fijaban "un `PageId` sin
+  página se rechaza" se retiraron: esa garantía no desapareció, se mudó a
+  `page_probe`. La cubren ahora dos tests GTK en
+  `app/organize/tests/resolution.rs` (una página importada resuelve contra su
+  fuente; una sin fuente registrada no obtiene probe) y, en el núcleo,
+  `validation_still_refuses_a_command_the_save_could_not_replay`.
+- Verificación (2026-09-10, en WSL2/Ubuntu con `PDFIUM_DYNAMIC_LIB_PATH`
+  apuntando al `libpdfium.so` vendorizado): `cargo test --workspace --locked`
+  (0 fallos), `cargo test -p linux-gtk --locked` (356 aprobadas, suite GTK4
+  incluida), `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+  En Windows: `cargo fmt --all -- --check` y
+  `python scripts/check_maintainability.py` (104 avisos, línea base sin
+  cambios — `parse/mod.rs` cruzó el umbral de 350 líneas al ganar las puertas
+  por objeto y se dividió en `parse/fonts.rs` para devolverlo). El empaquetado
+  y smoke test de Linux sigue sin verificarse.
+
+### Progreso de la validación y el ciclo completo
+
+- 2026-09-10: `document::reopened_matches_model` compara el handle que PDFium
+  acaba de abrir contra el modelo con el que se escribieron esos bytes, antes
+  de que nada lo instale. Abrir ya validaba bastante — un archivo ilegible
+  falla en `open_document` y su barrido de `page_sizes` toca todas las
+  páginas — pero "abrió" no es "coincide": la previsualización instala
+  `backend_pages` desde el modelo *preservado*, así que cada índice de lienzo
+  se resuelve por el orden de páginas del modelo dando por hecho que el handle
+  reabierto tiene exactamente esas páginas. Con un recuento distinto, ese
+  supuesto falla en silencio y las páginas se dibujan, se prueban y aceptan
+  anotaciones bajo la identidad de otra.
+- La misma puerta cubre las dos rutas: `refresh_snapshot_and_reopen` cierra el
+  handle y devuelve el error (la previsualización anterior se queda con una
+  explicación, igual que ante cualquier guardado fallido), y
+  `save_snapshot_and_reopen` la aplica **antes** de `atomic_write`, con
+  `page_count`, para no sustituir un archivo por bytes cuyo recuento de páginas
+  no es el del modelo.
+- El ciclo completo se fija en `core/pdf-save/tests/assembly_reopen_roundtrip.rs`:
+  una sesión importa, mueve y borra, guarda, y las siguientes pruebas
+  reabren esos bytes como documento nuevo — sin modelo heredado y sin registro
+  de fuentes. La invariante que importa tras reabrir es que el archivo se
+  sostiene solo: la página importada ya es parte del PDF (`PageOrigin::Base`),
+  el segundo guardado funciona con `ImportedSources::none()`, y el documento
+  reabierto vuelve a aceptar operaciones de página.
+
+#### Bug encontrado por esa prueba: el reorden se perdía tras un borrado
+
+- `pdf_manip::delete_pages` llama a `renumber_objects`, así que después de
+  borrar una página ningún `ObjectId` de `base` nombra nada en el documento de
+  trabajo. `bridge::replay_page_ops` resolvía los supervivientes justamente
+  así: `PageId` → `ObjectId` de `base` → número de página posterior al borrado.
+  Tras un borrado ese segundo salto no encontraba nada, `survivor_target_order`
+  salía **vacío**, y la comprobación `windows(2)` sobre un slice vacío es
+  falsa — el reorden nunca llegaba a ejecutarse. El bug se escondía a sí mismo:
+  `reorder_pages` habría rechazado esa permutación vacía, pero nunca se le
+  llamaba.
+- Mismo origen, segundo síntoma: el paso de rotaciones nombraba el número de
+  página por la misma vía y salía por su `continue` de "esto no debería pasar",
+  así que un guardado que borrara y rotara a la vez no rotaba nada.
+- Arreglo: los números de página de los supervivientes se **cuentan**, no se
+  buscan por identidad de objeto. Lo que sobrevive a un borrado es el orden
+  —las páginas conservadas quedan en orden de `base`—, así que el número
+  posterior al borrado de un superviviente es su posición 1-based entre las
+  páginas de `base` que se conservaron. Y tras el paso 2 el documento de
+  trabajo contiene exactamente los supervivientes en el orden de `current`,
+  con lo que la rotación usa la posición en ese recorrido. `id_to_object`
+  desaparece: no hacía falta ninguna de las dos veces.
+- Tres regresiones en `bridge`: borrar + reordenar, borrar + rotar, y las tres
+  operaciones juntas (borrado, reorden e injerto en un mismo guardado). Las
+  tres fallaban antes del arreglo.
+- Verificación (2026-09-10, en WSL2/Ubuntu con `PDFIUM_DYNAMIC_LIB_PATH`
+  apuntando al `libpdfium.so` vendorizado): `cargo test --workspace --locked`
+  (1300 aprobadas, 0 fallidas, suite GTK4 incluida), `cargo test -p linux-gtk
+  --locked` (360 aprobadas), `cargo clippy --workspace --all-targets --locked
+  -- -D warnings`. En Windows: `cargo fmt --all -- --check`, `git diff --check`
+  y `python scripts/check_maintainability.py` (104 avisos, línea base sin
+  cambios). El empaquetado y smoke test de Linux sigue sin verificarse.
 
 ### Progreso del refresco de PDFium
 

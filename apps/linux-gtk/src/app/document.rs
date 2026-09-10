@@ -431,16 +431,19 @@ fn save_snapshot_and_reopen(
     })
     .map_err(|error| error.to_string())?;
     // Validate before replacing a destination: persisted bytes must be usable
-    // by the same renderer path that will display them.
-    PdfiumRenderer::new()
+    // by the same renderer path that will display them, and must hold exactly
+    // the pages the model names — see `reopened_matches_model` for what a
+    // disagreement would do to every page index once the file is reopened.
+    let renderer = PdfiumRenderer::new();
+    let handle = renderer
         .open_document_from_bytes(bytes.clone(), backing.password.as_deref())
-        .map_err(|error| error.to_string())
-        .and_then(|handle| {
-            PdfiumRenderer::new()
-                .close_document(handle)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })?;
+        .map_err(|error| error.to_string())?;
+    let page_count = renderer
+        .page_count(handle, Priority::Visible)
+        .wait()
+        .map_err(|error| error.to_string());
+    let _ = renderer.close_document(handle);
+    reopened_matches_model(document, page_count? as usize)?;
     atomic_write(destination, &bytes)?;
     open_document(
         &DocumentSource::File(destination.to_path_buf()),
@@ -1037,8 +1040,44 @@ fn refresh_snapshot_and_reopen(
         imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
-    open_document(&DocumentSource::Bytes(bytes), backing.password.as_deref())
-        .map_err(|error| error.to_string())
+    let reopened = open_document(&DocumentSource::Bytes(bytes), backing.password.as_deref())
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = reopened_matches_model(document, reopened.page_sizes.len()) {
+        // Nothing has installed this handle yet, so closing it is this
+        // function's job — the caller only ever closes one it was handed.
+        let _ = PdfiumRenderer::new().close_document(reopened.document);
+        return Err(error);
+    }
+    Ok(reopened)
+}
+
+/// Checks the pdfium handle a save just produced against the model it was
+/// written from — before [`refresh_snapshot_and_reopen`] installs it as the
+/// preview, and before [`save_snapshot_and_reopen`] replaces a file on disk
+/// with the bytes behind it.
+///
+/// pdfium *opening* the bytes is already most of the validation — a file it
+/// cannot parse fails [`open_document`] outright, and the `page_sizes` sweep
+/// there touches every page — but "opened" is not "matches". What the preview
+/// installs afterwards is `backend_pages` taken from the **preserved** model
+/// (see [`restore_edit_state`]), so every canvas index is resolved through the
+/// model's page order on the assumption that the reopened handle holds exactly
+/// those pages. Let a handle with a different page count through and that
+/// assumption fails silently: pages draw, hit-test and accept annotations
+/// under another page's identity. Refusing leaves the previous preview up with
+/// an explanation instead — the same trade [`refresh_preview`]'s error arm
+/// already makes for a failed save.
+///
+/// A document with no editable model has no pages to name and expects nothing,
+/// which is also why this takes the model rather than the session.
+fn reopened_matches_model(document: &Document, reopened_pages: usize) -> Result<(), String> {
+    if reopened_pages == document.pages.len() {
+        return Ok(());
+    }
+    Err(format!(
+        "the saved file opened with {reopened_pages} pages, not the {} the model has",
+        document.pages.len()
+    ))
 }
 
 fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -1844,7 +1883,8 @@ mod tests {
 
     use super::{
         atomic_write, next_form_field_id, next_generation_if_current, pdf_destination,
-        save_worker_result, surviving_edit_selections, unsaved_decision, UnsavedDecision,
+        reopened_matches_model, save_worker_result, surviving_edit_selections, unsaved_decision,
+        UnsavedDecision,
     };
     use crate::app::state::SessionToken;
     use pdf_document::{
@@ -1946,6 +1986,41 @@ mod tests {
         document.form_fields.insert(a_form_field(2));
 
         assert_eq!(next_form_field_id(Some(&document)), 3);
+    }
+
+    fn a_document_of(pages: usize) -> Document {
+        let mut document = Document::blank();
+        for index in 0..pages {
+            document.pages.push(Page::blank(
+                PageId(index as u32),
+                PageSize::A4,
+                Orientation::Portrait,
+            ));
+        }
+        document
+    }
+
+    #[test]
+    fn a_reopened_handle_with_the_model_s_pages_can_be_installed() {
+        assert_eq!(reopened_matches_model(&a_document_of(3), 3), Ok(()));
+    }
+
+    #[test]
+    fn a_reopened_handle_missing_a_page_is_refused_with_both_counts() {
+        assert_eq!(
+            reopened_matches_model(&a_document_of(3), 2),
+            Err("the saved file opened with 2 pages, not the 3 the model has".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_reopened_handle_with_an_extra_page_is_refused_too() {
+        assert!(reopened_matches_model(&a_document_of(1), 2).is_err());
+    }
+
+    #[test]
+    fn a_document_without_an_editable_model_expects_nothing_of_the_handle() {
+        assert_eq!(reopened_matches_model(&Document::blank(), 0), Ok(()));
     }
 
     #[test]

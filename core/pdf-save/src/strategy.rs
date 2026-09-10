@@ -78,7 +78,7 @@ pub struct SaveInput<'a> {
     /// never imported anything, which is every save that predates the import
     /// feature; a save that meets an imported page without its source is
     /// refused rather than guessed at.
-    pub imported_sources: ImportedSources<'a>,
+    pub imported_sources: ImportedSources<'a, 'a>,
 }
 
 /// Whether the caller has dealt with the fact that a save will invalidate a
@@ -226,24 +226,27 @@ fn save_full_rewrite(
     options: &SaveOptions,
     original_pages: &[Page],
 ) -> Result<Vec<u8>, SaveError> {
-    let mut working = bridge::replay_page_ops(
+    // Resolved once, by the replay itself and against the *replayed*
+    // document: page ops have already moved pages around, so this map is the
+    // only thing that still connects a model `PageId` to the object it names.
+    let bridge::ReplayOutcome {
+        document: mut working,
+        page_objects: page_ids,
+    } = bridge::replay_page_ops(
         input.base,
         original_pages,
         &input.document.pages,
         input.imported_sources,
     )?;
 
-    // Resolved once, before either consumer runs, and against the *replayed*
-    // document: page ops have already moved pages around, so this map is the
-    // only thing that still connects a model `PageId` to the object it names.
-    let page_ids = bridge::page_object_ids(&working, &input.document.pages)?;
-
     // Before annotations: content edits are located by re-parsing the page's
     // streams, so they must run while `working` still matches the parse the
     // commands were recorded against.
     content::replay_content_edits(working.as_lopdf_mut(), input.document, &page_ids)?;
 
-    let existing_annotations = bridge::page_annotation_objects(input.base)?;
+    // Read from the materialized document, not from `base`: an imported page
+    // is not in `base` at all, and its `/Annots` arrived with the graft.
+    let existing_annotations = bridge::page_annotation_objects(&working, &page_ids)?;
     annotations::attach_annotations(
         working.as_lopdf_mut(),
         &page_ids,
@@ -326,7 +329,7 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
     }
 
     let page_ids = bridge::page_object_ids(input.base, &input.document.pages)?;
-    let existing_annotations = bridge::page_annotation_objects(input.base)?;
+    let existing_annotations = bridge::page_annotation_objects(input.base, &page_ids)?;
     let catalog_id = catalog_object_id(input.base.as_lopdf())?;
     let pending_info = metadata::pending_document_info(input.document);
     // The one clone the borrowing API cannot remove: lopdf's

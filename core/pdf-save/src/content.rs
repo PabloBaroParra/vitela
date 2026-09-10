@@ -118,19 +118,43 @@ pub fn replay_content_edits(
 /// do because it links the core crates; every shell behind the FFI reaches
 /// the same gate through `pdf_ffi::apply_edit`, which calls this.
 ///
-/// `base` is the document as opened, not as pending page ops would leave it:
-/// this resolves the target page positionally, like the shells' own probes,
-/// so a command queued behind an unsaved page reorder is validated against
-/// the pre-reorder position. `replay_content_edits` is the one that must be
-/// exact, and it takes a resolved page map for precisely that reason.
-pub fn validate_content_command(base: &LopdfDoc, command: &Command) -> Result<(), SaveError> {
+/// The target page is resolved through its **origin**
+/// ([`crate::origin::page_backing`]), not through a position: a base page is
+/// probed inside `base`, an imported one inside the source PDF it will be
+/// grafted from, and a blank one has no content to refuse. A positional
+/// resolve could not reach an imported page at all — its `PageId` was
+/// allocated past every base page's — so the edits this gate is meant to
+/// catch early would instead have surfaced at save time, taking every other
+/// queued edit with them.
+///
+/// The probe still runs against the documents as they stand, not as pending
+/// page ops would leave them. That is deliberate and matches what the item
+/// was read from: `replay_content_edits` is the one that must be exact, and
+/// it takes a resolved page map for precisely that reason.
+pub fn validate_content_command(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    sources: crate::bridge::ImportedSources<'_, '_>,
+    command: &Command,
+) -> Result<(), SaveError> {
     let Some(page) = content_page(command) else {
         return Ok(());
     };
 
-    let mut probe = base.clone();
-    let page_object = pdf_edit::page_object_id(&probe, page)?;
-    apply(&mut probe, command, page_object)
+    match crate::origin::page_backing(document, page, base, sources)? {
+        // Nothing is painted on a blank page, so nothing about this command
+        // can be checked against it — and refusing here would reject an edit
+        // the save is equally unable to place. The save's own replay is the
+        // gate for that case.
+        crate::origin::PageBacking::Empty => Ok(()),
+        crate::origin::PageBacking::Object {
+            document: backing,
+            object,
+        } => {
+            let mut probe = backing.as_lopdf().clone();
+            apply(&mut probe, command, object)
+        }
+    }
 }
 
 /// The page a content command targets, or `None` if it is not a content

@@ -54,4 +54,7 @@ pub use edit::{
 };
 pub use error::EditError;
 pub use insert::{insert_image, insert_text_run};
-pub use parse::{page_font_families, page_object_id, read_page_content};
+pub use parse::{
+    page_font_families, page_object_font_families, page_object_id, read_page_content,
+    read_page_object_content,
+};

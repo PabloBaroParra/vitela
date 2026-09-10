@@ -26,6 +26,9 @@
 //! - [`export`] (T-037): page export as PNG/JPEG at selectable DPI.
 //! - [`imported_sources`]: session-lifetime registry of imported PDFs,
 //!   feeding [`ImportedSources`] at save time (batch PDF assembly §1).
+//! - [`origin`]: which document and object hold a model page's bytes — the
+//!   read path's answer to a `PageId` that is no longer a position (batch PDF
+//!   assembly §6).
 //! - [`error`]: [`SaveError`], the shared error type across this crate.
 
 pub mod annotations;
@@ -37,6 +40,7 @@ pub mod export;
 pub mod forms;
 pub mod imported_sources;
 pub mod metadata;
+pub mod origin;
 pub mod rewrite;
 pub mod security;
 pub mod strategy;
@@ -45,7 +49,7 @@ pub use annotations::{attach_annotations, ObjectSink};
 pub use bridge::{
     document_from_lopdf, has_structural_page_changes, imported_pages_from_lopdf,
     page_annotation_objects, page_object_ids, populate_document, read_page_content,
-    replay_page_ops, rotation_changes, ImportedSources,
+    replay_page_ops, rotation_changes, ImportedSources, ReplayOutcome,
 };
 pub use clock::{
     Clock, FixedClock, IdGenerator, RandomIdGenerator, SequentialIdGenerator, SystemClock,
@@ -56,6 +60,7 @@ pub use export::{export_page_as_image, ExportFormat};
 pub use forms::{ensure_acroform, write_form_fields};
 pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
+pub use origin::{page_backing, page_font_families_of, read_page_content_of, PageBacking};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{

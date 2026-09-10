@@ -616,9 +616,19 @@ impl DocumentHandle {
                 detail: "text extraction is not permitted".to_string(),
             });
         }
-        pdf_save::read_page_content(&state.base, PageId(page))
-            .map(Into::into)
-            .map_err(Into::into)
+        // Resolved through the page's origin, not through its position: this
+        // handle has no imported-source registry (importing is the Linux
+        // shell's for now), so an imported page is refused with a clear
+        // message instead of silently reading whichever base page happens to
+        // sit at that index.
+        pdf_save::read_page_content_of(
+            &state.document,
+            PageId(page),
+            &state.base,
+            pdf_save::ImportedSources::none(),
+        )
+        .map(Into::into)
+        .map_err(Into::into)
     }
 
     /// The `/BaseFont` name of each font `page` declares, keyed by the
@@ -641,9 +651,14 @@ impl DocumentHandle {
                 detail: "text extraction is not permitted".to_string(),
             });
         }
-        pdf_edit::page_font_families(state.base.as_lopdf(), PageId(page))
-            .map(|families| families.into_iter().collect())
-            .map_err(Into::into)
+        pdf_save::page_font_families_of(
+            &state.document,
+            PageId(page),
+            &state.base,
+            pdf_save::ImportedSources::none(),
+        )
+        .map(|families| families.into_iter().collect())
+        .map_err(Into::into)
     }
 
     /// Current Document Info Dictionary snapshot (T-173, Batch 22): the last
@@ -1025,7 +1040,12 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         // `pdf_save::validate_content_command` for why a content command
         // recorded unchecked can only fail later, and take every other
         // queued edit down with it.
-        pdf_save::validate_content_command(state.base.as_lopdf(), &core_command)?;
+        pdf_save::validate_content_command(
+            &state.document,
+            &state.base,
+            pdf_save::ImportedSources::none(),
+            &core_command,
+        )?;
 
         if let Some(index) = pending_replacement_index(&state.document, &core_command) {
             // Retyping the same run twice amends the queued command instead
