@@ -550,12 +550,14 @@ fn move_page(viewer: &Viewer, from: usize, to: usize) -> bool {
 fn delete_page(viewer: &Viewer, index: usize) -> bool {
     command(viewer, |session| {
         let document = model(session)?;
-        let page = document
-            .pages
-            .get(index)
-            .cloned()
+        // `Command::remove_page`, not a `RemovePage` literal: it captures the
+        // annotations and form fields anchored to the page as well, so undo
+        // brings the page back with what was drawn on it, and the removal
+        // cannot strand an annotation on a page id `pdf-save` will refuse to
+        // write (which would leave the document unsaveable, not just untidy).
+        let removal = Command::remove_page(document, index)
             .ok_or_else(|| "Page no longer exists.".to_string())?;
-        if !apply_command(document, Command::RemovePage { index, page }) {
+        if !apply_command(document, removal) {
             return Err("Could not delete the page.".to_string());
         }
         Ok(format!("Deleted page {}.", index + 1))

@@ -29,6 +29,8 @@ mod state;
 mod tools_panel;
 
 #[cfg(test)]
+mod test_fixtures;
+#[cfg(test)]
 mod ui_tests;
 
 use std::cell::RefCell;

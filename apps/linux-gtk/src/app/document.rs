@@ -12,8 +12,9 @@ use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, ContentFit, FileDialog,
-    FileFilter, Label, Orientation as GtkOrientation, Overlay, PasswordEntry, Picture, Window,
+    cairo, gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, ContentFit,
+    FileDialog, FileFilter, Label, Orientation as GtkOrientation, Overlay, PasswordEntry, Picture,
+    Window,
 };
 use pdf_document::{Document, Orientation, PageSize, SecurityContext};
 use pdf_manip::ManipError;
@@ -770,6 +771,28 @@ fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::PageId> {
 /// a session that contradicts itself — a selection pointing at nothing, ids
 /// colliding with live objects, or commands replayed against a base they were
 /// never validated against.
+///
+/// # What deliberately does *not* travel
+///
+/// Everything else on the session is keyed to the pdfium handle the reopen
+/// replaces — a page index into *those* bytes, or text read out of them — so
+/// carrying it across would mean pointing new pages at old positions. The
+/// text `selection`, the `search` matches, the `selected_image` and open
+/// `content_editor`, every in-flight drag, and the render/tile caches are all
+/// left to die with the session `show_document` discards, and the controls
+/// that read them are re-derived from the session it installs
+/// (`update_search_controls` and friends). That is the invalidation rule for
+/// this refresh: **a field belongs here only if its key survives the reopen**.
+///
+/// Two do. `AnnotationId` and `FormFieldId` outlive any handle, which is why
+/// the selections below can be carried — filtered through
+/// [`surviving_edit_selections`], because surviving the *reopen* is not the
+/// same as surviving a page removal. `stamp_surfaces` is keyed the same way
+/// and must survive for a different reason: it is a decode cache, not a
+/// position, and the annotation whose bytes it holds is still in the
+/// preserved model. Dropping it left every stamp the user had placed
+/// painting as an empty outline (`selection::draw_annotation`'s fallback for
+/// a stamp with no surface) from the next page move onward.
 struct EditState {
     document_model: Option<Document>,
     save_backing: Option<super::state::SaveBacking>,
@@ -777,6 +800,7 @@ struct EditState {
     selected_annotation: Option<pdf_document::AnnotationId>,
     next_form_field_id: u64,
     selected_form_field: Option<pdf_document::FormFieldId>,
+    stamp_surfaces: HashMap<pdf_document::AnnotationId, cairo::ImageSurface>,
 }
 
 fn surviving_edit_selections(
@@ -824,6 +848,9 @@ fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
         selected_annotation: session.selected_annotation,
         next_form_field_id: session.next_form_field_id,
         selected_form_field: session.selected_form_field,
+        // Moved out rather than cloned: a stamp surface is a full-size
+        // bitmap, and the session this is taken from is about to be dropped.
+        stamp_surfaces: std::mem::take(&mut session.stamp_surfaces),
     })
 }
 
@@ -861,6 +888,7 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
                 session.selected_annotation = selected_annotation;
                 session.next_form_field_id = preserved.next_form_field_id;
                 session.selected_form_field = selected_form_field;
+                session.stamp_surfaces = preserved.stamp_surfaces;
             }
             session.unsaved_to_disk = true;
         }
@@ -1786,9 +1814,8 @@ mod tests {
     };
     use crate::app::state::SessionToken;
     use pdf_document::{
-        Annotation, AnnotationId, AnnotationKind, Color, Document, FieldOrigin, FieldValue,
-        FontFamily, FormField, FormFieldId, FormFieldKind, Orientation, Page, PageId, PageSize,
-        Rect, TextStyle,
+        AnnotationId, Color, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId,
+        FormFieldKind, Orientation, Page, PageId, PageSize, Rect, TextStyle,
     };
 
     fn a_form_field(id: u64) -> FormField {
@@ -1816,33 +1843,15 @@ mod tests {
         }
     }
 
-    fn an_annotation(id: u64) -> Annotation {
-        Annotation {
-            id: AnnotationId(id),
-            page: PageId(0),
-            kind: AnnotationKind::Highlight {
-                rect: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 20.0,
-                },
-                color: Color {
-                    r: 255,
-                    g: 255,
-                    b: 0,
-                },
-            },
-        }
-    }
-
     #[test]
     fn edit_selections_survive_when_the_preserved_model_still_holds_them() {
         let mut document = Document::blank();
         document
             .pages
             .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
-        document.annotations.insert(an_annotation(4));
+        document
+            .annotations
+            .insert(crate::app::test_fixtures::a_highlight(4, PageId(0)));
         document.form_fields.insert(a_form_field(7));
 
         assert_eq!(
@@ -1854,7 +1863,9 @@ mod tests {
     #[test]
     fn edit_selections_are_cleared_when_their_page_was_removed() {
         let mut document = Document::blank();
-        document.annotations.insert(an_annotation(4));
+        document
+            .annotations
+            .insert(crate::app::test_fixtures::a_highlight(4, PageId(0)));
         document.form_fields.insert(a_form_field(7));
 
         assert_eq!(
@@ -2028,5 +2039,68 @@ mod tests {
             b"complete PDF bytes"
         );
         fs::remove_dir_all(&directory).expect("remove isolated temporary directory");
+    }
+
+    /// The invalidation rule [`super::EditState`] documents, exercised end to
+    /// end across the reopen: what is keyed to the replaced pdfium handle is
+    /// dropped, what is keyed to an id that outlives it is carried.
+    #[gtk::test]
+    fn gtk_ui_a_preview_refresh_keeps_id_keyed_caches_and_drops_backend_keyed_state() {
+        use crate::app::state::{SearchState, Selection};
+        use crate::app::test_fixtures::model_session;
+        use crate::app::ui_tests::built_ui;
+        use gtk::cairo;
+        use gtk::prelude::GtkWindowExt;
+
+        let built = built_ui();
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1)
+            .expect("a 1x1 surface is always creatable");
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let mut session = model_session(document.clone());
+            session.stamp_surfaces.insert(AnnotationId(3), surface);
+            session.selection = Some(Selection {
+                page_index: 0,
+                anchor: (0.0, 0.0),
+                focus: (1.0, 1.0),
+            });
+            session.search = Some(SearchState {
+                query: "find me".to_string(),
+                matches: Vec::new(),
+                current: 0,
+            });
+            state.session = Some(session);
+        }
+
+        let preserved = super::take_edit_state(&built.viewer);
+        // What `show_document` does to the session on its way through: a new
+        // one, built from the bytes that were just reopened.
+        built.viewer.state.borrow_mut().session = Some(model_session(document));
+        super::restore_edit_state(&built.viewer, preserved);
+
+        {
+            let state = built.viewer.state.borrow();
+            let session = state.session.as_ref().expect("a session was installed");
+            assert!(
+                session.stamp_surfaces.contains_key(&AnnotationId(3)),
+                "a stamp's decoded bitmap is keyed by an id the reopen does not change"
+            );
+            assert!(
+                session.selection.is_none(),
+                "a text selection names a backend page position and must not survive"
+            );
+            assert!(
+                session.search.is_none(),
+                "search matches name backend page positions and must not survive"
+            );
+        }
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
     }
 }

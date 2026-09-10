@@ -65,7 +65,7 @@ fn gtk_ui_a_page_with_no_base_page_resolves_to_nothing() {
         assert!(command(viewer, |session| {
             let document = model(session)?;
             let page = Page::blank(PageId(3), PageSize::A4, PageOrientation::Portrait);
-            apply_command(document, Command::InsertPage { index: 0, page });
+            apply_command(document, Command::insert_page(0, page));
             Ok("Inserted page.".into())
         }));
 

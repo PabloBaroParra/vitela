@@ -2,10 +2,10 @@
 
 use super::*;
 use crate::app::home::EDITOR_PAGE;
-use crate::app::state::{AnnotationAccess, ContentEditAccess, PageAssemblyAccess, TextAccess};
+use crate::app::test_fixtures::{a_highlight, model_session};
 use crate::app::ui_tests::built_ui;
 use crate::app::BuiltUi;
-use pdf_document::{Orientation as PageOrientation, Page, PageId, PageSize};
+use pdf_document::{AnnotationId, Orientation as PageOrientation, Page, PageId, PageSize};
 
 thread_local! {
     static THUMBNAILS: RefCell<Option<Vec<(u32, Picture)>>> = const { RefCell::new(None) };
@@ -35,50 +35,7 @@ fn with_organize(test: impl FnOnce(&Viewer)) {
             )
         })
         .collect();
-    // A freshly opened document: the handle holds exactly these pages in
-    // exactly this order, which is what `show_document` installs.
-    let backend_pages: Vec<PageId> = document.pages.iter().map(|page| page.id).collect();
-    built.viewer.state.borrow_mut().session = Some(DocumentSession {
-        // SAFETY: DocumentHandle wraps a u64. This model-only fixture never
-        // submits the handle to PDFium; thumbnail requests are captured below.
-        document: unsafe { std::mem::zeroed() },
-        text_access: TextAccess::Allowed,
-        annotation_access: AnnotationAccess::Allowed,
-        content_edit_access: ContentEditAccess::Allowed,
-        page_assembly_access: PageAssemblyAccess::Allowed,
-        document_model: Some(document),
-        backend_pages,
-        save_backing: None,
-        unsaved_to_disk: false,
-        edit_revision: 0,
-        next_annotation_id: 0,
-        selected_annotation: None,
-        next_form_field_id: 0,
-        selected_form_field: None,
-        form_placement: None,
-        form_field_drag: None,
-        stamp_surfaces: Default::default(),
-        placement: None,
-        annotation_drag: None,
-        content_editor: None,
-        selected_image: None,
-        image_drag: None,
-        text_drag: None,
-        physical_width: 800,
-        physical_height: 600,
-        scale_factor: 1,
-        pages: Vec::new(),
-        page_heights: Vec::new(),
-        last_visible: None,
-        search: None,
-        next_search_id: 0,
-        selection: None,
-        active: Default::default(),
-        next_render_id: 0,
-        zoom: crate::app::layout::Zoom::FitWidth,
-        zoom_generation: 0,
-        active_tiles: Default::default(),
-    });
+    built.viewer.state.borrow_mut().session = Some(model_session(document));
     THUMBNAILS.set(Some(Vec::new()));
     show(&built.viewer);
     built.window.present();
@@ -215,6 +172,52 @@ fn gtk_ui_delete_enables_bound_history_and_round_trips_the_grid() {
     });
 }
 
+/// Deleting a page through the Organize screen must take that page's
+/// annotations with it, and undo must bring both back.
+///
+/// Not cosmetic: an annotation left naming a deleted `PageId` is refused by
+/// `pdf_save::attach_annotations`, so the orphan would make every later save
+/// — and every preview refresh — fail until the user undid the delete.
+#[gtk::test]
+fn gtk_ui_delete_takes_the_pages_annotations_with_it_and_undo_restores_them() {
+    with_organize(|viewer| {
+        {
+            let mut session = session(viewer);
+            let document = model(&mut session).unwrap();
+            document.annotations.insert(a_highlight(1, PageId(1)));
+            document.annotations.insert(a_highlight(2, PageId(2)));
+        }
+
+        delete_button(viewer, 1).emit_clicked();
+        {
+            let mut session = session(viewer);
+            let document = model(&mut session).unwrap();
+            assert_eq!(
+                document
+                    .annotations
+                    .iter()
+                    .map(|a| a.id)
+                    .collect::<Vec<_>>(),
+                vec![AnnotationId(2)],
+                "only the annotation on the deleted page should be gone"
+            );
+        }
+
+        history_button(viewer, "Undo").emit_clicked();
+        let mut session = session(viewer);
+        let document = model(&mut session).unwrap();
+        assert_eq!(
+            document
+                .annotations
+                .iter()
+                .map(|a| a.id)
+                .collect::<Vec<_>>(),
+            vec![AnnotationId(1), AnnotationId(2)],
+            "undo must restore the annotation at the position it held"
+        );
+    });
+}
+
 #[gtk::test]
 fn gtk_ui_move_round_trips_order_labels_and_thumbnail_requests() {
     with_organize(|viewer| {
@@ -294,7 +297,7 @@ fn gtk_ui_insert_page_history_rebuilds_in_both_directions() {
         assert!(command(viewer, |session| {
             let document = model(session)?;
             let page = Page::blank(PageId(3), PageSize::A4, PageOrientation::Portrait);
-            apply_command(document, Command::InsertPage { index: 1, page });
+            apply_command(document, Command::insert_page(1, page));
             Ok("Inserted page.".into())
         }));
         populate_grid(viewer);
