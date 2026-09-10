@@ -1105,7 +1105,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [ ] Probar páginas con atributos heredados y árboles de páginas anidados.
 - [x] Probar colisiones de identificadores entre documentos.
 - [x] Probar enlaces entre páginas importadas.
-- [ ] Probar anotaciones y sus streams de apariencia.
+- [x] Probar anotaciones y sus streams de apariencia.
 - [ ] Probar formularios, campos homónimos y widgets.
 - [x] Probar marcadores y destinos con nombre según la política acordada.
 - [ ] Probar fuentes cifradas y permisos insuficientes.
@@ -1130,6 +1130,7 @@ concreto, no por olvido.
 | Marcadores y destinos con nombre | `graft_destinations.rs` para destinos; `graft_structures.rs` para marcadores (`only_the_bookmarks_pointing_into_the_selection_are_reported`, `importing_every_page_reports_every_bookmark`, `an_ordinary_import_reports_nothing_at_all`) |
 | Documento principal cifrado, credenciales completas e incompletas | `pdf-manip/tests/encrypted_open.rs`: contraseña de usuario correcta, de propietario correcta, ambas conservando el contrato de cifrado, contraseña incorrecta rechazada sin pánico, y contraseña ausente rechazada |
 | Errores sin mutaciones parciales | `edit_log`: `an_empty_import_changes_neither_history_nor_redo`, `removing_a_mismatched_imported_batch_is_rejected_before_mutating`, `an_out_of_range_import_is_rejected_without_losing_redo`, `invalid_move_pages_commands_are_rejected_before_mutating`, `rejected_move_pages_preserves_undo_and_redo_history`. En el guardado: `a_refused_import_writes_nothing_at_all` y la guarda de `replay_page_ops` que rechaza antes de copiar el primer objeto |
+| Anotaciones y sus streams de apariencia | `graft_pages_carries_an_annotations_appearance_streams` recorre página → `/Annots` → `/AP` → estados `/N` y `/R` (ambos), y desde el stream normal → `/Resources` → `/Font` → la fuente con la que dibuja |
 | Determinismo con reloj e ids inyectados | `strategy::tests::full_rewrite_with_fixed_options_is_byte_identical_across_runs` compara dos guardados completos; `clock.rs` prueba `FixedClock` y `SequentialIdGenerator` por separado, incluido `two_sequential_generators_with_same_seed_produce_identical_sequences` |
 
 Lo que sigue abierto, y por qué:
@@ -1143,13 +1144,6 @@ Lo que sigue abierto, y por qué:
   páginas colgando; ninguna mete un `Pages` dentro de otro `Pages`, que es
   donde la herencia recorre más de un salto y donde un `/Parent` mal
   reescrito no se notaría.
-- **Anotaciones y sus streams de apariencia** — `graft_pages_carries_the_page_annotations`
-  comprueba que el objeto de la anotación se copia, no solo que se
-  referencia. No comprueba `/AP`. El módulo `graft.rs` dice en su doc que
-  copia las anotaciones "con sus streams de apariencia", y probablemente sea
-  cierto porque el copiado sigue el grafo de objetos — pero **eso no está
-  fijado por ningún test**, y una anotación sin apariencia se dibuja distinta
-  según el visor. Es el hueco más barato de cerrar de los cuatro.
 - **Formularios, campos homónimos y widgets** — no se puede probar todavía.
   La política de §4 es rechazar una página con widgets AcroForm, y eso sí
   está probado (`graft_pages_rejects_a_selected_page_with_a_form_field_widget`,

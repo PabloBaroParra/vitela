@@ -16,6 +16,7 @@ use lopdf::{
 };
 use pdf_manip::LopdfDocument;
 
+pub mod appearance;
 pub mod structures;
 
 /// Builds a minimal, valid, unencrypted PDF with one page per label in
