@@ -859,7 +859,10 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   --locked` (360 aprobadas), `cargo clippy --workspace --all-targets --locked
   -- -D warnings`. En Windows: `cargo fmt --all -- --check`, `git diff --check`
   y `python scripts/check_maintainability.py` (104 avisos, línea base sin
-  cambios). El empaquetado y smoke test de Linux sigue sin verificarse.
+  cambios). El smoke de empaquetado (`package_smoke`, 2 aprobadas) sí corrió
+  esta vez: esta copia tiene el `libpdfium.so` vendorizado, que es lo que
+  faltaba en las entregas anteriores. La suite GTK4 corrió bajo WSLg con
+  display real, no bajo `xvfb-run`; ese gate concreto es el de CI.
 
 ### Progreso del refresco de PDFium
 
