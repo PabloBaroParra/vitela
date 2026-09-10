@@ -124,6 +124,14 @@ fn history(viewer: &Viewer, undo: bool) {
     if is_page_structure_edit {
         crate::app::organize::refresh_if_visible(viewer);
     }
+    // A content edit is the one step that can change what a page *looks* like
+    // while the Organize grid is holding a card it already rendered — this
+    // screen's own header carries Undo/Redo, so it needs no trip to the
+    // editor. The refresh below cannot tell that apart on its own, so say so
+    // here, where the kind of step is already known.
+    if is_content_edit {
+        crate::app::organize::invalidate_thumbnails(viewer);
+    }
 
     // Only a full refresh shows the real result of undoing/redoing a content
     // edit (T-163, decision 6) — an annotation's overlay already painted the

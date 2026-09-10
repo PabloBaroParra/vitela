@@ -38,7 +38,7 @@
 //! order into the right `pdf_manip` calls at save time, so this module never
 //! calls `pdf_manip` itself.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -53,7 +53,7 @@ use crate::app::document::show_save_chooser;
 use crate::app::icons::{build_icon, Icon, ACCENT_TINT};
 use crate::app::render::render_result;
 use crate::app::state::{
-    DocumentSession, OrganizePanel, RenderedPage, Viewer, CONTENT_MODEL_UNAVAILABLE,
+    Card, Cards, DocumentSession, OrganizePanel, RenderedPage, Viewer, CONTENT_MODEL_UNAVAILABLE,
 };
 
 use super::tools_panel::panel_heading;
@@ -134,7 +134,21 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
     grid.set_min_children_per_line(2);
     grid.set_valign(gtk::Align::Start);
 
-    let cards = Rc::new(RefCell::new(Vec::new()));
+    let cards = Cards::new();
+
+    // The grid's order is a *sort*, not an insertion order: `cards` is the
+    // running truth for "which page is at which position", and this reads it.
+    // Reordering that way is what lets [`reorder_cards`] move a page without
+    // touching a single widget — see its own doc for why the obvious
+    // remove/insert is not available here.
+    grid.set_sort_func({
+        let cards = cards.clone();
+        move |a, b| {
+            sort_position(&cards, a)
+                .cmp(&sort_position(&cards, b))
+                .into()
+        }
+    });
 
     let scroll = ScrolledWindow::builder()
         .vexpand(true)
@@ -147,6 +161,7 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
         OrganizePanel {
             grid,
             cards,
+            thumbnails_stale: Rc::new(Cell::new(false)),
             add_pdfs_button: add_pdfs,
             import_progress,
             cancel_import_button: cancel_import,
@@ -215,6 +230,90 @@ pub(crate) fn refresh_if_visible(viewer: &Viewer) {
     }
 }
 
+/// Marks every card's thumbnail as no longer trustworthy, so the next
+/// `document::refresh_preview` rebuilds the grid instead of keeping the
+/// pixels already on it.
+///
+/// Called from `annotations::command::history` when the step it replayed was
+/// a *content* edit. That is the one thing that can repaint a page while this
+/// screen holds cards for it: the Undo/Redo buttons sit in this screen's own
+/// header, so a user standing in Organize can undo the text edit they made on
+/// the editor and change a page's pixels without ever leaving the grid.
+/// Page-structure steps do not need it — they shuffle, add or drop whole
+/// pages, and never touch what a surviving page looks like.
+pub(crate) fn invalidate_thumbnails(viewer: &Viewer) {
+    viewer.organize.thumbnails_stale.set(true);
+}
+
+/// What the grid needs after `document::refresh_preview`'s in-memory
+/// save-and-reopen lands, which is usually nothing.
+///
+/// The reopen swaps the pdfium handle every thumbnail was rendered against,
+/// but a rendered thumbnail is a `Pixbuf` the card already owns — the new
+/// handle does not invalidate it, only [`invalidate_thumbnails`] does. So the
+/// work here is limited to cards that never got a thumbnail at all: an
+/// inserted or imported page renders as a placeholder until the handle that
+/// finally holds it exists, and a render still in flight when the handle was
+/// swapped is dropped by [`spawn_thumbnail`]'s own guard.
+///
+/// This used to be [`refresh_if_visible`], which meant every page move paid
+/// for a second full re-render of the whole grid on top of the one the drop
+/// had already done — on a fifty-page document, a hundred pdfium renders to
+/// show a page in a different place.
+pub(crate) fn refresh_after_reopen(viewer: &Viewer) {
+    if viewer.view_stack.visible_child_name().as_deref() != Some(ORGANIZE_PAGE) {
+        return;
+    }
+    if viewer.organize.thumbnails_stale.get() {
+        populate_grid(viewer);
+        return;
+    }
+    fill_missing_thumbnails(viewer);
+}
+
+/// Renders the thumbnails of cards that do not have one yet, against the
+/// handle as it is now, and leaves every painted card alone.
+///
+/// Falls back to a full [`populate_grid`] when the grid and the model
+/// disagree about how many pages there are: the two are kept in step card for
+/// card, so a mismatch means an edit reached the model by a path that never
+/// told the grid, and guessing which card belongs to which page from there
+/// would paint the wrong page's picture onto a card.
+fn fill_missing_thumbnails(viewer: &Viewer) {
+    let Some((backend_indexes, handle)) = backend_indexes(viewer) else {
+        return;
+    };
+    let cards = viewer.organize.cards.snapshot();
+    if cards.len() != backend_indexes.len() {
+        populate_grid(viewer);
+        return;
+    }
+    for (card, backend_index) in cards.iter().zip(backend_indexes) {
+        let Some(backend_index) = backend_index else {
+            continue;
+        };
+        if card.picture.paintable().is_some() {
+            continue;
+        }
+        spawn_thumbnail(viewer, handle, backend_index as u32, card.picture.clone());
+    }
+}
+
+/// A grid child's position in `cards` — the key [`build_organize_panel`]'s
+/// sort function orders by.
+///
+/// A child that is not in `cards` sorts last rather than panicking: GTK is
+/// free to compare a child at any point, including one [`populate_grid`] has
+/// appended but not registered yet, and an arbitrary-but-stable answer there
+/// is corrected by the `invalidate_sort` that follows any real reorder.
+fn sort_position(cards: &Cards, child: &gtk::FlowBoxChild) -> usize {
+    child
+        .child()
+        .and_then(|widget| widget.downcast::<GtkBox>().ok())
+        .and_then(|root| cards.position(&root))
+        .unwrap_or(usize::MAX)
+}
+
 pub(crate) fn document_changed(viewer: &Viewer) {
     import::document_changed(viewer);
 }
@@ -225,58 +324,59 @@ pub(crate) fn document_changed(viewer: &Viewer) {
 /// refusal check keeps that from happening on the path a user actually takes.
 fn populate_grid(viewer: &Viewer) {
     let grid = viewer.organize.grid.clone();
-    for (card, _) in viewer.organize.cards.borrow_mut().drain(..) {
-        grid.remove(&card);
+    for card in viewer.organize.cards.take_all() {
+        grid.remove(&card.root);
     }
+    // A rebuild renders every card from the handle as it is now, which is
+    // exactly what `thumbnails_stale` was asking for.
+    viewer.organize.thumbnails_stale.set(false);
 
-    let (backend_indexes, handle) = {
-        let state = viewer.state.borrow();
-        let Some(session) = state.session.as_ref() else {
-            return;
-        };
-        let Some(model) = session.document_model.as_ref() else {
-            return;
-        };
-        // One card per *model* page, in model order, but each thumbnail asked
-        // for by the page's index in the open pdfium handle — the two orders
-        // are not the same number while a page op is waiting for its preview
-        // refresh, and `page.id.0` is neither of them once pages can be
-        // imported. `None` is a page the handle does not hold yet (an insert
-        // whose refresh has not landed): its card shows the placeholder until
-        // it does.
-        let backend_indexes: Vec<Option<usize>> = model
-            .pages
-            .iter()
-            .map(|page| session.backend_index(page.id))
-            .collect();
-        (backend_indexes, session.document)
+    let Some((backend_indexes, handle)) = backend_indexes(viewer) else {
+        return;
     };
 
     for (position, backend_index) in backend_indexes.into_iter().enumerate() {
-        let (card, picture, number_label) = build_card(viewer, &grid, &viewer.organize.cards);
-        number_label.set_text(&(position + 1).to_string());
-        grid.append(&card);
-        viewer
-            .organize
-            .cards
-            .borrow_mut()
-            .push((card, number_label));
+        let card = build_card(viewer, &grid, &viewer.organize.cards);
+        card.number.set_text(&(position + 1).to_string());
+        // Registered before it is appended, not after: `grid.append` sorts the
+        // new child by `sort_position`, which can only answer for a card
+        // `cards` already holds.
+        viewer.organize.cards.push(card.clone());
+        grid.append(&card.root);
         if let Some(backend_index) = backend_index {
-            spawn_thumbnail(viewer, handle, backend_index as u32, picture);
+            spawn_thumbnail(viewer, handle, backend_index as u32, card.picture);
         }
     }
 }
 
+/// One entry per *model* page, in model order, holding that page's index in
+/// the open pdfium handle — plus the handle itself.
+///
+/// The two orders are not the same number while a page op is waiting for its
+/// preview refresh, and `page.id.0` is neither of them once pages can be
+/// imported, so every thumbnail is asked for through this rather than off a
+/// grid position. `None` is a page the handle does not hold yet (an insert
+/// whose refresh has not landed): its card shows the placeholder until it
+/// does.
+///
+/// `None` for the whole thing means there is no session or no model to read —
+/// every caller leaves the grid as it found it.
+fn backend_indexes(viewer: &Viewer) -> Option<(Vec<Option<usize>>, DocumentHandle)> {
+    let state = viewer.state.borrow();
+    let session = state.session.as_ref()?;
+    let model = session.document_model.as_ref()?;
+    let backend_indexes = model
+        .pages
+        .iter()
+        .map(|page| session.backend_index(page.id))
+        .collect();
+    Some((backend_indexes, session.document))
+}
+
 /// Builds one card: a thumbnail placeholder, its page-number label, and a
 /// delete button — plus the drag source that lets the whole card be picked
-/// up and dropped elsewhere in the grid. Returns the card, its `Picture` (for
-/// `spawn_thumbnail` to fill in once the render lands), and its number label
-/// (for `populate_grid`/`renumber` to keep current).
-fn build_card(
-    viewer: &Viewer,
-    grid: &FlowBox,
-    cards: &Rc<RefCell<Vec<(GtkBox, Label)>>>,
-) -> (GtkBox, Picture, Label) {
+/// up and dropped elsewhere in the grid.
+fn build_card(viewer: &Viewer, grid: &FlowBox, cards: &Cards) -> Card {
     let card = GtkBox::new(Orientation::Vertical, 6);
     card.add_css_class("organize-card");
 
@@ -306,7 +406,7 @@ fn build_card(
         let card = card.clone();
         let cards = cards.clone();
         move |_, _, _| {
-            let index = card_position(&cards, &card)?;
+            let index = cards.position(&card)?;
             Some(gdk::ContentProvider::for_value(&glib::Value::from(
                 index as i32,
             )))
@@ -320,51 +420,35 @@ fn build_card(
         let cards = cards.clone();
         let card = card.clone();
         move |_| {
-            let Some(index) = card_position(&cards, &card) else {
+            let Some(index) = cards.position(&card) else {
                 return;
             };
             if delete_page(&viewer, index) {
                 grid.remove(&card);
-                cards.borrow_mut().remove(index);
+                cards.remove(index);
                 renumber(&cards);
             }
         }
     });
 
-    (card, picture, number_label)
-}
-
-/// `card`'s position in `cards` — the single source of truth for "where is
-/// this card right now", read fresh on every drag or delete rather than
-/// cached on the card itself, so it can never disagree with what is on
-/// screen.
-fn card_position(cards: &Rc<RefCell<Vec<(GtkBox, Label)>>>, card: &GtkBox) -> Option<usize> {
-    cards.borrow().iter().position(|(root, _)| root == card)
+    Card {
+        root: card,
+        number: number_label,
+        picture,
+    }
 }
 
 /// Relabels every card's page-number to its current position — cheap text
 /// updates, never a re-render, called after any move or delete.
-fn renumber(cards: &Rc<RefCell<Vec<(GtkBox, Label)>>>) {
-    for (position, (_, label)) in cards.borrow().iter().enumerate() {
-        label.set_text(&(position + 1).to_string());
+fn renumber(cards: &Cards) {
+    for (position, card) in cards.snapshot().iter().enumerate() {
+        card.number.set_text(&(position + 1).to_string());
     }
 }
 
 /// The grid's single drop handler: finds which card the pointer landed on,
-/// records the move in `Document.pages` via `Command::MovePage`, then
-/// rebuilds the grid from the model's new order.
-///
-/// This does not try to reorder the existing card widgets in place.
-/// `gtk_flow_box_remove` on this GTK4 build does not release a widget's
-/// parent — not synchronously inside this callback, and not even a full
-/// main-loop iteration later via `glib::idle_add_local_once` (both tried and
-/// reproduced with 2 cards, from=0 to=1: moving a card to become the *last*
-/// one). Any `insert`/`append` of that widget back into the same grid then
-/// fails `gtk_flow_box_child_set_child`'s assertion and silently drops the
-/// card. [`populate_grid`] sidesteps it entirely by only ever building fresh
-/// cards and appending them into an emptied grid — the same path the screen
-/// already uses on open — at the cost of re-rendering every thumbnail on
-/// every move rather than just reparenting one card.
+/// records the move in `Document.pages` via `Command::MovePage`, then moves
+/// the card to match.
 fn handle_drop(viewer: &Viewer, value: &glib::Value, x: f64, y: f64) -> bool {
     let grid = &viewer.organize.grid;
     let cards = &viewer.organize.cards;
@@ -376,25 +460,49 @@ fn handle_drop(viewer: &Viewer, value: &glib::Value, x: f64, y: f64) -> bool {
     let Some(target) = grid.child_at_pos(x as i32, y as i32) else {
         return false;
     };
-    let Some(target_widget) = target.child() else {
-        return false;
-    };
-    let Some(to) = cards
-        .borrow()
-        .iter()
-        .position(|(root, _)| root.upcast_ref::<gtk::Widget>().eq(&target_widget))
+    let Some(target_card) = target
+        .child()
+        .and_then(|widget| widget.downcast::<GtkBox>().ok())
     else {
         return false;
     };
-    if from == to || from >= cards.borrow().len() {
+    let Some(to) = cards.position(&target_card) else {
+        return false;
+    };
+    if from == to || from >= cards.len() {
         return false;
     }
 
     if !move_page(viewer, from, to) {
         return false;
     }
-    populate_grid(viewer);
+    reorder_cards(viewer, from, to);
     true
+}
+
+/// Moves the card at `from` to `to`, mirroring what `Command::MovePage` just
+/// did to `Document.pages` (see `Cards::move_card` for the mirroring itself).
+///
+/// Nothing is re-rendered and no widget changes parent. `cards` is the sort
+/// key (see [`build_organize_panel`]), so reordering the vector *is* the
+/// reorder, and `invalidate_sort` is what tells the grid to read it again.
+/// Each card keeps the `Picture` it was built with, which matters twice over:
+/// the thumbnail it already painted is still that page's thumbnail, and a
+/// render still in flight is still aimed at the card it was started for.
+///
+/// The obvious alternative — pulling the card out of the grid and inserting
+/// it at the new index — is not available. `gtk_flow_box_remove` on this GTK4
+/// build does not release a widget's parent: not synchronously inside this
+/// callback, and not a full main-loop iteration later via
+/// `glib::idle_add_local_once` either (both tried, reproduced with 2 cards,
+/// from=0 to=1 — moving a card to become the *last* one). Any `insert` or
+/// `append` of that widget back into the same grid then fails
+/// `gtk_flow_box_child_set_child`'s assertion and silently drops the card.
+/// Sorting never asks the grid to move anything, so it never meets that bug.
+fn reorder_cards(viewer: &Viewer, from: usize, to: usize) {
+    viewer.organize.cards.move_card(from, to);
+    viewer.organize.grid.invalidate_sort();
+    renumber(&viewer.organize.cards);
 }
 
 /// Renders one card's thumbnail off the main thread and fills its `Picture`

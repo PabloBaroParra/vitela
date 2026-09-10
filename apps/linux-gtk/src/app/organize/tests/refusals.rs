@@ -29,7 +29,7 @@ fn one_password_security() -> pdf_document::SecurityContext {
 #[gtk::test]
 fn gtk_ui_refused_and_failed_commands_leave_cards_and_history_untouched() {
     with_organize(|viewer| {
-        let cards = viewer.organize.cards.borrow().clone();
+        let cards = viewer.organize.cards.snapshot();
         session(viewer).content_edit_access = ContentEditAccess::Forbidden;
         delete_button(viewer, 1).emit_clicked();
         assert!(!drop_on(viewer, 0, 2));
@@ -63,7 +63,7 @@ fn gtk_ui_refused_and_failed_commands_leave_cards_and_history_untouched() {
         session(viewer).document_model = None;
         delete_button(viewer, 1).emit_clicked();
         assert!(!drop_on(viewer, 0, 2));
-        assert_eq!(*viewer.organize.cards.borrow(), cards);
+        assert_eq!(viewer.organize.cards.snapshot(), cards);
         let state = viewer.state.borrow();
         let session = state.session.as_ref().unwrap();
         assert_eq!(session.edit_revision, 0);

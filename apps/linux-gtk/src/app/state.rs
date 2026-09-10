@@ -608,19 +608,117 @@ pub(crate) struct MetadataPanel {
     pub(crate) mod_offset: Rc<Cell<PdfDateOffset>>,
 }
 
+/// One card in the Organize grid: its root box, the page-number label
+/// `organize::renumber` keeps current, and the `Picture`
+/// `organize::spawn_thumbnail` fills in once a render lands.
+///
+/// The `Picture` is held rather than fished out of `root`'s children so that
+/// "which widget is this card's thumbnail" is a field and not a convention
+/// about child order that four call sites have to agree on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Card {
+    pub(crate) root: GtkBox,
+    pub(crate) number: Label,
+    pub(crate) picture: Picture,
+}
+
+/// The Organize grid's running order — which page sits at which position —
+/// and the only way to change it.
+///
+/// The grid orders its children by a `FlowBox` sort function that reads this
+/// on every comparison, and GTK is free to sort inside `append`, `remove` or
+/// `invalidate_sort`. A `RefMut` still alive when one of those runs is a
+/// `BorrowMutError` — a runtime panic, in whatever unrelated feature happened
+/// to be holding it.
+///
+/// So this type never hands one out. Every method takes its borrow, finishes
+/// with it, and drops it before returning, which leaves the caller's GTK work
+/// outside the borrow *by construction* rather than by remembering to wrap it
+/// in a block. That is the whole reason it is a type and not a plain
+/// `Rc<RefCell<Vec<Card>>>`.
+#[derive(Clone)]
+pub(crate) struct Cards(Rc<RefCell<Vec<Card>>>);
+
+impl Cards {
+    pub(crate) fn new() -> Self {
+        Self(Rc::new(RefCell::new(Vec::new())))
+    }
+
+    /// The cards as they stand. A clone rather than a borrow, so a caller can
+    /// walk it while touching the grid — the common shape of the work here.
+    pub(crate) fn snapshot(&self) -> Vec<Card> {
+        self.0.borrow().clone()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.borrow().len()
+    }
+
+    /// Empties the order and returns what was in it, for the caller to
+    /// unparent outside the borrow.
+    pub(crate) fn take_all(&self) -> Vec<Card> {
+        self.0.borrow_mut().drain(..).collect()
+    }
+
+    /// Appends `card` at the end. Call this *before* handing the card to the
+    /// grid: the sort function can only place a card this already holds.
+    pub(crate) fn push(&self, card: Card) {
+        self.0.borrow_mut().push(card);
+    }
+
+    /// Moves the card at `from` to `to` — a `remove` then an `insert`, the
+    /// same two steps in the same order as `Command::MovePage`, so the grid
+    /// cannot drift from `Document.pages`.
+    ///
+    /// Out-of-range indices are ignored rather than panicking. The model and
+    /// this order are maintained separately, and a disagreement between them
+    /// is a bug worth a wrong-looking grid — not worth taking the window down
+    /// with an unwrap in a drop handler.
+    pub(crate) fn move_card(&self, from: usize, to: usize) {
+        let mut cards = self.0.borrow_mut();
+        if from >= cards.len() || to >= cards.len() {
+            return;
+        }
+        let card = cards.remove(from);
+        cards.insert(to, card);
+    }
+
+    /// Drops the card at `index`, ignoring an out-of-range one for the same
+    /// reason [`Self::move_card`] does.
+    pub(crate) fn remove(&self, index: usize) {
+        let mut cards = self.0.borrow_mut();
+        if index < cards.len() {
+            cards.remove(index);
+        }
+    }
+
+    /// Where `root`'s card sits right now, by widget identity.
+    ///
+    /// Read fresh on every drag, drop and delete rather than cached on the
+    /// card, so it can never disagree with what is on screen.
+    pub(crate) fn position(&self, root: &GtkBox) -> Option<usize> {
+        self.0.borrow().iter().position(|card| &card.root == root)
+    }
+}
+
 /// The "Organize pages" screen's static chrome — see `organize` module docs.
 ///
-/// `cards` is the single source of truth for "which card sits where": each
-/// entry is a card's root widget and its page-number label, in display
-/// order, kept in lockstep with `grid`'s own child order by every move and
-/// delete. Nothing caches a position *on* a card — a drag or delete always
-/// looks it up fresh by scanning `cards`, so it can never disagree with what
-/// is actually on screen. Status messages go through the shared
-/// `Viewer::status` bar, the same as every other feature module's.
+/// [`Cards`] is the single source of truth for "which card sits where", and
+/// `grid` does not keep an order of its own: it sorts its children by their
+/// position in `cards`, so the two cannot disagree. Status messages go
+/// through the shared `Viewer::status` bar, the same as every other feature
+/// module's.
 #[derive(Clone)]
 pub(crate) struct OrganizePanel {
     pub(crate) grid: FlowBox,
-    pub(crate) cards: Rc<RefCell<Vec<(GtkBox, Label)>>>,
+    pub(crate) cards: Cards,
+    /// Set when something that changes a page's *pixels* — as opposed to the
+    /// page set's order — has landed while the grid still holds the cards it
+    /// rendered before. `organize::refresh_after_reopen` reads it to decide
+    /// between re-rendering every card and merely filling in the ones that
+    /// never got a thumbnail; `organize::populate_grid` clears it, because a
+    /// full rebuild is exactly what it means.
+    pub(crate) thumbnails_stale: Rc<Cell<bool>>,
     pub(crate) add_pdfs_button: Button,
     pub(crate) import_progress: ProgressBar,
     pub(crate) cancel_import_button: Button,

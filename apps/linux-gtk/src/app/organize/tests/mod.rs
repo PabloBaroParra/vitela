@@ -1,5 +1,7 @@
 //! Built-window behavior with thumbnail requests captured at the renderer boundary.
 
+use std::cell::RefCell;
+
 use super::*;
 use crate::app::home::EDITOR_PAGE;
 use crate::app::test_fixtures::{a_highlight, model_session};
@@ -19,8 +21,23 @@ pub(super) fn capture_thumbnail(index: u32, picture: &Picture) -> bool {
             return false;
         };
         requests.push((index, picture.clone()));
+        // Stands in for the render landing. The pixel is meaningless; what
+        // matters is that the card now *has* a paintable, because
+        // `fill_missing_thumbnails` reads exactly that to tell a card it must
+        // render from one it must leave alone. Without it every card in a
+        // test would look like a placeholder for ever.
+        picture.set_pixbuf(Some(
+            &gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, true, 8, 1, 1)
+                .expect("a 1x1 pixbuf"),
+        ));
         true
     })
+}
+
+/// How many thumbnail renders have been asked for since the capture was
+/// armed. The point of most assertions below is that this does *not* move.
+fn render_count() -> usize {
+    THUMBNAILS.with_borrow(|requests| requests.as_ref().unwrap().len())
 }
 
 fn with_organize(test: impl FnOnce(&Viewer)) {
@@ -76,8 +93,8 @@ fn history_button(viewer: &Viewer, label: &str) -> Button {
 }
 
 fn delete_button(viewer: &Viewer, index: usize) -> Button {
-    let footer = viewer.organize.cards.borrow()[index]
-        .0
+    let footer = viewer.organize.cards.snapshot()[index]
+        .root
         .last_child()
         .unwrap();
     footer.last_child().unwrap().downcast().unwrap()
@@ -102,13 +119,13 @@ fn assert_grid(viewer: &Viewer, expected: &[u32]) {
     let ids: Vec<_> = page_ids.iter().map(|id| id.0).collect();
     assert_eq!(ids, expected);
     let grid = &viewer.organize.grid;
-    let cards = viewer.organize.cards.borrow();
+    let cards = viewer.organize.cards.snapshot();
     assert_eq!(cards.len(), expected.len());
-    for (index, (card, label)) in cards.iter().enumerate() {
-        assert_eq!(label.text(), (index + 1).to_string());
+    for (index, card) in cards.iter().enumerate() {
+        assert_eq!(card.number.text(), (index + 1).to_string());
         let child = grid.child_at_index(index as i32).unwrap().child().unwrap();
-        assert_eq!(&child, card.upcast_ref::<gtk::Widget>());
-        let picture = card.first_child().unwrap().downcast::<Picture>().unwrap();
+        assert_eq!(&child, card.root.upcast_ref::<gtk::Widget>());
+        let picture = card.picture.clone();
         // A card's thumbnail is asked for by the page's position in the *open
         // handle*, never by its id — the two stop being the same number the
         // moment a page op is recorded, and an imported page's id was never a
@@ -235,6 +252,124 @@ fn gtk_ui_move_round_trips_order_labels_and_thumbnail_requests() {
     });
 }
 
+/// A move is a permutation of pages that already exist, so it must cost
+/// nothing to draw. The grid used to be torn down and rebuilt on every drop,
+/// which meant one pdfium render per page per move — and then the preview
+/// refresh did it all a second time.
+#[gtk::test]
+fn gtk_ui_a_move_reorders_the_grid_without_rendering_anything_again() {
+    with_organize(|viewer| {
+        let rendered_on_open = render_count();
+        assert_eq!(rendered_on_open, 3, "opening the screen renders every page");
+
+        assert!(drop_on(viewer, 0, 2));
+
+        assert_eq!(
+            render_count(),
+            rendered_on_open,
+            "reordering pages must not re-render a single thumbnail"
+        );
+        assert_grid(viewer, &[1, 2, 0]);
+    });
+}
+
+/// The cards must survive the move as the same widgets, in the new order.
+/// That is what lets the thumbnails stay: a rebuilt card starts blank.
+#[gtk::test]
+fn gtk_ui_a_move_carries_the_same_card_widgets_into_their_new_positions() {
+    with_organize(|viewer| {
+        let before = viewer.organize.cards.snapshot();
+
+        assert!(drop_on(viewer, 0, 2));
+
+        let after = viewer.organize.cards.snapshot();
+        let mut expected = before.clone();
+        let moved = expected.remove(0);
+        expected.insert(2, moved);
+        assert_eq!(
+            after, expected,
+            "a move is a remove-then-insert of the card"
+        );
+        for card in after.iter() {
+            assert!(
+                card.picture.paintable().is_some(),
+                "a moved card keeps the thumbnail it already had"
+            );
+        }
+    });
+}
+
+/// The reopen behind a preview refresh swaps the pdfium handle, but a
+/// thumbnail already painted is a `Pixbuf` the card owns — nothing about it
+/// goes stale. Only a card that never got one has work left to do.
+#[gtk::test]
+fn gtk_ui_a_reopen_only_renders_the_cards_that_never_got_a_thumbnail() {
+    with_organize(|viewer| {
+        let rendered_on_open = render_count();
+
+        refresh_after_reopen(viewer);
+        assert_eq!(
+            render_count(),
+            rendered_on_open,
+            "a fully painted grid needs nothing from a reopen"
+        );
+
+        // Stands in for the one case that does: a card whose render was still
+        // in flight when the handle was swapped, and so was dropped.
+        viewer.organize.cards.snapshot()[1]
+            .picture
+            .set_paintable(gdk::Paintable::NONE);
+        refresh_after_reopen(viewer);
+
+        assert_eq!(
+            render_count(),
+            rendered_on_open + 1,
+            "exactly the unpainted card is rendered"
+        );
+        assert_grid(viewer, &[0, 1, 2]);
+    });
+}
+
+/// Undoing a content edit repaints a page, and the Undo button sits in this
+/// screen's own header — so the grid can be holding a card that is now a
+/// picture of the wrong thing. That is the one case where the reopen must
+/// rebuild rather than trust what is on screen.
+#[gtk::test]
+fn gtk_ui_an_invalidated_grid_re_renders_every_card_on_the_next_reopen() {
+    with_organize(|viewer| {
+        let rendered_on_open = render_count();
+
+        invalidate_thumbnails(viewer);
+        refresh_after_reopen(viewer);
+
+        assert_eq!(
+            render_count(),
+            rendered_on_open + 3,
+            "every card is rendered again, not just the blank ones"
+        );
+        assert!(
+            !viewer.organize.thumbnails_stale.get(),
+            "the rebuild is what the flag asked for, so it must clear it"
+        );
+        assert_grid(viewer, &[0, 1, 2]);
+    });
+}
+
+/// A hidden grid has nothing to keep current — the trip back through `show`
+/// rebuilds it from scratch anyway.
+#[gtk::test]
+fn gtk_ui_a_reopen_leaves_a_hidden_grid_alone() {
+    with_organize(|viewer| {
+        let rendered_on_open = render_count();
+        viewer.view_stack.set_visible_child_name(EDITOR_PAGE);
+
+        invalidate_thumbnails(viewer);
+        refresh_after_reopen(viewer);
+
+        assert_eq!(render_count(), rendered_on_open);
+    });
+}
+
 #[gtk::test]
 fn gtk_ui_no_op_move_preserves_clean_state_and_redo() {
     with_organize(|viewer| {
@@ -260,7 +395,7 @@ fn gtk_ui_no_op_move_preserves_clean_state_and_redo() {
 fn gtk_ui_non_structural_history_does_not_rebuild_and_hidden_grid_waits_for_show() {
     with_organize(|viewer| {
         assert!(drop_on(viewer, 0, 2));
-        let cards = viewer.organize.cards.borrow().clone();
+        let cards = viewer.organize.cards.snapshot();
         {
             let mut session = session(viewer);
             let document = model(&mut session).unwrap();
@@ -277,13 +412,13 @@ fn gtk_ui_non_structural_history_does_not_rebuild_and_hidden_grid_waits_for_show
         }
         viewer.undo_action.activate(None);
         viewer.redo_action.activate(None);
-        assert_eq!(*viewer.organize.cards.borrow(), cards);
+        assert_eq!(viewer.organize.cards.snapshot(), cards);
         viewer.undo_action.activate(None);
         viewer.view_stack.set_visible_child_name(EDITOR_PAGE);
         viewer.undo_action.activate(None);
         viewer.redo_action.activate(None);
         viewer.undo_action.activate(None);
-        assert_eq!(*viewer.organize.cards.borrow(), cards);
+        assert_eq!(viewer.organize.cards.snapshot(), cards);
         assert_eq!(
             viewer.view_stack.visible_child_name().as_deref(),
             Some(EDITOR_PAGE)

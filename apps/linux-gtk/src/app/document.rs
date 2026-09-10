@@ -720,10 +720,11 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                     restore_screen(&viewer, preserved_screen);
                     // The reopen replaced the handle every thumbnail on the
                     // Organize screen was rendered against, and with it the
-                    // backend page order those cards were indexed by. Rebuild
-                    // them against the handle that now exists; does nothing
+                    // backend page order those cards were indexed by. Usually
+                    // that costs the grid nothing — see the function's own
+                    // doc for what it does and does not repaint. Does nothing
                     // when that screen is not the one on show.
-                    super::organize::refresh_if_visible(&viewer);
+                    super::organize::refresh_after_reopen(&viewer);
                     // The reopened session's `PageSlot::content` caches start
                     // out empty again (`show_document` builds fresh
                     // `PageSlot`s) — without re-parsing now, the composite-
