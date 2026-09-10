@@ -13,7 +13,9 @@ use pdf_document::{Command, ImportedDocumentId, Page};
 
 use crate::app::state::{ImportedSource, SessionToken, Viewer};
 
-use super::{apply_command, command, model, populate_grid, NO_DOCUMENT};
+use super::command::{apply_command, command, model};
+use super::grid::populate_grid;
+use super::NO_DOCUMENT;
 
 const IMPORT_CANCELLED: &str = "PDF import cancelled.";
 

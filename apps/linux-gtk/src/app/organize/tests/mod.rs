@@ -2,13 +2,19 @@
 
 use std::cell::RefCell;
 
+use gtk::{gdk_pixbuf, Picture};
+
+use super::command::{apply_command, command, model, move_page};
+use super::grid::populate_grid;
 use super::*;
 use crate::app::home::EDITOR_PAGE;
+use crate::app::state::DocumentSession;
 use crate::app::test_fixtures::{a_highlight, model_session};
 use crate::app::ui_tests::built_ui;
 use crate::app::BuiltUi;
 use pdf_document::{
-    AnnotationId, ImportedDocumentId, Orientation as PageOrientation, Page, PageId, PageSize,
+    AnnotationId, Command, Document, ImportedDocumentId, Orientation as PageOrientation, Page,
+    PageId, PageSize,
 };
 
 thread_local! {

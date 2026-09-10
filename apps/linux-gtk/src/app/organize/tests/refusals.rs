@@ -11,7 +11,7 @@ use super::*;
 // Named explicitly rather than left to the glob above: `super` reaches these
 // only by re-exporting its own glob of `organize`, and a reader of this file
 // should not have to reconstruct that chain to find where they live.
-use crate::app::organize::{delete_page, model, move_page};
+use crate::app::organize::command::{delete_page, model, move_page};
 use crate::app::state::{ContentEditAccess, PageAssemblyAccess};
 
 /// An encrypted document opened the only way this shell can open one today:
