@@ -117,22 +117,15 @@ impl DocumentState {
                 }
                 let id = self.allocate_page_id();
                 let page = Page::blank(id, size.into(), orientation.into());
-                Command::InsertPage {
-                    index: index as usize,
-                    page,
-                }
+                Command::insert_page(index as usize, page)
             }
             FfiEditCommand::RemovePage { index } => {
-                let page = self
-                    .document
-                    .pages
-                    .get(index as usize)
-                    .cloned()
-                    .ok_or(FfiError::PageIndexOutOfBounds { index })?;
-                Command::RemovePage {
-                    index: index as usize,
-                    page,
-                }
+                // The constructor captures the page *and* the annotations and
+                // form fields anchored to it, so undo restores all of it as
+                // one step and the removal cannot leave behind an orphan that
+                // `pdf-save` would refuse to write.
+                Command::remove_page(&self.document, index as usize)
+                    .ok_or(FfiError::PageIndexOutOfBounds { index })?
             }
             FfiEditCommand::AddHighlight { page, rect, color } => {
                 let id = self.allocate_annotation_id();

@@ -153,6 +153,42 @@ impl FormFieldSet {
         Some(std::mem::replace(slot, field))
     }
 
+    /// Removes every field anchored to `page`, returning each one paired with
+    /// the position it held, ascending.
+    ///
+    /// `AnnotationSet::take_page`'s twin, for the same reason and with the
+    /// same consequence if skipped: `pdf_save::write_form_fields` refuses a
+    /// save whose new field names a page the saved document does not hold,
+    /// so a field left behind by a page removal makes the document
+    /// unsaveable. Positions are recorded because `/Fields` write order is
+    /// part of this type's determinism guarantee.
+    pub fn take_page(&mut self, page: PageId) -> Vec<(usize, FormField)> {
+        let mut taken = Vec::new();
+        let mut position = 0;
+        self.fields.retain(|field| {
+            let index = position;
+            position += 1;
+            if field.page == page {
+                taken.push((index, field.clone()));
+                false
+            } else {
+                true
+            }
+        });
+        taken
+    }
+
+    /// Puts fields captured by [`FormFieldSet::take_page`] back where they
+    /// were. See `AnnotationSet::restore` for why ascending order is what
+    /// makes each recorded position land correctly, and why an entry that no
+    /// longer fits is clamped rather than allowed to panic.
+    pub fn restore(&mut self, taken: Vec<(usize, FormField)>) {
+        for (index, field) in taken {
+            let at = index.min(self.fields.len());
+            self.fields.insert(at, field);
+        }
+    }
+
     pub fn get(&self, id: FormFieldId) -> Option<&FormField> {
         self.fields.iter().find(|f| f.id == id)
     }
@@ -302,5 +338,58 @@ mod tests {
         set.insert(sample_field(1, "Text_1"));
 
         assert_eq!(set.unique_name("Checkbox"), "Checkbox_1");
+    }
+
+    fn on_page(id: u64, name: &str, page: u32) -> FormField {
+        let mut field = sample_field(id, name);
+        field.page = PageId(page);
+        field
+    }
+
+    #[test]
+    fn take_page_removes_only_that_page_and_records_where_each_one_sat() {
+        let mut set = FormFieldSet::new();
+        set.insert(on_page(1, "a", 0));
+        set.insert(on_page(2, "b", 1));
+        set.insert(on_page(3, "c", 0));
+        set.insert(on_page(4, "d", 1));
+
+        let taken = set.take_page(PageId(1));
+
+        assert_eq!(
+            taken.iter().map(|(at, f)| (*at, f.id)).collect::<Vec<_>>(),
+            vec![(1, FormFieldId(2)), (3, FormFieldId(4))]
+        );
+        assert_eq!(
+            set.iter().map(|f| f.id).collect::<Vec<_>>(),
+            vec![FormFieldId(1), FormFieldId(3)]
+        );
+    }
+
+    #[test]
+    fn take_page_of_a_page_with_no_fields_changes_nothing() {
+        let mut set = FormFieldSet::new();
+        set.insert(on_page(1, "a", 0));
+
+        assert!(set.take_page(PageId(9)).is_empty());
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn restore_puts_every_field_back_at_its_original_position() {
+        let mut set = FormFieldSet::new();
+        set.insert(on_page(1, "a", 0));
+        set.insert(on_page(2, "b", 1));
+        set.insert(on_page(3, "c", 0));
+        set.insert(on_page(4, "d", 1));
+        let before = set.clone();
+
+        let taken = set.take_page(PageId(1));
+        set.restore(taken);
+
+        assert_eq!(
+            set, before,
+            "take_page followed by restore must be an identity on the set"
+        );
     }
 }

@@ -307,13 +307,7 @@ fn structural_edit_forces_full_rewrite_against_a_real_file() {
         pdf_document::PageSize::A4,
         pdf_document::Orientation::Portrait,
     );
-    apply_command(
-        &mut document,
-        Command::InsertPage {
-            index: 1,
-            page: new_page,
-        },
-    );
+    apply_command(&mut document, Command::insert_page(1, new_page));
 
     let input = SaveInput {
         document: &document,
@@ -338,14 +332,14 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
     let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
     apply_command(
         &mut document,
-        Command::InsertPage {
-            index: 1,
-            page: pdf_document::Page::blank(
+        Command::insert_page(
+            1,
+            pdf_document::Page::blank(
                 PageId(99),
                 pdf_document::PageSize::A4,
                 pdf_document::Orientation::Portrait,
             ),
-        },
+        ),
     );
 
     let saved = save_document(SaveInput {
@@ -570,6 +564,85 @@ fn an_acknowledged_reorder_of_a_signed_document_saves() {
     })
     .expect("an acknowledged save proceeds");
 
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    assert_eq!(reloaded.get_pages().len(), 2);
+}
+
+/// The regression this pair of assertions exists for: before `RemovePage`
+/// carried the page's annotations with it, highlighting a page and then
+/// deleting that page left the annotation naming a `PageId` the saved
+/// document no longer held. `attach_annotations` refuses that outright, so
+/// the *whole document* became unsaveable — every Ctrl+S and every preview
+/// refresh failed with `InvalidSaveRequest` until the user undid the delete.
+#[test]
+fn deleting_an_annotated_page_leaves_the_document_saveable() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    let page1 = document.pages[1].id;
+    apply_command(&mut document, Command::AddAnnotation(highlight(1, page1.0)));
+
+    let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+    apply_command(&mut document, removal);
+    assert!(
+        document.annotations.is_empty(),
+        "the annotation must leave with the page it was drawn on"
+    );
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("a document whose annotated page was deleted must still save");
+
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    assert_eq!(reloaded.get_pages().len(), 1);
+}
+
+/// The other half of the contract: undoing that delete must put the
+/// annotation back, so the page the user gets back is the page they lost.
+#[test]
+fn undoing_the_delete_brings_the_annotation_back_and_still_saves() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    let page1 = document.pages[1].id;
+    apply_command(&mut document, Command::AddAnnotation(highlight(1, page1.0)));
+
+    let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+    apply_command(&mut document, removal);
+
+    let mut log = std::mem::take(&mut document.pending_edits);
+    log.undo(&mut document);
+    document.pending_edits = log;
+
+    assert_eq!(document.pages.len(), 2);
+    assert_eq!(
+        document
+            .annotations
+            .iter()
+            .map(|a| a.id)
+            .collect::<Vec<_>>(),
+        vec![AnnotationId(1)]
+    );
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("save should succeed");
     let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
     assert_eq!(reloaded.get_pages().len(), 2);
 }

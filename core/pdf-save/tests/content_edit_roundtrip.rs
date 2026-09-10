@@ -635,14 +635,8 @@ fn an_edit_after_a_page_deletion_still_lands_on_the_page_it_named() {
         .remove(0);
     assert_eq!(run.text, "doc page 2", "the fixture labels every page");
 
-    let removed = document.pages[0].clone();
-    apply_command(
-        &mut document,
-        Command::RemovePage {
-            index: 0,
-            page: removed,
-        },
-    );
+    let removal = Command::remove_page(&document, 0).expect("page 0 exists");
+    apply_command(&mut document, removal);
     apply_command(
         &mut document,
         Command::ReplaceTextRunContent {
@@ -703,14 +697,8 @@ fn an_edit_on_a_page_the_same_batch_deleted_is_dropped_with_the_page() {
             after: "edited".to_string(),
         },
     );
-    let removed = document.pages[0].clone();
-    apply_command(
-        &mut document,
-        Command::RemovePage {
-            index: 0,
-            page: removed,
-        },
-    );
+    let removal = Command::remove_page(&document, 0).expect("page 0 exists");
+    apply_command(&mut document, removal);
 
     let saved = save_document(SaveInput {
         document: &document,

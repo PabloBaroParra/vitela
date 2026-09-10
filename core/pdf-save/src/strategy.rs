@@ -541,10 +541,7 @@ mod tests {
     fn save_document_writes_an_inserted_page_and_annotation() {
         let mut fixture = Fixture::blank();
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 0, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(0, page));
         apply_command(
             &mut fixture.document,
             Command::AddAnnotation(pdf_document::Annotation {
@@ -580,10 +577,7 @@ mod tests {
     fn save_document_writes_a_new_form_field_that_reads_back() {
         let mut fixture = Fixture::blank();
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 0, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(0, page));
         apply_command(
             &mut fixture.document,
             Command::AddFormField(pdf_document::FormField {
@@ -627,10 +621,7 @@ mod tests {
         let build_bytes = || {
             let mut fixture = Fixture::blank();
             let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-            apply_command(
-                &mut fixture.document,
-                Command::InsertPage { index: 0, page },
-            );
+            apply_command(&mut fixture.document, Command::insert_page(0, page));
             let original_pages = fixture.original_pages();
             save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
                 .expect("save should succeed")
@@ -649,10 +640,7 @@ mod tests {
         let mut fixture = Fixture::blank();
         fixture.original_bytes = Some(vec![]);
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 0, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(0, page));
 
         let original_pages = fixture.original_pages();
         let result = save_incremental(fixture.input(), &original_pages);
@@ -855,10 +843,7 @@ mod tests {
             signatures: SignatureAcknowledgement::Unacknowledged,
         };
         let page = pdf_document::Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 1, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(1, page));
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
