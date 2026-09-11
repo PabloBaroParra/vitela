@@ -150,7 +150,8 @@ fn gtk_ui_a_move_carries_the_same_card_widgets_into_their_new_positions() {
 
 /// The reopen behind a preview refresh swaps the pdfium handle, but a
 /// thumbnail already painted is a `Pixbuf` the card owns — nothing about it
-/// goes stale. Only a card that never got one has work left to do.
+/// goes stale. Only a card that never got one has work left to do, and even
+/// that one asks pdfium for nothing while the cache still holds its page.
 #[gtk::test]
 fn gtk_ui_a_reopen_only_renders_the_cards_that_never_got_a_thumbnail() {
     with_organize(|viewer| {
@@ -163,11 +164,33 @@ fn gtk_ui_a_reopen_only_renders_the_cards_that_never_got_a_thumbnail() {
             "a fully painted grid needs nothing from a reopen"
         );
 
-        // Stands in for the one case that does: a card whose render was still
-        // in flight when the handle was swapped, and so was dropped.
-        viewer.organize.cards.snapshot()[1]
-            .picture
-            .set_paintable(gdk::Paintable::NONE);
+        // Stands in for the one case that has work to do: a card whose render
+        // was still in flight when the handle was swapped, and so was
+        // dropped.
+        let blank = || {
+            viewer.organize.cards.snapshot()[1]
+                .picture
+                .set_paintable(gdk::Paintable::NONE)
+        };
+        blank();
+        refresh_after_reopen(viewer);
+        assert_eq!(
+            render_count(),
+            rendered_on_open,
+            "a page the cache still holds is repainted from it, not re-rendered"
+        );
+        assert!(
+            viewer.organize.cards.snapshot()[1]
+                .picture
+                .paintable()
+                .is_some(),
+            "and it really is repainted"
+        );
+
+        // With the cache emptied — a fresh document, or more pages than it
+        // can hold — the same card is the one and only render.
+        viewer.organize.thumbnails.clear();
+        blank();
         refresh_after_reopen(viewer);
 
         assert_eq!(

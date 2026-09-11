@@ -19,8 +19,8 @@ use super::super::documents::source_name;
 /// Logical card size. Larger than Home's recents preview (`THUMB_WIDTH_PX`
 /// there is 108): this grid is the whole point of the screen, not one card
 /// among several.
-pub(super) const CARD_WIDTH_PX: i32 = 140;
-pub(super) const CARD_HEIGHT_PX: i32 = 180;
+pub(in crate::app::organize) const CARD_WIDTH_PX: i32 = 140;
+pub(in crate::app::organize) const CARD_HEIGHT_PX: i32 = 180;
 
 /// Builds one card: a thumbnail placeholder, the provenance line
 /// [`relabel_sources`] fills in, its page-number label and a delete button —

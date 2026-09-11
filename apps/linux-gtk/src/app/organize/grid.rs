@@ -15,7 +15,10 @@ use pdf_render::DocumentHandle;
 
 use crate::app::state::{Cards, Viewer};
 
-use card::{build_card, relabel_sources, CARD_HEIGHT_PX, CARD_WIDTH_PX};
+use card::{build_card, relabel_sources};
+/// Re-exported for the screen's tests, which need the size a page card asks
+/// for to look its own thumbnail up in the cache.
+pub(in crate::app::organize) use card::{CARD_HEIGHT_PX, CARD_WIDTH_PX};
 pub(in crate::app::organize) use drop::connect_drop;
 pub(in crate::app::organize) use thumbnail::spawn_thumbnail;
 
@@ -53,6 +56,7 @@ pub(super) fn fill_missing_thumbnails(viewer: &Viewer) {
         spawn_thumbnail(
             viewer,
             handle,
+            card.id,
             backend_index as u32,
             card.picture.clone(),
             (CARD_WIDTH_PX, CARD_HEIGHT_PX),
@@ -104,6 +108,7 @@ pub(super) fn populate_grid(viewer: &Viewer) {
             spawn_thumbnail(
                 viewer,
                 handle,
+                card.id,
                 backend_index as u32,
                 card.picture,
                 (CARD_WIDTH_PX, CARD_HEIGHT_PX),

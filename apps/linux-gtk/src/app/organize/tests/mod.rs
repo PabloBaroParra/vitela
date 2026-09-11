@@ -4,9 +4,10 @@ use std::cell::RefCell;
 
 use gtk::{gdk, gdk_pixbuf, Picture};
 
+use super::cache::ThumbnailKey;
 use super::command::{apply_command, command, model, move_page};
 use super::grid::drop::handle_drop;
-use super::grid::populate_grid;
+use super::grid::{populate_grid, CARD_HEIGHT_PX, CARD_WIDTH_PX};
 use super::*;
 use crate::app::home::EDITOR_PAGE;
 use crate::app::state::DocumentSession;
@@ -22,22 +23,24 @@ thread_local! {
     static THUMBNAILS: RefCell<Option<Vec<(u32, Picture)>>> = const { RefCell::new(None) };
 }
 
-pub(super) fn capture_thumbnail(index: u32, picture: &Picture) -> bool {
+/// Records that a render was asked for and stands in for it landing, or
+/// returns `None` when no test has armed the capture.
+///
+/// The returned pixbuf is what the caller caches, exactly as it caches a real
+/// render's result — which is what lets the assertions about the thumbnail
+/// cache be about the same code path the shell runs. The pixel itself is
+/// meaningless; what matters is that the card now *has* a paintable, because
+/// `fill_missing_thumbnails` reads exactly that to tell a card it must render
+/// from one it must leave alone. Without it every card in a test would look
+/// like a placeholder for ever.
+pub(super) fn capture_thumbnail(index: u32, picture: &Picture) -> Option<gdk_pixbuf::Pixbuf> {
     THUMBNAILS.with_borrow_mut(|requests| {
-        let Some(requests) = requests else {
-            return false;
-        };
+        let requests = requests.as_mut()?;
         requests.push((index, picture.clone()));
-        // Stands in for the render landing. The pixel is meaningless; what
-        // matters is that the card now *has* a paintable, because
-        // `fill_missing_thumbnails` reads exactly that to tell a card it must
-        // render from one it must leave alone. Without it every card in a
-        // test would look like a placeholder for ever.
-        picture.set_pixbuf(Some(
-            &gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, true, 8, 1, 1)
-                .expect("a 1x1 pixbuf"),
-        ));
-        true
+        let pixbuf = gdk_pixbuf::Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, true, 8, 1, 1)
+            .expect("a 1x1 pixbuf");
+        picture.set_pixbuf(Some(&pixbuf));
+        Some(pixbuf)
     })
 }
 
@@ -48,9 +51,16 @@ fn render_count() -> usize {
 }
 
 fn with_organize(test: impl FnOnce(&Viewer)) {
+    with_organize_of(3, test);
+}
+
+/// [`with_organize`] over a document of `pages` pages — the seam the §11
+/// measurements need, since what a view switch costs is only interesting on
+/// a document big enough for the answer to matter.
+fn with_organize_of(pages: u32, test: impl FnOnce(&Viewer)) {
     let built = built_ui();
     let mut document = Document::blank();
-    document.pages = (0..3)
+    document.pages = (0..pages)
         .map(|id| {
             Page::base(
                 PageId(id),
@@ -161,20 +171,48 @@ fn assert_grid(viewer: &Viewer, expected: &[u32]) {
         // preview refresh has not landed) is not requested and keeps its
         // placeholder.
         let expected_backend = session.backend_index(page_ids[index]);
-        THUMBNAILS.with_borrow(|requests| {
-            let requested = requests
+        let requested = THUMBNAILS.with_borrow(|requests| {
+            requests
                 .as_ref()
                 .unwrap()
                 .iter()
                 .find(|(_, requested)| *requested == picture)
-                .map(|(backend_index, _)| *backend_index as usize);
-            assert_eq!(
-                requested, expected_backend,
-                "thumbnail must be requested by backend page position"
-            );
+                .map(|(backend_index, _)| *backend_index as usize)
         });
+        // The other correct answer is a card that asked for nothing because
+        // the thumbnail cache already held its page (checklist §11). That is
+        // not a weaker assertion than the one below: the cache is keyed on
+        // the very `PageId` this loop has just checked the card carries, and
+        // the entry under it was put there by a render that went through the
+        // backend-position check itself.
+        if requested.is_none() && cached_thumbnail(viewer, &card.picture, page_ids[index]) {
+            assert!(
+                card.picture.paintable().is_some(),
+                "a cached card must be painted, not left a placeholder"
+            );
+            continue;
+        }
+        assert_eq!(
+            requested, expected_backend,
+            "thumbnail must be requested by backend page position"
+        );
     }
     assert!(grid.child_at_index(expected.len() as i32).is_none());
+}
+
+/// Whether the cache holds `page`'s thumbnail at the size and scale
+/// `picture` would have asked for.
+fn cached_thumbnail(viewer: &Viewer, picture: &Picture, page: PageId) -> bool {
+    viewer
+        .organize
+        .thumbnails
+        .get(&ThumbnailKey {
+            page,
+            width: CARD_WIDTH_PX,
+            height: CARD_HEIGHT_PX,
+            scale: picture.scale_factor().max(1),
+        })
+        .is_some()
 }
 
 /// Drops the page carrying `id` on insertion slot `slot` — `k` meaning
@@ -249,3 +287,4 @@ mod history;
 mod pages;
 mod refusals;
 mod resolution;
+mod thumbnails;

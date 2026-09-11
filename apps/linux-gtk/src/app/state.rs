@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use crate::app::organize::Thumbnails;
 use gtk::prelude::*;
 use gtk::{
     cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, FlowBox, Label, Overlay,
@@ -754,6 +755,12 @@ pub(crate) struct OrganizePanel {
     /// never got a thumbnail; `organize::grid::populate_grid` clears it, because a
     /// full rebuild is exactly what it means.
     pub(crate) thumbnails_stale: Rc<Cell<bool>>,
+    /// Rendered thumbnails kept by page, size and scale factor, so switching
+    /// between the two views — or coming back to the screen — repaints from
+    /// pixels already in hand instead of asking pdfium again (checklist
+    /// §11). `organize::invalidate_thumbnails` empties it; so does opening a
+    /// different document, whose `PageId`s start over at 0.
+    pub(crate) thumbnails: Thumbnails,
     pub(crate) add_pdfs_button: Button,
     pub(crate) import_progress: ProgressBar,
     pub(crate) cancel_import_button: Button,

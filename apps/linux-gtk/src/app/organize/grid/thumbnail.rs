@@ -6,8 +6,10 @@
 
 use gtk::prelude::*;
 use gtk::{gdk_pixbuf, gio, glib, Picture};
+use pdf_document::PageId;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderOptions};
 
+use crate::app::organize::cache::ThumbnailKey;
 use crate::app::render::render_result;
 use crate::app::state::{RenderedPage, Viewer};
 
@@ -22,29 +24,54 @@ const POINTS_PER_INCH: f64 = 72.0;
 /// the DPI is still clamped in [`thumbnail_dpi`].
 const RENDER_HEADROOM: i32 = 3;
 
-/// Renders one card's thumbnail off the main thread and fills its `Picture`
-/// in when the render lands.
+/// Fills one card's `Picture` with its page's thumbnail: straight from the
+/// cache when it holds one for this page at this size, and otherwise from a
+/// pdfium render off the main thread that caches its result on the way in.
 ///
-/// The `cfg(test)` early return is the module's one test seam, and it is here
+/// `page` and `pdfium_page_index` are deliberately both parameters and are
+/// not interchangeable. The render is asked for by the index, because that
+/// is the page's position in the open handle; the cache is keyed on the id,
+/// because that is what the page still is after a move, an import or a
+/// handle swap — see [`super::super::cache`] for why keying the cache on the
+/// index would show a moved page somebody else's picture.
+///
+/// The `cfg(test)` seam below is the module's one test hook, and it is here
 /// rather than in the tests because this is the only line where the pairing
 /// under test — *which* pdfium page index a given card asked for — still
-/// exists. `Document.pages` is reordered by `Command::MovePage`, so a card
-/// that rendered by grid position instead of by page identity would still
-/// look right in the model and wrong on screen; capturing the request is what
-/// tells the two apart. The tests cannot let the real path run: their session
-/// carries no pdfium document.
+/// exists. A card that rendered by grid position instead of by page identity
+/// would look right in the model and wrong on screen; capturing the request
+/// is what tells the two apart. The tests cannot let the real path run: their
+/// session carries no pdfium document. It sits *after* the cache lookup so
+/// that a cached card is, in a test as on screen, a card that asks pdfium for
+/// nothing.
 pub(in crate::app::organize) fn spawn_thumbnail(
     viewer: &Viewer,
     handle: DocumentHandle,
+    page: PageId,
     pdfium_page_index: u32,
     picture: Picture,
     (width_px, height_px): (i32, i32),
 ) {
-    #[cfg(test)]
-    if super::super::tests::capture_thumbnail(pdfium_page_index, &picture) {
+    let key = ThumbnailKey {
+        page,
+        width: width_px,
+        height: height_px,
+        scale: picture.scale_factor().max(1),
+    };
+    if let Some(pixbuf) = viewer.organize.thumbnails.get(&key) {
+        picture.set_pixbuf(Some(&pixbuf));
         return;
     }
-    let scale_factor = picture.scale_factor().max(1) * RENDER_HEADROOM;
+    #[cfg(test)]
+    if let Some(pixbuf) = super::super::tests::capture_thumbnail(pdfium_page_index, &picture) {
+        viewer.organize.thumbnails.insert(key, &pixbuf);
+        return;
+    }
+    let scale_factor = key.scale * RENDER_HEADROOM;
+    // Captured before the render starts, checked when it lands: a content
+    // edit between the two makes this result stale, and caching it would
+    // outlive the card it was meant for.
+    let generation = viewer.organize.thumbnails.generation();
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
@@ -66,12 +93,13 @@ pub(in crate::app::organize) fn spawn_thumbnail(
             let Ok(Ok(page)) = gio::spawn_blocking(job).await else {
                 return;
             };
-            let still_current = viewer
-                .state
-                .borrow()
-                .session
-                .as_ref()
-                .is_some_and(|session| session.document == handle);
+            let still_current = viewer.organize.thumbnails.is_current(generation)
+                && viewer
+                    .state
+                    .borrow()
+                    .session
+                    .as_ref()
+                    .is_some_and(|session| session.document == handle);
             if !still_current {
                 return;
             }
@@ -84,6 +112,7 @@ pub(in crate::app::organize) fn spawn_thumbnail(
                 page.height as i32,
                 page.stride as i32,
             );
+            viewer.organize.thumbnails.insert(key, &pixbuf);
             picture.set_pixbuf(Some(&pixbuf));
         }
     });

@@ -53,11 +53,14 @@ pub(crate) const ORGANIZE_PAGE: &str = "organize";
 pub(crate) use documents::ORGANIZE_CSS;
 
 const NO_DOCUMENT: &str = "Open a PDF before organizing its pages.";
+pub(in crate::app::organize) mod cache;
 mod command;
 mod documents;
 mod grid;
 mod import;
 mod views;
+
+pub(crate) use cache::Thumbnails;
 
 const CARDS_PER_ROW: u32 = 5;
 
@@ -162,6 +165,7 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
             grid,
             cards,
             thumbnails_stale: Rc::new(Cell::new(false)),
+            thumbnails: Thumbnails::new(),
             add_pdfs_button: add_pdfs,
             import_progress,
             cancel_import_button: cancel_import,
@@ -240,6 +244,13 @@ pub(crate) fn refresh_if_visible(viewer: &Viewer) {
 /// pages, and never touch what a surviving page looks like.
 pub(crate) fn invalidate_thumbnails(viewer: &Viewer) {
     viewer.organize.thumbnails_stale.set(true);
+    // The cache is keyed on page identity, and a content edit changes what a
+    // page *looks like* without changing which page it is — so every entry
+    // for it is now a picture of a page that no longer exists, under a key
+    // that still matches. Emptying the cache is the only honest answer, and
+    // the generation bump that comes with it retires the renders already in
+    // flight against the pixels being replaced.
+    viewer.organize.thumbnails.invalidate();
 }
 
 /// What the view on show needs after `document::refresh_preview`'s in-memory
@@ -277,6 +288,10 @@ pub(crate) fn refresh_after_reopen(viewer: &Viewer) {
 }
 
 pub(crate) fn document_changed(viewer: &Viewer) {
+    // Before anything else: `PageId`s are unique within one model and start
+    // over at 0 in the next, so a surviving entry would hand the new
+    // document's first page the old document's first page's picture.
+    viewer.organize.thumbnails.clear();
     import::document_changed(viewer);
 }
 

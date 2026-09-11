@@ -133,6 +133,7 @@ fn build_cover(viewer: &Viewer, row: &Row, handle: DocumentHandle) -> GtkBox {
         spawn_thumbnail(
             viewer,
             handle,
+            row.anchor,
             cover_index as u32,
             picture,
             (COVER_WIDTH_PX, COVER_HEIGHT_PX),
