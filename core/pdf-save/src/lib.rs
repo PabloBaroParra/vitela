@@ -65,5 +65,6 @@ pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{
     append_incremental_update, save_document, save_document_with_options,
-    will_invalidate_signatures, SaveInput, SaveOptions, SignatureAcknowledgement,
+    save_document_with_report, will_invalidate_signatures, SaveInput, SaveOptions, SaveOutcome,
+    SignatureAcknowledgement,
 };

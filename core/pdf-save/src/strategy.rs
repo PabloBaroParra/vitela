@@ -112,7 +112,17 @@ pub enum SignatureAcknowledgement {
 /// Auto-selects the incremental or full-rewrite path for `input` and produces
 /// the saved bytes.
 pub fn save_document(input: SaveInput<'_>) -> Result<Vec<u8>, SaveError> {
-    save_document_with_options(input, SaveOptions::default())
+    save_document_with_report(input).map(|outcome| outcome.bytes)
+}
+
+#[derive(Debug, Clone)]
+pub struct SaveOutcome {
+    pub bytes: Vec<u8>,
+    pub graft_warnings: Vec<pdf_manip::GraftWarning>,
+}
+
+pub fn save_document_with_report(input: SaveInput<'_>) -> Result<SaveOutcome, SaveError> {
+    save_document_with_options_and_report(input, SaveOptions::default())
 }
 
 /// Same as [`save_document`], with explicit clock/id-generator hooks — used
@@ -121,6 +131,13 @@ pub fn save_document_with_options(
     input: SaveInput<'_>,
     options: SaveOptions,
 ) -> Result<Vec<u8>, SaveError> {
+    save_document_with_options_and_report(input, options).map(|outcome| outcome.bytes)
+}
+
+fn save_document_with_options_and_report(
+    input: SaveInput<'_>,
+    options: SaveOptions,
+) -> Result<SaveOutcome, SaveError> {
     // Populated once and threaded into whichever writer runs. Both the writer
     // choice and the writer itself need the base document's *original* page
     // list, and `populate_document` walks every page dictionary to build it —
@@ -129,7 +146,10 @@ pub fn save_document_with_options(
     let original_pages = bridge::populate_document(input.base)?;
 
     if !requires_full_rewrite(input, &original_pages) {
-        return save_incremental(input, &original_pages);
+        return save_incremental(input, &original_pages).map(|bytes| SaveOutcome {
+            bytes,
+            graft_warnings: Vec::new(),
+        });
     }
 
     // Only a rewrite can break a signature, and scanning every object for one
@@ -225,13 +245,14 @@ fn save_full_rewrite(
     input: SaveInput<'_>,
     options: &SaveOptions,
     original_pages: &[Page],
-) -> Result<Vec<u8>, SaveError> {
+) -> Result<SaveOutcome, SaveError> {
     // Resolved once, by the replay itself and against the *replayed*
     // document: page ops have already moved pages around, so this map is the
     // only thing that still connects a model `PageId` to the object it names.
     let bridge::ReplayOutcome {
         document: mut working,
         page_objects: page_ids,
+        graft_warnings,
     } = bridge::replay_page_ops(
         input.base,
         original_pages,
@@ -288,7 +309,10 @@ fn save_full_rewrite(
 
     let mut bytes = Vec::new();
     working.as_lopdf_mut().save_to(&mut bytes)?;
-    Ok(bytes)
+    Ok(SaveOutcome {
+        bytes,
+        graft_warnings,
+    })
 }
 
 /// `/Info` gains a write path here only when a `SetDocumentInfo` is pending
@@ -628,6 +652,7 @@ mod tests {
             let original_pages = fixture.original_pages();
             save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
                 .expect("save should succeed")
+                .bytes
         };
 
         let first = build_bytes();
@@ -759,7 +784,8 @@ mod tests {
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed");
+            .expect("save should succeed")
+            .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert_eq!(
@@ -778,7 +804,8 @@ mod tests {
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed");
+            .expect("save should succeed")
+            .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert!(
@@ -850,7 +877,8 @@ mod tests {
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed");
+            .expect("save should succeed")
+            .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert_eq!(

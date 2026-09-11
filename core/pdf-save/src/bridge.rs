@@ -478,6 +478,7 @@ pub fn replay_page_ops(
     } else {
         pdf_manip::delete_pages(base, &removed_numbers)?
     };
+    let mut graft_warnings = Vec::new();
 
     // Every survivor's page number in `working`, keyed by the id
     // `populate_document` gave it (0-indexed by base page number).
@@ -558,14 +559,10 @@ pub fn replay_page_ops(
                 let document = sources
                     .get(source)
                     .expect("the guard above refused every source this save was not given");
-                // The report is deliberately dropped here: a save is a replay
-                // of an import the user already chose, and `pdf_manip::
-                // graft_report` is what shows them the cost at selection
-                // time. What must not be dropped is a *refusal* — that is an
-                // error, and it still stops the save.
-                working =
-                    pdf_manip::graft_pages(&working, position, document, &[page_index as usize])?
-                        .document;
+                let outcome =
+                    pdf_manip::graft_pages(&working, position, document, &[page_index as usize])?;
+                graft_warnings.extend(outcome.report.warnings().iter().cloned());
+                working = outcome.document;
             }
             PageOrigin::Base { .. } => {
                 return Err(SaveError::InvalidSaveRequest(
@@ -595,6 +592,7 @@ pub fn replay_page_ops(
     Ok(ReplayOutcome {
         document: working,
         page_objects,
+        graft_warnings,
     })
 }
 
@@ -612,6 +610,9 @@ pub struct ReplayOutcome {
     pub document: LopdfDocument,
     /// `PageId` to the page object in [`Self::document`].
     pub page_objects: HashMap<PageId, ObjectId>,
+    /// Consequences discovered only while grafting against the destination,
+    /// notably form-field name collisions.
+    pub graft_warnings: Vec<pdf_manip::GraftWarning>,
 }
 
 /// The `/Rotate` a 1-indexed page currently carries, or `0` when it has none

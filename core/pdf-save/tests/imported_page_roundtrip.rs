@@ -12,7 +12,8 @@ use lopdf::{dictionary, Document as LopdfRawDocument, Object, Stream};
 use pdf_document::{ImportedDocumentId, Orientation, Page, PageId, PageSize, Rotation};
 use pdf_manip::LopdfDocument;
 use pdf_save::{
-    bridge, save_document, ImportedSources, SaveInput, SaveIntent, SignatureAcknowledgement,
+    bridge, save_document, save_document_with_report, ImportedSources, SaveInput, SaveIntent,
+    SignatureAcknowledgement,
 };
 
 /// A minimal document with one labelled page per entry, and an optional
@@ -72,6 +73,28 @@ fn labels(bytes: &[u8]) -> Vec<String> {
     (1..=doc.get_pages().len() as u32)
         .map(|number| label_of(&doc, number))
         .collect()
+}
+
+fn form_pdf(name: &str) -> LopdfDocument {
+    let mut doc = labelled_pdf(&["form"], None);
+    let page_id = doc.get_pages()[&1];
+    let widget_id = doc.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Widget",
+        "FT" => "Tx",
+        "T" => Object::string_literal(name),
+        "Rect" => vec![0.into(), 0.into(), 100.into(), 20.into()],
+    });
+    doc.get_dictionary_mut(page_id)
+        .expect("page")
+        .set("Annots", vec![Object::Reference(widget_id)]);
+    let acroform_id = doc.add_object(dictionary! {
+        "Fields" => vec![Object::Reference(widget_id)],
+    });
+    doc.catalog_mut()
+        .expect("catalog")
+        .set("AcroForm", acroform_id);
+    LopdfDocument::from_lopdf(doc)
 }
 
 /// Everything a save borrows has to outlive it, so the fixture owns the base,
@@ -144,6 +167,41 @@ fn an_imported_page_is_materialized_into_the_saved_document() {
     let saved = fixture.save_with_source().expect("save should succeed");
 
     assert_eq!(labels(&saved), vec!["base1", "src2", "base2"]);
+}
+
+#[test]
+fn a_save_reports_a_form_field_renamed_against_the_destination() {
+    let base = form_pdf("Name");
+    let source = form_pdf("Name");
+    let mut document = bridge::document_from_lopdf(&base, None).expect("model from base");
+    document.pages.push(Page::imported(
+        PageId(900),
+        ImportedDocumentId(1),
+        0,
+        PageSize::Letter,
+        Orientation::Portrait,
+        Rotation::None,
+    ));
+    let sources = [(ImportedDocumentId(1), &source)];
+
+    let outcome = save_document_with_report(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: None,
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: ImportedSources::new(&sources),
+    })
+    .expect("save should succeed");
+
+    assert_eq!(
+        outcome.graft_warnings,
+        [pdf_manip::GraftWarning::FormFieldRenamed {
+            page: 0,
+            from: "Name".into(),
+            to: "Name-imported".into(),
+        }]
+    );
 }
 
 #[test]
