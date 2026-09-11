@@ -1052,17 +1052,69 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 9. Vista por documentos
 
-- [ ] Añadir el selector visual `Documents | Pages`.
-- [ ] Abrir Organizar con `Documents` seleccionado.
-- [ ] Mostrar cada tramo contiguo como una tarjeta de documento.
-- [ ] Incluir portada apilada, nombre, número de páginas y rango actual.
-- [ ] Mantener una jerarquía visual limpia y coherente con la paleta existente.
-- [ ] Permitir arrastrar una tarjeta para mover todo el tramo.
-- [ ] Resolver inserciones antes, después y al final de la lista.
-- [ ] Mostrar claramente el destino durante el arrastre.
-- [ ] Permitir eliminar un bloque mediante una única acción reversible.
-- [ ] Añadir nombres accesibles y ayudas de teclado para mover y eliminar.
-- [ ] Evitar depender exclusivamente de arrastrar y soltar.
+- [x] Añadir el selector visual `Documents | Pages`.
+- [x] Abrir Organizar con `Documents` seleccionado.
+- [x] Mostrar cada tramo contiguo como una tarjeta de documento.
+- [x] Incluir portada apilada, nombre, número de páginas y rango actual.
+- [x] Mantener una jerarquía visual limpia y coherente con la paleta existente.
+- [x] Permitir arrastrar una tarjeta para mover todo el tramo.
+- [x] Resolver inserciones antes, después y al final de la lista.
+- [x] Mostrar claramente el destino durante el arrastre.
+- [x] Permitir eliminar un bloque mediante una única acción reversible.
+- [x] Añadir nombres accesibles y ayudas de teclado para mover y eliminar.
+- [x] Evitar depender exclusivamente de arrastrar y soltar.
+
+### Progreso de la vista por documentos
+
+- 2026-09-11: la pantalla Organizar tiene dos vistas dentro de un `GtkStack`
+  (`apps/linux-gtk/src/app/organize/views.rs`): `documents` y `pages`. El
+  selector son dos `ToggleButton` agrupados, no un `StackSwitcher` — el
+  switcher toma los títulos del propio stack y no deja decidir orden ni
+  estilo, y las dos vistas no pesan igual: `organize::show` siempre entra por
+  `Documents`. Cambiar de vista solo repuebla widgets: no registra comandos ni
+  ensucia la sesión (test `gtk_ui_switching_views_records_no_command_...`).
+- Cada tarjeta es un `Block` de `pdf_document::derive_blocks`, derivado en
+  cada repoblado. No hay identidad de tarjeta que preservar: un movimiento
+  puede fusionar dos tramos o partir uno, así que la lista se reconstruye
+  entera. Es un render pdfium por *documento*, no por página.
+- La tarjeta lleva portada apilada (dos hojas decorativas detrás de la
+  miniatura real de su primera página, ocultas si el bloque tiene menos
+  páginas), nombre, recuento y rango actual — `base.pdf`, `3 pages · 3–5` — y
+  `— Part N` cuando el núcleo marcó el tramo como dividido. El nombre viene de
+  `DocumentSession::base_name` (nuevo, capturado al abrir y preservado a
+  través del refresco de previsualización) o de `ImportedSource::name` (nuevo,
+  capturado al importar).
+- Los destinos de arrastre son los *huecos* entre tarjetas, uno más que
+  tarjetas hay: antes del primer bloque, entre cada par y después del último.
+  Un destino del tamaño de una tarjeta tendría que adivinar "antes o después"
+  por la posición del puntero dentro de ella y no tendría dónde mostrar la
+  respuesta; un hueco *es* la posición, así que resaltarlo dice exactamente
+  dónde cae el bloque. El payload del arrastre es el `PageId` ancla del
+  bloque, no su posición: el destino se resuelve contra los bloques tal como
+  están al soltar.
+- Mover un bloque es un único `Command::MovePages`; borrarlo es un único
+  `Command::RemovePages` — nuevo en `pdf-document`, el gemelo por tramo de
+  `RemovePage`, con su constructor `Command::remove_pages(document, index,
+  count)` que captura anotaciones y campos de formulario de *todas* las
+  páginas del tramo, y su inverso `Command::InsertPages`. Sin él, borrar un
+  bloque habría dejado anotaciones huérfanas apuntando a páginas que
+  `pdf-save` se niega a escribir.
+- Alternativa al arrastre (no solo accesibilidad: es la ruta de teclado):
+  cada tarjeta lleva botones `Move up`, `Move down` y `Delete`, con nombre
+  accesible y tooltip propios (`Move up: report.pdf`), insensibles cuando el
+  movimiento saldría de la lista. La tarjeta misma es enfocable y anuncia
+  `"report.pdf, 3 pages · 3–5, document 2 of 4"`.
+- El repoblado tras un comando ocurre en la propia vista, no solo en
+  `refresh_after_reopen`: ese refresco se cancela solo cuando la sesión no
+  tiene `save_backing` con el que reproducir, y la lista se quedaría mostrando
+  los bloques viejos. Pagar dos renders por bloque es lo que la caché de
+  miniaturas de §11 viene a resolver.
+- Verificación (WSL2/Ubuntu): `cargo test -p linux-gtk --locked` (386
+  aprobadas, 1 filtrada), `cargo clippy -p linux-gtk --all-targets --locked
+  -- -D warnings`. En Windows: `cargo test --workspace --locked`,
+  `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+  `cargo fmt --all -- --check`. El smoke empaquetado de Linux sigue sin
+  ejecutarse (esta copia no trae `libpdfium.so` para Linux).
 
 ## 10. Vista por páginas
 
@@ -1164,14 +1216,14 @@ Lo que sigue abierto, y por qué:
 
 - [ ] Probar disponibilidad y estado del botón de importación.
 - [ ] Probar selección múltiple y cancelación.
-- [ ] Probar el selector `Documents | Pages`.
-- [ ] Probar que el selector no crea comandos ni marca cambios.
-- [ ] Probar tarjetas, nombres, recuentos, rangos y etiquetas de partes.
-- [ ] Probar arrastre de bloques como una operación atómica.
+- [x] Probar el selector `Documents | Pages`.
+- [x] Probar que el selector no crea comandos ni marca cambios.
+- [x] Probar tarjetas, nombres, recuentos, rangos y etiquetas de partes.
+- [x] Probar arrastre de bloques como una operación atómica.
 - [ ] Probar mezcla de páginas y reconstrucción de tramos.
-- [ ] Probar que el orden permanece intacto al volver a documentos.
-- [ ] Probar destinos de arrastre en huecos y al final.
-- [ ] Probar alternativas de teclado y etiquetas accesibles.
+- [x] Probar que el orden permanece intacto al volver a documentos.
+- [x] Probar destinos de arrastre en huecos y al final.
+- [x] Probar alternativas de teclado y etiquetas accesibles.
 - [ ] Probar tipo y duración configurada de la transición sin depender de
   temporizadores reales.
 - [ ] Probar el comportamiento con animaciones desactivadas.
