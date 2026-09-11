@@ -1532,10 +1532,7 @@ con §4 y no antes.
 - [x] Probar tipo y duración configurada de la transición sin depender de
   temporizadores reales.
 - [x] Probar el comportamiento con animaciones desactivadas.
-- [ ] Probar que resultados asíncronos obsoletos se descartan. Parcial: hay
-  test de la condición que los descarta (la generación de la caché de
-  miniaturas), no del descarte mismo, que ocurre dentro del futuro de render
-  y necesita pdfium.
+- [x] Probar que resultados asíncronos obsoletos se descartan.
 - [x] Probar que una importación fallida conserva la sesión anterior.
 
 Evidencia: `organize::tests::add_pdfs` cubre la posición y estado inicial de
@@ -1546,6 +1543,30 @@ procesa una fuente válida y falla en la siguiente antes de devolver un
 `PreparedImport`; como `prepare` es la frontera de I/O y no recibe `Viewer`, no
 puede mutar la sesión, el historial ni el registro de fuentes antes de que el
 lote completo sea válido.
+
+El descarte de miniaturas obsoletas se prueba en la misma puerta que usa el
+futuro al recibir los píxeles, no solo en el contador que la alimenta:
+`gtk_ui_a_render_in_flight_across_an_invalidation_is_dropped` cubre un cambio de
+contenido que invalida la generación y
+`gtk_ui_a_render_that_outlives_its_session_is_dropped` cubre la mitad
+complementaria: la sesión ya no sostiene el documento que pdfium renderizó,
+con la generación todavía vigente. En ambos casos `render_is_current` niega la
+instalación antes de tocar la caché o el `Picture`. La variante "otro
+documento con otro handle" no es expresable con los fixtures actuales:
+`model_session` deja el handle en cero, así que dos sesiones de prueba son
+indistinguibles por handle.
+
+Verificación (2026-09-11): `cargo test -p linux-gtk --locked` bajo WSLg con
+el `libpdfium.so` vendorizado (422 aprobadas), `cargo fmt --all -- --check`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings`, `cargo build
+--workspace --locked`, `git diff --check` y `python
+scripts/check_maintainability.py` (103 avisos preexistentes; ninguno nuevo en
+los archivos tocados). `cargo test --workspace --locked -- --skip gtk_ui_`
+tuvo un primer fallo no determinista en
+`zero-network-guard::detects_closed_local_port_as_unreachable`: otro proceso
+ocupó el puerto que el test acababa de liberar; la repetición aislada pasó (2
+aprobadas). La suite GTK corrió con display WSLg, no bajo Xvfb, que no está
+instalado en esta imagen.
 
 ## 14. Gates de verificación
 

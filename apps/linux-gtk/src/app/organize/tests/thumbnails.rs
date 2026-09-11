@@ -110,10 +110,39 @@ fn gtk_ui_opening_another_document_does_not_reuse_the_previous_ones_thumbnails()
 fn gtk_ui_a_render_in_flight_across_an_invalidation_is_dropped() {
     with_organize_of(PAGES, |viewer| {
         let in_flight = viewer.organize.thumbnails.generation();
+        let handle = viewer.state.borrow().session.as_ref().unwrap().document;
 
         invalidate_thumbnails(viewer);
 
-        assert!(!viewer.organize.thumbnails.is_current(in_flight));
+        assert!(!super::grid::thumbnail::render_is_current(
+            viewer, in_flight, handle
+        ));
+    });
+}
+
+/// The other half of the gate, which fails on its own: closing the document
+/// retires a render already in flight against it without ever touching the
+/// cache generation.
+///
+/// The session is cleared rather than replaced because `model_session` zeroes
+/// its handle (see `test_fixtures`), so two fixture sessions are
+/// indistinguishable by handle — `None` is the only mismatch a fixture can
+/// state.
+#[gtk::test]
+fn gtk_ui_a_render_that_outlives_its_session_is_dropped() {
+    with_organize_of(PAGES, |viewer| {
+        let generation = viewer.organize.thumbnails.generation();
+        let previous_handle = viewer.state.borrow().session.as_ref().unwrap().document;
+
+        viewer.state.borrow_mut().session = None;
+
+        assert!(viewer.organize.thumbnails.is_current(generation));
+
+        assert!(!super::grid::thumbnail::render_is_current(
+            viewer,
+            generation,
+            previous_handle
+        ));
     });
 }
 

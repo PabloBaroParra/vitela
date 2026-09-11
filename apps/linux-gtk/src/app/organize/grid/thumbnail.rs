@@ -24,6 +24,30 @@ const POINTS_PER_INCH: f64 = 72.0;
 /// the DPI is still clamped in [`thumbnail_dpi`].
 const RENDER_HEADROOM: i32 = 3;
 
+/// Whether a render that has just come back off the thread pool still
+/// belongs on screen: the thumbnail cache must not have been invalidated
+/// while it ran, *and* the session must still hold the document it rendered.
+/// Two conditions because they fail apart — a content edit bumps the
+/// generation without touching the handle, and opening another document
+/// replaces the handle without editing anything.
+///
+/// A free function rather than a closure inside [`spawn_thumbnail`] so the
+/// gate can be tested on its own: the future around it needs a real pdfium
+/// document, which the GTK tests do not have.
+pub(in crate::app::organize) fn render_is_current(
+    viewer: &Viewer,
+    generation: u64,
+    handle: DocumentHandle,
+) -> bool {
+    viewer.organize.thumbnails.is_current(generation)
+        && viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|session| session.document == handle)
+}
+
 /// Fills one card's `Picture` with its page's thumbnail: straight from the
 /// cache when it holds one for this page at this size, and otherwise from a
 /// pdfium render off the main thread that caches its result on the way in.
@@ -93,14 +117,7 @@ pub(in crate::app::organize) fn spawn_thumbnail(
             let Ok(Ok(page)) = gio::spawn_blocking(job).await else {
                 return;
             };
-            let still_current = viewer.organize.thumbnails.is_current(generation)
-                && viewer
-                    .state
-                    .borrow()
-                    .session
-                    .as_ref()
-                    .is_some_and(|session| session.document == handle);
-            if !still_current {
+            if !render_is_current(&viewer, generation, handle) {
                 return;
             }
             let pixbuf = gdk_pixbuf::Pixbuf::from_bytes(
