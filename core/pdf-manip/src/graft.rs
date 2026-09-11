@@ -33,16 +33,21 @@
 //!
 //! Leaving the catalog behind leaves five things behind with it: the
 //! `/AcroForm`, the destination name tree, the outline, the optional-content
-//! configuration and the tagged-structure tree. Each is either refused or
-//! reported, never dropped in silence — [`crate::report`] owns that decision
-//! and states the reasoning, and this function calls it *before* it copies a
-//! single object, so a refused import cannot leave a half-imported document
-//! behind.
+//! configuration and the tagged-structure tree. Each is either rebuilt,
+//! refused or reported, never dropped in silence — [`crate::report`] owns
+//! the refuse-or-report decision and states the reasoning, and this function
+//! calls it *before* it copies a single object, so a refused import cannot
+//! leave a half-imported document behind.
 //!
-//! The one thing this module does about them is the rewrite that only works
-//! here: a named destination is resolved against the source, while the source
-//! is still in hand, and written into the imported link as the explicit
-//! destination it meant (see [`crate::destinations`]).
+//! Two of them this module does something about, and both are rewrites that
+//! only work here, with source and destination in hand at once:
+//!
+//! - a named destination is resolved against the source, while the source is
+//!   still there to resolve it, and written into the imported link as the
+//!   explicit destination it meant (see [`crate::destinations`]);
+//! - an imported form field is listed in the *destination's* `/AcroForm`,
+//!   under a name that does not collide with one already there (see
+//!   [`crate::forms`]).
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -51,6 +56,7 @@ use lopdf::{Dictionary, Document as LopdfRawDocument, Object, ObjectId};
 use crate::create_blank::root_pages_id;
 use crate::document::LopdfDocument;
 use crate::error::ManipError;
+use crate::forms;
 use crate::links::rewrite_named_destinations;
 use crate::page_graph::{collect_reachable, flattened_page};
 use crate::page_tree::insert_pages_at;
@@ -73,9 +79,9 @@ use crate::report::{inspect, GraftOutcome};
 ///
 /// Fails without touching anything when the selection is empty, names a page
 /// the source does not have, names one page twice, or names a page carrying
-/// structure that cannot be imported correctly (an AcroForm widget, optional
-/// content — see [`crate::report`]); `document` is borrowed, so a failed
-/// graft cannot leave a half-imported document behind.
+/// structure that cannot be imported correctly (an XFA form, optional
+/// content, a signature — see [`crate::report`]); `document` is borrowed, so
+/// a failed graft cannot leave a half-imported document behind.
 pub fn graft_pages(
     document: &LopdfDocument,
     index: usize,
@@ -96,8 +102,15 @@ pub fn graft_pages(
     // or an unimportable structure is refused rather than discovered halfway
     // through.
     let selected = selected_pages(&donor, pages)?;
-    let report = inspect(&donor, &selected, pages)?;
+    let mut report = inspect(&donor, &selected, pages)?;
     let selected_set: HashSet<ObjectId> = selected.iter().copied().collect();
+
+    // The form is planned before anything is copied, because the plan is what
+    // tells the copy where to stop: a field shared with a page outside the
+    // selection has kids the destination must not receive.
+    let form = forms::plan(&donor, &selected, pages);
+    let mut stop = selected_set.clone();
+    stop.extend(form.foreign.iter().copied());
 
     // Each page is flattened first and walked afterwards: materializing an
     // inherited `/Resources` pulls a reference into the page dictionary that
@@ -107,7 +120,7 @@ pub fn graft_pages(
     let mut reachable: BTreeSet<ObjectId> = BTreeSet::new();
     for &page_id in &selected {
         let dict = flattened_page(&donor, page_id)?;
-        collect_reachable(&donor, &dict, &selected_set, &mut reachable);
+        collect_reachable(&donor, &dict, &stop, &mut reachable);
         grafted.push((page_id, dict));
     }
 
@@ -134,6 +147,13 @@ pub fn graft_pages(
     // already in the destination.
     for &page_id in &selected {
         doc.get_dictionary_mut(page_id)?.set("Parent", parent);
+    }
+
+    // Last of all, because it edits objects the copy above put there and
+    // lists them in a dictionary the destination owns: an imported widget
+    // only becomes a field once the destination's `/AcroForm` names it.
+    for warning in forms::apply(&mut doc, &donor, &form) {
+        report.push(warning);
     }
 
     Ok(GraftOutcome {

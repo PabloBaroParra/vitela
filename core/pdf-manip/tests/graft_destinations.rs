@@ -182,12 +182,13 @@ fn asking_first_gives_the_same_answer_as_importing() {
 
 #[test]
 fn asking_first_refuses_what_importing_refuses() {
-    let source = LopdfDocument::from_lopdf(support::pdf_with_a_widget_on_first_page());
+    let source = LopdfDocument::from_lopdf(support::forms::pdf_with_an_xfa_form("Name"));
 
-    let error = graft_report(&source, &[0]).expect_err("page 0 has a widget");
+    let error = graft_report(&source, &[0]).expect_err("page 0 is an XFA form");
 
     assert_eq!(
         error.to_string(),
-        "page 0 has form fields; importing AcroForm fields is not supported yet"
+        "page 0 belongs to an XFA form, whose definition cannot be imported; \
+         its fields would look right and behave differently"
     );
 }

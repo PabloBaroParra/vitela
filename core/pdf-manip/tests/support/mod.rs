@@ -17,6 +17,8 @@ use lopdf::{
 use pdf_manip::LopdfDocument;
 
 pub mod appearance;
+pub mod form_reads;
+pub mod forms;
 pub mod structures;
 
 /// Builds a minimal, valid, unencrypted PDF with one page per label in
@@ -202,26 +204,6 @@ pub fn pdf_with_a_link_to_its_second_page() -> Document {
     doc.get_dictionary_mut(first)
         .expect("first page")
         .set("Annots", vec![Object::Reference(annotation_id)]);
-    doc
-}
-
-/// A two-page source whose first page carries a `/Subtype /Widget`
-/// annotation — the visible half of an AcroForm field. The second page has
-/// none, so a graft that selects only it must still succeed.
-pub fn pdf_with_a_widget_on_first_page() -> Document {
-    let mut doc = build_pdf_with_pages(&["Form", "Plain"]);
-    let pages: Vec<_> = doc.get_pages().into_values().collect();
-    let first = pages[0];
-    let widget_id = doc.add_object(dictionary! {
-        "Type" => "Annot",
-        "Subtype" => "Widget",
-        "FT" => "Tx",
-        "T" => Object::string_literal("Name"),
-        "Rect" => vec![0.into(), 0.into(), 100.into(), 20.into()],
-    });
-    doc.get_dictionary_mut(first)
-        .expect("first page")
-        .set("Annots", vec![Object::Reference(widget_id)]);
     doc
 }
 

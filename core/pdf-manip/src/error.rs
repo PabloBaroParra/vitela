@@ -46,13 +46,28 @@ pub enum ManipError {
     /// A page object's `/Parent` reference could not be resolved to a page
     /// tree dictionary (malformed or unsupported nested page tree shape).
     MalformedPageTree,
-    /// A page selected for `graft_pages` carries an AcroForm widget
-    /// annotation. Merging an imported field into the destination's
-    /// `/AcroForm` needs a name-collision and appearance policy that does not
-    /// exist yet (checklist "Estructuras de documento",
-    /// `docs/batch-pdf-assembly.md` section 4), so the graft is refused
-    /// rather than importing a page that silently drops its fields.
+    /// A page selected for `graft_pages` carries a form field written
+    /// **inline** in its `/Annots` rather than as an object of its own.
+    ///
+    /// An ordinary form field is imported and merged into the destination's
+    /// `/AcroForm` (see [`crate::forms`]); this one cannot be, because the
+    /// merge works by listing the field in `/AcroForm /Fields` and an inline
+    /// dictionary has no object id for that list to point at. Importing the
+    /// page anyway would put a box on it that looks like a field and cannot
+    /// be filled, so the graft is refused (checklist "Estructuras de
+    /// documento", `docs/batch-pdf-assembly.md` section 4).
     SourceHasFormFields(usize),
+    /// A page selected for `graft_pages` belongs to an **XFA** form
+    /// (checklist "Estructuras de documento", `docs/batch-pdf-assembly.md`
+    /// section 4).
+    ///
+    /// In an XFA form the `/AcroForm` fields are only a fallback shell: the
+    /// form's real definition — its layout, its validation, its calculated
+    /// fields — is the XML in the catalog's `/AcroForm /XFA`, which an import
+    /// must not copy. Merging the shell alone yields fields that look right
+    /// and behave differently, which is wrong output rather than merely
+    /// poorer output, so the graft is refused.
+    SourceHasXfaForm(usize),
     /// A page selected for `graft_pages` draws optional content (a `/OCG` or
     /// `/OCMD`, PDF 32000-1:2008 section 8.11). The configuration that says
     /// whether such a layer is on or off lives in the source catalog's
@@ -66,9 +81,9 @@ pub enum ManipError {
     /// field (checklist "Seguridad y firmas",
     /// `docs/batch-pdf-assembly.md` section 5).
     ///
-    /// A narrower case of [`Self::SourceHasFormFields`], reported separately
-    /// because the two cost different things and the user is owed the real
-    /// reason. The widget holds the appearance — the signer's name, the date,
+    /// The one form field that is refused rather than merged, because what it
+    /// would cost is different in kind. The widget holds the appearance — the
+    /// signer's name, the date,
     /// the seal — while the field, its `/V` signature dictionary and the
     /// `/ByteRange` that dictionary covers all stay in the source. Copying
     /// the widget alone would put a signature block in the destination
@@ -127,7 +142,11 @@ impl fmt::Display for ManipError {
             }
             ManipError::SourceHasFormFields(page) => write!(
                 f,
-                "page {page} has form fields; importing AcroForm fields is not supported yet"
+                "page {page} has a form field written inline in its annotations, which cannot be listed in another document's form"
+            ),
+            ManipError::SourceHasXfaForm(page) => write!(
+                f,
+                "page {page} belongs to an XFA form, whose definition cannot be imported; its fields would look right and behave differently"
             ),
             ManipError::SourceHasOptionalContent(page) => write!(
                 f,

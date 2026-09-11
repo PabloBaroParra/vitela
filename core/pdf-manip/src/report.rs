@@ -17,14 +17,15 @@
 //! **Refused** ([`ManipError`]) when the imported page would come out
 //! *wrong*, not merely poorer:
 //!
-//! - a **signature** widget, the narrower and worse case of the one below:
-//!   the appearance travels, the signature dictionary and the byte range it
-//!   covers do not, so the imported page would show a signature block
-//!   attesting to a file that is not there. See [`crate::signatures`].
-//! - an AcroForm widget, whose field lives in the source's `/AcroForm`.
-//!   Copying the widget alone yields a box that looks like a field and is
-//!   not one; merging the field needs a name-collision policy this crate does
-//!   not have.
+//! - a **signature** widget — the one form field that is refused rather than
+//!   merged: the appearance travels, the signature dictionary and the byte
+//!   range it covers do not, so the imported page would show a signature
+//!   block attesting to a file that is not there. See [`crate::signatures`].
+//! - an **XFA** form, whose fields are only the fallback shell of a form
+//!   defined by XML in the catalog — merge the shell and they look right and
+//!   behave differently; and a field written **inline** in `/Annots`, which
+//!   has no object id to list in a form. Every other field is merged instead,
+//!   by [`crate::forms`].
 //! - optional content (`/OCG`, `/OCMD`). Its visibility configuration lives
 //!   in the catalog's `/OCProperties`. Import the marked content without it
 //!   and a viewer has no configuration saying the layer was off — content the
@@ -32,14 +33,17 @@
 //!   output, and it is worse.
 //!
 //! **Reported** ([`GraftWarning`]) when the page's own content is intact and
-//! something *about* it did not come along. Refusing these would be refusing
-//! most real documents — nearly every office PDF is tagged, and plenty carry
-//! an outline — so they are named instead, and the caller decides.
+//! something *about* it did not come along. Refusing these would refuse most
+//! real documents — nearly every office PDF is tagged — so they are named
+//! instead, and the caller decides.
 //!
 //! A caller that wants the answer before committing calls
 //! [`graft_report`]; [`crate::graft_pages`] runs the very same inspection
 //! before it copies anything, so the two can never disagree about what a
-//! given import costs.
+//! given import costs. Everything decided here is a fact about the *source*
+//! alone — which is what lets the question be asked with no destination in
+//! hand — bar one that cannot be: whether a field name is already taken on
+//! the other side. [`crate::graft_pages`] appends that one itself.
 
 use std::collections::{BTreeSet, HashSet};
 use std::fmt;
@@ -49,6 +53,7 @@ use lopdf::{Dictionary, Document as LopdfRawDocument, ObjectId};
 use crate::destinations::{resolve_destination, DestinationTarget};
 use crate::document::LopdfDocument;
 use crate::error::ManipError;
+use crate::forms;
 use crate::graft::selected_pages;
 use crate::links;
 use crate::page_graph::{collect_reachable, flattened_page};
@@ -81,6 +86,16 @@ pub enum GraftWarning {
     /// stays in the source. The page's content is intact; the reading order
     /// and semantics assistive technology reads are not.
     TaggedStructureNotImported { page: usize },
+    /// An imported form field had to be renamed: two top-level fields sharing
+    /// one `/T` are one field with one value between them (PDF 32000-1:2008
+    /// section 12.7.3.2), so keeping the name would have merged the import
+    /// into the destination's field instead of adding it. See
+    /// [`crate::form_fields`].
+    FormFieldRenamed {
+        page: usize,
+        from: String,
+        to: String,
+    },
     /// The source document is signed, and none of that signing travels with
     /// its pages (checklist "Seguridad y firmas",
     /// `docs/batch-pdf-assembly.md` section 5).
@@ -116,6 +131,10 @@ impl fmt::Display for GraftWarning {
                 f,
                 "page {page} loses its tagged structure; its content is imported in full, its accessibility structure is not"
             ),
+            GraftWarning::FormFieldRenamed { page, from, to } => write!(
+                f,
+                "the form field \"{from}\" on page {page} was imported as \"{to}\": the document already has a field called \"{from}\", and two fields of one name would share a single value"
+            ),
             GraftWarning::SourceSignaturesNotImported => write!(
                 f,
                 "the source document is signed; the imported pages carry their content but none of its signature"
@@ -142,6 +161,17 @@ impl GraftReport {
     pub fn is_lossless(&self) -> bool {
         self.warnings.is_empty()
     }
+
+    /// Adds a warning the inspection could not have known about.
+    ///
+    /// Everything [`inspect`] reports is a fact about the *source* alone, so
+    /// that [`graft_report`] can answer without a destination in hand. A
+    /// field rename is the one consequence that needs both documents — it
+    /// only exists because a name is taken on the other side — so the graft
+    /// itself appends it once it has seen both.
+    pub(crate) fn push(&mut self, warning: GraftWarning) {
+        self.warnings.push(warning);
+    }
 }
 
 /// A completed import: the resulting document, and what it left behind.
@@ -159,8 +189,9 @@ pub struct GraftOutcome {
 ///
 /// This is the gate an import flow calls at selection time, so a user learns
 /// the cost while they can still change their mind. It refuses exactly what
-/// [`crate::graft_pages`] refuses and warns exactly what it warns, because
-/// that function calls straight into this one.
+/// [`crate::graft_pages`] refuses, because that function calls straight into
+/// this one, and warns everything it warns bar the field renames only the
+/// destination can reveal.
 pub fn graft_report(source: &LopdfDocument, pages: &[usize]) -> Result<GraftReport, ManipError> {
     let selected = selected_pages(&source.0, pages)?;
     inspect(&source.0, &selected, pages)
@@ -186,7 +217,11 @@ pub(crate) fn inspect(
         if signatures::page_has_signature_widget(donor, &dict) {
             return Err(ManipError::SourceHasSignature(page));
         }
-        if page_has_widget_annotations(donor, &dict) {
+        let widgets = forms::widgets_on_page(donor, &dict);
+        if !widgets.is_empty() && forms::form_is_xfa(donor) {
+            return Err(ManipError::SourceHasXfaForm(page));
+        }
+        if widgets.inline > 0 {
             return Err(ManipError::SourceHasFormFields(page));
         }
         if page_uses_optional_content(donor, &dict) {
@@ -238,25 +273,6 @@ fn collect_destination_warnings(
     for name in links::inline_named_destinations(donor, dict) {
         warnings.push(GraftWarning::NamedDestinationDropped { page, name });
     }
-}
-
-/// True when `dict`'s `/Annots` includes a `/Subtype /Widget` annotation —
-/// the visible half of an AcroForm field (PDF 32000-1:2008 section 12.5.6.19).
-/// Checked on the page itself rather than the source's `/AcroForm /Fields`
-/// tree, because a field can only affect an imported page through the widget
-/// sitting in that page's own `/Annots`.
-fn page_has_widget_annotations(donor: &LopdfRawDocument, dict: &Dictionary) -> bool {
-    let Ok(annots) = dict.get(b"Annots").and_then(|value| value.as_array()) else {
-        return false;
-    };
-    annots.iter().any(|annot| {
-        annot
-            .as_reference()
-            .ok()
-            .and_then(|id| donor.get_dictionary(id).ok())
-            .and_then(|annot_dict| annot_dict.get(b"Subtype").and_then(|v| v.as_name()).ok())
-            == Some(b"Widget".as_slice())
-    })
 }
 
 /// True when anything the page reaches is an optional-content group or

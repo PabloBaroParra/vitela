@@ -71,25 +71,28 @@ fn inherited_attribute(
 /// Adds every object `dict` can reach to `reachable`, following indirect
 /// references transitively.
 ///
-/// Stops at the two kinds of object that must not be copied: a page outside
-/// `selected` (see [`crate::graft`]'s docs on why the link is left inert
-/// instead) and the source's own page-tree nodes and catalog, which have no
-/// business governing the destination.
+/// Stops at two kinds of object. The source's own page-tree nodes and
+/// catalog are refused outright: they have no business governing the
+/// destination. Everything in `stop` is refused by the caller's choice —
+/// the selected pages themselves, which the caller writes in their flattened
+/// form, and the form-field kids that belong to pages being left behind (see
+/// [`crate::forms`]). A reference to either is left pointing at an absent
+/// object rather than dragging it in.
 pub(crate) fn collect_reachable(
     donor: &LopdfRawDocument,
     dict: &Dictionary,
-    selected: &HashSet<ObjectId>,
+    stop: &HashSet<ObjectId>,
     reachable: &mut BTreeSet<ObjectId>,
 ) {
     for (_, value) in dict.iter() {
-        collect_from_object(donor, value, selected, reachable);
+        collect_from_object(donor, value, stop, reachable);
     }
 }
 
 fn collect_from_object(
     donor: &LopdfRawDocument,
     value: &Object,
-    selected: &HashSet<ObjectId>,
+    stop: &HashSet<ObjectId>,
     reachable: &mut BTreeSet<ObjectId>,
 ) {
     match value {
@@ -107,22 +110,22 @@ fn collect_from_object(
                 b"Page" | b"Pages" | b"Catalog" => return,
                 _ => {}
             }
-            if selected.contains(id) {
+            if stop.contains(id) {
                 return;
             }
             reachable.insert(*id);
-            collect_from_object(donor, object, selected, reachable);
+            collect_from_object(donor, object, stop, reachable);
         }
         Object::Array(items) => {
             for item in items {
-                collect_from_object(donor, item, selected, reachable);
+                collect_from_object(donor, item, stop, reachable);
             }
         }
-        Object::Dictionary(dict) => collect_reachable(donor, dict, selected, reachable),
+        Object::Dictionary(dict) => collect_reachable(donor, dict, stop, reachable),
         // A stream's dictionary carries references of its own — `/Length` as
         // an indirect object, a soft-mask image, a form XObject's own
         // `/Resources`.
-        Object::Stream(stream) => collect_reachable(donor, &stream.dict, selected, reachable),
+        Object::Stream(stream) => collect_reachable(donor, &stream.dict, stop, reachable),
         _ => {}
     }
 }

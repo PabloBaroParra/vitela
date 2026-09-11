@@ -331,8 +331,12 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 ## 4. Estructuras de documento
 
 - [x] Definir y probar la política para formularios AcroForm importados.
-- [ ] Resolver colisiones de nombres de campos sin fusionarlos silenciosamente.
-- [ ] Conservar widgets y apariencias cuando se acepten formularios.
+- [x] Resolver colisiones de nombres de campos sin fusionarlos silenciosamente.
+- [x] Conservar widgets y apariencias cuando se acepten formularios.
+- [ ] Mostrar en el shell Linux los campos renombrados por colisión. El aviso
+  existe en el núcleo, pero la puerta de selección (`graft_report`) no lo
+  puede emitir: depende del documento destino y el worker de importación no
+  lo tiene. Ver la nota del 2026-09-11 más abajo.
 - [x] Definir y probar la política para marcadores y destinos con nombre.
 - [x] Remapear destinos que apunten a páginas importadas.
 - [x] Detectar destinos que apunten a páginas no importadas.
@@ -370,6 +374,69 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   -D warnings`; `python3 scripts/check_maintainability.py` (99 avisos, línea
   base sin cambios — los tests nuevos se separaron en su propio archivo para
   no empujar `tests/graft.rs` sobre el umbral de 350 líneas).
+
+- 2026-09-11 (cambio de política): `graft_pages` **fusiona** los formularios
+  importados en vez de rechazarlos. Los ítems 2 y 3 quedan cerrados y la
+  decisión del 2026-09-08 queda superada; lo que se mantiene de ella es la
+  regla, no la respuesta: nada se fusiona en silencio.
+- Un campo es tres objetos en tres sitios: el widget en `/Annots` de la página
+  (lo único que el copiado de página arrastra solo), el campo detrás de él
+  (que en la forma habitual *es* el widget, y si no cuelga de su `/Parent`) y
+  el `/AcroForm` del catálogo, que es justo lo que el injerto no copia. Por
+  eso esto no es copiar, es reconstruir la tercera parte en el destino.
+- Colisión de `/T`: dos campos raíz con el mismo `/T` no son dos campos
+  (PDF 32000-1:2008 §12.7.3.2), son uno con dos widgets y **un** valor
+  compartido. Añadir el importado a `/Fields` con su nombre no lo importaría:
+  lo fundiría con el del destino. Se renombra a `{nombre}-imported`,
+  `-imported-2`, … y se **reporta** con `GraftWarning::FormFieldRenamed`,
+  porque el nombre es lo que verá quien rellene el formulario.
+- Colisión de `/DR`: el `/DA` de un campo nombra su fuente por *nombre de
+  recurso*, y ese nombre viaja mientras que la entrada de `/DR` que lo
+  resuelve se queda en el catálogo. Se copian las entradas y el nombre que el
+  destino ya usa para otra cosa se reata a uno libre, reescribiendo el `/DA`
+  que dependía de él. No se reporta: no se pierde nada y no es visible. Un
+  nombre ya atado a un recurso *igual* se reutiliza, para que reimportar la
+  misma fuente dos veces no acumule fuentes.
+- Se materializan en el campo raíz el `/DA` y el `/Q` que heredaba del
+  `/AcroForm` de origen — el mismo problema que `/Resources` en el árbol de
+  páginas, un nivel más arriba, y la misma solución que ya usa
+  `page_graph::flattened_page`.
+- Los `/Kids` que viven en páginas no importadas se podan, y el plan del
+  formulario se calcula **antes** de copiar para que el copiado se detenga en
+  ellos (`collect_reachable` recibe ahora un conjunto `stop`, no solo las
+  páginas seleccionadas). Un kid sin página sería un widget que no dibuja en
+  ningún sitio y comparte el valor del campo desde la nada.
+- `/NeedAppearances` se pone en el destino solo si algún widget importado
+  llega sin `/AP`: el origen se apoyaba en esa bandera y la bandera vive en el
+  catálogo que se queda atrás.
+- Lo que se sigue rechazando: la firma (§5, sin cambios), el formulario **XFA**
+  (`ManipError::SourceHasXfaForm`, nuevo — sus campos AcroForm son solo la
+  cáscara de un formulario definido en XML en el catálogo, así que fusionar la
+  cáscara da campos que se ven bien y se comportan distinto) y el widget
+  escrito **en línea** dentro de `/Annots`, que no tiene id de objeto que
+  listar en `/Fields`. `ManipError::SourceHasFormFields` sobrevive con ese
+  significado más estrecho; su mensaje cambió.
+- `/Annots` indirecto: `widgets_on_page` lo desreferencia. Antes un `/Annots`
+  escrito como objeto indirecto hacía que el detector no viera ningún widget,
+  que es precisamente la pérdida silenciosa que esta sección prohíbe.
+- Reparto de módulos: `forms.rs` (detección, plan y secuencia de la fusión),
+  `form_fields.rs` (listar en `/Fields`, renombrar, podar kids, heredar
+  defaults) y `form_resources.rs` (fusionar `/DR`, reatar nombres, reescribir
+  `/DA`), uno por colisión. Tests en `tests/graft_form_fields.rs` (11) y
+  `tests/graft_form_names.rs` (6), fixtures en `tests/support/forms.rs` y
+  lectores en `tests/support/form_reads.rs`.
+- Límite conocido: `graft_report(fuente, páginas)` no puede avisar del
+  renombrado, porque depende del destino y su contrato es responder sin
+  destino en mano. El aviso lo emite `graft_pages`, y el guardado sigue
+  descartando el reporte, así que hoy el usuario de Linux no ve el renombrado.
+  Queda como ítem abierto arriba.
+- Verificación (2026-09-11): `cargo test --workspace --locked` (0 fallos);
+  `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets
+  --locked -- -D warnings`; `python scripts/check_maintainability.py`
+  (103 avisos, ninguno en los archivos nuevos). Los cinco comportamientos
+  nuevos se comprobaron **por mutación**: desactivando el renombrado, la poda
+  de kids, la fusión de `/DR`, la herencia de defaults, `/NeedAppearances` y
+  la fusión entera, fallan exactamente los tests que los fijan.
 
 ### Progreso de destinos, marcadores, capas y estructura etiquetada
 
