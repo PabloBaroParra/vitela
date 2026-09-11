@@ -57,6 +57,7 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         // submits the handle to PDFium — tests that render capture the
         // request at the renderer boundary instead.
         document: unsafe { std::mem::zeroed() },
+        base_name: "Fixture document".to_owned(),
         text_access: TextAccess::Allowed,
         annotation_access: AnnotationAccess::Allowed,
         content_edit_access: ContentEditAccess::Allowed,

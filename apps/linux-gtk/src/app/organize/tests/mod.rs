@@ -63,6 +63,10 @@ fn with_organize(test: impl FnOnce(&Viewer)) {
     built.viewer.state.borrow_mut().session = Some(model_session(document));
     THUMBNAILS.set(Some(Vec::new()));
     show(&built.viewer);
+    // `show` opens on the Documents view (checklist §9). Everything in this
+    // module is about the per-page grid, so it switches there the way a user
+    // would — `documents::tests` covers the block view on its own.
+    built.viewer.organize.pages_toggle.set_active(true);
     built.window.present();
     // Teardown runs on the unwind path too. `#[gtk::test]` bodies all execute
     // on one shared main thread (`gtk::test_synced`), so `THUMBNAILS` is not
@@ -110,6 +114,19 @@ fn session(viewer: &Viewer) -> std::cell::RefMut<'_, DocumentSession> {
     std::cell::RefMut::map(viewer.state.borrow_mut(), |state| {
         state.session.as_mut().unwrap()
     })
+}
+
+/// The model's page order, as plain numbers — what a block move or delete
+/// is judged by.
+fn page_ids_of(viewer: &Viewer) -> Vec<u32> {
+    session(viewer)
+        .document_model
+        .as_ref()
+        .unwrap()
+        .pages
+        .iter()
+        .map(|page| page.id.0)
+        .collect()
 }
 
 fn assert_grid(viewer: &Viewer, expected: &[u32]) {
@@ -266,7 +283,10 @@ fn gtk_ui_move_round_trips_order_labels_and_thumbnail_requests() {
 fn gtk_ui_a_move_reorders_the_grid_without_rendering_anything_again() {
     with_organize(|viewer| {
         let rendered_on_open = render_count();
-        assert_eq!(rendered_on_open, 3, "opening the screen renders every page");
+        assert_eq!(
+            rendered_on_open, 4,
+            "opening renders the Documents view's one block cover, then every page"
+        );
 
         assert!(drop_on(viewer, 0, 2));
 
@@ -430,6 +450,7 @@ fn gtk_ui_non_structural_history_does_not_rebuild_and_hidden_grid_waits_for_show
             Some(EDITOR_PAGE)
         );
         show(viewer);
+        viewer.organize.pages_toggle.set_active(true);
         assert_grid(viewer, &[0, 1, 2]);
     });
 }
@@ -527,6 +548,7 @@ fn gtk_ui_multi_source_import_is_one_dirty_history_step() {
             .map(|id| crate::app::state::ImportedSource {
                 id: ImportedDocumentId(id),
                 document: pdf_manip::LopdfDocument::from_lopdf(lopdf::Document::new()),
+                name: format!("source-{id}.pdf"),
             })
             .collect();
         let pages = vec![
@@ -574,5 +596,32 @@ fn gtk_ui_multi_source_import_is_one_dirty_history_step() {
     });
 }
 
+/// Opens the Organize screen on the Documents view — where [`show`] leaves
+/// it — with `document` as the model and `sources` registered as the PDFs
+/// its imported pages came from.
+///
+/// The per-page twin, [`with_organize`], switches to the Pages view on the
+/// way in; this one stays put, so `documents::tests` exercises the blocks.
+fn with_documents(
+    document: Document,
+    sources: Vec<crate::app::state::ImportedSource>,
+    test: impl FnOnce(&Viewer),
+) {
+    let built = built_ui();
+    {
+        let mut session = model_session(document);
+        session.base_name = "base.pdf".to_owned();
+        session.imported_sources = sources;
+        built.viewer.state.borrow_mut().session = Some(session);
+    }
+    THUMBNAILS.set(Some(Vec::new()));
+    show(&built.viewer);
+    built.window.present();
+    let _teardown = Teardown(&built);
+    test(&built.viewer);
+}
+
+mod blocks;
+mod documents;
 mod refusals;
 mod resolution;

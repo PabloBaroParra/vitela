@@ -102,12 +102,16 @@ pub(crate) enum Icon {
     Next,
     Search,
     Comments,
+    /// The Organize "Documents" view's keyboard path for reordering a block
+    /// — the same two slots its drag offers, without a pointer.
+    MoveUp,
+    MoveDown,
 }
 
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 28] = [
+const ALL_ICONS: [Icon; 30] = [
     Icon::Home,
     Icon::Recent,
     Icon::Files,
@@ -136,6 +140,8 @@ const ALL_ICONS: [Icon; 28] = [
     Icon::Next,
     Icon::Search,
     Icon::Comments,
+    Icon::MoveUp,
+    Icon::MoveDown,
 ];
 
 macro_rules! icon_source {
@@ -179,6 +185,8 @@ impl Icon {
             Icon::Next => icon_source!("next.svg"),
             Icon::Search => icon_source!("search.svg"),
             Icon::Comments => icon_source!("comments.svg"),
+            Icon::MoveUp => icon_source!("move-up.svg"),
+            Icon::MoveDown => icon_source!("move-down.svg"),
         }
     }
 }

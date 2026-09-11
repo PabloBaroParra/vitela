@@ -107,6 +107,52 @@ pub(super) fn move_page(viewer: &Viewer, from: usize, to: usize) -> bool {
     })
 }
 
+/// Moves the `count` pages starting at `from` so the run begins at `to`,
+/// recording one `Command::MovePages` — the Documents view's drag, and its
+/// Move up/Move down buttons.
+///
+/// One command, not `count` `MovePage`s: the checklist asks a block move to
+/// be a single undo step, and a run of per-page moves would also leave the
+/// document in an interleaved half-moved state if one of them were rejected
+/// partway through.
+pub(super) fn move_block(viewer: &Viewer, from: usize, count: usize, to: usize) -> bool {
+    if from == to || count == 0 {
+        return false;
+    }
+    command(viewer, |session| {
+        let document = model(session)?;
+        if !apply_command(document, Command::MovePages { from, count, to }) {
+            return Err("Could not move the document.".to_string());
+        }
+        Ok(format!(
+            "Moved {count} page{} to position {}.",
+            if count == 1 { "" } else { "s" },
+            to + 1
+        ))
+    })
+}
+
+/// Deletes the `count` pages starting at `index` as one undoable step.
+pub(super) fn delete_block(viewer: &Viewer, index: usize, count: usize) -> bool {
+    command(viewer, |session| {
+        let document = model(session)?;
+        // `Command::remove_pages` for the same reason `delete_page` uses
+        // `Command::remove_page`: it captures the annotations and form fields
+        // anchored to *every* page of the run, so undo brings the block back
+        // with what was drawn on it and the removal cannot strand an
+        // annotation on a page id `pdf-save` would then refuse to write.
+        let removal = Command::remove_pages(document, index, count)
+            .ok_or_else(|| "Those pages no longer exist.".to_string())?;
+        if !apply_command(document, removal) {
+            return Err("Could not delete the document.".to_string());
+        }
+        Ok(format!(
+            "Deleted {count} page{}.",
+            if count == 1 { "" } else { "s" }
+        ))
+    })
+}
+
 pub(super) fn delete_page(viewer: &Viewer, index: usize) -> bool {
     command(viewer, |session| {
         let document = model(session)?;

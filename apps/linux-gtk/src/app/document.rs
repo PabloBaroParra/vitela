@@ -827,6 +827,10 @@ fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::PageId> {
 /// a stamp with no surface) from the next page move onward.
 struct EditState {
     document_model: Option<Document>,
+    /// The refresh reopens from bytes, and `source_name` has no name for
+    /// those — carrying the one the session already had is what keeps the
+    /// Organize base block titled with the user's file after a page move.
+    base_name: String,
     save_backing: Option<super::state::SaveBacking>,
     imported_sources: Vec<ImportedSource>,
     next_annotation_id: u64,
@@ -876,6 +880,7 @@ fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
     let session = state.session.as_mut()?;
     Some(EditState {
         document_model: session.document_model.take(),
+        base_name: session.base_name.clone(),
         save_backing: session.save_backing.take(),
         imported_sources: std::mem::take(&mut session.imported_sources),
         next_annotation_id: session.next_annotation_id,
@@ -917,6 +922,7 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
                 );
                 session.backend_pages = backend_page_order(preserved.document_model.as_ref());
                 session.document_model = preserved.document_model;
+                session.base_name = preserved.base_name;
                 session.save_backing = preserved.save_backing;
                 session.imported_sources = preserved.imported_sources;
                 session.next_annotation_id = preserved.next_annotation_id;
@@ -1415,6 +1421,7 @@ fn open_document(
     match renderer.page_sizes(document, Priority::Visible).wait() {
         Ok(page_sizes) => Ok(OpenedDocument {
             document,
+            name: source_name(source),
             page_sizes,
             text_access,
             annotation_access,
@@ -1427,6 +1434,24 @@ fn open_document(
             let _ = renderer.close_document(document);
             Err(error)
         }
+    }
+}
+
+/// What to call the document this source opens — see
+/// [`DocumentSession::base_name`].
+///
+/// A `Bytes` source has no name of its own: it is either Ctrl+N's blank
+/// document or a preview refresh's in-memory save, and the refresh restores
+/// the name it had rather than taking this fallback (`restore_edit_state`).
+fn source_name(source: &DocumentSource) -> String {
+    match source {
+        DocumentSource::File(path) => path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Opened PDF")
+            .to_owned(),
+        DocumentSource::Embedded(_) => "Sample document".to_owned(),
+        DocumentSource::Bytes(_) => "Untitled document".to_owned(),
     }
 }
 
@@ -1689,6 +1714,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         state.session_id += 1;
         state.session = Some(DocumentSession {
             document: document.document,
+            base_name: document.name,
             text_access: document.text_access,
             annotation_access: document.annotation_access,
             content_edit_access: document.content_edit_access,

@@ -11,22 +11,15 @@
 //! at once. `home::show_home`/`home::show_editor` already establish the
 //! pattern for a top-level view swap; this module is the third case of it.
 //!
-//! ## Why a drop re-renders the whole grid rather than reordering widgets
+//! ## The two views
 //!
-//! A drag-and-drop move only changes which position a page's thumbnail sits
-//! at, never what is drawn on it, so reordering the already-rendered card
-//! widgets in place looks like the obvious approach — and is what this
-//! module did originally. It doesn't work on this GTK4 build:
-//! `gtk_flow_box_remove` doesn't release a widget's parent, not
-//! synchronously and not even a full main-loop iteration later, so any
-//! `insert`/`append` of that same widget back into the grid fails
-//! `gtk_flow_box_child_set_child`'s assertion and silently drops the card
-//! (see `handle_drop`'s own doc for the repro). `handle_drop` instead calls
-//! [`populate_grid`] again after every move — the same rebuild the screen's
-//! own opening already does — trading a redundant pdfium render per page on
-//! every drag for correctness. `delete_page` only ever removes a card
-//! (never reparents one back in), so it keeps the cheaper in-place
-//! `grid.remove`.
+//! The screen shows the same page order either as one card per *document
+//! block* ([`documents`]) or as one card per *page* ([`grid`]), and
+//! [`views`] owns which of the two is on show. They are deliberately unlike
+//! each other: a block list is one pdfium render per document and is rebuilt
+//! whole on every change, while the page grid is one render per page and is
+//! never rebuilt for a move — see [`reorder_cards`] for the GTK4 bug that
+//! rules out the obvious alternative there.
 //!
 //! ## Why `Command::MovePage`/`RemovePage`, not a direct `pdf_manip` call
 //!
@@ -43,23 +36,28 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gdk, glib, ApplicationWindow, Box as GtkBox, Button, DropTarget, FlowBox, Label, Orientation,
-    PolicyType, ProgressBar, ScrolledWindow, SelectionMode,
+    gdk, ApplicationWindow, Box as GtkBox, Button, DropTarget, FlowBox, Orientation, PolicyType,
+    ProgressBar, ScrolledWindow, SelectionMode, Stack,
 };
 
 use crate::app::document::show_save_chooser;
 use crate::app::state::{Cards, OrganizePanel, Viewer};
 
 use super::tools_panel::panel_heading;
-use command::move_page;
-use grid::{fill_missing_thumbnails, populate_grid, renumber, sort_position};
+use documents::{DOCUMENTS_VIEW, PAGES_VIEW};
+use grid::{fill_missing_thumbnails, handle_drop, populate_grid, sort_position};
+use views::{populate_visible, showing_documents};
 
 pub(crate) const ORGANIZE_PAGE: &str = "organize";
 
+pub(crate) use documents::ORGANIZE_CSS;
+
 const NO_DOCUMENT: &str = "Open a PDF before organizing its pages.";
 mod command;
+mod documents;
 mod grid;
 mod import;
+mod views;
 
 const CARDS_PER_ROW: u32 = 5;
 
@@ -103,9 +101,10 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
     header.append(&save);
     root.append(&header);
 
-    let hint = Label::new(Some("Drag a page to reorder it."));
-    hint.set_xalign(0.0);
-    hint.add_css_class("recent-meta");
+    let (switch, documents_toggle, pages_toggle) = views::build_switch();
+    root.append(&switch);
+
+    let hint = views::build_hint();
     root.append(&hint);
 
     let grid = FlowBox::new();
@@ -133,15 +132,33 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
         }
     });
 
-    let scroll = ScrolledWindow::builder()
+    let pages_scroll = ScrolledWindow::builder()
         .vexpand(true)
         .hscrollbar_policy(PolicyType::Never)
         .child(&grid)
         .build();
-    root.append(&scroll);
+
+    let documents_list = GtkBox::new(Orientation::Vertical, 0);
+    documents_list.set_valign(gtk::Align::Start);
+    let documents_scroll = ScrolledWindow::builder()
+        .vexpand(true)
+        .hscrollbar_policy(PolicyType::Never)
+        .child(&documents_list)
+        .build();
+
+    let views = Stack::new();
+    views.add_named(&documents_scroll, Some(DOCUMENTS_VIEW));
+    views.add_named(&pages_scroll, Some(PAGES_VIEW));
+    views.set_visible_child_name(DOCUMENTS_VIEW);
+    root.append(&views);
 
     (
         OrganizePanel {
+            views,
+            documents_toggle,
+            pages_toggle,
+            hint,
+            documents_list,
             grid,
             cards,
             thumbnails_stale: Rc::new(Cell::new(false)),
@@ -159,6 +176,8 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
 /// `metadata::connect_metadata_panel`. Needs `window`, unlike that one,
 /// because saving opens the same file chooser Ctrl+S does.
 pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer) {
+    views::connect(viewer);
+
     viewer.organize.add_pdfs_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
@@ -185,31 +204,34 @@ pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer
     viewer.organize.grid.add_controller(drop_target);
 }
 
-/// Switches to the Organize screen and (re)populates its grid for the
-/// current session. Called from `home::tools::apply`'s `HomeTool::Organize`
-/// arm — which, like every other tool, only runs once a document is open.
+/// Switches to the Organize screen and populates it for the current session.
+/// Called from `home::tools::apply`'s `HomeTool::Organize` arm — which, like
+/// every other tool, only runs once a document is open.
 pub(crate) fn show(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(refusal);
         return;
     }
-    populate_grid(viewer);
+    // Opens on Documents every time, not on whichever view was left behind:
+    // the blocks are the shape of the assembled document, and the per-page
+    // grid is the detail a user descends into from there.
+    viewer.organize.documents_toggle.set_active(true);
+    views::show(viewer, DOCUMENTS_VIEW);
     viewer.view_stack.set_visible_child_name(ORGANIZE_PAGE);
 }
 
-/// Rebuilds the grid when this screen is the one on show, and does nothing
-/// otherwise. Called from `annotations::command::history` after an undo or
-/// redo that moved a `MovePage`/`RemovePage`/`InsertPage` command: those
-/// change `Document.pages` behind the grid's back, so the cards left on
-/// screen would keep the order the log has just reversed.
+/// Rebuilds the view on show when this screen is the one on show, and does
+/// nothing otherwise. Called from `annotations::command::history` after an
+/// undo or redo that moved a page-structure command: those change
+/// `Document.pages` behind the cards' backs, so what is left on screen would
+/// keep the order the log has just reversed.
 ///
 /// Gated on visibility rather than run unconditionally because a rebuild
-/// costs one pdfium render per page (see [`populate_grid`]), and [`show`]
-/// populates the grid on the way in — a hidden grid has nothing to keep
-/// current.
+/// costs a pdfium render per card (see [`populate_grid`]), and [`show`]
+/// populates on the way in — a hidden view has nothing to keep current.
 pub(crate) fn refresh_if_visible(viewer: &Viewer) {
     if viewer.view_stack.visible_child_name().as_deref() == Some(ORGANIZE_PAGE) {
-        populate_grid(viewer);
+        populate_visible(viewer);
     }
 }
 
@@ -228,8 +250,8 @@ pub(crate) fn invalidate_thumbnails(viewer: &Viewer) {
     viewer.organize.thumbnails_stale.set(true);
 }
 
-/// What the grid needs after `document::refresh_preview`'s in-memory
-/// save-and-reopen lands, which is usually nothing.
+/// What the view on show needs after `document::refresh_preview`'s in-memory
+/// save-and-reopen lands, which for the Pages grid is usually nothing.
 ///
 /// The reopen swaps the pdfium handle every thumbnail was rendered against,
 /// but a rendered thumbnail is a `Pixbuf` the card already owns — the new
@@ -237,7 +259,7 @@ pub(crate) fn invalidate_thumbnails(viewer: &Viewer) {
 /// work here is limited to cards that never got a thumbnail at all: an
 /// inserted or imported page renders as a placeholder until the handle that
 /// finally holds it exists, and a render still in flight when the handle was
-/// swapped is dropped by `grid::spawn_thumbnail`'s own guard.
+/// swapped is dropped by `grid::thumbnail::spawn_thumbnail`'s own guard.
 ///
 /// This used to be [`refresh_if_visible`], which meant every page move paid
 /// for a second full re-render of the whole grid on top of the one the drop
@@ -245,6 +267,14 @@ pub(crate) fn invalidate_thumbnails(viewer: &Viewer) {
 /// show a page in a different place.
 pub(crate) fn refresh_after_reopen(viewer: &Viewer) {
     if viewer.view_stack.visible_child_name().as_deref() != Some(ORGANIZE_PAGE) {
+        return;
+    }
+    // The Documents view has no thumbnail-preserving path to take: a move or
+    // a delete can merge, split or drop whole blocks, so its cards are
+    // rebuilt from the new page order either way. It is one render per
+    // document rather than per page, which is what makes that affordable.
+    if showing_documents(viewer) {
+        documents::populate(viewer);
         return;
     }
     if viewer.organize.thumbnails_stale.get() {
@@ -256,65 +286,6 @@ pub(crate) fn refresh_after_reopen(viewer: &Viewer) {
 
 pub(crate) fn document_changed(viewer: &Viewer) {
     import::document_changed(viewer);
-}
-
-/// The grid's single drop handler: finds which card the pointer landed on,
-/// records the move in `Document.pages` via `Command::MovePage`, then moves
-/// the card to match.
-fn handle_drop(viewer: &Viewer, value: &glib::Value, x: f64, y: f64) -> bool {
-    let grid = &viewer.organize.grid;
-    let cards = &viewer.organize.cards;
-
-    let Ok(from) = value.get::<i32>() else {
-        return false;
-    };
-    let from = from as usize;
-    let Some(target) = grid.child_at_pos(x as i32, y as i32) else {
-        return false;
-    };
-    let Some(target_card) = target
-        .child()
-        .and_then(|widget| widget.downcast::<GtkBox>().ok())
-    else {
-        return false;
-    };
-    let Some(to) = cards.position(&target_card) else {
-        return false;
-    };
-    if from == to || from >= cards.len() {
-        return false;
-    }
-
-    if !move_page(viewer, from, to) {
-        return false;
-    }
-    reorder_cards(viewer, from, to);
-    true
-}
-
-/// Moves the card at `from` to `to`, mirroring what `Command::MovePage` just
-/// did to `Document.pages` (see `Cards::move_card` for the mirroring itself).
-///
-/// Nothing is re-rendered and no widget changes parent. `cards` is the sort
-/// key (see [`build_organize_panel`]), so reordering the vector *is* the
-/// reorder, and `invalidate_sort` is what tells the grid to read it again.
-/// Each card keeps the `Picture` it was built with, which matters twice over:
-/// the thumbnail it already painted is still that page's thumbnail, and a
-/// render still in flight is still aimed at the card it was started for.
-///
-/// The obvious alternative — pulling the card out of the grid and inserting
-/// it at the new index — is not available. `gtk_flow_box_remove` on this GTK4
-/// build does not release a widget's parent: not synchronously inside this
-/// callback, and not a full main-loop iteration later via
-/// `glib::idle_add_local_once` either (both tried, reproduced with 2 cards,
-/// from=0 to=1 — moving a card to become the *last* one). Any `insert` or
-/// `append` of that widget back into the same grid then fails
-/// `gtk_flow_box_child_set_child`'s assertion and silently drops the card.
-/// Sorting never asks the grid to move anything, so it never meets that bug.
-fn reorder_cards(viewer: &Viewer, from: usize, to: usize) {
-    viewer.organize.cards.move_card(from, to);
-    viewer.organize.grid.invalidate_sort();
-    renumber(&viewer.organize.cards);
 }
 
 #[cfg(test)]

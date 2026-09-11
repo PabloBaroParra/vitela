@@ -367,6 +367,11 @@ pub(crate) struct SaveBacking {
 pub(crate) struct ImportedSource {
     pub(crate) id: ImportedDocumentId,
     pub(crate) document: LopdfDocument,
+    /// The file name this PDF was imported from, for the Organize
+    /// "Documents" view to title its block card with. Captured at import
+    /// time because nothing downstream remembers the path: the session keeps
+    /// the parsed document, not where it came from.
+    pub(crate) name: String,
 }
 
 /// Identifies the exact model revision from which asynchronous work started.
@@ -609,7 +614,7 @@ pub(crate) struct MetadataPanel {
 }
 
 /// One card in the Organize grid: its root box, the page-number label
-/// `organize::renumber` keeps current, and the `Picture`
+/// `organize::grid::renumber` keeps current, and the `Picture`
 /// `organize::spawn_thumbnail` fills in once a render lands.
 ///
 /// The `Picture` is held rather than fished out of `root`'s children so that
@@ -710,13 +715,34 @@ impl Cards {
 /// module's.
 #[derive(Clone)]
 pub(crate) struct OrganizePanel {
+    /// The screen's two ways of looking at the same page order: one card per
+    /// *document block* and one card per *page* — `organize::documents::
+    /// DOCUMENTS_VIEW` and `organize::documents::PAGES_VIEW`.
+    ///
+    /// A `Stack` rather than one container refilled twice: the pages grid is
+    /// a `FlowBox` whose children cannot be taken out and put back (see
+    /// `organize::reorder_cards`), so the two views must own their widgets
+    /// outright.
+    pub(crate) views: Stack,
+    /// The `Documents | Pages` selector. Grouped, so exactly one is active;
+    /// `organize::show` opens on `documents_toggle`.
+    pub(crate) documents_toggle: ToggleButton,
+    pub(crate) pages_toggle: ToggleButton,
+    /// The line under the header describing the gesture available in the
+    /// view currently on show.
+    pub(crate) hint: Label,
+    /// The Documents view's list: alternating drop gaps and block cards,
+    /// rebuilt whole by `organize::documents::populate` — blocks are derived
+    /// fresh from the page order on every call, so there is no card identity
+    /// worth preserving across one.
+    pub(crate) documents_list: GtkBox,
     pub(crate) grid: FlowBox,
     pub(crate) cards: Cards,
     /// Set when something that changes a page's *pixels* — as opposed to the
     /// page set's order — has landed while the grid still holds the cards it
     /// rendered before. `organize::refresh_after_reopen` reads it to decide
     /// between re-rendering every card and merely filling in the ones that
-    /// never got a thumbnail; `organize::populate_grid` clears it, because a
+    /// never got a thumbnail; `organize::grid::populate_grid` clears it, because a
     /// full rebuild is exactly what it means.
     pub(crate) thumbnails_stale: Rc<Cell<bool>>,
     pub(crate) add_pdfs_button: Button,
@@ -1105,6 +1131,16 @@ impl PageAssemblyAccess {
 
 pub(crate) struct DocumentSession {
     pub(crate) document: DocumentHandle,
+    /// What to call the PDF this session was opened with — the file name for
+    /// a file, a stand-in for the sample and for a document that only ever
+    /// existed in memory.
+    ///
+    /// The Organize "Documents" view titles the base block's card with it,
+    /// the same way it titles an imported block with
+    /// [`ImportedSource::name`]. Preserved across a preview refresh
+    /// (`document::restore_edit_state`), which reopens from bytes that carry
+    /// no name of their own.
+    pub(crate) base_name: String,
     /// Whether search and text selection may read this document's text.
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
@@ -1349,6 +1385,8 @@ pub(crate) struct RenderedPage {
 
 pub(crate) struct OpenedDocument {
     pub(crate) document: DocumentHandle,
+    /// See [`DocumentSession::base_name`], which this becomes.
+    pub(crate) name: String,
     pub(crate) page_sizes: Vec<(f32, f32)>,
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,

@@ -321,6 +321,7 @@ fn prepare(
         sources.push(ImportedSource {
             id: ImportedDocumentId(source_id),
             document,
+            name,
         });
         report(ImportProgress {
             completed: offset + 1,

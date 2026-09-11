@@ -1,39 +1,28 @@
-//! The Organize screen's thumbnail grid: building one card per model page,
-//! rendering its thumbnail, and keeping the page numbers in step.
+//! The Organize screen's "Pages" view: one card per model page, the drag
+//! that reorders them, and the page numbers that follow.
 //!
 //! Split out of `organize` alongside [`super::command`] — this half owns the
-//! widgets and the pixels, that half owns the edits. The screen's own
-//! build/connect/show lives in the parent module, which is also where the
-//! drop handler that drives [`renumber`] sits.
+//! widgets and the gesture, that half owns the edits, and [`thumbnail`] owns
+//! the pdfium render behind each card. The screen's own build/connect/show
+//! stays in the parent module.
 
 use gtk::prelude::*;
-use gtk::{
-    gdk, gdk_pixbuf, gio, glib, Box as GtkBox, Button, DragSource, FlowBox, Label, Orientation,
-    Picture,
-};
-use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderOptions};
+use gtk::{gdk, glib, Box as GtkBox, Button, DragSource, FlowBox, Label, Orientation, Picture};
+use pdf_render::DocumentHandle;
 
 use crate::app::icons::{build_icon, Icon, ACCENT_TINT};
-use crate::app::render::render_result;
-use crate::app::state::{Card, Cards, RenderedPage, Viewer};
+use crate::app::state::{Card, Cards, Viewer};
 
-use super::command::delete_page;
+use super::command::{delete_page, move_page};
+pub(in crate::app::organize) use thumbnail::spawn_thumbnail;
+
+pub(in crate::app::organize) mod thumbnail;
 
 /// Logical card size. Larger than Home's recents preview (`THUMB_WIDTH_PX`
 /// there is 108): this grid is the whole point of the screen, not one card
 /// among several.
 const CARD_WIDTH_PX: i32 = 140;
 const CARD_HEIGHT_PX: i32 = 180;
-
-const POINTS_PER_INCH: f64 = 72.0;
-
-/// `grid` is homogeneous (see [`super::build_organize_panel`]) so a row with fewer
-/// than [`super::CARDS_PER_ROW`] cards stretches each card well past
-/// `CARD_WIDTH_PX`/`CARD_HEIGHT_PX` to fill the line — GTK4 CSS has no
-/// `max-width`/`max-height` to cap that. Rendering at this multiple of the
-/// logical card size instead of 1x gives the stretch somewhere to land
-/// without going blocky; the DPI is still clamped in [`thumbnail_dpi`].
-const RENDER_HEADROOM: i32 = 3;
 
 /// Renders the thumbnails of cards that do not have one yet, against the
 /// handle as it is now, and leaves every painted card alone.
@@ -59,7 +48,13 @@ pub(super) fn fill_missing_thumbnails(viewer: &Viewer) {
         if card.picture.paintable().is_some() {
             continue;
         }
-        spawn_thumbnail(viewer, handle, backend_index as u32, card.picture.clone());
+        spawn_thumbnail(
+            viewer,
+            handle,
+            backend_index as u32,
+            card.picture.clone(),
+            (CARD_WIDTH_PX, CARD_HEIGHT_PX),
+        );
     }
 }
 
@@ -104,7 +99,13 @@ pub(super) fn populate_grid(viewer: &Viewer) {
         viewer.organize.cards.push(card.clone());
         grid.append(&card.root);
         if let Some(backend_index) = backend_index {
-            spawn_thumbnail(viewer, handle, backend_index as u32, card.picture);
+            spawn_thumbnail(
+                viewer,
+                handle,
+                backend_index as u32,
+                card.picture,
+                (CARD_WIDTH_PX, CARD_HEIGHT_PX),
+            );
         }
     }
 }
@@ -200,89 +201,68 @@ fn build_card(viewer: &Viewer, grid: &FlowBox, cards: &Cards) -> Card {
 
 /// Relabels every card's page-number to its current position — cheap text
 /// updates, never a re-render, called after any move or delete.
-pub(super) fn renumber(cards: &Cards) {
+fn renumber(cards: &Cards) {
     for (position, card) in cards.snapshot().iter().enumerate() {
         card.number.set_text(&(position + 1).to_string());
     }
 }
 
-/// Renders one card's thumbnail off the main thread and fills its `Picture`
-/// in when the render lands.
-///
-/// The `cfg(test)` early return is the module's one test seam, and it is here
-/// rather than in the tests because this is the only line where the pairing
-/// under test — *which* pdfium page index a given card asked for — still
-/// exists. `Document.pages` is reordered by `Command::MovePage`, so a card
-/// that rendered by grid position instead of by page identity would still
-/// look right in the model and wrong on screen; capturing the request is what
-/// tells the two apart. The tests cannot let the real path run: their session
-/// carries no pdfium document.
-fn spawn_thumbnail(
-    viewer: &Viewer,
-    handle: DocumentHandle,
-    pdfium_page_index: u32,
-    picture: Picture,
-) {
-    #[cfg(test)]
-    if super::tests::capture_thumbnail(pdfium_page_index, &picture) {
-        return;
+/// The grid's single drop handler: finds which card the pointer landed on,
+/// records the move in `Document.pages` via `Command::MovePage`, then moves
+/// the card to match.
+pub(super) fn handle_drop(viewer: &Viewer, value: &glib::Value, x: f64, y: f64) -> bool {
+    let grid = &viewer.organize.grid;
+    let cards = &viewer.organize.cards;
+
+    let Ok(from) = value.get::<i32>() else {
+        return false;
+    };
+    let from = from as usize;
+    let Some(target) = grid.child_at_pos(x as i32, y as i32) else {
+        return false;
+    };
+    let Some(target_card) = target
+        .child()
+        .and_then(|widget| widget.downcast::<GtkBox>().ok())
+    else {
+        return false;
+    };
+    let Some(to) = cards.position(&target_card) else {
+        return false;
+    };
+    if from == to || from >= cards.len() {
+        return false;
     }
-    let scale_factor = picture.scale_factor().max(1) * RENDER_HEADROOM;
-    glib::spawn_future_local({
-        let viewer = viewer.clone();
-        async move {
-            let job = move || -> Result<RenderedPage, pdf_render::RenderError> {
-                let renderer = PdfiumRenderer::new();
-                let (width_pt, height_pt) = renderer
-                    .page_size(handle, pdfium_page_index, Priority::Thumbnail)
-                    .wait()?;
-                let dpi = thumbnail_dpi(width_pt, height_pt, scale_factor);
-                render_result(renderer.render_page(
-                    handle,
-                    pdfium_page_index,
-                    dpi,
-                    None,
-                    RenderOptions::new(),
-                    Priority::Thumbnail,
-                ))
-            };
-            let Ok(Ok(page)) = gio::spawn_blocking(job).await else {
-                return;
-            };
-            let still_current = viewer
-                .state
-                .borrow()
-                .session
-                .as_ref()
-                .is_some_and(|session| session.document == handle);
-            if !still_current {
-                return;
-            }
-            let pixbuf = gdk_pixbuf::Pixbuf::from_bytes(
-                &glib::Bytes::from_owned(page.pixels),
-                gdk_pixbuf::Colorspace::Rgb,
-                true,
-                8,
-                page.width as i32,
-                page.height as i32,
-                page.stride as i32,
-            );
-            picture.set_pixbuf(Some(&pixbuf));
-        }
-    });
+
+    if !move_page(viewer, from, to) {
+        return false;
+    }
+    reorder_cards(viewer, from, to);
+    true
 }
 
-/// The DPI that fits a `width_pt` x `height_pt` page inside [`CARD_WIDTH_PX`]
-/// x [`CARD_HEIGHT_PX`] at `scale_factor` — the organize-grid twin of
-/// `home::recents::thumbnail_dpi`. Kept as its own copy rather than shared:
-/// two call sites and a ten-line pure function is not worth an abstraction.
-fn thumbnail_dpi(width_pt: f32, height_pt: f32, scale_factor: i32) -> u32 {
-    let scale = f64::from(scale_factor.max(1));
-    let fit = |pixels: i32, points: f32| {
-        f64::from(pixels) * scale * POINTS_PER_INCH / f64::from(points.max(1.0))
-    };
-    fit(CARD_WIDTH_PX, width_pt)
-        .min(fit(CARD_HEIGHT_PX, height_pt))
-        .floor()
-        .clamp(8.0, 300.0) as u32
+/// Moves the card at `from` to `to`, mirroring what `Command::MovePage` just
+/// did to `Document.pages` (see `state::Cards::move_card` for the mirroring
+/// itself).
+///
+/// Nothing is re-rendered and no widget changes parent. `cards` is the sort
+/// key (see [`super::build_organize_panel`]), so reordering the vector *is* the
+/// reorder, and `invalidate_sort` is what tells the grid to read it again.
+/// Each card keeps the `Picture` it was built with, which matters twice over:
+/// the thumbnail it already painted is still that page's thumbnail, and a
+/// render still in flight is still aimed at the card it was started for.
+///
+/// The obvious alternative — pulling the card out of the grid and inserting
+/// it at the new index — is not available. `gtk_flow_box_remove` on this GTK4
+/// build does not release a widget's parent: not synchronously inside this
+/// callback, and not a full main-loop iteration later via
+/// `glib::idle_add_local_once` either (both tried, reproduced with 2 cards,
+/// from=0 to=1 — moving a card to become the *last* one). Any `insert` or
+/// `append` of that widget back into the same grid then fails
+/// `gtk_flow_box_child_set_child`'s assertion and silently drops the card.
+/// Sorting never asks the grid to move anything, so it never meets that bug.
+fn reorder_cards(viewer: &Viewer, from: usize, to: usize) {
+    viewer.organize.cards.move_card(from, to);
+    viewer.organize.grid.invalidate_sort();
+    renumber(&viewer.organize.cards);
 }

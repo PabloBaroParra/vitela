@@ -126,6 +126,7 @@ fn gtk_ui_an_imported_page_probes_against_the_source_it_came_from() {
         let sources = vec![crate::app::state::ImportedSource {
             id: ImportedDocumentId(7),
             document: source,
+            name: "imported.pdf".to_owned(),
         }];
         let pages = vec![Page::imported(
             PageId(3),
