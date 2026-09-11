@@ -27,7 +27,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 | Integración Linux | Pendiente |
 | Vista por documentos | Completo |
 | Vista por páginas | Completo |
-| Animación | Pendiente |
+| Animación | Parcial |
 | Pruebas y gates | Pendiente |
 
 ## Decisiones cerradas
@@ -1191,21 +1191,117 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 11. Animación y rendimiento
 
-- [ ] Construir vistas independientes dentro de un `GtkStack`.
-- [ ] Evitar reparentar widgets retirados de un `FlowBox`.
-- [ ] Animar el paso de documentos a páginas con opacidad, escala y
+- [x] Construir vistas independientes dentro de un `GtkStack`.
+- [x] Evitar reparentar widgets retirados de un `FlowBox`.
+- [x] Animar el paso de documentos a páginas con opacidad, escala y
   desplazamiento.
-- [ ] Escalonar la aparición de páginas para comunicar que salen de sus
+- [x] Escalonar la aparición de páginas para comunicar que salen de sus
   bloques.
-- [ ] Limitar la duración total de la secuencia en documentos grandes.
-- [ ] Animar solo elementos visibles cuando hacerlo completo sea costoso.
-- [ ] Respetar la configuración global de animaciones de GTK.
-- [ ] Cambiar inmediatamente de vista cuando las animaciones estén
+- [x] Limitar la duración total de la secuencia en documentos grandes.
+- [x] Animar solo elementos visibles cuando hacerlo completo sea costoso.
+- [x] Respetar la configuración global de animaciones de GTK.
+- [x] Cambiar inmediatamente de vista cuando las animaciones estén
   desactivadas.
-- [ ] Cachear miniaturas por documento, página, tamaño y factor de escala.
-- [ ] Invalidar resultados de renderizado obsoletos mediante una generación.
-- [ ] Evitar renderizar nuevamente todas las miniaturas al cambiar de vista.
+- [x] Cachear miniaturas por documento, página, tamaño y factor de escala.
+- [x] Invalidar resultados de renderizado obsoletos mediante una generación.
+- [x] Evitar renderizar nuevamente todas las miniaturas al cambiar de vista.
 - [ ] Medir importación, primer render y cambio de modo con documentos grandes.
+  Parcial: las tres operaciones están medidas en renders de pdfium, que es lo
+  que cuesta caro en ellas, pero no cronometradas sobre un PDF real grande.
+
+### Progreso de la animación y el rendimiento
+
+- 2026-09-11: las dos vistas ya vivían en un `Stack` propio
+  (`OrganizePanel::views`, §9) y el reorden de la cuadrícula ya evitaba
+  reparentar hijos de un `FlowBox` desde §10 — mueve una clave de orden, no
+  un widget. Los dos primeros ítems se cierran sobre ese código, no sobre
+  código nuevo; lo que se añadió al `Stack` es su transición.
+- La caché de miniaturas es `apps/linux-gtk/src/app/organize/cache.rs`
+  (`Thumbnails` + `ThumbnailKey`), un campo más de `OrganizePanel`. La clave
+  es `PageId` + tamaño lógico + factor de escala, **no** el índice de página
+  del handle pdfium: ese número lo renumeran `Command::MovePage`, una
+  importación y cada reapertura de `document::refresh_preview`, así que una
+  caché apoyada en él le daría a una página movida la foto de la que heredó
+  su hueco. El "por documento" del checklist lo da el ciclo de vida: los
+  `PageId` son únicos dentro de un modelo y vuelven a empezar en 0 en el
+  siguiente, por lo que `organize::document_changed` vacía la caché antes de
+  que el documento nuevo pida nada.
+- El tamaño está en la clave porque las dos vistas piden las mismas páginas
+  a medidas distintas (`grid::card::CARD_WIDTH_PX` contra
+  `documents::card::COVER_WIDTH_PX`), y una entrada compartida dibujaría la
+  portada de un bloque con píxeles renderizados para una tarjeta vez y media
+  más ancha.
+- Hay presupuesto en bytes (96 MiB, LRU) y no un mapa sin fondo: una página
+  A4 a la medida de la vista Pages son unos 380x538 px —cerca de 0,8 MB— y
+  cuatro veces eso en HiDPI, así que guardar las 500 páginas de un ensamblado
+  serían cientos de megabytes de píxeles de tarjetas que nadie está mirando.
+  Dentro del presupuesto un cambio de vista cuesta cero renders; por encima
+  degrada a renderizar lo que se cayó, que sigue siendo estrictamente menos
+  que el re-render completo que sustituye.
+- La invalidación es un contador de generación y no un borrado de claves. Un
+  render se pide en el hilo principal y aterriza varios frames después; entre
+  medias una edición de contenido puede repintar justo esa página, y eso deja
+  mal a la vez el resultado en vuelo y todas las entradas guardadas. Subir el
+  contador responde las dos cosas de una: la caché se vacía y el render que
+  empezó antes del salto ve que ya no es actual y descarta su resultado en
+  lugar de volver a llenar la caché con los píxeles que la edición acaba de
+  rechazar. `organize::invalidate_thumbnails` es quien lo sube.
+- La animación vive en `apps/linux-gtk/src/app/organize/motion.rs` y se
+  aplica desde `views::show`, nunca desde `populate`: a los dos `populate`
+  los llaman también un deshacer, un rehacer, un movimiento de bloque y un
+  refresco de vista previa, y animar eso haría que cada Ctrl+Z parpadeara la
+  cuadrícula entera. Nada retira las clases después y nada tiene por qué:
+  toda llegada reconstruye las tarjetas que anima, así que la clase siempre
+  cae sobre un widget que no la llevaba.
+- La opacidad de conjunto la pone el `Stack` (`Crossfade`, 160 ms) y la
+  escala y el desplazamiento las ponen los keyframes `organize-enter` de cada
+  tarjeta (`translateY(10px) scale(0.96)` hasta nada, 180 ms). El escalonado
+  son doce clases `.organize-enter-N` con retardos de 20 ms, porque GTK4 CSS
+  no tiene estilos en línea y un retardo por tarjeta tiene que ser una clase
+  que la hoja ya nombre. Ese tope es justo lo que cierra los dos ítems de
+  coste: la secuencia no puede durar más de 220 ms + 180 ms por muchas
+  páginas que tenga el documento, y las tarjetas más allá de la última
+  ranura no animan. Son doce con cinco tarjetas por fila, algo más de dos
+  filas: una aproximación al conjunto visible por presupuesto fijo, no una
+  consulta real de la posición del scroll.
+- `gtk-enable-animations` se consulta en cada llegada y no una vez al
+  construir la pantalla: es un ajuste vivo, y quien lo apaga espera que el
+  siguiente cambio de vista sea instantáneo, no el siguiente arranque. Con él
+  apagado no se añade ninguna clase —las tarjetas están sin más— y GTK se
+  salta además la transición del `Stack` por su cuenta.
+- Medición (ítem 12, parcial). La parte cara de mostrar cualquiera de las dos
+  vistas es un render de pdfium por tarjeta, y el banco de pruebas ya cuenta
+  exactamente eso en la frontera donde se piden
+  (`organize::tests::THUMBNAILS`), así que las tres operaciones se miden en
+  renders y no en un cronómetro que dependa de la máquina:
+  `gtk_ui_switching_between_the_two_views_renders_nothing_again` (tres idas y
+  vueltas sobre 12 páginas: 0 renders nuevos; antes eran 12 por cada
+  entrada), `gtk_ui_importing_pages_does_not_re_render_the_grid_it_lands_in`
+  (0 sobre las páginas que ya estaban) y el primer render, que sigue siendo
+  uno por tarjeta y está fijado en el mismo test. Lo que **no** se hizo es
+  cronometrar un PDF real de varios cientos de páginas: no hay fixture de ese
+  tamaño en el repositorio y esta caja no puede pintar la ventana GTK
+  (`use_gfxredir = 0` en WSLg), así que cualquier número de reloj salido de
+  aquí sería ruido. El ítem queda abierto.
+- La hoja de estilos se comprobó cargada sin advertencias de GTK —`@keyframes`,
+  `transform` y `animation-*` los acepta GTK4 sin quejarse—, pero el resultado
+  **no** se verificó visualmente: esta caja pinta toda el área de contenido en
+  negro bajo WSLg, un fallo del entorno ya documentado y ajeno al código. Lo
+  que las pruebas fijan es qué tarjetas llevan qué clases y cuántas, no cómo
+  se ven a mitad de vuelo; un `#[gtk::test]` no tiene reloj de frames que
+  muestrear.
+- Verificación (WSL2/Ubuntu): `cargo test -p linux-gtk --locked` (420
+  aprobadas), `cargo test --workspace --locked` (1368 aprobadas, 7
+  ignoradas), `cargo clippy --workspace --all-targets --locked -- -D
+  warnings`, `cargo build --workspace --locked`, `cargo fmt --all -- --check`
+  y `python3 scripts/check_maintainability.py` (sin advertencias nuevas:
+  `cache.rs` y `motion.rs` quedan por debajo del umbral, y `import.rs` y
+  `state.rs` ya avisaban desde antes de este cambio).
+- Los dos gates que siguen sin ejecutarse son los mismos de §9 y §10, por las
+  mismas razones: `scripts/package-linux.sh` exige `PDFIUM_ARCHIVE`, que no
+  está en esta copia, y `xvfb-run` no está instalado en esta WSL, así que la
+  suite GTK corrió bajo WSLg con display real y no por la ruta headless del
+  workflow `linux-gtk-ui`.
 
 ## 12. Pruebas del núcleo
 
@@ -1283,10 +1379,13 @@ Lo que sigue abierto, y por qué:
 - [x] Probar que el orden permanece intacto al volver a documentos.
 - [x] Probar destinos de arrastre en huecos y al final.
 - [x] Probar alternativas de teclado y etiquetas accesibles.
-- [ ] Probar tipo y duración configurada de la transición sin depender de
+- [x] Probar tipo y duración configurada de la transición sin depender de
   temporizadores reales.
-- [ ] Probar el comportamiento con animaciones desactivadas.
-- [ ] Probar que resultados asíncronos obsoletos se descartan.
+- [x] Probar el comportamiento con animaciones desactivadas.
+- [ ] Probar que resultados asíncronos obsoletos se descartan. Parcial: hay
+  test de la condición que los descarta (la generación de la caché de
+  miniaturas), no del descarte mismo, que ocurre dentro del futuro de render
+  y necesita pdfium.
 - [ ] Probar que una importación fallida conserva la sesión anterior.
 
 ## 14. Gates de verificación
