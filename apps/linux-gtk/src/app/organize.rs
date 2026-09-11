@@ -58,6 +58,7 @@ mod command;
 mod documents;
 mod grid;
 mod import;
+mod motion;
 mod views;
 
 pub(crate) use cache::Thumbnails;
@@ -153,6 +154,7 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
     views.add_named(&documents_scroll, Some(DOCUMENTS_VIEW));
     views.add_named(&pages_scroll, Some(PAGES_VIEW));
     views.set_visible_child_name(DOCUMENTS_VIEW);
+    motion::configure(&views);
     root.append(&views);
 
     (

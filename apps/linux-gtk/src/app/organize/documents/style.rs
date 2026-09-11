@@ -86,4 +86,87 @@ pub(crate) const ORGANIZE_CSS: &str = r#"
 .organize-card-drop-after {
   box-shadow: inset -3px 0 0 0 #6b4eff;
 }
+
+/* The entrance the cards of a view make when the user switches to it
+   (checklist §11). Opacity, scale and displacement together: a card lifts
+   the last few pixels into its place instead of blinking into existence,
+   which is what makes the pages read as coming *out of* the blocks they
+   were just part of.
+
+   `backwards` fill is what makes the stagger work — without it a card with
+   a 220ms delay is drawn at full opacity for those 220ms and then jumps
+   back to the start of its own animation.
+
+   `organize::motion` adds these classes, and only ever on a view switch;
+   nothing here runs on an undo or a preview refresh. GTK4 skips CSS
+   animations entirely when `gtk-enable-animations` is off, and the module
+   declines to add the classes at all in that case — belt and braces, since
+   only one of the two is testable without a frame clock. */
+@keyframes organize-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.organize-enter {
+  animation-name: organize-enter;
+  animation-duration: 180ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: backwards;
+}
+
+/* One rule per stagger slot, because GTK4 CSS has no inline styles. The
+   count here is the cap on the whole sequence — see `organize::motion`. */
+.organize-enter-0 {
+  animation-delay: 0ms;
+}
+
+.organize-enter-1 {
+  animation-delay: 20ms;
+}
+
+.organize-enter-2 {
+  animation-delay: 40ms;
+}
+
+.organize-enter-3 {
+  animation-delay: 60ms;
+}
+
+.organize-enter-4 {
+  animation-delay: 80ms;
+}
+
+.organize-enter-5 {
+  animation-delay: 100ms;
+}
+
+.organize-enter-6 {
+  animation-delay: 120ms;
+}
+
+.organize-enter-7 {
+  animation-delay: 140ms;
+}
+
+.organize-enter-8 {
+  animation-delay: 160ms;
+}
+
+.organize-enter-9 {
+  animation-delay: 180ms;
+}
+
+.organize-enter-10 {
+  animation-delay: 200ms;
+}
+
+.organize-enter-11 {
+  animation-delay: 220ms;
+}
 "#;
