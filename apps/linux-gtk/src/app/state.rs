@@ -1195,6 +1195,11 @@ pub(crate) struct DocumentSession {
     /// in the model. They belong to the session rather than the pure model and
     /// must survive preview refreshes so save/undo/redo can materialize them.
     pub(crate) imported_sources: Vec<ImportedSource>,
+    /// Form-field renames already surfaced for the current edit state. A
+    /// preview refresh replays every imported page from the original backing,
+    /// so the core reports the same collision again until a real save resets
+    /// the session.
+    pub(crate) import_warning_revision: Option<u64>,
     /// Whether the in-memory model — and, since T-163, the pdfium handle
     /// currently rendering `document` — has diverged from whatever is on
     /// disk.

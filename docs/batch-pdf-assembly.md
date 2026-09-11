@@ -333,10 +333,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Definir y probar la política para formularios AcroForm importados.
 - [x] Resolver colisiones de nombres de campos sin fusionarlos silenciosamente.
 - [x] Conservar widgets y apariencias cuando se acepten formularios.
-- [ ] Mostrar en el shell Linux los campos renombrados por colisión. El aviso
-  existe en el núcleo, pero la puerta de selección (`graft_report`) no lo
-  puede emitir: depende del documento destino y el worker de importación no
-  lo tiene. Ver la nota del 2026-09-11 más abajo.
+- [x] Mostrar en el shell Linux los campos renombrados por colisión.
 - [x] Definir y probar la política para marcadores y destinos con nombre.
 - [x] Remapear destinos que apunten a páginas importadas.
 - [x] Detectar destinos que apunten a páginas no importadas.
@@ -437,6 +434,39 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   nuevos se comprobaron **por mutación**: desactivando el renombrado, la poda
   de kids, la fusión de `/DR`, la herencia de defaults, `/NeedAppearances` y
   la fusión entera, fallan exactamente los tests que los fijan.
+
+- 2026-09-11 (aviso Linux): el renombrado dependiente del destino ya no se
+  pierde durante `pdf-save::replay_page_ops`. `ReplayOutcome` acumula los
+  `GraftWarning` de cada injerto y la API nueva `save_document_with_report`
+  devuelve esos avisos junto con los bytes; `save_document` conserva su
+  contrato anterior y descarta explícitamente el detalle para sus demás
+  consumidores.
+- El worker de selección sigue sin simular el destino, a propósito: ahí se
+  muestran antes de confirmar las pérdidas que dependen solo de la fuente. La
+  colisión se conoce por primera vez durante la materialización real del
+  comando, y `document::refresh_preview` muestra entonces cada
+  `FormFieldRenamed` en el estado, después de validar e instalar la nueva
+  previsualización. La sesión marca la revisión exacta creada por
+  `ImportPages`, y solo el refresco de esa revisión consume y muestra los
+  renombrados: como cada refresco vuelve a materializar desde el respaldo
+  original, una edición posterior produciría el mismo reporte técnico, pero
+  ya no lo vuelve a presentar. Una importación distinta recibe otra revisión
+  y sí muestra su propio aviso aunque el texto coincida. Los avisos de fuente
+  ya confirmados tampoco se repiten.
+- Pruebas: `a_save_reports_a_form_field_renamed_against_the_destination`
+  fija el transporte núcleo → guardado; `refresh_status_tests` fija la
+  presentación Linux y que no repite otros avisos. Verificación dirigida:
+  `cargo test -p pdf-save --test imported_page_roundtrip --locked` (9
+  aprobadas), `cargo test -p pdf-manip --test graft_form_fields --test
+  graft_form_names --locked` (17 aprobadas) y, bajo WSLg,
+  `cargo test -p linux-gtk refresh_status_tests --locked` (3 aprobadas).
+- Gates del cambio: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --all-targets --locked -- -D warnings`, `cargo build --workspace --locked`,
+  `cargo test --workspace --locked -- --skip gtk_ui_` y `git diff --check`,
+  todos en verde; `python scripts/check_maintainability.py` mantiene 103
+  avisos y no añade una categoría nueva. La suite Linux completa bajo WSLg
+  pasó con 424 pruebas usando la ruta absoluta del `libpdfium.so` vendorizado.
+  No se ejecutó bajo Xvfb porque `xvfb-run` no está instalado en esta imagen.
 
 ### Progreso de destinos, marcadores, capas y estructura etiquetada
 
@@ -1380,7 +1410,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Probar colisiones de identificadores entre documentos.
 - [x] Probar enlaces entre páginas importadas.
 - [x] Probar anotaciones y sus streams de apariencia.
-- [ ] Probar formularios, campos homónimos y widgets.
+- [x] Probar formularios, campos homónimos y widgets.
 - [x] Probar marcadores y destinos con nombre según la política acordada.
 - [x] Probar fuentes cifradas y permisos insuficientes.
 - [x] Probar documentos principales cifrados con credenciales completas e
@@ -1409,12 +1439,13 @@ concreto, no por olvido.
 
 Lo que sigue abierto, y por qué:
 
-- **Formularios, campos homónimos y widgets** — no se puede probar todavía.
-  La política de §4 es rechazar una página con widgets AcroForm, y eso sí
-  está probado (`graft_pages_rejects_a_selected_page_with_a_form_field_widget`,
-  `graft_pages_allows_a_source_whose_unselected_page_has_form_fields`). Los
-  campos homónimos solo existen como problema cuando la fusión exista; este
-  ítem se cierra junto con los dos abiertos de §4, no antes.
+- **Formularios, campos homónimos y widgets** — cerrado junto con §4. Los 11
+  tests de `graft_form_fields.rs` fijan listado en `/AcroForm`, conservación
+  del widget, apariencia, página, defaults heredados, `/NeedAppearances`, poda
+  de widgets no importados y rechazos XFA/firma. Los 6 de
+  `graft_form_names.rs` fijan nombres homónimos, sufijos sucesivos, valores
+  independientes y colisiones de `/DR`; `imported_page_roundtrip.rs` prueba
+  además que el guardado transporta el renombrado que solo el destino revela.
 (El ítem de fuentes cifradas se cerró moviendo la comprobación al núcleo —
 ver "Progreso de las fuentes cifradas" más abajo.)
 

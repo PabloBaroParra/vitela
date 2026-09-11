@@ -706,7 +706,9 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
             .await;
             let result = save_worker_result(result);
             match result {
-                Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
+                Ok((reopened, warnings))
+                    if let Some(generation) = prepare_reopened_session(&viewer, token) =>
+                {
                     // Lifted out *before* `show_document` drops the session
                     // it belongs to, and put back after — see this function's
                     // own doc for why a preview refresh must not let a
@@ -737,9 +739,11 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                         super::content_edit::load_all_page_content(&viewer);
                         super::selection::redraw(&viewer);
                     }
-                    viewer.status.set_text(&message);
+                    viewer
+                        .status
+                        .set_text(&refresh_status(&viewer, token, &message, &warnings));
                 }
-                Ok(reopened) => close_document_in_background(reopened.document),
+                Ok((reopened, _)) => close_document_in_background(reopened.document),
                 // The command that triggered this refresh stays recorded in
                 // `pending_edits` either way: undo can still remove it, and
                 // if the error is a real problem (not just a stale token) an
@@ -833,6 +837,7 @@ struct EditState {
     base_name: String,
     save_backing: Option<super::state::SaveBacking>,
     imported_sources: Vec<ImportedSource>,
+    import_warning_revision: Option<u64>,
     next_annotation_id: u64,
     selected_annotation: Option<pdf_document::AnnotationId>,
     next_form_field_id: u64,
@@ -883,6 +888,7 @@ fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
         base_name: session.base_name.clone(),
         save_backing: session.save_backing.take(),
         imported_sources: std::mem::take(&mut session.imported_sources),
+        import_warning_revision: session.import_warning_revision,
         next_annotation_id: session.next_annotation_id,
         selected_annotation: session.selected_annotation,
         next_form_field_id: session.next_form_field_id,
@@ -925,6 +931,7 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
                 session.base_name = preserved.base_name;
                 session.save_backing = preserved.save_backing;
                 session.imported_sources = preserved.imported_sources;
+                session.import_warning_revision = preserved.import_warning_revision;
                 session.next_annotation_id = preserved.next_annotation_id;
                 session.selected_annotation = selected_annotation;
                 session.next_form_field_id = preserved.next_form_field_id;
@@ -1071,9 +1078,9 @@ fn refresh_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
     sources: &[ImportedSource],
-) -> Result<OpenedDocument, String> {
+) -> Result<(OpenedDocument, Vec<pdf_manip::GraftWarning>), String> {
     let source_refs = imported_sources(sources);
-    let bytes = pdf_save::save_document(pdf_save::SaveInput {
+    let outcome = pdf_save::save_document_with_report(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
@@ -1082,15 +1089,106 @@ fn refresh_snapshot_and_reopen(
         imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
-    let reopened = open_document(&DocumentSource::Bytes(bytes), backing.password.as_deref())
-        .map_err(|error| error.to_string())?;
+    let reopened = open_document(
+        &DocumentSource::Bytes(outcome.bytes),
+        backing.password.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
     if let Err(error) = reopened_matches_model(document, reopened.page_sizes.len()) {
         // Nothing has installed this handle yet, so closing it is this
         // function's job — the caller only ever closes one it was handed.
         let _ = PdfiumRenderer::new().close_document(reopened.document);
         return Err(error);
     }
-    Ok(reopened)
+    Ok((reopened, outcome.graft_warnings))
+}
+
+fn refresh_status(
+    viewer: &Viewer,
+    token: super::state::SessionToken,
+    message: &str,
+    warnings: &[pdf_manip::GraftWarning],
+) -> String {
+    let mut state = viewer.state.borrow_mut();
+    let Some(session) = state.session.as_mut() else {
+        return message.to_owned();
+    };
+    let show = session.import_warning_revision == Some(token.edit_revision);
+    if show {
+        session.import_warning_revision = None;
+    }
+    refresh_status_for_import(message, warnings, show)
+}
+
+fn refresh_status_for_import(
+    message: &str,
+    warnings: &[pdf_manip::GraftWarning],
+    show: bool,
+) -> String {
+    if !show {
+        return message.to_owned();
+    }
+    let mut renames = Vec::new();
+    for warning in warnings {
+        if matches!(warning, pdf_manip::GraftWarning::FormFieldRenamed { .. }) {
+            renames.push(warning.to_string());
+        }
+    }
+    if renames.is_empty() {
+        message.to_owned()
+    } else {
+        format!("{message} {}", renames.join(" "))
+    }
+}
+
+#[cfg(test)]
+mod refresh_status_tests {
+    use super::refresh_status_for_import;
+    use pdf_manip::GraftWarning;
+
+    #[test]
+    fn a_form_field_rename_is_shown_after_the_preview_refresh() {
+        let status = refresh_status_for_import(
+            "Imported 1 pages.",
+            &[GraftWarning::FormFieldRenamed {
+                page: 0,
+                from: "Name".into(),
+                to: "Name-imported".into(),
+            }],
+            true,
+        );
+
+        assert_eq!(
+            status,
+            "Imported 1 pages. the form field \"Name\" on page 0 was imported as \"Name-imported\": the document already has a field called \"Name\", and two fields of one name would share a single value"
+        );
+    }
+
+    #[test]
+    fn source_only_warnings_are_not_repeated_after_confirmation() {
+        let status = refresh_status_for_import(
+            "Imported 1 pages.",
+            &[GraftWarning::TaggedStructureNotImported { page: 0 }],
+            true,
+        );
+
+        assert_eq!(status, "Imported 1 pages.");
+    }
+
+    #[test]
+    fn a_form_field_rename_is_not_shown_for_a_non_import_refresh() {
+        let warning = GraftWarning::FormFieldRenamed {
+            page: 0,
+            from: "Name".into(),
+            to: "Name-imported".into(),
+        };
+
+        let first = refresh_status_for_import("Imported 1 pages.", &[warning.clone()], true);
+        let later = refresh_status_for_import("Text updated.", &[warning], false);
+
+        assert!(first.contains("Name-imported"));
+        assert_eq!(later, "Text updated.");
+    }
 }
 
 /// Checks the pdfium handle a save just produced against the model it was
@@ -1723,6 +1821,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             backend_pages,
             save_backing: document.save_backing,
             imported_sources: Vec::new(),
+            import_warning_revision: None,
             // Freshly shown: whatever is on screen right now is exactly what
             // this session's bytes came from, which for an ordinary open or a
             // disk-save reopen means it matches disk. A T-163 preview refresh

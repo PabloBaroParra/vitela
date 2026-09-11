@@ -568,6 +568,7 @@ fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
             return Err("Could not add the selected PDFs.".to_string());
         }
         session.imported_sources.extend(prepared.sources);
+        session.import_warning_revision = Some(session.edit_revision.saturating_add(1));
         Ok(format!("Imported {count} pages."))
     });
     if result {
