@@ -1183,7 +1183,8 @@ mod refresh_status_tests {
             to: "Name-imported".into(),
         };
 
-        let first = refresh_status_for_import("Imported 1 pages.", &[warning.clone()], true);
+        let first =
+            refresh_status_for_import("Imported 1 pages.", std::slice::from_ref(&warning), true);
         let later = refresh_status_for_import("Text updated.", &[warning], false);
 
         assert!(first.contains("Name-imported"));
