@@ -1519,8 +1519,8 @@ con §4 y no antes.
 
 ## 13. Pruebas GTK4
 
-- [ ] Probar disponibilidad y estado del botón de importación.
-- [ ] Probar selección múltiple y cancelación.
+- [x] Probar disponibilidad y estado del botón de importación.
+- [x] Probar selección múltiple y cancelación.
 - [x] Probar el selector `Documents | Pages`.
 - [x] Probar que el selector no crea comandos ni marca cambios.
 - [x] Probar tarjetas, nombres, recuentos, rangos y etiquetas de partes.
@@ -1536,7 +1536,16 @@ con §4 y no antes.
   test de la condición que los descarta (la generación de la caché de
   miniaturas), no del descarte mismo, que ocurre dentro del futuro de render
   y necesita pdfium.
-- [ ] Probar que una importación fallida conserva la sesión anterior.
+- [x] Probar que una importación fallida conserva la sesión anterior.
+
+Evidencia: `organize::tests::add_pdfs` cubre la posición y estado inicial de
+`Add PDFs`, la cancelación activa sin ensuciar la sesión, la cancelación al
+cambiar de documento y una importación de varias fuentes como un único paso de
+historial. `organize::import::tests::failed_prepare_leaves_the_open_session_untouched`
+procesa una fuente válida y falla en la siguiente antes de devolver un
+`PreparedImport`; como `prepare` es la frontera de I/O y no recibe `Viewer`, no
+puede mutar la sesión, el historial ni el registro de fuentes antes de que el
+lote completo sea válido.
 
 ## 14. Gates de verificación
 

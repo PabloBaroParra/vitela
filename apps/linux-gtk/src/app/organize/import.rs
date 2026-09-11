@@ -700,6 +700,27 @@ mod tests {
     }
 
     #[test]
+    fn failed_prepare_leaves_the_open_session_untouched() {
+        let valid = fixture("valid-before-failure", RC4_128);
+        let missing = std::env::temp_dir().join(format!(
+            "pdf-import-{}-missing-after-valid.pdf",
+            std::process::id()
+        ));
+        let passwords = HashMap::from([(valid.clone(), "user-rc4-pass".to_string())]);
+        let result = prepare(
+            vec![valid.clone(), missing],
+            &passwords,
+            7,
+            3,
+            &AtomicBool::new(false),
+            |_| {},
+        );
+        std::fs::remove_file(valid).unwrap();
+
+        assert!(matches!(result, Err(PrepareError::Failed(_))));
+    }
+
+    #[test]
     fn progress_text_names_completed_and_total_sources() {
         assert_eq!(
             progress_text(ImportProgress {
