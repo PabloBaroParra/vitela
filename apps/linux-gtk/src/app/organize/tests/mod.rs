@@ -2,9 +2,10 @@
 
 use std::cell::RefCell;
 
-use gtk::{gdk_pixbuf, Picture};
+use gtk::{gdk, gdk_pixbuf, Picture};
 
 use super::command::{apply_command, command, model, move_page};
+use super::grid::drop::handle_drop;
 use super::grid::populate_grid;
 use super::*;
 use crate::app::home::EDITOR_PAGE;
@@ -146,6 +147,10 @@ fn assert_grid(viewer: &Viewer, expected: &[u32]) {
     assert_eq!(cards.len(), expected.len());
     for (index, card) in cards.iter().enumerate() {
         assert_eq!(card.number.text(), (index + 1).to_string());
+        // The card's id is the drag payload, so a card holding the wrong
+        // page's id would move the wrong page on the next drop — with a grid
+        // that still looked entirely correct.
+        assert_eq!(card.id, page_ids[index]);
         let child = grid.child_at_index(index as i32).unwrap().child().unwrap();
         assert_eq!(&child, card.root.upcast_ref::<gtk::Widget>());
         let picture = card.picture.clone();
@@ -172,428 +177,44 @@ fn assert_grid(viewer: &Viewer, expected: &[u32]) {
     assert!(grid.child_at_index(expected.len() as i32).is_none());
 }
 
-fn drop_on(viewer: &Viewer, from: i32, to: i32) -> bool {
+/// Drops the page carrying `id` on insertion slot `slot` — `k` meaning
+/// "before the card at `k`", `cards.len()` meaning "past the last card".
+///
+/// The pointer is placed in the leading half of the card at `slot`, which is
+/// how the real gesture picks one: the grid has no gap widgets to aim at (see
+/// `organize::grid`'s header). The last slot is aimed at the empty space
+/// *under* the final row — a point no card occupies, which is exactly the
+/// drop the grid used to throw away.
+fn drop_at_slot(viewer: &Viewer, id: u32, slot: usize) -> bool {
     let grid = &viewer.organize.grid;
     // Picking requires mapped widgets, not just an allocation.
     assert!(grid.is_mapped());
     grid.allocate(800, 600, -1, None);
-    let target = grid.child_at_index(to).unwrap();
-    let bounds = target.allocation();
-    let x = bounds.x() + bounds.width() / 2;
-    let y = bounds.y() + bounds.height() / 2;
-    assert_eq!(grid.child_at_pos(x, y), Some(target));
-    handle_drop(viewer, &from.to_value(), f64::from(x), f64::from(y))
+    let count = viewer.organize.cards.len();
+    let (x, y) = if slot < count {
+        let bounds = grid.child_at_index(slot as i32).unwrap().allocation();
+        (bounds.x() + 1, bounds.y() + bounds.height() / 2)
+    } else {
+        let bounds = grid.child_at_index(count as i32 - 1).unwrap().allocation();
+        let below = bounds.y() + bounds.height() + 10;
+        assert!(grid.child_at_pos(10, below).is_none(), "no card sits there");
+        (10, below)
+    };
+    handle_drop(viewer, &id.to_value(), f64::from(x), f64::from(y))
 }
 
-#[gtk::test]
-fn gtk_ui_delete_enables_bound_history_and_round_trips_the_grid() {
-    with_organize(|viewer| {
-        let undo = history_button(viewer, "Undo");
-        let redo = history_button(viewer, "Redo");
-        assert_eq!(undo.action_name().as_deref(), Some("win.undo"));
-        assert_eq!(redo.action_name().as_deref(), Some("win.redo"));
-        assert!(undo.get_visible() && redo.get_visible());
-        assert!(!undo.is_sensitive() && !redo.is_sensitive());
-        delete_button(viewer, 1).emit_clicked();
-        assert!(viewer.undo_action.is_enabled() && undo.is_sensitive());
-        assert_grid(viewer, &[0, 2]);
-        undo.emit_clicked();
-        assert_grid(viewer, &[0, 1, 2]);
-        assert!(!undo.is_sensitive() && redo.is_sensitive());
-        redo.emit_clicked();
-        assert_grid(viewer, &[0, 2]);
-        assert_eq!(
-            viewer.view_stack.visible_child_name().as_deref(),
-            Some(ORGANIZE_PAGE)
-        );
-        let state = viewer.state.borrow();
-        let session = state.session.as_ref().unwrap();
-        assert_eq!(session.edit_revision, 3);
-        assert!(session.unsaved_to_disk);
-        assert!(!state.preview_refresh_in_flight);
-    });
-}
-
-/// Deleting a page through the Organize screen must take that page's
-/// annotations with it, and undo must bring both back.
+/// Drags the card at `from` and drops it so its page ends up at index `to`.
 ///
-/// Not cosmetic: an annotation left naming a deleted `PageId` is refused by
-/// `pdf_save::attach_annotations`, so the orphan would make every later save
-/// — and every preview refresh — fail until the user undid the delete.
-#[gtk::test]
-fn gtk_ui_delete_takes_the_pages_annotations_with_it_and_undo_restores_them() {
-    with_organize(|viewer| {
-        {
-            let mut session = session(viewer);
-            let document = model(&mut session).unwrap();
-            document.annotations.insert(a_highlight(1, PageId(1)));
-            document.annotations.insert(a_highlight(2, PageId(2)));
-        }
-
-        delete_button(viewer, 1).emit_clicked();
-        {
-            let mut session = session(viewer);
-            let document = model(&mut session).unwrap();
-            assert_eq!(
-                document
-                    .annotations
-                    .iter()
-                    .map(|a| a.id)
-                    .collect::<Vec<_>>(),
-                vec![AnnotationId(2)],
-                "only the annotation on the deleted page should be gone"
-            );
-        }
-
-        history_button(viewer, "Undo").emit_clicked();
-        let mut session = session(viewer);
-        let document = model(&mut session).unwrap();
-        assert_eq!(
-            document
-                .annotations
-                .iter()
-                .map(|a| a.id)
-                .collect::<Vec<_>>(),
-            vec![AnnotationId(1), AnnotationId(2)],
-            "undo must restore the annotation at the position it held"
-        );
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_move_round_trips_order_labels_and_thumbnail_requests() {
-    with_organize(|viewer| {
-        assert!(drop_on(viewer, 0, 2));
-        assert!(history_button(viewer, "Undo").is_sensitive());
-        assert_grid(viewer, &[1, 2, 0]);
-        viewer.undo_action.activate(None);
-        assert_grid(viewer, &[0, 1, 2]);
-        viewer.redo_action.activate(None);
-        assert_grid(viewer, &[1, 2, 0]);
-        delete_button(viewer, 0).emit_clicked();
-        assert_grid(viewer, &[2, 0]);
-    });
-}
-
-/// A move is a permutation of pages that already exist, so it must cost
-/// nothing to draw. The grid used to be torn down and rebuilt on every drop,
-/// which meant one pdfium render per page per move — and then the preview
-/// refresh did it all a second time.
-#[gtk::test]
-fn gtk_ui_a_move_reorders_the_grid_without_rendering_anything_again() {
-    with_organize(|viewer| {
-        let rendered_on_open = render_count();
-        assert_eq!(
-            rendered_on_open, 4,
-            "opening renders the Documents view's one block cover, then every page"
-        );
-
-        assert!(drop_on(viewer, 0, 2));
-
-        assert_eq!(
-            render_count(),
-            rendered_on_open,
-            "reordering pages must not re-render a single thumbnail"
-        );
-        assert_grid(viewer, &[1, 2, 0]);
-    });
-}
-
-/// The cards must survive the move as the same widgets, in the new order.
-/// That is what lets the thumbnails stay: a rebuilt card starts blank.
-#[gtk::test]
-fn gtk_ui_a_move_carries_the_same_card_widgets_into_their_new_positions() {
-    with_organize(|viewer| {
-        let before = viewer.organize.cards.snapshot();
-
-        assert!(drop_on(viewer, 0, 2));
-
-        let after = viewer.organize.cards.snapshot();
-        let mut expected = before.clone();
-        let moved = expected.remove(0);
-        expected.insert(2, moved);
-        assert_eq!(
-            after, expected,
-            "a move is a remove-then-insert of the card"
-        );
-        for card in after.iter() {
-            assert!(
-                card.picture.paintable().is_some(),
-                "a moved card keeps the thumbnail it already had"
-            );
-        }
-    });
-}
-
-/// The reopen behind a preview refresh swaps the pdfium handle, but a
-/// thumbnail already painted is a `Pixbuf` the card owns — nothing about it
-/// goes stale. Only a card that never got one has work left to do.
-#[gtk::test]
-fn gtk_ui_a_reopen_only_renders_the_cards_that_never_got_a_thumbnail() {
-    with_organize(|viewer| {
-        let rendered_on_open = render_count();
-
-        refresh_after_reopen(viewer);
-        assert_eq!(
-            render_count(),
-            rendered_on_open,
-            "a fully painted grid needs nothing from a reopen"
-        );
-
-        // Stands in for the one case that does: a card whose render was still
-        // in flight when the handle was swapped, and so was dropped.
-        viewer.organize.cards.snapshot()[1]
-            .picture
-            .set_paintable(gdk::Paintable::NONE);
-        refresh_after_reopen(viewer);
-
-        assert_eq!(
-            render_count(),
-            rendered_on_open + 1,
-            "exactly the unpainted card is rendered"
-        );
-        assert_grid(viewer, &[0, 1, 2]);
-    });
-}
-
-/// Undoing a content edit repaints a page, and the Undo button sits in this
-/// screen's own header — so the grid can be holding a card that is now a
-/// picture of the wrong thing. That is the one case where the reopen must
-/// rebuild rather than trust what is on screen.
-#[gtk::test]
-fn gtk_ui_an_invalidated_grid_re_renders_every_card_on_the_next_reopen() {
-    with_organize(|viewer| {
-        let rendered_on_open = render_count();
-
-        invalidate_thumbnails(viewer);
-        refresh_after_reopen(viewer);
-
-        assert_eq!(
-            render_count(),
-            rendered_on_open + 3,
-            "every card is rendered again, not just the blank ones"
-        );
-        assert!(
-            !viewer.organize.thumbnails_stale.get(),
-            "the rebuild is what the flag asked for, so it must clear it"
-        );
-        assert_grid(viewer, &[0, 1, 2]);
-    });
-}
-
-/// A hidden grid has nothing to keep current — the trip back through `show`
-/// rebuilds it from scratch anyway.
-#[gtk::test]
-fn gtk_ui_a_reopen_leaves_a_hidden_grid_alone() {
-    with_organize(|viewer| {
-        let rendered_on_open = render_count();
-        viewer.view_stack.set_visible_child_name(EDITOR_PAGE);
-
-        invalidate_thumbnails(viewer);
-        refresh_after_reopen(viewer);
-
-        assert_eq!(render_count(), rendered_on_open);
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_no_op_move_preserves_clean_state_and_redo() {
-    with_organize(|viewer| {
-        assert!(!move_page(viewer, 1, 1));
-        assert!(!drop_on(viewer, 1, 1));
-        {
-            let mut session = session(viewer);
-            assert_eq!(session.edit_revision, 0);
-            assert!(!session.unsaved_to_disk);
-            assert!(!model(&mut session).unwrap().pending_edits.can_undo());
-        }
-        assert!(drop_on(viewer, 0, 2));
-        viewer.undo_action.activate(None);
-        assert!(!move_page(viewer, 1, 1));
-        assert!(viewer.redo_action.is_enabled());
-        assert_eq!(session(viewer).edit_revision, 2);
-        viewer.redo_action.activate(None);
-        assert_grid(viewer, &[1, 2, 0]);
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_non_structural_history_does_not_rebuild_and_hidden_grid_waits_for_show() {
-    with_organize(|viewer| {
-        assert!(drop_on(viewer, 0, 2));
-        let cards = viewer.organize.cards.snapshot();
-        {
-            let mut session = session(viewer);
-            let document = model(&mut session).unwrap();
-            apply_command(
-                document,
-                Command::SetDocumentInfo {
-                    before: Default::default(),
-                    after: pdf_document::DocumentInfo {
-                        title: Some("Organized document".into()),
-                        ..Default::default()
-                    },
-                },
-            );
-        }
-        viewer.undo_action.activate(None);
-        viewer.redo_action.activate(None);
-        assert_eq!(viewer.organize.cards.snapshot(), cards);
-        viewer.undo_action.activate(None);
-        viewer.view_stack.set_visible_child_name(EDITOR_PAGE);
-        viewer.undo_action.activate(None);
-        viewer.redo_action.activate(None);
-        viewer.undo_action.activate(None);
-        assert_eq!(viewer.organize.cards.snapshot(), cards);
-        assert_eq!(
-            viewer.view_stack.visible_child_name().as_deref(),
-            Some(EDITOR_PAGE)
-        );
-        show(viewer);
-        viewer.organize.pages_toggle.set_active(true);
-        assert_grid(viewer, &[0, 1, 2]);
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_insert_page_history_rebuilds_in_both_directions() {
-    with_organize(|viewer| {
-        assert!(command(viewer, |session| {
-            let document = model(session)?;
-            let page = Page::blank(PageId(3), PageSize::A4, PageOrientation::Portrait);
-            apply_command(document, Command::insert_page(1, page));
-            Ok("Inserted page.".into())
-        }));
-        populate_grid(viewer);
-        assert_grid(viewer, &[0, 3, 1, 2]);
-        viewer.undo_action.activate(None);
-        assert_grid(viewer, &[0, 1, 2]);
-        viewer.redo_action.activate(None);
-        assert_grid(viewer, &[0, 3, 1, 2]);
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_header_exposes_add_pdfs_before_save() {
-    with_organize(|viewer| {
-        assert_eq!(
-            viewer.organize.add_pdfs_button.label().as_deref(),
-            Some("Add PDFs")
-        );
-        assert_eq!(
-            viewer.organize.add_pdfs_button.next_sibling(),
-            Some(viewer.organize.import_progress.clone().upcast())
-        );
-        assert_eq!(
-            viewer.organize.cancel_import_button.next_sibling(),
-            Some(viewer.organize.save_button.clone().upcast())
-        );
-        assert!(!viewer.organize.import_progress.is_visible());
-        assert!(!viewer.organize.cancel_import_button.is_visible());
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_cancel_import_restores_controls_without_dirtying_the_session() {
-    with_organize(|viewer| {
-        let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        viewer.state.borrow_mut().import_cancellation = Some(cancellation.clone());
-        viewer.organize.add_pdfs_button.set_sensitive(false);
-        viewer.organize.import_progress.set_visible(true);
-        viewer.organize.cancel_import_button.set_visible(true);
-
-        viewer.organize.cancel_import_button.emit_clicked();
-
-        assert!(cancellation.load(std::sync::atomic::Ordering::Acquire));
-        assert!(viewer.organize.add_pdfs_button.is_sensitive());
-        assert!(!viewer.organize.import_progress.is_visible());
-        assert!(!viewer.organize.cancel_import_button.is_visible());
-        assert_eq!(session(viewer).edit_revision, 0);
-        assert!(!session(viewer).unsaved_to_disk);
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_document_change_actively_cancels_import() {
-    with_organize(|viewer| {
-        let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        viewer.state.borrow_mut().import_cancellation = Some(cancellation.clone());
-        viewer.organize.add_pdfs_button.set_sensitive(false);
-        viewer.organize.import_progress.set_visible(true);
-        viewer.organize.cancel_import_button.set_visible(true);
-
-        document_changed(viewer);
-
-        assert!(cancellation.load(std::sync::atomic::Ordering::Acquire));
-        assert!(viewer.state.borrow().import_cancellation.is_none());
-        assert!(viewer.organize.add_pdfs_button.is_sensitive());
-        assert!(!viewer.organize.import_progress.is_visible());
-        assert!(!viewer.organize.cancel_import_button.is_visible());
-    });
-}
-
-#[gtk::test]
-fn gtk_ui_multi_source_import_is_one_dirty_history_step() {
-    with_organize(|viewer| {
-        let token = {
-            let state = viewer.state.borrow();
-            let session = state.session.as_ref().unwrap();
-            crate::app::state::SessionToken {
-                generation: state.generation,
-                edit_revision: session.edit_revision,
-            }
-        };
-        let sources = [7, 8]
-            .into_iter()
-            .map(|id| crate::app::state::ImportedSource {
-                id: ImportedDocumentId(id),
-                document: pdf_manip::LopdfDocument::from_lopdf(lopdf::Document::new()),
-                name: format!("source-{id}.pdf"),
-            })
-            .collect();
-        let pages = vec![
-            Page::imported(
-                PageId(3),
-                ImportedDocumentId(7),
-                0,
-                PageSize::A4,
-                PageOrientation::Portrait,
-                pdf_document::Rotation::None,
-            ),
-            Page::imported(
-                PageId(4),
-                ImportedDocumentId(8),
-                0,
-                PageSize::A4,
-                PageOrientation::Portrait,
-                pdf_document::Rotation::None,
-            ),
-        ];
-
-        super::import::apply_prepared(viewer, token, sources, pages);
-
-        assert_grid(viewer, &[0, 1, 2, 3, 4]);
-        {
-            let session = session(viewer);
-            assert_eq!(session.imported_sources.len(), 2);
-            assert_eq!(session.edit_revision, 1);
-            assert!(session.unsaved_to_disk);
-            assert!(session
-                .document_model
-                .as_ref()
-                .unwrap()
-                .pending_edits
-                .can_undo());
-        }
-        viewer.undo_action.activate(None);
-        assert_grid(viewer, &[0, 1, 2]);
-        assert!(!session(viewer)
-            .document_model
-            .as_ref()
-            .unwrap()
-            .pending_edits
-            .can_undo());
-    });
+/// The payload is the card's own `PageId`, the way `build_card`'s drag source
+/// prepares it — never `from`, which is only used here to pick a card to
+/// grab.
+fn drop_on(viewer: &Viewer, from: usize, to: usize) -> bool {
+    let id = viewer.organize.cards.snapshot()[from].id.0;
+    // Landing *at* index `to` means aiming past the card that currently sits
+    // there when the page is travelling forwards, since the page vacates a
+    // slot on its way — the `slot`/`to` distinction `grid::destination` owns.
+    let slot = if to > from { to + 1 } else { to };
+    drop_at_slot(viewer, id, slot)
 }
 
 /// Opens the Organize screen on the Documents view — where [`show`] leaves
@@ -621,7 +242,10 @@ fn with_documents(
     test(&built.viewer);
 }
 
+mod add_pdfs;
 mod blocks;
 mod documents;
+mod history;
+mod pages;
 mod refusals;
 mod resolution;

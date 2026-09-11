@@ -28,7 +28,7 @@ use gtk::prelude::*;
 use pdf_document::{derive_blocks, BlockSource, PageId};
 use pdf_render::DocumentHandle;
 
-use crate::app::state::Viewer;
+use crate::app::state::{DocumentSession, Viewer};
 
 use card::build_card;
 use gap::build_gap;
@@ -107,6 +107,29 @@ pub(super) fn populate(viewer: &Viewer) {
     }
 }
 
+/// The file name a source is known by in this session, or `None` for pages
+/// that were never in a PDF at all.
+///
+/// Shared with [`super::grid`], which names the provenance of a single page
+/// the same way this view names a whole block: which name belongs to which
+/// source is one decision, and the checklist asks the Pages view to reuse the
+/// existing grid "without duplicating business decisions". What each view
+/// calls a sourceless page — "Blank pages" for a run, "Blank page" for one —
+/// is the view's own wording, which is why that string stays at the caller.
+pub(super) fn source_name(session: &DocumentSession, source: BlockSource) -> Option<String> {
+    match source {
+        BlockSource::Base => Some(session.base_name.clone()),
+        BlockSource::Blank => None,
+        BlockSource::Imported(id) => Some(
+            session
+                .imported_sources
+                .iter()
+                .find(|source| source.id == id)
+                .map_or_else(|| "Imported PDF".to_owned(), |source| source.name.clone()),
+        ),
+    }
+}
+
 /// Every block of the current model, in page order, with the session's names
 /// for their sources — or `None` when there is no model to derive from.
 pub(super) fn rows(viewer: &Viewer) -> Option<(Vec<Row>, DocumentHandle)> {
@@ -120,15 +143,8 @@ pub(super) fn rows(viewer: &Viewer) -> Option<(Vec<Row>, DocumentHandle)> {
         .map(|block| {
             let row = Row {
                 anchor: block.anchor,
-                name: match block.source {
-                    BlockSource::Base => session.base_name.clone(),
-                    BlockSource::Blank => "Blank pages".to_owned(),
-                    BlockSource::Imported(id) => session
-                        .imported_sources
-                        .iter()
-                        .find(|source| source.id == id)
-                        .map_or_else(|| "Imported PDF".to_owned(), |source| source.name.clone()),
-                },
+                name: source_name(session, block.source)
+                    .unwrap_or_else(|| "Blank pages".to_owned()),
                 part: block.part,
                 start,
                 count: block.pages.len(),

@@ -66,4 +66,24 @@ pub(crate) const ORGANIZE_CSS: &str = r#"
 .organize-gap-active {
   background: #6b4eff;
 }
+
+/* A page card's provenance line — the PDF its page came from, shown only
+   once the document holds pages from more than one. Quiet enough to be read
+   after the thumbnail and the page number, never before them. */
+.organize-card-source {
+  font-size: 0.78em;
+  color: #625b72;
+}
+
+/* The Pages grid's equivalent of `.organize-gap-active`: the insertion slot
+   drawn on the near edge of the card the dragged page would land beside.
+   An inset shadow rather than a border, so lighting it up never changes the
+   card's size and re-flows the grid mid-drag. */
+.organize-card-drop-before {
+  box-shadow: inset 3px 0 0 0 #6b4eff;
+}
+
+.organize-card-drop-after {
+  box-shadow: inset -3px 0 0 0 #6b4eff;
+}
 "#;

@@ -36,8 +36,8 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gdk, ApplicationWindow, Box as GtkBox, Button, DropTarget, FlowBox, Orientation, PolicyType,
-    ProgressBar, ScrolledWindow, SelectionMode, Stack,
+    ApplicationWindow, Box as GtkBox, Button, FlowBox, Orientation, PolicyType, ProgressBar,
+    ScrolledWindow, SelectionMode, Stack,
 };
 
 use crate::app::document::show_save_chooser;
@@ -45,7 +45,7 @@ use crate::app::state::{Cards, OrganizePanel, Viewer};
 
 use super::tools_panel::panel_heading;
 use documents::{DOCUMENTS_VIEW, PAGES_VIEW};
-use grid::{fill_missing_thumbnails, handle_drop, populate_grid, sort_position};
+use grid::{fill_missing_thumbnails, populate_grid, sort_position};
 use views::{populate_visible, showing_documents};
 
 pub(crate) const ORGANIZE_PAGE: &str = "organize";
@@ -193,15 +193,7 @@ pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer
         move |_| show_save_chooser(&window, &viewer)
     });
 
-    // One drop target for the whole grid rather than one per card: the
-    // target position is wherever the pointer lands, which `FlowBox::
-    // child_at_pos` already answers without needing a controller per cell.
-    let drop_target = DropTarget::new(i32::static_type(), gdk::DragAction::MOVE);
-    drop_target.connect_drop({
-        let viewer = viewer.clone();
-        move |_, value, x, y| handle_drop(&viewer, value, x, y)
-    });
-    viewer.organize.grid.add_controller(drop_target);
+    grid::connect_drop(viewer);
 }
 
 /// Switches to the Organize screen and populates it for the current session.

@@ -613,17 +613,26 @@ pub(crate) struct MetadataPanel {
     pub(crate) mod_offset: Rc<Cell<PdfDateOffset>>,
 }
 
-/// One card in the Organize grid: its root box, the page-number label
-/// `organize::grid::renumber` keeps current, and the `Picture`
-/// `organize::spawn_thumbnail` fills in once a render lands.
+/// One card in the Organize grid: the page it stands for, its root box, the
+/// page-number label `organize::grid::renumber` keeps current, the
+/// provenance line `organize::grid::relabel_sources` keeps current, and the
+/// `Picture` `organize::spawn_thumbnail` fills in once a render lands.
 ///
 /// The `Picture` is held rather than fished out of `root`'s children so that
 /// "which widget is this card's thumbnail" is a field and not a convention
-/// about child order that four call sites have to agree on.
+/// about child order that four call sites have to agree on. `source` is held
+/// for the same reason.
+///
+/// `id` is the card's *stable* identity and the payload of its drag. A
+/// position is not: the card carries none, and every gesture asks `Cards`
+/// (for widget order) or the model (for page order) where it sits at the
+/// moment it needs to know — see `organize::grid::handle_drop`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Card {
+    pub(crate) id: PageId,
     pub(crate) root: GtkBox,
     pub(crate) number: Label,
+    pub(crate) source: Label,
     pub(crate) picture: Picture,
 }
 
