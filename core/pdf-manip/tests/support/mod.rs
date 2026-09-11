@@ -325,3 +325,93 @@ pub fn page_object_count(document: &LopdfDocument) -> usize {
         .filter(|object| object.type_name().unwrap_or_default() == b"Page")
         .count()
 }
+
+/// A source whose page tree is *nested*: the first label hangs off the root,
+/// every other label hangs off an intermediate `/Pages` node one level down.
+///
+/// The root sets `/MediaBox` and `/Resources`; the intermediate node sets
+/// `/Rotate`, which the root also sets to a different value. So a page in the
+/// branch inherits its geometry two hops up and its rotation one hop up, and
+/// anything that only looks at the immediate `/Parent` — or that treats the
+/// root's `/Kids` as the page list — gets a different answer than the spec's
+/// (PDF 32000-1:2008 section 7.7.3.4: nearest ancestor wins).
+///
+/// Panics on fewer than two labels: with one there is no nesting to test.
+pub fn pdf_with_a_nested_page_tree(labels: &[&str]) -> Document {
+    assert!(
+        labels.len() >= 2,
+        "a nested page tree needs at least two pages"
+    );
+    let mut doc = Document::with_version("1.5");
+    let root_id = doc.new_object_id();
+    let branch_id = doc.new_object_id();
+
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Courier",
+    });
+    let resources_id = doc.add_object(dictionary! {
+        "Font" => dictionary! { "F9" => font_id },
+    });
+
+    let page_id_for = |doc: &mut Document, label: &str, parent| {
+        let content = Content {
+            operations: vec![Operation::new("Tj", vec![Object::string_literal(label)])],
+        };
+        let content_id = doc.add_object(Stream::new(
+            dictionary! {},
+            content.encode().expect("encode page content"),
+        ));
+        doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => parent,
+            "Contents" => content_id,
+        })
+    };
+
+    let first_id = page_id_for(&mut doc, labels[0], root_id);
+    let branch_kids: Vec<_> = labels[1..]
+        .iter()
+        .map(|label| page_id_for(&mut doc, label, branch_id))
+        .collect();
+
+    doc.objects.insert(
+        branch_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Parent" => root_id,
+            "Kids" => branch_kids.iter().map(|&id| Object::Reference(id)).collect::<Vec<_>>(),
+            "Count" => branch_kids.len() as i64,
+            "Rotate" => 180,
+        }),
+    );
+    doc.objects.insert(
+        root_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(first_id), Object::Reference(branch_id)],
+            "Count" => labels.len() as i64,
+            "MediaBox" => vec![0.into(), 0.into(), 300.into(), 400.into()],
+            "Resources" => resources_id,
+            "Rotate" => 90,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => root_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
+/// Every `/Pages` node in `document`, so a test can assert the source's own
+/// page-tree nodes did not come along with the pages that hung off them.
+pub fn page_tree_node_count(document: &LopdfDocument) -> usize {
+    document
+        .as_lopdf()
+        .objects
+        .values()
+        .filter(|object| object.type_name().unwrap_or_default() == b"Pages")
+        .count()
+}

@@ -75,6 +75,20 @@ pub enum ManipError {
     /// attesting to a file nobody can check it against, which is worse than
     /// losing it.
     SourceHasSignature(usize),
+    /// A PDF opened as the *source* of an import does not permit copying or
+    /// extracting its content (`/P` bit 5, PDF 1.7 table 22 — see
+    /// [`crate::text_extraction_is_allowed`]).
+    ///
+    /// Taking a page out of one document and putting it in another is
+    /// extraction, whatever the destination does with it afterwards, so the
+    /// source is refused before it is decrypted rather than after its pages
+    /// are already in the model (checklist "Seguridad y firmas",
+    /// `docs/batch-pdf-assembly.md` section 5).
+    ///
+    /// This is about the *source*'s permissions. What the destination is
+    /// allowed to do with its own page list is
+    /// [`crate::document_assembly_is_allowed`], a different `/P` bit.
+    SourceForbidsCopying,
 }
 
 impl fmt::Display for ManipError {
@@ -123,6 +137,9 @@ impl fmt::Display for ManipError {
                 f,
                 "page {page} carries a digital signature; its signature cannot be verified in                  another document, so importing the page is not supported"
             ),
+            ManipError::SourceForbidsCopying => {
+                write!(f, "the PDF does not permit copying its pages")
+            }
         }
     }
 }

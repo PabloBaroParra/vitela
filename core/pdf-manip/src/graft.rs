@@ -53,6 +53,7 @@ use crate::document::LopdfDocument;
 use crate::error::ManipError;
 use crate::links::rewrite_named_destinations;
 use crate::page_graph::{collect_reachable, flattened_page};
+use crate::page_tree::insert_pages_at;
 use crate::report::{inspect, GraftOutcome};
 
 /// Copies the pages of `source` named by the 0-based indices in `pages` into
@@ -115,31 +116,25 @@ pub fn graft_pages(
             doc.objects.insert(object_id, object.clone());
         }
     }
-    for (page_id, mut dict) in grafted {
+    for (page_id, dict) in grafted {
         // Named destinations are rewritten after the annotations are in the
         // destination and while `donor` still has the name tree to resolve
         // against — the one moment both halves are available.
         rewrite_named_destinations(&mut doc, &donor, &dict, &selected_set);
-        // Set last: the traversal above must not follow it, and by now every
-        // object the page reaches is already in the destination.
-        dict.set("Parent", destination_root);
         doc.objects.insert(page_id, Object::Dictionary(dict));
     }
     doc.max_id = doc.max_id.max(donor.max_id);
 
-    let pages_dict = doc.get_dictionary_mut(destination_root)?;
-    let mut kids = pages_dict
-        .get(b"Kids")
-        .and_then(|kids| kids.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let insert_at = index.min(kids.len());
-    for (offset, &page_id) in selected.iter().enumerate() {
-        kids.insert(insert_at + offset, Object::Reference(page_id));
+    // The node that ends up listing the pages is not necessarily the root:
+    // the destination's page tree may be nested, and a page index resolves
+    // to a position inside whichever node holds that page.
+    let parent = insert_pages_at(&mut doc, destination_root, index, &selected)?;
+    // Set last: the traversal above must not follow `/Parent` back up into
+    // the source's page tree, and by now every object the page reaches is
+    // already in the destination.
+    for &page_id in &selected {
+        doc.get_dictionary_mut(page_id)?.set("Parent", parent);
     }
-    let count = kids.len() as i64;
-    pages_dict.set("Kids", kids);
-    pages_dict.set("Count", count);
 
     Ok(GraftOutcome {
         document: LopdfDocument(doc),

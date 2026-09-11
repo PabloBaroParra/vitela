@@ -270,23 +270,18 @@ fn prepare(
             .map_err(|error| failed(format!("Could not import {name}: {error}")))?;
         check_cancelled(cancellation)?;
         let password = passwords.get(&path).map(String::as_str);
-        let security = match pdf_manip::read_security_context_from_bytes(&bytes, password) {
-            Ok(security) => security,
+        // The source's own copy permission is the core's rule, not this
+        // shell's: `open_import_source_from_bytes` refuses a PDF that forbids
+        // extracting its content before it decrypts a single page.
+        let (document, _) = match pdf_manip::open_import_source_from_bytes(&bytes, password) {
+            Ok(opened) => opened,
             Err(pdf_manip::ManipError::WrongPassword | pdf_manip::ManipError::PasswordRequired) => {
                 return Err(PrepareError::PasswordRequired { path, name });
             }
-            Err(error) => return Err(failed(format!("Could not import {name}: {error}"))),
-        };
-        if !pdf_manip::text_extraction_is_allowed(security.as_ref()) {
-            return Err(failed(format!(
-                "Could not import {name}: the PDF does not permit copying its pages."
-            )));
-        }
-        check_cancelled(cancellation)?;
-        let (document, _) = match pdf_manip::open_document_from_bytes(&bytes, password) {
-            Ok(document) => document,
-            Err(pdf_manip::ManipError::WrongPassword | pdf_manip::ManipError::PasswordRequired) => {
-                return Err(PrepareError::PasswordRequired { path, name });
+            Err(pdf_manip::ManipError::SourceForbidsCopying) => {
+                return Err(failed(format!(
+                    "Could not import {name}: the PDF does not permit copying its pages."
+                )));
             }
             Err(error) => return Err(failed(format!("Could not import {name}: {error}"))),
         };

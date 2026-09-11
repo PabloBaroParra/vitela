@@ -103,6 +103,9 @@ impl From<pdf_manip::ManipError> for FfiError {
             E::PasswordRequired => FfiError::PasswordRequired,
             E::WrongPassword => FfiError::WrongPassword,
             E::UnsupportedSecurityHandler => FfiError::UnsupportedSecurityHandler,
+            E::SourceForbidsCopying => FfiError::UnsupportedOperation {
+                detail: "this PDF does not permit copying its pages".to_string(),
+            },
             E::InvalidPageNumber(index) => FfiError::PageIndexOutOfBounds { index },
             E::InvalidPageIndex(index) => FfiError::PageIndexOutOfBounds {
                 index: index as u32,

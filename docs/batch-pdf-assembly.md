@@ -1309,13 +1309,13 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Probar que deshacer y rehacer restaura orden y procedencia.
 - [x] Probar que mover un bloque es un único paso de historial.
 - [x] Probar importación de texto, imágenes y recursos anidados.
-- [ ] Probar páginas con atributos heredados y árboles de páginas anidados.
+- [x] Probar páginas con atributos heredados y árboles de páginas anidados.
 - [x] Probar colisiones de identificadores entre documentos.
 - [x] Probar enlaces entre páginas importadas.
 - [x] Probar anotaciones y sus streams de apariencia.
 - [ ] Probar formularios, campos homónimos y widgets.
 - [x] Probar marcadores y destinos con nombre según la política acordada.
-- [ ] Probar fuentes cifradas y permisos insuficientes.
+- [x] Probar fuentes cifradas y permisos insuficientes.
 - [x] Probar documentos principales cifrados con credenciales completas e
   incompletas.
 - [x] Probar advertencias de firma para destino y fuentes.
@@ -1342,30 +1342,113 @@ concreto, no por olvido.
 
 Lo que sigue abierto, y por qué:
 
-- **Atributos heredados y árboles de páginas anidados** — la mitad heredada
-  está probada: `pdf_with_inherited_attributes` deja `/MediaBox`,
-  `/Resources` y `/Rotate` solo en la raíz del árbol y
-  `graft_pages_materializes_attributes_the_source_page_only_inherited`
-  comprueba que el injerto los materializa. Lo que falta es el árbol
-  **anidado**: todas las fixtures construyen un único nodo `Pages` con
-  páginas colgando; ninguna mete un `Pages` dentro de otro `Pages`, que es
-  donde la herencia recorre más de un salto y donde un `/Parent` mal
-  reescrito no se notaría.
 - **Formularios, campos homónimos y widgets** — no se puede probar todavía.
   La política de §4 es rechazar una página con widgets AcroForm, y eso sí
   está probado (`graft_pages_rejects_a_selected_page_with_a_form_field_widget`,
   `graft_pages_allows_a_source_whose_unselected_page_has_form_fields`). Los
   campos homónimos solo existen como problema cuando la fusión exista; este
   ítem se cierra junto con los dos abiertos de §4, no antes.
-- **Fuentes cifradas y permisos insuficientes** — el predicado sí está
-  probado en `pdf-manip/src/security.rs`
-  (`an_unencrypted_document_permits_assembly`,
-  `the_modify_contents_bit_alone_permits_assembly`,
-  `neither_the_annotate_nor_the_copy_bit_permits_assembly`), pero el recorrido
-  de una *fuente* cifrada o sin permiso de copiar/extraer vive hoy en el shell
-  Linux, no en el núcleo. Cerrarlo en §12 exige mover esa comprobación al
-  núcleo o aceptar que el ítem pertenece a §13; conviene decidirlo antes de
-  escribir el test.
+(El ítem de fuentes cifradas se cerró moviendo la comprobación al núcleo —
+ver "Progreso de las fuentes cifradas" más abajo.)
+
+### Progreso de los árboles de páginas anidados (2026-09-11)
+
+El ítem de atributos heredados y árboles anidados no era cobertura que
+faltaba tildar: escribir el test encontró un bug real en el lado **destino**.
+
+Lo que ya estaba bien es el lado fuente. `page_graph::inherited_attribute`
+recorre el `/Parent` completo con tope de profundidad, así que una página que
+hereda `/MediaBox` y `/Resources` dos saltos arriba y `/Rotate` de un nodo
+intermedio se materializa con el ancestro más cercano ganando, tal como pide
+PDF 32000-1:2008 §7.7.3.4. Los tres tests que lo comprueban pasaron a la
+primera.
+
+Lo que estaba roto es dónde aterriza la página importada.
+`graft_pages` e `insert_blank_page` trataban los `/Kids` de la raíz como si
+fueran la lista de páginas del documento: insertaban en `index.min(kids.len())`
+y escribían `Count = kids.len()`. Eso solo es cierto en un árbol de un nivel.
+Con un destino anidado —raíz con una página y un nodo `Pages` con dos— una
+importación en la posición 2 caía al final y el `/Count` de la raíz quedaba en
+4 para un archivo de 5 páginas: la clase de daño que un lector muestra como
+páginas que faltan.
+
+- Nuevo `core/pdf-manip/src/page_tree.rs`: `insert_pages_at(doc, root, index,
+  pages)` resuelve el índice de página descendiendo por el árbol hasta el nodo
+  que realmente contiene esa posición, inserta ahí, y **recalcula** el `/Count`
+  de cada nodo del camino recorriendo el subárbol en vez de incrementarlo (un
+  archivo que llegó con un `/Count` mentiroso no se lo queda). Devuelve el nodo
+  elegido; el llamador le pone ese `/Parent` a cada página, porque una página
+  cuyo `/Parent` no es quien la lista resuelve la herencia contra la rama
+  equivocada.
+- `graft_pages` y `insert_blank_page` pasaron a usarlo; la lógica de `/Kids` y
+  `/Count` duplicada en ambos desapareció.
+- `remove_page` ya estaba bien —delega en `Document::delete_pages` de lopdf—
+  pero ahora está probado, no supuesto.
+
+Los nueve casos viven en `core/pdf-manip/tests/nested_page_tree.rs`, sobre una
+fixture nueva `support::pdf_with_a_nested_page_tree`, cuya raíz fija
+`/MediaBox` y `/Resources` y cuyo nodo intermedio fija un `/Rotate` distinto
+del de la raíz. Tres de ellos fallaban antes del arreglo: el índice de
+inserción, el `/Count` de la raíz y el `/Count` al anexar más allá de la
+última página.
+
+Gates ejecutados: `cargo fmt --all -- --check`, `cargo clippy --workspace
+--all-targets --locked -- -D warnings`, `cargo test --workspace --locked --
+--skip gtk_ui_` (71 binarios de test en verde) y
+`python3 scripts/check_maintainability.py` (advisory; ninguna advertencia
+nueva por este cambio). La suite GTK4 no se tocó: el cambio es de núcleo.
+
+### Progreso de las fuentes cifradas (2026-09-11)
+
+Decidido: la comprobación se mueve al núcleo. El ítem no pertenecía a §13.
+
+El permiso de copiar de una *fuente* se comprobaba en
+`apps/linux-gtk/src/app/organize/import.rs::prepare`, en tres pasos sueltos —
+sondear el contexto de seguridad, aplicar `text_extraction_is_allowed`, abrir
+el documento. Que viviera ahí significaba que era una regla que honraba *ese*
+shell: Windows, macOS, Android e iOS tendrían que acordarse de escribirla otra
+vez, y mientras tanto el núcleo injertaba con gusto páginas de un documento
+que prohíbe exactamente eso.
+
+- Nuevo `core/pdf-manip/src/import_source.rs`:
+  `open_import_source_from_bytes(bytes, credential)` sondea, rechaza y recién
+  entonces descifra. Devuelve el contexto de seguridad del **sondeo**, que es
+  el honesto: un documento con contraseña de usuario vacía lo descifra en el
+  acto la carga no autenticada de lopdf, así que le parece *sin cifrar* a
+  `open_document_from_bytes` mientras sigue llevando permisos reales — y
+  "abre sin pedir nada pero prohíbe copiar" es la forma más común de PDF
+  restringido que hay.
+- Nuevo `ManipError::SourceForbidsCopying`, hermano de
+  `SourceHasFormFields` / `SourceHasOptionalContent` / `SourceHasSignature`:
+  la familia de "esta fuente no se puede importar". `pdf-ffi` lo mapea a
+  `FfiError::UnsupportedOperation`, como los otros rechazos por permiso, y no
+  a `Internal`.
+- Contraseña ausente o incorrecta sigue llegando como `PasswordRequired` /
+  `WrongPassword` sin doblarse dentro del rechazo por permiso: el shell
+  pregunta en la primera y se rinde en la segunda, y no son la misma
+  respuesta. Un test lo fija.
+- `prepare` pasó de tres pasos a una llamada; conserva su mensaje al usuario
+  tal cual estaba.
+
+Los siete casos viven en `core/pdf-manip/tests/import_source.rs`: fuente sin
+cifrar, fuente que prohíbe copiar con contraseña de usuario vacía y con
+contraseña, la credencial de propietario que sí puede importar su propio
+documento, fuente que permite copiar (y cuyo contenido se lee descifrado), y
+los dos casos de contraseña.
+
+Corrección al registro de §5: ahí se anotó que "la comprobación por archivo
+vive en `ImportedSourceRegistry::register`". Eso es cierto como API —
+`pdf_save::ImportedSourceRegistry` existe, rechaza y tiene sus tests— pero
+**nada del camino de importación que se envía la llama**: el shell GTK4 arma
+su propio `Vec<ImportedSource>` y se lo pasa a `ImportedSources::new`, y
+`ImportedSourceRegistry` no tiene hoy ningún llamador de producción en el
+workspace. La puerta que de verdad mordía era la del shell, que es
+justamente la que se acaba de mover al núcleo. El registro queda como estaba
+por si otro shell lo adopta, pero no es la comprobación que protege la
+importación hoy.
+
+Queda abierto solo el ítem de formularios y campos homónimos, que se cierra
+con §4 y no antes.
 
 ## 13. Pruebas GTK4
 
