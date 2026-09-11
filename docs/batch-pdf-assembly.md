@@ -1109,12 +1109,20 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   tiene `save_backing` con el que reproducir, y la lista se quedaría mostrando
   los bloques viejos. Pagar dos renders por bloque es lo que la caché de
   miniaturas de §11 viene a resolver.
-- Verificación (WSL2/Ubuntu): `cargo test -p linux-gtk --locked` (386
-  aprobadas, 1 filtrada), `cargo clippy -p linux-gtk --all-targets --locked
-  -- -D warnings`. En Windows: `cargo test --workspace --locked`,
-  `cargo clippy --workspace --all-targets --locked -- -D warnings`,
-  `cargo fmt --all -- --check`. El smoke empaquetado de Linux sigue sin
-  ejecutarse (esta copia no trae `libpdfium.so` para Linux).
+- Verificación (WSL2/Ubuntu): `cargo test -p linux-gtk --locked` (388
+  aprobadas, incluidas las 2 de `package_smoke`), `cargo test --workspace
+  --locked` (1337 aprobadas, 7 ignoradas) y `cargo clippy -p linux-gtk
+  --all-targets --locked -- -D warnings`. En Windows: `cargo test --workspace
+  --locked`, `cargo clippy --workspace --all-targets --locked -- -D warnings`,
+  `cargo fmt --all -- --check`, `python scripts/check_maintainability.py`.
+- Dos gates no se ejecutaron, y la razón que arrastraban las notas anteriores
+  era incorrecta: `libpdfium.so` **sí** está vendorizado en esta copia (las
+  pruebas `package_smoke` del crate pasan). Lo que falta es otra cosa —
+  `scripts/package-linux.sh` exige `PDFIUM_ARCHIVE`, el tarball de release
+  verificado, que no está acá, así que el empaquetado `.deb`/`.AppImage` y su
+  `verify-linux-package.sh` siguen dependiendo de CI. Y `xvfb-run` no está
+  instalado en esta WSL: la suite GTK corrió bajo WSLg con display real, no
+  por la ruta headless que cubre el workflow `linux-gtk-ui`.
 
 ## 10. Vista por páginas
 
