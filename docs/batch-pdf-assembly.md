@@ -25,8 +25,8 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 | Importación PDF | Pendiente |
 | Guardado y renderizado | Pendiente |
 | Integración Linux | Pendiente |
-| Vista por documentos | Pendiente |
-| Vista por páginas | Pendiente |
+| Vista por documentos | Completo |
+| Vista por páginas | Completo |
 | Animación | Pendiente |
 | Pruebas y gates | Pendiente |
 
@@ -1126,17 +1126,68 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 
 ## 10. Vista por páginas
 
-- [ ] Reutilizar la cuadrícula individual existente sin duplicar decisiones de
+- [x] Reutilizar la cuadrícula individual existente sin duplicar decisiones de
   negocio.
-- [ ] Permitir mezclar páginas de diferentes PDFs.
-- [ ] Mantener reordenación y eliminación como operaciones reversibles.
-- [ ] Transferir identidades estables durante el arrastre, no índices
+- [x] Permitir mezclar páginas de diferentes PDFs.
+- [x] Mantener reordenación y eliminación como operaciones reversibles.
+- [x] Transferir identidades estables durante el arrastre, no índices
   capturados.
-- [ ] Resolver inserciones en huecos y después de la última tarjeta.
-- [ ] Actualizar números de página después de cada operación.
-- [ ] Mostrar la procedencia de una página sin sobrecargar visualmente la
+- [x] Resolver inserciones en huecos y después de la última tarjeta.
+- [x] Actualizar números de página después de cada operación.
+- [x] Mostrar la procedencia de una página sin sobrecargar visualmente la
   tarjeta.
-- [ ] Verificar que volver a `Documents` conserva exactamente el orden actual.
+- [x] Verificar que volver a `Documents` conserva exactamente el orden actual.
+
+### Progreso de la vista por páginas
+
+- 2026-09-11: la cuadrícula existente se conservó entera — sigue siendo un
+  `FlowBox` ordenado por `Cards`, sin reconstrucción en cada movimiento y con
+  un render pdfium por página. Lo que cambió es qué viaja en el arrastre y
+  cómo se resuelve el destino. `apps/linux-gtk/src/app/organize/grid.rs` se
+  partió por responsabilidad al crecer: `grid/card.rs` (qué es una tarjeta),
+  `grid/drop.rs` (dónde cae la que se arrastra), `grid/thumbnail.rs` (el
+  render), igual que `documents/` en §9.
+- El arrastre lleva el `PageId` de la página, no la posición que tenía su
+  tarjeta al empezar el gesto, y el drop resuelve ese identificador contra
+  `Document.pages` tal como está al soltar. Un índice capturado solo es
+  correcto mientras nada más se mueva, y los botones de deshacer y rehacer
+  están en la cabecera de esta misma pantalla. `Card` ganó el campo `id`, que
+  es lo que prepara su `DragSource`.
+- El destino es un *slot* de inserción: `k` significa "antes de la página que
+  hoy está en `k`" y `cards.len()` significa "después de la última", así que
+  soltar más allá de la última tarjeta ya tiene respuesta — antes
+  `child_at_pos` devolvía `None` ahí y el drop se perdía en silencio. No hay
+  widgets de hueco como en §9: las tarjetas de esta vista son los hijos de un
+  `FlowBox` homogéneo y un hueco tendría que ser hijo también, ocupando una
+  celda y reacomodando las filas. El slot sale de qué mitad de tarjeta tiene
+  el puntero encima (`slot_at`), lo que hace que el espacio entre columnas y
+  el espacio entre filas resuelvan a la misma posición sin caso especial, y
+  se dibuja como un acento en el borde cercano de esa tarjeta
+  (`.organize-card-drop-before` / `-after`, sombra interior para que
+  encenderla no cambie el tamaño de la tarjeta a mitad del arrastre).
+- Mover y borrar siguen siendo `Command::MovePage` y `Command::remove_page`
+  —un paso de deshacer cada uno— y la renumeración posterior sigue siendo
+  texto, nunca un render.
+- La procedencia es una línea bajo la miniatura, elidida al medio y con el
+  nombre completo en el tooltip. Aparece solo cuando la lista de páginas
+  tiene más de una fuente: nombrar el único PDF en las cincuenta tarjetas de
+  un documento sin combinar es ruido, que es exactamente lo que el checklist
+  pide evitar. Borrar la última página importada vuelve a dejar una sola
+  fuente, así que `relabel_sources` corre también después de un borrado. Qué
+  nombre corresponde a qué fuente es una sola decisión: vive en
+  `documents::source_name` y las dos vistas la leen de ahí.
+- Verificación (WSL2/Ubuntu): `cargo test -p linux-gtk --locked` (403
+  aprobadas, incluidas las 2 de `package_smoke`), `cargo test --workspace
+  --locked` (1351 aprobadas, 7 ignoradas), `cargo clippy --workspace
+  --all-targets --locked -- -D warnings`, `cargo build --workspace --locked`,
+  `cargo fmt --all -- --check` y `python3 scripts/check_maintainability.py`
+  (ninguna advertencia nueva sobre los archivos tocados; `organize/import.rs`
+  sigue por encima del umbral desde §8 y no se tocó en este cambio).
+- Siguen sin ejecutarse los mismos dos gates que en §9, por las mismas
+  razones: `scripts/package-linux.sh` exige `PDFIUM_ARCHIVE`, el tarball de
+  release verificado, que no está en esta copia, y `xvfb-run` no está
+  instalado en esta WSL, así que la suite GTK corrió bajo WSLg con display
+  real y no por la ruta headless del workflow `linux-gtk-ui`.
 
 ## 11. Animación y rendimiento
 
@@ -1228,7 +1279,7 @@ Lo que sigue abierto, y por qué:
 - [x] Probar que el selector no crea comandos ni marca cambios.
 - [x] Probar tarjetas, nombres, recuentos, rangos y etiquetas de partes.
 - [x] Probar arrastre de bloques como una operación atómica.
-- [ ] Probar mezcla de páginas y reconstrucción de tramos.
+- [x] Probar mezcla de páginas y reconstrucción de tramos.
 - [x] Probar que el orden permanece intacto al volver a documentos.
 - [x] Probar destinos de arrastre en huecos y al final.
 - [x] Probar alternativas de teclado y etiquetas accesibles.
