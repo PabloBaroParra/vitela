@@ -284,6 +284,7 @@ mod add_pdfs;
 mod blocks;
 mod documents;
 mod history;
+mod measure;
 mod motion;
 mod pages;
 mod refusals;
