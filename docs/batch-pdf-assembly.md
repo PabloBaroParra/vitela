@@ -27,7 +27,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 | Integración Linux | Pendiente |
 | Vista por documentos | Completo |
 | Vista por páginas | Completo |
-| Animación | Parcial |
+| Animación | Completo |
 | Pruebas y gates | Pendiente |
 
 ## Decisiones cerradas
@@ -1302,9 +1302,9 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Cachear miniaturas por documento, página, tamaño y factor de escala.
 - [x] Invalidar resultados de renderizado obsoletos mediante una generación.
 - [x] Evitar renderizar nuevamente todas las miniaturas al cambiar de vista.
-- [ ] Medir importación, primer render y cambio de modo con documentos grandes.
-  Parcial: las tres operaciones están medidas en renders de pdfium, que es lo
-  que cuesta caro en ellas, pero no cronometradas sobre un PDF real grande.
+- [x] Medir importación, primer render y cambio de modo con documentos grandes.
+- [x] Evitar reconstruir las tarjetas de la cuadrícula cuando el orden de
+  páginas no cambió.
 
 ### Progreso de la animación y el rendimiento
 
@@ -1375,11 +1375,64 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   vueltas sobre 12 páginas: 0 renders nuevos; antes eran 12 por cada
   entrada), `gtk_ui_importing_pages_does_not_re_render_the_grid_it_lands_in`
   (0 sobre las páginas que ya estaban) y el primer render, que sigue siendo
-  uno por tarjeta y está fijado en el mismo test. Lo que **no** se hizo es
-  cronometrar un PDF real de varios cientos de páginas: no hay fixture de ese
-  tamaño en el repositorio y esta caja no puede pintar la ventana GTK
-  (`use_gfxredir = 0` en WSLg), así que cualquier número de reloj salido de
-  aquí sería ruido. El ítem queda abierto.
+  uno por tarjeta y está fijado en el mismo test.
+- Medición con cronómetro (2026-09-12, cierra el ítem 12). Los renders no
+  eran toda la historia, así que las tres operaciones se cronometraron
+  además sobre un documento grande de verdad, en dos bancos porque se pagan
+  en dos monedas distintas. Ambos son `#[ignore]` y se corren a mano, igual
+  que los dos harnesses de perf que ya existían.
+  - `core/pdf-save/tests/perf_large_assembly.rs` — las 200 páginas del
+    fixture de ~50 MB de `pdf-render` importadas sobre otra copia de sí
+    mismo: 400 páginas, 104,4 MiB escritos. En esta caja (Windows,
+    `--release`) la importación es abrir el destino 13,3 ms, construir el
+    modelo 0,1 ms, abrir la fuente 10,2 ms, el informe de injerto 1,8 ms, la
+    lista de páginas importadas 0,1 ms, `ImportPages` 0,0 ms y **guardar
+    3872,7 ms**. Es decir: el 99% de lo que cuesta importar es materializar
+    el injerto al guardar, y nada de eso ocurre mientras el usuario elige
+    archivos. El primer render son 64,8 ms de reabrir los bytes, 9,0 ms la
+    primera tarjeta y 1126,3 ms las otras 399 —unos 2,8 ms por tarjeta, y
+    fuera del hilo principal—; el cambio de modo con la caché fría son
+    3,9 ms, porque la vista Documents dibuja una portada por bloque y no una
+    por página.
+  - `apps/linux-gtk/src/app/organize/tests/measure.rs` — el trabajo de
+    widgets del mismo documento de 400 páginas con la caché caliente, bajo
+    WSL2. Poblar la cuadrícula: 891 ms. Ir a Documents: 6,8 ms.
+- Lo que encontró la medición, y el ítem 13 que cerró. Volver a la vista
+  Pages costaba **886 ms**, lo mismo que construirla de cero, con la caché de
+  miniaturas caliente y cero renders de pdfium. La caché ahorraba el render y
+  nadie ahorraba el widget: `views::show` llamaba a `populate_visible`, que
+  destruye y reconstruye las 400 tarjetas —un `Box`, un `Picture`, tres
+  etiquetas y dos botones cada una, ~2,2 ms— y `--release` no lo movía ni un
+  punto, porque es trabajo de GTK y no de Rust. Un segundo de bucle principal
+  bloqueado por cambiar de vista es exactamente lo que el criterio de cierre
+  "la interfaz permanece fluida con documentos grandes" no admite.
+  - El arreglo es `grid::fill_grid`: si la cuadrícula ya tiene una tarjeta
+    por página del modelo, en el orden del modelo, y nada invalidó las
+    miniaturas, se quedan las tarjetas que hay y sólo se actualiza lo que una
+    reconstrucción habría cambiado de ellas (número, procedencia, miniaturas
+    que falten). 886 ms → **2,6 ms**.
+  - La prueba de "no cambió" es el propio orden de las tarjetas contra el del
+    modelo, no un contador de revisiones: las tarjetas **son** el registro de
+    lo que la cuadrícula tiene —`reorder_cards` las mueve en un arrastre,
+    `populate_grid` las reconstruye, una importación las agrega— y un
+    contador sería una segunda verdad que mantener en sincronía con la
+    primera. `edit_revision` además sube con ediciones que no tocan la
+    cuadrícula (metadatos), y `state.generation` sube en cada
+    `refresh_preview`, que es justo el caso que hay que reutilizar.
+  - La trampa que hay debajo de esa prueba: los `PageId` empiezan de nuevo en
+    0 en el documento siguiente, así que dos documentos de la misma cantidad
+    de páginas presentan **los mismos ids en el mismo orden** y la lista de
+    páginas no puede distinguirlos. `organize::document_changed` ahora marca
+    `thumbnails_stale` además de vaciar la caché; sin eso, abrir un segundo
+    PDF del mismo largo habría reutilizado las tarjetas —y las miniaturas—
+    del primero.
+  - La reutilización rompió el invariante que `motion` documentaba ("toda
+    llegada reconstruye las tarjetas que anima"), así que ahora `views::show`
+    quita las clases de entrada de la vista que **abandona**. Tiene que ser
+    al salir: GTK recalcula el estilo animado una vez por frame, así que una
+    clase quitada y vuelta a poner dentro de la misma iteración del bucle
+    principal nunca estuvo ausente para la animación, y la entrada no se
+    repetiría.
 - La hoja de estilos se comprobó cargada sin advertencias de GTK —`@keyframes`,
   `transform` y `animation-*` los acepta GTK4 sin quejarse—, pero el resultado
   **no** se verificó visualmente: esta caja pinta toda el área de contenido en
@@ -1387,13 +1440,15 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   que las pruebas fijan es qué tarjetas llevan qué clases y cuántas, no cómo
   se ven a mitad de vuelo; un `#[gtk::test]` no tiene reloj de frames que
   muestrear.
-- Verificación (WSL2/Ubuntu): `cargo test -p linux-gtk --locked` (420
-  aprobadas), `cargo test --workspace --locked` (1368 aprobadas, 7
-  ignoradas), `cargo clippy --workspace --all-targets --locked -- -D
+- Verificación (WSL2/Ubuntu, 2026-09-12): `cargo test -p linux-gtk --bin
+  linux-gtk` (430 aprobadas, 1 ignorada — la de medición),
+  `cargo test --workspace --locked` (1410 aprobadas, 9 ignoradas — los tres
+  harnesses de perf), `cargo clippy --workspace --all-targets --locked -- -D
   warnings`, `cargo build --workspace --locked`, `cargo fmt --all -- --check`
   y `python3 scripts/check_maintainability.py` (sin advertencias nuevas:
-  `cache.rs` y `motion.rs` quedan por debajo del umbral, y `import.rs` y
-  `state.rs` ya avisaban desde antes de este cambio).
+  `cache.rs`, `motion.rs`, `views.rs`, `grid.rs` y los dos bancos de medición
+  quedan por debajo del umbral, y `import.rs` y `state.rs` ya avisaban desde
+  antes de este cambio).
 - Los dos gates que siguen sin ejecutarse son los mismos de §9 y §10, por las
   mismas razones: `scripts/package-linux.sh` exige `PDFIUM_ARCHIVE`, que no
   está en esta copia, y `xvfb-run` no está instalado en esta WSL, así que la
