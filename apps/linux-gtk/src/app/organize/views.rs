@@ -13,7 +13,7 @@ use gtk::{Box as GtkBox, Label, Orientation, ToggleButton};
 use crate::app::state::Viewer;
 
 use super::documents::{self, DOCUMENTS_HINT, DOCUMENTS_VIEW, PAGES_HINT, PAGES_VIEW};
-use super::grid::populate_grid;
+use super::grid::fill_grid;
 use super::motion;
 
 /// The `Documents | Pages` selector, and the two toggles for `OrganizePanel`.
@@ -60,13 +60,19 @@ pub(super) fn connect(viewer: &Viewer) {
 /// Switches the screen to one of its two views and fills it.
 ///
 /// Populating on the way in rather than keeping both current is what lets a
-/// refresh only ever pay for the view on show. What that costs is bounded by
-/// `super::cache`: a view the user has already been in is repainted from
-/// thumbnails it rendered the first time.
+/// refresh only ever pay for the view on show. What that costs is bounded
+/// twice over: `super::cache` keeps a view the user has already been in from
+/// asking pdfium for a single render again, and `grid::fill_grid` keeps it
+/// from rebuilding the cards themselves when the page order has not moved.
 ///
 /// This is also the one path that animates — see [`motion`]'s header for why
 /// the entrance belongs to the view switch and not to `populate`.
 pub(super) fn show(viewer: &Viewer, view: &str) {
+    // Before the switch, so it acts on the view being *left*: its cards can
+    // outlive the visit now, and a card that kept its entrance class would
+    // arrive next time with the animation already spent. See
+    // [`motion::clear_entrance`].
+    motion::clear_entrance(viewer);
     viewer.organize.views.set_visible_child_name(view);
     viewer.organize.hint.set_text(if view == DOCUMENTS_VIEW {
         DOCUMENTS_HINT
@@ -77,12 +83,18 @@ pub(super) fn show(viewer: &Viewer, view: &str) {
     motion::run_entrance(viewer);
 }
 
-/// Rebuilds whichever view is on show.
+/// Fills whichever view is on show.
+///
+/// The Documents view is rebuilt outright every time and the Pages view only
+/// when it has to be, which is not an inconsistency: a block list is one card
+/// per imported PDF — two or three, on any document a user assembles by hand
+/// — while the grid is one card per page, and four hundred of them is the
+/// case `fill_grid` exists for.
 pub(super) fn populate_visible(viewer: &Viewer) {
     if showing_documents(viewer) {
         documents::populate(viewer);
     } else {
-        populate_grid(viewer);
+        fill_grid(viewer);
     }
 }
 

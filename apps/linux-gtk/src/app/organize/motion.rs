@@ -10,9 +10,23 @@
 //! the whole grid. So the populate functions know nothing about motion, and
 //! [`views::show`](super::views::show) — the one path that *is* "the user
 //! asked for this view" — adds the entrance to whatever it has just built.
-//! Nothing removes the classes again, and nothing has to: every arrival
-//! rebuilds the cards it animates, so the class always lands on a widget that
-//! has never carried it.
+//!
+//! ## Why leaving a view takes the classes off again
+//!
+//! This used to need no cleanup: every arrival rebuilt the cards it animated,
+//! so the class always landed on a widget that had never carried it. That
+//! stopped being true when `grid::fill_grid` began reusing a grid whose page
+//! order had not moved — a returning card is now often the same widget that
+//! animated last time, and re-adding a class a widget already has changes
+//! nothing about its style, so the entrance would simply not replay.
+//!
+//! [`clear_entrance`] is what restores the invariant, from the one place that
+//! can: `views::show`, on the way *out* of a view. Clearing on the way in
+//! would not do — GTK recomputes an animated style once per frame, so a class
+//! removed and re-added inside one main-loop iteration was never absent as
+//! far as the animation is concerned. Removing it on the way out leaves it
+//! absent for the whole of the other view's visit, which is as many frames as
+//! the user spends there.
 //!
 //! ## Why the stagger is a fixed number of CSS classes
 //!
@@ -78,6 +92,25 @@ pub(in crate::app::organize) fn run_entrance(viewer: &Viewer) {
     for (slot, widget) in entering(viewer).into_iter().take(STAGGER_SLOTS).enumerate() {
         widget.add_css_class(ENTER_CLASS);
         widget.add_css_class(&stagger_class(slot));
+    }
+}
+
+/// Takes the entrance classes off the cards of the view on show, so that the
+/// next arrival at it animates them again — see this module's header for why
+/// that has to happen when the view is left rather than when it is entered.
+///
+/// Reads each card's own classes instead of assuming the first
+/// [`STAGGER_SLOTS`] cards are the ones carrying them: a drag reorders the
+/// grid without rebuilding it, so the card that arrived in slot 3 can be
+/// anywhere by the time the view is left, and a slot-indexed removal would
+/// leave its delay class behind.
+pub(in crate::app::organize) fn clear_entrance(viewer: &Viewer) {
+    for widget in entering(viewer) {
+        for class in widget.css_classes() {
+            if class.starts_with(ENTER_CLASS) {
+                widget.remove_css_class(&class);
+            }
+        }
     }
 }
 

@@ -1,11 +1,12 @@
 //! What a view switch costs, and what makes it cost again (checklist §11).
 //!
-//! Every assertion here is a render count rather than a stopwatch. The
-//! expensive part of showing either view is one pdfium render per card, and
-//! `super::THUMBNAILS` counts exactly those at the boundary where they are
-//! asked for — which makes "switching views renders nothing again" a fact a
-//! test can state, rather than a timing that depends on the machine it ran
-//! on.
+//! Every assertion here is a render count or a card's identity rather than a
+//! stopwatch. Showing either view costs one pdfium render per card and one
+//! card's worth of widgets per page, and `super::THUMBNAILS` counts the first
+//! at the boundary where they are asked for while `cards` *is* the second —
+//! which makes "switching views builds nothing again" a fact a test can
+//! state, rather than a timing that depends on the machine it ran on. The
+//! timings themselves live in `super::measure`.
 
 use super::*;
 
@@ -47,6 +48,98 @@ fn gtk_ui_switching_between_the_two_views_renders_nothing_again() {
             "every card of both views was already in the cache"
         );
         assert_grid(viewer, &(0..PAGES).collect::<Vec<_>>());
+    });
+}
+
+/// The cards are the other half of what a switch costs, and the cache says
+/// nothing about them: before `grid::fill_grid`, every arrival tore the grid
+/// down and built one `Box`, one `Picture`, three labels and two buttons per
+/// page again. Measured at about 2.2 ms a card, which is most of a second on
+/// the four-hundred-page assembly `super::measure` times.
+#[gtk::test]
+fn gtk_ui_returning_to_an_unchanged_grid_keeps_the_cards_it_built() {
+    with_organize_of(PAGES, |viewer| {
+        let built_on_open = viewer.organize.cards.snapshot();
+
+        for _ in 0..3 {
+            switch(viewer, true);
+            switch(viewer, false);
+        }
+
+        assert_eq!(
+            viewer.organize.cards.snapshot(),
+            built_on_open,
+            "the same card widgets, not rebuilt copies of them"
+        );
+        assert_grid(viewer, &(0..PAGES).collect::<Vec<_>>());
+    });
+}
+
+/// The reuse is only allowed while the cards still say what the model says.
+/// `move_page` on its own is that disagreement: a real drag pairs it with the
+/// `reorder_cards` that moves the card to match, and without one the grid is
+/// holding an order the document no longer has.
+#[gtk::test]
+fn gtk_ui_a_model_that_moved_behind_the_grids_back_rebuilds_it() {
+    with_organize_of(PAGES, |viewer| {
+        let built_on_open = viewer.organize.cards.snapshot();
+
+        assert!(move_page(viewer, 0, 2));
+
+        switch(viewer, true);
+        switch(viewer, false);
+
+        assert_ne!(
+            viewer.organize.cards.snapshot(),
+            built_on_open,
+            "a grid that disagrees with the model must be rebuilt, not reused"
+        );
+        let mut expected: Vec<u32> = (0..PAGES).collect();
+        expected.remove(0);
+        expected.insert(2, 0);
+        assert_grid(viewer, &expected);
+    });
+}
+
+/// The trap under the identity check: `PageId`s start over at 0 in the next
+/// document, so two documents of the same length present *the same ids in the
+/// same order*. Nothing about the page list can tell them apart, and a grid
+/// reused across that boundary would show the previous document's pages.
+#[gtk::test]
+fn gtk_ui_another_document_does_not_inherit_the_previous_ones_cards() {
+    with_organize_of(PAGES, |viewer| {
+        let built_for_the_previous_document = viewer.organize.cards.snapshot();
+
+        document_changed(viewer);
+        switch(viewer, true);
+        switch(viewer, false);
+
+        assert_ne!(
+            viewer.organize.cards.snapshot(),
+            built_for_the_previous_document,
+            "a new document must render its own cards, id collision or not"
+        );
+    });
+}
+
+/// A content edit leaves every card holding a picture of a page that no
+/// longer looks like that. The page *order* is untouched, so the identity
+/// check alone would wave the grid through — `thumbnails_stale` is the second
+/// half of the condition, and this is the case it exists for.
+#[gtk::test]
+fn gtk_ui_a_grid_whose_pages_were_repainted_is_rebuilt_not_reused() {
+    with_organize_of(PAGES, |viewer| {
+        let built_on_open = viewer.organize.cards.snapshot();
+
+        invalidate_thumbnails(viewer);
+        switch(viewer, true);
+        switch(viewer, false);
+
+        assert_ne!(
+            viewer.organize.cards.snapshot(),
+            built_on_open,
+            "repainted pages must be rendered onto fresh cards"
+        );
     });
 }
 

@@ -294,6 +294,14 @@ pub(crate) fn document_changed(viewer: &Viewer) {
     // over at 0 in the next, so a surviving entry would hand the new
     // document's first page the old document's first page's picture.
     viewer.organize.thumbnails.clear();
+    // The cards on the grid are pictures of the document being left, and the
+    // `PageId`s that start over are exactly what stops `grid::fill_grid` from
+    // seeing that: two documents of the same length present the same ids in
+    // the same order, so the cheap check would call the old grid current and
+    // reuse it — thumbnails and all — for a document it has never rendered.
+    // The flag is what a rebuild is *for*, and this is its most extreme case:
+    // not a page whose pixels changed, but every page at once.
+    viewer.organize.thumbnails_stale.set(true);
     import::document_changed(viewer);
 }
 

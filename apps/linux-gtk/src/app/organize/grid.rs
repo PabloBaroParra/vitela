@@ -15,7 +15,7 @@ use pdf_render::DocumentHandle;
 
 use crate::app::state::{Cards, Viewer};
 
-use card::{build_card, relabel_sources};
+use card::{build_card, relabel_sources, renumber};
 /// Re-exported for the screen's tests, which need the size a page card asks
 /// for to look its own thumbnail up in the cache.
 pub(in crate::app::organize) use card::{CARD_HEIGHT_PX, CARD_WIDTH_PX};
@@ -28,6 +28,65 @@ mod card;
 /// stage.
 pub(in crate::app::organize) mod drop;
 pub(in crate::app::organize) mod thumbnail;
+
+/// Shows the Pages view's content: a full [`populate_grid`], or — when the
+/// cards already on the grid are the very cards a rebuild would produce —
+/// only the cheap part of one.
+///
+/// Building a card is a `Box`, a `Picture`, three labels and two buttons, and
+/// measurement put that at about 2.2 ms per card on this shell
+/// (`organize::tests::measure`): on a four-hundred-page assembly a rebuild is
+/// nearly a second of blocked main loop, and leaving a view and coming back
+/// used to pay it in full for a grid that had not changed by one page. The
+/// thumbnail cache (see [`super::cache`]) had already made the *renders*
+/// free; this is the widget half of the same answer.
+///
+/// The test for "has not changed" is the card order itself rather than a
+/// revision counter, because the cards *are* the record of what the grid
+/// holds: `drop::reorder_cards` moves them on a drag, [`populate_grid`]
+/// rebuilds them, and an import appends to them. A counter would be a second
+/// truth to keep in step with the first, and the first is already exact.
+pub(super) fn fill_grid(viewer: &Viewer) {
+    if !grid_holds_the_model(viewer) || viewer.organize.thumbnails_stale.get() {
+        populate_grid(viewer);
+        return;
+    }
+    // What a rebuild would have changed about a card that survives it: its
+    // position label, its provenance line, and a thumbnail it never got. Each
+    // is already maintained by whichever path edits the grid, so in practice
+    // these three find nothing to do — they are here so that reusing the
+    // cards is equivalent to rebuilding them without that being a claim about
+    // every caller.
+    renumber(&viewer.organize.cards);
+    relabel_sources(viewer);
+    fill_missing_thumbnails(viewer);
+}
+
+/// Whether the grid holds exactly one card per model page, in the model's
+/// order — the condition under which rebuilding it would put the same pages
+/// back in the same places.
+///
+/// Compares page identities and not lengths: a move keeps the count and
+/// changes the order, which is precisely the case a length check would wave
+/// through.
+fn grid_holds_the_model(viewer: &Viewer) -> bool {
+    let cards = viewer.organize.cards.snapshot();
+    let state = viewer.state.borrow();
+    let Some(model) = state
+        .session
+        .as_ref()
+        .and_then(|session| session.document_model.as_ref())
+    else {
+        // No model to compare against: let `populate_grid` decide what an
+        // empty session leaves on the grid, rather than deciding it twice.
+        return false;
+    };
+    cards.len() == model.pages.len()
+        && cards
+            .iter()
+            .zip(&model.pages)
+            .all(|(card, page)| card.id == page.id)
+}
 
 /// Renders the thumbnails of cards that do not have one yet, against the
 /// handle as it is now, and leaves every painted card alone.

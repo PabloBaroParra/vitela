@@ -133,6 +133,40 @@ fn gtk_ui_the_documents_view_animates_its_blocks_and_not_its_drop_gaps() {
     });
 }
 
+/// A card that survives the visit it arrived in must leave without its
+/// entrance classes, or it comes back with the animation already spent:
+/// adding a class a widget already carries changes nothing about its style,
+/// so nothing would replay. Only reachable since `grid::fill_grid` began
+/// keeping the cards of a grid whose order has not moved.
+#[gtk::test]
+fn gtk_ui_leaving_a_view_takes_the_entrance_off_the_cards_it_keeps() {
+    let _animations = Animations::set(true);
+    with_organize_of(PAGES, |viewer| {
+        let card = viewer.organize.cards.snapshot()[0].root.clone();
+        assert!(card.has_css_class(ENTER_CLASS), "it arrived animating");
+
+        viewer.organize.documents_toggle.set_active(true);
+
+        assert!(
+            !card.has_css_class(ENTER_CLASS),
+            "the card it kept must leave unanimated"
+        );
+        assert!(
+            !card.has_css_class(&stagger_class(0)),
+            "its delay must go with it"
+        );
+
+        viewer.organize.pages_toggle.set_active(true);
+
+        assert_eq!(
+            viewer.organize.cards.snapshot()[0].root,
+            card,
+            "the same card came back — this is the case worth asserting about"
+        );
+        assert!(card.has_css_class(ENTER_CLASS), "and it arrives animating");
+    });
+}
+
 /// The view swap's own half of the animation, read off the `Stack` rather
 /// than watched: a test that waited for a crossfade to finish would be a
 /// test of this machine's frame rate.
