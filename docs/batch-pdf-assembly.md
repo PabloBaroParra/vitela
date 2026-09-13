@@ -1305,6 +1305,8 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Medir importación, primer render y cambio de modo con documentos grandes.
 - [x] Evitar reconstruir las tarjetas de la cuadrícula cuando el orden de
   páginas no cambió.
+- [ ] Reducir el bloqueo de ~0,9 s al poblar la cuadrícula de páginas por
+  primera vez en un documento grande.
 
 ### Progreso de la animación y el rendimiento
 
@@ -1454,6 +1456,32 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   está en esta copia, y `xvfb-run` no está instalado en esta WSL, así que la
   suite GTK corrió bajo WSLg con display real y no por la ruta headless del
   workflow `linux-gtk-ui`.
+
+### Lo que la medición dejó abierto: el primer poblado (2026-09-12)
+
+El ítem 14 es nuevo y sale de releer los números de arriba al cerrar los
+criterios, no de un cambio de código. `grid::fill_grid` arregló **volver** a
+la vista Pages (886 ms → 2,6 ms), pero **construirla la primera vez** sigue
+costando los 891 ms que midió
+`organize::tests::measure::gtk_ui_measure_a_large_documents_grid_and_view_switch`
+sobre 400 páginas, y ese trabajo ocurre en el hilo principal: es un `Box`, un
+`Picture`, tres etiquetas y dos botones por página, con el render de miniatura
+ya descontado (el banco lo sustituye por `capture_thumbnail`, y en la pantalla
+real ocurre fuera del hilo principal de todos modos).
+
+Queda abierto y no tildado porque es exactamente el mismo bloqueo que esta
+sección declaró inadmisible para el cambio de vista, sólo que pagado una vez
+por documento en lugar de en cada ida y vuelta. Reutilizar tarjetas no puede
+arreglarlo —la primera vez no hay ninguna que reutilizar—, así que el arreglo
+es otro: construir sólo las tarjetas visibles y completar el resto en
+inactividad, o cambiar el `FlowBox` por un contenedor que recicle filas.
+Ninguna de las dos cosas es un ajuste del código actual, y mezclarla con el
+cierre de este checklist haría que un cambio de arquitectura de la cuadrícula
+entrara escondido en un commit de documentación.
+
+Lo que sí quedó fijado contra regresiones es el coste en renders
+(`organize::tests::thumbnails`), que sí corre en el gate. El tiempo de pared
+no: los dos bancos son `#[ignore]` y miden, no afirman.
 
 ## 12. Pruebas del núcleo
 
