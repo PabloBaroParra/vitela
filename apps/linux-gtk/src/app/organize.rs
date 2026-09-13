@@ -53,6 +53,7 @@ pub(crate) const ORGANIZE_PAGE: &str = "organize";
 pub(crate) use documents::ORGANIZE_CSS;
 
 const NO_DOCUMENT: &str = "Open a PDF before organizing its pages.";
+mod autoscroll;
 pub(in crate::app::organize) mod cache;
 mod command;
 mod documents;
@@ -141,6 +142,7 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
         .hscrollbar_policy(PolicyType::Never)
         .child(&grid)
         .build();
+    autoscroll::connect(&pages_scroll);
 
     let documents_list = GtkBox::new(Orientation::Vertical, 0);
     documents_list.set_valign(gtk::Align::Start);
@@ -149,6 +151,7 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
         .hscrollbar_policy(PolicyType::Never)
         .child(&documents_list)
         .build();
+    autoscroll::connect(&documents_scroll);
 
     let views = Stack::new();
     views.add_named(&documents_scroll, Some(DOCUMENTS_VIEW));
