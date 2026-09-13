@@ -470,6 +470,38 @@ impl Command {
         self.is_page_structure_edit() || matches!(self, Command::RotatePage { .. })
     }
 
+    /// Whether this command edits a form field — its existence, its geometry,
+    /// its appearance, its name, or the value filled into it.
+    ///
+    /// The form-field twin of [`Self::is_content_edit`], and it exists for the
+    /// same reason: a shell has to know, *before* stepping the log, whether
+    /// the command about to move is one whose result pdfium renders rather
+    /// than one the shell can draw for itself.
+    ///
+    /// A field is a `/Widget` annotation, and pdfium rasterizes those out of
+    /// the file (`FPDF_ANNOT`) exactly as it rasterizes page content. So a
+    /// shell that lets pdfium own how a field looks — the only way to get the
+    /// real `/AP`, the real font, the real comb and multiline layout — has to
+    /// put every one of these through the same save→reopen→re-render cycle a
+    /// content edit takes, or the canvas keeps showing the field as it was.
+    ///
+    /// Deliberately *not* grouped with `is_content_edit`: the two have the
+    /// same consequence today but different meanings, and a caller that wants
+    /// to treat them differently (a cheaper refresh for one, a different
+    /// status message) should not have to take them apart again.
+    pub fn is_form_field_edit(&self) -> bool {
+        matches!(
+            self,
+            Command::AddFormField(_)
+                | Command::RemoveFormField(_)
+                | Command::MoveFormField { .. }
+                | Command::ResizeFormField { .. }
+                | Command::RestyleFormField { .. }
+                | Command::SetFieldValue { .. }
+                | Command::RenameFormField { .. }
+        )
+    }
+
     /// Applies this command's forward action to `document`.
     ///
     /// Returns `false` without mutating when the command cannot address the
@@ -2487,6 +2519,97 @@ mod tests {
         assert_eq!(log.entries().len(), 3);
         assert_eq!(log.entries()[0], first);
         assert_eq!(log.entries()[2], last);
+    }
+
+    // --- Command::is_form_field_edit --------------------------------------
+
+    fn all_form_field_commands() -> Vec<Command> {
+        let field = sample_form_field(1);
+        vec![
+            Command::AddFormField(field.clone()),
+            Command::RemoveFormField(field.clone()),
+            Command::MoveFormField {
+                id: field.id,
+                from: field.rect,
+                to: field.rect,
+            },
+            Command::ResizeFormField {
+                id: field.id,
+                from: field.rect,
+                to: field.rect,
+            },
+            Command::RestyleFormField {
+                id: field.id,
+                from: field.style,
+                to: field.style,
+            },
+            Command::SetFieldValue {
+                id: field.id,
+                from: FieldValue::Text(String::new()),
+                to: FieldValue::Text("Ada".to_string()),
+            },
+            Command::RenameFormField {
+                id: field.id,
+                from: field.name.clone(),
+                to: "Renamed".to_string(),
+            },
+        ]
+    }
+
+    /// Every form-field variant reports itself as one. A variant silently
+    /// missing here is a mutation a shell would never rebuild its raster
+    /// for, leaving the canvas showing the field as the opened file had it.
+    #[test]
+    fn every_form_field_command_reports_itself_as_a_form_field_edit() {
+        for command in all_form_field_commands() {
+            assert!(
+                command.is_form_field_edit(),
+                "{command:?} must report itself as a form-field edit"
+            );
+        }
+    }
+
+    /// And nothing else does — an annotation edit in particular, which is
+    /// the one layer a shell draws for itself and must *not* pay a
+    /// save-and-reopen for.
+    #[test]
+    fn annotation_page_and_content_commands_are_never_form_field_edits() {
+        let annotation = sample_annotation(1, PageId(0));
+        let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let others = [
+            Command::AddAnnotation(annotation.clone()),
+            Command::RemoveAnnotation(annotation),
+            Command::insert_page(0, page.clone()),
+            Command::RemovePage {
+                index: 0,
+                page,
+                annotations: Vec::new(),
+                form_fields: Vec::new(),
+            },
+            Command::RotatePage {
+                page: PageId(0),
+                delta_degrees: 90,
+            },
+        ];
+
+        for command in others {
+            assert!(
+                !command.is_form_field_edit(),
+                "{command:?} must not report itself as a form-field edit"
+            );
+        }
+    }
+
+    /// The two classifiers name disjoint sets: a shell that reacts to both
+    /// must never see one command answer yes twice and act on it twice.
+    #[test]
+    fn a_command_is_never_both_a_content_edit_and_a_form_field_edit() {
+        for command in all_content_commands() {
+            assert!(!command.is_form_field_edit(), "{command:?}");
+        }
+        for command in all_form_field_commands() {
+            assert!(!command.is_content_edit(), "{command:?}");
+        }
     }
 
     // --- Command::is_content_edit / EditLog::peek_undo/peek_redo (T-163) --
