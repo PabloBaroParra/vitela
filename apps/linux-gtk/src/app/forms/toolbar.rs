@@ -164,6 +164,7 @@ pub(crate) fn connect_forms_toolbar(viewer: &Viewer) {
     }
 
     connect_style_controls(viewer);
+    super::fill::connect_settle(viewer);
 }
 
 /// Refreshes every forms control's sensitivity (and the style inspector's

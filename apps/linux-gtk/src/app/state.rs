@@ -15,8 +15,8 @@ use gtk::{
     Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
 };
 use pdf_document::{
-    AnnotationId, Document, FormFieldId, ImageItem, ImportedDocumentId, PageContent, PageId,
-    PdfDateOffset, TextRun,
+    AnnotationId, Document, FieldValue, FormFieldId, ImageItem, ImportedDocumentId, PageContent,
+    PageId, PdfDateOffset, TextRun,
 };
 use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
@@ -1190,6 +1190,29 @@ pub(crate) struct DocumentSession {
     /// (`document::restore_edit_state`) — those bytes were written in that
     /// model's page order, so its ids describe the new handle exactly.
     pub(crate) backend_pages: Vec<PageId>,
+    /// The form-field values the **currently open pdfium handle** already
+    /// draws, keyed by each field's `/T` name.
+    ///
+    /// pdfium rasterizes every widget annotation a file carries from that
+    /// widget's own `/AP` (`FPDF_ANNOT`, on by default in
+    /// `PdfRenderConfig`), so a field the open bytes hold is on screen before
+    /// the overlay draws a single pixel. This is the record of which ones
+    /// those are, and it is what
+    /// `selection::draw_form_field_values` consults to keep from painting a
+    /// value pdfium has already painted — the doubling every filled field in
+    /// an opened form used to show.
+    ///
+    /// Keyed by name, not `FormFieldId`: ids are handed out sequentially per
+    /// parse (`pdf_form::read_form_fields`), so bytes holding a different
+    /// number of fields renumber them all, while `/T` is the field's own
+    /// identity and is unique within a `FormFieldSet`.
+    ///
+    /// Installed with the handle and **never** restored from the preserved
+    /// model the way `backend_pages` is (`document::restore_edit_state`).
+    /// That is the whole point: this describes the bytes pdfium was handed,
+    /// not what the user has edited since. A value the model holds and this
+    /// map does not is precisely the overlay's to draw.
+    pub(crate) rendered_field_values: HashMap<String, FieldValue>,
     pub(crate) save_backing: Option<SaveBacking>,
     /// Parsed PDFs backing every [`pdf_document::PageOrigin::Imported`] page
     /// in the model. They belong to the session rather than the pure model and

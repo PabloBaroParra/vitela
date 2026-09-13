@@ -6,7 +6,7 @@
 use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, AuditActor, AuditEvent, Color, Command, PageId, Rect,
 };
-use pdf_save::{save_document, SaveInput, SaveIntent, SignatureAcknowledgement};
+use pdf_save::{save_document, save_preview, SaveInput, SaveIntent, SignatureAcknowledgement};
 
 fn fixture_path(name: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -645,4 +645,67 @@ fn undoing_the_delete_brings_the_annotation_back_and_still_saves() {
     .expect("save should succeed");
     let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
     assert_eq!(reloaded.get_pages().len(), 2);
+}
+
+/// `save_preview`'s incremental half. Undoing a page operation can leave a
+/// model with no structural change at all, and the shell still refreshes its
+/// preview afterwards — so this writer has to honour the same layer rule the
+/// full rewrite does, or the annotation the overlay is painting gets appended
+/// underneath it.
+#[test]
+fn preview_save_leaves_the_annotation_layer_out_of_an_incremental_append() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    let page1 = document.pages[1].id;
+    apply_command(
+        &mut document,
+        Command::RotatePage {
+            page: page1,
+            delta_degrees: 90,
+        },
+    );
+    apply_command(&mut document, Command::AddAnnotation(highlight(1, page1.0)));
+
+    let input = SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    };
+    let preview = save_preview(input).expect("preview should succeed");
+
+    let reopened = lopdf::Document::load_mem(&preview).expect("preview must reload");
+    let page_object = *reopened.get_pages().get(&2).unwrap();
+    let page = reopened.get_dictionary(page_object).unwrap();
+
+    assert_eq!(
+        page.get(b"Rotate").unwrap().as_i64().unwrap(),
+        90,
+        "the rotation this refresh exists to show must still land"
+    );
+    assert!(
+        page.get(b"Annots").is_err(),
+        "the model annotation must not be appended: the overlay is already drawing it"
+    );
+
+    // The same input through the real save still writes it — the difference
+    // is the entry point, not the document.
+    let saved = save_document(input).expect("save should succeed");
+    let reopened = lopdf::Document::load_mem(&saved).expect("save must reload");
+    let page_object = *reopened.get_pages().get(&2).unwrap();
+    assert_eq!(
+        reopened
+            .get_dictionary(page_object)
+            .unwrap()
+            .get(b"Annots")
+            .and_then(|object| object.as_array())
+            .unwrap()
+            .len(),
+        1
+    );
 }

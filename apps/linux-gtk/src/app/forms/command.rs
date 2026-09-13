@@ -5,9 +5,24 @@
 //! `Command` variant applies directly to `Document.form_fields`
 //! (`Command::is_content_edit` excludes all of them) and
 //! `move_field`/`resize_field`/`restyle_field` are infallible
-//! (`pdf-form::ops`'s own doc) — so, like an annotation command, there is no
-//! validate-before-record probe and no save→reopen→re-render cycle after
-//! recording, only a plain redraw.
+//! (`pdf-form::ops`'s own doc) — so there is no validate-before-record probe.
+//!
+//! A save→reopen→re-render cycle there is, though, and that is where a form
+//! field parts company with an annotation. A field is a `/Widget`, which
+//! pdfium rasterizes from its own `/AP`, and the canvas lets it: the overlay
+//! draws a value only where pdfium has nothing
+//! (`selection::overlay_owns_field_value`), because the real `/DA` font and
+//! the real comb and multiline layout are things an overlay can only
+//! approximate. The price of that is this refresh. Without it the canvas
+//! would keep showing a field exactly as the opened file had it, however the
+//! user moved, restyled or deleted it.
+//!
+//! [`command`] pays it directly — placing, moving, resizing, restyling and
+//! renaming are discrete gestures, one refresh each. [`fill_command`] must
+//! not: `SetFieldValue` is recorded on every keystroke, and a save and reopen
+//! per keystroke is neither affordable nor survivable by the `Entry` being
+//! typed into. `fill::connect_settle` spends it once, when focus leaves the
+//! fill panel.
 
 use pdf_document::{Command, Document};
 
@@ -57,18 +72,32 @@ pub(super) fn command(
             None => Err(NO_DOCUMENT.to_string()),
         }
     };
-    match result {
+    let recorded = match result {
         Ok(message) => {
             if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
                 session.edit_revision += 1;
                 session.unsaved_to_disk = true;
             }
             viewer.status.set_text(&message);
+            Some(message)
         }
-        Err(error) => viewer.status.set_text(&error),
-    }
+        Err(error) => {
+            viewer.status.set_text(&error);
+            None
+        }
+    };
     update_forms_controls(viewer);
     selection::redraw(viewer);
+    // Only on success: a refused or failed command recorded nothing, so the
+    // raster already matches the model and a reopen would cost a full rebuild
+    // for no change. See the module doc for why this runs at all.
+    //
+    // The command's own message is handed on rather than replaced: the
+    // refresh is what finally puts the result on the canvas, so it should
+    // leave "Field moved." up, not a generic word for all six commands.
+    if let Some(message) = recorded {
+        crate::app::document::refresh_preview(viewer, message);
+    }
 }
 
 /// The editable model for the open document — mirrors
