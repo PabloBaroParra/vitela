@@ -10,6 +10,13 @@
 //!   `original_bytes` to append to → full rewrite.
 //! - Otherwise (annotations and/or page rotation only, against a real
 //!   previously-saved file) → incremental update.
+//!
+//! ## Two entry points, not one
+//!
+//! [`save_document`] writes the document. [`save_preview`] writes the same
+//! document *minus its annotation layer*, for a caller that rasterizes the
+//! result and draws that layer itself — see its own doc. Both pick their
+//! writer by the rule above.
 
 use std::sync::Arc;
 
@@ -109,6 +116,24 @@ pub enum SignatureAcknowledgement {
     ProceedAndInvalidate,
 }
 
+/// Whether a save materializes the model's *annotation layer* — the
+/// `Document::annotations` set and the `Document::form_fields` set — into the
+/// bytes it produces.
+///
+/// Every other layer (page structure, page content, metadata, encryption) is
+/// written either way. This names the one layer a shell can paint for itself
+/// without pdfium, and therefore the one layer that can end up on screen
+/// twice — see [`save_preview`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AnnotationLayer {
+    /// Write it. The only correct answer for bytes that become the document.
+    Materialize,
+    /// Leave it alone. The base document's own annotations and widgets are
+    /// carried through untouched — nothing is stripped — but nothing from the
+    /// model is appended to them or patched into them.
+    Preserve,
+}
+
 /// Auto-selects the incremental or full-rewrite path for `input` and produces
 /// the saved bytes.
 pub fn save_document(input: SaveInput<'_>) -> Result<Vec<u8>, SaveError> {
@@ -122,7 +147,45 @@ pub struct SaveOutcome {
 }
 
 pub fn save_document_with_report(input: SaveInput<'_>) -> Result<SaveOutcome, SaveError> {
-    save_document_with_options_and_report(input, SaveOptions::default())
+    save_with_layer(input, SaveOptions::default(), AnnotationLayer::Materialize)
+}
+
+/// Produces bytes for an in-memory **preview** of `input` — a buffer the
+/// caller reopens, rasterizes and throws away, not a document anyone keeps.
+///
+/// Identical to [`save_document`] except that the model's annotation layer —
+/// its annotations and its form fields — is left out of the result. That
+/// omission is the entire point of the call.
+///
+/// A shell previews page operations and content edits this way because those
+/// two change what pdfium itself draws, so nothing short of a real reopen
+/// shows the actual result. Annotations and form fields are not like that: a
+/// shell that paints them on an overlay paints them from the same model this
+/// save reads, and pdfium rasterizes annotations (`FPDF_ANNOT`) and form
+/// fields whenever the file carries them. Materializing them here would put
+/// every one of them on screen *twice* — a highlight over its own copy, a
+/// field value over its own copy.
+///
+/// Nor is having the shell skip the overlay instead a workable alternative:
+/// once an annotation is in the raster the overlay cannot take it away again,
+/// so moving or undoing one after the preview was built would leave the stale
+/// copy on screen until the next preview happened to run.
+///
+/// [`save_document`] stays the only correct call for a real save — bytes on
+/// disk with no annotation layer would lose the user's work.
+pub fn save_preview(input: SaveInput<'_>) -> Result<Vec<u8>, SaveError> {
+    save_preview_with_report(input).map(|outcome| outcome.bytes)
+}
+
+/// [`save_preview`] with the graft's report alongside the bytes, the way
+/// [`save_document_with_report`] pairs with [`save_document`].
+///
+/// A preview refresh is the *first* thing that runs after an import, so it is
+/// where a shell learns what the graft had to leave behind — dropping the
+/// report here would mean the warnings only surfaced on the eventual disk
+/// save, long after the user stopped thinking about the import.
+pub fn save_preview_with_report(input: SaveInput<'_>) -> Result<SaveOutcome, SaveError> {
+    save_with_layer(input, SaveOptions::default(), AnnotationLayer::Preserve)
 }
 
 /// Same as [`save_document`], with explicit clock/id-generator hooks — used
@@ -131,12 +194,19 @@ pub fn save_document_with_options(
     input: SaveInput<'_>,
     options: SaveOptions,
 ) -> Result<Vec<u8>, SaveError> {
-    save_document_with_options_and_report(input, options).map(|outcome| outcome.bytes)
+    save_with_layer(input, options, AnnotationLayer::Materialize).map(|outcome| outcome.bytes)
 }
 
-fn save_document_with_options_and_report(
+/// The one save. `layer` says whether the model's annotation layer is written
+/// (see [`AnnotationLayer`]); the returned [`SaveOutcome`] carries whatever
+/// the graft had to report. The two are independent — a preview can be
+/// refused by the same graft that would refuse a real save — so they are a
+/// parameter and a return value on the same function rather than two
+/// functions that would each have to grow the other's half.
+fn save_with_layer(
     input: SaveInput<'_>,
     options: SaveOptions,
+    layer: AnnotationLayer,
 ) -> Result<SaveOutcome, SaveError> {
     // Populated once and threaded into whichever writer runs. Both the writer
     // choice and the writer itself need the base document's *original* page
@@ -146,7 +216,7 @@ fn save_document_with_options_and_report(
     let original_pages = bridge::populate_document(input.base)?;
 
     if !requires_full_rewrite(input, &original_pages) {
-        return save_incremental(input, &original_pages).map(|bytes| SaveOutcome {
+        return save_incremental(input, &original_pages, layer).map(|bytes| SaveOutcome {
             bytes,
             graft_warnings: Vec::new(),
         });
@@ -161,7 +231,7 @@ fn save_document_with_options_and_report(
         return Err(SaveError::SignaturesWouldBeInvalidated);
     }
 
-    save_full_rewrite(input, &options, &original_pages)
+    save_full_rewrite(input, &options, &original_pages, layer)
 }
 
 /// Appends one incremental revision to `original_bytes` using the same
@@ -245,6 +315,7 @@ fn save_full_rewrite(
     input: SaveInput<'_>,
     options: &SaveOptions,
     original_pages: &[Page],
+    layer: AnnotationLayer,
 ) -> Result<SaveOutcome, SaveError> {
     // Resolved once, by the replay itself and against the *replayed*
     // document: page ops have already moved pages around, so this map is the
@@ -265,23 +336,28 @@ fn save_full_rewrite(
     // commands were recorded against.
     content::replay_content_edits(working.as_lopdf_mut(), input.document, &page_ids)?;
 
-    // Read from the materialized document, not from `base`: an imported page
-    // is not in `base` at all, and its `/Annots` arrived with the graft.
-    let existing_annotations = bridge::page_annotation_objects(&working, &page_ids)?;
-    annotations::attach_annotations(
-        working.as_lopdf_mut(),
-        &page_ids,
-        &existing_annotations,
-        &input.document.annotations,
-    )?;
+    // Skipped wholesale for a preview, down to the `/Annots` walk that feeds
+    // it — see [`save_preview`] for why a preview must not bake this layer.
+    if layer == AnnotationLayer::Materialize {
+        // Read from the materialized document, not from `base`: an imported
+        // page is not in `base` at all, and its `/Annots` arrived with the
+        // graft.
+        let existing_annotations = bridge::page_annotation_objects(&working, &page_ids)?;
+        annotations::attach_annotations(
+            working.as_lopdf_mut(),
+            &page_ids,
+            &existing_annotations,
+            &input.document.annotations,
+        )?;
 
-    let catalog_id = catalog_object_id(working.as_lopdf())?;
-    crate::forms::write_form_fields(
-        working.as_lopdf_mut(),
-        catalog_id,
-        &page_ids,
-        &input.document.form_fields,
-    )?;
+        let catalog_id = catalog_object_id(working.as_lopdf())?;
+        crate::forms::write_form_fields(
+            working.as_lopdf_mut(),
+            catalog_id,
+            &page_ids,
+            &input.document.form_fields,
+        )?;
+    }
 
     // Decision 6: an explicit `/ModDate` from `SetDocumentInfo` must win this
     // save over `set_mod_date`'s auto-stamp. Applying the pending
@@ -328,7 +404,11 @@ fn save_full_rewrite(
 /// metadata editing, unchanged by this batch) and the trailer `/ID` is left
 /// untouched too — an unmodified `/ModDate`/`/ID` on an incremental update is
 /// not a spec violation.
-fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec<u8>, SaveError> {
+fn save_incremental(
+    input: SaveInput<'_>,
+    original_pages: &[Page],
+    layer: AnnotationLayer,
+) -> Result<Vec<u8>, SaveError> {
     let original_bytes = input.original_bytes.ok_or(SaveError::InvalidSaveRequest(
         "incremental save requires original_bytes (a freshly created document has nothing to \
           append to — use save_document instead)",
@@ -353,8 +433,16 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
     }
 
     let page_ids = bridge::page_object_ids(input.base, &input.document.pages)?;
-    let existing_annotations = bridge::page_annotation_objects(input.base, &page_ids)?;
-    let catalog_id = catalog_object_id(input.base.as_lopdf())?;
+    // `None` for a preview: the annotation layer is not written at all, so
+    // neither the `/Annots` walk nor the `/Root` lookup that feed it are paid
+    // for. See [`save_preview`].
+    let annotation_layer = match layer {
+        AnnotationLayer::Materialize => Some((
+            bridge::page_annotation_objects(input.base, &page_ids)?,
+            catalog_object_id(input.base.as_lopdf())?,
+        )),
+        AnnotationLayer::Preserve => None,
+    };
     let pending_info = metadata::pending_document_info(input.document);
     // The one clone the borrowing API cannot remove: lopdf's
     // `IncrementalDocument::create_from` takes both by value.
@@ -373,6 +461,10 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
                 Object::Integer(i64::from(bridge::rotation_degrees(rotation))),
             );
         }
+
+        let Some((existing_annotations, catalog_id)) = annotation_layer else {
+            return Ok(());
+        };
 
         annotations::attach_annotations(
             incremental,
@@ -512,6 +604,51 @@ mod tests {
         }
     }
 
+    /// The one annotation both the save and the preview cases add, so the
+    /// only difference between them stays the entry point being tested.
+    fn a_highlight() -> pdf_document::Annotation {
+        pdf_document::Annotation {
+            id: AnnotationId(1),
+            page: PageId(0),
+            kind: AnnotationKind::Highlight {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 10.0,
+                    height: 10.0,
+                },
+                color: Color { r: 1, g: 2, b: 3 },
+            },
+        }
+    }
+
+    /// Its form-field twin — `FieldOrigin::New`, the only origin a user can
+    /// place and therefore the only one an overlay owns outright.
+    fn a_text_field() -> pdf_document::FormField {
+        pdf_document::FormField {
+            id: pdf_document::FormFieldId(1),
+            page: PageId(0),
+            name: "Name".to_string(),
+            rect: Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 100.0,
+                height: 20.0,
+            },
+            style: pdf_document::TextStyle {
+                font: pdf_document::FontFamily::Helvetica,
+                size_pt: 12.0,
+                color: Color { r: 0, g: 0, b: 0 },
+            },
+            value: pdf_document::FieldValue::Text("Ada".to_string()),
+            kind: pdf_document::FormFieldKind::Text {
+                multiline: false,
+                max_len: None,
+            },
+            origin: pdf_document::FieldOrigin::New,
+        }
+    }
+
     fn fixed_options() -> SaveOptions {
         SaveOptions {
             clock: Arc::new(FixedClock::new(1_000_000)),
@@ -569,22 +706,7 @@ mod tests {
         let mut fixture = Fixture::blank();
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
         apply_command(&mut fixture.document, Command::insert_page(0, page));
-        apply_command(
-            &mut fixture.document,
-            Command::AddAnnotation(pdf_document::Annotation {
-                id: AnnotationId(1),
-                page: PageId(0),
-                kind: AnnotationKind::Highlight {
-                    rect: Rect {
-                        x: 0.0,
-                        y: 0.0,
-                        width: 10.0,
-                        height: 10.0,
-                    },
-                    color: Color { r: 1, g: 2, b: 3 },
-                },
-            }),
-        );
+        apply_command(&mut fixture.document, Command::AddAnnotation(a_highlight()));
 
         let bytes = save_document(fixture.input()).expect("save should succeed");
         let reloaded = lopdf::Document::load_mem(&bytes).expect("output must reload");
@@ -605,31 +727,7 @@ mod tests {
         let mut fixture = Fixture::blank();
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
         apply_command(&mut fixture.document, Command::insert_page(0, page));
-        apply_command(
-            &mut fixture.document,
-            Command::AddFormField(pdf_document::FormField {
-                id: pdf_document::FormFieldId(1),
-                page: PageId(0),
-                name: "Name".to_string(),
-                rect: Rect {
-                    x: 10.0,
-                    y: 20.0,
-                    width: 100.0,
-                    height: 20.0,
-                },
-                style: pdf_document::TextStyle {
-                    font: pdf_document::FontFamily::Helvetica,
-                    size_pt: 12.0,
-                    color: Color { r: 0, g: 0, b: 0 },
-                },
-                value: pdf_document::FieldValue::Text("Ada".to_string()),
-                kind: pdf_document::FormFieldKind::Text {
-                    multiline: false,
-                    max_len: None,
-                },
-                origin: pdf_document::FieldOrigin::New,
-            }),
-        );
+        apply_command(&mut fixture.document, Command::AddFormField(a_text_field()));
 
         let bytes = save_document(fixture.input()).expect("save should succeed");
         let reloaded = lopdf::Document::load_mem(&bytes).expect("output must reload");
@@ -643,6 +741,151 @@ mod tests {
         );
     }
 
+    // --- Preview saves (the annotation layer a shell paints itself) -------
+
+    /// A one-page base whose page already carries an `/Annots` entry of its
+    /// own — an annotation some other PDF editor left in the file, which the
+    /// model never sees (`document_from_lopdf` starts with an empty
+    /// annotation set). Distinguishes "the preview skipped the model's layer"
+    /// from "the preview stripped the page's annotations".
+    fn base_with_an_existing_annotation() -> LopdfDocument {
+        use lopdf::dictionary;
+
+        let mut doc = lopdf::Document::with_version("1.5");
+        let annot_id = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Square",
+            "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        });
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Annots" => vec![Object::Reference(annot_id)],
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        LopdfDocument::from_lopdf(doc)
+    }
+
+    /// `original_bytes: None` is what forces the full-rewrite writer without
+    /// adding a structural change, so the base's single page passes straight
+    /// through `replay_page_ops`.
+    fn fixture_over(base: LopdfDocument) -> Fixture {
+        let document = bridge::document_from_lopdf(&base, None).unwrap();
+        Fixture {
+            document,
+            base,
+            original_bytes: None,
+            intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
+        }
+    }
+
+    fn annots_on_first_page(bytes: &[u8]) -> Vec<Object> {
+        let reloaded = lopdf::Document::load_mem(bytes).expect("output must reload");
+        let page_id = *reloaded.get_pages().get(&1).expect("saved page 1");
+        reloaded
+            .get_dictionary(page_id)
+            .unwrap()
+            .get(b"Annots")
+            .map(|object| object.as_array().expect("/Annots must be an array").clone())
+            .unwrap_or_default()
+    }
+
+    /// The bug this exists to prevent: the shell's overlay paints every model
+    /// annotation itself, so a preview that also wrote them made pdfium
+    /// rasterize a second copy underneath — a Highlight came out darker than
+    /// it should be.
+    #[test]
+    fn save_preview_leaves_the_model_annotation_layer_out() {
+        let mut fixture = fixture_over(base_with_an_existing_annotation());
+        apply_command(&mut fixture.document, Command::AddAnnotation(a_highlight()));
+
+        let preview = save_preview(fixture.input()).expect("preview should succeed");
+        let saved = save_document(fixture.input()).expect("save should succeed");
+
+        assert_eq!(
+            annots_on_first_page(&preview).len(),
+            1,
+            "a preview must add nothing to the page's own /Annots"
+        );
+        assert_eq!(
+            annots_on_first_page(&saved).len(),
+            2,
+            "a real save must still write the model annotation"
+        );
+    }
+
+    /// The other half of the same layer: a field the user placed is a
+    /// `/Widget` annotation, and pdfium renders form fields too — so a
+    /// preview that wrote it doubled the value the overlay was already
+    /// painting.
+    #[test]
+    fn save_preview_leaves_a_new_form_field_out() {
+        let mut fixture = fixture_over(base_with_an_existing_annotation());
+        apply_command(&mut fixture.document, Command::AddFormField(a_text_field()));
+
+        let preview = save_preview(fixture.input()).expect("preview should succeed");
+        let reloaded = lopdf::Document::load_mem(&preview).expect("output must reload");
+
+        assert!(
+            pdf_form::read_form_fields(&reloaded).is_empty(),
+            "a preview must not materialize a field the overlay is drawing"
+        );
+        assert_eq!(
+            annots_on_first_page(&preview).len(),
+            1,
+            "and must not append the field's widget to /Annots either"
+        );
+    }
+
+    /// `Preserve`, not "strip": the annotations the *file* carries are not
+    /// the model's layer, the overlay never draws them, and pdfium is the
+    /// only thing that can show them at all.
+    #[test]
+    fn save_preview_keeps_the_base_documents_own_annotations() {
+        let fixture = fixture_over(base_with_an_existing_annotation());
+
+        let preview = save_preview(fixture.input()).expect("preview should succeed");
+
+        assert_eq!(
+            annots_on_first_page(&preview).len(),
+            1,
+            "the page's pre-existing /Annots entry must survive a preview"
+        );
+    }
+
+    /// Page structure is the other thing a preview exists to show, so the
+    /// layer choice must not touch it.
+    #[test]
+    fn save_preview_still_materializes_a_page_operation() {
+        let mut fixture = fixture_over(base_with_an_existing_annotation());
+        let page = pdf_document::Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
+        apply_command(&mut fixture.document, Command::insert_page(1, page));
+
+        let preview = save_preview(fixture.input()).expect("preview should succeed");
+        let reloaded = lopdf::Document::load_mem(&preview).expect("output must reload");
+
+        assert_eq!(
+            reloaded.get_pages().len(),
+            2,
+            "a preview must still write the page op it was asked to show"
+        );
+    }
+
     #[test]
     fn full_rewrite_with_fixed_options_is_byte_identical_across_runs() {
         let build_bytes = || {
@@ -650,9 +893,14 @@ mod tests {
             let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
             apply_command(&mut fixture.document, Command::insert_page(0, page));
             let original_pages = fixture.original_pages();
-            save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-                .expect("save should succeed")
-                .bytes
+            save_full_rewrite(
+                fixture.input(),
+                &fixed_options(),
+                &original_pages,
+                AnnotationLayer::Materialize,
+            )
+            .expect("save should succeed")
+            .bytes
         };
 
         let first = build_bytes();
@@ -671,7 +919,11 @@ mod tests {
         apply_command(&mut fixture.document, Command::insert_page(0, page));
 
         let original_pages = fixture.original_pages();
-        let result = save_incremental(fixture.input(), &original_pages);
+        let result = save_incremental(
+            fixture.input(),
+            &original_pages,
+            AnnotationLayer::Materialize,
+        );
         assert!(matches!(result, Err(SaveError::InvalidSaveRequest(_))));
     }
 
@@ -682,7 +934,11 @@ mod tests {
         fixture.intent = SaveIntent::StripProtection;
 
         let original_pages = fixture.original_pages();
-        let result = save_incremental(fixture.input(), &original_pages);
+        let result = save_incremental(
+            fixture.input(),
+            &original_pages,
+            AnnotationLayer::Materialize,
+        );
         assert!(matches!(result, Err(SaveError::InvalidSaveRequest(_))));
     }
 
@@ -690,7 +946,11 @@ mod tests {
     fn incremental_save_rejects_missing_original_bytes() {
         let fixture = Fixture::blank(); // original_bytes: None
         let original_pages = fixture.original_pages();
-        let result = save_incremental(fixture.input(), &original_pages);
+        let result = save_incremental(
+            fixture.input(),
+            &original_pages,
+            AnnotationLayer::Materialize,
+        );
         assert!(matches!(result, Err(SaveError::InvalidSaveRequest(_))));
     }
 
@@ -783,9 +1043,14 @@ mod tests {
         );
 
         let original_pages = fixture.original_pages();
-        let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed")
-            .bytes;
+        let bytes = save_full_rewrite(
+            fixture.input(),
+            &fixed_options(),
+            &original_pages,
+            AnnotationLayer::Materialize,
+        )
+        .expect("save should succeed")
+        .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert_eq!(
@@ -803,9 +1068,14 @@ mod tests {
         let fixture = Fixture::blank();
 
         let original_pages = fixture.original_pages();
-        let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed")
-            .bytes;
+        let bytes = save_full_rewrite(
+            fixture.input(),
+            &fixed_options(),
+            &original_pages,
+            AnnotationLayer::Materialize,
+        )
+        .expect("save should succeed")
+        .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert!(
@@ -876,9 +1146,14 @@ mod tests {
         apply_command(&mut fixture.document, Command::insert_page(1, page));
 
         let original_pages = fixture.original_pages();
-        let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed")
-            .bytes;
+        let bytes = save_full_rewrite(
+            fixture.input(),
+            &fixed_options(),
+            &original_pages,
+            AnnotationLayer::Materialize,
+        )
+        .expect("save should succeed")
+        .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert_eq!(

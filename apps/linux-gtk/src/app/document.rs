@@ -1074,13 +1074,26 @@ fn restore_view_state(viewer: &Viewer, generation: u64, preserved: Option<ViewSt
 /// [`refresh_preview`]'s own doc for why signatures are
 /// acknowledged silently here rather than asked about — and why that stays
 /// safe only because the caller keeps the original `SaveBacking`.
+///
+/// `pdf_save::save_preview`, not `save_document`: the bytes here exist only
+/// to be rasterized behind `selection::draw_highlights`, which paints every
+/// model annotation and form-field value itself (`draw_annotation`'s own doc
+/// states that those are *not* in pdfium's raster, and pdfium renders both
+/// annotations and form fields when they are present). A full save would bake
+/// that layer into the buffer as well and the canvas would show each of them
+/// twice — a Highlight darker than it should be, a filled field doubled.
+/// `save_preview` writes the page structure and page content this refresh
+/// exists for and carries the base document's own annotations through
+/// untouched, which is exactly what the overlay assumes it is drawing on top
+/// of. The real disk save (`save_current_to`) still calls `save_document`, so
+/// nothing the user keeps loses that layer.
 fn refresh_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
     sources: &[ImportedSource],
 ) -> Result<(OpenedDocument, Vec<pdf_manip::GraftWarning>), String> {
     let source_refs = imported_sources(sources);
-    let outcome = pdf_save::save_document_with_report(pdf_save::SaveInput {
+    let outcome = pdf_save::save_preview_with_report(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),

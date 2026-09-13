@@ -705,7 +705,18 @@ fn draw_form_field_outlines(
 ///
 /// These annotations are *not* in pdfium's raster of the page: they live only
 /// in the document model's pending `EditLog` until a save writes them out, so
-/// the shell previews them itself. A kind this preview cannot draw is skipped
+/// the shell previews them itself.
+///
+/// That is an invariant something has to keep, not a fact of nature. pdfium
+/// renders annotations whenever a file carries them (`FPDF_ANNOT`, on by
+/// default in `PdfRenderConfig`), so anything that hands pdfium bytes built
+/// from this model has to leave the annotation layer out — which is why
+/// `document::refresh_snapshot_and_reopen` calls `pdf_save::save_preview`
+/// rather than `save_document`. Baking them in instead paints every one of
+/// them twice, and the raster copy cannot be moved or undone until the next
+/// refresh happens to run.
+///
+/// A kind this preview cannot draw is skipped
 /// rather than approximated with a wrong shape.
 fn draw_annotation(
     context: &cairo::Context,
