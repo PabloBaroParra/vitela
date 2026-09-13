@@ -142,7 +142,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
-| Annotate | 🚧 | — | — | — | — |
+| Annotate | ✅ | ✅ | — | — | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
 | Organize & assemble pages | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
