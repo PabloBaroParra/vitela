@@ -28,6 +28,9 @@
 //! caller wants. The files stay valid, previewable SVGs; the substitution is
 //! one documented string replace with a test behind it.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use gtk::gdk::Texture;
 use gtk::gdk_pixbuf::prelude::PixbufLoaderExt;
 use gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
@@ -68,7 +71,7 @@ pub(crate) const NEUTRAL_TINT: &str = "#51496a";
 /// thing on the card.
 pub(crate) const MUTED_TINT: &str = "#a49fb3";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Icon {
     Home,
     Recent,
@@ -244,8 +247,72 @@ pub(crate) fn build_icon(icon: Icon, logical_edge: i32, color: &str) -> Image {
 
 fn draw_icon(image: &Image, icon: Icon, logical_edge: i32, color: &str) {
     let edge = logical_edge * image.scale_factor().max(1);
-    let svg = tinted(icon.source(), color);
-    image.set_paintable(rasterize(svg.as_bytes(), edge).as_ref());
+    image.set_paintable(icon_texture(icon, edge, color).as_ref());
+}
+
+thread_local! {
+    /// Every drawing this shell has rasterised, by what makes it that
+    /// drawing. See [`icon_texture`].
+    ///
+    /// Thread-local because a `GdkTexture` is not `Send` and GTK is
+    /// single-threaded anyway — this is the same thread every widget is
+    /// built on, and there is no second one to share with.
+    static RASTERIZED: RefCell<HashMap<(Icon, i32, String), Option<Texture>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// `icon` rasterised at `edge` physical pixels in `color`, from the cache
+/// when it has been asked for before.
+///
+/// ## Why this is cached at all
+///
+/// A drawing is a pure function of those three things: the SVG is
+/// `include_str!`d, so it cannot change while the process runs, and
+/// [`tinted`] and [`rasterize`] read nothing else. Two callers asking the
+/// same question therefore have no way to want different answers, and a
+/// `GdkTexture` is immutable and reference-counted — handing both the same
+/// object is not a shortcut, it is the accurate thing to do.
+///
+/// The measurement that made it worth doing: every card in the Organize
+/// Pages view carries a delete button, and building four hundred of them
+/// spent **847 ms of the grid's 909 ms** in this pipeline, drawing one 16px
+/// glyph over and over (`organize::tests::measure`). The widgets themselves
+/// — a `Box`, a `Picture`, three labels and two buttons per card — were 61 ms
+/// of it. So the grid was not slow because it builds a lot of widgets; it
+/// was slow because it rasterised one small SVG four hundred times.
+///
+/// ## Why the key is the physical edge
+///
+/// [`draw_icon`] multiplies the caller's logical edge by the monitor scale
+/// before asking, so a 2x display gets its own entry rather than the 1x
+/// bitmap it would draw soft — and 16px at 2x and 32px at 1x, which really
+/// are the same pixels, share one. Keying on the logical edge would get the
+/// first of those wrong.
+///
+/// ## Why nothing is ever evicted
+///
+/// The key space is finite and small: the [`Icon`] enum, the handful of
+/// sizes this shell asks for, and the tint constants above — all fixed at
+/// compile time. A 16px RGBA texture is a kilobyte. There is no input a
+/// document, a user or a plugin can supply that grows this, so a cap would
+/// be guarding against a case that cannot arise.
+///
+/// A rasterisation that *failed* is cached as the `None` it returned, for
+/// the same reason: on a desktop with no SVG pixbuf loader the answer will
+/// not change, and retrying it once per card is the cost this function
+/// exists to remove.
+fn icon_texture(icon: Icon, edge: i32, color: &str) -> Option<Texture> {
+    let key = (icon, edge, color.to_owned());
+    if let Some(texture) = RASTERIZED.with_borrow(|cache| cache.get(&key).cloned()) {
+        return texture;
+    }
+    // Rasterised outside the borrow, not inside an `or_insert_with`: nothing
+    // in this pipeline reaches back into the cache today, and leaving the
+    // borrow open across a call into librsvg would make that a latent
+    // `BorrowMutError` rather than a compile error if it ever did.
+    let texture = rasterize(tinted(icon.source(), color).as_bytes(), edge);
+    RASTERIZED.with_borrow_mut(|cache| cache.insert(key, texture.clone()));
+    texture
 }
 
 /// `source` with its tint token replaced by `color`.
@@ -315,6 +382,59 @@ mod tests {
             assert_eq!(
                 tinted_source.matches("<path").count(),
                 icon.source().matches("<path").count()
+            );
+        }
+    }
+
+    /// **One drawing is rasterised once, however many widgets wear it.**
+    ///
+    /// The regression this exists for was a second of blocked main loop.
+    /// Every Organize page card carries a delete button, and each one used to
+    /// run the whole librsvg pipeline for the same 16px glyph: on a
+    /// four-hundred-page assembly that was 847 ms of the 909 ms the grid took
+    /// to build (`organize::tests::measure`), against 61 ms for all the
+    /// widgets put together. The drawing does not depend on which card asked
+    /// for it, so neither should the work.
+    ///
+    /// Asserted as paintable identity rather than through a call counter:
+    /// what callers actually get has to be the *same* texture object, since
+    /// that is what makes the four hundred cards cost one rasterisation and
+    /// one upload instead of four hundred of each.
+    #[gtk::test]
+    fn gtk_ui_the_same_icon_at_the_same_size_and_tint_is_rasterised_once() {
+        let first = build_icon(Icon::Delete, 16, ACCENT_TINT);
+        let second = build_icon(Icon::Delete, 16, ACCENT_TINT);
+
+        let paintable = first.paintable().expect("the icon rasterises");
+        assert_eq!(
+            Some(&paintable),
+            second.paintable().as_ref(),
+            "two widgets asking for one drawing must share one texture"
+        );
+    }
+
+    /// The three things that make it a different drawing each get their own
+    /// texture — the point of sharing is that identical requests collapse,
+    /// not that different ones do.
+    ///
+    /// Size is the physical edge, so it also covers the scale-factor redraw:
+    /// `draw_icon` multiplies the logical edge by the monitor scale, and a
+    /// 2x display must not be handed the 1x bitmap it would draw soft.
+    #[gtk::test]
+    fn gtk_ui_a_different_icon_size_or_tint_is_its_own_texture() {
+        let base = build_icon(Icon::Delete, 16, ACCENT_TINT)
+            .paintable()
+            .expect("the icon rasterises");
+
+        for (label, other) in [
+            ("icon", build_icon(Icon::Save, 16, ACCENT_TINT)),
+            ("size", build_icon(Icon::Delete, 24, ACCENT_TINT)),
+            ("tint", build_icon(Icon::Delete, 16, MUTED_TINT)),
+        ] {
+            assert_ne!(
+                Some(&base),
+                other.paintable().as_ref(),
+                "a different {label} must not reuse the first drawing's texture"
             );
         }
     }

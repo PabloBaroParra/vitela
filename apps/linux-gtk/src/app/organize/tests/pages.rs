@@ -174,3 +174,42 @@ fn gtk_ui_deleting_the_last_imported_page_takes_the_provenance_lines_with_it() {
         assert_eq!(source_lines(viewer), vec![None, None]);
     });
 }
+
+/// **A card's delete icon costs the grid one rasterisation, not one per
+/// card.**
+///
+/// The guard for checklist §11's fluidity criterion on the path that
+/// actually threatened it. Building the grid over four hundred pages used to
+/// take 909 ms, and 847 ms of that was this one 16px glyph going through
+/// librsvg once per card; with `icons`'s texture cache behind it the same
+/// grid builds in 47 ms.
+///
+/// Asserted here and not only in `icons::tests` because the sharing is a
+/// property of what this grid asks for: a card that tinted its delete button
+/// by page, or sized it off its own allocation, would be a correct-looking
+/// change that quietly puts the second back. Twelve cards rather than four
+/// hundred — one shared texture and four hundred shared textures are the
+/// same assertion, and this one runs in the gate.
+#[gtk::test]
+fn gtk_ui_every_page_card_wears_the_one_delete_icon_texture() {
+    const PAGES: u32 = 12;
+
+    with_organize_of(PAGES, |viewer| {
+        let textures: Vec<_> = (0..PAGES as usize)
+            .map(|index| {
+                delete_button(viewer, index)
+                    .child()
+                    .and_then(|child| child.downcast::<gtk::Image>().ok())
+                    .expect("the delete button carries an icon")
+                    .paintable()
+                    .expect("the icon rasterises")
+            })
+            .collect();
+
+        let first = textures.first().expect("the grid has cards");
+        assert!(
+            textures.iter().all(|texture| texture == first),
+            "every card's delete icon must be the same texture object"
+        );
+    });
+}
