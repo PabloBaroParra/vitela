@@ -534,22 +534,46 @@ fn draw_field_checkmark(context: &cairo::Context, placed: &PlacedRect) {
     let _ = context.stroke();
 }
 
+/// Whether a value shows nothing when drawn — an empty text field, an unset
+/// choice, an unchecked box.
+///
+/// The overlay's copy of `pdf-form::appearance`'s own "an unmarked control
+/// paints nothing" rule for the real `/AP` stream, asked of both sides of the
+/// canvas: of the model, to skip painting nothing, and of the raster, to know
+/// whether pdfium has put anything there to collide with.
+fn value_paints_nothing(value: &FieldValue) -> bool {
+    match value {
+        FieldValue::Text(text) => text.is_empty(),
+        FieldValue::Choice(choice) => choice.is_none(),
+        FieldValue::Checked(checked) => !checked,
+    }
+}
+
 /// Whether `field`'s value is the overlay's to paint, or pdfium's.
 ///
-/// `rendered` is the session's `rendered_field_values`: what the bytes behind
-/// the current pdfium handle say each field holds. pdfium rasterizes every
-/// widget in those bytes from the widget's own `/AP` without being asked, so
-/// a value already in there is not this overlay's to draw. Drawing it anyway
-/// is exactly what made every filled field of an opened AcroForm come out
-/// doubled — `pdf_form::read_form_fields` puts the file's own values in the
-/// model at open time, and the overlay then drew each of them over pdfium's
-/// copy.
+/// **pdfium owns any field it can already draw.** `rendered` is the session's
+/// `rendered_field_values`: what the bytes behind the current handle say each
+/// field holds. pdfium rasterizes every widget in those bytes from the
+/// widget's own `/AP` without being asked, and it does so properly — the real
+/// `/DA` font, the real comb and multiline layout, appearances this overlay
+/// can only approximate. So wherever pdfium is drawing something, the overlay
+/// keeps out of the way, and every form-field command runs a preview refresh
+/// (`Command::is_form_field_edit`) so that raster is never more than one
+/// refresh behind the model.
 ///
-/// What is left over is precisely what the raster cannot have: a field placed
-/// this session, which has no widget in those bytes at all, and a value typed
-/// since those bytes were produced.
+/// The overlay is left with exactly the case pdfium has nothing for: a field
+/// whose widget in those bytes paints nothing, either because it is blank
+/// there or because it is not in them yet. That is what keeps filling an
+/// *empty* field live on the canvas — the ordinary way a form gets filled in,
+/// and the one case with nothing underneath to collide with.
+///
+/// Deliberately not "paint whenever the model and the raster disagree", which
+/// is the same question asked one step too late: typing over a value the file
+/// already had *is* a disagreement, but painting it puts the new text on top
+/// of pdfium's copy of the old one, which is the doubling this rule exists to
+/// stop.
 fn overlay_owns_field_value(rendered: &HashMap<String, FieldValue>, field: &FormField) -> bool {
-    rendered.get(&field.name) != Some(&field.value)
+    rendered.get(&field.name).is_none_or(value_paints_nothing)
 }
 
 /// Paints every form field's current value on `page` — text content, a
@@ -569,15 +593,14 @@ fn overlay_owns_field_value(rendered: &HashMap<String, FieldValue>, field: &Form
 /// the raster cannot have: a field the user placed this session, and a value
 /// they have typed since the current bytes were produced.
 ///
-/// **Residual, needing a separate decision.** A form-field command is not a
-/// content edit, so it triggers no `document::refresh_preview`, and
-/// `pdf_save::save_preview` leaves the form layer alone in any case — so the
-/// raster keeps whatever the opened file said for the rest of the session.
-/// While a *previously filled* field is being retyped its old value is
-/// therefore still underneath the new one, and clearing or deleting such a
-/// field leaves the old value on screen with nothing painted over it. Closing
-/// that means making a value change update the raster, which is a call about
-/// when to spend a save→reopen — see `docs/batch-forms.md`.
+/// **The canvas can trail the fill panel by one edit.** Overwriting a value
+/// the file already had leaves the canvas showing the old one until the
+/// refresh lands, because pdfium owns that field and its raster has not caught
+/// up yet. For a fill that wait is deliberate — see
+/// `forms::fill::connect_settle`: `SetFieldValue` is recorded on every
+/// keystroke, and a save→reopen→re-render per keystroke is neither affordable
+/// nor survivable by the `Entry` being typed into. Filling an *empty* field
+/// does not trail, because the overlay owns it.
 fn draw_form_field_values(
     context: &cairo::Context,
     page: &PageSlot,
@@ -600,15 +623,8 @@ fn draw_form_field_values(
         }
 
         // Nothing to paint for an empty text field, an unset choice, or an
-        // unchecked box — skip before touching the context at all, mirroring
-        // `pdf-form::appearance`'s own "an unmarked control paints nothing"
-        // rule for the real `/AP` stream.
-        if matches!(&field.value, FieldValue::Text(text) if text.is_empty())
-            || matches!(
-                &field.value,
-                FieldValue::Choice(None) | FieldValue::Checked(false)
-            )
-        {
+        // unchecked box — skip before touching the context at all.
+        if value_paints_nothing(&field.value) {
             continue;
         }
 
@@ -1336,20 +1352,46 @@ mod tests {
         }
     }
 
-    /// The bug: at open every field of a filled form is in the model *and* in
-    /// the bytes pdfium holds, so the overlay must leave all of them alone.
+    /// The bug this rule exists for: at open every filled field is in the
+    /// model *and* in the bytes pdfium holds, so the overlay leaves it alone.
     #[test]
-    fn a_value_the_open_bytes_already_carry_is_not_the_overlays_to_paint() {
+    fn a_field_pdfium_is_already_drawing_is_not_the_overlays_to_paint() {
         let field = a_field("Name", "Ada");
         let rendered = HashMap::from([("Name".to_string(), FieldValue::Text("Ada".to_string()))]);
 
         assert!(!overlay_owns_field_value(&rendered, &field));
     }
 
+    /// The case that separates this rule from "paint whenever they disagree".
+    /// Typing over a value the file already had must *not* hand the field to
+    /// the overlay: pdfium is still drawing the old text, so the new text
+    /// would land on top of it. The refresh moves the raster instead.
     #[test]
-    fn a_value_typed_since_those_bytes_is_the_overlays_to_paint() {
+    fn overwriting_a_value_pdfium_draws_stays_pdfiums_until_the_raster_moves() {
         let field = a_field("Name", "Bob");
         let rendered = HashMap::from([("Name".to_string(), FieldValue::Text("Ada".to_string()))]);
+
+        assert!(!overlay_owns_field_value(&rendered, &field));
+    }
+
+    /// Filling an *empty* field, the ordinary way a form gets filled in.
+    /// pdfium draws nothing there, so the overlay paints it live and there is
+    /// nothing underneath to collide with.
+    #[test]
+    fn filling_a_field_pdfium_draws_nothing_for_is_the_overlays_to_paint() {
+        let field = a_field("Name", "Bob");
+        let rendered = HashMap::from([("Name".to_string(), FieldValue::Text(String::new()))]);
+
+        assert!(overlay_owns_field_value(&rendered, &field));
+    }
+
+    /// An unchecked box paints nothing either, so ticking one is the
+    /// overlay's the same way filling a blank line is.
+    #[test]
+    fn an_unmarked_control_leaves_its_field_to_the_overlay() {
+        let mut field = a_field("Agree", "");
+        field.value = FieldValue::Checked(true);
+        let rendered = HashMap::from([("Agree".to_string(), FieldValue::Checked(false))]);
 
         assert!(overlay_owns_field_value(&rendered, &field));
     }
@@ -1361,19 +1403,6 @@ mod tests {
         let field = a_field("Placed", "Hi");
 
         assert!(overlay_owns_field_value(&HashMap::new(), &field));
-    }
-
-    /// Undo lands back on the value the bytes carry, and the overlay has to
-    /// step back off it — not keep painting because it once diverged.
-    #[test]
-    fn returning_to_the_rendered_value_hands_the_field_back_to_pdfium() {
-        let rendered = HashMap::from([("Name".to_string(), FieldValue::Text("Ada".to_string()))]);
-
-        assert!(overlay_owns_field_value(&rendered, &a_field("Name", "Bob")));
-        assert!(!overlay_owns_field_value(
-            &rendered,
-            &a_field("Name", "Ada")
-        ));
     }
 
     /// Names, not ids: `pdf_form::read_form_fields` hands out ids per parse,

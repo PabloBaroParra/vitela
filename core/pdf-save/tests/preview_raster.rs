@@ -262,16 +262,18 @@ fn pdfium_rasterizes_a_form_field_value_from_the_saved_file() {
     );
 }
 
-/// And the preview leaves that rect for the overlay, the same way it leaves
-/// the highlight above.
+/// And a preview draws it too — unlike the highlight above. A field's
+/// appearance is pdfium's to render, so the preview carries it and the shell
+/// refreshes on every form-field command rather than approximating the glyphs
+/// on an overlay.
 #[test]
-fn a_preview_save_leaves_the_field_rect_clean_for_the_overlay() {
+fn a_preview_save_still_draws_a_form_field_because_pdfium_owns_it() {
     let (document, base) = document_with_one_filled_field();
 
     let ink = ink_inside_the_field(save_preview(input(&document, &base)).expect("preview"));
 
-    assert_eq!(
-        ink, 0,
-        "a preview must not draw a field the overlay is about to draw"
+    assert!(
+        ink > 200,
+        "a preview must carry the field pdfium draws; found only {ink} non-white pixels"
     );
 }

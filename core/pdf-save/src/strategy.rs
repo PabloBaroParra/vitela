@@ -14,9 +14,9 @@
 //! ## Two entry points, not one
 //!
 //! [`save_document`] writes the document. [`save_preview`] writes the same
-//! document *minus its annotation layer*, for a caller that rasterizes the
-//! result and draws that layer itself — see its own doc. Both pick their
-//! writer by the rule above.
+//! document *minus its `annotations` set*, for a caller that rasterizes the
+//! result and draws those itself — see its own doc, which also covers why
+//! form fields are written by both. Both pick their writer by the rule above.
 
 use std::sync::Arc;
 
@@ -116,21 +116,21 @@ pub enum SignatureAcknowledgement {
     ProceedAndInvalidate,
 }
 
-/// Whether a save materializes the model's *annotation layer* — the
-/// `Document::annotations` set and the `Document::form_fields` set — into the
-/// bytes it produces.
+/// Whether a save materializes the model's `Document::annotations` set into
+/// the bytes it produces.
 ///
-/// Every other layer (page structure, page content, metadata, encryption) is
-/// written either way. This names the one layer a shell can paint for itself
-/// without pdfium, and therefore the one layer that can end up on screen
-/// twice — see [`save_preview`].
+/// Every other layer — page structure, page content, form fields, metadata,
+/// encryption — is written either way. This names the one layer a shell keeps
+/// paintable by itself while pdfium would also draw it, and therefore the one
+/// layer that can end up on screen twice; see [`save_preview`] for why form
+/// fields are *not* in that category even though they are annotations too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AnnotationLayer {
     /// Write it. The only correct answer for bytes that become the document.
     Materialize,
-    /// Leave it alone. The base document's own annotations and widgets are
-    /// carried through untouched — nothing is stripped — but nothing from the
-    /// model is appended to them or patched into them.
+    /// Leave it alone. The base document's own annotations are carried
+    /// through untouched — nothing is stripped — but nothing from the model's
+    /// own set is appended to them.
     Preserve,
 }
 
@@ -153,23 +153,35 @@ pub fn save_document_with_report(input: SaveInput<'_>) -> Result<SaveOutcome, Sa
 /// Produces bytes for an in-memory **preview** of `input` — a buffer the
 /// caller reopens, rasterizes and throws away, not a document anyone keeps.
 ///
-/// Identical to [`save_document`] except that the model's annotation layer —
-/// its annotations and its form fields — is left out of the result. That
-/// omission is the entire point of the call.
+/// Identical to [`save_document`] except that the model's `annotations` set is
+/// left out of the result. That omission is the entire point of the call.
 ///
-/// A shell previews page operations and content edits this way because those
-/// two change what pdfium itself draws, so nothing short of a real reopen
-/// shows the actual result. Annotations and form fields are not like that: a
+/// A shell previews page operations, content edits and form-field edits this
+/// way because all three change what pdfium itself draws, so nothing short of
+/// a real reopen shows the actual result. Annotations are the exception: a
 /// shell that paints them on an overlay paints them from the same model this
-/// save reads, and pdfium rasterizes annotations (`FPDF_ANNOT`) and form
-/// fields whenever the file carries them. Materializing them here would put
-/// every one of them on screen *twice* — a highlight over its own copy, a
-/// field value over its own copy.
+/// save reads, and pdfium rasterizes annotations whenever the file carries
+/// them (`FPDF_ANNOT`). Materializing them here would put every one of them on
+/// screen *twice* — a highlight over its own copy.
 ///
-/// Nor is having the shell skip the overlay instead a workable alternative:
-/// once an annotation is in the raster the overlay cannot take it away again,
-/// so moving or undoing one after the preview was built would leave the stale
-/// copy on screen until the next preview happened to run.
+/// Nor is having the shell skip the overlay instead a workable alternative for
+/// them: once an annotation is in the raster the overlay cannot take it away
+/// again, so moving or undoing one after the preview was built would leave the
+/// stale copy on screen until the next preview happened to run. Annotation
+/// commands deliberately do not trigger a preview refresh — the overlay is
+/// already showing the truth — so no later refresh is coming to clean it up.
+///
+/// **Form fields are written, even though a widget is an annotation.** The
+/// difference is not the object, it is who is expected to draw it. A field's
+/// appearance is pdfium's to render — the real `/AP`, the real `/DA` font, the
+/// real comb and multiline layout are things an overlay can only approximate —
+/// so a shell that wants those hands the whole field layer to pdfium and
+/// refreshes on every form-field command
+/// (`pdf_document::Command::is_form_field_edit`). Because every one of those
+/// mutations reaches this function, a field in the raster is never stale for
+/// longer than one refresh, which is exactly the property annotations lack.
+/// Omitting them here would instead leave the canvas showing the field as the
+/// file had it, no matter what the user did to it.
 ///
 /// [`save_document`] stays the only correct call for a real save — bytes on
 /// disk with no annotation layer would lose the user's work.
@@ -336,8 +348,8 @@ fn save_full_rewrite(
     // commands were recorded against.
     content::replay_content_edits(working.as_lopdf_mut(), input.document, &page_ids)?;
 
-    // Skipped wholesale for a preview, down to the `/Annots` walk that feeds
-    // it — see [`save_preview`] for why a preview must not bake this layer.
+    // Skipped for a preview, down to the `/Annots` walk that feeds it — see
+    // [`save_preview`] for why a preview must not bake this one layer.
     if layer == AnnotationLayer::Materialize {
         // Read from the materialized document, not from `base`: an imported
         // page is not in `base` at all, and its `/Annots` arrived with the
@@ -349,15 +361,17 @@ fn save_full_rewrite(
             &existing_annotations,
             &input.document.annotations,
         )?;
-
-        let catalog_id = catalog_object_id(working.as_lopdf())?;
-        crate::forms::write_form_fields(
-            working.as_lopdf_mut(),
-            catalog_id,
-            &page_ids,
-            &input.document.form_fields,
-        )?;
     }
+
+    // Written either way: a preview exists to show what pdfium will draw, and
+    // a form field is one of the things pdfium draws.
+    let catalog_id = catalog_object_id(working.as_lopdf())?;
+    crate::forms::write_form_fields(
+        working.as_lopdf_mut(),
+        catalog_id,
+        &page_ids,
+        &input.document.form_fields,
+    )?;
 
     // Decision 6: an explicit `/ModDate` from `SetDocumentInfo` must win this
     // save over `set_mod_date`'s auto-stamp. Applying the pending
@@ -433,16 +447,16 @@ fn save_incremental(
     }
 
     let page_ids = bridge::page_object_ids(input.base, &input.document.pages)?;
-    // `None` for a preview: the annotation layer is not written at all, so
-    // neither the `/Annots` walk nor the `/Root` lookup that feed it are paid
-    // for. See [`save_preview`].
-    let annotation_layer = match layer {
-        AnnotationLayer::Materialize => Some((
-            bridge::page_annotation_objects(input.base, &page_ids)?,
-            catalog_object_id(input.base.as_lopdf())?,
-        )),
+    // `None` for a preview: the annotation set is not written at all, so the
+    // `/Annots` walk that feeds it is not paid for either. See
+    // [`save_preview`].
+    let existing_annotations = match layer {
+        AnnotationLayer::Materialize => {
+            Some(bridge::page_annotation_objects(input.base, &page_ids)?)
+        }
         AnnotationLayer::Preserve => None,
     };
+    let catalog_id = catalog_object_id(input.base.as_lopdf())?;
     let pending_info = metadata::pending_document_info(input.document);
     // The one clone the borrowing API cannot remove: lopdf's
     // `IncrementalDocument::create_from` takes both by value.
@@ -462,16 +476,14 @@ fn save_incremental(
             );
         }
 
-        let Some((existing_annotations, catalog_id)) = annotation_layer else {
-            return Ok(());
-        };
-
-        annotations::attach_annotations(
-            incremental,
-            &page_ids,
-            &existing_annotations,
-            &input.document.annotations,
-        )?;
+        if let Some(existing_annotations) = existing_annotations {
+            annotations::attach_annotations(
+                incremental,
+                &page_ids,
+                &existing_annotations,
+                &input.document.annotations,
+            )?;
+        }
 
         crate::forms::write_form_fields(
             incremental,
@@ -829,26 +841,48 @@ mod tests {
         );
     }
 
-    /// The other half of the same layer: a field the user placed is a
-    /// `/Widget` annotation, and pdfium renders form fields too — so a
-    /// preview that wrote it doubled the value the overlay was already
-    /// painting.
+    /// A widget is an annotation, but it is not in the layer this call
+    /// omits. A field's appearance belongs to pdfium — the real `/AP`, the
+    /// real `/DA` font — so a preview has to carry it, and a shell that wants
+    /// that rendering refreshes on every form-field command
+    /// (`Command::is_form_field_edit`) rather than drawing the field itself.
     #[test]
-    fn save_preview_leaves_a_new_form_field_out() {
+    fn save_preview_writes_a_new_form_field_because_pdfium_draws_it() {
         let mut fixture = fixture_over(base_with_an_existing_annotation());
         apply_command(&mut fixture.document, Command::AddFormField(a_text_field()));
 
         let preview = save_preview(fixture.input()).expect("preview should succeed");
         let reloaded = lopdf::Document::load_mem(&preview).expect("output must reload");
 
-        assert!(
-            pdf_form::read_form_fields(&reloaded).is_empty(),
-            "a preview must not materialize a field the overlay is drawing"
+        let fields = pdf_form::read_form_fields(&reloaded);
+        assert_eq!(fields.len(), 1, "the preview must carry the placed field");
+        assert_eq!(
+            fields[0].value,
+            pdf_document::FieldValue::Text("Ada".to_string()),
+            "and its value, which is the thing pdfium will rasterize"
+        );
+    }
+
+    /// The distinction those two turn on, in one place: same preview, one
+    /// layer omitted and the other written.
+    #[test]
+    fn a_preview_omits_annotations_and_keeps_form_fields() {
+        let mut fixture = fixture_over(base_with_an_existing_annotation());
+        apply_command(&mut fixture.document, Command::AddAnnotation(a_highlight()));
+        apply_command(&mut fixture.document, Command::AddFormField(a_text_field()));
+
+        let preview = save_preview(fixture.input()).expect("preview should succeed");
+        let reloaded = lopdf::Document::load_mem(&preview).expect("output must reload");
+
+        assert_eq!(
+            pdf_form::read_form_fields(&reloaded).len(),
+            1,
+            "the field is pdfium's to draw"
         );
         assert_eq!(
             annots_on_first_page(&preview).len(),
-            1,
-            "and must not append the field's widget to /Annots either"
+            2,
+            "the page's own annotation plus the field's widget, and not the model highlight"
         );
     }
 

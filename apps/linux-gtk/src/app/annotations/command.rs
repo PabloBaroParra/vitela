@@ -62,6 +62,11 @@ fn history(viewer: &Viewer, undo: bool) {
             document.pending_edits.peek_redo()
         };
         let is_content_edit = next_command.is_some_and(Command::is_content_edit);
+        // Same reason a content edit needs one: pdfium draws a form field
+        // itself, so stepping the log past a form-field command leaves the
+        // canvas showing the field as the current bytes have it until they
+        // are rebuilt. See `forms::command`'s module doc.
+        let is_form_field_edit = next_command.is_some_and(Command::is_form_field_edit);
         // Undo peeks the recorded command, then applies its inverse: an
         // inserted page is structural just as its removal is.
         //
@@ -96,13 +101,13 @@ fn history(viewer: &Viewer, undo: bool) {
                 // an unsaved change whether or not the preview caught up
                 // with it.
                 session.unsaved_to_disk = true;
-                Some((is_content_edit, is_page_structure_edit))
+                Some((is_content_edit, is_page_structure_edit, is_form_field_edit))
             }
             None => None,
         }
     };
 
-    let Some((is_content_edit, is_page_structure_edit)) = outcome else {
+    let Some((is_content_edit, is_page_structure_edit, is_form_field_edit)) = outcome else {
         return;
     };
 
@@ -134,15 +139,17 @@ fn history(viewer: &Viewer, undo: bool) {
     }
 
     // Only a full refresh shows the real result of undoing/redoing a content
-    // edit (T-163, decision 6) — an annotation's overlay already painted the
-    // truth in the `redraw` above without one.
+    // edit (T-163, decision 6) or a form-field one — an annotation's overlay
+    // already painted the truth in the `redraw` above without one, which is
+    // exactly why an annotation is the one thing `pdf_save::save_preview`
+    // leaves out.
     // A page-structure step needs one for the same reason a content edit
     // does, and a more pressing one: it has just reordered `Document.pages`
     // against a pdfium handle still holding the old order, so until the
     // reopen lands the canvas and the model disagree about which page is
     // which. The `refresh_if_visible` above keeps the grid honest in the
     // meantime — it renders against the handle as it still is.
-    if is_content_edit || is_page_structure_edit {
+    if is_content_edit || is_page_structure_edit || is_form_field_edit {
         refresh_preview(viewer, if undo { "Edit undone." } else { "Edit redone." });
     } else {
         viewer.status.set_text(if undo {

@@ -5,6 +5,13 @@
 //! no separate "Apply" step, the same direct-manipulation posture
 //! `style::connect_style_controls` documents for the field-style inspector.
 //!
+//! What *is* deferred is the canvas. pdfium draws any field it already has a
+//! value for, so the raster has to be rebuilt for a change to that field to
+//! show, and a rebuild per keystroke is out of the question — see
+//! [`connect_settle`], which spends one when focus leaves the panel. A field
+//! that was empty in the file does not wait: the overlay owns it, and paints
+//! each keystroke as it lands.
+//!
 //! Unlike the placement/style controls (a fixed set, resynced in place by
 //! `style::refresh`), the rows here are as many as the document has form
 //! fields, so every call to [`refresh`] tears the row list down and rebuilds
@@ -300,6 +307,76 @@ fn build_radio_group(
         .borrow_mut()
         .insert(id, buttons[0].clone().upcast());
     column.upcast()
+}
+
+/// Spends one preview refresh when the user is done filling, so pdfium can
+/// take back the fields it owns.
+///
+/// The canvas lets pdfium draw any field it already has a value for
+/// (`selection::overlay_owns_field_value`), which means the raster has to be
+/// rebuilt for a value change to show. Doing that per `SetFieldValue` is not
+/// an option: `commit_value` records one on every keystroke, and
+/// `document::refresh_preview` is a save, a pdfium reopen and a rebuild of
+/// every page widget — including, through `toolbar::update_forms_controls`,
+/// the very `Entry` being typed into.
+///
+/// So it is spent once, on the way out. An `EventControllerFocus` on
+/// `fill_rows` reports focus entering and leaving the panel *as a whole*, not
+/// the moves between its own rows, so tabbing from one field to the next
+/// never triggers a rebuild — the trap T-143 documents. One refresh then
+/// covers however many fields were filled in that visit.
+///
+/// Attached once, to a container that outlives every [`refresh`]: that call
+/// removes `fill_rows`' children, never `fill_rows` itself.
+pub(super) fn connect_settle(viewer: &Viewer) {
+    let controller = gtk::EventControllerFocus::new();
+    controller.connect_leave({
+        let viewer = viewer.clone();
+        move |_| {
+            // Deferred to an idle rather than run here, because one of the
+            // ways focus leaves this panel is [`refresh`] tearing down the
+            // row the user was standing in — so this can fire from inside
+            // another call's stack. `refresh_preview` takes `viewer.state`
+            // mutably, and a borrow still held further down that stack would
+            // make this a panic rather than a refresh. Nothing else needs
+            // the delay; the same idle-defer `document::restore_view_state`
+            // uses for its own re-entrancy.
+            gtk::glib::idle_add_local_once({
+                let viewer = viewer.clone();
+                move || {
+                    if !filled_value_awaits_the_raster(&viewer) {
+                        return;
+                    }
+                    crate::app::document::refresh_preview(&viewer, "Form field updated.");
+                }
+            });
+        }
+    });
+    viewer.forms.fill_rows.add_controller(controller);
+}
+
+/// Whether any field's value has moved away from what the open handle draws.
+///
+/// Asked before spending a refresh so that merely tabbing through a form —
+/// or clicking into the panel and back out — costs nothing. Compares against
+/// `rendered_field_values` rather than tracking a dirty flag, because that
+/// map is already the record of what the raster holds and cannot drift out of
+/// step with it.
+fn filled_value_awaits_the_raster(viewer: &Viewer) -> bool {
+    let state = viewer.state.borrow();
+    let Some(session) = state.session.as_ref() else {
+        return false;
+    };
+    let Some(document) = session.document_model.as_ref() else {
+        return false;
+    };
+    // Bound rather than returned straight out of the tail: the iterator
+    // borrows through `state`, which drops at the end of this function.
+    let awaiting = document
+        .form_fields
+        .iter()
+        .any(|field| session.rendered_field_values.get(&field.name) != Some(&field.value));
+    awaiting
 }
 
 /// Watches `widget` so gaining keyboard focus selects `id` on the canvas —

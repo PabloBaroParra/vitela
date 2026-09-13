@@ -760,26 +760,32 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Validar el resultado con PDFium antes de instalar la previsualización.
 - [x] Probar guardar, cerrar y reabrir después de importar, mover y borrar.
 
-### La previsualización no materializa la capa de anotaciones
+### La previsualización no materializa el conjunto `annotations`
 
 - `document::refresh_snapshot_and_reopen` guarda con `pdf_save::save_preview`,
   no con `save_document`. Los bytes que produce solo se abren, se rasterizan y
-  se tiran: son el fondo sobre el que `selection::draw_highlights` dibuja cada
-  anotación y cada valor de campo del modelo.
-- PDFium rasteriza anotaciones y campos de formulario cuando el archivo los
-  trae (`FPDF_ANNOT` y `do_render_form_data`, ambos activos por defecto en
-  `PdfRenderConfig`). Con `save_document`, cada operación de página, cada
-  undo/redo estructural y cada commit de edición de contenido horneaba esa capa
-  en la previsualización y el canvas la mostraba dos veces.
+  se tiran: son el fondo sobre el que `selection::draw_highlights` dibuja las
+  anotaciones del modelo.
+- PDFium rasteriza las anotaciones que trae el archivo (`FPDF_ANNOT`, activo
+  por defecto en `PdfRenderConfig`). Con `save_document`, cada operación de
+  página, cada undo/redo estructural y cada commit de edición de contenido
+  horneaba esa capa en la previsualización y el canvas la mostraba dos veces.
 - La dirección inversa — que la capa de dibujo se saltee lo que ya está en el
-  ráster — no funciona: una vez horneada, la anotación no se puede mover ni
-  deshacer hasta el siguiente refresco, así que un undo dejaría la copia vieja
+  ráster — no funciona **para una anotación**: una vez horneada no se puede
+  mover ni deshacer hasta el siguiente refresco, y los comandos de anotación
+  deliberadamente no disparan ninguno, así que un undo dejaría la copia vieja
   en pantalla.
+- **Los campos de formulario sí se escriben**, aunque un widget también sea una
+  anotación. La diferencia no es el objeto sino quién se espera que lo dibuje:
+  la apariencia de un campo es de PDFium, y cada comando de campo dispara un
+  refresco (`Command::is_form_field_edit`), así que un campo del ráster nunca
+  está desactualizado más de un refresco — justo la propiedad que a las
+  anotaciones les falta. Ver `docs/batch-forms.md`.
 - `save_preview` no borra nada: las anotaciones que trae el documento base
-  pasan intactas por `replay_page_ops`. Lo único que no escribe es lo que el
-  modelo aporta encima.
-- El guardado real a disco sigue usando `save_document`. Un archivo sin capa de
-  anotaciones perdería trabajo del usuario.
+  pasan intactas por `replay_page_ops`. Lo único que no escribe es el conjunto
+  `annotations` del modelo.
+- El guardado real a disco sigue usando `save_document`. Un archivo sin esa
+  capa perdería trabajo del usuario.
 
 ### Progreso del registro de fuentes
 
