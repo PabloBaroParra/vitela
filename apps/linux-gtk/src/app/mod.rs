@@ -19,6 +19,7 @@ mod layout;
 mod metadata;
 mod organize;
 mod print;
+mod protect;
 mod render;
 mod search;
 mod selection;
@@ -492,6 +493,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         (&app_rail.edit_pdf, HomeTool::Edit),
         (&app_rail.sign, HomeTool::Sign),
         (&app_rail.organize, HomeTool::Organize),
+        (&app_rail.protect, HomeTool::Protect),
     ] {
         button.connect_clicked({
             let window = window.clone();

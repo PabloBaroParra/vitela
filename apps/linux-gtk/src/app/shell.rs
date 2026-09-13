@@ -28,7 +28,7 @@ use gtk::{
 use super::brand::build_brand_lockup;
 use super::content_edit::panel::EDIT_CSS;
 use super::home::HOME_CSS;
-use super::icons::{build_icon, Icon, MUTED_TINT, NEUTRAL_TINT};
+use super::icons::{build_icon, Icon, NEUTRAL_TINT};
 use super::organize::ORGANIZE_CSS;
 
 /// Icon edge on a rail item. Sized against the label beside it, like the
@@ -296,12 +296,7 @@ pub(crate) const SHELL_CSS: &str = r#"
 }
 "#;
 
-/// The app rail buttons `build_ui` wires up after construction. `Protect` is
-/// built and appended by [`build_app_rail`] like the rest, but this shell has
-/// no feature behind it yet, so nothing downstream ever needs to address it
-/// again by name — it is left out of this struct rather than kept as a field
-/// no caller reads (see `rail_item`'s `enabled: false` for how it ends up
-/// disabled on screen).
+/// The app rail buttons `build_ui` wires up after construction.
 pub(crate) struct AppRail {
     /// Switches the window's view `Stack` back to the Home page. Navigation
     /// only — the open document, if any, stays open behind it.
@@ -330,6 +325,11 @@ pub(crate) struct AppRail {
     /// theirs, just landing on a different top-level page instead of a tab
     /// inside the editor.
     pub(crate) organize: Button,
+    /// Wired by the caller once a [`super::state::Viewer`] exists — see
+    /// `build_ui`. The one rail item that opens a dialog rather than
+    /// revealing a control: protection is decided once, with two passwords,
+    /// and then written (see `super::protect`).
+    pub(crate) protect: Button,
 }
 
 /// Builds the rail widget. Callers wire `files` to `win.open` themselves
@@ -351,24 +351,24 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     rail.append(&build_brand_lockup());
 
     // Navigate. `home` starts marked active because the window opens on Home.
-    let home = rail_item(&rail, "Home", Icon::Home, true);
+    let home = rail_item(&rail, "Home", Icon::Home);
     home.add_css_class("app-rail-active");
-    let recent = rail_item(&rail, "Recent", Icon::Recent, true);
-    let files = rail_item(&rail, "My files", Icon::Files, true);
+    let recent = rail_item(&rail, "Recent", Icon::Recent);
+    let files = rail_item(&rail, "My files", Icon::Files);
 
     let separator = Separator::new(Orientation::Horizontal);
     separator.add_css_class("app-rail-separator");
     rail.append(&separator);
 
     // Act on the open document.
-    let annotate = rail_item(&rail, "Annotate", Icon::Annotate, true);
-    let edit_pdf = rail_item(&rail, "Edit PDF", Icon::Edit, true);
-    let organize = rail_item(&rail, "Organize pages", Icon::Organize, true);
+    let annotate = rail_item(&rail, "Annotate", Icon::Annotate);
+    let edit_pdf = rail_item(&rail, "Edit PDF", Icon::Edit);
+    let organize = rail_item(&rail, "Organize pages", Icon::Organize);
     // T-186: Batch B23's signing flow (Fases 1-4) is wired end to end, so
     // this is no longer a "nothing behind it yet" section like its Protect
     // neighbor.
-    let sign = rail_item(&rail, "Sign", Icon::Sign, true);
-    rail_item(&rail, "Protect", Icon::Protect, false);
+    let sign = rail_item(&rail, "Sign", Icon::Sign);
+    let protect = rail_item(&rail, "Protect", Icon::Protect);
 
     (
         AppRail {
@@ -379,6 +379,7 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
             edit_pdf,
             sign,
             organize,
+            protect,
         },
         rail,
     )
@@ -402,18 +403,24 @@ pub(crate) fn mark_active(rail: &GtkBox, active: &Button) {
     }
 }
 
-/// Appends one nav button to `rail` and returns it. `enabled` is `false` for
-/// sections this shell has no feature behind yet (Recent/Organize pages/
-/// Protect) — disabled with a tooltip rather than left clickable and
-/// silently doing nothing.
-fn rail_item(rail: &GtkBox, label: &str, icon: Icon, enabled: bool) -> Button {
+/// Appends one nav button to `rail` and returns it.
+///
+/// This used to take an `enabled` flag, `false` for sections the shell had no
+/// feature behind yet — Recent, then Organize pages, then Protect, each
+/// disabled with a "Not available yet" tooltip rather than left clickable and
+/// silently doing nothing. Protect was the last of them, so the flag lost its
+/// only `false` and the branch behind it stopped being reachable. The
+/// treatment itself is not gone: Home's tool grid still has tiles with no
+/// feature behind them and still does exactly this to them
+/// (`home::tools::build_tools_card`). A rail section that needs it again
+/// brings the flag back, with its own test.
+fn rail_item(rail: &GtkBox, label: &str, icon: Icon) -> Button {
     // An icon and a left-aligned label, so the rail reads as a column of
     // destinations rather than a stack of centred buttons. The icons are
     // ours (`icons`), never the desktop's — see this module's header for why
     // that is not negotiable here.
-    let tint = if enabled { NEUTRAL_TINT } else { MUTED_TINT };
     let content = GtkBox::new(Orientation::Horizontal, 8);
-    content.append(&build_icon(icon, RAIL_ICON_PX, tint));
+    content.append(&build_icon(icon, RAIL_ICON_PX, NEUTRAL_TINT));
     let caption = Label::new(Some(label));
     caption.set_xalign(0.0);
     caption.set_hexpand(true);
@@ -427,10 +434,6 @@ fn rail_item(rail: &GtkBox, label: &str, icon: Icon, enabled: bool) -> Button {
     // accessibility layer to fall back on, so it is stated rather than
     // inferred from whichever descendant happens to hold text.
     button.update_property(&[gtk::accessible::Property::Label(label)]);
-    if !enabled {
-        button.set_sensitive(false);
-        button.set_tooltip_text(Some("Not available yet"));
-    }
     rail.append(&button);
     button
 }
@@ -455,7 +458,7 @@ pub(crate) fn install_shell_css() {
 mod tests {
     use super::*;
 
-    /// T-186's own regression lock: `rail_item(&rail, "Sign", false)` is what
+    /// T-186's own regression lock: a disabled "Sign" section is what
     /// this batch changes to `true` — a silent revert back to `false` would
     /// otherwise only show up as a manual-QA finding, not a test failure.
     #[gtk::test]
@@ -499,21 +502,26 @@ mod tests {
             .unwrap_or_else(|| panic!("the rail must offer a {label} button"))
     }
 
-    /// Sections still without a feature behind them keep the disabled
-    /// treatment `rail_item` gives every `enabled: false` entry.
+    /// The same regression lock as its Sign and Organize neighbours, for the
+    /// Protect feature this change adds — and the reason the rail no longer
+    /// has a disabled-section test: Protect was the last section without a
+    /// feature behind it, so there is nothing left for such a test to be
+    /// about. Home's tool grid keeps that contract, and its own test
+    /// (`home::tools::gtk_ui_tools_without_a_feature_are_disabled_not_missing`)
+    /// still holds it over the Compress tile.
     #[gtk::test]
-    fn gtk_ui_sections_without_a_feature_stay_disabled() {
-        let (_app_rail, rail_box) = build_app_rail();
+    fn gtk_ui_the_protect_rail_button_is_enabled() {
+        let (app_rail, rail_box) = build_app_rail();
 
-        let protect = rail_button(&rail_box, "Protect");
-
-        assert!(!protect.is_sensitive());
-        assert_eq!(protect.tooltip_text().as_deref(), Some("Not available yet"));
+        assert_eq!(rail_label(&app_rail.protect).as_deref(), Some("Protect"));
+        assert_eq!(app_rail.protect, rail_button(&rail_box, "Protect"));
+        assert!(app_rail.protect.is_sensitive());
+        assert!(app_rail.protect.tooltip_text().is_none());
     }
 
     /// Recent's own regression lock, the twin of the Sign one above: the Home
-    /// view gave it a feature, so a silent revert to `rail_item(.., false)`
-    /// must fail here rather than only in manual QA.
+    /// view gave it a feature, so a silent revert to a disabled section must
+    /// fail here rather than only in manual QA.
     #[gtk::test]
     fn gtk_ui_the_recent_rail_button_is_enabled() {
         let (app_rail, _rail_box) = build_app_rail();

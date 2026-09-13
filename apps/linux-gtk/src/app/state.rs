@@ -354,6 +354,13 @@ pub(crate) enum HomeTool {
     /// `pending_tool` resume path all already dispatch on `HomeTool`, and a
     /// second enum would only duplicate that plumbing for one entry.
     Organize,
+    /// Also unlike the other three: this one opens a modal dialog rather than
+    /// revealing a control that was already on screen. It is in this enum for
+    /// the same reason `Organize` is — the rail, the Home tile and the
+    /// cold-start `pending_tool` resume path all dispatch on `HomeTool`, and
+    /// "protect the document I just picked" is exactly the cold-start gesture
+    /// that path exists to serve.
+    Protect,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.

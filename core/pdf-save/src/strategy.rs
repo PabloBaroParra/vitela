@@ -225,6 +225,8 @@ fn save_with_layer(
     // list, and `populate_document` walks every page dictionary to build it —
     // so computing it per-consumer meant a full page walk twice on every
     // save, on both paths.
+    check_protection_intent(input)?;
+
     let original_pages = bridge::populate_document(input.base)?;
 
     if !requires_full_rewrite(input, &original_pages) {
@@ -287,8 +289,56 @@ pub fn append_incremental_update(
     Ok(bytes)
 }
 
+/// Refuses a save whose declared protection and whose intent disagree.
+///
+/// Two mismatches are possible, and both end with a file whose protection is
+/// not what the caller believes it to be:
+///
+/// - **Protection declared, intent silent.** The model carries a
+///   `SecurityContext` the base file does not. Saved as `Default`, an
+///   edit-free save takes the incremental writer -- which re-encrypts from the
+///   base's encryption state, and there is none -- and writes plaintext under
+///   the name of a protected document.
+/// - **Intent set, nothing to apply.** `ApplyProtection` with no
+///   `SecurityContext` has neither passwords nor a handler to write.
+///
+/// Asked ahead of the writer choice rather than inside one writer, so the rule
+/// reads the same on both paths: protection a file does not already carry is
+/// written when, and only when, the caller says it is applying it. A
+/// structural edit in the same save does not quietly earn the document an
+/// encryption dictionary nobody asked for.
+fn check_protection_intent(input: SaveInput<'_>) -> Result<(), SaveError> {
+    let declared = input.document.security.is_some();
+    // The question is not "was this file encrypted" but "can the incremental
+    // writer reproduce that encryption" -- and lopdf's recovered
+    // `encryption_state` is exactly that answer. It is `Some` both for a
+    // document opened with a password and for one lopdf unlocked with the
+    // empty user password, the restricted-but-promptless shape `pdf_manip`'s
+    // open path documents at length.
+    let base_is_protected = input.base.as_lopdf().encryption_state.is_some();
+
+    match input.intent {
+        SaveIntent::ApplyProtection if !declared => Err(SaveError::InvalidSaveRequest(
+            security::PROTECTION_WITHOUT_CONTEXT,
+        )),
+        SaveIntent::Default if declared && !base_is_protected => {
+            Err(SaveError::InvalidSaveRequest(
+                "this document's model declares protection its file does not carry; save with \
+                 SaveIntent::ApplyProtection to write it -- protection is never applied, nor \
+                 dropped, as a side effect of an ordinary save",
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
 fn requires_full_rewrite(input: SaveInput<'_>, original_pages: &[Page]) -> bool {
     input.intent == SaveIntent::StripProtection
+        // Protection the file does not already carry can only be written by
+        // the rewriter: the incremental writer re-encrypts appended objects
+        // from the base document's own encryption state, which an unprotected
+        // base does not have (see `SaveIntent::ApplyProtection`).
+        || input.intent == SaveIntent::ApplyProtection
         || input.original_bytes.is_none()
         // Batch 21 decision 5: editing a page's content rewrites its stream
         // object, which an incremental append cannot express as a narrow
@@ -433,6 +483,17 @@ fn save_incremental(
             "explicit strip-protection cannot be expressed as an incremental update — an append \
              cannot retroactively decrypt bytes already written in a prior encrypted revision; \
               use save_document instead",
+        ));
+    }
+
+    // The mirror image, and a precondition for the same reason: this writer
+    // encrypts an appended object only from the base document's existing
+    // encryption state, so it can never be the one to introduce protection.
+    if input.intent == SaveIntent::ApplyProtection {
+        return Err(SaveError::InvalidSaveRequest(
+            "applying protection cannot be expressed as an incremental update -- an append \
+             re-encrypts only from the base document's existing encryption state; use \
+             save_document instead",
         ));
     }
 

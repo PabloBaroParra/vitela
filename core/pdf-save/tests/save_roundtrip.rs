@@ -4,7 +4,8 @@
 //! `strategy.rs`'s unit tests, which only exercise its rejection paths).
 
 use pdf_document::{
-    Annotation, AnnotationId, AnnotationKind, AuditActor, AuditEvent, Color, Command, PageId, Rect,
+    Annotation, AnnotationId, AnnotationKind, AuditActor, AuditEvent, Color, Command, Credential,
+    EncryptionCredentials, PageId, Permissions, Rect, SecurityContext, SecurityHandler,
 };
 use pdf_save::{save_document, save_preview, SaveInput, SaveIntent, SignatureAcknowledgement};
 
@@ -707,5 +708,173 @@ fn preview_save_leaves_the_annotation_layer_out_of_an_incremental_append() {
             .unwrap()
             .len(),
         1
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Protect: applying protection a document never had.
+// ---------------------------------------------------------------------------
+
+/// The protection a user asks for from the shell's Protect dialog: AES-128,
+/// both password roles supplied, every permission bit left set.
+///
+/// `credential` is `Owner` because that is what the person applying
+/// protection holds — they chose both passwords, so they are not merely a
+/// reader of the result.
+fn requested_protection(open_password: &str, permissions_password: &str) -> SecurityContext {
+    SecurityContext {
+        handler: SecurityHandler::Aes128,
+        credential: Credential::Owner,
+        credentials: EncryptionCredentials::both(open_password, permissions_password),
+        permissions: Permissions(0xFFFF_FFFC),
+    }
+}
+
+fn write_temp(label: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let path = temp_pdf_path(label);
+    std::fs::write(&path, bytes).unwrap();
+    path
+}
+
+/// Protect, the happy path: a document that was never encrypted gets a
+/// security context it did not have, and the saved bytes actually carry it.
+///
+/// This needs its own intent rather than riding on `Default`. `Default` means
+/// "reproduce the protection this file already had", and its natural writer
+/// for an edit-free save is the incremental one — which cannot encrypt
+/// anything, because it re-encrypts appended objects from the *base*
+/// document's encryption state and an unprotected base has none.
+#[test]
+fn apply_protection_encrypts_a_previously_unprotected_document() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+    assert!(security.is_none(), "fixture must start unprotected");
+
+    let mut document = pdf_save::document_from_lopdf(&base, None).unwrap();
+    document.security = Some(requested_protection("open-pw", "perms-pw"));
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::ApplyProtection,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("applying protection should succeed");
+
+    let after = pdf_manip::read_security_context_from_bytes(&saved, Some("open-pw"))
+        .expect("the protected PDF must be readable with its open password")
+        .expect("the saved PDF must be encrypted");
+    assert_eq!(after.handler, SecurityHandler::Aes128);
+
+    // The real proof: without a password the file no longer opens at all.
+    let saved_path = write_temp("protected", &saved);
+    assert!(
+        matches!(
+            pdf_manip::open_document(&saved_path, None),
+            Err(pdf_manip::ManipError::PasswordRequired)
+        ),
+        "a protected document must not open without its password"
+    );
+}
+
+/// The two password roles stay two roles. A single-field Protect dialog would
+/// have to assign one password to both, which is precisely the silent
+/// security-policy change `RewriteBlocker::IncompleteCredentials` exists to
+/// refuse — so the dialog collects both, and this asserts they survive the
+/// save as *different* credentials rather than one string written twice.
+#[test]
+fn apply_protection_keeps_the_open_and_permissions_passwords_distinct() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, _) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, None).unwrap();
+    document.security = Some(requested_protection("open-pw", "perms-pw"));
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::ApplyProtection,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("applying protection should succeed");
+
+    let as_user = pdf_manip::read_security_context_from_bytes(&saved, Some("open-pw"))
+        .unwrap()
+        .expect("encrypted");
+    let as_owner = pdf_manip::read_security_context_from_bytes(&saved, Some("perms-pw"))
+        .unwrap()
+        .expect("encrypted");
+
+    assert_eq!(as_user.credential, Credential::User);
+    assert_eq!(as_owner.credential, Credential::Owner);
+}
+
+/// The hole this change closes, pinned as a regression test.
+///
+/// Before `ApplyProtection` existed, the obvious way to protect a document
+/// was to put a `SecurityContext` on the model and save. With no structural
+/// or content edit in the log that save took the incremental path, which
+/// re-encrypts from the base document's encryption state — and the base had
+/// none. The user was told "protected"; the bytes on disk were plaintext.
+///
+/// A save that would drop a declared context on the floor is now refused. The
+/// point is not the error type, it is that the plaintext write is unreachable.
+#[test]
+fn a_newly_declared_security_context_is_never_written_as_plaintext() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, _) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, None).unwrap();
+    document.security = Some(requested_protection("open-pw", "perms-pw"));
+
+    let result = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        // The mistake: protection declared on the model, but the save never
+        // says so.
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    });
+
+    assert!(
+        matches!(result, Err(pdf_save::SaveError::InvalidSaveRequest(_))),
+        "a security context the base file does not carry must never be silently dropped, \
+         got: {result:?}"
+    );
+}
+
+/// The mirror of the case above: the intent says protect, but nothing says
+/// with what. Refused rather than writing an unprotected file that the caller
+/// believes is protected.
+#[test]
+fn apply_protection_without_a_security_context_is_refused() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, _) = pdf_manip::open_document(&path, None).unwrap();
+
+    let document = pdf_save::document_from_lopdf(&base, None).unwrap();
+    assert!(document.security.is_none());
+
+    let result = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::ApplyProtection,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    });
+
+    assert!(
+        matches!(result, Err(pdf_save::SaveError::InvalidSaveRequest(_))),
+        "ApplyProtection with no SecurityContext must be refused, got: {result:?}"
     );
 }

@@ -94,10 +94,10 @@ const TOOLS: [ToolTile; 6] = [
     },
     ToolTile {
         label: "Protect",
-        tool: None,
+        tool: Some(HomeTool::Protect),
         icon: Icon::Protect,
         tint: PROTECT_TINT,
-        description: "",
+        description: "Require a password to open the document",
     },
 ];
 
@@ -259,6 +259,12 @@ pub(crate) fn apply(viewer: &Viewer, tool: HomeTool) {
             viewer.choose_signing_certificate.grab_focus();
         }
         HomeTool::Organize => crate::app::organize::show(viewer),
+        // The one arm that is not navigation. It stays a "tool" all the same:
+        // from a cold start the gesture is pick a file, land on Protect, and
+        // routing it anywhere else would mean a second dispatch table for a
+        // single entry. `begin_protect` reports its own refusals, so unlike
+        // the arming arms above there is nothing to drop silently here.
+        HomeTool::Protect => crate::app::protect::begin_protect(viewer),
     }
 }
 
@@ -384,6 +390,7 @@ mod tests {
         assert!(tile(&card, "edit").is_sensitive());
         assert!(tile(&card, "sign").is_sensitive());
         assert!(tile(&card, "organize").is_sensitive());
+        assert!(tile(&card, "protect").is_sensitive());
         let compress = tile(&card, "compress");
         assert!(!compress.is_sensitive());
         assert_eq!(

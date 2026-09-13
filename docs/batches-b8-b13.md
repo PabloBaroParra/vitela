@@ -533,6 +533,39 @@ ninguno de los dos.
       variable local antes del `match`/`if`, mismo patrón que el resto del archivo ya usa en
       otros lados.
 
+- [x] T-187 (dep B6) `SaveIntent::ApplyProtection` en `pdf-save`: aplicar protección que el
+      archivo **no** traía, distinto de `Default` (que reproduce la que ya tenía). Fuerza el
+      writer full-rewrite, porque el incremental re-encripta cada objeto agregado desde el
+      `encryption_state` del documento base y un base sin cifrar no tiene ninguno — un save
+      sin ediciones estructurales escribía **texto plano** mientras la UI decía "protegido".
+      `check_protection_intent` corre *antes* de elegir writer y rechaza las dos
+      discordancias posibles: contexto de seguridad declarado con intent `Default`, e intent
+      `ApplyProtection` sin contexto. La regla es la misma en los dos caminos a propósito:
+      una edición estructural en el mismo save no le regala al documento un diccionario de
+      cifrado que nadie pidió. [Protect]
+      Verificado: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` y
+      `cargo test --workspace` en Windows — verde, incluidos los 4 tests nuevos de
+      `save_roundtrip.rs` (protección aplicada y relectura con la contraseña nueva; roles
+      user/owner distintos en el archivo guardado; el contexto declarado nunca se escribe en
+      plano; `ApplyProtection` sin contexto se rechaza).
+- [x] T-188 (dep T-187) Módulo `protect` en el shell: diálogo modal con **dos**
+      contraseñas — la de apertura (user) y la de permisos (owner) — validadas como no
+      vacías y distintas entre sí. Una sola contraseña copiada a los dos roles es
+      exactamente la sustitución que `RewriteBlocker::IncompleteCredentials` se niega a
+      hacer sola, así que el diálogo tampoco la hace. Rail "Protect" y tile de Home
+      habilitados (los dos ruteados por `HomeTool::Protect`, incluido el arranque en frío
+      vía `pending_tool`); cadena `begin_protect` → aviso de firma → chooser de destino →
+      guardado en worker → reopen con la contraseña **nueva**, gemela de la de `sign`.
+      AES-128 (RC4-128 queda solo para reproducir lo que ya venía así) y `/P` con todos los
+      permisos concedidos: acá protección significa "pide contraseña", no una matriz de
+      restricciones que el diálogo nunca preguntó. [Protect, ui-linux]
+      Verificado: `cargo check`/`clippy -D warnings`/`test -p linux-gtk` bajo WSL2+WSLg —
+      456 tests verdes, 0 fallas. Protect era la última sección del rail sin feature detrás,
+      así que `rail_item` perdió su flag `enabled` (ya sin ningún `false`) y el test
+      `gtk_ui_sections_without_a_feature_stay_disabled` se reemplazó por el candado propio de
+      Protect; el contrato de "visible pero deshabilitado" sigue vivo y testeado en el grid
+      de Home, sobre el tile Compress.
+
 ### Criterios de aceptación (spec)
 - PDF válido sin cifrar abre y renderiza página 1.
 - Contraseña errónea → error claro, sin crash y sin render parcial.
