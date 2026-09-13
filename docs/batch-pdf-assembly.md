@@ -22,13 +22,13 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 | Área | Estado |
 |------|--------|
 | Modelo y operaciones | Completo |
-| Importación PDF | Pendiente |
-| Guardado y renderizado | Pendiente |
-| Integración Linux | Pendiente |
+| Importación PDF | Completo |
+| Guardado y renderizado | Completo |
+| Integración Linux | Completo |
 | Vista por documentos | Completo |
 | Vista por páginas | Completo |
-| Animación | Completo |
-| Pruebas y gates | Pendiente |
+| Animación | Parcial |
+| Pruebas y gates | Completo |
 
 ## Decisiones cerradas
 
@@ -1455,7 +1455,8 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   mismas razones: `scripts/package-linux.sh` exige `PDFIUM_ARCHIVE`, que no
   está en esta copia, y `xvfb-run` no está instalado en esta WSL, así que la
   suite GTK corrió bajo WSLg con display real y no por la ruta headless del
-  workflow `linux-gtk-ui`.
+  workflow `linux-gtk-ui`. Ambos corrieron en CI sobre `df13cc7`; §14 cita el
+  job y el run de cada uno.
 
 ### Lo que la medición dejó abierto: el primer poblado (2026-09-12)
 
@@ -1684,27 +1685,163 @@ instalado en esta imagen.
 
 ## 14. Gates de verificación
 
-- [ ] Ejecutar `cargo fmt --all -- --check`.
-- [ ] Ejecutar `cargo clippy --workspace --all-targets --locked -- -D warnings`.
-- [ ] Ejecutar `cargo build --workspace --locked`.
-- [ ] Ejecutar `cargo test --workspace --locked -- --skip gtk_ui_`.
-- [ ] Ejecutar la suite GTK4 bajo Xvfb en Linux.
-- [ ] Ejecutar el empaquetado y smoke test de Linux.
-- [ ] Ejecutar `python3 scripts/check_maintainability.py`.
-- [ ] Registrar comandos, resultados y gates no disponibles en la entrega.
+Todos los gates de esta sección se corrieron sobre `df13cc7`, con el árbol de
+trabajo limpio. Es el mismo commit que CI probó, así que los resultados locales
+y los de CI describen exactamente el mismo código. Lo único que quedó encima
+después es la edición de este documento, que no toca código: `cargo fmt`,
+`clippy`, `build` y `test` no lo leen, y `check_maintainability.py` cuenta
+archivos fuente, no Markdown. `git diff --check` se volvió a correr sobre el
+diff de documentación y sigue limpio.
+
+Entorno local: WSL2/Ubuntu (`cargo 1.97.1`, `rustc 1.97.1`), con
+`CARGO_TARGET_DIR=$HOME/.cache/pdf-target` y `PDFIUM_DYNAMIC_LIB_PATH`
+apuntando al `libpdfium.so` vendorizado en
+`core/pdf-render/vendor/pdfium/lib/`. Sin esa variable fallan 15 smoke tests
+de `pdf-ffi` por no encontrar la biblioteca, y el fallo no es del código.
+
+- [x] Ejecutar `cargo fmt --all -- --check` — sin diferencias (código de
+  salida 0).
+- [x] Ejecutar `cargo clippy --workspace --all-targets --locked -- -D warnings`
+  — limpio (código de salida 0).
+- [x] Ejecutar `cargo build --workspace --locked` — compila (código de salida
+  0).
+- [x] Ejecutar `cargo test --workspace --locked -- --skip gtk_ui_` — **1280
+  aprobadas, 0 fallidas, 8 ignoradas, 131 filtradas** en 74 binarios de prueba.
+  Las 131 filtradas son justamente las `gtk_ui_` que el filtro excluye y que
+  cubre el gate siguiente. Las 8 ignoradas son harnesses que se corren a mano:
+  los tres de rendimiento (`page_one_renders_under_1_5s_and_thumbnails_populate_under_3s`,
+  `annotation_edit_round_trip_cost_by_document_size`,
+  `importing_rendering_and_switching_views_on_a_large_assembly`), el generador
+  de la fixture de ~50 MB, los tres volcados para el validador pypdf, y
+  `public_internet_is_unreachable_in_ci_network_namespace`, que solo tiene
+  sentido dentro del namespace de red aislado de CI.
+- [x] Ejecutar la suite GTK4 bajo Xvfb en Linux — **corrió en CI, no en esta
+  máquina.** `xvfb-run` no está instalado en esta WSL, así que localmente la
+  suite GTK4 solo puede correr bajo WSLg con display real, que es otra ruta.
+  La evidencia es el job `GTK UI tests (Linux/X11)` del workflow
+  `linux-gtk-ui`, en verde sobre `df13cc7`
+  ([run 34698435524](https://github.com/PabloBaroParra/vitela/actions/runs/34698435524/job/103565836873),
+  2 m 6 s), que ejecuta exactamente
+  `xvfb-run --auto-servernum --server-args='-screen 0 1280x800x24' env
+  GDK_BACKEND=x11 cargo test -p linux-gtk --locked gtk_ui_`.
+- [x] Ejecutar el empaquetado y smoke test de Linux — **corrió en CI, no en
+  esta máquina.** `scripts/package-linux.sh` exige `PDFIUM_ARCHIVE` apuntando
+  al `pdfium-linux-x64.tgz` verificado, y esta copia solo tiene la biblioteca
+  extraída, no el archivo, así que `scripts/verify-linux-package.sh` tampoco
+  puede correr acá. La evidencia es el job
+  `Linux x86_64 .deb/.AppImage package` del workflow `linux`, en verde sobre
+  `df13cc7`
+  ([run 34698435592](https://github.com/PabloBaroParra/vitela/actions/runs/34698435592/job/103565837005),
+  1 m 37 s), que empaqueta el `.deb` y el `.AppImage` y después los verifica
+  sin red con `--package-smoke`. Esto **no** es lo mismo que los tests
+  `package_smoke` del crate, que sí corren en el gate de `cargo test` de
+  arriba.
+- [x] Ejecutar `python3 scripts/check_maintainability.py` — **103 avisos sobre
+  295 archivos mantenidos** (código de salida 0). Es la misma cifra que §11 y
+  §13, y la misma que la descripción del PR documenta como +5 contra la base
+  de fusión, con sus motivos archivo por archivo. Ningún aviso nuevo entró en
+  esta sección: acá no se tocó código.
+- [x] Registrar comandos, resultados y gates no disponibles en la entrega —
+  esta sección es ese registro, y la descripción del PR #129 repite qué corrió
+  dónde. Además se corrió `git diff --check` (limpio).
+
+Los dos gates que esta máquina no puede correr están tildados **porque
+corrieron en CI sobre este mismo commit**, no por inferencia desde los otros
+gates. Un gate que no hubiera corrido en ningún lado figuraría como no
+verificado, según la regla de "Cómo actualizar este checklist".
 
 ## Criterios de cierre
 
-- [ ] Se pueden añadir varios PDFs al documento abierto desde Linux.
-- [ ] Se pueden ordenar como documentos completos o como páginas individuales.
-- [ ] Los cambios entre vistas nunca alteran el orden.
-- [ ] Los tramos separados del mismo PDF aparecen como bloques separados.
-- [ ] El contenido importado conserva su naturaleza PDF y no se rasteriza.
-- [ ] Importaciones y movimientos de bloque tienen deshacer y rehacer atómicos.
-- [ ] Guardar y reabrir conserva contenido, orden y estructuras soportadas.
-- [ ] Los casos no soportados se rechazan antes de perder información.
-- [ ] La interfaz permanece fluida con documentos grandes.
-- [ ] Todos los gates disponibles están ejecutados y documentados.
+Cada criterio nombra el test que falla si la garantía se rompe, o el camino de
+código que la sostiene. Ninguno se tilda por inspección.
+
+- [x] **Se pueden añadir varios PDFs al documento abierto desde Linux.**
+  `organize::tests::add_pdfs::gtk_ui_header_exposes_add_pdfs_before_save` fija
+  que el botón existe y dónde está;
+  `gtk_ui_multi_source_import_is_one_dirty_history_step` importa desde varias
+  fuentes en una sola operación. El camino es
+  `organize::import::prepare` (lectura, permisos, contraseña e informe fuera
+  del hilo principal) → un único `Command::ImportPages`.
+- [x] **Se pueden ordenar como documentos completos o como páginas
+  individuales.** El selector:
+  `organize::tests::documents::gtk_ui_the_selector_switches_views_and_the_hint_follows`.
+  Documentos: `organize::tests::blocks::gtk_ui_dragging_a_block_moves_every_page_of_it_in_one_undo_step`
+  y `gtk_ui_the_move_buttons_reorder_blocks_without_a_drag` (la alternativa de
+  teclado). Páginas: `organize::tests::pages::gtk_ui_a_page_dragged_again_is_found_where_it_now_sits`
+  y `gtk_ui_a_page_dropped_past_the_last_card_lands_at_the_end`.
+- [x] **Los cambios entre vistas nunca alteran el orden.**
+  `gtk_ui_returning_to_documents_shows_the_order_the_pages_view_left` existe
+  dos veces, una por vista (`organize::tests::blocks` y
+  `organize::tests::pages`), porque la garantía es simétrica. Que el cambio
+  tampoco sea una edición lo fija
+  `organize::tests::documents::gtk_ui_switching_views_records_no_command_and_leaves_the_document_clean`.
+- [x] **Los tramos separados del mismo PDF aparecen como bloques separados.**
+  `pdf_document::blocks::tests::a_reappearing_source_starts_a_new_block_rather_than_merging`
+  e `interleaved_sources_derive_the_expected_blocks_in_order` cubren el caso
+  `A1, A2, B1, A3, B2`; `blocks_recompute_correctly_after_import_move_undo_and_redo`
+  cubre que siga siendo cierto después de cada operación. La presentación la
+  fija `organize::tests::documents::gtk_ui_a_source_split_in_two_is_labeled_by_part`.
+- [x] **El contenido importado conserva su naturaleza PDF y no se rasteriza.**
+  `pdf-manip/tests/graft.rs::graft_pages_copies_the_object_graph_the_page_reaches`
+  y `graft_pages_copies_resources_nested_inside_stream_dictionaries` recorren
+  el grafo real de objetos;
+  `a_grafted_document_serializes_and_reloads_with_every_page_intact` lo
+  serializa y lo vuelve a abrir. Del lado del guardado,
+  `pdf-save/tests/imported_page_roundtrip.rs::an_imported_page_keeps_its_own_content_not_a_blank_one`.
+  El camino de importación no llama a `pdf-render` en ningún punto: las
+  miniaturas son una vista de la previsualización ya materializada, no la
+  fuente de la página.
+- [x] **Importaciones y movimientos de bloque tienen deshacer y rehacer
+  atómicos.** En el núcleo:
+  `edit_log::tests::import_pages_from_multiple_sources_is_one_history_step`,
+  `undo_removes_an_imported_batch_in_one_step`,
+  `redo_restores_an_imported_batch_in_one_step` y
+  `move_pages_is_one_undo_and_redo_step`. En la interfaz:
+  `organize::tests::blocks::gtk_ui_dragging_a_block_moves_every_page_of_it_in_one_undo_step`
+  y `gtk_ui_deleting_a_block_removes_all_of_its_pages_in_one_undo_step`.
+- [x] **Guardar y reabrir conserva contenido, orden y estructuras soportadas.**
+  `pdf-save/tests/assembly_reopen_roundtrip.rs` recorre el ciclo entero:
+  `a_save_after_import_move_and_delete_writes_the_model_order`,
+  `reopening_that_save_yields_a_model_of_plain_base_pages`,
+  `a_reopened_document_saves_again_without_the_source_it_was_imported_from` y
+  `a_reopened_document_can_be_edited_again_and_keeps_the_new_order`. Las
+  estructuras que sí viajan tienen sus propios round trips:
+  `imported_page_annotations.rs::an_imported_page_keeps_the_annotations_it_arrived_with`
+  y `imported_page_roundtrip.rs::a_save_reports_a_form_field_renamed_against_the_destination`.
+  La puerta que impide instalar una reapertura que no coincide con el modelo
+  es `app::document::reopened_matches_model`, probada en el mismo módulo.
+- [x] **Los casos no soportados se rechazan antes de perder información.**
+  Rechazos: `graft_structures.rs::optional_content_is_refused_before_the_import_is_attempted`,
+  `graft_signatures.rs::graft_pages_refuses_a_selected_page_that_carries_a_signature`,
+  `graft_form_fields.rs::an_xfa_form_is_refused` y
+  `graft.rs::graft_pages_rejects_the_same_source_page_twice`. Que el rechazo
+  llegue antes de cualquier mutación:
+  `edit_log::tests::invalid_move_pages_commands_are_rejected_before_mutating`,
+  `an_out_of_range_import_is_rejected_without_losing_redo` y, en el guardado,
+  `imported_page_roundtrip.rs::a_refused_import_writes_nothing_at_all`. En
+  Linux, `organize::import::tests::failed_prepare_leaves_the_open_session_untouched`
+  y `prepare_rejects_a_wrong_password_for_only_its_source`. Lo que no se
+  rechaza pero tampoco viaja se informa antes de confirmar
+  (`pdf_manip::graft_report`, §4 y §8).
+- [ ] **La interfaz permanece fluida con documentos grandes.** El único
+  criterio que no se tilda, y la medición es el motivo. Lo que sí está
+  probado: el cambio de vista no vuelve a renderizar nada
+  (`organize::tests::thumbnails::gtk_ui_switching_between_the_two_views_renders_nothing_again`),
+  una importación no re-renderiza la cuadrícula donde aterriza
+  (`gtk_ui_importing_pages_does_not_re_render_the_grid_it_lands_in`), y sobre
+  400 páginas ir a Documents cuesta 6,8 ms y volver a Pages 2,6 ms
+  (`organize::tests::measure::gtk_ui_measure_a_large_documents_grid_and_view_switch`,
+  con `pdf-save/tests/perf_large_assembly.rs::importing_rendering_and_switching_views_on_a_large_assembly`
+  del lado del núcleo). Lo que no está resuelto: **poblar la cuadrícula por
+  primera vez sigue costando 891 ms de hilo principal** en ese mismo banco, el
+  mismo orden de magnitud que §11 declaró inadmisible cuando lo pagaba cada
+  cambio de vista. Eso es el ítem 14 nuevo de §11, con su nota de progreso; se
+  tilda cuando el primer poblado deje de bloquear, no antes. Los dos bancos
+  además son `#[ignore]`: miden, no afirman, así que lo único que protege
+  contra una regresión en el gate es el conteo de renders.
+- [x] **Todos los gates disponibles están ejecutados y documentados.** §14
+  nombra cada gate con su comando y su resultado, y dice de los dos que esta
+  máquina no puede correr dónde corrieron y sobre qué commit.
 
 ## Fuera de alcance inicial
 
