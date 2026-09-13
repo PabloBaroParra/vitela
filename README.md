@@ -90,7 +90,7 @@ next** — actively being built · 🔮 **Planned** — on the roadmap, not star
 | Delete pages | Remove selected pages | `pdf-manip` | ✅ Core ready |
 | Extract pages | Pull pages out into a new PDF | `pdf-manip` | ✅ Core ready |
 | Rotate PDF | Rotate one or all pages | `pdf-manip` | ✅ Core ready |
-| Protect PDF | Encrypt with a password (RC4-128 / AES-128) | `pdf-save` | ✅ Core ready |
+| Protect PDF | Encrypt with a password (new protection is AES-128; RC4-128 is reproduced, never created) | `pdf-save` | ✅ Core ready |
 | Unlock PDF | Remove a known password (decrypt-on-open) | `pdf-manip` | ✅ Core ready |
 | PDF to images | Export pages as PNG / JPEG | `pdf-save` | ✅ Core ready |
 | Sign PDF | Drawn signatures + PKCS#7/PAdES (offline, no TSA/OCSP) | `pdf-sign` | 🚧 In progress / next |
@@ -146,9 +146,10 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Edit page content | 🚧 | 🚧 | — | — | — |
 | Organize & assemble pages | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
+| Protect with a password | ✅ | — | — | — | — |
 | Export to images | — | — | — | — | — |
-| Sign | — | — | — | — | — |
-| Fillable forms | — | — | — | — | — |
+| Sign | ✅ | — | — | — | — |
+| Fillable forms | ✅ | — | — | — | — |
 
 Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
 Actions provides development-only evidence: for macOS it builds the shell, runs
