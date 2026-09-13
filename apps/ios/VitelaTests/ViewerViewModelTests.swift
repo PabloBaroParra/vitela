@@ -22,9 +22,10 @@ final class ViewerViewModelTests: XCTestCase {
 
         model.render(page: 0)
 
-        let rendered = expectation(description: "page render reaches the store")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { rendered.fulfill() }
-        wait(for: [rendered], timeout: 2)
+        waitUntil(
+            { model.store.pageSlots.first?.status == .rendered },
+            "the render never reached the store"
+        )
 
         XCTAssertEqual(model.store.pageSlots[0].status, .rendered)
         XCTAssertEqual(model.title, titleBeforeRender)
@@ -111,9 +112,13 @@ final class ViewerViewModelTests: XCTestCase {
             .appendingPathComponent("vitela-does-not-exist-\(UUID().uuidString).pdf")
         model.open(url: missing)
 
-        let errored = expectation(description: "read failure reaches the store")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { errored.fulfill() }
-        wait(for: [errored], timeout: 2)
+        waitUntil(
+            {
+                if case .error(.readFailed) = model.store.state { return true }
+                return false
+            },
+            "the read failure never reached the store"
+        )
 
         guard case .error(.readFailed) = model.store.state else {
             return XCTFail("expected a read failure, got \(model.store.state)")
@@ -152,9 +157,10 @@ final class ViewerViewModelTests: XCTestCase {
 
         // `openSample` runs on its own queue, same as `open(url:)`, so the
         // assertion has to wait for the result to land back on main.
-        let loaded = expectation(description: "sample document reaches the store")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
-        wait(for: [loaded], timeout: 2)
+        waitUntil(
+            { model.store.state == .loaded },
+            "the sample document never reached the store"
+        )
 
         XCTAssertEqual(model.store.state, .loaded)
     }
@@ -168,9 +174,7 @@ final class ViewerViewModelTests: XCTestCase {
 
         model.openSample()
 
-        let loaded = expectation(description: "bundled sample document reaches the store")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
-        wait(for: [loaded], timeout: 2)
+        waitUntil({ model.store.state == .loaded }, "the bundled sample never reached the store")
 
         XCTAssertEqual(model.store.state, .loaded)
     }
@@ -184,9 +188,10 @@ final class ViewerViewModelTests: XCTestCase {
 
         model.openAes128Sample()
 
-        let loaded = expectation(description: "bundled AES-128 sample reaches the store")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
-        wait(for: [loaded], timeout: 2)
+        waitUntil(
+            { model.store.state == .loaded },
+            "the bundled AES-128 sample never reached the store"
+        )
 
         XCTAssertEqual(model.store.state, .loaded)
     }
@@ -197,9 +202,10 @@ final class ViewerViewModelTests: XCTestCase {
 
         model.openRc4128Sample()
 
-        let loaded = expectation(description: "bundled RC4-128 sample reaches the store")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { loaded.fulfill() }
-        wait(for: [loaded], timeout: 2)
+        waitUntil(
+            { model.store.state == .loaded },
+            "the bundled RC4-128 sample never reached the store"
+        )
 
         XCTAssertEqual(model.store.state, .loaded)
     }
@@ -209,9 +215,10 @@ final class ViewerViewModelTests: XCTestCase {
 
         model.openSample()
 
-        let errored = expectation(description: "sample load failure reaches the store")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { errored.fulfill() }
-        wait(for: [errored], timeout: 2)
+        waitUntil(
+            { model.store.state == .error(.readFailed("sample document is missing")) },
+            "the sample load failure never reached the store"
+        )
 
         XCTAssertEqual(model.store.state, .error(.readFailed("sample document is missing")))
     }
@@ -261,4 +268,49 @@ private struct PasswordGatedClient: PdfCoreClient {
 
 private struct FakeDocument: PdfDocument {
     let pages: [PageDimensions]
+}
+
+/// Turns the main run loop until `condition` holds, and fails if it never
+/// does.
+///
+/// Every asynchronous path exercised in this file lands its result with
+/// `DispatchQueue.main.async`, so the main run loop is the thing that has to
+/// turn before an assertion has anything new to look at. Spinning it in short
+/// slices returns as soon as the result is in — a millisecond or two, rather
+/// than a fixed sleep.
+///
+/// It replaces this, which every asynchronous test here used to spell out:
+///
+/// ```swift
+/// let done = expectation(description: "…")
+/// DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { done.fulfill() }
+/// wait(for: [done], timeout: 2)
+/// ```
+///
+/// That is a `sleep` wearing an `XCTestExpectation`'s clothes. The timer
+/// fulfilled the expectation on schedule whether or not the work had
+/// finished, so `timeout:` never applied to anything and the assertion simply
+/// read whatever state happened to be there at 0.5 s. On a loaded CI runner
+/// that is the *previous* state:
+/// `testUnreadableUrlIsReportedAsAReadFailureAndKeepsTheOpenDocument` failed
+/// with "expected a read failure, got loaded", `loaded` being the state set
+/// two lines above it by `store.open(bytes:)`.
+///
+/// The timeout here is generous because it is now a real deadline rather than
+/// a sleep: a passing test never waits for it, so making it long costs
+/// nothing and makes a slow machine a slow run instead of a red one.
+private extension XCTestCase {
+    func waitUntil(
+        _ condition: () -> Bool,
+        _ message: @autoclosure () -> String,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(condition(), message(), file: file, line: line)
+    }
 }
