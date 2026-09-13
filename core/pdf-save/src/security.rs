@@ -44,7 +44,32 @@ pub enum SaveIntent {
     /// is only to honor the intent on the encoding side; it never touches
     /// `EditLog` or the audit log itself (spec "Strip is not undoable").
     StripProtection,
+    /// Explicit application of protection the file does not already have:
+    /// the caller put the requested [`SecurityContext`] on
+    /// `Document::security` and is asking this save to write it.
+    ///
+    /// Distinct from [`Default`](Self::Default), which means "reproduce the
+    /// protection this file already carried". The difference is not
+    /// cosmetic: `Default`'s writer for an edit-free save is the incremental
+    /// one, which re-encrypts each appended object from the *base* document's
+    /// encryption state — so a base that was never encrypted has nothing to
+    /// re-encrypt from, and the append lands in plaintext. This intent
+    /// therefore forces the full-rewrite writer, the only one that can build
+    /// an encryption dictionary from scratch.
+    ///
+    /// Both password roles are required, the same as any other re-encryption
+    /// (see [`build_encryption_state`]). A `SecurityContext` carrying only
+    /// one is refused rather than having the missing role filled in from the
+    /// other.
+    ApplyProtection,
 }
+
+/// The refusal shared by every path that meets `ApplyProtection` with nothing
+/// to apply. One `&'static str`, so the shell, the FFI and the encoder all
+/// report the same thing.
+pub(crate) const PROTECTION_WITHOUT_CONTEXT: &str =
+    "SaveIntent::ApplyProtection needs the protection it is meant to apply: set \
+     Document::security to the requested SecurityContext before saving";
 
 /// Builds a lopdf `EncryptionState` matching `security`'s handler, for
 /// re-encrypting a freshly-rewritten `lopdf::Document` (full-rewrite path).
@@ -112,6 +137,8 @@ pub fn build_encryption_state(
 ///   passwords (see [`build_encryption_state`]).
 /// - `Default` with `security: None` is a no-op — the document was never
 ///   encrypted, so there is nothing to re-apply.
+/// - `ApplyProtection` encrypts with `security` exactly as `Default` does,
+///   and is refused outright when `security` is `None`.
 pub fn apply_encryption_for_full_rewrite(
     document: &mut lopdf::Document,
     security: Option<&SecurityContext>,
@@ -121,7 +148,16 @@ pub fn apply_encryption_for_full_rewrite(
         return Ok(());
     }
     let Some(security) = security else {
-        return Ok(());
+        // `Default` with no context is an unencrypted document staying
+        // unencrypted. `ApplyProtection` with no context is a caller that
+        // asked for protection and supplied none — returning `Ok` there would
+        // hand back a plaintext file the caller believes is protected.
+        return match intent {
+            SaveIntent::ApplyProtection => {
+                Err(SaveError::InvalidSaveRequest(PROTECTION_WITHOUT_CONTEXT))
+            }
+            _ => Ok(()),
+        };
     };
 
     let state = build_encryption_state(document, security)?;
