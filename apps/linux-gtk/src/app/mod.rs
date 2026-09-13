@@ -28,6 +28,7 @@ mod side_panel;
 mod sign;
 mod state;
 mod tools_panel;
+mod write;
 
 #[cfg(test)]
 mod test_fixtures;
@@ -47,7 +48,7 @@ use annotations::add_annotation_toolbar;
 use brand::build_app_mark;
 use document::{
     confirm_closing_edits, new_blank_document, open_file, open_sample, show_file_chooser,
-    show_save_chooser, SampleKind,
+    SampleKind,
 };
 use editor_toolbar::build_editor_toolbar;
 use home::{build_home, EDITOR_PAGE, HOME_PAGE};
@@ -59,6 +60,7 @@ use shell::{build_app_rail, install_shell_css, mark_active};
 use side_panel::{collapsible, Column};
 use sign::{build_sign_content, connect_sign_toolbar};
 use state::{HomeTool, Viewer, ViewerState};
+use write::show_save_chooser;
 
 const APPLICATION_ID: &str = "org.vitela.Pdf";
 /// Vertical gap between stacked page widgets. Shared by the page box in

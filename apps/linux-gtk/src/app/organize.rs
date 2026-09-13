@@ -40,8 +40,8 @@ use gtk::{
     ScrolledWindow, SelectionMode, Stack,
 };
 
-use crate::app::document::show_save_chooser;
 use crate::app::state::{Cards, OrganizePanel, Viewer};
+use crate::app::write::show_save_chooser;
 
 use super::tools_panel::panel_heading;
 use documents::{DOCUMENTS_VIEW, PAGES_VIEW};
@@ -237,7 +237,7 @@ pub(crate) fn refresh_if_visible(viewer: &Viewer) {
 }
 
 /// Marks every card's thumbnail as no longer trustworthy, so the next
-/// `document::refresh_preview` rebuilds the grid instead of keeping the
+/// `write::refresh_preview` rebuilds the grid instead of keeping the
 /// pixels already on it.
 ///
 /// Called from `annotations::command::history` when the step it replayed was
@@ -258,7 +258,7 @@ pub(crate) fn invalidate_thumbnails(viewer: &Viewer) {
     viewer.organize.thumbnails.invalidate();
 }
 
-/// What the view on show needs after `document::refresh_preview`'s in-memory
+/// What the view on show needs after `write::refresh_preview`'s in-memory
 /// save-and-reopen lands, which for the Pages grid is usually nothing.
 ///
 /// The reopen swaps the pdfium handle every thumbnail was rendered against,

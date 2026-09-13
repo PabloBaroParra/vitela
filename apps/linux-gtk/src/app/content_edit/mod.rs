@@ -45,7 +45,7 @@
 //!
 //! Every commit that actually reaches the `EditLog` — from any of the above,
 //! plus undo/redo of one — ends in
-//! `document::refresh_preview` (T-163, batch decision 6): a
+//! `write::refresh_preview` (T-163, batch decision 6): a
 //! content edit changes what pdfium itself renders, so the canvas has to
 //! show the real, reopened result, not a "pending save" status message over
 //! a stale bitmap.
@@ -443,7 +443,7 @@ pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// the call this makes.
 ///
 /// Deliberately a no-op while there is nothing to parse against:
-/// `document::refresh_preview` lifts `save_backing` out of the
+/// `write::refresh_preview` lifts `save_backing` out of the
 /// session *across* its own `show_document` call, so this runs with nothing
 /// to read there and that path re-parses on its own once it puts the edit
 /// state back.
@@ -467,7 +467,7 @@ pub(crate) fn rearm_for_session(viewer: &Viewer) {
 /// (`handle_drag_end`), so nothing is silently lost, only the proactive
 /// outline for that one page.
 ///
-/// `pub(crate)` rather than private (T-163): `document::refresh_preview`
+/// `pub(crate)` rather than private (T-163): `write::refresh_preview`
 /// calls this after every content-edit commit's save→reopen cycle, because
 /// the reopened session's `PageSlot::content` caches start out empty again —
 /// without a re-parse here, the outline would stay blank until the user

@@ -7,7 +7,7 @@
 //! The index a thumbnail is *rendered* by is the page's position in the open
 //! pdfium handle, and that number is not stable: `Command::MovePage`
 //! renumbers it, an import shifts every page after the insertion, and
-//! `document::refresh_preview` swaps the handle outright. A cache keyed on it
+//! `write::refresh_preview` swaps the handle outright. A cache keyed on it
 //! would hand a moved page the picture of whatever page inherited its old
 //! slot — the exact confusion `grid::PageRow::backend` exists to avoid.
 //! `PageId` is the page's identity for the life of the session, which is

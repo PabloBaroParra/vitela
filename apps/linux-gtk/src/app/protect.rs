@@ -34,7 +34,7 @@
 //!
 //! ## Where the work happens
 //!
-//! This module owns the dialog and the policy; `document::begin_protect`
+//! This module owns the dialog and the policy; `write::begin_protect`
 //! onwards owns the chooser → confirm → background-save → reopen chain, next
 //! to the `save` and `sign` chains it is modelled on.
 
@@ -47,8 +47,8 @@ use pdf_document::{
     Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
 };
 
-use crate::app::document::{self, ProtectRequest};
 use crate::app::state::{SessionToken, Viewer};
+use crate::app::write::{self, ProtectRequest};
 
 /// The `/P` bitmask written into a newly protected document: every
 /// permission granted. See the module doc — the passwords are the access
@@ -145,7 +145,7 @@ pub(crate) fn requested_protection(
 /// Modelled on `document::prompt_for_password` and
 /// `sign::prompt_for_pfx_password`, with one entry more and no background
 /// work of its own — validation is synchronous, and everything after it is
-/// `document::begin_protect`'s chooser chain.
+/// `write::begin_protect`'s chooser chain.
 fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
     let content = GtkBox::new(GtkOrientation::Vertical, 8);
     content.set_margin_top(12);
@@ -207,7 +207,7 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
             match build_request(&viewer, &open_password, &permissions_password) {
                 Some(request) => {
                     dialog.destroy();
-                    document::begin_protect(&window, &viewer, request);
+                    write::begin_protect(&window, &viewer, request);
                 }
                 None => error_label.set_text("This document cannot be protected."),
             }

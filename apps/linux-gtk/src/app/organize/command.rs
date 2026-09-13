@@ -62,7 +62,7 @@ pub(super) fn command(
             // resolved through `DocumentSession::backend_pages` would name the
             // new one. Bails out on its own (leaving the message above intact)
             // when there is no `save_backing` to replay against.
-            crate::app::document::refresh_preview(viewer, message);
+            crate::app::write::refresh_preview(viewer, message);
             true
         }
         Err(error) => {
