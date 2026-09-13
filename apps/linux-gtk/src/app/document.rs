@@ -16,7 +16,7 @@ use gtk::{
     FileDialog, FileFilter, Label, Orientation as GtkOrientation, Overlay, PasswordEntry, Picture,
     Window,
 };
-use pdf_document::{Document, Orientation, PageSize, SecurityContext};
+use pdf_document::{Document, FieldValue, Orientation, PageSize, SecurityContext};
 use pdf_manip::ManipError;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 use pdf_sign::CertificateSourcePort;
@@ -788,6 +788,29 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
 fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::PageId> {
     model
         .map(|model| model.pages.iter().map(|page| page.id).collect())
+        .unwrap_or_default()
+}
+
+/// The form-field values `model` carries, keyed by `/T` name — the record of
+/// what pdfium is about to draw by itself.
+///
+/// Read from the model beside the handle for the same reason
+/// [`backend_page_order`] is: both came out of the same bytes, so what this
+/// model says about a field is what the widget in those bytes says, and a
+/// widget in those bytes is a widget pdfium rasterizes. See
+/// [`DocumentSession::rendered_field_values`] for why it is keyed by name and
+/// why a preview refresh must not restore it from the preserved model.
+///
+/// [`DocumentSession::rendered_field_values`]: super::state::DocumentSession::rendered_field_values
+fn rendered_field_values(model: Option<&Document>) -> HashMap<String, FieldValue> {
+    model
+        .map(|model| {
+            model
+                .form_fields
+                .iter()
+                .map(|field| (field.name.clone(), field.value.clone()))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -1821,6 +1844,10 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     // later, so it re-installs this from the preserved one — see
     // `restore_edit_state`.
     let backend_pages = backend_page_order(document.document_model.as_ref());
+    // Same "the model beside the handle describes the handle" reasoning as
+    // `backend_pages` — but unlike it, this one is deliberately *not*
+    // re-installed by `restore_edit_state`. See its field doc.
+    let rendered_field_values = rendered_field_values(document.document_model.as_ref());
     {
         let mut state = viewer.state.borrow_mut();
         state.session_id += 1;
@@ -1833,6 +1860,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
             page_assembly_access: document.page_assembly_access,
             document_model: document.document_model,
             backend_pages,
+            rendered_field_values,
             save_backing: document.save_backing,
             imported_sources: Vec::new(),
             import_warning_revision: None,
@@ -2058,8 +2086,8 @@ mod tests {
 
     use super::{
         atomic_write, next_form_field_id, next_generation_if_current, pdf_destination,
-        reopened_matches_model, save_worker_result, surviving_edit_selections, unsaved_decision,
-        UnsavedDecision,
+        rendered_field_values, reopened_matches_model, save_worker_result,
+        surviving_edit_selections, unsaved_decision, UnsavedDecision,
     };
     use gtk::prelude::*;
 
@@ -2251,6 +2279,35 @@ mod tests {
     #[test]
     fn a_document_without_an_editable_model_expects_nothing_of_the_handle() {
         assert_eq!(reopened_matches_model(&Document::blank(), 0), Ok(()));
+    }
+
+    /// What the overlay consults to know which values pdfium is drawing for
+    /// itself — so it has to describe every field the bytes carry, by the
+    /// name the widget in those bytes goes by.
+    #[test]
+    fn rendered_field_values_maps_every_field_by_its_own_name() {
+        let mut document = Document::blank();
+        let mut filled = a_form_field(0);
+        filled.name = "Name".to_string();
+        filled.value = FieldValue::Text("Ada".to_string());
+        document.form_fields.insert(filled);
+        document.form_fields.insert(a_form_field(1));
+
+        let rendered = rendered_field_values(Some(&document));
+
+        assert_eq!(rendered.len(), 2);
+        assert_eq!(
+            rendered.get("Name"),
+            Some(&FieldValue::Text("Ada".to_string()))
+        );
+    }
+
+    /// No model means no handle worth describing, and an empty map is the
+    /// answer that makes every field the overlay's — the same "nothing to
+    /// defer to" default `backend_page_order` takes.
+    #[test]
+    fn rendered_field_values_is_empty_without_a_model() {
+        assert!(rendered_field_values(None).is_empty());
     }
 
     #[test]

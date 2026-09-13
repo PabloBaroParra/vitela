@@ -272,6 +272,55 @@ representación visual es una anotación `/Subtype /Widget` en el `/Annots` de l
 - Undo/redo completo para add/remove/move/resize/restyle/set_value desde el día uno.
 - Salida determinista bajo el clock/ID-generator de CI (orden = FormFieldSet).
 
+## Doble pintado de campos existentes (detectado después de B20)
+
+PDFium rasteriza el valor de cada campo de formulario que trae el archivo, a
+partir del `/AP` del propio widget (`FPDF_ANNOT` y `do_render_form_data`, los
+dos activos por defecto en `PdfRenderConfig`). Está verificado a nivel de
+píxeles en `core/pdf-save/tests/preview_raster.rs`
+(`pdfium_rasterizes_a_form_field_value_from_the_saved_file`), no deducido de
+las fuentes de PDFium.
+
+Como `pdf_form::read_form_fields` mete esos mismos valores en
+`document.form_fields` al abrir, el shell Linux los dibujaba encima otra vez y
+cada campo relleno de un formulario abierto salía doble.
+
+- [x] Que la capa de dibujo pinte solo lo que el ráster no tiene ya.
+      `DocumentSession.rendered_field_values` guarda los valores que traen los
+      bytes que PDFium tiene abiertos — tomados en `document::show_document`
+      del modelo que acompaña al handle, igual que `backend_pages`, y
+      deliberadamente **no** restaurados por `restore_edit_state`, porque
+      describen los bytes y no lo que el usuario editó después.
+      `selection::overlay_owns_field_value` decide con eso.
+      Se indexa por nombre `/T` y no por `FormFieldId`: los ids se asignan
+      secuencialmente en cada parseo, así que unos bytes con otra cantidad de
+      campos los renumeran todos.
+      Lo que queda para la capa de dibujo es exactamente lo que el ráster no
+      puede tener: un campo colocado en esta sesión y un valor tecleado
+      después de que se generaran esos bytes.
+
+Queda abierto lo que depende de actualizar el ráster, que es una decisión
+aparte sobre cuándo gastar un guardar→reabrir:
+
+- [ ] Mientras se reescribe un campo **que ya venía relleno**, su valor viejo
+      sigue debajo del nuevo. Un comando de formulario no es una edición de
+      contenido, así que no dispara `document::refresh_preview`, y
+      `pdf_save::save_preview` no toca la capa de anotaciones de todos modos:
+      el ráster conserva lo que decía el archivo durante toda la sesión.
+      Rellenar un campo vacío — el caso normal de completar un formulario —
+      no tiene este problema: el ráster no muestra nada ahí.
+- [ ] Vaciar o borrar un campo existente deja su valor viejo en pantalla, sin
+      nada que lo tape.
+
+Las dos salidas son excluyentes y hay que elegir una antes de tocar esto:
+que PDFium sea el único que dibuja valores, y entonces cada cambio de valor
+exige un refresco (choca con la inmediatez sin "Aplicar" de T-142, y
+`refresh_preview` reconstruye las filas del panel de relleno, la trampa que
+documenta T-143); o que la capa de dibujo sea la única, y entonces la
+previsualización tiene que neutralizar la apariencia de los widgets
+existentes, lo que igual no sirve para el momento de abrir, donde no hay
+ningún guardado previo.
+
 ## Fuera de scope (v1)
 
 Embedding de fuentes · listbox multi-select · JavaScript/acciones · validación de formato

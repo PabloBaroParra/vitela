@@ -63,6 +63,10 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         content_edit_access: ContentEditAccess::Allowed,
         page_assembly_access: PageAssemblyAccess::Allowed,
         document_model: Some(document),
+        // Model-only fixture: no pdfium handle, so nothing is rasterized and
+        // there is no rendered value for the overlay to defer to. Every field
+        // is the overlay's here, which is what these tests assert against.
+        rendered_field_values: Default::default(),
         backend_pages,
         save_backing: None,
         imported_sources: Vec::new(),
