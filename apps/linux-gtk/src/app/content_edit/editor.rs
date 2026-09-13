@@ -27,9 +27,9 @@ use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 use pdf_edit::EditError;
 use pdf_render::{place_rect, TextRect};
 
-use crate::app::document::refresh_preview;
 use crate::app::state::{ContentEditor, PageSlot, Viewer};
 use crate::app::update_content_edit_controls;
+use crate::app::write::refresh_preview;
 
 use super::command::{
     amend_command, amended_command, apply_command, pending_move_index, pending_text_command,

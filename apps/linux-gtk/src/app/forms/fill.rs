@@ -316,7 +316,7 @@ fn build_radio_group(
 /// (`selection::overlay_owns_field_value`), which means the raster has to be
 /// rebuilt for a value change to show. Doing that per `SetFieldValue` is not
 /// an option: `commit_value` records one on every keystroke, and
-/// `document::refresh_preview` is a save, a pdfium reopen and a rebuild of
+/// `write::refresh_preview` is a save, a pdfium reopen and a rebuild of
 /// every page widget — including, through `toolbar::update_forms_controls`,
 /// the very `Entry` being typed into.
 ///
@@ -339,7 +339,7 @@ pub(super) fn connect_settle(viewer: &Viewer) {
             // another call's stack. `refresh_preview` takes `viewer.state`
             // mutably, and a borrow still held further down that stack would
             // make this a panic rather than a refresh. Nothing else needs
-            // the delay; the same idle-defer `document::restore_view_state`
+            // the delay; the same idle-defer `write::preview::carry::restore_view_state`
             // uses for its own re-entrancy.
             gtk::glib::idle_add_local_once({
                 let viewer = viewer.clone();
@@ -347,7 +347,7 @@ pub(super) fn connect_settle(viewer: &Viewer) {
                     if !filled_value_awaits_the_raster(&viewer) {
                         return;
                     }
-                    crate::app::document::refresh_preview(&viewer, "Form field updated.");
+                    crate::app::write::refresh_preview(&viewer, "Form field updated.");
                 }
             });
         }

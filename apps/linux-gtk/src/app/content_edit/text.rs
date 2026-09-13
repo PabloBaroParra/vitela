@@ -296,7 +296,7 @@ pub(crate) fn finish_text_drag(viewer: &Viewer, offset_x: f64, offset_y: f64) ->
     };
 
     match outcome {
-        MoveRecord::Recorded => crate::app::document::refresh_preview(viewer, "Text moved."),
+        MoveRecord::Recorded => crate::app::write::refresh_preview(viewer, "Text moved."),
         MoveRecord::Refused(message) => {
             viewer.status.set_text(&message);
             selection::redraw(viewer);

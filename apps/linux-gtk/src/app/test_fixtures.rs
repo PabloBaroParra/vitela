@@ -10,7 +10,10 @@
 use super::state::{
     AnnotationAccess, ContentEditAccess, DocumentSession, PageAssemblyAccess, TextAccess,
 };
-use pdf_document::{Annotation, AnnotationId, AnnotationKind, Color, Document, PageId, Rect};
+use pdf_document::{
+    Annotation, AnnotationId, AnnotationKind, Color, Document, FieldOrigin, FieldValue, FontFamily,
+    FormField, FormFieldId, FormFieldKind, PageId, Rect, TextStyle,
+};
 
 /// A yellow highlight on `page` — the cheapest annotation to build, and the
 /// one every test that only needs *an* annotation should reach for.
@@ -35,6 +38,36 @@ pub(crate) fn a_highlight(id: u64, page: PageId) -> Annotation {
                 b: 0,
             },
         },
+    }
+}
+
+/// An empty single-line text field named `Text_{id}` on page 0 — the
+/// form-field counterpart of [`a_highlight`], and here for the same reason:
+/// the id-counter tests in `document` and the selection-survival tests in
+/// `write::preview::carry` both need *a* field and neither cares what shape
+/// it has.
+pub(crate) fn a_form_field(id: u64) -> FormField {
+    FormField {
+        id: FormFieldId(id),
+        page: PageId(0),
+        name: format!("Text_{id}"),
+        rect: Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 20.0,
+        },
+        style: TextStyle {
+            font: FontFamily::Helvetica,
+            size_pt: 12.0,
+            color: Color { r: 0, g: 0, b: 0 },
+        },
+        value: FieldValue::Text(String::new()),
+        kind: FormFieldKind::Text {
+            multiline: false,
+            max_len: None,
+        },
+        origin: FieldOrigin::Existing((id as u32, 0)),
     }
 }
 

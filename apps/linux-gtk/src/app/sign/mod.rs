@@ -12,7 +12,7 @@
 //! user choose one to sign with. Confirming runs `begin_sign_from_picker`,
 //! which gates the action (batch decision 5, and the `unsaved_to_disk` check
 //! `SignRequest` itself documents), then hands off to
-//! `document::begin_sign` — the destination chooser, background
+//! `write::begin_sign` — the destination chooser, background
 //! `pdf_sign::sign_document` call, and save→reopen cycle, T-185's half of
 //! this batch. Fase 5 (T-186) wires both flows into the rail's "Sign" button
 //! (see `shell::build_app_rail`/`app::build_ui`, which switch the tools
@@ -44,9 +44,9 @@ use pdf_sign_nss::NssAdapterError;
 use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 use pdf_sign_pkcs11::{Pkcs11AdapterError, Pkcs11CertificateSource};
 
-use crate::app::document::{self, SignRequest};
 use crate::app::state::{SessionToken, Viewer};
 use crate::app::tools_panel::panel_heading;
+use crate::app::write::{self, SignRequest};
 
 /// Builds the "Fill & Sign" page's signing section: a heading and the
 /// "Choose signing certificate" / "Use card or token" buttons.
@@ -60,7 +60,7 @@ pub(crate) fn build_sign_content() -> (Button, Button, Button, Label, GtkBox) {
 
     // Hidden until `update_sign_controls` finds a signature on the open
     // document — the one place in this shell a user can tell a signing
-    // attempt actually landed, since `document::begin_sign`'s status-bar
+    // attempt actually landed, since `write::begin_sign`'s status-bar
     // message (T-185) is overwritten by the very next unrelated action.
     let signed_indicator = Label::new(Some("✓ This document is digitally signed."));
     signed_indicator.set_xalign(0.0);
@@ -104,7 +104,7 @@ pub(crate) fn update_sign_controls(viewer: &Viewer) {
 /// Whether the open document (if any) already carries a signature —
 /// `pdf_manip::document_has_signatures`' own structural scan (`/AcroForm`
 /// `/SigFlags` or any `/FT /Sig` object), the same check
-/// `document::confirm_signature_loss`
+/// `write::confirm_signature_loss`
 /// asks before a rewrite that would break one.
 fn document_is_signed(viewer: &Viewer) -> bool {
     viewer
@@ -983,7 +983,7 @@ fn dismiss_sign_picker(viewer: &Viewer, dialog: &Window) {
 }
 
 /// T-185: the gate and session-state extraction behind the picker's "Sign"
-/// button, ending in `document::begin_sign` (the destination chooser,
+/// button, ending in `write::begin_sign` (the destination chooser,
 /// background `pdf_sign::sign_document` call, and save→reopen cycle). `Err`
 /// carries the message to show inline in the picker rather than the status
 /// bar, so the user can fix the problem — no document, or unsaved changes —
@@ -1028,7 +1028,7 @@ fn begin_sign_from_picker(
             identity_id,
         }
     };
-    document::begin_sign(window, viewer, request);
+    write::begin_sign(window, viewer, request);
     Ok(())
 }
 

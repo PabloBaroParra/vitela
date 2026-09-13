@@ -7,9 +7,9 @@
 use gtk::prelude::*;
 use pdf_document::{AnnotationId, Command, Document, FormFieldId};
 
-use crate::app::document::refresh_preview;
 use crate::app::selection;
 use crate::app::state::{DocumentSession, Viewer, ANNOTATION_MODEL_UNAVAILABLE};
+use crate::app::write::refresh_preview;
 
 use super::toolbar::update_annotation_controls;
 
@@ -95,7 +95,7 @@ fn history(viewer: &Viewer, undo: bool) {
                     surviving_form_field(document, session.selected_form_field);
                 session.edit_revision += 1;
                 // Unconditional, content edit or not. A content command's
-                // refresh (`document::refresh_preview`) does
+                // refresh (`write::refresh_preview`) does
                 // re-assert this on the session it installs, but only when
                 // it succeeds — and a step that has already moved the log is
                 // an unsaved change whether or not the preview caught up

@@ -96,7 +96,7 @@ pub(super) fn command(
     // refresh is what finally puts the result on the canvas, so it should
     // leave "Field moved." up, not a generic word for all six commands.
     if let Some(message) = recorded {
-        crate::app::document::refresh_preview(viewer, message);
+        crate::app::write::refresh_preview(viewer, message);
     }
 }
 

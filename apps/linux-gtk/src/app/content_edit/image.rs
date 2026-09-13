@@ -18,10 +18,10 @@ use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
 use pdf_document::{Command, ContentItemId, ImageItem, Rect};
 
-use crate::app::document::refresh_preview;
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
 use crate::app::update_content_edit_controls;
+use crate::app::write::refresh_preview;
 
 use super::{command, editor, geometry, model};
 
@@ -64,7 +64,7 @@ fn command_for(item: ImageItem, mode: AnnotationDragMode, to: Rect) -> Command {
     }
 }
 
-/// The status text `document::refresh_preview` shows once the
+/// The status text `write::refresh_preview` shows once the
 /// refresh lands — no "pending save" suffix (T-163): by the time it shows,
 /// the canvas already reflects the edit, only the file on disk is behind.
 fn message_for(mode: AnnotationDragMode) -> &'static str {

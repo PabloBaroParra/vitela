@@ -131,7 +131,7 @@ pub(crate) struct Viewer {
     /// reason.
     pub(crate) choose_nss_certificate: Button,
     /// Hidden until the open document has a signature — the persistent twin
-    /// of `document::begin_sign`'s one-shot status-bar message. Kept current
+    /// of `write::begin_sign`'s one-shot status-bar message. Kept current
     /// by `sign::update_sign_controls`, same lifecycle as the three buttons
     /// above.
     pub(crate) signed_indicator: Label,
@@ -261,7 +261,7 @@ pub(crate) struct ViewerState {
     /// the two never disagree about whether content-edit mode is active —
     /// only about what a click inside it does.
     pub(crate) content_insert_mode: Option<ContentInsertKind>,
-    /// Whether a `document::refresh_preview` preview refresh
+    /// Whether a `write::refresh_preview` preview refresh
     /// (save-to-buffer, reopen, rebuild every page widget) is currently
     /// running.
     ///
@@ -1237,7 +1237,7 @@ pub(crate) struct DocumentSession {
     /// Set by whatever *records* a command — `annotations::command::command`,
     /// `annotations::command::history`, and each content-edit commit site —
     /// never by the refresh that later catches the canvas up. That ordering
-    /// is the whole point: `document::refresh_preview` runs a
+    /// is the whole point: `write::refresh_preview` runs a
     /// background save+reopen that can fail, and a document whose edit is
     /// already in the `EditLog` must report itself dirty even when the
     /// preview behind it never updated.
