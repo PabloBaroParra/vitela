@@ -27,7 +27,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 | Integración Linux | Completo |
 | Vista por documentos | Completo |
 | Vista por páginas | Completo |
-| Animación | Parcial |
+| Animación | Completo |
 | Pruebas y gates | Completo |
 
 ## Decisiones cerradas
@@ -1305,7 +1305,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Medir importación, primer render y cambio de modo con documentos grandes.
 - [x] Evitar reconstruir las tarjetas de la cuadrícula cuando el orden de
   páginas no cambió.
-- [ ] Reducir el bloqueo de ~0,9 s al poblar la cuadrícula de páginas por
+- [x] Reducir el bloqueo de ~0,9 s al poblar la cuadrícula de páginas por
   primera vez en un documento grande.
 
 ### Progreso de la animación y el rendimiento
@@ -1398,16 +1398,24 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
     por página.
   - `apps/linux-gtk/src/app/organize/tests/measure.rs` — el trabajo de
     widgets del mismo documento de 400 páginas con la caché caliente, bajo
-    WSL2. Poblar la cuadrícula: 891 ms. Ir a Documents: 6,8 ms.
+    WSL2. Poblar la cuadrícula: 891 ms. Ir a Documents: 6,8 ms. Esos son los
+    números que motivaron los ítems 13 y 14; después de cerrar el 14 el mismo
+    banco mide **47,2 ms** y **0,4 ms**.
 - Lo que encontró la medición, y el ítem 13 que cerró. Volver a la vista
   Pages costaba **886 ms**, lo mismo que construirla de cero, con la caché de
   miniaturas caliente y cero renders de pdfium. La caché ahorraba el render y
   nadie ahorraba el widget: `views::show` llamaba a `populate_visible`, que
-  destruye y reconstruye las 400 tarjetas —un `Box`, un `Picture`, tres
-  etiquetas y dos botones cada una, ~2,2 ms— y `--release` no lo movía ni un
-  punto, porque es trabajo de GTK y no de Rust. Un segundo de bucle principal
-  bloqueado por cambiar de vista es exactamente lo que el criterio de cierre
-  "la interfaz permanece fluida con documentos grandes" no admite.
+  destruye y reconstruye las 400 tarjetas, ~2,2 ms cada una, y `--release`
+  no lo movía ni un punto, porque es trabajo de GTK y no de Rust. Un segundo
+  de bucle principal bloqueado por cambiar de vista es exactamente lo que el
+  criterio de cierre "la interfaz permanece fluida con documentos grandes" no
+  admite.
+
+  Este párrafo decía además que esos 2,2 ms eran "un `Box`, un `Picture`,
+  tres etiquetas y dos botones". Eso resultó **falso**, y lo corrige el ítem
+  14 más abajo: de los 2,2 ms, 2,1 eran el ícono del botón de borrar. No
+  cambia nada del ítem 13 —reutilizar la tarjeta ahorra las dos cosas— pero
+  sí cambiaba a dónde había que ir a buscar el segundo que quedaba.
   - El arreglo es `grid::fill_grid`: si la cuadrícula ya tiene una tarjeta
     por página del modelo, en el orden del modelo, y nada invalidó las
     miniaturas, se quedan las tarjetas que hay y sólo se actualiza lo que una
@@ -1455,34 +1463,85 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   mismas razones: `scripts/package-linux.sh` exige `PDFIUM_ARCHIVE`, que no
   está en esta copia, y `xvfb-run` no está instalado en esta WSL, así que la
   suite GTK corrió bajo WSLg con display real y no por la ruta headless del
-  workflow `linux-gtk-ui`. Ambos corrieron en CI sobre `df13cc7`; §14 cita el
-  job y el run de cada uno.
+  workflow `linux-gtk-ui`. Ambos corren en CI; §14 cita el job, el run y el
+  commit de cada uno.
 
-### Lo que la medición dejó abierto: el primer poblado (2026-09-12)
+### El primer poblado, y dónde estaba de verdad el segundo (2026-09-13)
 
-El ítem 14 es nuevo y sale de releer los números de arriba al cerrar los
-criterios, no de un cambio de código. `grid::fill_grid` arregló **volver** a
-la vista Pages (886 ms → 2,6 ms), pero **construirla la primera vez** sigue
-costando los 891 ms que midió
+El ítem 14 nació de releer los números de arriba al cerrar los criterios, no
+de un cambio de código: `grid::fill_grid` había arreglado **volver** a la
+vista Pages (886 ms → 2,6 ms), pero **construirla la primera vez** seguía
+costando los 891 ms que mide
 `organize::tests::measure::gtk_ui_measure_a_large_documents_grid_and_view_switch`
-sobre 400 páginas, y ese trabajo ocurre en el hilo principal: es un `Box`, un
-`Picture`, tres etiquetas y dos botones por página, con el render de miniatura
-ya descontado (el banco lo sustituye por `capture_thumbnail`, y en la pantalla
-real ocurre fuera del hilo principal de todos modos).
+sobre 400 páginas, en el hilo principal.
 
-Queda abierto y no tildado porque es exactamente el mismo bloqueo que esta
-sección declaró inadmisible para el cambio de vista, sólo que pagado una vez
-por documento en lugar de en cada ida y vuelta. Reutilizar tarjetas no puede
-arreglarlo —la primera vez no hay ninguna que reutilizar—, así que el arreglo
-es otro: construir sólo las tarjetas visibles y completar el resto en
-inactividad, o cambiar el `FlowBox` por un contenedor que recicle filas.
-Ninguna de las dos cosas es un ajuste del código actual, y mezclarla con el
-cierre de este checklist haría que un cambio de arquitectura de la cuadrícula
-entrara escondido en un commit de documentación.
+Esta sección ya había escrito a qué se debían: las tarjetas, "un `Box`, un
+`Picture`, tres etiquetas y dos botones" cada una. **Era falso**, y sólo se
+supo al medir el bucle por partes en vez de entero, que es lo primero que se
+hizo al abrir el ítem en lugar de empezar a reescribir la cuadrícula:
 
-Lo que sí quedó fijado contra regresiones es el coste en renders
-(`organize::tests::thumbnails`), que sí corre en el gate. El tiempo de pared
-no: los dos bancos son `#[ignore]` y miden, no afirman.
+| Fase, sobre 400 páginas | Coste |
+|-------------------------|-------|
+| `build_card` x N        | 908,7 ms |
+| `grid.append` x N (con la función de orden del `FlowBox` activa) | 15,0 ms |
+| `relabel_sources`       | 0,2 ms |
+| de lo anterior, `build_icon` x N | **847,3 ms** |
+
+Las cuatrocientas tarjetas son 61 ms de widgets. Lo que costaba el segundo
+era que el botón de borrar de cada una rasterizaba el **mismo** glifo de 16px
+con librsvg de cero: parsear el SVG, sustituir el tinte, rasterizar y subir
+la textura, cuatrocientas veces. El `FlowBox` —el sospechoso obvio, con su
+función de orden corriendo en cada `append`— cuesta 15 ms y nunca fue el
+problema.
+
+Así que el arreglo no es ninguna de las dos cosas que esta sección había
+propuesto (ni construir sólo lo visible y completar en inactividad, ni
+cambiar el `FlowBox` por un contenedor que recicle filas). Es un memo en
+`app/icons.rs`, `icon_texture`, con clave `(icono, borde físico, tinte)`:
+
+- Es correcto porque un dibujo es función pura de esas tres cosas —el SVG
+  entra por `include_str!` y no puede cambiar en caliente— y un `GdkTexture`
+  es inmutable y con recuento de referencias. Darle a todos el mismo objeto
+  no es un atajo: es la respuesta exacta.
+- La clave es el borde **físico**, no el lógico, porque `draw_icon` multiplica
+  por el factor de escala del monitor. Así una pantalla 2x sigue teniendo su
+  propio mapa de bits en lugar del de 1x escalado y blando, y 16px a 2x y
+  32px a 1x —que sí son los mismos píxeles— comparten entrada.
+- No hay desalojo porque no hay nada que lo haga crecer: el espacio de claves
+  es el `enum Icon`, los pocos tamaños que este shell pide y las constantes de
+  tinte, todo fijo en tiempo de compilación. Ningún documento, usuario ni
+  complemento puede añadir una clave.
+- Una rasterización **fallida** se memoiza como el `None` que devolvió. En un
+  escritorio sin el cargador SVG de pixbuf la respuesta no va a cambiar, y
+  reintentarla una vez por tarjeta es justo el coste que esto elimina.
+
+Medido con el mismo banco, sin tocar la arquitectura de la cuadrícula:
+
+| Sobre 400 páginas | Antes | Después |
+|-------------------|-------|---------|
+| Poblar la cuadrícula | 919,6 ms | **47,2 ms** |
+| Ir a Documents | 7,2 ms | **0,4 ms** |
+| Volver a Pages | 3,7 ms | 2,3 ms |
+
+Documents mejora por lo mismo: sus tarjetas de bloque también llevan íconos.
+
+Lo que queda fijado contra regresiones, y esta vez **sí en el gate**, no en
+un banco `#[ignore]`:
+
+- `icons::tests::gtk_ui_the_same_icon_at_the_same_size_and_tint_is_rasterised_once`
+  y `gtk_ui_a_different_icon_size_or_tint_is_its_own_texture` — el contrato:
+  las peticiones idénticas colapsan, y las que no lo son no.
+- `organize::tests::pages::gtk_ui_every_page_card_wears_the_one_delete_icon_texture`
+  — el contrato donde importaba. Una tarjeta que tiñera su botón de borrar
+  por página, o lo dimensionara contra su propia asignación, sería un cambio
+  de aspecto correcto que vuelve a meter el segundo; esto lo rompe en el
+  gate. Comprobado revirtiendo el memo: sin él, falla.
+
+La lección vale más que el arreglo: esta sección midió el bucle entero,
+dedujo la causa de lo que sabía que había adentro, y la escribió como hecho.
+Cuatro `Instant::now()` bien puestos la desmintieron, y la diferencia entre
+las dos respuestas es un memo de veinte líneas en un módulo contra una
+reescritura de la cuadrícula.
 
 ## 12. Pruebas del núcleo
 
@@ -1685,13 +1744,18 @@ instalado en esta imagen.
 
 ## 14. Gates de verificación
 
-Todos los gates de esta sección se corrieron sobre `df13cc7`, con el árbol de
-trabajo limpio. Es el mismo commit que CI probó, así que los resultados locales
-y los de CI describen exactamente el mismo código. Lo único que quedó encima
-después es la edición de este documento, que no toca código: `cargo fmt`,
-`clippy`, `build` y `test` no lo leen, y `check_maintainability.py` cuenta
-archivos fuente, no Markdown. `git diff --check` se volvió a correr sobre el
-diff de documentación y sigue limpio.
+Todos los gates de esta sección se corrieron sobre `e457146` —el commit del
+ítem 14 de §11—, con el árbol de trabajo limpio. Es el mismo commit que CI
+probó, así que los resultados locales y los de CI describen exactamente el
+mismo código. Lo único que quedó encima después es la edición de este
+documento, que no toca código: `cargo fmt`, `clippy`, `build` y `test` no lo
+leen, y `check_maintainability.py` cuenta archivos fuente, no Markdown.
+`git diff --check` se volvió a correr sobre el diff de documentación y sigue
+limpio.
+
+La tanda anterior corrió igual sobre `df13cc7` y dio los mismos resultados con
+131 filtradas en lugar de 134; la diferencia son las tres pruebas `gtk_ui_`
+que añadió el ítem 14.
 
 Entorno local: WSL2/Ubuntu (`cargo 1.97.1`, `rustc 1.97.1`), con
 `CARGO_TARGET_DIR=$HOME/.cache/pdf-target` y `PDFIUM_DYNAMIC_LIB_PATH`
@@ -1706,8 +1770,8 @@ de `pdf-ffi` por no encontrar la biblioteca, y el fallo no es del código.
 - [x] Ejecutar `cargo build --workspace --locked` — compila (código de salida
   0).
 - [x] Ejecutar `cargo test --workspace --locked -- --skip gtk_ui_` — **1280
-  aprobadas, 0 fallidas, 8 ignoradas, 131 filtradas** en 74 binarios de prueba.
-  Las 131 filtradas son justamente las `gtk_ui_` que el filtro excluye y que
+  aprobadas, 0 fallidas, 8 ignoradas, 134 filtradas** en 74 binarios de prueba.
+  Las 134 filtradas son justamente las `gtk_ui_` que el filtro excluye y que
   cubre el gate siguiente. Las 8 ignoradas son harnesses que se corren a mano:
   los tres de rendimiento (`page_one_renders_under_1_5s_and_thumbnails_populate_under_3s`,
   `annotation_edit_round_trip_cost_by_document_size`,
@@ -1718,10 +1782,14 @@ de `pdf-ffi` por no encontrar la biblioteca, y el fallo no es del código.
 - [x] Ejecutar la suite GTK4 bajo Xvfb en Linux — **corrió en CI, no en esta
   máquina.** `xvfb-run` no está instalado en esta WSL, así que localmente la
   suite GTK4 solo puede correr bajo WSLg con display real, que es otra ruta.
-  La evidencia es el job `GTK UI tests (Linux/X11)` del workflow
-  `linux-gtk-ui`, en verde sobre `df13cc7`
-  ([run 34698435524](https://github.com/PabloBaroParra/vitela/actions/runs/34698435524/job/103565836873),
-  2 m 6 s), que ejecuta exactamente
+  Lo que sí corrió acá es esa otra ruta, bajo WSLg con display real:
+  `cargo test -p linux-gtk --locked gtk_ui_` — **133 aprobadas, 0 fallidas,
+  1 ignorada**. Es evidencia de que las pruebas pasan, no de que pasen por el
+  camino headless del workflow, que es lo que este gate pide.
+  La evidencia del gate como tal es el job `GTK UI tests (Linux/X11)` del
+  workflow `linux-gtk-ui`, en verde sobre `e457146`
+  ([run 34750600812](https://github.com/PabloBaroParra/vitela/actions/runs/34750600812/job/103706478753),
+  2 m 16 s), que ejecuta exactamente
   `xvfb-run --auto-servernum --server-args='-screen 0 1280x800x24' env
   GDK_BACKEND=x11 cargo test -p linux-gtk --locked gtk_ui_`.
 - [x] Ejecutar el empaquetado y smoke test de Linux — **corrió en CI, no en
@@ -1730,17 +1798,18 @@ de `pdf-ffi` por no encontrar la biblioteca, y el fallo no es del código.
   extraída, no el archivo, así que `scripts/verify-linux-package.sh` tampoco
   puede correr acá. La evidencia es el job
   `Linux x86_64 .deb/.AppImage package` del workflow `linux`, en verde sobre
-  `df13cc7`
-  ([run 34698435592](https://github.com/PabloBaroParra/vitela/actions/runs/34698435592/job/103565837005),
-  1 m 37 s), que empaqueta el `.deb` y el `.AppImage` y después los verifica
+  `e457146`
+  ([run 34750600830](https://github.com/PabloBaroParra/vitela/actions/runs/34750600830/job/103706479193),
+  1 m 46 s), que empaqueta el `.deb` y el `.AppImage` y después los verifica
   sin red con `--package-smoke`. Esto **no** es lo mismo que los tests
   `package_smoke` del crate, que sí corren en el gate de `cargo test` de
   arriba.
 - [x] Ejecutar `python3 scripts/check_maintainability.py` — **103 avisos sobre
   295 archivos mantenidos** (código de salida 0). Es la misma cifra que §11 y
   §13, y la misma que la descripción del PR documenta como +5 contra la base
-  de fusión, con sus motivos archivo por archivo. Ningún aviso nuevo entró en
-  esta sección: acá no se tocó código.
+  de fusión, con sus motivos archivo por archivo. El ítem 14 de §11 sí tocó
+  código y la cifra no se movió: `icon_texture` y sus dos pruebas no repiten
+  ningún bloque ni engordan ningún archivo por encima de su umbral.
 - [x] Registrar comandos, resultados y gates no disponibles en la entrega —
   esta sección es ese registro, y la descripción del PR #129 repite qué corrió
   dónde. Además se corrió `git diff --check` (limpio).
@@ -1823,22 +1892,24 @@ código que la sostiene. Ninguno se tilda por inspección.
   y `prepare_rejects_a_wrong_password_for_only_its_source`. Lo que no se
   rechaza pero tampoco viaja se informa antes de confirmar
   (`pdf_manip::graft_report`, §4 y §8).
-- [ ] **La interfaz permanece fluida con documentos grandes.** El único
-  criterio que no se tilda, y la medición es el motivo. Lo que sí está
-  probado: el cambio de vista no vuelve a renderizar nada
-  (`organize::tests::thumbnails::gtk_ui_switching_between_the_two_views_renders_nothing_again`),
+- [x] **La interfaz permanece fluida con documentos grandes.** El último
+  criterio en cerrarse: la primera pasada por esta lista lo dejó sin tildar a
+  propósito, porque la medición tenía evidencia en contra. Sobre 400 páginas:
+  el cambio de vista no vuelve a renderizar nada (`organize::tests::thumbnails::gtk_ui_switching_between_the_two_views_renders_nothing_again`),
   una importación no re-renderiza la cuadrícula donde aterriza
-  (`gtk_ui_importing_pages_does_not_re_render_the_grid_it_lands_in`), y sobre
-  400 páginas ir a Documents cuesta 6,8 ms y volver a Pages 2,6 ms
+  (`gtk_ui_importing_pages_does_not_re_render_the_grid_it_lands_in`), y el
+  trabajo de hilo principal es de **47,2 ms** para poblar la cuadrícula,
+  0,4 ms para ir a Documents y 2,3 ms para volver
   (`organize::tests::measure::gtk_ui_measure_a_large_documents_grid_and_view_switch`,
   con `pdf-save/tests/perf_large_assembly.rs::importing_rendering_and_switching_views_on_a_large_assembly`
-  del lado del núcleo). Lo que no está resuelto: **poblar la cuadrícula por
-  primera vez sigue costando 891 ms de hilo principal** en ese mismo banco, el
-  mismo orden de magnitud que §11 declaró inadmisible cuando lo pagaba cada
-  cambio de vista. Eso es el ítem 14 nuevo de §11, con su nota de progreso; se
-  tilda cuando el primer poblado deje de bloquear, no antes. Los dos bancos
-  además son `#[ignore]`: miden, no afirman, así que lo único que protege
-  contra una regresión en el gate es el conteo de renders.
+  del lado del núcleo). Los 891 ms de primer poblado que dejaron este
+  criterio abierto eran el ícono del botón de borrar rasterizado una vez por
+  tarjeta; el ítem 14 de §11 lo cuenta entero.
+
+  Los dos bancos siguen siendo `#[ignore]`: miden, no afirman. Lo que corre
+  en el gate es el conteo de renders y, desde el ítem 14,
+  `organize::tests::pages::gtk_ui_every_page_card_wears_the_one_delete_icon_texture`,
+  que es lo que falla si el segundo vuelve por donde se fue.
 - [x] **Todos los gates disponibles están ejecutados y documentados.** §14
   nombra cada gate con su comando y su resultado, y dice de los dos que esta
   máquina no puede correr dónde corrieron y sobre qué commit.
