@@ -138,6 +138,52 @@ impl AnnotationSet {
         Some(std::mem::replace(slot, annotation))
     }
 
+    /// Removes every annotation anchored to `page`, returning each one
+    /// paired with the position it held, ascending.
+    ///
+    /// Exists because a page and what sits on it cannot be separated: an
+    /// annotation whose `page` is not in `Document.pages` makes the document
+    /// **unsaveable** — `pdf_save::attach_annotations` rejects the whole save
+    /// with `InvalidSaveRequest` rather than write a dangling reference. So
+    /// `Command::RemovePage` takes these with it and its inverse puts them
+    /// back through [`AnnotationSet::restore`].
+    ///
+    /// The positions are the point. This set's order is its paint order and
+    /// is asserted byte-identical across platforms (see the type doc), so an
+    /// undo that appended the annotations instead of returning them to their
+    /// own slots would silently restack the page.
+    pub fn take_page(&mut self, page: PageId) -> Vec<(usize, Annotation)> {
+        let mut taken = Vec::new();
+        let mut position = 0;
+        self.annotations.retain(|annotation| {
+            let index = position;
+            position += 1;
+            if annotation.page == page {
+                taken.push((index, annotation.clone()));
+                false
+            } else {
+                true
+            }
+        });
+        taken
+    }
+
+    /// Puts annotations captured by [`AnnotationSet::take_page`] back at the
+    /// positions they were taken from.
+    ///
+    /// Inserting in ascending index order is what makes each slot correct as
+    /// it is reached: every earlier entry is already back in place, so the
+    /// vector has exactly the length its recorded index was measured
+    /// against. Entries out of order, or from a set that has changed shape
+    /// since, are clamped to the end rather than panicking — a command's
+    /// inverse must never be able to abort the process.
+    pub fn restore(&mut self, taken: Vec<(usize, Annotation)>) {
+        for (index, annotation) in taken {
+            let at = index.min(self.annotations.len());
+            self.annotations.insert(at, annotation);
+        }
+    }
+
     pub fn get(&self, id: AnnotationId) -> Option<&Annotation> {
         self.annotations.iter().find(|a| a.id == id)
     }
@@ -232,5 +278,58 @@ mod tests {
 
         assert!(set.replace(sample_annotation(42)).is_none());
         assert_eq!(set.len(), 1);
+    }
+
+    fn on_page(id: u64, page: u32) -> Annotation {
+        let mut annotation = sample_annotation(id);
+        annotation.page = PageId(page);
+        annotation
+    }
+
+    #[test]
+    fn take_page_removes_only_that_page_and_records_where_each_one_sat() {
+        let mut set = AnnotationSet::new();
+        set.insert(on_page(1, 0));
+        set.insert(on_page(2, 1));
+        set.insert(on_page(3, 0));
+        set.insert(on_page(4, 1));
+
+        let taken = set.take_page(PageId(1));
+
+        assert_eq!(
+            taken.iter().map(|(at, a)| (*at, a.id)).collect::<Vec<_>>(),
+            vec![(1, AnnotationId(2)), (3, AnnotationId(4))]
+        );
+        assert_eq!(
+            set.iter().map(|a| a.id).collect::<Vec<_>>(),
+            vec![AnnotationId(1), AnnotationId(3)]
+        );
+    }
+
+    #[test]
+    fn take_page_of_a_page_with_nothing_on_it_changes_nothing() {
+        let mut set = AnnotationSet::new();
+        set.insert(on_page(1, 0));
+
+        assert!(set.take_page(PageId(9)).is_empty());
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn restore_puts_every_annotation_back_at_its_original_position() {
+        let mut set = AnnotationSet::new();
+        set.insert(on_page(1, 0));
+        set.insert(on_page(2, 1));
+        set.insert(on_page(3, 0));
+        set.insert(on_page(4, 1));
+        let before = set.clone();
+
+        let taken = set.take_page(PageId(1));
+        set.restore(taken);
+
+        assert_eq!(
+            set, before,
+            "take_page followed by restore must be an identity on the set"
+        );
     }
 }

@@ -127,7 +127,18 @@ fn search_returns_page_index_and_matching_pdf_space_geometry() {
 #[test]
 fn search_uses_render_side_page_indexes_until_structural_edits_are_saved() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
-    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+    // Both passwords: the corpus fixture's `/P` grants printing and copying
+    // only, so a user-credential open cannot assemble it (see
+    // `a_user_open_of_a_restricted_document_cannot_assemble_it`), and a
+    // single-password open cannot start a structural edit at all (see
+    // `single_password_open_refuses_a_structural_edit_before_recording_it`).
+    // The subject here is page indexing, not permissions.
+    let handle = open_with_passwords_from_bytes(
+        bytes,
+        "user-rc4-pass".to_string(),
+        "owner-rc4-pass".to_string(),
+    )
+    .unwrap();
     apply_edit(
         &handle,
         FfiEditCommand::InsertBlankPage {
@@ -255,30 +266,124 @@ fn open_from_bytes_missing_password_is_a_typed_error() {
 // open so both PDF password roles can be re-applied.
 // ---------------------------------------------------------------------
 
+/// Checklist §5 item 5 (`docs/batch-pdf-assembly.md`): the encryption is
+/// checked *before* the edit, not at the save that would fail.
+///
+/// A structural page edit forces the full-rewrite writer, which cannot
+/// reconstruct the unknown second password — so on a single-password open it
+/// is not work to be saved later, it is work that can never be saved at all.
+/// Until this gate existed the edit was accepted, the preview refreshed, and
+/// the refusal arrived only once the user pressed save, with the reordering
+/// already done.
 #[test]
-fn single_password_open_cannot_full_rewrite_an_encrypted_document() {
+fn single_password_open_refuses_a_structural_edit_before_recording_it() {
     let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
-    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+    // Opened with the owner password alone: one password, so the rewrite is
+    // impossible, and the owner credential is what clears the assembly
+    // permission gate — leaving the rewritability question as the only thing
+    // this test can be failing on.
+    let handle = open_from_bytes(bytes, Some("owner-rc4-pass".to_string())).unwrap();
 
-    // A structural page edit forces the full-rewrite writer, which cannot
-    // reconstruct the unknown owner password — must be a typed error, never
-    // a silent security-policy change.
-    apply_edit(
-        &handle,
+    for command in [
         FfiEditCommand::InsertBlankPage {
             index: 0,
             size: FfiPageSize::A4,
             orientation: FfiOrientation::Portrait,
         },
-    )
-    .unwrap();
+        FfiEditCommand::RemovePage { index: 0 },
+    ] {
+        assert!(
+            matches!(
+                apply_edit(&handle, command.clone()),
+                Err(FfiError::UnsupportedOperation { .. })
+            ),
+            "{command:?} rewrites the whole file and must be refused up front"
+        );
+    }
 
-    let result = save_to_bytes(
+    assert!(
+        !handle.can_undo(),
+        "a refused edit must leave no undo step behind"
+    );
+}
+
+/// The other half of the same boundary: rotation is a document-assembly
+/// operation but **not** a page-structure one, so it stays on the incremental
+/// writer and a single-password open may still do it — and still save it.
+/// Refusing it would invent a restriction the document never declared.
+#[test]
+fn single_password_open_still_rotates_and_saves_incrementally() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("owner-rc4-pass".to_string())).unwrap();
+
+    apply_edit(
+        &handle,
+        FfiEditCommand::RotatePage {
+            page: 0,
+            delta_degrees: 90,
+        },
+    )
+    .expect("a rotation needs no full rewrite");
+
+    save_to_bytes(
         &handle,
         FfiSaveIntent::Default,
         FfiSignatureAcknowledgement::Unacknowledged,
-    );
-    assert!(matches!(result, Err(FfiError::InvalidSaveRequest { .. })));
+    )
+    .expect("an incremental save re-encrypts from lopdf's own retained state");
+}
+
+/// The refusal explains what to do without ever naming a credential
+/// (checklist §5 item 4).
+#[test]
+fn a_refused_rewrite_names_no_password() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("owner-rc4-pass".to_string())).unwrap();
+
+    let Err(FfiError::UnsupportedOperation { detail }) =
+        apply_edit(&handle, FfiEditCommand::RemovePage { index: 0 })
+    else {
+        panic!("a single-password open must refuse a structural edit");
+    };
+
+    assert!(!detail.contains("owner-rc4-pass"), "leaked: {detail}");
+    assert!(detail.contains("passwords"), "unhelpful refusal: {detail}");
+}
+
+/// `/P` bit 11 (document assembly) reaches this boundary at last: the corpus
+/// fixture grants printing and copying and nothing else, so a user-credential
+/// open may read it and must not repaginate it. Before the gate existed, all
+/// three page commands crossed here unasked — `is_annotation_command` and
+/// `is_content_command` both disclaim them, so nothing checked at all.
+#[test]
+fn a_user_open_of_a_restricted_document_cannot_assemble_it() {
+    let bytes = fixture_bytes("rc4_128_user_and_owner.pdf");
+    let handle = open_from_bytes(bytes, Some("user-rc4-pass".to_string())).unwrap();
+
+    for command in [
+        FfiEditCommand::InsertBlankPage {
+            index: 0,
+            size: FfiPageSize::A4,
+            orientation: FfiOrientation::Portrait,
+        },
+        FfiEditCommand::RemovePage { index: 0 },
+        FfiEditCommand::RotatePage {
+            page: 0,
+            delta_degrees: 90,
+        },
+    ] {
+        assert!(
+            matches!(
+                apply_edit(&handle, command.clone()),
+                Err(FfiError::UnsupportedOperation { .. })
+            ),
+            "{command:?} must be refused without the assembly permission"
+        );
+    }
+
+    // Refused before anything was recorded: a rejected command must not leave
+    // the shell an undo step for an edit that never happened.
+    assert!(!handle.can_undo());
 }
 
 #[test]
@@ -517,6 +622,27 @@ fn remove_page_with_out_of_bounds_index_returns_typed_error() {
     assert!(matches!(
         result,
         Err(FfiError::PageIndexOutOfBounds { index: 5 })
+    ));
+}
+
+#[test]
+fn insert_blank_page_past_the_end_returns_typed_error() {
+    let handle =
+        create_document_with_blank_page(FfiPageSize::A4, FfiOrientation::Portrait).unwrap();
+    // One page exists, so index 1 would append; 9 addresses nothing. Before
+    // this was checked the index reached `Vec::insert` and aborted the
+    // process — across the FFI boundary a panic is not catchable.
+    let result = apply_edit(
+        &handle,
+        FfiEditCommand::InsertBlankPage {
+            index: 9,
+            size: FfiPageSize::A4,
+            orientation: FfiOrientation::Portrait,
+        },
+    );
+    assert!(matches!(
+        result,
+        Err(FfiError::PageIndexOutOfBounds { index: 9 })
     ));
 }
 

@@ -63,6 +63,7 @@ fn save_with_original(
         original_bytes: Some(original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("save should succeed")
 }
@@ -291,6 +292,7 @@ fn editing_a_text_run_reaches_the_saved_file() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("save should succeed");
 
@@ -525,6 +527,7 @@ fn a_content_edit_forces_a_full_rewrite_even_when_an_append_was_available() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("save should succeed");
 
@@ -567,6 +570,7 @@ fn a_save_carrying_an_unencodable_edit_fails_instead_of_dropping_it() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     });
 
     assert!(matches!(result, Err(pdf_save::SaveError::Edit(_))));
@@ -599,6 +603,7 @@ fn a_batch_of_content_edits_all_reach_the_file() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("save should succeed");
 
@@ -630,14 +635,8 @@ fn an_edit_after_a_page_deletion_still_lands_on_the_page_it_named() {
         .remove(0);
     assert_eq!(run.text, "doc page 2", "the fixture labels every page");
 
-    let removed = document.pages[0].clone();
-    apply_command(
-        &mut document,
-        Command::RemovePage {
-            index: 0,
-            page: removed,
-        },
-    );
+    let removal = Command::remove_page(&document, 0).expect("page 0 exists");
+    apply_command(&mut document, removal);
     apply_command(
         &mut document,
         Command::ReplaceTextRunContent {
@@ -652,6 +651,7 @@ fn an_edit_after_a_page_deletion_still_lands_on_the_page_it_named() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("save should succeed");
 
@@ -697,14 +697,8 @@ fn an_edit_on_a_page_the_same_batch_deleted_is_dropped_with_the_page() {
             after: "edited".to_string(),
         },
     );
-    let removed = document.pages[0].clone();
-    apply_command(
-        &mut document,
-        Command::RemovePage {
-            index: 0,
-            page: removed,
-        },
-    );
+    let removal = Command::remove_page(&document, 0).expect("page 0 exists");
+    apply_command(&mut document, removal);
 
     let saved = save_document(SaveInput {
         document: &document,
@@ -712,6 +706,7 @@ fn an_edit_on_a_page_the_same_batch_deleted_is_dropped_with_the_page() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("save should succeed");
 
@@ -790,6 +785,7 @@ fn editing_content_in_a_signed_document_warns_before_the_save() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
 
     assert!(
@@ -807,6 +803,7 @@ fn editing_content_in_a_signed_document_warns_before_the_save() {
 
     let acknowledged = SaveInput {
         signatures: SignatureAcknowledgement::ProceedAndInvalidate,
+        imported_sources: pdf_save::ImportedSources::none(),
         ..unacknowledged
     };
     let saved = save_document(acknowledged)
@@ -843,6 +840,7 @@ fn an_unsigned_document_saves_without_any_acknowledgement() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("nothing to acknowledge");
 
@@ -870,6 +868,7 @@ fn a_signed_document_saved_incrementally_needs_no_acknowledgement() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("an append does not touch the signed bytes");
 
@@ -898,6 +897,7 @@ fn a_signed_document_with_no_edits_is_not_reported_as_invalidated() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("check should succeed");
 
@@ -967,6 +967,7 @@ fn the_reportlab_fixture_accepts_ascii_and_rejects_what_its_encoding_cannot_map(
         original_bytes: Some(&bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("plain ASCII should encode against this font's fallback table");
     assert_eq!(page_texts(&saved), vec!["New Words".to_string()]);
@@ -989,6 +990,7 @@ fn the_reportlab_fixture_accepts_ascii_and_rejects_what_its_encoding_cannot_map(
         original_bytes: Some(&bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     });
     assert!(matches!(
         result,
@@ -1251,6 +1253,7 @@ fn an_unsigned_document_reports_no_signature_invalidation() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("check should succeed");
 

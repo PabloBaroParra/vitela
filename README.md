@@ -137,14 +137,16 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
 | Open a PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Built-in sample document | ✅ | ✅ | 🚧 | ✅ | 🚧 |
-| Password-protected PDF | ✅ | — | 🚧 | 🚧 | 🚧 |
+| Password-protected PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
-| Annotate | 🚧 | — | — | — | — |
+| Annotate | ✅ | ✅ | — | — | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
-| Save / export | — | — | — | — | — |
+| Organize & assemble pages | ✅ | — | — | — | — |
+| Save | ✅ | ✅ | — | — | — |
+| Export to images | — | — | — | — | — |
 | Sign | — | — | — | — | — |
 | Fillable forms | — | — | — | — | — |
 

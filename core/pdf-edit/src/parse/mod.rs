@@ -8,6 +8,7 @@
 //! cached.
 
 mod filter;
+mod fonts;
 pub(crate) use filter::encode_flate;
 pub mod interpreter;
 pub mod lexer;
@@ -17,10 +18,11 @@ pub use interpreter::{LocatedContent, LocatedImage, LocatedTextRun, PageStream, 
 pub use lexer::{tokenize, Operand, SpannedOperation};
 pub use matrix::Matrix;
 
+pub use fonts::{page_font_families, page_object_font_families};
+
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use pdf_document::{PageContent, PageId};
-use std::collections::BTreeMap;
 
 /// Reads the text runs and images painted by `page`, on demand.
 ///
@@ -35,59 +37,26 @@ use std::collections::BTreeMap;
 /// see [`page_object_id`].
 pub fn read_page_content(document: &Document, page: PageId) -> Result<PageContent, EditError> {
     let page_object = page_object_id(document, page)?;
-    Ok(read_located_content(document, page_object)?.page_content(page))
+    read_page_object_content(document, page_object, page)
 }
 
-/// The `/BaseFont` name of every font a page's resources declare, keyed by
-/// the resource name a [`pdf_document::TextRun`] reports
-/// (`resource_font_name`).
+/// The same read, for a page the caller has already resolved to an object.
 ///
-/// Exists for shells that draw their own editing overlay on top of the page.
-/// A run says which resource it is painted with, not what that resource *is*,
-/// so an overlay has no way to pick a face that matches the page — and a
-/// mismatched face lands in the wrong place, at the wrong width, however
-/// carefully it is positioned. The name is returned raw, subset prefix and
-/// style suffix included (`ABCDEF+Times-Bold`): trimming it is a decision
-/// about which local font to substitute, which belongs to whoever is doing
-/// the substituting.
+/// Exists because a positional resolve cannot reach every page a session can
+/// show. An imported page lives in the PDF it was imported from, not in the
+/// document being edited, and its `PageId` was never a position in anything —
+/// so the caller that knows where the page's bytes are (`pdf_save::
+/// page_backing`) resolves the object and this parses it.
 ///
-/// A font whose dictionary has no readable `/BaseFont` is left out rather
-/// than guessed at, so a caller can tell "the page did not say" from "the
-/// page said something I do not recognise".
-pub fn page_font_families(
+/// `page` is stamped onto every item returned and is **not** re-derived from
+/// `page_object`: an item has to name the page the *model* knows, or the save
+/// that replays the edit will not find the page to write it on.
+pub fn read_page_object_content(
     document: &Document,
+    page_object: ObjectId,
     page: PageId,
-) -> Result<BTreeMap<String, String>, EditError> {
-    let page_object = page_object_id(document, page)?;
-    let page_dict = document.get_dictionary(page_object)?;
-    let resources = page_resources(document, page_dict);
-
-    let mut families = BTreeMap::new();
-    let Some(fonts) = dereference(document, resources.get(b"Font").unwrap_or(&Object::Null)) else {
-        return Ok(families);
-    };
-    let Object::Dictionary(fonts) = fonts else {
-        return Ok(families);
-    };
-
-    for (name, value) in fonts.iter() {
-        let Some(Object::Dictionary(font_dict)) = dereference(document, value) else {
-            continue;
-        };
-        let Some(base_font) = dereference(
-            document,
-            font_dict.get(b"BaseFont").unwrap_or(&Object::Null),
-        )
-        .and_then(|object| object.as_name().ok()) else {
-            continue;
-        };
-        families.insert(
-            String::from_utf8_lossy(name).into_owned(),
-            String::from_utf8_lossy(base_font).into_owned(),
-        );
-    }
-
-    Ok(families)
+) -> Result<PageContent, EditError> {
+    Ok(read_located_content(document, page_object)?.page_content(page))
 }
 
 /// The same read, keeping the byte locations [`crate::edit`] needs.
@@ -129,7 +98,7 @@ pub fn page_object_id(document: &Document, page: PageId) -> Result<ObjectId, Edi
 /// The page's resource dictionary, inherited from an ancestor `/Pages` node
 /// when the page itself does not carry one — inheritance is normal in files
 /// produced by tools that share resources across pages.
-fn page_resources(document: &Document, page_dict: &Dictionary) -> Dictionary {
+pub(super) fn page_resources(document: &Document, page_dict: &Dictionary) -> Dictionary {
     let mut current = page_dict.clone();
 
     for _ in 0..MAX_INHERITANCE_DEPTH {
@@ -196,7 +165,7 @@ pub(crate) fn page_streams(
     Ok(streams)
 }
 
-fn dereference<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {
+pub(super) fn dereference<'a>(document: &'a Document, object: &'a Object) -> Option<&'a Object> {
     match object {
         Object::Reference(id) => document.get_object(*id).ok(),
         direct => Some(direct),

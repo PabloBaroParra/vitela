@@ -4,7 +4,7 @@
 
 use gtk::prelude::*;
 use gtk::{gio, Button, FlowBox, PolicyType, ScrolledWindow, SelectionMode, ToggleButton};
-use pdf_document::{AnnotationId, Command, PageId, Rect};
+use pdf_document::{AnnotationId, Command, Rect};
 use pdf_render::TextRect;
 
 use crate::app::selection;
@@ -229,7 +229,10 @@ fn markup_text_selection(viewer: &Viewer, tool: Tool) -> bool {
         return false;
     };
     command(viewer, move |session| {
-        let page = PageId(page_index as u32);
+        // See `DocumentSession::backend_pages`.
+        let page = session
+            .backend_page_id(page_index)
+            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
         for rect in &rects {
             let id = AnnotationId(session.next_annotation_id);
             let annotation = markup_annotation(tool, id, page, text_rect_to_pdf(*rect))?;

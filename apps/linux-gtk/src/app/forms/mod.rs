@@ -14,7 +14,7 @@
 //! `restyle_field` are infallible (`pdf-form::ops`'s own doc), so there is no
 //! validate-before-record probe, and no form-field `Command` variant is a
 //! content edit (`Command::is_content_edit`), so a plain `selection::redraw`
-//! after recording is enough — no `document::refresh_after_content_edit`
+//! after recording is enough — no `document::refresh_preview`
 //! save→reopen cycle.
 //!
 //! Split by responsibility, mirroring `annotations`:

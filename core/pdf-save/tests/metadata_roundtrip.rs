@@ -43,6 +43,7 @@ fn save_with_original(
         original_bytes: Some(original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("save should succeed")
 }

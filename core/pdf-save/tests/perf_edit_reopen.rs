@@ -222,6 +222,7 @@ fn measure(shape: &Shape) {
             original_bytes: Some(&original_bytes),
             intent: SaveIntent::Default,
             signatures: SignatureAcknowledgement::Unacknowledged,
+            imported_sources: pdf_save::ImportedSources::none(),
         };
         let input_build = start.elapsed();
 
@@ -274,6 +275,7 @@ fn measure(shape: &Shape) {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let final_bytes = save_document(final_input).expect("final save");
     let reloaded = lopdf::Document::load_mem(&final_bytes).expect("reload final save");

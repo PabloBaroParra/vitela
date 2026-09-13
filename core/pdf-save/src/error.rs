@@ -52,6 +52,14 @@ pub enum SaveError {
     /// without attempting a save, so a shell can warn before the user even
     /// presses save.
     SignaturesWouldBeInvalidated,
+    /// A PDF offered as an import source withholds the permission to copy or
+    /// extract its content (`/P` bit 5), so its pages may not be lifted into
+    /// another document.
+    ///
+    /// Refused at registration rather than at save time: a source that may
+    /// not be imported must never reach the page list at all, or the user
+    /// arranges pages that then refuse to save.
+    SourceForbidsImport,
 }
 
 impl fmt::Display for SaveError {
@@ -66,6 +74,11 @@ impl fmt::Display for SaveError {
             SaveError::Image(err) => write!(f, "image encode failed: {err}"),
             SaveError::Render(err) => write!(f, "render failed during export: {err}"),
             SaveError::InvalidSaveRequest(msg) => write!(f, "invalid save request: {msg}"),
+            SaveError::SourceForbidsImport => write!(
+                f,
+                "this PDF does not permit copying or extracting its content, \
+                 so its pages cannot be imported into another document"
+            ),
             SaveError::SignaturesWouldBeInvalidated => write!(
                 f,
                 "this save rewrites the file and the file carries a signature, \
@@ -87,7 +100,9 @@ impl std::error::Error for SaveError {
             SaveError::Io(err) => Some(err),
             SaveError::Image(err) => Some(err),
             SaveError::Render(err) => Some(err),
-            SaveError::InvalidSaveRequest(_) | SaveError::SignaturesWouldBeInvalidated => None,
+            SaveError::InvalidSaveRequest(_)
+            | SaveError::SignaturesWouldBeInvalidated
+            | SaveError::SourceForbidsImport => None,
         }
     }
 }

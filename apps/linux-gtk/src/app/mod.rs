@@ -29,6 +29,8 @@ mod state;
 mod tools_panel;
 
 #[cfg(test)]
+mod test_fixtures;
+#[cfg(test)]
 mod ui_tests;
 
 use std::cell::RefCell;
@@ -406,11 +408,13 @@ fn build_ui(application: &Application) -> BuiltUi {
             active_tool: None,
             content_edit_mode: false,
             content_insert_mode: None,
-            content_refresh_in_flight: false,
-            content_refresh_pending: None,
+            preview_refresh_in_flight: false,
+            preview_refresh_pending: None,
             form_edit_mode: false,
             form_field_kind: None,
             password_dialog: None,
+            import_password_dialog: None,
+            import_cancellation: None,
             pfx_dialog: None,
             pkcs11_dialog: None,
             nss_dialog: None,

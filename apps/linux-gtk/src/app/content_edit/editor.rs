@@ -23,11 +23,11 @@ use gtk::{
     gdk, glib, Entry, EventControllerFocus, EventControllerKey, EventSequenceState, GestureDrag,
     PropagationPhase,
 };
-use pdf_document::{Command, ContentItemId, FontKind, PageId, Rect, TextRun};
+use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 use pdf_edit::EditError;
 use pdf_render::{place_rect, TextRect};
 
-use crate::app::document::refresh_after_content_edit;
+use crate::app::document::refresh_preview;
 use crate::app::state::{ContentEditor, PageSlot, Viewer};
 use crate::app::update_content_edit_controls;
 
@@ -182,30 +182,34 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
         let Some(session) = state.session.as_mut() else {
             return;
         };
-        let Some(base) = session
-            .save_backing
-            .as_ref()
-            .map(|backing| backing.base.as_lopdf())
-        else {
+        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
+            return;
+        };
+        let Some(document) = session.document_model.as_ref() else {
             return;
         };
         // Collected into an owned `Vec` before `session.pages` is borrowed
         // mutably below — see `image::apply_insertion` for the same shape and
         // the reason the base document alone cannot answer this.
-        let reserved = session
-            .document_model
-            .as_ref()
-            .map(|document| model::reserved_font_resource_names(&document.pending_edits))
-            .unwrap_or_default();
-        let pending = session
-            .document_model
-            .as_ref()
-            .map(|document| &document.pending_edits);
+        let reserved = model::reserved_font_resource_names(&document.pending_edits);
+        let pending = Some(&document.pending_edits);
+        // The canvas index names a page id only through the open handle, and
+        // only a page whose bytes this session can reach has content to
+        // parse — see `super::content_page`.
+        let Some(page_id) = super::content_page(session, page_index) else {
+            return;
+        };
+        // Before the mutable `pages` borrow below: the probe reads other
+        // fields of the same session.
+        let Some(probe) = super::page_probe(document, base, &session.imported_sources, page_id)
+        else {
+            return;
+        };
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
         let resource_font_name =
-            match model::ensure_page_content(&mut page.content, base, page_index, pending) {
+            match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
                 Ok(content) => model::unused_font_resource_name(content, &reserved),
                 Err(error) => {
                     drop(state);
@@ -231,7 +235,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             // `PageContent`'s real ids come from the *next* parse, once the
             // run this template describes actually exists on the page.
             id: ContentItemId(0),
-            page: PageId(page_index as u32),
+            page: page_id,
             bbox,
             resource_font_name,
             font_kind: FontKind::Standard14,
@@ -523,16 +527,31 @@ pub(crate) fn commit(viewer: &Viewer) {
         return;
     }
 
-    let page_index = editor.page_index;
     let is_insertion = editor.is_insertion;
     let amends = editor.amends;
     let run = editor.run.clone();
-    let base = session
+    let base = &session
         .save_backing
         .as_ref()
         .expect("content_edit_refusal already required a model, which requires save_backing")
-        .base
-        .as_lopdf();
+        .base;
+    let Some(document) = session.document_model.as_ref() else {
+        return;
+    };
+    // Resolved through the run's own page rather than through a position:
+    // an imported page's bytes are in the PDF it came from
+    // (`super::page_probe`). A page this session cannot reach is one no
+    // command against it could be validated on, so the edit is refused
+    // rather than probed against the wrong document.
+    let Some(probe) = super::page_probe(document, base, &session.imported_sources, run.page) else {
+        let editor = session.content_editor.take().expect("checked above");
+        drop(state);
+        detach(viewer, &editor);
+        viewer
+            .status
+            .set_text("That page cannot be edited — nothing was recorded.");
+        return;
+    };
 
     // Checked before `is_insertion`, and it wins: a run that came off the
     // overlay is a retype of something already queued whether that something
@@ -567,9 +586,9 @@ pub(crate) fn commit(viewer: &Viewer) {
         };
 
         let validated = match &amended {
-            Command::InsertTextRun(run) => validate_insert_text(base, page_index, run),
+            Command::InsertTextRun(run) => validate_insert_text(probe, run),
             Command::ReplaceTextRunContent { item, after } => {
-                validate_replacement(base, page_index, item, after)
+                validate_replacement(probe, item, after)
             }
             // `amended_command` produces no other shape.
             _ => Ok(()),
@@ -601,7 +620,7 @@ pub(crate) fn commit(viewer: &Viewer) {
                 session.unsaved_to_disk = true;
                 drop(state);
                 detach(viewer, &editor);
-                refresh_after_content_edit(viewer, "Text updated.");
+                refresh_preview(viewer, "Text updated.");
             }
             Err(error) => {
                 drop(state);
@@ -614,7 +633,7 @@ pub(crate) fn commit(viewer: &Viewer) {
     if is_insertion {
         let mut new_run = run;
         new_run.text = after;
-        match validate_insert_text(base, page_index, &new_run) {
+        match validate_insert_text(probe, &new_run) {
             Ok(()) => {
                 let document = session
                     .document_model
@@ -623,7 +642,7 @@ pub(crate) fn commit(viewer: &Viewer) {
                 apply_command(document, Command::InsertTextRun(new_run));
                 session.edit_revision += 1;
                 // Marked here, at the moment the command joins the log, not
-                // when `refresh_after_content_edit` lands: a refresh that
+                // when `refresh_preview` lands: a refresh that
                 // fails still leaves a recorded edit behind, and a document
                 // that reports itself clean is one the open-another-document
                 // guard will discard without asking.
@@ -631,7 +650,7 @@ pub(crate) fn commit(viewer: &Viewer) {
                 let editor = session.content_editor.take().expect("checked above");
                 drop(state);
                 detach(viewer, &editor);
-                refresh_after_content_edit(viewer, "Text inserted.");
+                refresh_preview(viewer, "Text inserted.");
             }
             Err(error) => {
                 drop(state);
@@ -641,7 +660,7 @@ pub(crate) fn commit(viewer: &Viewer) {
         return;
     }
 
-    match validate_replacement(base, page_index, &run, &after) {
+    match validate_replacement(probe, &run, &after) {
         Ok(()) => {
             let document = session
                 .document_model
@@ -661,7 +680,7 @@ pub(crate) fn commit(viewer: &Viewer) {
             let editor = session.content_editor.take().expect("checked above");
             drop(state);
             detach(viewer, &editor);
-            refresh_after_content_edit(viewer, "Text updated.");
+            refresh_preview(viewer, "Text updated.");
         }
         Err(error) => {
             // A move recorded just above stays recorded: it validated on its
@@ -743,7 +762,6 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     if editor.is_insertion {
         return;
     }
-    let page_index = editor.page_index;
     let amends = editor.amends;
     let run = editor.run.clone();
 
@@ -774,13 +792,23 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     let target = match &removal {
         Removal::Append(run) | Removal::Amend(_, run) => run,
     };
-    let base = session
+    let base = &session
         .save_backing
         .as_ref()
         .expect("content_edit_refusal already required a model, which requires save_backing")
-        .base
-        .as_lopdf();
-    if let Err(error) = validate_remove_text(base, page_index, target) {
+        .base;
+    let Some(document) = session.document_model.as_ref() else {
+        return;
+    };
+    let Some(probe) = super::page_probe(document, base, &session.imported_sources, target.page)
+    else {
+        drop(state);
+        viewer
+            .status
+            .set_text("That page cannot be edited — nothing was recorded.");
+        return;
+    };
+    if let Err(error) = validate_remove_text(probe, target) {
         // The editor stays open holding the run, exactly as a failed
         // replacement leaves it — the delete did not happen, so the target
         // has not stopped being one.
@@ -822,7 +850,7 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     session.unsaved_to_disk = true;
     drop(state);
     detach(viewer, &editor);
-    refresh_after_content_edit(viewer, "Text deleted.");
+    refresh_preview(viewer, "Text deleted.");
 }
 
 /// Discards the open editor without recording anything (Escape, or content

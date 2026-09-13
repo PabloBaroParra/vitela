@@ -70,10 +70,70 @@
 use std::collections::{HashMap, HashSet};
 
 use lopdf::{Object, ObjectId};
-use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
+use pdf_document::{
+    Document, ImportedDocumentId, Orientation, Page, PageId, PageOrigin, PageSize, Rotation,
+};
 use pdf_manip::LopdfDocument;
 
 use crate::error::SaveError;
+
+/// The imported PDFs a save is allowed to materialize pages from.
+///
+/// A page whose origin is [`PageOrigin::Imported`] names its source by
+/// [`ImportedDocumentId`] and nothing else — `pdf_document` is a pure model
+/// with no I/O dependencies, so it cannot hold the bytes those pages actually
+/// come from. Something has to carry them across the boundary at save time,
+/// and this is it: the session that imported a PDF keeps it, and hands it back
+/// here when the document is written.
+///
+/// Empty ([`ImportedSources::none`]) is the right answer for every save of a
+/// document that never imported anything, which is most of them — a save that
+/// meets an imported page with no matching source is refused rather than
+/// guessed at, before a single object is written.
+///
+/// A slice rather than a map: a document has a handful of imported sources,
+/// not thousands, and a borrowed slice lets a caller build one on the stack
+/// without owning a collection just to describe "none".
+///
+/// Two lifetimes, not one: `'s` is how long the slice itself lives, `'d` how
+/// long the documents it points at do. They are genuinely independent — a
+/// caller commonly builds the slice as a local from state it borrows for far
+/// longer — and conflating them would shorten every resolved document to the
+/// life of a temporary registry, forcing callers to keep scaffolding alive
+/// around a reference that never needed it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ImportedSources<'s, 'd> {
+    sources: &'s [(ImportedDocumentId, &'d LopdfDocument)],
+}
+
+impl<'s, 'd> ImportedSources<'s, 'd> {
+    /// The registry for a save with no imported pages to materialize.
+    pub fn none() -> Self {
+        Self::default()
+    }
+
+    /// A registry over `sources`. Construction does not reject a repeated
+    /// id — [`replay_page_ops`] does, before grafting a single page, so a
+    /// duplicate is a save-time error rather than [`get`](Self::get) silently
+    /// resolving the second source under the first source's id.
+    pub fn new(sources: &'s [(ImportedDocumentId, &'d LopdfDocument)]) -> Self {
+        Self { sources }
+    }
+
+    /// The document `id` names, or `None` when this save was not given it.
+    pub fn get(&self, id: ImportedDocumentId) -> Option<&'d LopdfDocument> {
+        self.sources
+            .iter()
+            .find(|(source, _)| *source == id)
+            .map(|(_, document)| *document)
+    }
+
+    /// Whether the same [`ImportedDocumentId`] names more than one entry.
+    fn has_duplicate_ids(&self) -> bool {
+        let mut seen = HashSet::new();
+        !self.sources.iter().all(|(id, _)| seen.insert(*id))
+    }
+}
 
 /// Numeric clockwise degrees for a `Rotation` value. `Rotation` is not
 /// `#[non_exhaustive]` (unlike most of `pdf_document`'s enums), so this match
@@ -181,12 +241,13 @@ pub fn populate_document(lopdf: &LopdfDocument) -> Result<Vec<Page>, SaveError> 
                 .unwrap_or(0) as i32;
             let rotation = Rotation::None.rotated_by(rotate_degrees);
 
-            Ok(Page {
-                id: PageId(index as u32),
+            Ok(Page::base(
+                PageId(index as u32),
+                index as u32,
                 size,
                 orientation,
                 rotation,
-            })
+            ))
         })
         .collect()
 }
@@ -215,6 +276,35 @@ pub fn document_from_lopdf(
     })
 }
 
+/// Builds model pages for every page in an imported PDF, preserving the
+/// source document and source-page identity while assigning fresh session
+/// page ids supplied by the caller.
+pub fn imported_pages_from_lopdf(
+    lopdf: &LopdfDocument,
+    source: ImportedDocumentId,
+    first_page_id: u32,
+) -> Result<Vec<Page>, SaveError> {
+    populate_document(lopdf)?
+        .into_iter()
+        .enumerate()
+        .map(|(index, page)| {
+            let offset = u32::try_from(index)
+                .map_err(|_| SaveError::InvalidSaveRequest("imported PDF has too many pages"))?;
+            let id = first_page_id
+                .checked_add(offset)
+                .ok_or(SaveError::InvalidSaveRequest("page id space is exhausted"))?;
+            Ok(Page::imported(
+                PageId(id),
+                source,
+                index as u32,
+                page.size,
+                page.orientation,
+                page.rotation,
+            ))
+        })
+        .collect()
+}
+
 /// Reads a page's text runs and images, on demand (T-157).
 ///
 /// Deliberately **not** part of [`document_from_lopdf`]. Population-on-open
@@ -239,16 +329,26 @@ pub fn read_page_content(
 /// model their subtype. Retaining the raw objects lets a save append new
 /// annotations without deleting annotations created by another PDF editor.
 ///
+/// `page_objects` is the identity map for the document being read — the one
+/// [`replay_page_ops`] hands back for a materialized document, or
+/// [`page_object_ids`] for a base that no page op has touched. It is a
+/// parameter rather than a positional walk because an imported page's
+/// `PageId` was never a position in anything: reading the base and keying by
+/// index leaves an imported page with no entry, and a save that then adds an
+/// annotation to it would overwrite the `/Annots` the graft brought along
+/// instead of appending to it.
+///
 /// A malformed `/Annots` entry is rejected rather than replaced, because
 /// preserving document data takes precedence over making a best-effort save.
 pub fn page_annotation_objects(
     lopdf: &LopdfDocument,
+    page_objects: &HashMap<PageId, ObjectId>,
 ) -> Result<HashMap<PageId, Vec<Object>>, SaveError> {
     let raw = lopdf.as_lopdf();
     let mut annotations = HashMap::new();
 
-    for (index, &page_id) in raw.get_pages().values().enumerate() {
-        let page = raw.get_dictionary(page_id)?;
+    for (&page_id, &object_id) in page_objects {
+        let page = raw.get_dictionary(object_id)?;
         let Ok(annots) = page.get(b"Annots") else {
             continue;
         };
@@ -256,7 +356,7 @@ pub fn page_annotation_objects(
         let entries = annots
             .as_array()
             .map_err(|_| SaveError::InvalidSaveRequest("page /Annots entry is not an array"))?;
-        annotations.insert(PageId(index as u32), entries.clone());
+        annotations.insert(page_id, entries.clone());
     }
 
     Ok(annotations)
@@ -289,8 +389,8 @@ pub fn has_structural_page_changes(original: &[Page], current: &[Page]) -> bool 
     }
     original
         .iter()
-        .map(|p| p.id)
-        .ne(current.iter().map(|p| p.id))
+        .map(|page| (page.id, page.origin))
+        .ne(current.iter().map(|page| (page.id, page.origin)))
 }
 
 /// For a non-structural edit set (see [`has_structural_page_changes`]),
@@ -326,7 +426,8 @@ pub fn replay_page_ops(
     base: &LopdfDocument,
     original: &[Page],
     current: &[Page],
-) -> Result<LopdfDocument, SaveError> {
+    sources: ImportedSources<'_, '_>,
+) -> Result<ReplayOutcome, SaveError> {
     let base_pages = base.as_lopdf().get_pages();
     if original.len() != base_pages.len() {
         return Err(SaveError::InvalidSaveRequest(
@@ -334,14 +435,35 @@ pub fn replay_page_ops(
              populate_document(base) must be re-derived immediately before replay",
         ));
     }
-
-    // PageId -> ObjectId, using the same 0-indexed-by-page-number convention
-    // `populate_document` assigned.
-    let id_to_object: HashMap<PageId, ObjectId> = base_pages
-        .values()
-        .enumerate()
-        .map(|(index, &object_id)| (PageId(index as u32), object_id))
-        .collect();
+    // Checked up front, not when a lookup is reached: a duplicate id would
+    // otherwise let `sources.get` silently resolve a later source's pages
+    // under an earlier source's id instead of failing loudly.
+    if sources.has_duplicate_ids() {
+        return Err(SaveError::InvalidSaveRequest(
+            "imported sources registry names the same source twice",
+        ));
+    }
+    // Checked up front, not when the insertion is reached: a save that
+    // cannot materialize one of its pages must write nothing at all rather
+    // than stop halfway with the earlier pages already grafted in.
+    if current.iter().any(|page| {
+        matches!(page.origin, PageOrigin::Imported { source, .. } if sources.get(source).is_none())
+    }) {
+        return Err(SaveError::InvalidSaveRequest(
+            "imported page names a source this save was not given",
+        ));
+    }
+    let original_origins: HashMap<PageId, PageOrigin> =
+        original.iter().map(|page| (page.id, page.origin)).collect();
+    if current.iter().any(|page| {
+        original_origins
+            .get(&page.id)
+            .is_some_and(|origin| *origin != page.origin)
+    }) {
+        return Err(SaveError::InvalidSaveRequest(
+            "page origin changed for an existing PageId",
+        ));
+    }
 
     // Step 1: deletions (single batched call, page numbers relative to `base`).
     let current_ids: HashSet<PageId> = current.iter().map(|p| p.id).collect();
@@ -356,21 +478,34 @@ pub fn replay_page_ops(
     } else {
         pdf_manip::delete_pages(base, &removed_numbers)?
     };
+    let mut graft_warnings = Vec::new();
+
+    // Every survivor's page number in `working`, keyed by the id
+    // `populate_document` gave it (0-indexed by base page number).
+    //
+    // Counted, never looked up by object id: `pdf_manip::delete_pages` calls
+    // `renumber_objects`, so once a page has been removed a base `ObjectId`
+    // names nothing in `working` at all. What survives a deletion is the
+    // *order* — the kept pages stay in base order — so a survivor's
+    // post-deletion page number is its 1-based position among the base pages
+    // that were kept. Resolving these through `base`'s object ids instead
+    // silently found nothing after a deletion, which skipped both the reorder
+    // and the rotations below.
+    let post_deletion_numbers: HashMap<PageId, u32> = base_pages
+        .keys()
+        .map(|&page_number| PageId(page_number - 1))
+        .filter(|id| current_ids.contains(id))
+        .enumerate()
+        .map(|(index, id)| (id, index as u32 + 1))
+        .collect();
 
     // Step 2: reorder survivors to match their relative order in `current`.
     // Deletion preserves base order, and the insertion walk below relies on
     // survivors already occupying `current`'s relative order — without this
     // step, a pure reorder would silently never reach the lopdf document.
-    let post_deletion_numbers: HashMap<ObjectId, u32> = working
-        .as_lopdf()
-        .get_pages()
-        .into_iter()
-        .map(|(number, object_id)| (object_id, number))
-        .collect();
     let survivor_target_order: Vec<u32> = current
         .iter()
-        .filter_map(|page| id_to_object.get(&page.id))
-        .filter_map(|object_id| post_deletion_numbers.get(object_id))
+        .filter_map(|page| post_deletion_numbers.get(&page.id))
         .copied()
         .collect();
     if survivor_target_order
@@ -381,20 +516,17 @@ pub fn replay_page_ops(
     }
 
     // Step 3: rotations on survivors, using post-reorder page numbers.
-    let object_to_number: HashMap<ObjectId, u32> = working
-        .as_lopdf()
-        .get_pages()
-        .into_iter()
-        .map(|(number, object_id)| (object_id, number))
-        .collect();
-
+    //
+    // After step 2 `working` holds exactly the survivors, in `current`'s
+    // order — whether it reordered them or found them already in it — so a
+    // survivor's page number is its 1-based position among the pages of
+    // `current` that came from the base.
+    let mut survivor_number = 0;
     for current_page in current {
-        let Some(&object_id) = id_to_object.get(&current_page.id) else {
-            continue; // brand-new page, handled in step 3
-        };
-        let Some(&page_number) = object_to_number.get(&object_id) else {
-            continue; // should not happen: survivors always keep their object id
-        };
+        if !post_deletion_numbers.contains_key(&current_page.id) {
+            continue; // brand-new page, handled in step 4
+        }
+        survivor_number += 1;
         let original_page = original
             .iter()
             .find(|p| p.id == current_page.id)
@@ -402,7 +534,7 @@ pub fn replay_page_ops(
         if original_page.rotation != current_page.rotation {
             let delta =
                 rotation_degrees(current_page.rotation) - rotation_degrees(original_page.rotation);
-            working = pdf_manip::rotate_page(&working, page_number, delta)?;
+            working = pdf_manip::rotate_page(&working, survivor_number, delta)?;
         }
     }
 
@@ -411,22 +543,95 @@ pub fn replay_page_ops(
     // inserting each new page at its walk index reconstructs the exact target
     // order.
     for (position, current_page) in current.iter().enumerate() {
-        if id_to_object.contains_key(&current_page.id) {
+        if post_deletion_numbers.contains_key(&current_page.id) {
             continue; // survivor, already placed
         }
-        working = pdf_manip::insert_blank_page(
-            &working,
-            position,
-            current_page.size,
-            current_page.orientation,
-        )?;
-        if current_page.rotation != Rotation::None {
-            let degrees = rotation_degrees(current_page.rotation);
-            working = pdf_manip::rotate_page(&working, (position + 1) as u32, degrees)?;
+        match current_page.origin {
+            PageOrigin::Blank => {
+                working = pdf_manip::insert_blank_page(
+                    &working,
+                    position,
+                    current_page.size,
+                    current_page.orientation,
+                )?;
+            }
+            PageOrigin::Imported { source, page_index } => {
+                let document = sources
+                    .get(source)
+                    .expect("the guard above refused every source this save was not given");
+                let outcome =
+                    pdf_manip::graft_pages(&working, position, document, &[page_index as usize])?;
+                graft_warnings.extend(outcome.report.warnings().iter().cloned());
+                working = outcome.document;
+            }
+            PageOrigin::Base { .. } => {
+                return Err(SaveError::InvalidSaveRequest(
+                    "base page has no matching page in the opened document",
+                ));
+            }
+        }
+        // `rotate_page` applies a *delta*, and a grafted page arrives with the
+        // source's own `/Rotate` already on it (a blank one arrives at zero).
+        // The model's rotation is absolute, so close the gap rather than add
+        // to it — adding would turn an imported page that was already at 90
+        // and is modelled at 90 into 180.
+        let delta = rotation_degrees(current_page.rotation)
+            - page_rotation_degrees(&working, (position + 1) as u32);
+        if delta != 0 {
+            working = pdf_manip::rotate_page(&working, (position + 1) as u32, delta)?;
         }
     }
 
-    Ok(working)
+    // Resolved here, where the invariant it rests on is established: every
+    // step above rebuilt `working` so that its page order is exactly
+    // `current`'s. A caller re-deriving the map later would be trusting that
+    // same invariant from a distance, with no way to tell whether the
+    // document it holds is the one replay produced.
+    let page_objects = page_object_ids(&working, current)?;
+
+    Ok(ReplayOutcome {
+        document: working,
+        page_objects,
+        graft_warnings,
+    })
+}
+
+/// What a materialized save has to hand back: the rebuilt document, and the
+/// map from every model `PageId` to the page object that now carries it.
+///
+/// The map is not a convenience. After replay a `PageId` and a position have
+/// nothing to do with each other — a deleted page shifts everything after it,
+/// an imported one arrives with an id past every base page's — so annotations,
+/// content edits and form widgets can only find their page through this.
+#[derive(Debug, Clone)]
+pub struct ReplayOutcome {
+    /// The document as the model describes it: deletions, reorders,
+    /// rotations and insertions all applied.
+    pub document: LopdfDocument,
+    /// `PageId` to the page object in [`Self::document`].
+    pub page_objects: HashMap<PageId, ObjectId>,
+    /// Consequences discovered only while grafting against the destination,
+    /// notably form-field name collisions.
+    pub graft_warnings: Vec<pdf_manip::GraftWarning>,
+}
+
+/// The `/Rotate` a 1-indexed page currently carries, or `0` when it has none
+/// and nothing in its `/Parent` chain supplies one.
+///
+/// Only ever compared against a model rotation, so an unreadable page reports
+/// zero rather than failing the whole save: the worst outcome is a rotation
+/// applied as if from square, which is what the old blank-page-only path did
+/// unconditionally.
+fn page_rotation_degrees(document: &LopdfDocument, page_number: u32) -> i32 {
+    let lopdf = document.as_lopdf();
+    lopdf
+        .get_pages()
+        .get(&page_number)
+        .and_then(|&page_id| lopdf.get_dictionary(page_id).ok())
+        .and_then(|dict| dict.get(b"Rotate").ok())
+        .and_then(|value| value.as_i64().ok())
+        .map(|degrees| (degrees as i32).rem_euclid(360))
+        .unwrap_or(0)
 }
 
 /// Maps `pages`' stable ids to the corresponding page objects in `lopdf`.
@@ -455,6 +660,17 @@ pub fn page_object_ids(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tests here assert on the rebuilt document; the identity map
+    /// `replay_page_ops` returns alongside it has its own tests below.
+    fn replay(
+        base: &LopdfDocument,
+        original: &[Page],
+        current: &[Page],
+        sources: ImportedSources<'_, '_>,
+    ) -> Result<LopdfDocument, SaveError> {
+        replay_page_ops(base, original, current, sources).map(|outcome| outcome.document)
+    }
 
     fn labeled_pdf(labels: &[&str]) -> lopdf::Document {
         use lopdf::content::{Content, Operation};
@@ -511,6 +727,16 @@ mod tests {
     }
 
     #[test]
+    fn populate_document_records_base_page_indexes() {
+        let lopdf = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2"]));
+
+        let pages = populate_document(&lopdf).expect("populate should succeed");
+
+        assert_eq!(pages[0].origin, PageOrigin::Base { page_index: 0 });
+        assert_eq!(pages[1].origin, PageOrigin::Base { page_index: 1 });
+    }
+
+    #[test]
     fn populate_document_reads_real_media_box_and_orientation() {
         let lopdf = LopdfDocument::from_lopdf(labeled_pdf(&["only"]));
         let pages = populate_document(&lopdf).expect("populate should succeed");
@@ -538,6 +764,36 @@ mod tests {
         assert!(document.annotations.is_empty());
         assert!(!document.pending_edits.can_undo());
         assert!(document.security.is_none());
+    }
+
+    #[test]
+    fn imported_pages_keep_layout_and_receive_sequential_session_ids() {
+        let mut raw = labeled_pdf(&["P1", "P2"]);
+        let second = *raw.get_pages().get(&2).unwrap();
+        raw.get_dictionary_mut(second).unwrap().set("Rotate", 90);
+        let source = LopdfDocument::from_lopdf(raw);
+
+        let pages = imported_pages_from_lopdf(&source, ImportedDocumentId(9), 40)
+            .expect("imported model pages should build");
+
+        assert_eq!(
+            pages.iter().map(|page| page.id).collect::<Vec<_>>(),
+            vec![PageId(40), PageId(41)]
+        );
+        assert_eq!(
+            pages.iter().map(|page| page.origin).collect::<Vec<_>>(),
+            vec![
+                PageOrigin::Imported {
+                    source: ImportedDocumentId(9),
+                    page_index: 0
+                },
+                PageOrigin::Imported {
+                    source: ImportedDocumentId(9),
+                    page_index: 1
+                },
+            ]
+        );
+        assert_eq!(pages[1].rotation, Rotation::Clockwise90);
     }
 
     #[test]
@@ -569,6 +825,27 @@ mod tests {
     }
 
     #[test]
+    fn has_structural_page_changes_true_when_origin_changes() {
+        let original = vec![Page::base(
+            PageId(0),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )];
+        let current = vec![Page::imported(
+            PageId(0),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )];
+
+        assert!(has_structural_page_changes(&original, &current));
+    }
+
+    #[test]
     fn rotation_changes_reports_only_changed_pages() {
         let original = vec![
             Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
@@ -591,7 +868,8 @@ mod tests {
             .cloned()
             .collect();
 
-        let result = replay_page_ops(&base, &original, &current).expect("replay should succeed");
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
         assert_eq!(result.as_lopdf().get_pages().len(), 2);
         assert_eq!(label_of(&result, 1), "P1");
         assert_eq!(label_of(&result, 2), "P3");
@@ -604,7 +882,8 @@ mod tests {
         let mut current = original.clone();
         current[1].rotation = Rotation::Clockwise90;
 
-        let result = replay_page_ops(&base, &original, &current).expect("replay should succeed");
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
         let page_id = *result.as_lopdf().get_pages().get(&2).unwrap();
         let rotate = result
             .as_lopdf()
@@ -626,10 +905,134 @@ mod tests {
             Page::blank(PageId(99), PageSize::A4, Orientation::Portrait),
         );
 
-        let result = replay_page_ops(&base, &original, &current).expect("replay should succeed");
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
         assert_eq!(result.as_lopdf().get_pages().len(), 3);
         assert_eq!(label_of(&result, 1), "P1");
         assert_eq!(label_of(&result, 3), "P2");
+    }
+
+    /// An imported page carries only an id for its source, so a save that was
+    /// not handed that source cannot write the page at all. Refusing is the
+    /// point: the alternative a naive implementation reaches for — dropping
+    /// through to a blank page — loses the user's content silently.
+    #[test]
+    fn replay_page_ops_refuses_an_imported_page_whose_source_was_not_given() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let original = populate_document(&base).unwrap();
+        let mut current = original.clone();
+        current.push(Page::imported(
+            PageId(77),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        ));
+
+        let error = replay(&base, &original, &current, ImportedSources::none()).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: imported page names a source this save was not given"
+        );
+    }
+
+    #[test]
+    fn replay_page_ops_grafts_an_imported_page_from_the_source_it_names() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2"]));
+        let source = LopdfDocument::from_lopdf(labeled_pdf(&["S1", "S2"]));
+        let original = populate_document(&base).unwrap();
+        let mut current = original.clone();
+        current.insert(
+            1,
+            Page::imported(
+                PageId(77),
+                pdf_document::ImportedDocumentId(4),
+                1,
+                PageSize::A4,
+                Orientation::Portrait,
+                Rotation::None,
+            ),
+        );
+        let sources = [(pdf_document::ImportedDocumentId(4), &source)];
+
+        let result = replay(&base, &original, &current, ImportedSources::new(&sources))
+            .expect("replay should succeed");
+
+        assert_eq!(result.as_lopdf().get_pages().len(), 3);
+        assert_eq!(label_of(&result, 1), "P1");
+        assert_eq!(label_of(&result, 2), "S2");
+        assert_eq!(label_of(&result, 3), "P2");
+    }
+
+    /// Two different source documents registered under the same
+    /// `ImportedDocumentId` must be refused rather than letting `get`
+    /// silently resolve every lookup to the first one.
+    #[test]
+    fn replay_page_ops_rejects_a_source_registry_with_a_duplicate_id() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let first_source = LopdfDocument::from_lopdf(labeled_pdf(&["S1"]));
+        let second_source = LopdfDocument::from_lopdf(labeled_pdf(&["T1"]));
+        let original = populate_document(&base).unwrap();
+        let mut current = original.clone();
+        current.push(Page::imported(
+            PageId(1),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        ));
+        let sources = [
+            (pdf_document::ImportedDocumentId(4), &first_source),
+            (pdf_document::ImportedDocumentId(4), &second_source),
+        ];
+
+        let error = replay(&base, &original, &current, ImportedSources::new(&sources)).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: imported sources registry names the same source twice"
+        );
+    }
+
+    #[test]
+    fn replay_page_ops_rejects_blank_origin_reusing_a_base_page_id() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let original = populate_document(&base).unwrap();
+        let current = vec![Page::blank(
+            PageId(0),
+            PageSize::Letter,
+            Orientation::Portrait,
+        )];
+
+        let error = replay(&base, &original, &current, ImportedSources::none()).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: page origin changed for an existing PageId"
+        );
+    }
+
+    #[test]
+    fn replay_page_ops_rejects_changed_base_index_for_an_existing_page_id() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let original = populate_document(&base).unwrap();
+        let current = vec![Page::base(
+            PageId(0),
+            7,
+            PageSize::Letter,
+            Orientation::Portrait,
+            Rotation::None,
+        )];
+
+        let error = replay(&base, &original, &current, ImportedSources::none()).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: page origin changed for an existing PageId"
+        );
     }
 
     #[test]
@@ -647,10 +1050,85 @@ mod tests {
             Orientation::Portrait,
         ));
 
-        let result = replay_page_ops(&base, &original, &current).expect("replay should succeed");
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
         assert_eq!(result.as_lopdf().get_pages().len(), 3);
         assert_eq!(label_of(&result, 1), "P2");
         assert_eq!(label_of(&result, 2), "P3");
+    }
+
+    /// A deletion renumbers every object `pdf_manip::delete_pages` keeps, so
+    /// nothing about a survivor can be looked up by the object id it had in
+    /// `base` afterwards. Reordering in the same save is where that bites:
+    /// resolve survivors the wrong way and the reorder is silently skipped,
+    /// writing the surviving pages in base order instead of the user's.
+    #[test]
+    fn replay_page_ops_reorders_survivors_of_a_deletion() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2", "P3"]));
+        let original = populate_document(&base).unwrap();
+        let current = vec![original[2].clone(), original[1].clone()];
+
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
+
+        assert_eq!(result.as_lopdf().get_pages().len(), 2);
+        assert_eq!(label_of(&result, 1), "P3");
+        assert_eq!(label_of(&result, 2), "P2");
+    }
+
+    /// Same root cause as the reorder above, on the other step that has to
+    /// name a survivor's page number: a rotation asked for in a save that
+    /// also deletes must still land on the rotated page.
+    #[test]
+    fn replay_page_ops_rotates_a_survivor_of_a_deletion() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2", "P3"]));
+        let original = populate_document(&base).unwrap();
+        let mut current = vec![original[0].clone(), original[2].clone()];
+        current[1].rotation = Rotation::Clockwise90;
+
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
+
+        assert_eq!(label_of(&result, 2), "P3");
+        let rotated = *result.as_lopdf().get_pages().get(&2).unwrap();
+        let rotate = result
+            .as_lopdf()
+            .get_dictionary(rotated)
+            .unwrap()
+            .get(b"Rotate")
+            .and_then(|value| value.as_i64())
+            .unwrap_or(0);
+        assert_eq!(rotate, 90);
+    }
+
+    /// The three steps in one save: the survivors keep the order the model
+    /// gives them, and the imported page lands between them.
+    #[test]
+    fn replay_page_ops_deletes_reorders_and_grafts_in_one_save() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2", "P3"]));
+        let source = LopdfDocument::from_lopdf(labeled_pdf(&["S1", "S2"]));
+        let original = populate_document(&base).unwrap();
+        let current = vec![
+            original[2].clone(),
+            Page::imported(
+                PageId(900),
+                ImportedDocumentId(1),
+                1,
+                PageSize::Letter,
+                Orientation::Portrait,
+                Rotation::None,
+            ),
+            original[1].clone(),
+        ];
+        let sources = [(ImportedDocumentId(1), &source)];
+
+        let result = replay(&base, &original, &current, ImportedSources::new(&sources))
+            .expect("replay should succeed");
+
+        assert_eq!(result.as_lopdf().get_pages().len(), 3);
+        assert_eq!(label_of(&result, 1), "P3");
+        assert_eq!(label_of(&result, 2), "S2");
+        assert_eq!(label_of(&result, 3), "P2");
     }
 
     #[test]
@@ -663,7 +1141,8 @@ mod tests {
             original[0].clone(),
         ];
 
-        let result = replay_page_ops(&base, &original, &current).expect("replay should succeed");
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
         assert_eq!(result.as_lopdf().get_pages().len(), 3);
         assert_eq!(label_of(&result, 1), "P2");
         assert_eq!(label_of(&result, 2), "P3");
@@ -680,7 +1159,8 @@ mod tests {
             original[0].clone(),
         ];
 
-        let result = replay_page_ops(&base, &original, &current).expect("replay should succeed");
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
         assert_eq!(result.as_lopdf().get_pages().len(), 3);
         assert_eq!(label_of(&result, 2), "P2");
         assert_eq!(label_of(&result, 3), "P1");
@@ -693,7 +1173,8 @@ mod tests {
         let mut current = vec![original[1].clone(), original[0].clone()];
         current[1].rotation = Rotation::Clockwise90; // rotate P1, now last
 
-        let result = replay_page_ops(&base, &original, &current).expect("replay should succeed");
+        let result = replay(&base, &original, &current, ImportedSources::none())
+            .expect("replay should succeed");
         assert_eq!(label_of(&result, 1), "P2");
         assert_eq!(label_of(&result, 2), "P1");
         let rotated_id = *result.as_lopdf().get_pages().get(&2).unwrap();
@@ -712,7 +1193,8 @@ mod tests {
         let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2"]));
         let original = populate_document(&base).unwrap();
 
-        let result = replay_page_ops(&base, &original, &original).expect("replay should succeed");
+        let result = replay(&base, &original, &original, ImportedSources::none())
+            .expect("replay should succeed");
         assert_eq!(result.as_lopdf().get_pages().len(), 2);
         assert_eq!(label_of(&result, 1), "P1");
         assert_eq!(label_of(&result, 2), "P2");
@@ -733,7 +1215,7 @@ mod tests {
         let lopdf = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2"]));
         let original = populate_document(&lopdf).unwrap();
         let reordered = vec![original[1].clone(), original[0].clone()];
-        let rewritten = replay_page_ops(&lopdf, &original, &reordered).unwrap();
+        let rewritten = replay(&lopdf, &original, &reordered, ImportedSources::none()).unwrap();
 
         let map = page_object_ids(&rewritten, &reordered).unwrap();
         let first_object = *rewritten.as_lopdf().get_pages().get(&1).unwrap();
@@ -756,10 +1238,42 @@ mod tests {
             .unwrap()
             .set("Annots", Object::Reference(annots_id));
 
-        let annotations = page_annotation_objects(&LopdfDocument::from_lopdf(raw)).unwrap();
+        let lopdf = LopdfDocument::from_lopdf(raw);
+        let pages = populate_document(&lopdf).unwrap();
+        let page_objects = page_object_ids(&lopdf, &pages).unwrap();
+
+        let annotations = page_annotation_objects(&lopdf, &page_objects).unwrap();
         assert_eq!(
             annotations[&PageId(0)],
             vec![Object::Reference(annotation_id)]
         );
+    }
+
+    #[test]
+    fn replay_page_ops_maps_an_imported_page_to_the_object_it_became() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1"]));
+        let original = populate_document(&base).unwrap();
+        let source = LopdfDocument::from_lopdf(labeled_pdf(&["S1"]));
+        let mut current = original.clone();
+        current.insert(
+            0,
+            Page::imported(
+                PageId(900),
+                ImportedDocumentId(1),
+                0,
+                PageSize::Letter,
+                Orientation::Portrait,
+                Rotation::None,
+            ),
+        );
+        let sources = [(ImportedDocumentId(1), &source)];
+
+        let outcome =
+            replay_page_ops(&base, &original, &current, ImportedSources::new(&sources)).unwrap();
+
+        let pages = outcome.document.as_lopdf().get_pages();
+        assert_eq!(outcome.page_objects.len(), 2);
+        assert_eq!(outcome.page_objects[&PageId(900)], pages[&1]);
+        assert_eq!(outcome.page_objects[&PageId(0)], pages[&2]);
     }
 }

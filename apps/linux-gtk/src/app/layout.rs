@@ -411,7 +411,7 @@ pub(crate) fn page_top(page_heights: &[i32], page_index: usize) -> f64 {
 ///
 /// Deliberately *not* a raw scroll offset. An offset only means something
 /// against one particular set of `page_heights`, and the two moments that
-/// need to survive a rebuild — `document::refresh_after_content_edit`
+/// need to survive a rebuild — `document::refresh_preview`
 /// re-showing the same document — are exactly the moments those heights are
 /// recomputed. Expressed this way the position stays meaningful across a
 /// zoom change too, which a pixel offset does not.

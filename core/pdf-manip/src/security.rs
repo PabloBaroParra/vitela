@@ -28,6 +28,10 @@ const ANNOTATE: u32 = 1 << 5;
 /// (T-161: editing an existing text run or image is a content-stream change,
 /// not an annotation, so it is gated on this bit instead).
 const MODIFY_CONTENTS: u32 = 1 << 3;
+/// `/P` bit 11 (0-indexed bit 10, `lopdf::Permissions::ASSEMBLABLE`) per PDF
+/// 1.7 table 22: "assemble the document (insert, rotate, or delete pages and
+/// create bookmarks or thumbnail images)".
+const ASSEMBLE: u32 = 1 << 10;
 
 /// Whether the document permits copying/extracting its text.
 ///
@@ -70,6 +74,34 @@ pub fn content_editing_is_allowed(security: Option<&SecurityContext>) -> bool {
         Some(security) => {
             security.credential == Credential::Owner
                 || security.permissions.0 & MODIFY_CONTENTS != 0
+        }
+        None => true,
+    }
+}
+
+/// Whether the document permits changing which pages it has and in what
+/// order — inserting, importing, removing, moving or rotating a page
+/// (checklist "Seguridad y firmas", `docs/batch-pdf-assembly.md` section 5).
+///
+/// This is the destination half of an import: a PDF may be freely readable
+/// and still forbid being reassembled, and until now every page command
+/// crossed the FFI and the GTK4 shell with no permission asked at all.
+///
+/// Bit 11 is not the only way to grant it. Table 22 defines bit 11 as
+/// permitting assembly *"even if bit 4 is clear"* — which says bit 4, the
+/// general modify-contents permission, already carries assembly with it. A
+/// document that grants modification and never sets bit 11 (the ordinary
+/// shape for a revision-2 handler, where bit 11 has no meaning at all) must
+/// therefore not be treated as forbidding it: gating on bit 11 alone would
+/// invent a restriction those documents never declared.
+///
+/// As everywhere else in this module, an owner credential bypasses the
+/// bitmask and an unencrypted document permits everything.
+pub fn document_assembly_is_allowed(security: Option<&SecurityContext>) -> bool {
+    match security {
+        Some(security) => {
+            security.credential == Credential::Owner
+                || security.permissions.0 & (ASSEMBLE | MODIFY_CONTENTS) != 0
         }
         None => true,
     }
@@ -189,5 +221,55 @@ mod tests {
     #[test]
     fn an_unencrypted_document_permits_content_edits() {
         assert!(content_editing_is_allowed(None));
+    }
+
+    #[test]
+    fn an_unencrypted_document_permits_assembly() {
+        assert!(document_assembly_is_allowed(None));
+    }
+
+    #[test]
+    fn a_user_open_follows_the_assemble_bit() {
+        assert!(!document_assembly_is_allowed(Some(&context(
+            Credential::User,
+            0
+        ))));
+        assert!(document_assembly_is_allowed(Some(&context(
+            Credential::User,
+            ASSEMBLE
+        ))));
+    }
+
+    /// Table 22 grants assembly through bit 11 "even if bit 4 is clear", so
+    /// bit 4 on its own already carries it — the common shape for a
+    /// revision-2 handler, where bit 11 means nothing.
+    #[test]
+    fn the_modify_contents_bit_alone_permits_assembly() {
+        assert!(document_assembly_is_allowed(Some(&context(
+            Credential::User,
+            MODIFY_CONTENTS
+        ))));
+    }
+
+    /// The annotate bit says nothing about page membership, and neither does
+    /// the copy bit — a document can grant either and still forbid assembly.
+    #[test]
+    fn neither_the_annotate_nor_the_copy_bit_permits_assembly() {
+        assert!(!document_assembly_is_allowed(Some(&context(
+            Credential::User,
+            ANNOTATE
+        ))));
+        assert!(!document_assembly_is_allowed(Some(&context(
+            Credential::User,
+            COPY_OR_EXTRACT
+        ))));
+    }
+
+    #[test]
+    fn an_owner_open_may_assemble_without_the_assemble_bit() {
+        assert!(document_assembly_is_allowed(Some(&context(
+            Credential::Owner,
+            0
+        ))));
     }
 }

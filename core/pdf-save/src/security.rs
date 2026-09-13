@@ -27,6 +27,8 @@ use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
 use lopdf::{EncryptionState, EncryptionVersion, Permissions as LopdfPermissions};
 use pdf_document::{SecurityContext, SecurityHandler};
 
+use crate::rewrite::{full_rewrite_blocker, RewriteBlocker};
+
 use crate::error::SaveError;
 
 /// Caller's intent for how a save should treat an existing `SecurityContext`.
@@ -50,18 +52,20 @@ pub enum SaveIntent {
 /// A PDF's original owner password cannot be derived from a user password (or
 /// vice versa). Refuse a full rewrite unless both passwords were
 /// supplied at open, rather than silently assigning one password to both roles.
+/// The refusable conditions live in [`full_rewrite_blocker`], which callers
+/// consult before editing; this function reads the same answer so an edit
+/// allowed up front cannot be refused down here.
 pub fn build_encryption_state(
     document: &lopdf::Document,
     security: &SecurityContext,
 ) -> Result<EncryptionState, SaveError> {
-    let (user_password, owner_password) =
-        security
-            .credentials
-            .complete()
-            .ok_or(SaveError::InvalidSaveRequest(
-                "encrypted full rewrite requires user and owner passwords; reopen with \
-             open_document_with_passwords or use an incremental save",
-            ))?;
+    if let Some(blocker) = full_rewrite_blocker(Some(security)) {
+        return Err(SaveError::InvalidSaveRequest(blocker.reason()));
+    }
+    let (user_password, owner_password) = security
+        .credentials
+        .complete()
+        .expect("full_rewrite_blocker reported no blocker, so both passwords are present");
     let permissions = LopdfPermissions::from_bits_retain(u64::from(security.permissions.0));
 
     let version = match security.handler {
@@ -85,11 +89,14 @@ pub fn build_encryption_state(
                 permissions,
             }
         }
+        // Unreachable in practice — `full_rewrite_blocker` above already
+        // refused every handler this match cannot build. Kept, and answering
+        // with the same words, because `SecurityHandler` is `#[non_exhaustive]`:
+        // a variant added upstream must fail here identically rather than
+        // stop the crate compiling.
         SecurityHandler::Aes256 | _ => {
             return Err(SaveError::InvalidSaveRequest(
-                "only RC4-128 and AES-128 re-encryption are implemented in this batch — no \
-                 fixture in the corpus exercises AES-256 or any future SecurityHandler variant \
-                 (see pdf-manip's SecurityHandler mapping notes)",
+                RewriteBlocker::UnsupportedHandler.reason(),
             ));
         }
     };
@@ -233,5 +240,46 @@ mod tests {
         let doc = base_doc();
         let result = build_encryption_state(&doc, &security(SecurityHandler::Aes256));
         assert!(matches!(result, Err(SaveError::InvalidSaveRequest(_))));
+    }
+
+    /// The predicate a caller asks *before* editing and the encoder that runs
+    /// at save time must never disagree: an edit allowed by the first and
+    /// refused by the second is exactly the silent trap this check exists to
+    /// remove. Both read [`full_rewrite_blocker`], and this pins that they
+    /// still report the same words.
+    #[test]
+    fn the_encoder_refuses_precisely_what_the_blocker_reports() {
+        let doc = base_doc();
+        let mut one_password = security(SecurityHandler::Rc4_128);
+        one_password.credentials = EncryptionCredentials::user("user-only");
+
+        for context in [one_password, security(SecurityHandler::Aes256)] {
+            let blocker = full_rewrite_blocker(Some(&context)).expect("context must be blocked");
+            let Err(error) = build_encryption_state(&doc, &context) else {
+                panic!("a blocked context must not produce an encryption state");
+            };
+
+            assert!(
+                matches!(error, SaveError::InvalidSaveRequest(reason) if reason == blocker.reason()),
+                "encoder and blocker disagree for {context:?}: {error}"
+            );
+        }
+    }
+
+    /// Checklist §5 item 4: a credential must not travel into a message a
+    /// user, a log or a bug report could see. The reasons are `&'static str`
+    /// by type, so this pins the one thing that could still go wrong — a
+    /// future reason built by formatting the context that carries them.
+    #[test]
+    fn a_blocked_rewrite_never_names_the_password_it_is_missing() {
+        let doc = base_doc();
+        let mut one_password = security(SecurityHandler::Rc4_128);
+        one_password.credentials = EncryptionCredentials::user("hunter2-user-password");
+
+        let Err(error) = build_encryption_state(&doc, &one_password) else {
+            panic!("one password must not produce an encryption state");
+        };
+
+        assert!(!error.to_string().contains("hunter2"));
     }
 }

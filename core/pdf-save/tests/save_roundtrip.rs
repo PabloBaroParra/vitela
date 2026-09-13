@@ -118,6 +118,7 @@ fn incremental_save_happy_path_rotates_and_annotates_real_file() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     // Incremental append must be strictly larger than the original (bytes
     // were appended, not rewritten from scratch).
@@ -189,6 +190,7 @@ fn incremental_save_writes_a_pending_document_info() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
     assert!(
@@ -238,6 +240,7 @@ fn incremental_save_without_a_pending_document_info_creates_no_info_dict() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
 
@@ -269,6 +272,7 @@ fn incremental_save_on_encrypted_document_reencrypts_with_same_credential() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
 
@@ -303,13 +307,7 @@ fn structural_edit_forces_full_rewrite_against_a_real_file() {
         pdf_document::PageSize::A4,
         pdf_document::Orientation::Portrait,
     );
-    apply_command(
-        &mut document,
-        Command::InsertPage {
-            index: 1,
-            page: new_page,
-        },
-    );
+    apply_command(&mut document, Command::insert_page(1, new_page));
 
     let input = SaveInput {
         document: &document,
@@ -317,6 +315,7 @@ fn structural_edit_forces_full_rewrite_against_a_real_file() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
     let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
@@ -333,14 +332,14 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
     let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
     apply_command(
         &mut document,
-        Command::InsertPage {
-            index: 1,
-            page: pdf_document::Page::blank(
+        Command::insert_page(
+            1,
+            pdf_document::Page::blank(
                 PageId(99),
                 pdf_document::PageSize::A4,
                 pdf_document::Orientation::Portrait,
             ),
-        },
+        ),
     );
 
     let saved = save_document(SaveInput {
@@ -349,6 +348,7 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::Default,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .expect("full rewrite should preserve encryption with both passwords");
 
@@ -360,6 +360,46 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
         .expect("rewritten PDF must accept each original password");
         assert_eq!(reloaded.get_pages().len(), 2);
     }
+}
+
+/// Checklist §5 item 6 (`docs/batch-pdf-assembly.md`): the destination's
+/// encryption policy survives a save that reassembles its pages.
+///
+/// Its sibling above pins that both passwords still open the result — which
+/// is the credential half. The policy is the other half: the same security
+/// handler and the same `/P` bitmask. A rewrite that quietly re-encrypted
+/// with a different handler, or with permissions widened to "everything the
+/// writer felt like", would pass that test and still hand the user a
+/// document whose restrictions no longer say what its author wrote.
+#[test]
+fn encrypted_full_rewrite_preserves_the_documents_encryption_policy() {
+    let path = fixture_path("aes_128_user_and_owner.pdf");
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) =
+        pdf_manip::open_document_with_passwords(&path, "user-aes-pass", "owner-aes-pass").unwrap();
+    let before = security.clone().expect("fixture is encrypted");
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    // A page move, not an insertion: reordering is the assembly operation
+    // this batch adds, and it takes the same full-rewrite path.
+    apply_command(&mut document, Command::MovePage { from: 0, to: 1 });
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("full rewrite should preserve encryption with both passwords");
+
+    let after = pdf_manip::read_security_context_from_bytes(&saved, Some("user-aes-pass"))
+        .expect("the rewritten PDF must still be readable as an encrypted document")
+        .expect("the rewritten PDF must still be encrypted");
+
+    assert_eq!(after.handler, before.handler);
+    assert_eq!(after.permissions, before.permissions);
 }
 
 /// T-035: explicit strip-protection removes encryption on save and MUST NOT
@@ -404,6 +444,7 @@ fn explicit_strip_protection_removes_encryption_and_bypasses_edit_log() {
         original_bytes: Some(&original_bytes),
         intent: SaveIntent::StripProtection,
         signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     let saved = save_document(input).expect("save should succeed");
 
@@ -447,4 +488,161 @@ fn explicit_strip_protection_removes_encryption_and_bypasses_edit_log() {
         .and_then(|o| o.as_i64())
         .unwrap_or(0);
     assert_eq!(rotate, 90);
+}
+
+/// A two-page unsigned file with a signature dictionary added, saved to disk.
+/// Enough for `pdf_manip::document_has_signatures` — which is what decides
+/// whether a save is worth warning about — without needing a real CMS blob.
+fn signed_two_page_pdf() -> std::path::PathBuf {
+    use lopdf::dictionary;
+
+    let source = unencrypted_two_page_pdf();
+    let mut doc = lopdf::Document::load(&source).unwrap();
+    doc.add_object(dictionary! { "Type" => "Sig", "Filter" => "Adobe.PPKLite" });
+    let path = temp_pdf_path("signed-two-page");
+    doc.save(&path).unwrap();
+    path
+}
+
+/// Checklist §5 items 8 and 9 (`docs/batch-pdf-assembly.md`), for the
+/// operation this batch adds: **reordering pages** breaks a signature exactly
+/// as a content edit does, and the save says so instead of doing it quietly.
+///
+/// The existing coverage all went through content edits. Reordering reaches
+/// the same full-rewrite writer by a different route
+/// (`has_structural_page_changes` rather than `has_content_edits`), so a
+/// narrowing of either condition would go unnoticed without this.
+#[test]
+fn reordering_a_signed_document_warns_and_refuses_an_unacknowledged_save() {
+    let path = signed_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    apply_command(&mut document, Command::MovePage { from: 0, to: 1 });
+
+    let input = || SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    };
+
+    assert!(
+        pdf_save::will_invalidate_signatures(input()).expect("the query should succeed"),
+        "a reorder rewrites the file, which breaks the signature it carries"
+    );
+    assert!(
+        matches!(
+            save_document(input()),
+            Err(pdf_save::SaveError::SignaturesWouldBeInvalidated)
+        ),
+        "the save must ask before breaking a signature, not after"
+    );
+}
+
+/// The same reorder, once the caller says the user has been told. The
+/// acknowledgement is the only thing that changes; the work is identical.
+#[test]
+fn an_acknowledged_reorder_of_a_signed_document_saves() {
+    let path = signed_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    apply_command(&mut document, Command::MovePage { from: 0, to: 1 });
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::ProceedAndInvalidate,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("an acknowledged save proceeds");
+
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    assert_eq!(reloaded.get_pages().len(), 2);
+}
+
+/// The regression this pair of assertions exists for: before `RemovePage`
+/// carried the page's annotations with it, highlighting a page and then
+/// deleting that page left the annotation naming a `PageId` the saved
+/// document no longer held. `attach_annotations` refuses that outright, so
+/// the *whole document* became unsaveable — every Ctrl+S and every preview
+/// refresh failed with `InvalidSaveRequest` until the user undid the delete.
+#[test]
+fn deleting_an_annotated_page_leaves_the_document_saveable() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    let page1 = document.pages[1].id;
+    apply_command(&mut document, Command::AddAnnotation(highlight(1, page1.0)));
+
+    let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+    apply_command(&mut document, removal);
+    assert!(
+        document.annotations.is_empty(),
+        "the annotation must leave with the page it was drawn on"
+    );
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("a document whose annotated page was deleted must still save");
+
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    assert_eq!(reloaded.get_pages().len(), 1);
+}
+
+/// The other half of the contract: undoing that delete must put the
+/// annotation back, so the page the user gets back is the page they lost.
+#[test]
+fn undoing_the_delete_brings_the_annotation_back_and_still_saves() {
+    let path = unencrypted_two_page_pdf();
+    let original_bytes = std::fs::read(&path).unwrap();
+    let (base, security) = pdf_manip::open_document(&path, None).unwrap();
+
+    let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
+    let page1 = document.pages[1].id;
+    apply_command(&mut document, Command::AddAnnotation(highlight(1, page1.0)));
+
+    let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+    apply_command(&mut document, removal);
+
+    let mut log = std::mem::take(&mut document.pending_edits);
+    log.undo(&mut document);
+    document.pending_edits = log;
+
+    assert_eq!(document.pages.len(), 2);
+    assert_eq!(
+        document
+            .annotations
+            .iter()
+            .map(|a| a.id)
+            .collect::<Vec<_>>(),
+        vec![AnnotationId(1)]
+    );
+
+    let saved = save_document(SaveInput {
+        document: &document,
+        base: &base,
+        original_bytes: Some(&original_bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("save should succeed");
+    let reloaded = lopdf::Document::load_mem(&saved).expect("must reload");
+    assert_eq!(reloaded.get_pages().len(), 2);
 }

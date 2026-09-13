@@ -18,7 +18,7 @@ use pdf_document::{Document, Page};
 use pdf_manip::LopdfDocument;
 
 use crate::annotations::{self, ObjectSink};
-use crate::bridge;
+use crate::bridge::{self, ImportedSources};
 use crate::clock::{Clock, IdGenerator, RandomIdGenerator, SystemClock};
 use crate::content;
 use crate::error::SaveError;
@@ -73,6 +73,12 @@ pub struct SaveInput<'a> {
     /// Whether the caller has already told the user that this save breaks a
     /// signature the file carries. See [`SignatureAcknowledgement`].
     pub signatures: SignatureAcknowledgement,
+    /// The imported PDFs this save may materialize pages from — see
+    /// [`ImportedSources`]. `ImportedSources::none()` for a document that
+    /// never imported anything, which is every save that predates the import
+    /// feature; a save that meets an imported page without its source is
+    /// refused rather than guessed at.
+    pub imported_sources: ImportedSources<'a, 'a>,
 }
 
 /// Whether the caller has dealt with the fact that a save will invalidate a
@@ -106,7 +112,17 @@ pub enum SignatureAcknowledgement {
 /// Auto-selects the incremental or full-rewrite path for `input` and produces
 /// the saved bytes.
 pub fn save_document(input: SaveInput<'_>) -> Result<Vec<u8>, SaveError> {
-    save_document_with_options(input, SaveOptions::default())
+    save_document_with_report(input).map(|outcome| outcome.bytes)
+}
+
+#[derive(Debug, Clone)]
+pub struct SaveOutcome {
+    pub bytes: Vec<u8>,
+    pub graft_warnings: Vec<pdf_manip::GraftWarning>,
+}
+
+pub fn save_document_with_report(input: SaveInput<'_>) -> Result<SaveOutcome, SaveError> {
+    save_document_with_options_and_report(input, SaveOptions::default())
 }
 
 /// Same as [`save_document`], with explicit clock/id-generator hooks — used
@@ -115,6 +131,13 @@ pub fn save_document_with_options(
     input: SaveInput<'_>,
     options: SaveOptions,
 ) -> Result<Vec<u8>, SaveError> {
+    save_document_with_options_and_report(input, options).map(|outcome| outcome.bytes)
+}
+
+fn save_document_with_options_and_report(
+    input: SaveInput<'_>,
+    options: SaveOptions,
+) -> Result<SaveOutcome, SaveError> {
     // Populated once and threaded into whichever writer runs. Both the writer
     // choice and the writer itself need the base document's *original* page
     // list, and `populate_document` walks every page dictionary to build it —
@@ -123,14 +146,17 @@ pub fn save_document_with_options(
     let original_pages = bridge::populate_document(input.base)?;
 
     if !requires_full_rewrite(input, &original_pages) {
-        return save_incremental(input, &original_pages);
+        return save_incremental(input, &original_pages).map(|bytes| SaveOutcome {
+            bytes,
+            graft_warnings: Vec::new(),
+        });
     }
 
     // Only a rewrite can break a signature, and scanning every object for one
     // is not free — so this asks in the one branch where the answer matters,
     // and only when the caller has not already settled it.
     if input.signatures == SignatureAcknowledgement::Unacknowledged
-        && content::has_signatures(input.base.as_lopdf())
+        && pdf_manip::document_has_signatures(input.base)
     {
         return Err(SaveError::SignaturesWouldBeInvalidated);
     }
@@ -207,7 +233,7 @@ fn requires_full_rewrite(input: SaveInput<'_>, original_pages: &[Page]) -> bool 
 /// The `signatures` field of `input` is ignored here: this reports what the
 /// file and the edits imply, not what the caller has agreed to.
 pub fn will_invalidate_signatures(input: SaveInput<'_>) -> Result<bool, SaveError> {
-    if !content::has_signatures(input.base.as_lopdf()) {
+    if !pdf_manip::document_has_signatures(input.base) {
         return Ok(false);
     }
 
@@ -219,20 +245,29 @@ fn save_full_rewrite(
     input: SaveInput<'_>,
     options: &SaveOptions,
     original_pages: &[Page],
-) -> Result<Vec<u8>, SaveError> {
-    let mut working = bridge::replay_page_ops(input.base, original_pages, &input.document.pages)?;
-
-    // Resolved once, before either consumer runs, and against the *replayed*
+) -> Result<SaveOutcome, SaveError> {
+    // Resolved once, by the replay itself and against the *replayed*
     // document: page ops have already moved pages around, so this map is the
     // only thing that still connects a model `PageId` to the object it names.
-    let page_ids = bridge::page_object_ids(&working, &input.document.pages)?;
+    let bridge::ReplayOutcome {
+        document: mut working,
+        page_objects: page_ids,
+        graft_warnings,
+    } = bridge::replay_page_ops(
+        input.base,
+        original_pages,
+        &input.document.pages,
+        input.imported_sources,
+    )?;
 
     // Before annotations: content edits are located by re-parsing the page's
     // streams, so they must run while `working` still matches the parse the
     // commands were recorded against.
     content::replay_content_edits(working.as_lopdf_mut(), input.document, &page_ids)?;
 
-    let existing_annotations = bridge::page_annotation_objects(input.base)?;
+    // Read from the materialized document, not from `base`: an imported page
+    // is not in `base` at all, and its `/Annots` arrived with the graft.
+    let existing_annotations = bridge::page_annotation_objects(&working, &page_ids)?;
     annotations::attach_annotations(
         working.as_lopdf_mut(),
         &page_ids,
@@ -274,7 +309,10 @@ fn save_full_rewrite(
 
     let mut bytes = Vec::new();
     working.as_lopdf_mut().save_to(&mut bytes)?;
-    Ok(bytes)
+    Ok(SaveOutcome {
+        bytes,
+        graft_warnings,
+    })
 }
 
 /// `/Info` gains a write path here only when a `SetDocumentInfo` is pending
@@ -315,7 +353,7 @@ fn save_incremental(input: SaveInput<'_>, original_pages: &[Page]) -> Result<Vec
     }
 
     let page_ids = bridge::page_object_ids(input.base, &input.document.pages)?;
-    let existing_annotations = bridge::page_annotation_objects(input.base)?;
+    let existing_annotations = bridge::page_annotation_objects(input.base, &page_ids)?;
     let catalog_id = catalog_object_id(input.base.as_lopdf())?;
     let pending_info = metadata::pending_document_info(input.document);
     // The one clone the borrowing API cannot remove: lopdf's
@@ -465,6 +503,7 @@ mod tests {
                 original_bytes: self.original_bytes.as_deref(),
                 intent: self.intent,
                 signatures: self.signatures,
+                imported_sources: ImportedSources::none(),
             }
         }
 
@@ -490,6 +529,34 @@ mod tests {
     }
 
     #[test]
+    fn save_document_rejects_an_imported_page_that_reuses_a_base_page_id() {
+        let base = base_with_populated_info();
+        let mut document = bridge::document_from_lopdf(&base, None).unwrap();
+        document.pages[0] = pdf_document::Page::imported(
+            PageId(0),
+            pdf_document::ImportedDocumentId(4),
+            0,
+            PageSize::Letter,
+            Orientation::Portrait,
+            pdf_document::Rotation::None,
+        );
+        let fixture = Fixture {
+            document,
+            base,
+            original_bytes: Some(Vec::new()),
+            intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
+        };
+
+        let error = save_document(fixture.input()).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: imported page names a source this save was not given"
+        );
+    }
+
+    #[test]
     fn save_document_on_freshly_created_blank_doc_produces_a_reloadable_pdf() {
         let fixture = Fixture::blank();
         let bytes = save_document(fixture.input()).expect("save should succeed");
@@ -501,10 +568,7 @@ mod tests {
     fn save_document_writes_an_inserted_page_and_annotation() {
         let mut fixture = Fixture::blank();
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 0, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(0, page));
         apply_command(
             &mut fixture.document,
             Command::AddAnnotation(pdf_document::Annotation {
@@ -540,10 +604,7 @@ mod tests {
     fn save_document_writes_a_new_form_field_that_reads_back() {
         let mut fixture = Fixture::blank();
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 0, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(0, page));
         apply_command(
             &mut fixture.document,
             Command::AddFormField(pdf_document::FormField {
@@ -587,13 +648,11 @@ mod tests {
         let build_bytes = || {
             let mut fixture = Fixture::blank();
             let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-            apply_command(
-                &mut fixture.document,
-                Command::InsertPage { index: 0, page },
-            );
+            apply_command(&mut fixture.document, Command::insert_page(0, page));
             let original_pages = fixture.original_pages();
             save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
                 .expect("save should succeed")
+                .bytes
         };
 
         let first = build_bytes();
@@ -609,10 +668,7 @@ mod tests {
         let mut fixture = Fixture::blank();
         fixture.original_bytes = Some(vec![]);
         let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 0, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(0, page));
 
         let original_pages = fixture.original_pages();
         let result = save_incremental(fixture.input(), &original_pages);
@@ -728,7 +784,8 @@ mod tests {
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed");
+            .expect("save should succeed")
+            .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert_eq!(
@@ -747,7 +804,8 @@ mod tests {
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed");
+            .expect("save should succeed")
+            .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert!(
@@ -815,14 +873,12 @@ mod tests {
             signatures: SignatureAcknowledgement::Unacknowledged,
         };
         let page = pdf_document::Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
-        apply_command(
-            &mut fixture.document,
-            Command::InsertPage { index: 1, page },
-        );
+        apply_command(&mut fixture.document, Command::insert_page(1, page));
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(fixture.input(), &fixed_options(), &original_pages)
-            .expect("save should succeed");
+            .expect("save should succeed")
+            .bytes;
         let dict = reloaded_info_dict(&bytes);
 
         assert_eq!(

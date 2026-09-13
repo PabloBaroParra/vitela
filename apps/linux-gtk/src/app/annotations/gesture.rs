@@ -4,7 +4,7 @@
 //! `selection` owns the per-page gesture and calls in here first; a `false`
 //! return means the drag was not claimed and text selection may have it.
 
-use pdf_document::{AnnotationId, Command, PageId};
+use pdf_document::{AnnotationId, Command};
 
 use crate::app::selection;
 use crate::app::state::{AnnotationDrag, AnnotationDragMode, Placement, Viewer};
@@ -86,7 +86,11 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
     disarm(viewer);
     command(viewer, move |session| {
         let id = AnnotationId(session.next_annotation_id);
-        let page = PageId(placement.page_index as u32);
+        // See `DocumentSession::backend_pages`: a canvas index is pdfium's,
+        // and only the open handle's order turns it into a page id.
+        let page = session
+            .backend_page_id(placement.page_index)
+            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
         let annotation = annotation_at(&placement, id, page, committed_rect(&placement))?;
         {
             let document = model(session)?;
@@ -128,10 +132,13 @@ pub(crate) fn begin_annotation_drag(
 
     // The selected annotation gets first refusal on the press, so its handles
     // stay reachable even where another annotation overlaps them.
+    // pdfium's page index names a page id only through the open handle's own
+    // order — see `DocumentSession::backend_pages`.
+    let page_id = session.backend_page_id(page_index);
     let selected = session
         .selected_annotation
         .and_then(|id| document.annotations.get(id))
-        .filter(|annotation| annotation.page.0 as usize == page_index);
+        .filter(|annotation| Some(annotation.page) == page_id);
     if let Some(annotation) = selected {
         if let Some(rect) = bounds(annotation) {
             let mode = match corner_at(rect, point, reach) {
@@ -159,7 +166,7 @@ pub(crate) fn begin_annotation_drag(
     let hit = document
         .annotations
         .iter()
-        .filter(|annotation| annotation.page.0 as usize == page_index)
+        .filter(|annotation| Some(annotation.page) == page_id)
         .filter(|annotation| bounds(annotation).is_some_and(|rect| contains(rect, point)))
         .last()
         .map(|annotation| annotation.id);

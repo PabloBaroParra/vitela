@@ -16,6 +16,7 @@ use pdf_document::{Orientation, PageSize};
 
 use crate::document::{oriented_dimensions, LopdfDocument};
 use crate::error::ManipError;
+use crate::page_tree::insert_pages_at;
 
 /// Creates a new, valid, empty PDF (zero pages) with the given default page
 /// size/orientation recorded on the page-tree root (inherited by pages that
@@ -68,17 +69,10 @@ pub fn insert_blank_page(
         "MediaBox" => vec![0.into(), 0.into(), width.into(), height.into()],
     });
 
-    let pages_dict = doc.get_dictionary_mut(pages_id)?;
-    let mut kids = pages_dict
-        .get(b"Kids")
-        .and_then(|o| o.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let insert_at = index.min(kids.len());
-    kids.insert(insert_at, Object::Reference(page_id));
-    let count = kids.len() as i64;
-    pages_dict.set("Kids", kids);
-    pages_dict.set("Count", count);
+    // The new page hangs off whichever node holds the page at `index`, which
+    // on a nested page tree is not the root it was provisionally parented to.
+    let parent = insert_pages_at(&mut doc, pages_id, index, &[page_id])?;
+    doc.get_dictionary_mut(page_id)?.set("Parent", parent);
 
     Ok(LopdfDocument(doc))
 }

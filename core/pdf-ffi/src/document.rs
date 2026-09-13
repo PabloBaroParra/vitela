@@ -107,24 +107,25 @@ impl DocumentState {
                 size,
                 orientation,
             } => {
+                // Mirrors `RemovePage` below. The bound is `len`, not
+                // `len - 1`: inserting one past the last page appends. The
+                // core rejects an out-of-range index too, but only as
+                // `false` — this is where the index is still around to name
+                // in the error a shell will show.
+                if index as usize > self.document.pages.len() {
+                    return Err(FfiError::PageIndexOutOfBounds { index });
+                }
                 let id = self.allocate_page_id();
                 let page = Page::blank(id, size.into(), orientation.into());
-                Command::InsertPage {
-                    index: index as usize,
-                    page,
-                }
+                Command::insert_page(index as usize, page)
             }
             FfiEditCommand::RemovePage { index } => {
-                let page = self
-                    .document
-                    .pages
-                    .get(index as usize)
-                    .cloned()
-                    .ok_or(FfiError::PageIndexOutOfBounds { index })?;
-                Command::RemovePage {
-                    index: index as usize,
-                    page,
-                }
+                // The constructor captures the page *and* the annotations and
+                // form fields anchored to it, so undo restores all of it as
+                // one step and the removal cannot leave behind an orphan that
+                // `pdf-save` would refuse to write.
+                Command::remove_page(&self.document, index as usize)
+                    .ok_or(FfiError::PageIndexOutOfBounds { index })?
             }
             FfiEditCommand::AddHighlight { page, rect, color } => {
                 let id = self.allocate_annotation_id();
@@ -343,16 +344,18 @@ fn annotation_editing_is_allowed(document: &Document) -> bool {
 /// collect work it has no way to keep.
 fn content_editing_is_allowed(document: &Document) -> bool {
     pdf_manip::content_editing_is_allowed(document.security.as_ref())
-        && content_edit_could_be_saved(document)
+        && full_rewrite_blocker(document).is_none()
 }
 
-/// Whether a full rewrite of `document` could be produced — see
-/// `pdf_save::build_encryption_state`, which is the rule this mirrors.
-fn content_edit_could_be_saved(document: &Document) -> bool {
-    document
-        .security
-        .as_ref()
-        .is_none_or(|security| security.credentials.complete().is_some())
+/// Why a full rewrite of `document` could not reproduce its encryption, or
+/// `None` when it could.
+///
+/// Delegates to `pdf_save::full_rewrite_blocker`, the same function the save
+/// encoder consults, rather than restating its rule here: this used to be a
+/// local copy that checked only the password half and therefore waved an
+/// AES-256 document through to a save that refused it.
+fn full_rewrite_blocker(document: &Document) -> Option<pdf_save::RewriteBlocker> {
+    pdf_save::full_rewrite_blocker(document.security.as_ref())
 }
 
 /// Whether `command` rewrites a page's own content — text runs and images —
@@ -380,6 +383,34 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
 /// `InsertBlankPage`, `RemovePage`, or any page-content command (Batch 21):
 /// editing a page's text/images is a content-modify operation, not an
 /// annotation, the same distinction the PDF permission bits themselves draw.
+/// Whether `command` changes which pages the document has, in what order, or
+/// how they are turned — the PDF document-assembly permission (`/P` bit 11),
+/// which no command crossing this boundary used to be checked against at all.
+///
+/// The core twin is `pdf_document::Command::is_document_assembly_edit`; this
+/// classifies the FFI command instead because the check has to happen before
+/// `build_core_command`, which can allocate ids and read the page model.
+fn is_document_assembly_command(command: &FfiEditCommand) -> bool {
+    is_page_structure_command(command) || matches!(command, FfiEditCommand::RotatePage { .. })
+}
+
+/// Whether `command` changes which pages the document has or in what order —
+/// the FFI twin of `pdf_document::Command::is_page_structure_edit`, and
+/// narrower than [`is_document_assembly_command`] by exactly the same one
+/// variant, `RotatePage`.
+///
+/// The distinction is not cosmetic here: `pdf_save::has_structural_page_changes`
+/// compares page identity and origin, so a rotation stays on the incremental
+/// writer while everything this predicate names forces a full rewrite. Asking
+/// the rewrite question about a rotation would refuse an edit that saves
+/// perfectly well.
+fn is_page_structure_command(command: &FfiEditCommand) -> bool {
+    matches!(
+        command,
+        FfiEditCommand::InsertBlankPage { .. } | FfiEditCommand::RemovePage { .. }
+    )
+}
+
 fn is_annotation_command(command: &FfiEditCommand) -> bool {
     !matches!(
         command,
@@ -585,9 +616,19 @@ impl DocumentHandle {
                 detail: "text extraction is not permitted".to_string(),
             });
         }
-        pdf_save::read_page_content(&state.base, PageId(page))
-            .map(Into::into)
-            .map_err(Into::into)
+        // Resolved through the page's origin, not through its position: this
+        // handle has no imported-source registry (importing is the Linux
+        // shell's for now), so an imported page is refused with a clear
+        // message instead of silently reading whichever base page happens to
+        // sit at that index.
+        pdf_save::read_page_content_of(
+            &state.document,
+            PageId(page),
+            &state.base,
+            pdf_save::ImportedSources::none(),
+        )
+        .map(Into::into)
+        .map_err(Into::into)
     }
 
     /// The `/BaseFont` name of each font `page` declares, keyed by the
@@ -610,9 +651,14 @@ impl DocumentHandle {
                 detail: "text extraction is not permitted".to_string(),
             });
         }
-        pdf_edit::page_font_families(state.base.as_lopdf(), PageId(page))
-            .map(|families| families.into_iter().collect())
-            .map_err(Into::into)
+        pdf_save::page_font_families_of(
+            &state.document,
+            PageId(page),
+            &state.base,
+            pdf_save::ImportedSources::none(),
+        )
+        .map(|families| families.into_iter().collect())
+        .map_err(Into::into)
     }
 
     /// Current Document Info Dictionary snapshot (T-173, Batch 22): the last
@@ -679,16 +725,44 @@ mod tests {
         document.security.as_mut().unwrap().credential = Credential::Owner;
         assert!(annotation_editing_is_allowed(&document));
     }
+
+    /// The page commands are the ones this boundary used to let through
+    /// unasked: neither `is_annotation_command` nor `is_content_command`
+    /// claims them, so before the assembly gate existed nothing did.
+    #[test]
+    fn the_page_commands_are_the_ones_that_need_assembly_permission() {
+        for command in [
+            FfiEditCommand::RotatePage {
+                page: 0,
+                delta_degrees: 90,
+            },
+            FfiEditCommand::InsertBlankPage {
+                index: 0,
+                size: FfiPageSize::A4,
+                orientation: FfiOrientation::Portrait,
+            },
+            FfiEditCommand::RemovePage { index: 0 },
+        ] {
+            assert!(is_document_assembly_command(&command), "{command:?}");
+            assert!(!is_annotation_command(&command), "{command:?}");
+            assert!(!is_content_command(&command), "{command:?}");
+        }
+    }
 }
 
-fn apply_command(document: &mut Document, command: Command) {
+/// Returns `false` when `EditLog::apply` rejected the command, leaving both
+/// the document and the log untouched. Callers map that to an error instead
+/// of dropping it: a rejected command records nothing, so an `Ok(())` would
+/// tell the shell an edit is queued when none is.
+fn apply_command(document: &mut Document, command: Command) -> bool {
     // `EditLog::apply` needs `&mut EditLog` and `&mut Document` at once,
     // which can't both be reached as `document.pending_edits.apply(&mut
     // document, ..)` — same take/apply/restore dance used throughout
     // `pdf-save`/`pdf-document`'s own tests (see e.g. `strategy.rs`).
     let mut log = std::mem::take(&mut document.pending_edits);
-    log.apply(document, command);
+    let applied = log.apply(document, command);
     document.pending_edits = log;
+    applied
 }
 
 fn open_render_doc_from_bytes(
@@ -926,20 +1000,38 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
             detail: "annotation editing is not permitted".to_string(),
         });
     }
+    if is_document_assembly_command(&command)
+        && !pdf_manip::document_assembly_is_allowed(state.document.security.as_ref())
+    {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this document does not permit inserting, removing or rotating its pages"
+                .to_string(),
+        });
+    }
     let is_content = is_content_command(&command);
     if is_content && !pdf_manip::content_editing_is_allowed(state.document.security.as_ref()) {
         return Err(FfiError::UnsupportedOperation {
             detail: "content editing is not permitted".to_string(),
         });
     }
-    if is_content && !content_edit_could_be_saved(&state.document) {
-        // Refused here rather than at the save it would fail: an edit that can
-        // never be written is not pending work, and letting it queue would
-        // also break the preview refresh, which saves a snapshot the same way.
-        return Err(FfiError::UnsupportedOperation {
-            detail: "editing page content rewrites the whole file; reopen this encrypted                      document with both its user and owner passwords first"
-                .to_string(),
-        });
+    // Refused here rather than at the save it would fail: an edit that can
+    // never be written is not pending work, and letting it queue would also
+    // break the preview refresh, which saves a snapshot the same way.
+    //
+    // Page-content edits and page-structure edits both force the full-rewrite
+    // writer, so both ask this. `RotatePage` does not: it stays on the
+    // incremental writer, which re-encrypts from lopdf's own retained state
+    // and needs no password of ours (see `is_page_structure_command`).
+    if is_content || is_page_structure_command(&command) {
+        if let Some(blocker) = full_rewrite_blocker(&state.document) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: format!(
+                    "this edit rewrites the whole file, which this document's encryption \
+                     does not allow: {}",
+                    blocker.reason()
+                ),
+            });
+        }
     }
 
     let core_command = state.build_core_command(command)?;
@@ -948,7 +1040,12 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         // `pdf_save::validate_content_command` for why a content command
         // recorded unchecked can only fail later, and take every other
         // queued edit down with it.
-        pdf_save::validate_content_command(state.base.as_lopdf(), &core_command)?;
+        pdf_save::validate_content_command(
+            &state.document,
+            &state.base,
+            pdf_save::ImportedSources::none(),
+            &core_command,
+        )?;
 
         if let Some(index) = pending_replacement_index(&state.document, &core_command) {
             // Retyping the same run twice amends the queued command instead
@@ -962,7 +1059,11 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
             return Ok(());
         }
     }
-    apply_command(&mut state.document, core_command);
+    if !apply_command(&mut state.document, core_command) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this edit command was rejected against the open document".to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -1033,6 +1134,7 @@ pub fn refresh_preview(handle: &DocumentHandle) -> Result<(), FfiError> {
         original_bytes: state.original_bytes.as_deref(),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+        imported_sources: pdf_save::ImportedSources::none(),
     })?;
 
     let refreshed = open_render_doc_from_bytes(bytes, state.render_password.as_deref())?;
@@ -1086,7 +1188,11 @@ pub fn insert_image_stamp(
     let id = state.allocate_annotation_id();
     let annotation =
         pdf_annotate::stamp_from_image_bytes(id, PageId(page_index), &image_bytes, rect.into())?;
-    apply_command(&mut state.document, Command::AddAnnotation(annotation));
+    if !apply_command(&mut state.document, Command::AddAnnotation(annotation)) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this edit command was rejected against the open document".to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -1159,6 +1265,7 @@ pub fn save_to_bytes(
         original_bytes: state.original_bytes.as_deref(),
         intent: intent.into(),
         signatures: signatures.into(),
+        imported_sources: pdf_save::ImportedSources::none(),
     };
     pdf_save::save_document(input).map_err(Into::into)
 }
@@ -1184,6 +1291,7 @@ pub fn will_invalidate_signatures(
         // Irrelevant to the question: this reports what the file and the
         // edits imply, not what the caller has agreed to.
         signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
     })
     .map_err(Into::into)
 }

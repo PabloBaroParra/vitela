@@ -45,7 +45,7 @@
 //!
 //! Every commit that actually reaches the `EditLog` — from any of the above,
 //! plus undo/redo of one — ends in
-//! `document::refresh_after_content_edit` (T-163, batch decision 6): a
+//! `document::refresh_preview` (T-163, batch decision 6): a
 //! content edit changes what pdfium itself renders, so the canvas has to
 //! show the real, reopened result, not a "pending save" status message over
 //! a stale bitmap.
@@ -70,6 +70,104 @@ use crate::app::selection::{pointer_to_pdf, redraw};
 use crate::app::state::{ContentInsertKind, Viewer};
 
 use panel::NO_DOCUMENT_NOTICE;
+
+/// The id of the page currently shown at canvas position `canvas_index`,
+/// when that page has content this shell can parse and probe.
+///
+/// Three different numbers name a page in this shell and all three are
+/// `usize`: the canvas/pdfium index a gesture arrives with, the logical index
+/// into `Document.pages`, and the page's index inside whichever document
+/// supplies its bytes. They were interchangeable while a document could only
+/// be annotated; every page op breaks that, and confusing two of them is a
+/// silent wrong-page edit rather than a crash. So content-edit converts once,
+/// here, and passes a `PageId` from then on — [`page_probe`] turns that id
+/// into the document and object that actually hold the page.
+///
+/// An **imported** page qualifies: its bytes live in the source PDF the graft
+/// will copy them from, which [`page_probe`] resolves through the page's
+/// origin (batch PDF assembly §6). A **blank** page does not — it paints
+/// nothing and has no object anywhere until a save materializes it, so there
+/// is nothing to parse and nothing a probe could be run against.
+///
+/// `None`, too, for a page the open handle does not hold. Callers refuse
+/// rather than edit whatever unrelated page happens to sit at the same
+/// number.
+pub(crate) fn content_page(
+    session: &crate::app::state::DocumentSession,
+    canvas_index: usize,
+) -> Option<pdf_document::PageId> {
+    let id = session.backend_page_id(canvas_index)?;
+    let page = session
+        .document_model
+        .as_ref()?
+        .pages
+        .iter()
+        .find(|page| page.id == id)?;
+    match page.origin {
+        pdf_document::PageOrigin::Base { .. } | pdf_document::PageOrigin::Imported { .. } => {
+            Some(id)
+        }
+        pdf_document::PageOrigin::Blank => None,
+    }
+}
+
+/// The document and page object a content parse or validation probe for
+/// `page` must run against.
+///
+/// Content editing used to resolve a page by walking `save_backing.base` and
+/// taking the `PageId`-th entry. That held only while a `PageId` *was* a
+/// position in the base document — which an imported page's never is: its
+/// bytes are in the PDF it came from, and its id was allocated past every
+/// base page's. `pdf_save::page_backing` answers from the page's own
+/// `PageOrigin` instead, so this shell asks it rather than counting.
+///
+/// `None` for a blank page (nothing to probe, see [`content_page`]) and for
+/// any page the model, the backing or the source registry cannot account
+/// for — refusing beats probing the wrong bytes.
+/// Takes the session's fields one by one rather than the session itself: a
+/// caller that resolves a probe and then reaches for `session.pages` mutably
+/// needs those borrows to stay disjoint, and a `&DocumentSession` argument
+/// would borrow the whole thing.
+pub(crate) fn page_probe<'a>(
+    // Its own (elided) lifetime, not `'a`: the model is only read to find the
+    // page's origin, and nothing in the result points into it. Tying it to
+    // `'a` would keep `session.document_model` borrowed for as long as the
+    // probe lives, which is exactly when a caller wants it back mutably.
+    document: &pdf_document::Document,
+    base: &'a pdf_manip::LopdfDocument,
+    imported: &'a [crate::app::state::ImportedSource],
+    page: pdf_document::PageId,
+) -> Option<PageProbe<'a>> {
+    // Built as a local: `ImportedSources` keeps the slice's lifetime separate
+    // from the documents', so the reference resolved out of it outlives this
+    // scaffolding.
+    let sources: Vec<_> = imported
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect();
+    match pdf_save::page_backing(
+        document,
+        page,
+        base,
+        pdf_save::ImportedSources::new(&sources),
+    )
+    .ok()?
+    {
+        pdf_save::PageBacking::Empty => None,
+        pdf_save::PageBacking::Object { document, object } => Some(PageProbe {
+            document: document.as_lopdf(),
+            object,
+        }),
+    }
+}
+
+/// A page's content, addressed the only way that survives an import: the
+/// document holding the bytes, and the object inside it.
+#[derive(Clone, Copy)]
+pub(crate) struct PageProbe<'a> {
+    pub(crate) document: &'a lopdf::Document,
+    pub(crate) object: lopdf::ObjectId,
+}
 
 /// A drag shorter than this, in device pixels on either axis, is a click —
 /// mirrors the annotation placement gesture's own click collapse
@@ -345,7 +443,7 @@ pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// the call this makes.
 ///
 /// Deliberately a no-op while there is nothing to parse against:
-/// `document::refresh_after_content_edit` lifts `save_backing` out of the
+/// `document::refresh_preview` lifts `save_backing` out of the
 /// session *across* its own `show_document` call, so this runs with nothing
 /// to read there and that path re-parses on its own once it puts the edit
 /// state back.
@@ -369,7 +467,7 @@ pub(crate) fn rearm_for_session(viewer: &Viewer) {
 /// (`handle_drag_end`), so nothing is silently lost, only the proactive
 /// outline for that one page.
 ///
-/// `pub(crate)` rather than private (T-163): `document::refresh_after_content_edit`
+/// `pub(crate)` rather than private (T-163): `document::refresh_preview`
 /// calls this after every content-edit commit's save→reopen cycle, because
 /// the reopened session's `PageSlot::content` caches start out empty again —
 /// without a re-parse here, the outline would stay blank until the user
@@ -400,19 +498,34 @@ pub(crate) fn load_all_page_content(viewer: &Viewer) {
     let Some(session) = state.session.as_mut() else {
         return;
     };
-    let Some(base) = session
-        .save_backing
-        .as_ref()
-        .map(|backing| backing.base.as_lopdf())
-    else {
+    let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
         return;
     };
-    let pending = session
-        .document_model
-        .as_ref()
-        .map(|document| &document.pending_edits);
+    let Some(document) = session.document_model.as_ref() else {
+        return;
+    };
+    let pending = Some(&document.pending_edits);
+    // Resolved for every slot up front: the loop below borrows `pages`
+    // mutably, and `content_page` reads the whole session. A slot with no
+    // parsable page (a blank one, or one whose source is not registered) is
+    // skipped — there is nothing to parse for it.
+    let probes: Vec<Option<(pdf_document::PageId, PageProbe<'_>)>> = (0..session.pages.len())
+        .map(|index| content_page(session, index))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|page_id| {
+            let page_id = page_id?;
+            Some((
+                page_id,
+                page_probe(document, base, &session.imported_sources, page_id)?,
+            ))
+        })
+        .collect();
     for (index, page) in session.pages.iter_mut().enumerate() {
-        let _ = model::ensure_page_content(&mut page.content, base, index, pending);
+        let Some((page_id, probe)) = probes[index] else {
+            continue;
+        };
+        let _ = model::ensure_page_content(&mut page.content, probe, page_id, pending);
     }
 }
 
@@ -497,21 +610,26 @@ pub(crate) fn handle_drag_end(
         let Some(session) = state.session.as_mut() else {
             return;
         };
-        let Some(base) = session
-            .save_backing
-            .as_ref()
-            .map(|backing| backing.base.as_lopdf())
-        else {
+        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
             return;
         };
-        let pending = session
-            .document_model
-            .as_ref()
-            .map(|document| &document.pending_edits);
+        let Some(document) = session.document_model.as_ref() else {
+            return;
+        };
+        let pending = Some(&document.pending_edits);
+        // See `content_page`.
+        let Some(page_id) = content_page(session, page_index) else {
+            return;
+        };
+        // Before the mutable `pages` borrow below: the probe reads other
+        // fields of the same session.
+        let Some(probe) = page_probe(document, base, &session.imported_sources, page_id) else {
+            return;
+        };
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
-        match model::ensure_page_content(&mut page.content, base, page_index, pending) {
+        match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
             Ok(content) => model::text_run_at(content, (x as f32, y as f32)).cloned(),
             Err(error) => {
                 drop(state);

@@ -12,8 +12,9 @@ use std::sync::Arc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, ContentFit, FileDialog,
-    FileFilter, Label, Orientation as GtkOrientation, Overlay, PasswordEntry, Picture, Window,
+    cairo, gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, ContentFit,
+    FileDialog, FileFilter, Label, Orientation as GtkOrientation, Overlay, PasswordEntry, Picture,
+    Window,
 };
 use pdf_document::{Document, Orientation, PageSize, SecurityContext};
 use pdf_manip::ManipError;
@@ -25,8 +26,17 @@ use super::render::update_viewport;
 use super::search::update_search_controls;
 use super::state::{
     AnnotationAccess, ContentEditAccess, DocumentSession, DocumentSource, FitRequest,
-    OpenedDocument, PageSlot, PageState, TextAccess, Viewer,
+    ImportedSource, OpenedDocument, PageAssemblyAccess, PageSlot, PageState, TextAccess, Viewer,
 };
+
+fn imported_sources(
+    sources: &[ImportedSource],
+) -> Vec<(pdf_document::ImportedDocumentId, &pdf_manip::LopdfDocument)> {
+    sources
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect()
+}
 
 /// The sample document, linked into the binary at compile time from the same
 /// `assets/sample/` file the Windows and Android shells package. Baking it in
@@ -201,8 +211,7 @@ fn confirm_save_destination(
 fn confirm_signature_loss(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    document: Document,
-    backing: super::state::SaveBacking,
+    snapshot: SaveSnapshot,
     destination: PathBuf,
     after_save: Option<Rc<dyn Fn()>>,
     token: super::state::SessionToken,
@@ -230,8 +239,7 @@ fn confirm_signature_loss(
                 spawn_save(
                     &viewer,
                     token,
-                    document.clone(),
-                    backing.clone(),
+                    snapshot.clone(),
                     destination.clone(),
                     after_save.clone(),
                     pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
@@ -249,7 +257,7 @@ fn save_current_to(
     destination: PathBuf,
     after_save: Option<Rc<dyn Fn()>>,
 ) {
-    let (token, document, backing) = {
+    let (token, document, backing, sources) = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
             viewer.status.set_text("Open a PDF before saving.");
@@ -272,18 +280,21 @@ fn save_current_to(
             },
             document,
             backing,
+            session.imported_sources.clone(),
         )
     };
 
     // Asked before the save rather than after a rejected one: `pdf-save`
     // answers the same question either way, and asking here means the user
     // meets the warning as a question instead of an error message.
+    let source_refs = imported_sources(&sources);
     let breaks_signature = pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
         document: &document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .unwrap_or(false);
 
@@ -291,8 +302,11 @@ fn save_current_to(
         confirm_signature_loss(
             window,
             viewer,
-            document,
-            backing,
+            SaveSnapshot {
+                document,
+                backing,
+                sources,
+            },
             destination,
             after_save,
             token,
@@ -303,8 +317,11 @@ fn save_current_to(
     spawn_save(
         viewer,
         token,
-        document,
-        backing,
+        SaveSnapshot {
+            document,
+            backing,
+            sources,
+        },
         destination,
         after_save,
         pdf_save::SignatureAcknowledgement::Unacknowledged,
@@ -314,12 +331,10 @@ fn save_current_to(
 /// Runs the save on a worker thread and folds the result back into the
 /// session. Shared by the ordinary path and the one that had to ask about a
 /// signature first, so both reopen and report identically.
-#[allow(clippy::too_many_arguments)]
 fn spawn_save(
     viewer: &Viewer,
     token: super::state::SessionToken,
-    document: Document,
-    backing: super::state::SaveBacking,
+    snapshot: SaveSnapshot,
     destination: PathBuf,
     after_save: Option<Rc<dyn Fn()>>,
     signatures: pdf_save::SignatureAcknowledgement,
@@ -329,7 +344,13 @@ fn spawn_save(
         let viewer = viewer.clone();
         async move {
             let result = gio::spawn_blocking(move || {
-                save_snapshot_and_reopen(&document, &backing, &destination, signatures)
+                save_snapshot_and_reopen(
+                    &snapshot.document,
+                    &snapshot.backing,
+                    &snapshot.sources,
+                    &destination,
+                    signatures,
+                )
             })
             .await;
             let result = save_worker_result(result);
@@ -351,6 +372,13 @@ fn spawn_save(
             }
         }
     });
+}
+
+#[derive(Clone)]
+struct SaveSnapshot {
+    document: Document,
+    backing: super::state::SaveBacking,
+    sources: Vec<ImportedSource>,
 }
 
 fn session_matches(viewer: &Viewer, token: super::state::SessionToken) -> bool {
@@ -388,28 +416,34 @@ fn save_worker_result<T>(
 fn save_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
+    sources: &[ImportedSource],
     destination: &Path,
     signatures: pdf_save::SignatureAcknowledgement,
 ) -> Result<OpenedDocument, String> {
+    let source_refs = imported_sources(sources);
     let bytes = pdf_save::save_document(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures,
+        imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
     // Validate before replacing a destination: persisted bytes must be usable
-    // by the same renderer path that will display them.
-    PdfiumRenderer::new()
+    // by the same renderer path that will display them, and must hold exactly
+    // the pages the model names — see `reopened_matches_model` for what a
+    // disagreement would do to every page index once the file is reopened.
+    let renderer = PdfiumRenderer::new();
+    let handle = renderer
         .open_document_from_bytes(bytes.clone(), backing.password.as_deref())
-        .map_err(|error| error.to_string())
-        .and_then(|handle| {
-            PdfiumRenderer::new()
-                .close_document(handle)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        })?;
+        .map_err(|error| error.to_string())?;
+    let page_count = renderer
+        .page_count(handle, Priority::Visible)
+        .wait()
+        .map_err(|error| error.to_string());
+    let _ = renderer.close_document(handle);
+    reopened_matches_model(document, page_count? as usize)?;
     atomic_write(destination, &bytes)?;
     open_document(
         &DocumentSource::File(destination.to_path_buf()),
@@ -628,8 +662,9 @@ fn sign_snapshot_and_reopen(
 /// updated.", "Image moved.", "Edit undone.") — no "pending save" suffix,
 /// because once this call has run that is no longer true of the *canvas*.
 /// The file on disk is still behind, which is what `unsaved_to_disk` tracks.
-pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str) {
-    let (token, document, backing) = {
+pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
+    let message = message.into();
+    let (token, document, backing, sources) = {
         let mut state = viewer.state.borrow_mut();
         // Two independent sites can each ask for a refresh off the same
         // click — `content_edit::editor::commit` (retyping a run) and
@@ -639,8 +674,8 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
         // on the same `viewer.pages` `GtkBox`; deferring the second one
         // until the first finishes (see the tail of the spawned future
         // below) keeps exactly one rebuild in flight at a time.
-        if state.content_refresh_in_flight {
-            state.content_refresh_pending = Some(message);
+        if state.preview_refresh_in_flight {
+            state.preview_refresh_pending = Some(message);
             return;
         }
         let Some(session) = state.session.as_ref() else {
@@ -656,28 +691,42 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
             generation: state.generation,
             edit_revision: session.edit_revision,
         };
-        state.content_refresh_in_flight = true;
-        (token, document, backing)
+        let sources = session.imported_sources.clone();
+        state.preview_refresh_in_flight = true;
+        (token, document, backing, sources)
     };
 
     viewer.status.set_text("Refreshing preview...");
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
-            let result =
-                gio::spawn_blocking(move || refresh_snapshot_and_reopen(&document, &backing)).await;
+            let result = gio::spawn_blocking(move || {
+                refresh_snapshot_and_reopen(&document, &backing, &sources)
+            })
+            .await;
             let result = save_worker_result(result);
             match result {
-                Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
+                Ok((reopened, warnings))
+                    if let Some(generation) = prepare_reopened_session(&viewer, token) =>
+                {
                     // Lifted out *before* `show_document` drops the session
                     // it belongs to, and put back after — see this function's
                     // own doc for why a preview refresh must not let a
                     // document-open path reset either half.
                     let preserved_edits = take_edit_state(&viewer);
                     let preserved_view = take_view_state(&viewer);
+                    let preserved_screen = take_screen(&viewer);
                     show_document(&viewer, generation, reopened);
                     let still_editing = restore_edit_state(&viewer, preserved_edits);
                     restore_view_state(&viewer, generation, preserved_view);
+                    restore_screen(&viewer, preserved_screen);
+                    // The reopen replaced the handle every thumbnail on the
+                    // Organize screen was rendered against, and with it the
+                    // backend page order those cards were indexed by. Usually
+                    // that costs the grid nothing — see the function's own
+                    // doc for what it does and does not repaint. Does nothing
+                    // when that screen is not the one on show.
+                    super::organize::refresh_after_reopen(&viewer);
                     // The reopened session's `PageSlot::content` caches start
                     // out empty again (`show_document` builds fresh
                     // `PageSlot`s) — without re-parsing now, the composite-
@@ -690,9 +739,11 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
                         super::content_edit::load_all_page_content(&viewer);
                         super::selection::redraw(&viewer);
                     }
-                    viewer.status.set_text(message);
+                    viewer
+                        .status
+                        .set_text(&refresh_status(&viewer, token, &message, &warnings));
                 }
-                Ok(reopened) => close_document_in_background(reopened.document),
+                Ok((reopened, _)) => close_document_in_background(reopened.document),
                 // The command that triggered this refresh stays recorded in
                 // `pending_edits` either way: undo can still remove it, and
                 // if the error is a real problem (not just a stale token) an
@@ -717,37 +768,108 @@ pub(crate) fn refresh_after_content_edit(viewer: &Viewer, message: &'static str)
             // not immediately defer against itself.
             let pending = {
                 let mut state = viewer.state.borrow_mut();
-                state.content_refresh_in_flight = false;
-                state.content_refresh_pending.take()
+                state.preview_refresh_in_flight = false;
+                state.preview_refresh_pending.take()
             };
             if let Some(pending_message) = pending {
-                refresh_after_content_edit(&viewer, pending_message);
+                refresh_preview(&viewer, pending_message);
             }
         }
     });
 }
 
+/// The page ids of `model`, in its own page order — the order any bytes
+/// saved from it are written in, and therefore the page order of the pdfium
+/// handle opened from those bytes.
+///
+/// `None` (a document with no editable model) yields an empty order rather
+/// than a guess: without a model there are no page ids to name, and every
+/// consumer treats "not in the backend order" as "nothing to draw".
+fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::PageId> {
+    model
+        .map(|model| model.pages.iter().map(|page| page.id).collect())
+        .unwrap_or_default()
+}
+
 /// The half of a session that describes *what the user has edited*, as
 /// opposed to what is currently being rendered.
 ///
-/// Exists only so [`refresh_after_content_edit`] can carry it across
+/// Exists only so [`refresh_preview`] can carry it across
 /// [`show_document`], which resets it — correctly, for its usual job of
 /// installing a different document, and destructively for a preview refresh
 /// of the same one.
 ///
-/// The four fields travel together because they are mutually dependent, not
+/// These fields travel together because they are mutually dependent, not
 /// because they happen to be convenient: `document_model` holds the
-/// annotations `selected_annotation` names and the id space
-/// `next_annotation_id` continues, and its `EditLog` is keyed to exactly the
-/// `save_backing` it was recorded against. Restoring any of them without the
-/// others produces a session that contradicts itself — a selection pointing
-/// at nothing, ids colliding with live annotations, or commands replayed
-/// against a base they were never validated against.
+/// annotations and form fields the selections name and the id spaces their
+/// counters continue, and its `EditLog` is keyed to exactly the `save_backing`
+/// it was recorded against. Restoring any of them without the others produces
+/// a session that contradicts itself — a selection pointing at nothing, ids
+/// colliding with live objects, or commands replayed against a base they were
+/// never validated against.
+///
+/// # What deliberately does *not* travel
+///
+/// Everything else on the session is keyed to the pdfium handle the reopen
+/// replaces — a page index into *those* bytes, or text read out of them — so
+/// carrying it across would mean pointing new pages at old positions. The
+/// text `selection`, the `search` matches, the `selected_image` and open
+/// `content_editor`, every in-flight drag, and the render/tile caches are all
+/// left to die with the session `show_document` discards, and the controls
+/// that read them are re-derived from the session it installs
+/// (`update_search_controls` and friends). That is the invalidation rule for
+/// this refresh: **a field belongs here only if its key survives the reopen**.
+///
+/// Two do. `AnnotationId` and `FormFieldId` outlive any handle, which is why
+/// the selections below can be carried — filtered through
+/// [`surviving_edit_selections`], because surviving the *reopen* is not the
+/// same as surviving a page removal. `stamp_surfaces` is keyed the same way
+/// and must survive for a different reason: it is a decode cache, not a
+/// position, and the annotation whose bytes it holds is still in the
+/// preserved model. Dropping it left every stamp the user had placed
+/// painting as an empty outline (`selection::draw_annotation`'s fallback for
+/// a stamp with no surface) from the next page move onward.
 struct EditState {
     document_model: Option<Document>,
+    /// The refresh reopens from bytes, and `source_name` has no name for
+    /// those — carrying the one the session already had is what keeps the
+    /// Organize base block titled with the user's file after a page move.
+    base_name: String,
     save_backing: Option<super::state::SaveBacking>,
+    imported_sources: Vec<ImportedSource>,
+    import_warning_revision: Option<u64>,
     next_annotation_id: u64,
     selected_annotation: Option<pdf_document::AnnotationId>,
+    next_form_field_id: u64,
+    selected_form_field: Option<pdf_document::FormFieldId>,
+    stamp_surfaces: HashMap<pdf_document::AnnotationId, cairo::ImageSurface>,
+}
+
+fn surviving_edit_selections(
+    document: Option<&Document>,
+    annotation: Option<pdf_document::AnnotationId>,
+    form_field: Option<pdf_document::FormFieldId>,
+) -> (
+    Option<pdf_document::AnnotationId>,
+    Option<pdf_document::FormFieldId>,
+) {
+    let annotation = annotation.filter(|id| {
+        document.is_some_and(|document| {
+            document
+                .annotations
+                .get(*id)
+                .is_some_and(|annotation| document.render_index(annotation.page).is_some())
+        })
+    });
+    let form_field = form_field.filter(|id| {
+        document.is_some_and(|document| {
+            document
+                .form_fields
+                .get(*id)
+                .is_some_and(|field| document.render_index(field.page).is_some())
+        })
+    });
+    (annotation, form_field)
 }
 
 /// Lifts the edit-side state off the current session, leaving the rest of it
@@ -763,9 +885,17 @@ fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
     let session = state.session.as_mut()?;
     Some(EditState {
         document_model: session.document_model.take(),
+        base_name: session.base_name.clone(),
         save_backing: session.save_backing.take(),
+        imported_sources: std::mem::take(&mut session.imported_sources),
+        import_warning_revision: session.import_warning_revision,
         next_annotation_id: session.next_annotation_id,
         selected_annotation: session.selected_annotation,
+        next_form_field_id: session.next_form_field_id,
+        selected_form_field: session.selected_form_field,
+        // Moved out rather than cloned: a stamp surface is a full-size
+        // bitmap, and the session this is taken from is about to be dropped.
+        stamp_surfaces: std::mem::take(&mut session.stamp_surfaces),
     })
 }
 
@@ -786,17 +916,68 @@ fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) -> bool {
         let mut state = viewer.state.borrow_mut();
         if let Some(session) = state.session.as_mut() {
             if let Some(preserved) = preserved {
+                // The bytes `show_document` just installed were written from
+                // this model, in this model's page order — so its ids, not
+                // the reopened model's fresh 0..n, are what pdfium's pages
+                // are. Set before the move, and before anything can read a
+                // page index off the new session.
+                let (selected_annotation, selected_form_field) = surviving_edit_selections(
+                    preserved.document_model.as_ref(),
+                    preserved.selected_annotation,
+                    preserved.selected_form_field,
+                );
+                session.backend_pages = backend_page_order(preserved.document_model.as_ref());
                 session.document_model = preserved.document_model;
+                session.base_name = preserved.base_name;
                 session.save_backing = preserved.save_backing;
+                session.imported_sources = preserved.imported_sources;
+                session.import_warning_revision = preserved.import_warning_revision;
                 session.next_annotation_id = preserved.next_annotation_id;
-                session.selected_annotation = preserved.selected_annotation;
+                session.selected_annotation = selected_annotation;
+                session.next_form_field_id = preserved.next_form_field_id;
+                session.selected_form_field = selected_form_field;
+                session.stamp_surfaces = preserved.stamp_surfaces;
             }
             session.unsaved_to_disk = true;
         }
         state.content_edit_mode
     };
     super::annotations::update_annotation_controls(viewer);
+    super::forms::update_forms_controls(viewer);
     still_editing
+}
+
+/// Reads which view-stack page is on show, so [`refresh_preview`] can put it
+/// back after the rebuild.
+///
+/// [`show_document`] always lands on the editor page, which is right for an
+/// open — the user asked for a document and a document is what they get — and
+/// wrong for a refresh, which rebuilds the document already on screen rather
+/// than navigating anywhere. Every page operation run from the Organize
+/// screen goes `organize::command` -> [`refresh_preview`], so without this a
+/// single reorder or delete threw the user back to the editor mid-organize
+/// and made them re-enter the screen to move the next page.
+fn take_screen(viewer: &Viewer) -> Option<glib::GString> {
+    viewer.view_stack.visible_child_name()
+}
+
+/// Puts [`take_screen`]'s result back.
+///
+/// Runs *after* [`restore_view_state`], not before: `show_document`'s
+/// measuring and the zoom/scroll restore both read allocations the stack only
+/// hands to the page it is showing, so the editor has to stay on show for the
+/// whole rebuild and step aside only once it is done.
+///
+/// Unconditional on the session, unlike the two restores above it — a screen
+/// is a widget, and where the user is standing in the app has no business
+/// depending on whether a model survived the reopen.
+fn restore_screen(viewer: &Viewer, preserved: Option<glib::GString>) {
+    let Some(screen) = preserved else {
+        return;
+    };
+    if viewer.view_stack.visible_child_name().as_deref() != Some(screen.as_str()) {
+        viewer.view_stack.set_visible_child_name(&screen);
+    }
 }
 
 /// Where the user was looking, as opposed to what they had edited
@@ -890,23 +1071,154 @@ fn restore_view_state(viewer: &Viewer, generation: u64, preserved: Option<ViewSt
 
 /// The no-destination twin of [`save_snapshot_and_reopen`]: saves to an
 /// in-memory buffer and reopens *that*, without ever touching disk. See
-/// [`refresh_after_content_edit`]'s own doc for why signatures are
+/// [`refresh_preview`]'s own doc for why signatures are
 /// acknowledged silently here rather than asked about — and why that stays
 /// safe only because the caller keeps the original `SaveBacking`.
 fn refresh_snapshot_and_reopen(
     document: &Document,
     backing: &super::state::SaveBacking,
-) -> Result<OpenedDocument, String> {
-    let bytes = pdf_save::save_document(pdf_save::SaveInput {
+    sources: &[ImportedSource],
+) -> Result<(OpenedDocument, Vec<pdf_manip::GraftWarning>), String> {
+    let source_refs = imported_sources(sources);
+    let outcome = pdf_save::save_document_with_report(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
         signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+        imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
-    open_document(&DocumentSource::Bytes(bytes), backing.password.as_deref())
-        .map_err(|error| error.to_string())
+    let reopened = open_document(
+        &DocumentSource::Bytes(outcome.bytes),
+        backing.password.as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    if let Err(error) = reopened_matches_model(document, reopened.page_sizes.len()) {
+        // Nothing has installed this handle yet, so closing it is this
+        // function's job — the caller only ever closes one it was handed.
+        let _ = PdfiumRenderer::new().close_document(reopened.document);
+        return Err(error);
+    }
+    Ok((reopened, outcome.graft_warnings))
+}
+
+fn refresh_status(
+    viewer: &Viewer,
+    token: super::state::SessionToken,
+    message: &str,
+    warnings: &[pdf_manip::GraftWarning],
+) -> String {
+    let mut state = viewer.state.borrow_mut();
+    let Some(session) = state.session.as_mut() else {
+        return message.to_owned();
+    };
+    let show = session.import_warning_revision == Some(token.edit_revision);
+    if show {
+        session.import_warning_revision = None;
+    }
+    refresh_status_for_import(message, warnings, show)
+}
+
+fn refresh_status_for_import(
+    message: &str,
+    warnings: &[pdf_manip::GraftWarning],
+    show: bool,
+) -> String {
+    if !show {
+        return message.to_owned();
+    }
+    let mut renames = Vec::new();
+    for warning in warnings {
+        if matches!(warning, pdf_manip::GraftWarning::FormFieldRenamed { .. }) {
+            renames.push(warning.to_string());
+        }
+    }
+    if renames.is_empty() {
+        message.to_owned()
+    } else {
+        format!("{message} {}", renames.join(" "))
+    }
+}
+
+#[cfg(test)]
+mod refresh_status_tests {
+    use super::refresh_status_for_import;
+    use pdf_manip::GraftWarning;
+
+    #[test]
+    fn a_form_field_rename_is_shown_after_the_preview_refresh() {
+        let status = refresh_status_for_import(
+            "Imported 1 pages.",
+            &[GraftWarning::FormFieldRenamed {
+                page: 0,
+                from: "Name".into(),
+                to: "Name-imported".into(),
+            }],
+            true,
+        );
+
+        assert_eq!(
+            status,
+            "Imported 1 pages. the form field \"Name\" on page 0 was imported as \"Name-imported\": the document already has a field called \"Name\", and two fields of one name would share a single value"
+        );
+    }
+
+    #[test]
+    fn source_only_warnings_are_not_repeated_after_confirmation() {
+        let status = refresh_status_for_import(
+            "Imported 1 pages.",
+            &[GraftWarning::TaggedStructureNotImported { page: 0 }],
+            true,
+        );
+
+        assert_eq!(status, "Imported 1 pages.");
+    }
+
+    #[test]
+    fn a_form_field_rename_is_not_shown_for_a_non_import_refresh() {
+        let warning = GraftWarning::FormFieldRenamed {
+            page: 0,
+            from: "Name".into(),
+            to: "Name-imported".into(),
+        };
+
+        let first =
+            refresh_status_for_import("Imported 1 pages.", std::slice::from_ref(&warning), true);
+        let later = refresh_status_for_import("Text updated.", &[warning], false);
+
+        assert!(first.contains("Name-imported"));
+        assert_eq!(later, "Text updated.");
+    }
+}
+
+/// Checks the pdfium handle a save just produced against the model it was
+/// written from — before [`refresh_snapshot_and_reopen`] installs it as the
+/// preview, and before [`save_snapshot_and_reopen`] replaces a file on disk
+/// with the bytes behind it.
+///
+/// pdfium *opening* the bytes is already most of the validation — a file it
+/// cannot parse fails [`open_document`] outright, and the `page_sizes` sweep
+/// there touches every page — but "opened" is not "matches". What the preview
+/// installs afterwards is `backend_pages` taken from the **preserved** model
+/// (see [`restore_edit_state`]), so every canvas index is resolved through the
+/// model's page order on the assumption that the reopened handle holds exactly
+/// those pages. Let a handle with a different page count through and that
+/// assumption fails silently: pages draw, hit-test and accept annotations
+/// under another page's identity. Refusing leaves the previous preview up with
+/// an explanation instead — the same trade [`refresh_preview`]'s error arm
+/// already makes for a failed save.
+///
+/// A document with no editable model has no pages to name and expects nothing,
+/// which is also why this takes the model rather than the session.
+fn reopened_matches_model(document: &Document, reopened_pages: usize) -> Result<(), String> {
+    if reopened_pages == document.pages.len() {
+        return Ok(());
+    }
+    Err(format!(
+        "the saved file opened with {reopened_pages} pages, not the {} the model has",
+        document.pages.len()
+    ))
 }
 
 fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -1201,16 +1513,19 @@ fn open_document(
         });
     let annotation_access = annotation_access_from(&security, document_model.is_some());
     let content_edit_access = content_edit_access_from(&security, document_model.is_some());
+    let page_assembly_access = page_assembly_access_from(&security);
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
     match renderer.page_sizes(document, Priority::Visible).wait() {
         Ok(page_sizes) => Ok(OpenedDocument {
             document,
+            name: source_name(source),
             page_sizes,
             text_access,
             annotation_access,
             content_edit_access,
+            page_assembly_access,
             document_model,
             save_backing,
         }),
@@ -1218,6 +1533,24 @@ fn open_document(
             let _ = renderer.close_document(document);
             Err(error)
         }
+    }
+}
+
+/// What to call the document this source opens — see
+/// [`DocumentSession::base_name`].
+///
+/// A `Bytes` source has no name of its own: it is either Ctrl+N's blank
+/// document or a preview refresh's in-memory save, and the refresh restores
+/// the name it had rather than taking this fallback (`restore_edit_state`).
+fn source_name(source: &DocumentSource) -> String {
+    match source {
+        DocumentSource::File(path) => path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Opened PDF")
+            .to_owned(),
+        DocumentSource::Embedded(_) => "Sample document".to_owned(),
+        DocumentSource::Bytes(_) => "Untitled document".to_owned(),
     }
 }
 
@@ -1306,6 +1639,22 @@ fn content_edit_access_from(
     }
 }
 
+/// The page-assembly twin of [`text_access_from`] — the same three-state
+/// shape, because like text extraction this is a pure permission question:
+/// the Organize screen reports a missing editable model separately, in its
+/// own words.
+fn page_assembly_access_from(
+    security: &Result<Option<SecurityContext>, ManipError>,
+) -> PageAssemblyAccess {
+    match security {
+        Ok(security) if pdf_manip::document_assembly_is_allowed(security.as_ref()) => {
+            PageAssemblyAccess::Allowed
+        }
+        Ok(_) => PageAssemblyAccess::Forbidden,
+        Err(_) => PageAssemblyAccess::Unreadable,
+    }
+}
+
 /// Builds the editable core model that annotation commands are recorded
 /// against, or `None` when this document cannot be modelled.
 ///
@@ -1365,6 +1714,8 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
         close_document_in_background(document.document);
         return;
     }
+
+    super::organize::document_changed(viewer);
 
     // Before the measuring below, not after: a document on screen means the
     // editor page, whichever view the open was started from (Home's drop
@@ -1451,16 +1802,27 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
 
     let page_count = slots.len();
     let next_form_field_id = next_form_field_id(document.document_model.as_ref());
+    // The handle installed below and the model beside it were read from the
+    // same bytes, so pdfium's page order *is* this model's page order. A
+    // preview refresh reopens with a model that is thrown away again a moment
+    // later, so it re-installs this from the preserved one — see
+    // `restore_edit_state`.
+    let backend_pages = backend_page_order(document.document_model.as_ref());
     {
         let mut state = viewer.state.borrow_mut();
         state.session_id += 1;
         state.session = Some(DocumentSession {
             document: document.document,
+            base_name: document.name,
             text_access: document.text_access,
             annotation_access: document.annotation_access,
             content_edit_access: document.content_edit_access,
+            page_assembly_access: document.page_assembly_access,
             document_model: document.document_model,
+            backend_pages,
             save_backing: document.save_backing,
+            imported_sources: Vec::new(),
+            import_warning_revision: None,
             // Freshly shown: whatever is on screen right now is exactly what
             // this session's bytes came from, which for an ordinary open or a
             // disk-save reopen means it matches disk. A T-163 preview refresh
@@ -1539,7 +1901,7 @@ fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
 ///
 /// Reads `session.unsaved_to_disk` rather than
 /// `document_model.pending_edits.can_undo()` (T-163). The two now agree in
-/// the ordinary case — [`refresh_after_content_edit`] carries the `EditLog`
+/// the ordinary case — [`refresh_preview`] carries the `EditLog`
 /// across its reopen rather than resetting it — but the flag is still the
 /// right question to ask, because it stays `true` on paths where the log
 /// cannot speak for itself: a refresh that *failed* after its command was
@@ -1683,13 +2045,69 @@ mod tests {
 
     use super::{
         atomic_write, next_form_field_id, next_generation_if_current, pdf_destination,
-        save_worker_result, unsaved_decision, UnsavedDecision,
+        reopened_matches_model, save_worker_result, surviving_edit_selections, unsaved_decision,
+        UnsavedDecision,
     };
+    use gtk::prelude::*;
+
+    use super::{restore_screen, take_screen};
+    use crate::app::home::{show_editor, EDITOR_PAGE};
+    use crate::app::organize::ORGANIZE_PAGE;
     use crate::app::state::SessionToken;
+    use crate::app::ui_tests::built_ui;
     use pdf_document::{
-        Color, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId,
-        FormFieldKind, PageId, Rect, TextStyle,
+        AnnotationId, Color, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId,
+        FormFieldKind, Orientation, Page, PageId, PageSize, Rect, TextStyle,
     };
+
+    /// A preview refresh rebuilds the document that is already on screen; it
+    /// is not a navigation, so it must leave the user on the screen they were
+    /// using. `show_document` — which every refresh runs through — always
+    /// switches to the editor page, and that is what used to eject the user
+    /// from Organize on every single page move.
+    #[gtk::test]
+    fn gtk_ui_a_rebuild_leaves_the_user_on_the_screen_they_were_using() {
+        let built = built_ui();
+        built
+            .viewer
+            .view_stack
+            .set_visible_child_name(ORGANIZE_PAGE);
+
+        let preserved = take_screen(&built.viewer);
+        // Stands in for `show_document`, whose one effect on the view stack
+        // this is; the rest of it needs an opened pdfium document.
+        show_editor(&built.viewer);
+        assert_eq!(
+            built.viewer.view_stack.visible_child_name().as_deref(),
+            Some(EDITOR_PAGE),
+            "the rebuild is expected to land on the editor — that is the behavior being undone"
+        );
+        restore_screen(&built.viewer, preserved);
+
+        assert_eq!(
+            built.viewer.view_stack.visible_child_name().as_deref(),
+            Some(ORGANIZE_PAGE)
+        );
+        built.window.close();
+    }
+
+    /// The editor is the common case, and putting it back must be a no-op
+    /// rather than a second switch to the page already on show.
+    #[gtk::test]
+    fn gtk_ui_a_rebuild_started_from_the_editor_stays_on_the_editor() {
+        let built = built_ui();
+        built.viewer.view_stack.set_visible_child_name(EDITOR_PAGE);
+
+        let preserved = take_screen(&built.viewer);
+        show_editor(&built.viewer);
+        restore_screen(&built.viewer, preserved);
+
+        assert_eq!(
+            built.viewer.view_stack.visible_child_name().as_deref(),
+            Some(EDITOR_PAGE)
+        );
+        built.window.close();
+    }
 
     fn a_form_field(id: u64) -> FormField {
         FormField {
@@ -1717,6 +2135,57 @@ mod tests {
     }
 
     #[test]
+    fn edit_selections_survive_when_the_preserved_model_still_holds_them() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        document
+            .annotations
+            .insert(crate::app::test_fixtures::a_highlight(4, PageId(0)));
+        document.form_fields.insert(a_form_field(7));
+
+        assert_eq!(
+            surviving_edit_selections(Some(&document), Some(AnnotationId(4)), Some(FormFieldId(7)),),
+            (Some(AnnotationId(4)), Some(FormFieldId(7)))
+        );
+    }
+
+    #[test]
+    fn edit_selections_are_cleared_when_their_page_was_removed() {
+        let mut document = Document::blank();
+        document
+            .annotations
+            .insert(crate::app::test_fixtures::a_highlight(4, PageId(0)));
+        document.form_fields.insert(a_form_field(7));
+
+        assert_eq!(
+            surviving_edit_selections(Some(&document), Some(AnnotationId(4)), Some(FormFieldId(7)),),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn edit_selections_are_cleared_when_the_preserved_model_no_longer_holds_them() {
+        assert_eq!(
+            surviving_edit_selections(
+                Some(&Document::blank()),
+                Some(AnnotationId(4)),
+                Some(FormFieldId(7)),
+            ),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn edit_selections_are_cleared_without_an_editable_model() {
+        assert_eq!(
+            surviving_edit_selections(None, Some(AnnotationId(4)), Some(FormFieldId(7))),
+            (None, None)
+        );
+    }
+
+    #[test]
     fn a_document_with_no_model_starts_form_field_ids_at_zero() {
         assert_eq!(next_form_field_id(None), 0);
     }
@@ -1734,6 +2203,41 @@ mod tests {
         document.form_fields.insert(a_form_field(2));
 
         assert_eq!(next_form_field_id(Some(&document)), 3);
+    }
+
+    fn a_document_of(pages: usize) -> Document {
+        let mut document = Document::blank();
+        for index in 0..pages {
+            document.pages.push(Page::blank(
+                PageId(index as u32),
+                PageSize::A4,
+                Orientation::Portrait,
+            ));
+        }
+        document
+    }
+
+    #[test]
+    fn a_reopened_handle_with_the_model_s_pages_can_be_installed() {
+        assert_eq!(reopened_matches_model(&a_document_of(3), 3), Ok(()));
+    }
+
+    #[test]
+    fn a_reopened_handle_missing_a_page_is_refused_with_both_counts() {
+        assert_eq!(
+            reopened_matches_model(&a_document_of(3), 2),
+            Err("the saved file opened with 2 pages, not the 3 the model has".to_owned())
+        );
+    }
+
+    #[test]
+    fn a_reopened_handle_with_an_extra_page_is_refused_too() {
+        assert!(reopened_matches_model(&a_document_of(1), 2).is_err());
+    }
+
+    #[test]
+    fn a_document_without_an_editable_model_expects_nothing_of_the_handle() {
+        assert_eq!(reopened_matches_model(&Document::blank(), 0), Ok(()));
     }
 
     #[test]
@@ -1861,5 +2365,68 @@ mod tests {
             b"complete PDF bytes"
         );
         fs::remove_dir_all(&directory).expect("remove isolated temporary directory");
+    }
+
+    /// The invalidation rule [`super::EditState`] documents, exercised end to
+    /// end across the reopen: what is keyed to the replaced pdfium handle is
+    /// dropped, what is keyed to an id that outlives it is carried.
+    #[gtk::test]
+    fn gtk_ui_a_preview_refresh_keeps_id_keyed_caches_and_drops_backend_keyed_state() {
+        use crate::app::state::{SearchState, Selection};
+        use crate::app::test_fixtures::model_session;
+        use crate::app::ui_tests::built_ui;
+        use gtk::cairo;
+        use gtk::prelude::GtkWindowExt;
+
+        let built = built_ui();
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1)
+            .expect("a 1x1 surface is always creatable");
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let mut session = model_session(document.clone());
+            session.stamp_surfaces.insert(AnnotationId(3), surface);
+            session.selection = Some(Selection {
+                page_index: 0,
+                anchor: (0.0, 0.0),
+                focus: (1.0, 1.0),
+            });
+            session.search = Some(SearchState {
+                query: "find me".to_string(),
+                matches: Vec::new(),
+                current: 0,
+            });
+            state.session = Some(session);
+        }
+
+        let preserved = super::take_edit_state(&built.viewer);
+        // What `show_document` does to the session on its way through: a new
+        // one, built from the bytes that were just reopened.
+        built.viewer.state.borrow_mut().session = Some(model_session(document));
+        super::restore_edit_state(&built.viewer, preserved);
+
+        {
+            let state = built.viewer.state.borrow();
+            let session = state.session.as_ref().expect("a session was installed");
+            assert!(
+                session.stamp_surfaces.contains_key(&AnnotationId(3)),
+                "a stamp's decoded bitmap is keyed by an id the reopen does not change"
+            );
+            assert!(
+                session.selection.is_none(),
+                "a text selection names a backend page position and must not survive"
+            );
+            assert!(
+                session.search.is_none(),
+                "search matches name backend page positions and must not survive"
+            );
+        }
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
     }
 }

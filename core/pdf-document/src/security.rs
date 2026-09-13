@@ -100,3 +100,67 @@ pub struct SecurityContext {
     pub credentials: EncryptionCredentials,
     pub permissions: Permissions,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn context() -> SecurityContext {
+        SecurityContext {
+            handler: SecurityHandler::Aes128,
+            credential: Credential::Owner,
+            credentials: EncryptionCredentials::both("user-hunter2", "owner-hunter2"),
+            permissions: Permissions(0xFFFF_FFFC),
+        }
+    }
+
+    /// Checklist §5 item 4 (`docs/batch-pdf-assembly.md`): credentials stay
+    /// out of logs and error messages. The hand-written `Debug` above is the
+    /// only thing standing between a password and every `{:?}` in the
+    /// codebase — a `#[derive(Debug)]` added in its place would leak silently
+    /// and compile fine, so the redaction is pinned by a test rather than by
+    /// the author's memory.
+    #[test]
+    fn debug_redacts_both_passwords() {
+        let rendered = format!("{:?}", EncryptionCredentials::both("user-pw", "owner-pw"));
+
+        assert!(!rendered.contains("user-pw"));
+        assert!(!rendered.contains("owner-pw"));
+        assert!(rendered.contains("<redacted>"));
+    }
+
+    /// A password must not escape through a *container's* derived `Debug`
+    /// either: `SecurityContext` derives it, so its rendering is only as safe
+    /// as the field's own impl.
+    #[test]
+    fn a_security_context_debug_never_prints_its_passwords() {
+        let rendered = format!("{:?}", context());
+
+        assert!(!rendered.contains("hunter2"), "leaked: {rendered}");
+    }
+
+    /// Absence is reported, presence is not: `None` renders as `None` so a
+    /// reader can still tell which password roles are known — which is the
+    /// whole diagnostic value — without learning either one.
+    #[test]
+    fn debug_still_distinguishes_a_missing_password_from_a_present_one() {
+        let rendered = format!("{:?}", EncryptionCredentials::user("user-pw"));
+
+        assert!(rendered.contains("user_password: Some(\"<redacted>\")"));
+        assert!(rendered.contains("owner_password: None"));
+    }
+
+    #[test]
+    fn complete_requires_both_password_roles() {
+        assert!(EncryptionCredentials::user("only-user")
+            .complete()
+            .is_none());
+        assert!(EncryptionCredentials::owner("only-owner")
+            .complete()
+            .is_none());
+        assert_eq!(
+            EncryptionCredentials::both("u", "o").complete(),
+            Some(("u", "o"))
+        );
+    }
+}

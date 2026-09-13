@@ -5,14 +5,18 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
+use crate::app::organize::Thumbnails;
 use gtk::prelude::*;
 use gtk::{
     cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, FlowBox, Label, Overlay,
-    Picture, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
+    Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
 };
 use pdf_document::{
-    AnnotationId, Document, FormFieldId, ImageItem, PageContent, PdfDateOffset, TextRun,
+    AnnotationId, Document, FormFieldId, ImageItem, ImportedDocumentId, PageContent, PageId,
+    PdfDateOffset, TextRun,
 };
 use pdf_manip::LopdfDocument;
 use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
@@ -165,6 +169,66 @@ impl Viewer {
             .as_ref()
             .and_then(|session| session.content_edit_access.refusal())
     }
+
+    pub(crate) fn page_assembly_refusal(&self) -> Option<&'static str> {
+        self.state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.page_assembly_access.refusal())
+    }
+
+    /// Why an edit that rewrites the whole file cannot be started on this
+    /// document, or `None` when it can (checklist "Seguridad y firmas" item 5,
+    /// `docs/batch-pdf-assembly.md` section 5).
+    ///
+    /// A separate question from [`Self::page_assembly_refusal`], and asked
+    /// second: that one is what the document's `/P` *permits*, this one is
+    /// what its encryption can be *reproduced* as. A document may grant
+    /// assembly freely and still be impossible to rewrite, because a PDF's
+    /// second password cannot be derived from the one it was opened with.
+    ///
+    /// Only funnels whose operations force the full-rewrite writer ask it.
+    /// Rotation, form fills, metadata and signing all stay on the incremental
+    /// writer, which re-encrypts from lopdf's own retained state and needs no
+    /// password of ours — asking there would invent a restriction the
+    /// document never declared.
+    ///
+    /// With no editable model there is nothing to answer; the Organize screen
+    /// already reports that case in its own words.
+    pub(crate) fn full_rewrite_refusal(&self) -> Option<&'static str> {
+        let state = self.state.borrow();
+        let security = state
+            .session
+            .as_ref()?
+            .document_model
+            .as_ref()?
+            .security
+            .as_ref()?;
+        pdf_save::full_rewrite_blocker(Some(security)).map(rewrite_refusal)
+    }
+}
+
+/// The shell's words for a [`pdf_save::RewriteBlocker`].
+///
+/// The core reason is written for a developer reading a log; this is written
+/// for the person looking at the Organize screen, and — like every refusal in
+/// this module — it names no credential.
+fn rewrite_refusal(blocker: pdf_save::RewriteBlocker) -> &'static str {
+    match blocker {
+        pdf_save::RewriteBlocker::IncompleteCredentials => {
+            "Changing this encrypted document's pages rewrites the whole file, which needs \
+             both its user and owner passwords. Reopen it with both to continue."
+        }
+        // Every other blocker is a property of the encryption itself rather
+        // than of what the user supplied, so there is nothing for them to do
+        // differently — say that, instead of asking for a password that would
+        // not help.
+        _ => {
+            "This document's encryption cannot yet be reproduced when the file is rewritten, \
+             so its pages cannot be changed."
+        }
+    }
 }
 
 pub(crate) struct ViewerState {
@@ -197,7 +261,7 @@ pub(crate) struct ViewerState {
     /// the two never disagree about whether content-edit mode is active —
     /// only about what a click inside it does.
     pub(crate) content_insert_mode: Option<ContentInsertKind>,
-    /// Whether a `document::refresh_after_content_edit` preview refresh
+    /// Whether a `document::refresh_preview` preview refresh
     /// (save-to-buffer, reopen, rebuild every page widget) is currently
     /// running.
     ///
@@ -209,14 +273,14 @@ pub(crate) struct ViewerState {
     /// `viewer.pages`. A second refresh starting mid-rebuild races the first
     /// one on that same `GtkBox`, which is unsafe: both `while let Some(child)
     /// = viewer.pages.first_child()` teardown and its rebuild `append` can
-    /// observe a widget the other side is mutating. `refresh_after_content_edit`
+    /// observe a widget the other side is mutating. `refresh_preview`
     /// checks this flag and defers instead of starting a concurrent rebuild.
-    pub(crate) content_refresh_in_flight: bool,
+    pub(crate) preview_refresh_in_flight: bool,
     /// A refresh message queued because one arrived while
-    /// `content_refresh_in_flight` was already set. Replayed once the
+    /// `preview_refresh_in_flight` was already set. Replayed once the
     /// in-flight refresh finishes, so the second edit's preview still lands
     /// instead of being silently dropped.
-    pub(crate) content_refresh_pending: Option<&'static str>,
+    pub(crate) preview_refresh_pending: Option<String>,
     /// Whether a page click targets a form field instead of selecting text or
     /// placing an annotation (T-141). Shell mode, not document state, for the
     /// same reason `content_edit_mode` is — see `forms::set_mode`. Mutually
@@ -233,6 +297,13 @@ pub(crate) struct ViewerState {
     /// stacked underneath a second one — see `document::begin_loading` and
     /// `document::dismiss_password_dialog`.
     pub(crate) password_dialog: Option<Window>,
+    /// The source-password prompt for the active batch import. It is separate
+    /// from `password_dialog`: imported PDFs have independent credentials and
+    /// never replace or reuse the main document's password.
+    pub(crate) import_password_dialog: Option<Window>,
+    /// Cooperative cancellation for the active import worker. Lopdf calls are
+    /// synchronous, so cancellation takes effect at the next stage boundary.
+    pub(crate) import_cancellation: Option<Arc<AtomicBool>>,
     /// The `.pfx`/`.p12` password prompt for the in-flight certificate load,
     /// if any (Batch B23 Fase 2) — the signing twin of `password_dialog`,
     /// same reason: a later attempt can supersede this one before the
@@ -291,6 +362,17 @@ pub(crate) struct SaveBacking {
     pub(crate) base: LopdfDocument,
     pub(crate) original_bytes: Vec<u8>,
     pub(crate) password: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct ImportedSource {
+    pub(crate) id: ImportedDocumentId,
+    pub(crate) document: LopdfDocument,
+    /// The file name this PDF was imported from, for the Organize
+    /// "Documents" view to title its block card with. Captured at import
+    /// time because nothing downstream remembers the path: the session keeps
+    /// the parsed document, not where it came from.
+    pub(crate) name: String,
 }
 
 /// Identifies the exact model revision from which asynchronous work started.
@@ -532,19 +614,156 @@ pub(crate) struct MetadataPanel {
     pub(crate) mod_offset: Rc<Cell<PdfDateOffset>>,
 }
 
+/// One card in the Organize grid: the page it stands for, its root box, the
+/// page-number label `organize::grid::renumber` keeps current, the
+/// provenance line `organize::grid::relabel_sources` keeps current, and the
+/// `Picture` `organize::spawn_thumbnail` fills in once a render lands.
+///
+/// The `Picture` is held rather than fished out of `root`'s children so that
+/// "which widget is this card's thumbnail" is a field and not a convention
+/// about child order that four call sites have to agree on. `source` is held
+/// for the same reason.
+///
+/// `id` is the card's *stable* identity and the payload of its drag. A
+/// position is not: the card carries none, and every gesture asks `Cards`
+/// (for widget order) or the model (for page order) where it sits at the
+/// moment it needs to know — see `organize::grid::handle_drop`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Card {
+    pub(crate) id: PageId,
+    pub(crate) root: GtkBox,
+    pub(crate) number: Label,
+    pub(crate) source: Label,
+    pub(crate) picture: Picture,
+}
+
+/// The Organize grid's running order — which page sits at which position —
+/// and the only way to change it.
+///
+/// The grid orders its children by a `FlowBox` sort function that reads this
+/// on every comparison, and GTK is free to sort inside `append`, `remove` or
+/// `invalidate_sort`. A `RefMut` still alive when one of those runs is a
+/// `BorrowMutError` — a runtime panic, in whatever unrelated feature happened
+/// to be holding it.
+///
+/// So this type never hands one out. Every method takes its borrow, finishes
+/// with it, and drops it before returning, which leaves the caller's GTK work
+/// outside the borrow *by construction* rather than by remembering to wrap it
+/// in a block. That is the whole reason it is a type and not a plain
+/// `Rc<RefCell<Vec<Card>>>`.
+#[derive(Clone)]
+pub(crate) struct Cards(Rc<RefCell<Vec<Card>>>);
+
+impl Cards {
+    pub(crate) fn new() -> Self {
+        Self(Rc::new(RefCell::new(Vec::new())))
+    }
+
+    /// The cards as they stand. A clone rather than a borrow, so a caller can
+    /// walk it while touching the grid — the common shape of the work here.
+    pub(crate) fn snapshot(&self) -> Vec<Card> {
+        self.0.borrow().clone()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.0.borrow().len()
+    }
+
+    /// Empties the order and returns what was in it, for the caller to
+    /// unparent outside the borrow.
+    pub(crate) fn take_all(&self) -> Vec<Card> {
+        self.0.borrow_mut().drain(..).collect()
+    }
+
+    /// Appends `card` at the end. Call this *before* handing the card to the
+    /// grid: the sort function can only place a card this already holds.
+    pub(crate) fn push(&self, card: Card) {
+        self.0.borrow_mut().push(card);
+    }
+
+    /// Moves the card at `from` to `to` — a `remove` then an `insert`, the
+    /// same two steps in the same order as `Command::MovePage`, so the grid
+    /// cannot drift from `Document.pages`.
+    ///
+    /// Out-of-range indices are ignored rather than panicking. The model and
+    /// this order are maintained separately, and a disagreement between them
+    /// is a bug worth a wrong-looking grid — not worth taking the window down
+    /// with an unwrap in a drop handler.
+    pub(crate) fn move_card(&self, from: usize, to: usize) {
+        let mut cards = self.0.borrow_mut();
+        if from >= cards.len() || to >= cards.len() {
+            return;
+        }
+        let card = cards.remove(from);
+        cards.insert(to, card);
+    }
+
+    /// Drops the card at `index`, ignoring an out-of-range one for the same
+    /// reason [`Self::move_card`] does.
+    pub(crate) fn remove(&self, index: usize) {
+        let mut cards = self.0.borrow_mut();
+        if index < cards.len() {
+            cards.remove(index);
+        }
+    }
+
+    /// Where `root`'s card sits right now, by widget identity.
+    ///
+    /// Read fresh on every drag, drop and delete rather than cached on the
+    /// card, so it can never disagree with what is on screen.
+    pub(crate) fn position(&self, root: &GtkBox) -> Option<usize> {
+        self.0.borrow().iter().position(|card| &card.root == root)
+    }
+}
+
 /// The "Organize pages" screen's static chrome — see `organize` module docs.
 ///
-/// `cards` is the single source of truth for "which card sits where": each
-/// entry is a card's root widget and its page-number label, in display
-/// order, kept in lockstep with `grid`'s own child order by every move and
-/// delete. Nothing caches a position *on* a card — a drag or delete always
-/// looks it up fresh by scanning `cards`, so it can never disagree with what
-/// is actually on screen. Status messages go through the shared
-/// `Viewer::status` bar, the same as every other feature module's.
+/// [`Cards`] is the single source of truth for "which card sits where", and
+/// `grid` does not keep an order of its own: it sorts its children by their
+/// position in `cards`, so the two cannot disagree. Status messages go
+/// through the shared `Viewer::status` bar, the same as every other feature
+/// module's.
 #[derive(Clone)]
 pub(crate) struct OrganizePanel {
+    /// The screen's two ways of looking at the same page order: one card per
+    /// *document block* and one card per *page* — `organize::documents::
+    /// DOCUMENTS_VIEW` and `organize::documents::PAGES_VIEW`.
+    ///
+    /// A `Stack` rather than one container refilled twice: the pages grid is
+    /// a `FlowBox` whose children cannot be taken out and put back (see
+    /// `organize::reorder_cards`), so the two views must own their widgets
+    /// outright.
+    pub(crate) views: Stack,
+    /// The `Documents | Pages` selector. Grouped, so exactly one is active;
+    /// `organize::show` opens on `documents_toggle`.
+    pub(crate) documents_toggle: ToggleButton,
+    pub(crate) pages_toggle: ToggleButton,
+    /// The line under the header describing the gesture available in the
+    /// view currently on show.
+    pub(crate) hint: Label,
+    /// The Documents view's list: alternating drop gaps and block cards,
+    /// rebuilt whole by `organize::documents::populate` — blocks are derived
+    /// fresh from the page order on every call, so there is no card identity
+    /// worth preserving across one.
+    pub(crate) documents_list: GtkBox,
     pub(crate) grid: FlowBox,
-    pub(crate) cards: Rc<RefCell<Vec<(GtkBox, Label)>>>,
+    pub(crate) cards: Cards,
+    /// Set when something that changes a page's *pixels* — as opposed to the
+    /// page set's order — has landed while the grid still holds the cards it
+    /// rendered before. `organize::refresh_after_reopen` reads it to decide
+    /// between re-rendering every card and merely filling in the ones that
+    /// never got a thumbnail; `organize::grid::populate_grid` clears it, because a
+    /// full rebuild is exactly what it means.
+    pub(crate) thumbnails_stale: Rc<Cell<bool>>,
+    /// Rendered thumbnails kept by page, size and scale factor, so switching
+    /// between the two views — or coming back to the screen — repaints from
+    /// pixels already in hand instead of asking pdfium again (checklist
+    /// §11). `organize::invalidate_thumbnails` empties it; so does opening a
+    /// different document, whose `PageId`s start over at 0.
+    pub(crate) thumbnails: Thumbnails,
+    pub(crate) add_pdfs_button: Button,
+    pub(crate) import_progress: ProgressBar,
+    pub(crate) cancel_import_button: Button,
     pub(crate) save_button: Button,
 }
 
@@ -816,6 +1035,12 @@ pub(crate) const ANNOTATION_MODEL_UNAVAILABLE: &str =
 pub(crate) const CONTENT_MODEL_UNAVAILABLE: &str =
     "This document could not be prepared for content changes.";
 
+/// Refusal for a canvas page index that no longer names a page of the open
+/// document — a page removed by a page op whose preview refresh has already
+/// landed, or one the handle never held. Nothing is placed rather than
+/// placed on whatever page inherited that number.
+pub(crate) const PAGE_NO_LONGER_PRESENT: &str = "That page is no longer part of the document.";
+
 /// Whether this document's annotations may be edited — the annotation twin of
 /// [`TextAccess`], read once at open time and cached for the session.
 ///
@@ -883,17 +1108,98 @@ impl ContentEditAccess {
     }
 }
 
+/// Whether this document may have its pages inserted, imported, removed,
+/// moved or rotated — the PDF document-assembly permission
+/// (`pdf_manip::document_assembly_is_allowed`).
+///
+/// Shaped like [`TextAccess`] rather than [`ContentEditAccess`]: this asks a
+/// permission question only. Whether the editable model happens to exist is a
+/// separate failure the Organize screen already reports in its own words, and
+/// folding the two together would have the shell claim a restriction the
+/// document never declared.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum PageAssemblyAccess {
+    /// Unencrypted, or the permissions (or an owner credential) allow it.
+    Allowed,
+    /// The document's `/P` withholds the assembly permission.
+    Forbidden,
+    /// The document's security could not be read at all. Refused rather than
+    /// assumed permissive, for the same reason as [`TextAccess::Unreadable`];
+    /// the document still renders and can still be read.
+    Unreadable,
+}
+
+impl PageAssemblyAccess {
+    /// The message to show instead of changing the page list, or `None` when
+    /// assembly is allowed.
+    pub(crate) fn refusal(self) -> Option<&'static str> {
+        match self {
+            PageAssemblyAccess::Allowed => None,
+            PageAssemblyAccess::Forbidden => {
+                Some("This document does not permit adding, removing or reordering its pages.")
+            }
+            PageAssemblyAccess::Unreadable => Some(
+                "This document's permissions could not be read, so its pages cannot be changed.",
+            ),
+        }
+    }
+}
+
 pub(crate) struct DocumentSession {
     pub(crate) document: DocumentHandle,
+    /// What to call the PDF this session was opened with — the file name for
+    /// a file, a stand-in for the sample and for a document that only ever
+    /// existed in memory.
+    ///
+    /// The Organize "Documents" view titles the base block's card with it,
+    /// the same way it titles an imported block with
+    /// [`ImportedSource::name`]. Preserved across a preview refresh
+    /// (`document::restore_edit_state`), which reopens from bytes that carry
+    /// no name of their own.
+    pub(crate) base_name: String,
     /// Whether search and text selection may read this document's text.
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
     pub(crate) content_edit_access: ContentEditAccess,
+    pub(crate) page_assembly_access: PageAssemblyAccess,
     /// The editable core model. Rendering remains backed by pdfium until a
     /// future save/reopen refresh, but every annotation command is recorded in
     /// this model's EditLog immediately.
     pub(crate) document_model: Option<Document>,
+    /// The page ids the **currently open pdfium handle** holds, in that
+    /// handle's own page order — entry `i` is the id of the page pdfium
+    /// answers for page index `i`.
+    ///
+    /// A page has two positions and they are not the same number. The logical
+    /// one is its index into `document_model.pages`, the order `pdf-save`
+    /// materializes. The backend one is its index into whatever bytes pdfium
+    /// currently holds. They agree on open and after every preview refresh,
+    /// and diverge in between: for as long as a recorded page op has not been
+    /// materialized, the handle is still in the pre-op order.
+    ///
+    /// This vector is the backend half, so anything addressing pdfium — a
+    /// thumbnail request, a canvas page index arriving from a gesture — must
+    /// resolve through [`DocumentSession::backend_index`] or
+    /// [`DocumentSession::backend_page_id`] rather than read `PageId.0`. That
+    /// shortcut worked only while every id was an open-time position; a page
+    /// grafted from an imported PDF gets an id that was never a position at
+    /// all.
+    ///
+    /// Installed with the handle (`document::show_document`) and re-installed
+    /// from the preserved model when a preview refresh reopens
+    /// (`document::restore_edit_state`) — those bytes were written in that
+    /// model's page order, so its ids describe the new handle exactly.
+    pub(crate) backend_pages: Vec<PageId>,
     pub(crate) save_backing: Option<SaveBacking>,
+    /// Parsed PDFs backing every [`pdf_document::PageOrigin::Imported`] page
+    /// in the model. They belong to the session rather than the pure model and
+    /// must survive preview refreshes so save/undo/redo can materialize them.
+    pub(crate) imported_sources: Vec<ImportedSource>,
+    /// Form-field renames already surfaced for the current edit state. A
+    /// preview refresh replays every imported page from the original backing,
+    /// so the core reports the same collision again until a real save resets
+    /// the session.
+    pub(crate) import_warning_revision: Option<u64>,
     /// Whether the in-memory model — and, since T-163, the pdfium handle
     /// currently rendering `document` — has diverged from whatever is on
     /// disk.
@@ -901,7 +1207,7 @@ pub(crate) struct DocumentSession {
     /// Set by whatever *records* a command — `annotations::command::command`,
     /// `annotations::command::history`, and each content-edit commit site —
     /// never by the refresh that later catches the canvas up. That ordering
-    /// is the whole point: `document::refresh_after_content_edit` runs a
+    /// is the whole point: `document::refresh_preview` runs a
     /// background save+reopen that can fail, and a document whose edit is
     /// already in the `EditLog` must report itself dirty even when the
     /// preview behind it never updated.
@@ -1015,6 +1321,30 @@ pub(crate) struct Selection {
     pub(crate) focus: (f32, f32),
 }
 
+impl DocumentSession {
+    /// The pdfium page index currently holding `id`, or `None` when the open
+    /// handle does not hold that page — a page recorded by an insert whose
+    /// preview refresh has not landed yet, or one a `RemovePage` took out.
+    ///
+    /// Use this, never `PageId.0`, whenever a page id has to become a number
+    /// pdfium understands. See [`DocumentSession::backend_pages`] for why the
+    /// two stopped being interchangeable.
+    pub(crate) fn backend_index(&self, id: PageId) -> Option<usize> {
+        self.backend_pages.iter().position(|page| *page == id)
+    }
+
+    /// The page id pdfium's page `index` currently holds, or `None` past the
+    /// end of the open handle.
+    ///
+    /// The inverse of [`DocumentSession::backend_index`], and the one a
+    /// canvas wants: a gesture and a draw call both arrive with a page index,
+    /// so resolve it to an id **once** and then compare ids, rather than
+    /// resolving an index per annotation or per field.
+    pub(crate) fn backend_page_id(&self, index: usize) -> Option<PageId> {
+        self.backend_pages.get(index).copied()
+    }
+}
+
 pub(crate) struct ActiveRender {
     pub(crate) id: u64,
     pub(crate) generation: u64,
@@ -1076,10 +1406,13 @@ pub(crate) struct RenderedPage {
 
 pub(crate) struct OpenedDocument {
     pub(crate) document: DocumentHandle,
+    /// See [`DocumentSession::base_name`], which this becomes.
+    pub(crate) name: String,
     pub(crate) page_sizes: Vec<(f32, f32)>,
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
     pub(crate) content_edit_access: ContentEditAccess,
+    pub(crate) page_assembly_access: PageAssemblyAccess,
     pub(crate) document_model: Option<Document>,
     pub(crate) save_backing: Option<SaveBacking>,
 }

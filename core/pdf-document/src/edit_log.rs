@@ -9,12 +9,19 @@
 //! consent events (e.g. explicit protection strip) live in the separate,
 //! non-undoable `AuditLog` (T-013) — see that module's docs.
 
+use std::collections::HashSet;
+
 use crate::annotation::{Annotation, Rect};
 use crate::content::{ImageItem, TextRun};
 use crate::document::PageId;
 use crate::document::{Document, Page};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
 use crate::metadata::DocumentInfo;
+
+fn page_ids_are_unique<'a>(pages: impl IntoIterator<Item = &'a Page>) -> bool {
+    let mut ids = HashSet::new();
+    pages.into_iter().all(|page| ids.insert(page.id))
+}
 
 /// A single undoable document-content edit.
 ///
@@ -45,25 +52,106 @@ pub enum Command {
     },
     /// Carries the `Page` value being inserted (needed to apply and, on
     /// redo, to re-apply).
+    /// Inserts `page` at `index`, together with the annotations and form
+    /// fields that belong on it.
+    ///
+    /// Both payloads are empty for an ordinary blank insert — use
+    /// [`Command::insert_page`] for that. They carry values only when this
+    /// command is the inverse of a [`Command::RemovePage`], which is what
+    /// makes undoing a page deletion restore the page *and* what was drawn
+    /// on it as one step. Each entry names the position it held in
+    /// `Document.annotations` / `Document.form_fields`, because those sets
+    /// are ordered (see `AnnotationSet::take_page`).
     InsertPage {
         index: usize,
         page: Page,
+        annotations: Vec<(usize, Annotation)>,
+        form_fields: Vec<(usize, FormField)>,
     },
-    /// Carries the removed `Page` value itself — captured at the moment
-    /// the command is recorded (mirrors `RemoveAnnotation`).
+    /// Inserts every selected page from one or more imported PDFs as one
+    /// undoable edit. Source boundaries remain encoded in each page's
+    /// [`crate::PageOrigin`], so one command can represent a multi-file picker
+    /// without splitting the user's import into several history entries.
+    ImportPages {
+        index: usize,
+        pages: Vec<Page>,
+    },
+    /// Removes the page at `index` together with everything anchored to it.
+    ///
+    /// Carries the removed `Page` value itself — captured at the moment the
+    /// command is recorded (mirrors `RemoveAnnotation`) — and, for the same
+    /// reason, the annotations and form fields that sat on that page.
+    ///
+    /// Leaving those behind is not a cosmetic loose end: an annotation or a
+    /// new form field whose `page` is absent from `Document.pages` makes the
+    /// **whole document unsaveable**, because `pdf_save::attach_annotations`
+    /// and `pdf_save::write_form_fields` refuse the save outright rather than
+    /// write a reference to a page that is not there. A user who highlighted
+    /// a page and then deleted it would be unable to save until they undid
+    /// the deletion.
+    ///
+    /// Build it with [`Command::remove_page`] rather than by hand: capturing
+    /// the page but not what sits on it is precisely the bug these fields
+    /// exist to prevent.
     RemovePage {
         index: usize,
         page: Page,
+        annotations: Vec<(usize, Annotation)>,
+        form_fields: Vec<(usize, FormField)>,
+    },
+    /// Removes a previously imported batch while retaining every page for redo.
+    RemoveImportedPages {
+        index: usize,
+        pages: Vec<Page>,
+    },
+    /// Removes the `pages.len()` contiguous pages starting at `index`,
+    /// retaining them and everything anchored to them so one undo restores
+    /// the whole run — the block twin of [`Command::RemovePage`], recorded
+    /// when the Organize "Documents" view deletes a whole document block.
+    ///
+    /// Distinct from [`Command::RemoveImportedPages`], which exists only as
+    /// `ImportPages`' inverse: that one addresses a batch the user imported,
+    /// carries no annotations, and cannot express deleting a run of base
+    /// pages. A block is derived from the *current* page order
+    /// (`blocks::derive_blocks`) and may be any slice of it.
+    ///
+    /// Build it with [`Command::remove_pages`] rather than by hand, for the
+    /// same reason [`Command::RemovePage`] has a builder: capturing the pages
+    /// but not what sits on them is the bug the extra fields exist to prevent.
+    RemovePages {
+        index: usize,
+        pages: Vec<Page>,
+        annotations: Vec<(usize, Annotation)>,
+        form_fields: Vec<(usize, FormField)>,
+    },
+    /// Puts a removed run back where it was, with everything anchored to it.
+    ///
+    /// Exists only as [`Command::RemovePages`]' inverse — a caller adding
+    /// genuinely new pages in one step wants `ImportPages`, which is what the
+    /// import path already records.
+    InsertPages {
+        index: usize,
+        pages: Vec<Page>,
+        annotations: Vec<(usize, Annotation)>,
+        form_fields: Vec<(usize, FormField)>,
     },
     /// Moves the page at `from` to `to` (`Vec` positions, not `PageId`s —
     /// matches `InsertPage`/`RemovePage`'s addressing). Carries no `Page`
     /// value: unlike `RemovePage`, a move destroys nothing, so the inverse
-    /// only needs to swap `from`/`to`. One command per drag-and-drop gesture
-    /// in the Organize screen; a multi-page reorder is simply several of
-    /// these in the log, the same way several drags each get their own
-    /// `MoveFormField`.
+    /// only needs to swap `from`/`to`. One command per page drag-and-drop
+    /// gesture in the Organize screen.
     MovePage {
         from: usize,
+        to: usize,
+    },
+    /// Moves `count` contiguous pages starting at `from` so that the first
+    /// moved page finishes at `to`. `from` addresses the current order; `to`
+    /// is the range's starting position after the move. That makes the inverse
+    /// the same command with `from` and `to` swapped. The moved pages retain
+    /// their exact internal order.
+    MovePages {
+        from: usize,
+        count: usize,
         to: usize,
     },
 
@@ -243,6 +331,101 @@ impl Command {
     /// pdfium actually renders) needs to classify the command *before*
     /// stepping the log — `EditLog::peek_undo`/`peek_redo` exist for exactly
     /// that, so the caller can decide first and act once.
+    /// An insert of `page` alone, with nothing anchored to it — the ordinary
+    /// blank-page insert.
+    ///
+    /// The payload-carrying form of this command exists only as
+    /// [`Command::remove_page`]'s inverse, so a caller that is genuinely
+    /// inserting a *new* page never has to spell out two empty vectors.
+    pub fn insert_page(index: usize, page: Page) -> Command {
+        Command::InsertPage {
+            index,
+            page,
+            annotations: Vec::new(),
+            form_fields: Vec::new(),
+        }
+    }
+
+    /// A removal of the page at `index` in `document`, capturing that page
+    /// and everything anchored to it so undo can restore all of it in one
+    /// step.
+    ///
+    /// `None` when `index` is past the end — the caller still owns the error
+    /// message, since only it knows how the index was chosen.
+    ///
+    /// This is the only correct way to build a [`Command::RemovePage`]:
+    /// reading the annotations and form fields must happen against the same
+    /// document state the removal is recorded against, and doing it here is
+    /// what keeps every shell from having to remember that a page owns more
+    /// than its own content.
+    pub fn remove_page(document: &Document, index: usize) -> Option<Command> {
+        let page = document.pages.get(index)?.clone();
+        // Read, not taken: `apply` is what mutates the document, and it may
+        // never run (a command can be rejected). Cloning the whole set just
+        // to call `take_page` on the copy would do the same work twice.
+        let annotations = document
+            .annotations
+            .iter()
+            .enumerate()
+            .filter(|(_, annotation)| annotation.page == page.id)
+            .map(|(at, annotation)| (at, annotation.clone()))
+            .collect();
+        let form_fields = document
+            .form_fields
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| field.page == page.id)
+            .map(|(at, field)| (at, field.clone()))
+            .collect();
+        Some(Command::RemovePage {
+            index,
+            page,
+            annotations,
+            form_fields,
+        })
+    }
+
+    /// A removal of the `count` contiguous pages starting at `index`,
+    /// capturing all of them and everything anchored to any of them so one
+    /// undo restores the whole run.
+    ///
+    /// `None` when the range does not fit the document or is empty — an empty
+    /// removal would be a history step that changes nothing, which is worse
+    /// than a refusal the caller can report.
+    ///
+    /// The captured `(position, value)` pairs are collected in ascending
+    /// position across the *whole* run, which is what lets
+    /// [`AnnotationSet::restore`] put them back one by one at the positions
+    /// they came from.
+    pub fn remove_pages(document: &Document, index: usize, count: usize) -> Option<Command> {
+        let end = index.checked_add(count)?;
+        let pages = document.pages.get(index..end)?.to_vec();
+        if pages.is_empty() {
+            return None;
+        }
+        let removed: Vec<PageId> = pages.iter().map(|page| page.id).collect();
+        let annotations = document
+            .annotations
+            .iter()
+            .enumerate()
+            .filter(|(_, annotation)| removed.contains(&annotation.page))
+            .map(|(at, annotation)| (at, annotation.clone()))
+            .collect();
+        let form_fields = document
+            .form_fields
+            .iter()
+            .enumerate()
+            .filter(|(_, field)| removed.contains(&field.page))
+            .map(|(at, field)| (at, field.clone()))
+            .collect();
+        Some(Command::RemovePages {
+            index,
+            pages,
+            annotations,
+            form_fields,
+        })
+    }
+
     pub fn is_content_edit(&self) -> bool {
         matches!(
             self,
@@ -259,8 +442,55 @@ impl Command {
         )
     }
 
+    /// Whether this command changes the membership or order of document pages.
+    pub fn is_page_structure_edit(&self) -> bool {
+        matches!(
+            self,
+            Command::InsertPage { .. }
+                | Command::ImportPages { .. }
+                | Command::RemovePage { .. }
+                | Command::RemoveImportedPages { .. }
+                | Command::RemovePages { .. }
+                | Command::InsertPages { .. }
+                | Command::MovePage { .. }
+                | Command::MovePages { .. }
+        )
+    }
+
+    /// Whether this command needs the PDF document-assembly permission
+    /// (`/P` bit 11 — see `pdf_manip::document_assembly_is_allowed`).
+    ///
+    /// Wider than [`Self::is_page_structure_edit`] by exactly one variant:
+    /// `RotatePage` changes neither the membership nor the order of the
+    /// pages, so it is not a page-structure edit, but PDF 1.7 table 22
+    /// defines the assembly permission as "insert, **rotate**, or delete
+    /// pages" — the two questions genuinely have different answers and are
+    /// kept as separate predicates rather than one widened to cover both.
+    pub fn is_document_assembly_edit(&self) -> bool {
+        self.is_page_structure_edit() || matches!(self, Command::RotatePage { .. })
+    }
+
     /// Applies this command's forward action to `document`.
-    pub fn apply(&self, document: &mut Document) {
+    ///
+    /// Returns `false` without mutating when the command cannot address the
+    /// document it is given: a page index out of range, an empty imported
+    /// batch, duplicate page identities, or a retained removal batch the
+    /// document no longer matches.
+    ///
+    /// Every page command checks its own indices rather than letting `Vec`
+    /// panic on them. The indices are the one part of a command that a
+    /// caller supplies outright — `EditLog` itself only ever replays a
+    /// command against the state it was recorded from — so a shell that
+    /// miscomputes one must get a rejection it can report, not an abort. It
+    /// matters most across the FFI boundary, where a panic cannot be caught
+    /// on the other side and takes the user's unsaved document with it.
+    ///
+    /// The single-page removals bounds-check rather than comparing against
+    /// the `Page` they carry (as `RemoveImportedPages` does). `RotatePage`
+    /// mutates a `Page` in place, so a carried snapshot is not reliably
+    /// equal to the live page at that index, and rejecting on that would
+    /// refuse removals that are perfectly valid.
+    pub fn apply(&self, document: &mut Document) -> bool {
         match self {
             Command::AddAnnotation(annotation) => {
                 document.annotations.insert(annotation.clone());
@@ -287,15 +517,112 @@ impl Command {
                     p.rotation = p.rotation.rotated_by(*delta_degrees);
                 }
             }
-            Command::InsertPage { index, page } => {
+            Command::InsertPage {
+                index,
+                page,
+                annotations,
+                form_fields,
+            } => {
+                // `>` not `>=`: inserting at `len` appends, which is valid.
+                if *index > document.pages.len()
+                    || !page_ids_are_unique(document.pages.iter().chain(std::iter::once(page)))
+                {
+                    return false;
+                }
                 document.pages.insert(*index, page.clone());
+                // After the page, never before: these name a page id that
+                // has to be in the document for the result to be saveable at
+                // all, which is the whole reason they travel with it.
+                document.annotations.restore(annotations.clone());
+                document.form_fields.restore(form_fields.clone());
+            }
+            Command::ImportPages { index, pages } => {
+                if pages.is_empty()
+                    || *index > document.pages.len()
+                    || !page_ids_are_unique(document.pages.iter().chain(pages))
+                {
+                    return false;
+                }
+                document.pages.splice(*index..*index, pages.clone());
             }
             Command::RemovePage { index, .. } => {
-                document.pages.remove(*index);
+                if *index >= document.pages.len() {
+                    return false;
+                }
+                let removed = document.pages.remove(*index);
+                // Keyed off the page actually removed rather than the one
+                // this command carries: `index` is what addresses the
+                // document, and the carried copy exists for the inverse.
+                // A linear log replays in order, so what comes out here is
+                // exactly what `Command::remove_page` captured.
+                document.annotations.take_page(removed.id);
+                document.form_fields.take_page(removed.id);
+            }
+            Command::RemoveImportedPages { index, pages } => {
+                let Some(end) = index.checked_add(pages.len()) else {
+                    return false;
+                };
+                if pages.is_empty() || document.pages.get(*index..end) != Some(pages.as_slice()) {
+                    return false;
+                }
+                document.pages.drain(*index..end);
+            }
+            Command::RemovePages { index, pages, .. } => {
+                let Some(end) = index.checked_add(pages.len()) else {
+                    return false;
+                };
+                if pages.is_empty() || end > document.pages.len() {
+                    return false;
+                }
+                // Keyed off the pages actually removed rather than the ones
+                // this command carries, for the same reason `RemovePage` is:
+                // `index` is what addresses the document, and the carried
+                // copies exist for the inverse.
+                for removed in document.pages.drain(*index..end).collect::<Vec<_>>() {
+                    document.annotations.take_page(removed.id);
+                    document.form_fields.take_page(removed.id);
+                }
+            }
+            Command::InsertPages {
+                index,
+                pages,
+                annotations,
+                form_fields,
+            } => {
+                if pages.is_empty()
+                    || *index > document.pages.len()
+                    || !page_ids_are_unique(document.pages.iter().chain(pages))
+                {
+                    return false;
+                }
+                document.pages.splice(*index..*index, pages.clone());
+                // After the pages, never before — see `InsertPage`.
+                document.annotations.restore(annotations.clone());
+                document.form_fields.restore(form_fields.clone());
             }
             Command::MovePage { from, to } => {
+                // Both bounds are `len - 1`: a move re-inserts into a vector
+                // one shorter than the one `to` was chosen against.
+                if *from >= document.pages.len() || *to >= document.pages.len() {
+                    return false;
+                }
                 let page = document.pages.remove(*from);
                 document.pages.insert(*to, page);
+            }
+            Command::MovePages { from, count, to } => {
+                let len = document.pages.len();
+                let Some(source_end) = from.checked_add(*count) else {
+                    return false;
+                };
+                if *count == 0 || source_end > len || *to > len - *count || from == to {
+                    return false;
+                }
+
+                if from < to {
+                    document.pages[*from..*to + *count].rotate_left(*count);
+                } else {
+                    document.pages[*to..source_end].rotate_right(*count);
+                }
             }
             // Inert by design, not by omission: the model carries no page
             // content to mutate (see the variants' docs above). Recording
@@ -342,6 +669,7 @@ impl Command {
             // applies `after` to `/Info` during the write.
             Command::SetDocumentInfo { .. } => {}
         }
+        true
     }
 
     /// Computes the inverse command — applying it undoes `self`.
@@ -360,16 +688,65 @@ impl Command {
                 page: *page,
                 delta_degrees: -delta_degrees,
             },
-            Command::InsertPage { index, page } => Command::RemovePage {
+            Command::InsertPage {
+                index,
+                page,
+                annotations,
+                form_fields,
+            } => Command::RemovePage {
                 index: *index,
                 page: page.clone(),
+                annotations: annotations.clone(),
+                form_fields: form_fields.clone(),
             },
-            Command::RemovePage { index, page } => Command::InsertPage {
+            Command::ImportPages { index, pages } => Command::RemoveImportedPages {
+                index: *index,
+                pages: pages.clone(),
+            },
+            Command::RemovePage {
+                index,
+                page,
+                annotations,
+                form_fields,
+            } => Command::InsertPage {
                 index: *index,
                 page: page.clone(),
+                annotations: annotations.clone(),
+                form_fields: form_fields.clone(),
+            },
+            Command::RemoveImportedPages { index, pages } => Command::ImportPages {
+                index: *index,
+                pages: pages.clone(),
+            },
+            Command::RemovePages {
+                index,
+                pages,
+                annotations,
+                form_fields,
+            } => Command::InsertPages {
+                index: *index,
+                pages: pages.clone(),
+                annotations: annotations.clone(),
+                form_fields: form_fields.clone(),
+            },
+            Command::InsertPages {
+                index,
+                pages,
+                annotations,
+                form_fields,
+            } => Command::RemovePages {
+                index: *index,
+                pages: pages.clone(),
+                annotations: annotations.clone(),
+                form_fields: form_fields.clone(),
             },
             Command::MovePage { from, to } => Command::MovePage {
                 from: *to,
+                to: *from,
+            },
+            Command::MovePages { from, count, to } => Command::MovePages {
+                from: *to,
+                count: *count,
                 to: *from,
             },
             // The item snapshot doubles as the "before" value, so undoing a
@@ -493,10 +870,14 @@ impl EditLog {
     }
 
     /// Applies `command` to `document` and records it as undoable.
-    pub fn apply(&mut self, document: &mut Document, command: Command) {
-        command.apply(document);
+    /// Returns `false` when the command is rejected without mutation.
+    pub fn apply(&mut self, document: &mut Document, command: Command) -> bool {
+        if !command.apply(document) {
+            return false;
+        }
         self.entries.push(command);
         self.redo_stack.clear();
+        true
     }
 
     /// Undoes the most recent command, if any, by applying its inverse to
@@ -504,7 +885,10 @@ impl EditLog {
     pub fn undo(&mut self, document: &mut Document) -> bool {
         match self.entries.pop() {
             Some(command) => {
-                command.inverse().apply(document);
+                if !command.inverse().apply(document) {
+                    self.entries.push(command);
+                    return false;
+                }
                 self.redo_stack.push(command);
                 true
             }
@@ -517,7 +901,10 @@ impl EditLog {
     pub fn redo(&mut self, document: &mut Document) -> bool {
         match self.redo_stack.pop() {
             Some(command) => {
-                command.apply(document);
+                if !command.apply(document) {
+                    self.redo_stack.push(command);
+                    return false;
+                }
                 self.entries.push(command);
                 true
             }
@@ -604,7 +991,7 @@ mod tests {
     use super::*;
     use crate::annotation::{AnnotationId, AnnotationKind, Color};
     use crate::content::{ContentItemId, FontKind};
-    use crate::document::{Orientation, PageSize};
+    use crate::document::{ImportedDocumentId, Orientation, PageSize, Rotation};
     use crate::form::{FontFamily, FormFieldKind};
 
     fn sample_annotation(id: u64, page: PageId) -> Annotation {
@@ -621,6 +1008,48 @@ mod tests {
                 color: Color { r: 255, g: 0, b: 0 },
             },
         }
+    }
+
+    fn imported_page(id: u32, source_page: u32) -> Page {
+        imported_page_from(id, 7, source_page)
+    }
+
+    fn imported_page_from(id: u32, source: u64, source_page: u32) -> Page {
+        Page::imported(
+            PageId(id),
+            ImportedDocumentId(source),
+            source_page,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )
+    }
+
+    /// A `RemovePage` for a page carrying nothing — for the cases that only
+    /// exercise index validation or command classification, where reaching
+    /// for [`Command::remove_page`] would mean building a document just to
+    /// read two empty vectors out of it.
+    fn a_remove_page(index: usize, page: Page) -> Command {
+        Command::RemovePage {
+            index,
+            page,
+            annotations: Vec::new(),
+            form_fields: Vec::new(),
+        }
+    }
+
+    fn document_with_pages(ids: &[u32]) -> Document {
+        Document {
+            pages: ids
+                .iter()
+                .map(|id| Page::blank(PageId(*id), PageSize::A4, Orientation::Portrait))
+                .collect(),
+            ..Document::default()
+        }
+    }
+
+    fn page_ids(document: &Document) -> Vec<PageId> {
+        document.pages.iter().map(|page| page.id).collect()
     }
 
     #[test]
@@ -791,18 +1220,518 @@ mod tests {
         document.pages.push(page1.clone());
 
         let mut log = EditLog::new();
-        log.apply(
-            &mut document,
-            Command::RemovePage {
-                index: 1,
-                page: page1.clone(),
-            },
-        );
+        let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+        log.apply(&mut document, removal);
         assert_eq!(document.pages.len(), 1);
 
         log.undo(&mut document);
         assert_eq!(document.pages.len(), 2);
         assert_eq!(document.pages[1], page1);
+    }
+
+    /// A page removal that leaves annotations behind does not merely look
+    /// untidy: `pdf_save::attach_annotations` refuses to save a document
+    /// whose annotation names a page that is not in it, so the orphan makes
+    /// the *whole document* unsaveable until the delete is undone.
+    #[test]
+    fn removing_a_page_takes_its_annotations_and_form_fields_with_it() {
+        let mut document = document_with_pages(&[0, 1]);
+        document.annotations.insert(sample_annotation(1, PageId(0)));
+        document.annotations.insert(sample_annotation(2, PageId(1)));
+        let mut field = sample_form_field(9);
+        field.page = PageId(1);
+        document.form_fields.insert(field);
+
+        let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+        assert!(removal.apply(&mut document));
+
+        assert_eq!(
+            document
+                .annotations
+                .iter()
+                .map(|a| a.id)
+                .collect::<Vec<_>>(),
+            vec![AnnotationId(1)],
+            "only the annotation on the surviving page should remain"
+        );
+        assert!(document.form_fields.is_empty());
+    }
+
+    #[test]
+    fn undoing_a_page_removal_restores_the_page_and_everything_on_it() {
+        let mut document = document_with_pages(&[0, 1]);
+        document.annotations.insert(sample_annotation(1, PageId(1)));
+        document.annotations.insert(sample_annotation(2, PageId(0)));
+        document.annotations.insert(sample_annotation(3, PageId(1)));
+        let mut field = sample_form_field(9);
+        field.page = PageId(1);
+        document.form_fields.insert(field);
+        let before = document.clone();
+
+        let mut log = EditLog::new();
+        let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+        assert!(log.apply(&mut document, removal));
+        log.undo(&mut document);
+
+        assert_eq!(
+            document, before,
+            "removing a page and undoing it must be an identity, ordering included"
+        );
+    }
+
+    #[test]
+    fn redoing_a_page_removal_takes_the_annotations_away_again() {
+        let mut document = document_with_pages(&[0, 1]);
+        document.annotations.insert(sample_annotation(1, PageId(1)));
+
+        let mut log = EditLog::new();
+        let removal = Command::remove_page(&document, 1).expect("page 1 exists");
+        assert!(log.apply(&mut document, removal));
+        log.undo(&mut document);
+        log.redo(&mut document);
+
+        assert_eq!(document.pages.len(), 1);
+        assert!(document.annotations.is_empty());
+    }
+
+    #[test]
+    fn remove_page_past_the_end_builds_no_command() {
+        let document = document_with_pages(&[0]);
+        assert!(Command::remove_page(&document, 1).is_none());
+    }
+
+    #[test]
+    fn remove_pages_captures_everything_anchored_to_the_whole_run() {
+        let mut document = document_with_pages(&[0, 1, 2, 3]);
+        document.annotations.insert(sample_annotation(1, PageId(0)));
+        document.annotations.insert(sample_annotation(2, PageId(1)));
+        document.annotations.insert(sample_annotation(3, PageId(2)));
+        let mut field = sample_form_field(9);
+        field.page = PageId(2);
+        document.form_fields.insert(field);
+
+        let Some(Command::RemovePages {
+            index,
+            pages,
+            annotations,
+            form_fields,
+        }) = Command::remove_pages(&document, 1, 2)
+        else {
+            panic!("pages 1 and 2 exist");
+        };
+
+        assert_eq!(index, 1);
+        assert_eq!(
+            pages.iter().map(|page| page.id).collect::<Vec<_>>(),
+            vec![PageId(1), PageId(2)]
+        );
+        assert_eq!(
+            annotations
+                .iter()
+                .map(|(_, annotation)| annotation.id)
+                .collect::<Vec<_>>(),
+            vec![AnnotationId(2), AnnotationId(3)],
+            "both pages of the run contribute, the page outside it does not"
+        );
+        assert_eq!(form_fields.len(), 1);
+    }
+
+    #[test]
+    fn removing_a_run_and_undoing_it_is_an_identity() {
+        let mut document = document_with_pages(&[0, 1, 2, 3]);
+        document.annotations.insert(sample_annotation(1, PageId(3)));
+        document.annotations.insert(sample_annotation(2, PageId(1)));
+        document.annotations.insert(sample_annotation(3, PageId(2)));
+        let mut field = sample_form_field(9);
+        field.page = PageId(2);
+        document.form_fields.insert(field);
+        let before = document.clone();
+
+        let mut log = EditLog::new();
+        let removal = Command::remove_pages(&document, 1, 2).expect("pages 1 and 2 exist");
+        assert!(log.apply(&mut document, removal));
+        assert_eq!(page_ids(&document), vec![PageId(0), PageId(3)]);
+        assert_eq!(document.annotations.len(), 1);
+
+        assert!(log.undo(&mut document), "one step undoes the whole run");
+        assert_eq!(
+            document, before,
+            "removing a run and undoing it must be an identity, ordering included"
+        );
+    }
+
+    #[test]
+    fn redoing_a_run_removal_takes_the_run_away_again_in_one_step() {
+        let mut document = document_with_pages(&[0, 1, 2]);
+        document.annotations.insert(sample_annotation(1, PageId(1)));
+
+        let mut log = EditLog::new();
+        let removal = Command::remove_pages(&document, 0, 2).expect("pages 0 and 1 exist");
+        assert!(log.apply(&mut document, removal));
+        log.undo(&mut document);
+
+        assert!(log.redo(&mut document), "one step redoes the whole run");
+        assert_eq!(page_ids(&document), vec![PageId(2)]);
+        assert!(document.annotations.is_empty());
+    }
+
+    #[test]
+    fn a_run_that_does_not_fit_the_document_builds_no_command() {
+        let document = document_with_pages(&[0, 1]);
+
+        assert!(Command::remove_pages(&document, 1, 2).is_none(), "past end");
+        assert!(Command::remove_pages(&document, 2, 1).is_none(), "at end");
+        assert!(Command::remove_pages(&document, 0, 0).is_none(), "empty");
+    }
+
+    #[test]
+    fn an_out_of_range_run_removal_is_rejected_before_mutating() {
+        let mut document = document_with_pages(&[0, 1]);
+        let before = document.clone();
+        let mut log = EditLog::new();
+
+        let applied = log.apply(
+            &mut document,
+            Command::RemovePages {
+                index: 1,
+                pages: vec![
+                    Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
+                    Page::blank(PageId(2), PageSize::A4, Orientation::Portrait),
+                ],
+                annotations: Vec::new(),
+                form_fields: Vec::new(),
+            },
+        );
+
+        assert!(!applied);
+        assert_eq!(document, before);
+        assert!(!log.can_undo());
+    }
+
+    #[test]
+    fn restoring_a_run_rejects_page_ids_the_document_already_holds() {
+        let mut document = document_with_pages(&[0, 1]);
+        let before = document.clone();
+        let mut log = EditLog::new();
+
+        let applied = log.apply(
+            &mut document,
+            Command::InsertPages {
+                index: 0,
+                pages: vec![Page::blank(PageId(1), PageSize::A4, Orientation::Portrait)],
+                annotations: Vec::new(),
+                form_fields: Vec::new(),
+            },
+        );
+
+        assert!(!applied);
+        assert_eq!(document, before);
+    }
+
+    #[test]
+    fn remove_pages_is_a_page_structure_edit() {
+        assert!(Command::RemovePages {
+            index: 0,
+            pages: vec![Page::blank(PageId(0), PageSize::A4, Orientation::Portrait)],
+            annotations: Vec::new(),
+            form_fields: Vec::new(),
+        }
+        .is_page_structure_edit());
+    }
+
+    #[test]
+    fn an_ordinary_blank_insert_carries_nothing_to_restore() {
+        let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        assert!(matches!(
+            Command::insert_page(0, page),
+            Command::InsertPage {
+                ref annotations,
+                ref form_fields,
+                ..
+            } if annotations.is_empty() && form_fields.is_empty()
+        ));
+    }
+
+    #[test]
+    fn import_pages_inserts_the_whole_batch_in_source_order() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        let pages = vec![imported_page(10, 2), imported_page(11, 0)];
+        let mut log = EditLog::new();
+
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: pages.clone(),
+            },
+        );
+
+        assert_eq!(&document.pages[1..], pages);
+    }
+
+    #[test]
+    fn import_pages_from_multiple_sources_is_one_history_step() {
+        let base = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let pages = vec![
+            imported_page_from(10, 7, 0),
+            imported_page_from(11, 7, 1),
+            imported_page_from(12, 8, 0),
+        ];
+        let mut document = Document {
+            pages: vec![base.clone()],
+            ..Document::default()
+        };
+        let mut log = EditLog::new();
+
+        assert!(log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: pages.clone(),
+            },
+        ));
+        assert_eq!(&document.pages[1..], pages);
+        assert!(log.undo(&mut document));
+        assert_eq!(document.pages, vec![base]);
+        assert!(!log.undo(&mut document));
+        assert!(log.redo(&mut document));
+        assert_eq!(&document.pages[1..], pages);
+    }
+
+    #[test]
+    fn import_pages_rejects_an_id_already_in_the_document() {
+        let original = document_with_pages(&[0, 1]);
+        let mut document = original.clone();
+        let command = Command::ImportPages {
+            index: 2,
+            pages: vec![imported_page(1, 0)],
+        };
+
+        assert!(!command.apply(&mut document));
+        assert_eq!(document, original);
+    }
+
+    #[test]
+    fn import_pages_rejects_duplicate_ids_within_the_batch() {
+        let mut document = document_with_pages(&[0]);
+        let command = Command::ImportPages {
+            index: 1,
+            pages: vec![imported_page(10, 0), imported_page(10, 1)],
+        };
+
+        assert!(!command.apply(&mut document));
+        assert_eq!(page_ids(&document), vec![PageId(0)]);
+    }
+
+    #[test]
+    fn undo_removes_an_imported_batch_in_one_step() {
+        let base = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let mut document = Document {
+            pages: vec![base.clone()],
+            ..Document::default()
+        };
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: vec![imported_page(10, 0), imported_page(11, 1)],
+            },
+        );
+
+        assert!(log.undo(&mut document));
+        assert_eq!(document.pages, vec![base]);
+        assert!(!log.undo(&mut document));
+    }
+
+    #[test]
+    fn redo_restores_an_imported_batch_in_one_step() {
+        let mut document = Document::blank();
+        let pages = vec![imported_page(10, 0), imported_page(11, 1)];
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 0,
+                pages: pages.clone(),
+            },
+        );
+        log.undo(&mut document);
+
+        assert!(log.redo(&mut document));
+        assert_eq!(document.pages, pages);
+        assert!(!log.redo(&mut document));
+    }
+
+    #[test]
+    fn import_pages_inverse_retains_the_batch_for_redo() {
+        let pages = vec![imported_page(10, 0), imported_page(11, 1)];
+        let command = Command::ImportPages {
+            index: 3,
+            pages: pages.clone(),
+        };
+
+        assert_eq!(
+            command.inverse(),
+            Command::RemoveImportedPages { index: 3, pages }
+        );
+    }
+
+    #[test]
+    fn import_commands_are_page_structure_edits() {
+        assert!(Command::ImportPages {
+            index: 0,
+            pages: vec![imported_page(10, 0)],
+        }
+        .is_page_structure_edit());
+        assert!(Command::RemoveImportedPages {
+            index: 0,
+            pages: vec![imported_page(10, 0)],
+        }
+        .is_page_structure_edit());
+    }
+
+    #[test]
+    fn an_empty_import_changes_neither_history_nor_redo() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::insert_page(
+                0,
+                Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            ),
+        );
+        log.undo(&mut document);
+
+        log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 0,
+                pages: Vec::new(),
+            },
+        );
+
+        assert!(!log.can_undo());
+        assert!(log.can_redo());
+    }
+
+    #[test]
+    fn removing_a_mismatched_imported_batch_is_rejected_before_mutating() {
+        let original = vec![imported_page(10, 0), imported_page(11, 1)];
+        let mut document = Document {
+            pages: original.clone(),
+            ..Document::default()
+        };
+        let command = Command::RemoveImportedPages {
+            index: 0,
+            pages: vec![imported_page(12, 0), imported_page(13, 1)],
+        };
+
+        let applied = command.apply(&mut document);
+
+        assert!(!applied);
+        assert_eq!(document.pages, original);
+    }
+
+    #[test]
+    fn an_out_of_range_import_is_rejected_without_losing_redo() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::insert_page(
+                0,
+                Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            ),
+        );
+        log.undo(&mut document);
+
+        let applied = log.apply(
+            &mut document,
+            Command::ImportPages {
+                index: 1,
+                pages: vec![imported_page(10, 0)],
+            },
+        );
+
+        assert!(!applied);
+        assert!(document.pages.is_empty());
+        assert!(log.can_redo());
+    }
+
+    #[test]
+    fn an_out_of_range_insert_page_is_rejected_without_panicking() {
+        let mut document = Document::blank();
+        let command = Command::insert_page(
+            9,
+            Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+        );
+
+        assert!(!command.apply(&mut document));
+        assert!(document.pages.is_empty());
+    }
+
+    #[test]
+    fn insert_page_rejects_an_id_already_in_the_document() {
+        let mut document = document_with_pages(&[0, 1]);
+        let command = Command::insert_page(
+            2,
+            Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
+        );
+
+        assert!(!command.apply(&mut document));
+        assert_eq!(page_ids(&document), vec![PageId(0), PageId(1)]);
+    }
+
+    #[test]
+    fn inserting_one_past_the_last_page_appends_rather_than_being_rejected() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        let appended = Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
+
+        let applied = Command::insert_page(1, appended.clone()).apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(document.pages[1], appended);
+    }
+
+    #[test]
+    fn an_out_of_range_remove_page_is_rejected_without_panicking() {
+        let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let mut document = Document {
+            pages: vec![page.clone()],
+            ..Document::default()
+        };
+
+        let applied = a_remove_page(5, page).apply(&mut document);
+
+        assert!(!applied);
+        assert_eq!(document.pages.len(), 1);
+    }
+
+    #[test]
+    fn an_out_of_range_move_page_is_rejected_without_panicking() {
+        let original = vec![
+            Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
+        ];
+        let mut document = Document {
+            pages: original.clone(),
+            ..Document::default()
+        };
+
+        // `to` past the end is the half a naive bounds check misses: `from`
+        // is removed first, so an unchecked `insert` would panic on a vector
+        // that had already lost a page.
+        assert!(!Command::MovePage { from: 0, to: 7 }.apply(&mut document));
+        assert!(!Command::MovePage { from: 7, to: 0 }.apply(&mut document));
+        assert_eq!(document.pages, original);
     }
 
     #[test]
@@ -833,6 +1762,246 @@ mod tests {
             document.pages.iter().map(|p| p.id).collect::<Vec<_>>(),
             vec![PageId(1), PageId(2), PageId(0)]
         );
+    }
+
+    #[test]
+    fn move_pages_moves_a_contiguous_range_right_without_reordering_it() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4, 5]);
+
+        let applied = Command::MovePages {
+            from: 1,
+            count: 2,
+            to: 3,
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(
+            page_ids(&document),
+            [
+                PageId(0),
+                PageId(3),
+                PageId(4),
+                PageId(1),
+                PageId(2),
+                PageId(5)
+            ]
+        );
+    }
+
+    #[test]
+    fn move_pages_can_move_a_contiguous_range_from_the_end_to_the_start() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4]);
+
+        let applied = Command::MovePages {
+            from: 3,
+            count: 2,
+            to: 0,
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(
+            page_ids(&document),
+            [PageId(3), PageId(4), PageId(0), PageId(1), PageId(2)]
+        );
+    }
+
+    #[test]
+    fn move_pages_can_append_a_contiguous_range() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4]);
+
+        let applied = Command::MovePages {
+            from: 0,
+            count: 2,
+            to: 3,
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(
+            page_ids(&document),
+            [PageId(2), PageId(3), PageId(4), PageId(0), PageId(1)]
+        );
+    }
+
+    #[test]
+    fn move_pages_is_one_undo_and_redo_step() {
+        let mut document = document_with_pages(&[0, 1, 2, 3, 4]);
+        let command = Command::MovePages {
+            from: 1,
+            count: 2,
+            to: 3,
+        };
+        let mut log = EditLog::new();
+
+        assert!(log.apply(&mut document, command.clone()));
+        assert!(log.undo(&mut document));
+        assert_eq!(
+            page_ids(&document),
+            [PageId(0), PageId(1), PageId(2), PageId(3), PageId(4)]
+        );
+        assert!(!log.undo(&mut document));
+        assert!(log.redo(&mut document));
+        assert_eq!(
+            page_ids(&document),
+            [PageId(0), PageId(3), PageId(4), PageId(1), PageId(2)]
+        );
+        assert_eq!(log.entries(), &[command]);
+    }
+
+    #[test]
+    fn invalid_move_pages_commands_are_rejected_before_mutating() {
+        let commands = [
+            Command::MovePages {
+                from: 1,
+                count: 0,
+                to: 0,
+            },
+            Command::MovePages {
+                from: usize::MAX,
+                count: 2,
+                to: 0,
+            },
+            Command::MovePages {
+                from: 4,
+                count: 2,
+                to: 0,
+            },
+            Command::MovePages {
+                from: 0,
+                count: 2,
+                to: 4,
+            },
+            Command::MovePages {
+                from: 1,
+                count: 2,
+                to: 1,
+            },
+        ];
+
+        for command in commands {
+            let original = document_with_pages(&[0, 1, 2, 3, 4]);
+            let mut document = original.clone();
+
+            assert!(!command.apply(&mut document), "{command:?} was accepted");
+            assert_eq!(document, original, "{command:?} mutated the document");
+        }
+    }
+
+    #[test]
+    fn rejected_move_pages_preserves_undo_and_redo_history() {
+        let mut document = document_with_pages(&[0, 1, 2]);
+        let mut log = EditLog::new();
+        assert!(log.apply(&mut document, Command::MovePage { from: 0, to: 2 }));
+        assert!(log.undo(&mut document));
+
+        let applied = log.apply(
+            &mut document,
+            Command::MovePages {
+                from: 0,
+                count: 1,
+                to: 0,
+            },
+        );
+
+        assert!(!applied);
+        assert!(!log.can_undo());
+        assert!(log.can_redo());
+    }
+
+    #[test]
+    fn move_pages_inverse_swaps_the_range_positions() {
+        let command = Command::MovePages {
+            from: 1,
+            count: 2,
+            to: 4,
+        };
+
+        assert_eq!(
+            command.inverse(),
+            Command::MovePages {
+                from: 4,
+                count: 2,
+                to: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn move_pages_is_a_page_structure_edit() {
+        assert!(Command::MovePages {
+            from: 0,
+            count: 1,
+            to: 1,
+        }
+        .is_page_structure_edit());
+    }
+
+    /// Rotation is the one command the two predicates disagree about, and
+    /// the disagreement is the point: it reorders nothing, yet the PDF
+    /// assembly permission names it explicitly.
+    #[test]
+    fn rotating_a_page_needs_assembly_permission_but_is_not_a_structure_edit() {
+        let rotate = Command::RotatePage {
+            page: PageId(0),
+            delta_degrees: 90,
+        };
+
+        assert!(rotate.is_document_assembly_edit());
+        assert!(!rotate.is_page_structure_edit());
+    }
+
+    #[test]
+    fn every_page_structure_edit_needs_assembly_permission() {
+        for command in [
+            Command::insert_page(
+                0,
+                Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            ),
+            a_remove_page(
+                0,
+                Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
+            ),
+            Command::MovePage { from: 0, to: 1 },
+            Command::MovePages {
+                from: 0,
+                count: 1,
+                to: 1,
+            },
+            Command::ImportPages {
+                index: 0,
+                pages: vec![imported_page(10, 0)],
+            },
+            Command::RemoveImportedPages {
+                index: 0,
+                pages: vec![imported_page(10, 0)],
+            },
+            Command::RemovePages {
+                index: 0,
+                pages: vec![imported_page(10, 0)],
+                annotations: Vec::new(),
+                form_fields: Vec::new(),
+            },
+            Command::InsertPages {
+                index: 0,
+                pages: vec![imported_page(10, 0)],
+                annotations: Vec::new(),
+                form_fields: Vec::new(),
+            },
+        ] {
+            assert!(command.is_document_assembly_edit(), "{command:?}");
+        }
+    }
+
+    /// An annotation or content edit must not be dragged through the
+    /// assembly gate: a document may forbid assembly and still permit both.
+    #[test]
+    fn an_edit_that_leaves_the_page_list_alone_needs_no_assembly_permission() {
+        assert!(
+            !Command::AddAnnotation(sample_annotation(1, PageId(0))).is_document_assembly_edit()
+        );
+        assert!(!Command::RemoveFormField(sample_form_field(1)).is_document_assembly_edit());
     }
 
     #[test]
@@ -1354,11 +2523,13 @@ mod tests {
                 page: PageId(0),
                 delta_degrees: 90,
             },
-            Command::InsertPage {
-                index: 0,
-                page: page.clone(),
+            Command::insert_page(0, page.clone()),
+            a_remove_page(0, page),
+            Command::MovePages {
+                from: 0,
+                count: 1,
+                to: 1,
             },
-            Command::RemovePage { index: 0, page },
         ];
 
         for command in non_content_commands {
