@@ -28,7 +28,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{
     gdk, glib, graphene, gsk, Entry, EventControllerFocus, EventControllerKey, EventSequenceState,
-    Fixed, GestureDrag, PropagationPhase,
+    Fixed, GestureDrag, PropagationPhase, ScrolledWindow,
 };
 use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 use pdf_edit::EditError;
@@ -164,7 +164,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
     };
 
     wire_entry(viewer, &entry, false);
-    entry.grab_focus();
+    focus_without_scrolling(&viewer.scroll, &entry);
     entry.select_region(0, -1);
     // The Edit page's "Delete text" is gated on exactly this editor being
     // open over an existing run, so the page learns about it here — the
@@ -274,11 +274,37 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
     };
 
     wire_entry(viewer, &entry, true);
-    entry.grab_focus();
+    focus_without_scrolling(&viewer.scroll, &entry);
     // Same call as [`open_editor`]'s, for the opposite outcome: an insertion
     // has no run on the page yet, so this is what keeps "Delete text"
     // *disabled* while a blank box is open.
     update_content_edit_controls(viewer);
+}
+
+/// Puts the cursor in `entry` without letting the page canvas jump.
+///
+/// A box is always opened where the user just clicked, so it is on screen by
+/// construction and there is never anything for a scroll to reveal. But
+/// `grab_focus` on a child that has only just been added is a child the
+/// `ScrolledWindow` has not measured yet, and it scrolls to the origin to
+/// bring into view a widget it believes is sitting there. The reader is thrown
+/// back to the start of the page and the run they were editing leaves the
+/// screen.
+///
+/// Measured before the fix: canvas parked at 100, a run whose box computes to
+/// x=144 in a 516-wide viewport — fully visible — and opening its editor left
+/// the scroll at 0. Only the first focus does it; once the entry has been
+/// allocated, focusing it again moves nothing.
+///
+/// This predates any of the rotation work and was simply never visible: with
+/// the default fit there is no horizontal scroll to lose. A page turned to
+/// landscape is the first thing that gives the canvas somewhere to jump from.
+fn focus_without_scrolling(scroll: &ScrolledWindow, entry: &Entry) {
+    let (horizontal, vertical) = (scroll.hadjustment(), scroll.vadjustment());
+    let (left, top) = (horizontal.value(), vertical.value());
+    entry.grab_focus();
+    horizontal.set_value(left);
+    vertical.set_value(top);
 }
 
 /// Positions the editor box over `bbox` on `page`, in the page overlay's
@@ -994,7 +1020,7 @@ fn detach(viewer: &Viewer, editor: &ContentEditor) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gtk::{Overlay, Window};
+    use gtk::{Overlay, Picture, Window};
     use pdf_render::PageRotation;
 
     /// A letter page turned `rotation`, drawn 1:1. The drawn size is already
@@ -1173,6 +1199,94 @@ mod tests {
         }
     }
 
+    /// The canvas must stay where the reader put it.
+    ///
+    /// `grab_focus` on a child the `ScrolledWindow` has only just been handed
+    /// is a child it has not measured, and it scrolls to the origin to reveal
+    /// a widget it believes is sitting there — throwing the reader back to the
+    /// start of the page with the run they were editing off screen. Only the
+    /// first focus does it, which is why it cannot be caught by focusing an
+    /// editor that is already open.
+    ///
+    /// Invisible until a page is wide enough to scroll sideways, so turning a
+    /// page to landscape is what surfaced it. The fault itself is older than
+    /// any of the rotation work.
+    ///
+    /// Built on the shell's own `Viewer` rather than on a scroller assembled
+    /// here: a hand-rolled one does not reproduce it, and a test that cannot
+    /// fail is worse than no test. What it cannot use is a real document —
+    /// the GTK gate runs without pdfium — so the canvas is given a page-shaped
+    /// widget instead, which is all the scroll position depends on.
+    #[gtk::test]
+    fn gtk_ui_focusing_a_fresh_editor_leaves_the_canvas_where_it_was() {
+        const PARKED_AT: f64 = 300.0;
+
+        let built = crate::app::ui_tests::built_ui();
+        built.viewer.view_stack.set_visible_child_name("editor");
+        built.window.set_default_size(700, 600);
+        built.window.present();
+
+        // Wider than the viewport will be, so there is a horizontal scroll
+        // position to lose in the first place — which on a real document is
+        // what a page turned to landscape produces.
+        let page = Picture::new();
+        page.set_width_request(2_000);
+        page.set_height_request(1_500);
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&page));
+        overlay.set_halign(gtk::Align::Center);
+        built.viewer.pages.append(&overlay);
+        settle(&built.viewer.pages);
+
+        let horizontal = built.viewer.scroll.hadjustment();
+        horizontal.set_value(PARKED_AT);
+        pump();
+        assert_eq!(
+            horizontal.value(),
+            PARKED_AT,
+            "the canvas has to start somewhere other than the origin, \
+             or this test cannot tell a jump from a no-op"
+        );
+
+        // An editor box, added and focused the way `open_editor` does it, over
+        // a part of the page the reader can see: there is nothing here for a
+        // scroll to reveal.
+        let entry = Entry::new();
+        let frame = Fixed::new();
+        frame.put(&entry, 0.0, 0.0);
+        frame.set_halign(gtk::Align::Start);
+        frame.set_valign(gtk::Align::Start);
+        frame.set_margin_start(400);
+        frame.set_margin_top(200);
+        overlay.add_overlay(&frame);
+        // No main-loop turn between adding the box and focusing it — that is
+        // how `open_editor` does it, and an unallocated child is exactly what
+        // the scrolled window mishandles.
+        focus_without_scrolling(&built.viewer.scroll, &entry);
+        pump();
+
+        // Asked of the root rather than of the entry: a `GtkEntry` hands the
+        // cursor to the `GtkText` inside it, so the focus widget is a
+        // descendant of the box and never the box itself. Asserted at all
+        // because a `grab_focus` that quietly did nothing would leave the
+        // scroll untouched too, and pass the assertion below for the wrong
+        // reason.
+        let focused =
+            gtk::prelude::RootExt::focus(&built.window).expect("something took the cursor");
+        assert!(
+            focused.is_ancestor(&entry),
+            "the cursor has to land inside the box"
+        );
+        assert_eq!(
+            horizontal.value(),
+            PARKED_AT,
+            "opening a box must not scroll the canvas"
+        );
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
+    }
+
     /// Pumps the main loop until `widget` has been allocated.
     fn settle(widget: &impl IsA<gtk::Widget>) {
         let context = glib::MainContext::default();
@@ -1182,6 +1296,15 @@ mod tests {
                 return;
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// Runs the loop dry, for the settling that is not about one widget's size.
+    fn pump() {
+        let context = glib::MainContext::default();
+        for _ in 0..200 {
+            while context.iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
 
