@@ -167,6 +167,23 @@ ninguno de los dos.
       `unshare --net` propio del script — de ahí el `sudo` que envuelve todo el paso,
       mismo motivo que el job `zero-network` de `core.yml`. Sin paso de upload: sigue
       sin haber proceso de publicación, igual que macOS/Windows a esta altura.)**
+- [x] T-176 (dep B22) Panel "Propiedades del documento" en el panel lateral: los siete
+      campos de texto editables + Creation/ModDate, guardando vía `Command::SetDocumentInfo`.
+      [MetadataUI]
+      **(2026-08-27 — completo, en `3fe5114` (#111). Vive en `app/metadata.rs`, bajo la tab
+      Annotate del tools panel. Ver [batch-metadata-edit.md](batch-metadata-edit.md), cuya
+      sección de tareas de UI pedía justamente que esta ficha lo listara.**
+
+      **Tres decisiones que valen releerse:** (1) `Document` nunca espeja `DocumentInfo` —
+      `SetDocumentInfo::apply` es inerte y `pdf-save` reproduce el `after` del log sobre
+      `/Info` al escribir, así que "el valor actual" es el último `after` pendiente o la
+      lectura lazy del archivo. (2) Los campos de texto commitean por tecla (igual que el
+      panel de relleno de formularios) pero los de fecha solo con Enter o al perder el
+      foco, porque no toda cadena es una fecha válida; cualquiera de los dos desenlaces
+      fuerza un refresh, así que una edición inválida vuelve visiblemente atrás. (3) La
+      compuerta es `content_edit_refusal` — `/P` bit 4: `/Info` no es contenido de página,
+      pero tampoco lo cubre ninguno de los bits más angostos.)**
+
 - [x] T-141 (dep B20) Modo edición de formularios: colocar campo (texto/checkbox/radio/
       dropdown) sobre el canvas, arrastrar/resize con handles, inspector de estilo
       (fuente standard-14, tamaño, color) → comandos MoveFormField/ResizeFormField/
