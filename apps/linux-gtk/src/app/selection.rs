@@ -15,8 +15,8 @@ use pdf_document::{
     Annotation, AnnotationKind, Color, FieldValue, FontFamily, FontKind, FormField, Rect,
 };
 use pdf_render::{
-    caret_range, line_rects, place_rect, point_to_pdf, DocumentHandle, PageCharacters,
-    PdfiumRenderer, PlacedRect, Priority, RenderError, TextRect, TextRun,
+    caret_range, line_rects, place_point, place_rect, point_to_pdf, DocumentHandle, PageCharacters,
+    PagePlacement, PdfiumRenderer, PlacedRect, Priority, RenderError, TextRect, TextRun,
 };
 
 use super::annotations;
@@ -134,7 +134,7 @@ pub(crate) fn pointer_to_pdf(
 ) -> Option<(f64, f64)> {
     let state = viewer.state.borrow();
     let page = state.session.as_ref()?.pages.get(page_index)?;
-    let (x, y) = point_to_pdf(x, y, page.height_pt, page.budget.factor);
+    let (x, y) = point_to_pdf(x, y, page.placement());
     Some((f64::from(x), f64::from(y)))
 }
 
@@ -161,12 +161,12 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
     draw_form_field_values(context, page, session, page_index, scale);
 
     if content_edit::mode_is_active(viewer) {
-        draw_content_run_outlines(context, page, session, page_index, scale);
-        draw_content_image_outlines(context, page, session, page_index, scale);
+        draw_content_run_outlines(context, page, session, page_index);
+        draw_content_image_outlines(context, page, session, page_index);
     }
 
     if forms::mode_is_active(viewer) {
-        draw_form_field_outlines(context, page, session, page_index, scale);
+        draw_form_field_outlines(context, page, session, page_index);
     }
 
     if let Some(search) = session.search.as_ref() {
@@ -182,8 +182,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
             fill_all(
                 context,
                 &line_rects(&found.character_bounds),
-                page.height_pt,
-                scale,
+                page.placement(),
                 color,
             );
         }
@@ -214,12 +213,11 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
             context,
             painted,
             session.stamp_surfaces.get(&painted.id),
-            page.height_pt,
-            scale,
+            page.placement(),
             selected,
         );
         if selected {
-            draw_handles(context, painted, page.height_pt, scale);
+            draw_handles(context, painted, page.placement());
         }
     }
 
@@ -232,7 +230,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         .filter(|placement| placement.page_index == page_index)
         .and_then(super::annotations::placement_preview)
     {
-        draw_annotation(context, &preview, None, page.height_pt, scale, true);
+        draw_annotation(context, &preview, None, page.placement(), true);
     }
 
     // A selection whose page has no text loaded yet paints nothing; the load
@@ -253,8 +251,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
     fill_all(
         context,
         &characters.rects_in(range),
-        page.height_pt,
-        scale,
+        page.placement(),
         SELECTION_RGBA,
     );
 }
@@ -270,7 +267,6 @@ fn draw_content_run_outlines(
     page: &PageSlot,
     session: &DocumentSession,
     page_index: usize,
-    scale: f64,
 ) {
     let Some(content) = page.content.as_ref() else {
         return;
@@ -288,7 +284,7 @@ fn draw_content_run_outlines(
     // The carried pixels go down before any outline, so no box is buried
     // under the patch that is meant to sit inside it.
     if let Some(drag) = dragged {
-        draw_dragged_run(context, page, drag, scale);
+        draw_dragged_run(context, page, drag);
     }
 
     for run in &content.text_runs {
@@ -304,8 +300,7 @@ fn draw_content_run_outlines(
                 width_pt: rect.width as f32,
                 height_pt: rect.height as f32,
             },
-            page.height_pt,
-            scale,
+            page.placement(),
         );
         if run.font_kind == FontKind::EmbeddedComposite {
             let (red, green, blue, alpha) = COMPOSITE_RUN_OUTLINE_RGBA;
@@ -338,12 +333,7 @@ fn draw_content_run_outlines(
 /// Silently does nothing without a captured page (`DragPreview` is `None`
 /// when the pixels could not be read). The outline still tracks the pointer
 /// in that case, so the drag remains usable, just less vivid.
-fn draw_dragged_run(
-    context: &cairo::Context,
-    page: &PageSlot,
-    drag: &crate::app::state::TextDrag,
-    scale: f64,
-) {
+fn draw_dragged_run(context: &cairo::Context, page: &PageSlot, drag: &crate::app::state::TextDrag) {
     let Some(preview) = drag.preview.as_ref() else {
         return;
     };
@@ -355,8 +345,7 @@ fn draw_dragged_run(
                 width_pt: rect.width as f32,
                 height_pt: rect.height as f32,
             },
-            page.height_pt,
-            scale,
+            page.placement(),
         )
     };
     // Both boxes come from one place, so neither can be grown differently
@@ -403,7 +392,6 @@ fn draw_content_image_outlines(
     page: &PageSlot,
     session: &DocumentSession,
     page_index: usize,
-    scale: f64,
 ) {
     let Some(content) = page.content.as_ref() else {
         return;
@@ -433,8 +421,7 @@ fn draw_content_image_outlines(
                 width_pt: rect.width as f32,
                 height_pt: rect.height as f32,
             },
-            page.height_pt,
-            scale,
+            page.placement(),
         );
         let (red, green, blue, alpha) = if selected {
             SELECTED_CONTENT_IMAGE_RGBA
@@ -446,7 +433,7 @@ fn draw_content_image_outlines(
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
         if selected {
-            draw_corner_handles(context, rect, page.height_pt, scale);
+            draw_corner_handles(context, rect, page.placement());
         }
     }
 }
@@ -456,7 +443,7 @@ fn draw_content_image_outlines(
 /// form field): the geometry is identical regardless of what the rect
 /// belongs to, so [`draw_handles`] (annotations) computes its rect from
 /// `annotations::bounds` and calls this rather than repeating the paint.
-fn draw_corner_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32, scale: f64) {
+fn draw_corner_handles(context: &cairo::Context, rect: Rect, page: PagePlacement) {
     let placed = place_rect(
         TextRect {
             x_pt: rect.x as f32,
@@ -464,8 +451,7 @@ fn draw_corner_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32
             width_pt: rect.width as f32,
             height_pt: rect.height as f32,
         },
-        page_height_pt,
-        scale,
+        page,
     );
     let (red, green, blue) = HANDLE_RGB;
     context.set_source_rgb(red, green, blue);
@@ -483,6 +469,36 @@ fn draw_corner_handles(context: &cairo::Context, rect: Rect, page_height_pt: f32
         );
     }
     let _ = context.fill();
+}
+
+/// Turns the cairo context into `rect`'s own upright frame and hands back
+/// the rect as it stands in that frame — origin `(0, 0)`, size the rect's own
+/// PDF size at this zoom.
+///
+/// Every overlay that paints something with an *orientation* — glyphs, a
+/// checkmark, a bitmap stamp — needs this rather than a placed rect. A placed
+/// rect says where the content's box landed once the page was turned, which
+/// is enough to stroke an outline around it but not enough to draw inside it:
+/// text laid out along screen-x on a page turned 90 degrees reads across the
+/// column it is supposed to run down. Turning the *context* instead puts the
+/// drawing back in the content's own frame, where the existing paint code —
+/// written when no page could be turned — is correct again as written.
+///
+/// The caller owns the `save`/`restore` around it: the transform outlives
+/// this function by design, since that is the whole point of it.
+fn enter_upright_frame(context: &cairo::Context, rect: Rect, page: PagePlacement) -> PlacedRect {
+    // The PDF-space top-left corner — `y + height`, since PDF y grows upwards
+    // — is the corner the content's own frame starts at, whichever way the
+    // page is turned.
+    let (x, y) = place_point((rect.x, rect.y + rect.height), page);
+    context.translate(x, y);
+    context.rotate(page.rotation.radians());
+    PlacedRect {
+        left: 0.0,
+        top: 0.0,
+        width: rect.width * page.scale,
+        height: rect.height * page.scale,
+    }
 }
 
 /// Maps a form field's Standard-14 font to a Cairo font family Pango can
@@ -628,18 +644,11 @@ fn draw_form_field_values(
             continue;
         }
 
-        let placed = place_rect(
-            TextRect {
-                x_pt: field.rect.x as f32,
-                y_pt: field.rect.y as f32,
-                width_pt: field.rect.width as f32,
-                height_pt: field.rect.height as f32,
-            },
-            page.height_pt,
-            scale,
-        );
-
         let _ = context.save();
+        // The value reads along the page, not along the screen: a field on a
+        // page turned 90 degrees holds text that runs down the screen, and
+        // this is where that becomes true of the preview too.
+        let placed = enter_upright_frame(context, field.rect, page.placement());
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         context.clip();
         context.set_source_rgba(
@@ -692,7 +701,6 @@ fn draw_form_field_outlines(
     page: &PageSlot,
     session: &DocumentSession,
     page_index: usize,
-    scale: f64,
 ) {
     let Some(document) = session.document_model.as_ref() else {
         return;
@@ -724,8 +732,7 @@ fn draw_form_field_outlines(
                 width_pt: rect.width as f32,
                 height_pt: rect.height as f32,
             },
-            page.height_pt,
-            scale,
+            page.placement(),
         );
         let (red, green, blue, alpha) = if selected {
             SELECTED_FORM_FIELD_RGBA
@@ -737,7 +744,7 @@ fn draw_form_field_outlines(
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
         if selected {
-            draw_corner_handles(context, rect, page.height_pt, scale);
+            draw_corner_handles(context, rect, page.placement());
         }
     }
 
@@ -754,8 +761,7 @@ fn draw_form_field_outlines(
                 width_pt: rect.width as f32,
                 height_pt: rect.height as f32,
             },
-            page.height_pt,
-            scale,
+            page.placement(),
         );
         let (red, green, blue, alpha) = SELECTED_FORM_FIELD_RGBA;
         context.set_source_rgba(red, green, blue, alpha);
@@ -786,8 +792,7 @@ fn draw_annotation(
     context: &cairo::Context,
     annotation: &Annotation,
     stamp: Option<&cairo::ImageSurface>,
-    page_height_pt: f32,
-    scale: f64,
+    page: PagePlacement,
     selected: bool,
 ) {
     let alpha = if selected {
@@ -797,13 +802,13 @@ fn draw_annotation(
     };
     match &annotation.kind {
         AnnotationKind::Highlight { rect, color } => {
-            let placed = place_annotation(*rect, page_height_pt, scale);
+            let placed = place_annotation(*rect, page);
             set_annotation_color(context, *color, alpha);
             context.rectangle(placed.left, placed.top, placed.width, placed.height);
             let _ = context.fill();
         }
         AnnotationKind::Underline { rect, color } => {
-            let placed = place_annotation(*rect, page_height_pt, scale);
+            let placed = place_annotation(*rect, page);
             set_annotation_color(context, *color, alpha);
             context.rectangle(
                 placed.left,
@@ -814,7 +819,7 @@ fn draw_annotation(
             let _ = context.fill();
         }
         AnnotationKind::Strikeout { rect, color } => {
-            let placed = place_annotation(*rect, page_height_pt, scale);
+            let placed = place_annotation(*rect, page);
             set_annotation_color(context, *color, alpha);
             context.rectangle(
                 placed.left,
@@ -825,7 +830,7 @@ fn draw_annotation(
             let _ = context.fill();
         }
         AnnotationKind::Shape { rect, color } => {
-            let placed = place_annotation(*rect, page_height_pt, scale);
+            let placed = place_annotation(*rect, page);
             set_annotation_color(context, *color, alpha);
             context.rectangle(placed.left, placed.top, placed.width, placed.height);
             let _ = context.stroke();
@@ -835,30 +840,33 @@ fn draw_annotation(
                 return;
             };
             set_annotation_color(context, *color, alpha);
-            let (x, y) = place_annotation_point(first, page_height_pt, scale);
+            let (x, y) = place_point(first, page);
             context.move_to(x, y);
             for &point in &points[1..] {
-                let (x, y) = place_annotation_point(point, page_height_pt, scale);
+                let (x, y) = place_point(point, page);
                 context.line_to(x, y);
             }
             let _ = context.stroke();
         }
         AnnotationKind::Stamp { rect, .. } => {
-            let placed = place_annotation(*rect, page_height_pt, scale);
-            if let Some(surface) = stamp {
-                draw_stamp_surface(context, surface, placed, alpha);
-            } else {
-                draw_annotation_outline(context, placed, alpha);
+            // A stamp is a bitmap, so it has an up — and once written out it
+            // is page content, which a `/Rotate` turns along with everything
+            // else. The preview goes through the same upright frame the form
+            // values do, for the same reason: blitting it axis-aligned to the
+            // screen would show the user a stamp standing upright on a page
+            // where the saved file will lay it on its side.
+            let _ = context.save();
+            let upright = enter_upright_frame(context, *rect, page);
+            match stamp {
+                Some(surface) => draw_stamp_surface(context, surface, upright, alpha),
+                None => draw_annotation_outline(context, upright, alpha),
             }
+            let _ = context.restore();
         }
         // No preview appearance yet: outlined so the user can see where the
         // annotation landed and that it is selected.
         AnnotationKind::TextNote { rect, .. } => {
-            draw_annotation_outline(
-                context,
-                place_annotation(*rect, page_height_pt, scale),
-                alpha,
-            );
+            draw_annotation_outline(context, place_annotation(*rect, page), alpha);
         }
         _ => {}
     }
@@ -939,16 +947,11 @@ fn draw_annotation_outline(context: &cairo::Context, placed: PlacedRect, alpha: 
 /// Drawn at a fixed size in device pixels rather than scaled with the page:
 /// a handle that shrank with the zoom would become impossible to hit exactly
 /// when the user has zoomed out to see the whole page.
-fn draw_handles(
-    context: &cairo::Context,
-    annotation: &Annotation,
-    page_height_pt: f32,
-    scale: f64,
-) {
+fn draw_handles(context: &cairo::Context, annotation: &Annotation, page: PagePlacement) {
     let Some(rect) = annotations::bounds(annotation) else {
         return;
     };
-    draw_corner_handles(context, rect, page_height_pt, scale);
+    draw_corner_handles(context, rect, page);
 }
 
 /// How far, in PDF points, a press may land from a corner and still count as
@@ -974,7 +977,7 @@ pub(crate) fn handle_reach(viewer: &Viewer, page_index: usize) -> f64 {
 ///
 /// Delegates rather than re-deriving, so the transform stays defined exactly
 /// once — in `pdf_render::selection`, which all four shells share.
-fn place_annotation(rect: Rect, page_height_pt: f32, scale: f64) -> PlacedRect {
+fn place_annotation(rect: Rect, page: PagePlacement) -> PlacedRect {
     place_rect(
         TextRect {
             x_pt: rect.x as f32,
@@ -982,16 +985,8 @@ fn place_annotation(rect: Rect, page_height_pt: f32, scale: f64) -> PlacedRect {
             width_pt: rect.width as f32,
             height_pt: rect.height as f32,
         },
-        page_height_pt,
-        scale,
+        page,
     )
-}
-
-/// [`place_annotation`] for a bare point (an ink polyline vertex), which has
-/// no height to subtract.
-fn place_annotation_point(point: (f64, f64), page_height_pt: f32, scale: f64) -> (f64, f64) {
-    let (x, y) = point;
-    (x * scale, (f64::from(page_height_pt) - y) * scale)
 }
 
 fn set_annotation_color(context: &cairo::Context, color: Color, alpha: f64) {
@@ -1039,8 +1034,7 @@ fn resolve_range(
 fn fill_all(
     context: &cairo::Context,
     rects: &[TextRect],
-    page_height_pt: f32,
-    scale: f64,
+    page: PagePlacement,
     color: (f64, f64, f64, f64),
 ) {
     let (red, green, blue, alpha) = color;
@@ -1051,7 +1045,7 @@ fn fill_all(
             top,
             width,
             height,
-        } = place_rect(*rect, page_height_pt, scale);
+        } = place_rect(*rect, page);
         context.rectangle(left, top, width, height);
     }
     // One fill for the whole batch: overlapping rects in a single path merge
@@ -1116,7 +1110,7 @@ fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
         let Some(page) = session.pages.get(page_index) else {
             return;
         };
-        let point = point_to_pdf(x, y, page.height_pt, page.budget.factor);
+        let point = point_to_pdf(x, y, page.placement());
         let needs_text = page.characters.is_none() && !page.characters_requested;
         session.selection = Some(Selection {
             page_index,
@@ -1171,7 +1165,7 @@ fn extend_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
         let Some(page) = session.pages.get(page_index) else {
             return;
         };
-        let point = point_to_pdf(x, y, page.height_pt, page.budget.factor);
+        let point = point_to_pdf(x, y, page.placement());
         if let Some(selection) = session.selection.as_mut() {
             selection.focus = point;
         }

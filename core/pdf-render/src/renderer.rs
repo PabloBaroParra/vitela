@@ -15,6 +15,7 @@ use crate::error::RenderError;
 use crate::inversion::invert_rgba_in_place;
 use crate::library::resolve_library_path;
 use crate::options::{Priority, Rect, RenderOptions, Tile};
+use crate::selection::{PageGeometry, PageRotation};
 use crate::state::{DocHandle, PdfiumState};
 use crate::text::{collect_text_runs, find_matches, TextMatch, TextRun};
 
@@ -151,19 +152,21 @@ impl PdfiumRenderer {
         }
     }
 
-    /// Queries every page's size in PDF points in a single actor round-trip.
+    /// Queries every page's drawn geometry in a single actor round-trip.
     ///
     /// Shells laying out a whole document need all page sizes up front; one
     /// batched job avoids the N serialized submit/wait cycles that querying
     /// [`page_size`](Self::page_size) per page would push through the actor.
-    pub fn page_sizes(
+    /// The turn rides along with the size because the two only mean anything
+    /// together — see [`PageGeometry`].
+    pub fn page_geometry(
         &self,
         doc: DocumentHandle,
         priority: Priority,
-    ) -> JobHandle<Vec<(f32, f32)>> {
+    ) -> JobHandle<Vec<PageGeometry>> {
         match global_actor() {
             Ok(actor) => actor.submit(priority, move |state: &mut PdfiumState| {
-                page_sizes_job(state, doc)
+                page_geometry_job(state, doc)
             }),
             Err(error) => JobHandle::failed(error),
         }
@@ -523,21 +526,43 @@ fn search_job(
     Ok(matches)
 }
 
-fn page_sizes_job(state: &mut PdfiumState, doc: DocHandle) -> Result<Vec<(f32, f32)>, RenderError> {
+fn page_geometry_job(
+    state: &mut PdfiumState,
+    doc: DocHandle,
+) -> Result<Vec<PageGeometry>, RenderError> {
     let document = state
         .documents
         .get(&doc.0)
         .ok_or(RenderError::DocumentNotFound)?;
     let pages = document.pages();
     let count = pages.len() as u32;
-    let mut sizes = Vec::with_capacity(count as usize);
+    let mut geometry = Vec::with_capacity(count as usize);
     for page_index in 0..count {
         let page = pages
             .get(page_index as i32)
             .map_err(|_| RenderError::PageIndexOutOfBounds(page_index))?;
-        sizes.push((page.width().value, page.height().value));
+        geometry.push(PageGeometry {
+            // Already turned: pdfium swaps a page's width and height for a
+            // quarter turn, which is why `rotation` below is extra
+            // information and not a second way of saying the same thing.
+            width_pt: page.width().value,
+            height_pt: page.height().value,
+            // A page whose `/Rotate` pdfium cannot read is drawn upright, so
+            // treating the failure as "no turn" keeps the overlay transform
+            // agreeing with the raster rather than guessing against it.
+            rotation: page.rotation().map_or(PageRotation::None, page_rotation),
+        });
     }
-    Ok(sizes)
+    Ok(geometry)
+}
+
+fn page_rotation(rotation: PdfPageRenderRotation) -> PageRotation {
+    match rotation {
+        PdfPageRenderRotation::None => PageRotation::None,
+        PdfPageRenderRotation::Degrees90 => PageRotation::Clockwise90,
+        PdfPageRenderRotation::Degrees180 => PageRotation::Clockwise180,
+        PdfPageRenderRotation::Degrees270 => PageRotation::Clockwise270,
+    }
 }
 
 #[cfg(test)]

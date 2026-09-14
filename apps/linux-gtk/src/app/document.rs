@@ -388,11 +388,11 @@ pub(crate) fn open_document(
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
-    match renderer.page_sizes(document, Priority::Visible).wait() {
-        Ok(page_sizes) => Ok(OpenedDocument {
+    match renderer.page_geometry(document, Priority::Visible).wait() {
+        Ok(page_geometry) => Ok(OpenedDocument {
             document,
             name: source_name(source),
-            page_sizes,
+            page_geometry,
             text_access,
             annotation_access,
             content_edit_access,
@@ -580,6 +580,28 @@ fn next_form_field_id(document_model: Option<&Document>) -> u64 {
         .map_or(0, |max| max + 1)
 }
 
+/// The overlay one page is drawn in: its render underneath, and room above it
+/// for the highlight layer and the tile pictures.
+///
+/// Centred rather than filled, and that is the whole reason this is a function
+/// rather than three lines inline. `viewer.pages` is a vertical box, so a
+/// `Fill`-aligned child takes the box's width — which is the *widest* page's.
+/// A narrower page's `Picture` then centres its render inside that extra room,
+/// while the highlight layer, the tile pictures and every pointer-to-PDF
+/// mapping go on measuring from the overlay's own left edge. Everything the
+/// shell draws on such a page lands half the width difference to the left of
+/// the page it belongs to.
+///
+/// Turning one page to landscape is the easiest way to end up with pages of
+/// different widths, but nothing here is particular to rotation: any document
+/// that mixes page sizes had it.
+fn page_overlay(picture: &Picture) -> Overlay {
+    let overlay = Overlay::new();
+    overlay.set_child(Some(picture));
+    overlay.set_halign(gtk::Align::Center);
+    overlay
+}
+
 pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
     if !is_current(viewer, generation) {
         close_document_in_background(document.document);
@@ -620,15 +642,15 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
     }
 
     let fit = FitRequest::measure(viewer);
-    let mut slots = Vec::with_capacity(document.page_sizes.len());
-    let mut page_heights = Vec::with_capacity(document.page_sizes.len());
-    for (page_index, (width_pt, height_pt)) in document.page_sizes.into_iter().enumerate() {
+    let mut slots = Vec::with_capacity(document.page_geometry.len());
+    let mut page_heights = Vec::with_capacity(document.page_geometry.len());
+    for (page_index, geometry) in document.page_geometry.into_iter().enumerate() {
+        let (width_pt, height_pt) = (geometry.width_pt, geometry.height_pt);
         let picture = Picture::new();
         picture.set_can_shrink(true);
         picture.set_content_fit(ContentFit::Contain);
         let logical_height = set_placeholder_size(&picture, width_pt, height_pt, fit);
-        let overlay = Overlay::new();
-        overlay.set_child(Some(&picture));
+        let overlay = page_overlay(&picture);
         // Added after the child, so it sits above the rendered page. The tile
         // pipeline keeps it there with `selection::raise_highlights`.
         let highlights = super::selection::build_highlight_layer(viewer, page_index);
@@ -660,6 +682,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             content: None,
             width_pt,
             height_pt,
+            rotation: geometry.rotation,
             state: PageState::Idle,
             target_dpi: box_.base_dpi,
             budget: box_.budget(),
@@ -914,9 +937,84 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Window) {
 
 #[cfg(test)]
 mod tests {
-    use super::{next_form_field_id, rendered_field_values, unsaved_decision, UnsavedDecision};
+    use super::{
+        next_form_field_id, page_overlay, rendered_field_values, unsaved_decision, UnsavedDecision,
+    };
     use crate::app::test_fixtures::a_form_field;
+    use gtk::prelude::*;
+    use gtk::{glib, Box as GtkBox, ContentFit, Orientation, Picture, Window};
     use pdf_document::{Document, FieldValue};
+
+    /// Pumps the main loop until `widget` has been allocated, so a test can
+    /// read real widths rather than the zeroes of an unmapped window.
+    fn settle(widget: &impl IsA<gtk::Widget>) {
+        let context = glib::MainContext::default();
+        for _ in 0..2_000 {
+            while context.iteration(false) {}
+            if widget.as_ref().width() > 0 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// The bug this guards: a document holding one landscape page — a portrait
+    /// one turned a quarter — and portrait pages beside it. `viewer.pages` is
+    /// then as wide as the landscape page, and a filled overlay would hand
+    /// every narrower page that width. The page's own render centres itself in
+    /// the surplus while the highlight layer on top of it does not, so every
+    /// outline, every tile and every press lands half the difference to the
+    /// left of the page it belongs to.
+    ///
+    /// Asserted on the real allocation rather than on `halign`, because the
+    /// property is only the means: what has to hold is that the overlay and the
+    /// page inside it are one box.
+    #[gtk::test]
+    fn gtk_ui_a_narrow_pages_overlay_is_no_wider_than_its_own_page() {
+        const WIDE: i32 = 792;
+        const NARROW: i32 = 612;
+
+        let pages = GtkBox::new(Orientation::Vertical, 8);
+        // As `app::build_window` sets it up.
+        pages.set_halign(gtk::Align::Center);
+
+        let page = |width: i32, height: i32| {
+            let picture = Picture::new();
+            picture.set_can_shrink(true);
+            picture.set_content_fit(ContentFit::Contain);
+            picture.set_width_request(width);
+            picture.set_height_request(height);
+            let overlay = page_overlay(&picture);
+            pages.append(&overlay);
+            (overlay, picture)
+        };
+        let (landscape, _) = page(WIDE, NARROW);
+        let (portrait, portrait_picture) = page(NARROW, WIDE);
+
+        let window = Window::new();
+        window.set_default_size(1_200, 900);
+        window.set_child(Some(&pages));
+        window.present();
+        settle(&pages);
+
+        assert_eq!(
+            landscape.width(),
+            WIDE,
+            "the widest page sets the column's width and keeps its own"
+        );
+        assert_eq!(
+            portrait.width(),
+            NARROW,
+            "the narrow page's overlay must not take the column's width"
+        );
+        assert_eq!(
+            portrait.width(),
+            portrait_picture.width(),
+            "the overlay and the page drawn in it are one box"
+        );
+
+        window.destroy();
+    }
 
     #[test]
     fn a_document_with_no_model_starts_form_field_ids_at_zero() {

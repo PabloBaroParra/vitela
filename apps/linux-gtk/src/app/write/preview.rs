@@ -239,7 +239,7 @@ fn refresh_snapshot_and_reopen(
         backing.password.as_deref(),
     )
     .map_err(|error| error.to_string())?;
-    if let Err(error) = reopened_matches_model(document, reopened.page_sizes.len()) {
+    if let Err(error) = reopened_matches_model(document, reopened.page_geometry.len()) {
         // Nothing has installed this handle yet, so closing it is this
         // function's job — the caller only ever closes one it was handed.
         let _ = PdfiumRenderer::new().close_document(reopened.document);

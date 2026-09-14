@@ -11,15 +11,18 @@ use std::sync::Arc;
 use crate::app::organize::Thumbnails;
 use gtk::prelude::*;
 use gtk::{
-    cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, FlowBox, Label, Overlay,
-    Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
+    cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Fixed, FlowBox, Label,
+    Overlay, Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
 };
 use pdf_document::{
     AnnotationId, Document, FieldValue, FormFieldId, ImageItem, ImportedDocumentId, PageContent,
     PageId, PdfDateOffset, TextRun,
 };
 use pdf_manip::LopdfDocument;
-use pdf_render::{CancellationHandle, DocumentHandle, PageCharacters, TextMatch};
+use pdf_render::{
+    CancellationHandle, DocumentHandle, PageCharacters, PageGeometry, PagePlacement, PageRotation,
+    TextMatch,
+};
 
 /// Where an open request's bytes come from.
 ///
@@ -869,6 +872,16 @@ pub(crate) struct ContentEditor {
     /// against at all.
     pub(crate) run: TextRun,
     pub(crate) entry: Entry,
+    /// The `Fixed` the [`Self::entry`] sits in, and the page overlay's actual
+    /// child.
+    ///
+    /// GTK4 has no way to turn a widget except through a `GtkFixed`'s child
+    /// transform, and on a page carrying a `/Rotate` the box has to turn with
+    /// the text it is editing. The frame is sized and positioned like the
+    /// bare `Entry` used to be; the turn lives in the transform inside it.
+    /// Kept on the editor because detaching has to remove the overlay's own
+    /// child, which is this and no longer the entry.
+    pub(crate) frame: Fixed,
     /// `true` when this editor is composing a brand-new run (T-163's "insert
     /// text" sub-mode) rather than retyping `run` in place. `commit` branches
     /// on this to call `pdf_edit::insert_text_run`/`Command::InsertTextRun`
@@ -1399,8 +1412,15 @@ pub(crate) struct PageSlot {
     /// is filled in synchronously the first time it is needed — see
     /// `content_edit::model::ensure_page_content`.
     pub(crate) content: Option<PageContent>,
+    /// The page's size **as drawn** — pdfium already swaps the two for a
+    /// quarter turn, so this is the box the canvas lays out, not the
+    /// `/MediaBox`.
     pub(crate) width_pt: f32,
     pub(crate) height_pt: f32,
+    /// The page's `/Rotate`. Kept beside the size rather than derived from
+    /// the document model, because the overlays this feeds have to agree with
+    /// the *raster*, and the raster is pdfium's — see [`PageSlot::placement`].
+    pub(crate) rotation: PageRotation,
     pub(crate) state: PageState,
     pub(crate) target_dpi: u32,
     pub(crate) budget: super::layout::TileBudget,
@@ -1410,6 +1430,26 @@ pub(crate) struct PageSlot {
     /// DPI whose tile batch failed, or 0. Terminal for that DPI so a doomed
     /// batch isn't re-queued on every scroll tick; a new zoom clears it.
     pub(crate) tile_failed_dpi: u32,
+}
+
+impl PageSlot {
+    /// How this page maps PDF space onto the canvas right now: its drawn
+    /// size, its turn, and the zoom it is displayed at.
+    ///
+    /// Every overlay goes through this rather than reaching for `height_pt`
+    /// and `budget.factor` itself. That is not tidiness — a caller that
+    /// assembled the transform by hand is a caller that can forget the turn,
+    /// and forgetting the turn is precisely the bug that put every content
+    /// outline, form field and annotation in the wrong place on a rotated
+    /// page.
+    pub(crate) fn placement(&self) -> PagePlacement {
+        PagePlacement {
+            width_pt: self.width_pt,
+            height_pt: self.height_pt,
+            rotation: self.rotation,
+            scale: self.budget.factor,
+        }
+    }
 }
 
 /// Render lifecycle of a single page slot. `Skipped`/`Failed` are terminal
@@ -1438,7 +1478,7 @@ pub(crate) struct OpenedDocument {
     pub(crate) document: DocumentHandle,
     /// See [`DocumentSession::base_name`], which this becomes.
     pub(crate) name: String,
-    pub(crate) page_sizes: Vec<(f32, f32)>,
+    pub(crate) page_geometry: Vec<PageGeometry>,
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
     pub(crate) content_edit_access: ContentEditAccess,

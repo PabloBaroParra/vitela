@@ -150,8 +150,7 @@ fn capture_preview(page: &PageSlot, run: &TextRun) -> Option<DragPreview> {
             width_pt: covered.width as f32,
             height_pt: covered.height as f32,
         },
-        page.height_pt,
-        page.budget.factor,
+        page.placement(),
     );
     let mut surface = surface;
     let background = sampled_background(&mut surface, &placed, scale);
