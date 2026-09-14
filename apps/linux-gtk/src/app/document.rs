@@ -388,11 +388,11 @@ pub(crate) fn open_document(
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
-    match renderer.page_sizes(document, Priority::Visible).wait() {
-        Ok(page_sizes) => Ok(OpenedDocument {
+    match renderer.page_geometry(document, Priority::Visible).wait() {
+        Ok(page_geometry) => Ok(OpenedDocument {
             document,
             name: source_name(source),
-            page_sizes,
+            page_geometry,
             text_access,
             annotation_access,
             content_edit_access,
@@ -620,9 +620,10 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
     }
 
     let fit = FitRequest::measure(viewer);
-    let mut slots = Vec::with_capacity(document.page_sizes.len());
-    let mut page_heights = Vec::with_capacity(document.page_sizes.len());
-    for (page_index, (width_pt, height_pt)) in document.page_sizes.into_iter().enumerate() {
+    let mut slots = Vec::with_capacity(document.page_geometry.len());
+    let mut page_heights = Vec::with_capacity(document.page_geometry.len());
+    for (page_index, geometry) in document.page_geometry.into_iter().enumerate() {
+        let (width_pt, height_pt) = (geometry.width_pt, geometry.height_pt);
         let picture = Picture::new();
         picture.set_can_shrink(true);
         picture.set_content_fit(ContentFit::Contain);
@@ -660,6 +661,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             content: None,
             width_pt,
             height_pt,
+            rotation: geometry.rotation,
             state: PageState::Idle,
             target_dpi: box_.base_dpi,
             budget: box_.budget(),

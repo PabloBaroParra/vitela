@@ -202,35 +202,191 @@ pub struct PlacedRect {
     pub height: f64,
 }
 
-/// Places a PDF-space rect on a page drawn at `scale` display units per point.
+/// A page's `/Rotate` entry: the quarter-turn a viewer applies to the page
+/// before drawing it, clockwise, as pdfium reports it for the page it just
+/// rendered.
 ///
-/// PDF space has a bottom-left origin and every toolkit draws from the top
-/// left, so the flip has to happen somewhere. It happens here, once, rather
-/// than in each shell's paint code where an off-by-a-height error just looks
-/// like a highlight sitting slightly low.
-pub fn place_rect(rect: TextRect, page_height_pt: f32, scale: f64) -> PlacedRect {
-    let top_pt = f64::from(page_height_pt) - f64::from(rect.y_pt + rect.height_pt);
-    PlacedRect {
-        left: f64::from(rect.x_pt) * scale,
-        top: top_pt * scale,
-        width: f64::from(rect.width_pt) * scale,
-        height: f64::from(rect.height_pt) * scale,
+/// Its own type rather than `pdf_document::Rotation` because this crate
+/// deliberately depends on nothing but pdfium — see `Cargo.toml`. The two
+/// enumerate the same four states and the shells convert at the boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageRotation {
+    #[default]
+    None,
+    Clockwise90,
+    Clockwise180,
+    Clockwise270,
+}
+
+impl PageRotation {
+    /// Whether this turn swaps the page's width and height.
+    fn is_quarter_turn(self) -> bool {
+        matches!(self, PageRotation::Clockwise90 | PageRotation::Clockwise270)
+    }
+
+    /// The turn in degrees clockwise.
+    pub fn degrees(self) -> f64 {
+        match self {
+            PageRotation::None => 0.0,
+            PageRotation::Clockwise90 => 90.0,
+            PageRotation::Clockwise180 => 180.0,
+            PageRotation::Clockwise270 => 270.0,
+        }
+    }
+
+    /// The turn in radians clockwise — the angle both `cairo_rotate` and
+    /// `gsk_transform_rotate` take, each of which turns clockwise for a
+    /// positive angle because both draw with y growing downwards.
+    pub fn radians(self) -> f64 {
+        self.degrees().to_radians()
     }
 }
 
-/// The inverse of [`place_rect`] for a single point: a pointer position on a
-/// drawn page, back into PDF space, ready for [`PageCharacters::caret_at`].
+/// One page's drawn geometry, as pdfium reports it: the size it rasterizes
+/// to and the turn that size already includes.
 ///
-/// A `scale` of zero or worse would otherwise divide the pointer into
-/// infinity and hand `caret_at` a NaN that compares false against everything,
-/// so it falls back to 1:1 rather than propagating the poison.
-pub fn point_to_pdf(x: f64, y: f64, page_height_pt: f32, scale: f64) -> (f32, f32) {
-    let scale = if scale.is_finite() && scale > 0.0 {
-        scale
-    } else {
-        1.0
+/// The two travel together because neither is usable alone — a shell that
+/// knows only the size cannot tell an upright landscape page from a portrait
+/// one turned on its side, and those two need different overlay transforms.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageGeometry {
+    pub width_pt: f32,
+    pub height_pt: f32,
+    pub rotation: PageRotation,
+}
+
+impl PageGeometry {
+    /// This page drawn at `scale` display units per point.
+    pub fn placement(self, scale: f64) -> PagePlacement {
+        PagePlacement {
+            width_pt: self.width_pt,
+            height_pt: self.height_pt,
+            rotation: self.rotation,
+            scale,
+        }
+    }
+}
+
+/// Everything the PDF→screen transform needs to know about one drawn page.
+///
+/// `width_pt`/`height_pt` are the page's size **as drawn**, i.e. with
+/// `rotation` already applied — which is exactly what pdfium reports for a
+/// page (`CPDF_Page` swaps the two for a quarter turn) and exactly what the
+/// canvas lays the page out at. Content rects, by contrast, are always in the
+/// page's *unrotated* space: a `/Rotate` is a viewing instruction and moves
+/// nothing in the file. Reconciling those two is this type's whole job.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PagePlacement {
+    pub width_pt: f32,
+    pub height_pt: f32,
+    pub rotation: PageRotation,
+    /// Display units per point.
+    pub scale: f64,
+}
+
+impl PagePlacement {
+    /// An unrotated page at `scale` — the placement every caller wanted
+    /// before `/Rotate` was a thing this shell could produce.
+    pub fn upright(width_pt: f32, height_pt: f32, scale: f64) -> Self {
+        PagePlacement {
+            width_pt,
+            height_pt,
+            rotation: PageRotation::None,
+            scale,
+        }
+    }
+
+    /// The page's size in the unrotated space content rects live in — the
+    /// drawn size, with a quarter turn's swap undone.
+    pub fn unrotated(self) -> (f64, f64) {
+        let (width, height) = (f64::from(self.width_pt), f64::from(self.height_pt));
+        if self.rotation.is_quarter_turn() {
+            (height, width)
+        } else {
+            (width, height)
+        }
+    }
+
+    /// A `scale` of zero or worse would divide a pointer into infinity and
+    /// hand [`PageCharacters::caret_at`] a NaN that compares false against
+    /// everything, so it falls back to 1:1 rather than propagating the poison.
+    fn usable_scale(self) -> f64 {
+        if self.scale.is_finite() && self.scale > 0.0 {
+            self.scale
+        } else {
+            1.0
+        }
+    }
+}
+
+/// Places a PDF-space rect on the page as it is drawn.
+///
+/// Two things happen here, and they happen here rather than in each shell's
+/// paint code because getting either slightly wrong just looks like a
+/// highlight sitting somewhere odd:
+///
+/// 1. **The flip.** PDF space has a bottom-left origin and every toolkit
+///    draws from the top left.
+/// 2. **The turn.** A page carrying `/Rotate` is rendered turned, but nothing
+///    in the file moved: its text runs, images, form fields and annotations
+///    are all still in the unrotated space. Painting them without the turn
+///    puts every overlay on a rotated page in the wrong place — which is
+///    exactly what it did before this argument existed.
+pub fn place_rect(rect: TextRect, page: PagePlacement) -> PlacedRect {
+    let (x, y) = (f64::from(rect.x_pt), f64::from(rect.y_pt));
+    let (width, height) = (f64::from(rect.width_pt), f64::from(rect.height_pt));
+    let (drawn_width, drawn_height) = (f64::from(page.width_pt), f64::from(page.height_pt));
+    // Each arm places the rect's *near* corner under the turn — the PDF-space
+    // corner that ends up top-left once the page is turned — which is why the
+    // far edges (`y + height`, `x + width`) appear where they do.
+    let (left, top, placed_width, placed_height) = match page.rotation {
+        PageRotation::None => (x, drawn_height - (y + height), width, height),
+        PageRotation::Clockwise90 => (y, x, height, width),
+        PageRotation::Clockwise180 => (drawn_width - (x + width), y, width, height),
+        PageRotation::Clockwise270 => (
+            drawn_width - (y + height),
+            drawn_height - (x + width),
+            height,
+            width,
+        ),
     };
-    ((x / scale) as f32, page_height_pt - (y / scale) as f32)
+    let scale = page.scale;
+    PlacedRect {
+        left: left * scale,
+        top: top * scale,
+        width: placed_width * scale,
+        height: placed_height * scale,
+    }
+}
+
+/// [`place_rect`] for a bare point — an ink polyline's vertex, which has no
+/// height to subtract and no width to mirror.
+pub fn place_point(point: (f64, f64), page: PagePlacement) -> (f64, f64) {
+    let (x, y) = point;
+    let (drawn_width, drawn_height) = (f64::from(page.width_pt), f64::from(page.height_pt));
+    let (left, top) = match page.rotation {
+        PageRotation::None => (x, drawn_height - y),
+        PageRotation::Clockwise90 => (y, x),
+        PageRotation::Clockwise180 => (drawn_width - x, y),
+        PageRotation::Clockwise270 => (drawn_width - y, drawn_height - x),
+    };
+    (left * page.scale, top * page.scale)
+}
+
+/// The inverse of [`place_point`]: a pointer position on a drawn page, back
+/// into PDF space, ready for [`PageCharacters::caret_at`] — and for every
+/// hit-test the shells run against content that is still unrotated.
+pub fn point_to_pdf(x: f64, y: f64, page: PagePlacement) -> (f32, f32) {
+    let scale = page.usable_scale();
+    let (x, y) = (x / scale, y / scale);
+    let (unrotated_width, unrotated_height) = page.unrotated();
+    let (pdf_x, pdf_y) = match page.rotation {
+        PageRotation::None => (x, unrotated_height - y),
+        PageRotation::Clockwise90 => (y, x),
+        PageRotation::Clockwise180 => (unrotated_width - x, y),
+        PageRotation::Clockwise270 => (unrotated_width - y, unrotated_height - x),
+    };
+    (pdf_x as f32, pdf_y as f32)
 }
 
 fn is_degenerate(rect: &TextRect) -> bool {
@@ -470,8 +626,7 @@ mod tests {
                 width_pt: 20.0,
                 height_pt: 10.0,
             },
-            792.0,
-            2.0,
+            PagePlacement::upright(612.0, 792.0, 2.0),
         );
 
         assert_eq!(
@@ -485,6 +640,116 @@ mod tests {
         );
     }
 
+    /// The unrotated letter page every rotation case below is a turn of, and
+    /// the drawn size that turn gives it.
+    fn turned(rotation: PageRotation) -> PagePlacement {
+        let (width_pt, height_pt) = match rotation {
+            PageRotation::Clockwise90 | PageRotation::Clockwise270 => (792.0, 612.0),
+            _ => (612.0, 792.0),
+        };
+        PagePlacement {
+            width_pt,
+            height_pt,
+            rotation,
+            scale: 1.0,
+        }
+    }
+
+    /// A 10x20 rect in the page's bottom-left corner. Deliberately not square
+    /// and deliberately cornered: a transform that dropped the turn, or kept
+    /// it but forgot to swap width for height, would still land a centred
+    /// square in the right place.
+    fn corner_rect() -> TextRect {
+        TextRect {
+            x_pt: 0.0,
+            y_pt: 0.0,
+            width_pt: 10.0,
+            height_pt: 20.0,
+        }
+    }
+
+    /// The bottom-left corner of an upright page is at its lower left; a
+    /// quarter turn clockwise carries it to the top left, a half turn to the
+    /// top right, three quarters to the bottom right. A tall-thin rect comes
+    /// out wide-short on the two quarter turns, and tall-thin again on the
+    /// half turn.
+    #[test]
+    fn place_rect_carries_a_corner_around_with_the_pages_turn() {
+        let cases = [
+            (
+                PageRotation::None,
+                PlacedRect {
+                    left: 0.0,
+                    top: 772.0,
+                    width: 10.0,
+                    height: 20.0,
+                },
+            ),
+            (
+                PageRotation::Clockwise90,
+                PlacedRect {
+                    left: 0.0,
+                    top: 0.0,
+                    width: 20.0,
+                    height: 10.0,
+                },
+            ),
+            (
+                PageRotation::Clockwise180,
+                PlacedRect {
+                    left: 602.0,
+                    top: 0.0,
+                    width: 10.0,
+                    height: 20.0,
+                },
+            ),
+            (
+                PageRotation::Clockwise270,
+                PlacedRect {
+                    left: 772.0,
+                    top: 602.0,
+                    width: 20.0,
+                    height: 10.0,
+                },
+            ),
+        ];
+
+        for (rotation, expected) in cases {
+            assert_eq!(
+                place_rect(corner_rect(), turned(rotation)),
+                expected,
+                "{rotation:?}"
+            );
+        }
+    }
+
+    /// Whatever the turn, a placed rect has to stay on the page it was placed
+    /// on — the failure this whole type exists to stop was overlays landing
+    /// off the drawn page entirely.
+    #[test]
+    fn a_placed_rect_stays_inside_the_drawn_page_at_every_turn() {
+        for rotation in [
+            PageRotation::None,
+            PageRotation::Clockwise90,
+            PageRotation::Clockwise180,
+            PageRotation::Clockwise270,
+        ] {
+            let page = turned(rotation);
+            let placed = place_rect(corner_rect(), page);
+
+            assert!(placed.left >= 0.0, "{rotation:?} left");
+            assert!(placed.top >= 0.0, "{rotation:?} top");
+            assert!(
+                placed.left + placed.width <= f64::from(page.width_pt),
+                "{rotation:?} right edge"
+            );
+            assert!(
+                placed.top + placed.height <= f64::from(page.height_pt),
+                "{rotation:?} bottom edge"
+            );
+        }
+    }
+
     #[test]
     fn point_to_pdf_inverts_place_rect() {
         let rect = TextRect {
@@ -493,19 +758,53 @@ mod tests {
             width_pt: 20.0,
             height_pt: 10.0,
         };
-        let placed = place_rect(rect, 792.0, 1.5);
+        let page = PagePlacement::upright(612.0, 792.0, 1.5);
+        let placed = place_rect(rect, page);
 
         // Round-tripping the placed top-left lands back on the rect's PDF-space
         // top-left, which is its `y_pt + height_pt` edge.
-        let (x_pt, y_pt) = point_to_pdf(placed.left, placed.top, 792.0, 1.5);
+        let (x_pt, y_pt) = point_to_pdf(placed.left, placed.top, page);
         assert!((x_pt - rect.x_pt).abs() < 1e-3);
         assert!((y_pt - (rect.y_pt + rect.height_pt)).abs() < 1e-3);
     }
 
+    /// The pointer half of the transform has to undo exactly what the paint
+    /// half did, on every turn: a press that lands on an outline must hit the
+    /// content that outline was drawn for. `place_point` is the vertex twin
+    /// of `place_rect`, so round-tripping through it tests both directions of
+    /// the same turn.
+    #[test]
+    fn point_to_pdf_inverts_place_point_at_every_turn() {
+        let point = (137.0, 431.0);
+
+        for rotation in [
+            PageRotation::None,
+            PageRotation::Clockwise90,
+            PageRotation::Clockwise180,
+            PageRotation::Clockwise270,
+        ] {
+            let page = PagePlacement {
+                scale: 1.5,
+                ..turned(rotation)
+            };
+            let (drawn_x, drawn_y) = place_point(point, page);
+            let (x_pt, y_pt) = point_to_pdf(drawn_x, drawn_y, page);
+
+            assert!((f64::from(x_pt) - point.0).abs() < 1e-3, "{rotation:?} x");
+            assert!((f64::from(y_pt) - point.1).abs() < 1e-3, "{rotation:?} y");
+        }
+    }
+
     #[test]
     fn point_to_pdf_falls_back_to_one_to_one_for_an_unusable_scale() {
-        assert_eq!(point_to_pdf(30.0, 92.0, 792.0, 0.0), (30.0, 700.0));
-        assert_eq!(point_to_pdf(30.0, 92.0, 792.0, f64::NAN), (30.0, 700.0));
+        assert_eq!(
+            point_to_pdf(30.0, 92.0, PagePlacement::upright(612.0, 792.0, 0.0)),
+            (30.0, 700.0)
+        );
+        assert_eq!(
+            point_to_pdf(30.0, 92.0, PagePlacement::upright(612.0, 792.0, f64::NAN)),
+            (30.0, 700.0)
+        );
     }
 
     #[test]
