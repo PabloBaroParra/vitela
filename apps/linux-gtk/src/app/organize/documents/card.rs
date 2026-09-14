@@ -1,5 +1,5 @@
-//! One block card: the stacked cover, the two lines of text, and the three
-//! controls that move or delete the whole block without a drag.
+//! One block card: the stacked cover, the two lines of text, and the five
+//! controls that move, turn or delete the whole block without a drag.
 
 use gtk::prelude::*;
 use gtk::{gdk, glib, Align, Box as GtkBox, Button, DragSource, Label, Orientation, Picture};
@@ -8,23 +8,31 @@ use pdf_render::DocumentHandle;
 use crate::app::icons::{build_icon, Icon, ACCENT_TINT};
 use crate::app::state::Viewer;
 
-use super::super::command::delete_block;
+use super::super::command::{delete_block, rotate_block};
 use super::super::grid::thumbnail::spawn_thumbnail;
 use super::gap::drop_block;
 use super::{rebuilt, rows, Row};
 
+/// A quarter-turn, in the sign `Command::RotatePages` reads — negative
+/// anticlockwise, positive clockwise. The same gesture the Pages view's
+/// footer records for one page (`grid::card::QUARTER_TURN_DEGREES`), kept as
+/// its own constant rather than shared: the two views hold their own card
+/// vocabulary, and a block turn is not "the page turn, applied N times".
+const QUARTER_TURN_DEGREES: i32 = 90;
+
 /// The block cover. Smaller than the Pages view's card (140x180): a block
-/// card is a row with room for a name, a page count and three buttons, not a
+/// card is a row with room for a name, a page count and its controls, not a
 /// thumbnail with a caption.
-const COVER_WIDTH_PX: i32 = 96;
-const COVER_HEIGHT_PX: i32 = 124;
+pub(in crate::app::organize) const COVER_WIDTH_PX: i32 = 96;
+pub(in crate::app::organize) const COVER_HEIGHT_PX: i32 = 124;
 
 /// How far each sheet behind the cover peeks out, in px. Two of them, so a
 /// block reads as "a document" at a glance without a badge saying so.
 const STACK_OFFSET_PX: i32 = 4;
 
-/// One block card: the stacked cover, the name and range, and the three
-/// controls that do without a mouse what the drag and the gaps do with one.
+/// One block card: the stacked cover, the name and range, and the five
+/// controls that do without a mouse what the drag and the gaps do with one —
+/// plus the two turns, which have no drag gesture at all.
 pub(super) fn build_card(
     viewer: &Viewer,
     position: usize,
@@ -76,6 +84,23 @@ pub(super) fn build_card(
         Icon::MoveDown,
         "Move down",
         (position + 2 <= total).then_some(position + 2),
+    ));
+    // The two turns sit between the moves and the delete, so the destructive
+    // control keeps the end of the row — the same order the Pages view's
+    // footer settled on, for the same reason.
+    controls.append(&rotate_button(
+        viewer,
+        row,
+        Icon::RotateLeft,
+        "Rotate left",
+        -QUARTER_TURN_DEGREES,
+    ));
+    controls.append(&rotate_button(
+        viewer,
+        row,
+        Icon::RotateRight,
+        "Rotate right",
+        QUARTER_TURN_DEGREES,
     ));
     controls.append(&delete_button(viewer, row));
     card.append(&controls);
@@ -161,6 +186,49 @@ fn move_button(viewer: &Viewer, row: &Row, icon: Icon, label: &str, slot: Option
             }
         });
     }
+    button
+}
+
+/// One of the block's two quarter-turn buttons: every page of the block
+/// turns `delta_degrees`, as one undoable step.
+///
+/// Deliberately does **not** call [`rebuilt`] the way [`delete_button`] does,
+/// and that is the one thing to get right here. A rotation changes no block's
+/// extent, so there is nothing about the list to rebuild — and repopulating
+/// now would be actively wrong: the cover would re-render against the pdfium
+/// handle as it still is, which holds the *pre-rotation* bytes, and cache the
+/// old angle back under a key [`rotate_block`] has just emptied. The rebuild
+/// that shows the turn is the one `organize::refresh_after_reopen` runs once
+/// the reopen behind the command lands.
+fn rotate_button(
+    viewer: &Viewer,
+    row: &Row,
+    icon: Icon,
+    label: &str,
+    delta_degrees: i32,
+) -> Button {
+    let button = Button::new();
+    button.set_child(Some(&build_icon(icon, 16, ACCENT_TINT)));
+    button.add_css_class("flat");
+    let name = format!("{label}: {}", row.title());
+    button.update_property(&[gtk::accessible::Property::Label(&name)]);
+    button.set_tooltip_text(Some(&name));
+    button.connect_clicked({
+        let viewer = viewer.clone();
+        let anchor = row.anchor;
+        // Resolved again on click, never captured, for the reason
+        // [`delete_button`] gives: the row this card was built from is a
+        // snapshot, and the screen's own header can have moved the block
+        // since.
+        move |_| {
+            let Some((rows, _)) = rows(&viewer) else {
+                return;
+            };
+            if let Some(row) = rows.iter().find(|row| row.anchor == anchor) {
+                rotate_block(&viewer, row.start, row.count, delta_degrees);
+            }
+        }
+    });
     button
 }
 

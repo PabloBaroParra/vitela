@@ -14,18 +14,6 @@ use super::*;
 use crate::app::organize::command::{delete_page, model, move_page};
 use crate::app::state::{ContentEditAccess, PageAssemblyAccess};
 
-/// An encrypted document opened the only way this shell can open one today:
-/// with a single password. A PDF's second password cannot be derived from the
-/// first, so no full rewrite of it can reproduce its encryption.
-fn one_password_security() -> pdf_document::SecurityContext {
-    pdf_document::SecurityContext {
-        handler: pdf_document::SecurityHandler::Aes128,
-        credential: pdf_document::Credential::User,
-        credentials: pdf_document::EncryptionCredentials::user("only-the-user-password"),
-        permissions: pdf_document::Permissions(0xFFFF_FFFC),
-    }
-}
-
 #[gtk::test]
 fn gtk_ui_refused_and_failed_commands_leave_cards_and_history_untouched() {
     with_organize(|viewer| {

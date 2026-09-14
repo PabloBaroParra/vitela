@@ -175,41 +175,60 @@ fn gtk_ui_deleting_the_last_imported_page_takes_the_provenance_lines_with_it() {
     });
 }
 
-/// **A card's delete icon costs the grid one rasterisation, not one per
+/// **A card's footer icons cost the grid one rasterisation each, not one per
 /// card.**
 ///
 /// The guard for checklist §11's fluidity criterion on the path that
 /// actually threatened it. Building the grid over four hundred pages used to
-/// take 909 ms, and 847 ms of that was this one 16px glyph going through
-/// librsvg once per card; with `icons`'s texture cache behind it the same
-/// grid builds in 47 ms.
+/// take 909 ms, and 847 ms of that was one 16px glyph going through librsvg
+/// once per card; with `icons`'s texture cache behind it the same grid builds
+/// in 47 ms.
+///
+/// Covers all three footer buttons rather than the delete alone, because the
+/// two quarter-turns tripled what a card asks librsvg for: without the shared
+/// texture the regression this exists to catch would now come back three
+/// times as large.
 ///
 /// Asserted here and not only in `icons::tests` because the sharing is a
-/// property of what this grid asks for: a card that tinted its delete button
-/// by page, or sized it off its own allocation, would be a correct-looking
+/// property of what this grid asks for: a card that tinted a footer button by
+/// page, or sized it off its own allocation, would be a correct-looking
 /// change that quietly puts the second back. Twelve cards rather than four
 /// hundred — one shared texture and four hundred shared textures are the
 /// same assertion, and this one runs in the gate.
 #[gtk::test]
-fn gtk_ui_every_page_card_wears_the_one_delete_icon_texture() {
+fn gtk_ui_every_page_card_wears_the_one_footer_icon_texture() {
     const PAGES: u32 = 12;
 
     with_organize_of(PAGES, |viewer| {
-        let textures: Vec<_> = (0..PAGES as usize)
-            .map(|index| {
-                delete_button(viewer, index)
-                    .child()
-                    .and_then(|child| child.downcast::<gtk::Image>().ok())
-                    .expect("the delete button carries an icon")
-                    .paintable()
-                    .expect("the icon rasterises")
-            })
-            .collect();
+        let mut per_button = Vec::new();
+        for button in [rotate_left_button, rotate_right_button, delete_button] {
+            let textures: Vec<_> = (0..PAGES as usize)
+                .map(|index| {
+                    button(viewer, index)
+                        .child()
+                        .and_then(|child| child.downcast::<gtk::Image>().ok())
+                        .expect("the footer button carries an icon")
+                        .paintable()
+                        .expect("the icon rasterises")
+                })
+                .collect();
 
-        let first = textures.first().expect("the grid has cards");
+            let first = textures.first().expect("the grid has cards").clone();
+            assert!(
+                textures.iter().all(|texture| *texture == first),
+                "every card's copy of one footer icon must be the same texture object"
+            );
+            per_button.push(first);
+        }
+
+        // And the three are three drawings, not one reused: a footer whose
+        // buttons all shared a texture would pass the loop above while
+        // showing the same glyph three times.
         assert!(
-            textures.iter().all(|texture| texture == first),
-            "every card's delete icon must be the same texture object"
+            per_button[0] != per_button[1]
+                && per_button[1] != per_button[2]
+                && per_button[0] != per_button[2],
+            "the two turns and the delete must be three distinct icons"
         );
     });
 }
