@@ -258,6 +258,30 @@ pub(crate) fn invalidate_thumbnails(viewer: &Viewer) {
     viewer.organize.thumbnails.invalidate();
 }
 
+/// Marks one page's thumbnails as no longer trustworthy — the narrow twin of
+/// [`invalidate_thumbnails`], for a rotation.
+///
+/// A quarter-turn is the one edit that repaints exactly one page: every other
+/// card on the grid is still a picture of the page it names, at the angle it
+/// still has. So this empties that page's cache entries ([`cache::Thumbnails::
+/// forget_page`] explains why the generation stays put) and clears the card's
+/// own `Picture`, which is what puts it back in the set
+/// [`fill_missing_thumbnails`] re-renders once the reopen behind the rotation
+/// lands. Without the second half the card keeps painting the `Pixbuf` it
+/// already owns and the grid shows the page at its old angle for ever.
+///
+/// Takes a `PageId` and touches every card carrying it, rather than a grid
+/// position: the callers are a card's own button and an undo/redo step, and
+/// the second has only the id the command recorded.
+pub(crate) fn invalidate_page_thumbnail(viewer: &Viewer, page: pdf_document::PageId) {
+    viewer.organize.thumbnails.forget_page(page);
+    for card in viewer.organize.cards.snapshot() {
+        if card.id == page {
+            card.picture.set_paintable(gtk::gdk::Paintable::NONE);
+        }
+    }
+}
+
 /// What the view on show needs after `write::refresh_preview`'s in-memory
 /// save-and-reopen lands, which for the Pages grid is usually nothing.
 ///

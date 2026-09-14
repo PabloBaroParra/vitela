@@ -114,11 +114,53 @@ fn history_button(viewer: &Viewer, label: &str) -> Button {
 }
 
 fn delete_button(viewer: &Viewer, index: usize) -> Button {
+    footer_button(viewer, index, "Delete page")
+}
+
+fn rotate_left_button(viewer: &Viewer, index: usize) -> Button {
+    footer_button(viewer, index, "Rotate page left")
+}
+
+fn rotate_right_button(viewer: &Viewer, index: usize) -> Button {
+    footer_button(viewer, index, "Rotate page right")
+}
+
+/// The footer button of card `index` whose accessible name is `label`.
+///
+/// Found by name rather than by position: the footer holds three buttons now,
+/// and a test that reached for "the last child" would keep passing while
+/// clicking whichever one a future reorder happened to leave there.
+fn footer_button(viewer: &Viewer, index: usize, label: &str) -> Button {
     let footer = viewer.organize.cards.snapshot()[index]
         .root
         .last_child()
-        .unwrap();
-    footer.last_child().unwrap().downcast().unwrap()
+        .expect("a card footer");
+    let mut child = footer.first_child();
+    while let Some(widget) = child {
+        if let Some(button) = widget.downcast_ref::<Button>() {
+            if button.tooltip_text().as_deref() == Some(label) {
+                return button.clone();
+            }
+        }
+        child = widget.next_sibling();
+    }
+    panic!("card {index} has no {label:?} button");
+}
+
+/// An encrypted document opened the only way this shell can open one today:
+/// with a single password. A PDF's second password cannot be derived from the
+/// first, so no full rewrite of it can reproduce its encryption.
+///
+/// Shared by the two modules that care, and they care in opposite directions:
+/// [`refusals`] asserts that it turns a move and a delete down, [`rotation`]
+/// that it lets a quarter-turn through.
+fn one_password_security() -> pdf_document::SecurityContext {
+    pdf_document::SecurityContext {
+        handler: pdf_document::SecurityHandler::Aes128,
+        credential: pdf_document::Credential::User,
+        credentials: pdf_document::EncryptionCredentials::user("only-the-user-password"),
+        permissions: pdf_document::Permissions(0xFFFF_FFFC),
+    }
 }
 
 fn session(viewer: &Viewer) -> std::cell::RefMut<'_, DocumentSession> {
@@ -289,4 +331,5 @@ mod motion;
 mod pages;
 mod refusals;
 mod resolution;
+mod rotation;
 mod thumbnails;

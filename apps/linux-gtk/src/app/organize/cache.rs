@@ -153,6 +153,34 @@ impl Thumbnails {
         self.clear();
     }
 
+    /// Throws away every cached size of one page, leaving every other page's
+    /// pixels — and the generation — alone.
+    ///
+    /// The narrow twin of [`Self::invalidate`], for the one edit that repaints
+    /// exactly one page and nothing else: a quarter-turn (`organize::command::
+    /// rotate_page`). Emptying the whole cache there would cost a pdfium
+    /// render per card on the next rebuild, which is the ~0.9 s block
+    /// checklist §11 exists to have removed.
+    ///
+    /// It may leave the generation alone because a rotation is always
+    /// followed by `write::refresh_preview`, whose reopen swaps the pdfium
+    /// handle — and `grid::thumbnail::render_is_current` checks the handle as
+    /// well as the generation, so a render already in flight against the
+    /// pre-rotation bytes is dropped by that half of the guard. An
+    /// invalidation with no reopen behind it must still use
+    /// [`Self::invalidate`].
+    pub(crate) fn forget_page(&self, page: PageId) {
+        let mut entries = self.0.entries.borrow_mut();
+        let freed: usize = entries
+            .iter()
+            .filter(|(key, _)| key.page == page)
+            .map(|(_, entry)| entry.bytes)
+            .sum();
+        entries.retain(|key, _| key.page != page);
+        drop(entries);
+        self.0.bytes.set(self.0.bytes.get().saturating_sub(freed));
+    }
+
     /// Empties the cache without moving the generation — for a new document,
     /// whose `PageId`s start over at 0 and would otherwise collide with the
     /// previous document's keys.
@@ -255,6 +283,48 @@ mod tests {
 
         assert_eq!(cache.len(), 0);
         assert!(cache.is_current(in_flight));
+    }
+
+    #[test]
+    fn forgetting_one_page_drops_its_every_size_and_keeps_the_others() {
+        let cache = Thumbnails::new();
+        let in_flight = cache.generation();
+        let pages = a_key(0);
+        let cover = ThumbnailKey {
+            width: 96,
+            height: 124,
+            ..pages
+        };
+        cache.insert(pages, &a_pixbuf(4, 4));
+        cache.insert(cover, &a_pixbuf(4, 4));
+        cache.insert(a_key(1), &a_pixbuf(4, 4));
+
+        cache.forget_page(PageId(0));
+
+        // Both sizes of the rotated page, because both are now pictures of a
+        // page at the angle it no longer has.
+        assert!(cache.get(&pages).is_none());
+        assert!(cache.get(&cover).is_none());
+        // And nothing else: the page beside it did not turn.
+        assert!(cache.get(&a_key(1)).is_some());
+        // The generation stays put — see `forget_page`'s own doc for why the
+        // reopen behind every rotation is what retires the renders in flight.
+        assert!(cache.is_current(in_flight));
+    }
+
+    #[test]
+    fn forgetting_a_page_does_not_leak_its_bytes() {
+        let cache = Thumbnails::new();
+        let full = (BUDGET_BYTES / 4 / 1024) as i32;
+
+        // Fill the budget with page 0, forget it, then fill it again. A
+        // running total that kept counting the forgotten pixels would evict
+        // the second entry the moment it landed.
+        cache.insert(a_key(0), &a_pixbuf(1024, full));
+        cache.forget_page(PageId(0));
+        cache.insert(a_key(1), &a_pixbuf(1024, full));
+
+        assert!(cache.get(&a_key(1)).is_some());
     }
 
     #[test]

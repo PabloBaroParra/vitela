@@ -1261,6 +1261,8 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Mostrar la procedencia de una página sin sobrecargar visualmente la
   tarjeta.
 - [x] Verificar que volver a `Documents` conserva exactamente el orden actual.
+- [x] Rotar una página en ambos sentidos como operación reversible, sin
+  reconstruir la cuadrícula ni volver a renderizar el resto de las tarjetas.
 
 ### Progreso de la vista por páginas
 
@@ -1312,6 +1314,79 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   release verificado, que no está en esta copia, y `xvfb-run` no está
   instalado en esta WSL, así que la suite GTK corrió bajo WSLg con display
   real y no por la ruta headless del workflow `linux-gtk-ui`.
+
+- 2026-09-13 (rotación): la vista por páginas gana los dos cuartos de vuelta.
+  Cada tarjeta lleva ahora tres botones en su pie —girar a la izquierda, girar
+  a la derecha y borrar, en ese orden, con el destructivo al final donde ya
+  estaba— y cada click graba un `Command::RotatePage` con el delta del gesto,
+  nunca un ángulo calculado: cuatro clicks a la derecha son cuatro pasos de
+  deshacer que vuelven por 270, 180 y 90, y no uno solo que colapsa en cero.
+  El botón manda el `PageId` de la página, no la posición que su tarjeta tenía
+  al construirse, por la misma razón que ya lo hacía el arrastre.
+- **La rotación NO pasa por el mismo embudo que mover y borrar, y esa es la
+  decisión del cambio.** `organize::command` se parte en dos puertas sobre un
+  `commit` común: `command` (mover, borrar, importar) sigue preguntando por
+  edición de contenido, ensamblado y reescritura completa; `rotation_command`
+  pregunta **solo** por el ensamblado. La sección 5 de este mismo documento ya
+  había fijado por qué: `RotatePage` es una operación de ensamblado (tabla 22
+  la nombra) pero no un cambio de estructura, así que se guarda por el
+  escritor incremental, que reencripta desde el estado que lopdf retiene y no
+  necesita ninguna contraseña nuestra. Preguntar por `full_rewrite_refusal`
+  ahí rechazaría una rotación que se guarda perfectamente —hay una prueba
+  (`rotation::gtk_ui_a_turn_survives_a_document_that_can_never_be_rewritten`)
+  que fija exactamente ese contraste: el mismo documento cifrado con una sola
+  contraseña rechaza el borrado y el arrastre, y acepta el giro. Tampoco
+  pregunta por `content_edit_refusal`, porque
+  `document_assembly_is_allowed` ya acepta el bit 4 *o* el 11 y preguntar por
+  el más estrecho inventaría una restricción sobre un documento que concedió
+  el ensamblado.
+- `EditLog::apply` es el único comando que no puede rechazarse a sí mismo:
+  un `RotatePage` que nombra un `PageId` inexistente se aplica limpiamente
+  sobre nada y devuelve `true`. Así que la validación vive en el embudo, que
+  resuelve el id contra `Document.pages` antes de grabar — si no, la pila de
+  deshacer ganaría un paso que no cambia nada y la línea de estado mentiría.
+- Invalidación de miniaturas: un giro es la única edición que repinta
+  **exactamente una** página. `Thumbnails::forget_page` es el gemelo estrecho
+  de `invalidate` —borra las entradas de esa página en todos sus tamaños y
+  deja la generación quieta— y `organize::invalidate_page_thumbnail` limpia
+  además el `Picture` de la tarjeta, que es lo que la devuelve al conjunto que
+  `fill_missing_thumbnails` vuelve a renderizar cuando aterriza la reapertura.
+  Puede dejar la generación quieta porque toda rotación arrastra un
+  `write::refresh_preview` detrás, y `render_is_current` compara también el
+  handle: un render en vuelo contra los bytes previos lo descarta esa mitad de
+  la guarda. Vaciar el caché entero habría puesto una reconstrucción completa
+  detrás de cada click — los ~0,9 s de bucle bloqueado que §11 existe para
+  haber eliminado. La prueba
+  `rotation::gtk_ui_a_turn_re_renders_only_the_page_that_turned` cuenta un
+  render, no cuatrocientos.
+- Deshacer y rehacer: `annotations::command::history` tenía un comentario que
+  decía literalmente que `RotatePage` estaba ausente a propósito y que "si
+  alguna vez aterriza un gesto de rotación, necesita su propio camino de
+  refresco, no este". Es exactamente lo que se hizo: el peek extrae el
+  `PageId` que el comando rota, invalida esa tarjeta y fuerza el
+  `refresh_preview`, porque el ángulo vive en el `/Rotate` de la página y no
+  hay nada en este shell que lo dibuje por su cuenta.
+- Iconos: dos SVG nuevos (`rotate-left.svg`, `rotate-right.svg`) autorados
+  sobre la misma banda óptica que `delete.svg` —centros de trazo 3.5 a 20.5—
+  y fijados en `gtk_ui_toolbar_icons_have_centered_optical_bounds`, porque los
+  tres comparten fila en el pie de la tarjeta y un cuarto de vuelta dibujado
+  más chico se leería más alto que la papelera de al lado. No es un icono
+  espejado en tiempo de construcción: la punta de flecha es una escuadra
+  asimétrica, así que el reflejo hay que autorarlo.
+- Coste medido del pie más poblado (misma medición que §11, 400 páginas,
+  caché caliente, WSLg): poblar la cuadrícula pasó de 47 ms a **63,1 ms**;
+  cambiar a Documents 0,5 ms y volver a Pages 3,7 ms. Los dos botones extra
+  por tarjeta cuestan ~16 ms sobre cuatrocientas tarjetas porque la textura
+  del glifo se comparte — `pages::gtk_ui_every_page_card_wears_the_one_footer_icon_texture`
+  se amplió de la papelera sola a los tres botones, que es donde la regresión
+  que ese test existe para atrapar sería ahora tres veces más grande.
+- Verificación (WSL2/Ubuntu, WSLg): `cargo clippy -p linux-gtk --all-targets
+  --locked -- -D warnings`, `cargo test -p linux-gtk --locked` (465 aprobadas,
+  1 ignorada), `cargo test --workspace --locked`, `cargo fmt --all -- --check`
+  y `python3 scripts/check_maintainability.py`. Siguen sin ejecutarse
+  `scripts/package-linux.sh` (exige `PDFIUM_ARCHIVE`, ausente en esta copia) y
+  la ruta headless del workflow `linux-gtk-ui` (`xvfb-run` no está instalado),
+  por las mismas razones que en §9 y §10.
 
 ## 11. Animación y rendimiento
 

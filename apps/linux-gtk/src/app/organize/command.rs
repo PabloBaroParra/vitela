@@ -1,11 +1,31 @@
-//! The Organize screen's edits: the permission funnel every page op goes
-//! through, and the `Command::MovePage`/`RemovePage` recordings themselves.
+//! The Organize screen's edits: the permission funnels every page op goes
+//! through, and the `Command::MovePage`/`RemovePage`/`RotatePage` recordings
+//! themselves.
 //!
 //! The twin of [`super::grid`] — that half owns the widgets, this one owns
 //! what reaches `Document.pages`. Mirrors `annotations::command` and
 //! `forms::command`, which split the same way for the same reason.
+//!
+//! ## Why there are two funnels and not one
+//!
+//! Every operation here needs the PDF document-assembly permission, and every
+//! operation here ends the same way — record, mark dirty, re-materialize the
+//! preview. What differs is the *middle*: [`command`] serves the operations
+//! that change which pages the document has or what order they are in, and
+//! those force `pdf-save`'s full-rewrite writer; [`rotation_command`] serves
+//! the one operation that does neither.
+//!
+//! That difference is a permission, not a nicety. A quarter-turn stays on the
+//! incremental writer, which re-encrypts from lopdf's own retained state and
+//! needs no password of ours, so asking [`Viewer::full_rewrite_refusal`] there
+//! would refuse a rotation that saves perfectly — see that method's own doc
+//! and `docs/batch-pdf-assembly.md` section 5. It is also why a rotation does
+//! not ask `content_edit_refusal`: `pdf_manip::document_assembly_is_allowed`
+//! already accepts *either* `/P` bit 11 or the modify-contents bit, so asking
+//! the narrower question first would invent a restriction on a document that
+//! granted assembly alone.
 
-use pdf_document::{Command, Document};
+use pdf_document::{Command, Document, PageId};
 
 use crate::app::state::{DocumentSession, Viewer, CONTENT_MODEL_UNAVAILABLE};
 
@@ -39,6 +59,30 @@ pub(super) fn command(
         viewer.status.set_text(refusal);
         return false;
     }
+    commit(viewer, operation)
+}
+
+/// The narrower funnel: the assembly permission and nothing else, for the one
+/// operation that changes a page's angle without changing the page list. See
+/// this module's header for why the other two gates are deliberately absent.
+fn rotation_command(
+    viewer: &Viewer,
+    operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
+) -> bool {
+    if let Some(refusal) = viewer.page_assembly_refusal() {
+        viewer.status.set_text(refusal);
+        return false;
+    }
+    commit(viewer, operation)
+}
+
+/// What both funnels do once their gates are clear: run `operation` against
+/// the session, and on success mark the document edited and re-materialize
+/// the preview from the model.
+fn commit(
+    viewer: &Viewer,
+    operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
+) -> bool {
     let result = {
         let mut state = viewer.state.borrow_mut();
         match state.session.as_mut() {
@@ -151,6 +195,55 @@ pub(super) fn delete_block(viewer: &Viewer, index: usize, count: usize) -> bool 
             if count == 1 { "" } else { "s" }
         ))
     })
+}
+
+/// A quarter-turn in either direction: `-90` anticlockwise, `90` clockwise.
+///
+/// Takes the page's **id** and not its grid position, for the same reason the
+/// drag payload does (see `super::grid`'s header): a card's position is only
+/// current until something else moves, and the Undo and Redo buttons sit in
+/// this screen's own header.
+///
+/// The angle in `Document.pages` is absolute and the command carries a delta,
+/// so this records the user's gesture rather than a computed target — which is
+/// what lets four clockwise clicks undo back through 270, 180 and 90 instead
+/// of collapsing into one step at zero.
+pub(super) fn rotate_page(viewer: &Viewer, page: PageId, delta_degrees: i32) -> bool {
+    let rotated = rotation_command(viewer, |session| {
+        let document = model(session)?;
+        // Validated here rather than left to `EditLog::apply`, which is the
+        // one command that cannot report this for itself: `RotatePage` on an
+        // id the document does not hold applies cleanly to nothing at all and
+        // returns `true`, so recording it would put a step in the undo stack
+        // that changes nothing and a message on the status line that lies.
+        let position = document
+            .pages
+            .iter()
+            .position(|candidate| candidate.id == page)
+            .ok_or_else(|| "Page no longer exists.".to_string())?;
+        if !apply_command(
+            document,
+            Command::RotatePage {
+                page,
+                delta_degrees,
+            },
+        ) {
+            return Err("Could not rotate the page.".to_string());
+        }
+        Ok(format!(
+            "Rotated page {} {}.",
+            position + 1,
+            if delta_degrees < 0 { "left" } else { "right" }
+        ))
+    });
+    if rotated {
+        // Before the reopen `commit` has just scheduled, and only for this
+        // page: a turn changes what one page *looks like* without changing
+        // which page it is, so its cached pixels still match a key that is
+        // still correct. See `super::invalidate_page_thumbnail`.
+        super::invalidate_page_thumbnail(viewer, page);
+    }
+    rotated
 }
 
 pub(super) fn delete_page(viewer: &Viewer, index: usize) -> bool {

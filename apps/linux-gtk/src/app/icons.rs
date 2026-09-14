@@ -109,12 +109,17 @@ pub(crate) enum Icon {
     /// — the same two slots its drag offers, without a pointer.
     MoveUp,
     MoveDown,
+    /// The Organize "Pages" view's two quarter-turns. A pair, not one icon
+    /// mirrored at build time: the arrowhead is an asymmetric corner bracket,
+    /// so a horizontal flip has to be authored, not applied.
+    RotateLeft,
+    RotateRight,
 }
 
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 30] = [
+const ALL_ICONS: [Icon; 32] = [
     Icon::Home,
     Icon::Recent,
     Icon::Files,
@@ -145,6 +150,8 @@ const ALL_ICONS: [Icon; 30] = [
     Icon::Comments,
     Icon::MoveUp,
     Icon::MoveDown,
+    Icon::RotateLeft,
+    Icon::RotateRight,
 ];
 
 macro_rules! icon_source {
@@ -190,6 +197,8 @@ impl Icon {
             Icon::Comments => icon_source!("comments.svg"),
             Icon::MoveUp => icon_source!("move-up.svg"),
             Icon::MoveDown => icon_source!("move-down.svg"),
+            Icon::RotateLeft => icon_source!("rotate-left.svg"),
+            Icon::RotateRight => icon_source!("rotate-right.svg"),
         }
     }
 }
@@ -540,6 +549,13 @@ mod tests {
             (Icon::Previous, 20, 76),
             (Icon::Next, 20, 76),
             (Icon::Search, 10, 86),
+            // Card-footer glyphs rather than toolbar ones, but measured by
+            // the same rule and for a sharper reason: they sit in the Pages
+            // view's footer immediately beside `Delete`, which is drawn on
+            // the full band, so a quarter-turn arrow authored any smaller
+            // would read as sitting higher than the bin next to it.
+            (Icon::RotateLeft, 10, 86),
+            (Icon::RotateRight, 10, 86),
         ] {
             let (top, bottom) = vertical_ink_bounds(icon);
             assert!(
