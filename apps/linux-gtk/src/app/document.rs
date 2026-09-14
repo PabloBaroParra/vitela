@@ -780,6 +780,11 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
     // `print_button` right above: there is nothing to save or print with no
     // pages on screen.
     viewer.save_button.set_sensitive(page_count > 0);
+    // Same gate again: there are no pages to rasterize into images
+    // either. The permission question the export also asks is left to
+    // `export::begin_export`, so a restricted document still offers the
+    // button and explains itself, rather than greying out in silence.
+    viewer.export_button.set_sensitive(page_count > 0);
     // A document with no pages leaves the page area empty, so the mark stays
     // up — the same call the WinUI shell makes when it re-shows its empty
     // state for a pageless document.

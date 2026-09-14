@@ -116,6 +116,47 @@ ninguno de los dos.
       el PDFium empaquetado funciona y que nada llama a casa. El launcher apunta al binario
       empaquetado vía `PDFIUM_DYNAMIC_LIB_PATH`.)**
 - [x] T-054 linux.yml CI: build + package. [infra]
+- [x] T-189 Exportar páginas como imágenes: botón "Export images" en el grupo Output
+      de la toolbar, diálogo de rango/formato/DPI y escritura a una carpeta elegida.
+      [ExportImages]
+      **(2026-09-14 — completo. La gramática de rangos (`"1-3,7"`) y el nombre de
+      archivo de cada página NO viven en el shell: son `pdf_save::parse_page_selection`
+      y `pdf_save::page_image_file_name`, por el mismo criterio que puso la geometría
+      de selección en `pdf-render` en T-046 — los otros tres shells van a necesitar
+      exactamente esa gramática y cuatro copias son cuatro chances de discrepar sobre
+      qué significa `"7-3"`. El shell aporta `app/export/`: `mod.rs` (compuerta de
+      permiso, carpeta destino, worker) y `dialog.rs` (el diálogo y las reglas puras
+      que lo validan).**
+
+      **Compuerta de permiso: `/P` bit 5** (`text_extraction_refusal`), el mismo que
+      usan la búsqueda y el portapapeles de selección. La tabla 22 de PDF 1.7 dice
+      "copy or otherwise extract text **and graphics**", y un PNG de cada página es la
+      extracción de gráficos más completa que este shell sabe hacer. No es
+      `content_edit_refusal` (no se modifica nada) ni el bit de ensamblado.
+
+      **Tres decisiones que costaron medirlas:**
+      **(1) El techo de DPI es 400, no 600.** `render::MAX_RASTER_PIXELS` son 32 Mpx y
+      US Letter a 600 DPI son 5100x6600 = 33,7 Mpx — se pasa por medio punto porcentual,
+      y A4 también. Un spin button cuya última muesca es rechazada para los dos tamaños
+      de página más comunes del mundo es un control que miente, así que la muesca no se
+      ofrece. El test `letter_and_a4_both_fit_at_the_highest_resolution_the_dialog_offers`
+      fija las dos mitades (400 entra, 600 no) para que el número no se vuelva a mover
+      sin que alguien lo mire.
+      **(2) Un fallo detiene la exportación entera.** La impresión deja en blanco una
+      página que no pudo rasterizar, porque un hueco en una pila de papel se ve; un
+      archivo faltante en una carpeta de 400 no, y el usuario se enteraría semanas
+      después. `write_pages` corta en el primer fallo, nombra la página en base 1, y
+      no deja nada a medio escribir.
+      **(3) El destino es una carpeta, no un archivo** — incluso para una sola página.
+      La cantidad de archivos es la cantidad de páginas, así que nombrarlos es trabajo
+      de `page_image_file_name` y lo único que queda por preguntar es dónde van. El
+      stem sale del nombre del documento abierto, que el shell no controla: se reduce a
+      un solo componente de path en el core (`../etc/passwd` -> `etc-passwd`), que es
+      por qué unirlo a la carpeta elegida no puede aterrizar en otro lado.
+
+      **Gate en Linux (WSLg): `cargo clippy --workspace --all-targets -- -D warnings`
+      limpio y `cargo test --workspace` entero en verde, 498 tests en `linux-gtk`.**
+
       **(2026-08-14 — completo: `.github/workflows/linux.yml`, un job dedicado que
       construye el binario release, empaqueta con `scripts/package-linux.sh` y verifica
       con `scripts/verify-linux-package.sh` — mismos scripts que T-053 ya dejó

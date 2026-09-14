@@ -2,6 +2,16 @@
 //! Images"). Reuses `pdf-render`'s existing actor-backed render pipeline
 //! rather than a separate export-specific rasterizer — the same principle
 //! `design.md`'s Printing section applies (one renderer, many DPIs).
+//!
+//! Rendering and encoding one page live here. **Which** pages an export covers
+//! and **what** each file is called live in [`selection`]: they are pure
+//! functions of a typed string, needing no document and no renderer, and every
+//! shell that grows an export screen needs exactly them. See that module's own
+//! doc for why they are shared rather than written once per shell.
+
+pub mod selection;
+
+pub use selection::{page_image_file_name, parse_page_selection, PageSelectionError};
 
 use image::{DynamicImage, ImageFormat, RgbaImage};
 
@@ -60,6 +70,19 @@ pub fn export_page_as_image(
     Ok(bytes)
 }
 
+impl ExportFormat {
+    /// The file extension matching the bytes [`export_page_as_image`] writes.
+    ///
+    /// Lives next to the encoder `match` it mirrors, so a third format cannot
+    /// be added without the compiler pointing at both arms.
+    pub fn extension(self) -> &'static str {
+        match self {
+            ExportFormat::Png => "png",
+            ExportFormat::Jpeg => "jpg",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +132,11 @@ mod tests {
         let decoded = image::load_from_memory(&bytes).expect("must decode");
         assert_eq!(decoded.width(), 612);
         assert_eq!(decoded.height(), 792);
+    }
+
+    #[test]
+    fn the_extension_matches_the_bytes_the_encoder_writes() {
+        assert_eq!(ExportFormat::Png.extension(), "png");
+        assert_eq!(ExportFormat::Jpeg.extension(), "jpg");
     }
 }

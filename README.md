@@ -147,7 +147,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Organize & assemble pages | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
 | Protect with a password | ✅ | — | — | — | — |
-| Export to images | — | — | — | — | — |
+| Export to images | ✅ | — | — | — | — |
 | Sign | ✅ | — | — | — | — |
 | Fillable forms | ✅ | — | — | — | — |
 

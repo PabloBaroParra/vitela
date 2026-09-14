@@ -11,6 +11,7 @@ mod brand;
 mod content_edit;
 mod document;
 mod editor_toolbar;
+mod export;
 mod forms;
 mod home;
 mod icons;
@@ -140,6 +141,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         sample_actions,
         print: print_button,
         save: save_button,
+        export: export_button,
         page_indicator,
         zoom_out,
         zoom_label,
@@ -389,6 +391,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         find_next,
         print_button,
         save_button,
+        export_button,
         undo_action,
         redo_action,
         annotation_buttons: annotation_toolbar,
@@ -539,6 +542,12 @@ fn build_ui(application: &Application) -> BuiltUi {
         let window = window.clone();
         let viewer = viewer.clone();
         move |_| show_save_chooser(&window, &viewer)
+    });
+    // No accelerator of its own: the export dialog is a deliberate stop, not
+    // a gesture to repeat, and the standard shortcut set has no slot for it.
+    viewer.export_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| export::begin_export(&viewer)
     });
     window.connect_close_request({
         let viewer = viewer.clone();

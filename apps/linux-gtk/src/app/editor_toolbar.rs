@@ -57,6 +57,10 @@ pub(crate) struct EditorToolbar {
     /// Carries the `sample.*` actions the Open sample menu items name.
     pub(crate) sample_actions: gio::SimpleActionGroup,
     pub(crate) print: Button,
+    /// Writes the pages out as PNG/JPEG files. Sits with Save and
+    /// Print because all three are ways the document leaves the app;
+    /// `document::show_document` gates all three on the same page count.
+    pub(crate) export: Button,
     pub(crate) save: Button,
     pub(crate) page_indicator: Label,
     pub(crate) zoom_out: Button,
@@ -123,8 +127,12 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let print = icon_button("Print", Icon::Print);
     print.set_tooltip_text(Some("Print (Ctrl+P)"));
     print.set_sensitive(false);
+    let export = icon_button("Export images", Icon::ExportImages);
+    export.set_tooltip_text(Some("Export pages as images"));
+    export.set_sensitive(false);
     output.append(&save);
     output.append(&print);
+    output.append(&export);
 
     // --- history -----------------------------------------------------------
     // Bound to the actions rather than wired to a handler, so GTK greys them
@@ -244,6 +252,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         sample_actions,
         print,
         save,
+        export,
         page_indicator,
         zoom_out,
         zoom_label,
