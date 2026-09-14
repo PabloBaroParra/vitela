@@ -15,7 +15,7 @@ name = "gen-sample"
 path = "src/main.rs"
 
 [dependencies]
-lopdf = "0.44"
+lopdf = "0.45"
 
 [dev-dependencies]
 # Opens the committed asset through the same code path the shells use, so a

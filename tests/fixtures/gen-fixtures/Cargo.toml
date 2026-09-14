@@ -15,7 +15,7 @@ name = "gen-fixtures"
 path = "src/main.rs"
 
 [dependencies]
-lopdf = "0.44"
+lopdf = "0.45"
 p12-keystore = "0.3.1"
 pdf-manip = { path = "../../../core/pdf-manip" }
 pdf-save = { path = "../../../core/pdf-save" }
