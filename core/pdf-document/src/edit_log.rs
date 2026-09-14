@@ -50,6 +50,26 @@ pub enum Command {
         page: PageId,
         delta_degrees: i32,
     },
+    /// Turns every page named by `pages` by the same delta as one undoable
+    /// step — the block twin of [`Command::RotatePage`], recorded when the
+    /// Organize "Documents" view turns a whole document block.
+    ///
+    /// Addressed by identity and not by `index`/`count` like its
+    /// [`Command::MovePages`] and [`Command::RemovePages`] neighbours,
+    /// because the two answer different questions. A move or a removal *is*
+    /// about positions — the run it names has to be contiguous, and where it
+    /// starts is the edit. A rotation is about the pages themselves: nothing
+    /// moves, so the only thing the command has to survive is a later reorder
+    /// of the very pages it turned, which a position would not.
+    ///
+    /// Unlike `RotatePage`, this one refuses itself (see [`Command::apply`]):
+    /// an empty list, a repeated id, or an id the document does not hold all
+    /// return `false` before anything is turned, so a partially-applied
+    /// block rotation cannot reach the undo stack.
+    RotatePages {
+        pages: Vec<PageId>,
+        delta_degrees: i32,
+    },
     /// Carries the `Page` value being inserted (needed to apply and, on
     /// redo, to re-apply).
     /// Inserts `page` at `index`, together with the annotations and form
@@ -460,14 +480,19 @@ impl Command {
     /// Whether this command needs the PDF document-assembly permission
     /// (`/P` bit 11 — see `pdf_manip::document_assembly_is_allowed`).
     ///
-    /// Wider than [`Self::is_page_structure_edit`] by exactly one variant:
-    /// `RotatePage` changes neither the membership nor the order of the
-    /// pages, so it is not a page-structure edit, but PDF 1.7 table 22
-    /// defines the assembly permission as "insert, **rotate**, or delete
-    /// pages" — the two questions genuinely have different answers and are
-    /// kept as separate predicates rather than one widened to cover both.
+    /// Wider than [`Self::is_page_structure_edit`] by exactly the two
+    /// rotations: `RotatePage` and `RotatePages` change neither the
+    /// membership nor the order of the pages, so neither is a page-structure
+    /// edit, but PDF 1.7 table 22 defines the assembly permission as "insert,
+    /// **rotate**, or delete pages" — the two questions genuinely have
+    /// different answers and are kept as separate predicates rather than one
+    /// widened to cover both.
     pub fn is_document_assembly_edit(&self) -> bool {
-        self.is_page_structure_edit() || matches!(self, Command::RotatePage { .. })
+        self.is_page_structure_edit()
+            || matches!(
+                self,
+                Command::RotatePage { .. } | Command::RotatePages { .. }
+            )
     }
 
     /// Whether this command edits a form field — its existence, its geometry,
@@ -547,6 +572,40 @@ impl Command {
             } => {
                 if let Some(p) = document.pages.iter_mut().find(|p| p.id == *page) {
                     p.rotation = p.rotation.rotated_by(*delta_degrees);
+                }
+            }
+            Command::RotatePages {
+                pages,
+                delta_degrees,
+            } => {
+                // Checked in full before a single page is turned, unlike the
+                // single-page variant above, which cannot report a missing id
+                // at all and leaves that to its caller. A block command has a
+                // failure the single one does not: turning the first three
+                // pages of a run and then meeting an id the document no
+                // longer holds would leave the document half-rotated *and*
+                // the caller told nothing happened.
+                //
+                // Repeats are rejected rather than deduplicated: a list with
+                // the same page in it twice is a caller that computed its
+                // block wrong, and turning that page a half-turn while its
+                // neighbours take a quarter is never what was meant.
+                let mut named = HashSet::new();
+                if pages.is_empty() || !pages.iter().all(|page| named.insert(*page)) {
+                    return false;
+                }
+                if !pages
+                    .iter()
+                    .all(|page| document.pages.iter().any(|held| held.id == *page))
+                {
+                    return false;
+                }
+                for page in document
+                    .pages
+                    .iter_mut()
+                    .filter(|page| named.contains(&page.id))
+                {
+                    page.rotation = page.rotation.rotated_by(*delta_degrees);
                 }
             }
             Command::InsertPage {
@@ -718,6 +777,13 @@ impl Command {
                 delta_degrees,
             } => Command::RotatePage {
                 page: *page,
+                delta_degrees: -delta_degrees,
+            },
+            Command::RotatePages {
+                pages,
+                delta_degrees,
+            } => Command::RotatePages {
+                pages: pages.clone(),
                 delta_degrees: -delta_degrees,
             },
             Command::InsertPage {
@@ -1082,6 +1148,10 @@ mod tests {
 
     fn page_ids(document: &Document) -> Vec<PageId> {
         document.pages.iter().map(|page| page.id).collect()
+    }
+
+    fn rotations(document: &Document) -> Vec<Rotation> {
+        document.pages.iter().map(|page| page.rotation).collect()
     }
 
     #[test]
@@ -1982,6 +2052,124 @@ mod tests {
 
         assert!(rotate.is_document_assembly_edit());
         assert!(!rotate.is_page_structure_edit());
+    }
+
+    /// The block twin classifies exactly like the single one: still not a
+    /// structure edit, still assembly. Stated separately because the shell
+    /// reads these two predicates to choose a *writer* — a `RotatePages`
+    /// misfiled as structural would put a whole-file rewrite behind a turn
+    /// and refuse it on a document only the incremental writer can save.
+    #[test]
+    fn rotating_a_block_needs_assembly_permission_but_is_not_a_structure_edit() {
+        let rotate = Command::RotatePages {
+            pages: vec![PageId(0), PageId(1)],
+            delta_degrees: 90,
+        };
+
+        assert!(rotate.is_document_assembly_edit());
+        assert!(!rotate.is_page_structure_edit());
+    }
+
+    #[test]
+    fn rotate_pages_turns_every_named_page_and_leaves_the_rest_alone() {
+        let mut document = document_with_pages(&[0, 1, 2, 3]);
+
+        let applied = Command::RotatePages {
+            pages: vec![PageId(1), PageId(2)],
+            delta_degrees: 90,
+        }
+        .apply(&mut document);
+
+        assert!(applied);
+        assert_eq!(
+            rotations(&document),
+            [
+                Rotation::None,
+                Rotation::Clockwise90,
+                Rotation::Clockwise90,
+                Rotation::None
+            ]
+        );
+    }
+
+    /// One command, one step: the whole point of the variant existing beside
+    /// `RotatePage`. A run of per-page rotations would cost the user one undo
+    /// press per page of the block they turned with a single click.
+    #[test]
+    fn rotate_pages_is_one_undo_and_redo_step() {
+        let mut document = document_with_pages(&[0, 1, 2]);
+        let command = Command::RotatePages {
+            pages: vec![PageId(0), PageId(1)],
+            delta_degrees: -90,
+        };
+        let mut log = EditLog::new();
+
+        assert!(log.apply(&mut document, command));
+        assert_eq!(
+            rotations(&document),
+            [
+                Rotation::Clockwise270,
+                Rotation::Clockwise270,
+                Rotation::None
+            ]
+        );
+
+        assert!(log.undo(&mut document));
+        assert_eq!(rotations(&document), [Rotation::None; 3]);
+
+        assert!(log.redo(&mut document));
+        assert_eq!(
+            rotations(&document),
+            [
+                Rotation::Clockwise270,
+                Rotation::Clockwise270,
+                Rotation::None
+            ]
+        );
+    }
+
+    /// All or nothing, and the contrast with `RotatePage` is deliberate: that
+    /// one accepts an id the document does not hold and turns nothing, which
+    /// is why its callers have to validate for it. This one answers for
+    /// itself, and must not half-apply on the way to saying no.
+    #[test]
+    fn rotate_pages_refuses_an_empty_list_a_repeat_or_a_page_that_is_not_there() {
+        let mut document = document_with_pages(&[0, 1, 2]);
+
+        for pages in [
+            Vec::new(),
+            vec![PageId(0), PageId(0)],
+            vec![PageId(0), PageId(99)],
+        ] {
+            let applied = Command::RotatePages {
+                pages,
+                delta_degrees: 90,
+            }
+            .apply(&mut document);
+
+            assert!(!applied);
+            assert_eq!(
+                rotations(&document),
+                [Rotation::None; 3],
+                "a refused block rotation must not turn the pages it did reach"
+            );
+        }
+    }
+
+    #[test]
+    fn rotate_pages_inverts_to_the_same_pages_the_other_way() {
+        let command = Command::RotatePages {
+            pages: vec![PageId(2), PageId(3)],
+            delta_degrees: 90,
+        };
+
+        assert_eq!(
+            command.inverse(),
+            Command::RotatePages {
+                pages: vec![PageId(2), PageId(3)],
+                delta_degrees: -90,
+            }
+        );
     }
 
     #[test]

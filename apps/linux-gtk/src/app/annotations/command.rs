@@ -70,18 +70,22 @@ fn history(viewer: &Viewer, undo: bool) {
         // Undo peeks the recorded command, then applies its inverse: an
         // inserted page is structural just as its removal is.
         //
-        // `RotatePage` is deliberately absent, and has its own path below: it
-        // changes no page's position in `Document.pages`, so none of the
-        // reordering work a structural step needs applies to it — but it does
-        // change what one page looks like, which a structural step never does.
+        // Neither rotation is here, and both have their own path below: they
+        // change no page's position in `Document.pages`, so none of the
+        // reordering work a structural step needs applies to them — but they
+        // do change what a page looks like, which a structural step never
+        // does.
         let is_page_structure_edit = next_command.is_some_and(Command::is_page_structure_edit);
-        // Which page a rotation turns, so the one card holding it can be
-        // repainted — see `organize::invalidate_page_thumbnail`. A `PageId`
-        // rather than a `bool` because the whole point is that a quarter-turn
-        // costs *one* card its thumbnail and leaves every other one alone.
-        let rotated_page = match next_command {
-            Some(Command::RotatePage { page, .. }) => Some(*page),
-            _ => None,
+        // Which pages a rotation turns, so exactly the cards holding them can
+        // be repainted — see `organize::invalidate_page_thumbnail`. The ids
+        // rather than a `bool` because the whole point is that a turn costs
+        // the cards it touched their thumbnails and leaves every other one
+        // alone: one card for a page's quarter-turn, the block's pages for a
+        // document's, and never the whole grid.
+        let rotated_pages = match next_command {
+            Some(Command::RotatePage { page, .. }) => vec![*page],
+            Some(Command::RotatePages { pages, .. }) => pages.clone(),
+            _ => Vec::new(),
         };
 
         match step_history(document, session.selected_annotation, undo) {
@@ -111,14 +115,15 @@ fn history(viewer: &Viewer, undo: bool) {
                     is_content_edit,
                     is_page_structure_edit,
                     is_form_field_edit,
-                    rotated_page,
+                    rotated_pages,
                 ))
             }
             None => None,
         }
     };
 
-    let Some((is_content_edit, is_page_structure_edit, is_form_field_edit, rotated_page)) = outcome
+    let Some((is_content_edit, is_page_structure_edit, is_form_field_edit, rotated_pages)) =
+        outcome
     else {
         return;
     };
@@ -150,13 +155,13 @@ fn history(viewer: &Viewer, undo: bool) {
         crate::app::organize::invalidate_thumbnails(viewer);
     }
     // A rotation is the other step that changes a page's pixels without
-    // changing which page it is, and the narrow answer is the right one:
-    // exactly one card is now a picture of an angle the page no longer has.
-    // Done here and not left to the refresh below for the same reason as the
-    // content edit above — by the time the reopen lands, which command moved
-    // is no longer known.
-    if let Some(page) = rotated_page {
-        crate::app::organize::invalidate_page_thumbnail(viewer, page);
+    // changing which page it is, and the narrow answer is the right one: the
+    // cards it names are pictures of an angle their pages no longer have, and
+    // every other card on the grid is still correct. Done here and not left
+    // to the refresh below for the same reason as the content edit above — by
+    // the time the reopen lands, which command moved is no longer known.
+    for page in &rotated_pages {
+        crate::app::organize::invalidate_page_thumbnail(viewer, *page);
     }
 
     // Only a full refresh shows the real result of undoing/redoing a content
@@ -174,7 +179,8 @@ fn history(viewer: &Viewer, undo: bool) {
     // in the page's `/Rotate`, which nothing in this shell draws for itself.
     // Until the reopen lands, the canvas and every thumbnail show the page at
     // the angle the current bytes have it.
-    if is_content_edit || is_page_structure_edit || is_form_field_edit || rotated_page.is_some() {
+    if is_content_edit || is_page_structure_edit || is_form_field_edit || !rotated_pages.is_empty()
+    {
         refresh_preview(viewer, if undo { "Edit undone." } else { "Edit redone." });
     } else {
         viewer.status.set_text(if undo {

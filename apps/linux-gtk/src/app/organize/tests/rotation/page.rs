@@ -1,31 +1,14 @@
-//! The Pages view's two quarter-turns: what a click records, what it costs
-//! the grid, and the one permission it asks that its neighbours in the footer
-//! do not.
+//! The Pages view's two footer turns: one card, one `PageId`, one quarter of
+//! a turn per click.
 //!
-//! Split out of [`super::history`] and [`super::refusals`] rather than added
-//! to either, because a rotation is the odd one out on both counts. Every
-//! other operation on this screen changes the page *list* — so it forces
-//! `pdf-save`'s full-rewrite writer, and so it invalidates nothing about how
-//! a surviving page looks. A turn does neither: it stays on the incremental
-//! writer, and it makes exactly one card a picture of an angle its page no
-//! longer has.
+//! The block twin is [`super::block`]; [`super`] holds what both are judged
+//! by and why they sit together.
 
-use super::*;
+use super::super::*;
+use super::rotations;
 use crate::app::organize::command::{model, rotate_page};
 use crate::app::state::PageAssemblyAccess;
 use pdf_document::Rotation;
-
-/// The recorded angle of each model page, in `Document.pages` order.
-fn rotations(viewer: &Viewer) -> Vec<Rotation> {
-    session(viewer)
-        .document_model
-        .as_ref()
-        .unwrap()
-        .pages
-        .iter()
-        .map(|page| page.rotation)
-        .collect()
-}
 
 #[gtk::test]
 fn gtk_ui_the_two_footer_buttons_turn_their_page_each_way() {

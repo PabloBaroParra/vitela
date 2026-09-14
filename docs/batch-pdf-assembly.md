@@ -1187,6 +1187,9 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
 - [x] Permitir eliminar un bloque mediante una única acción reversible.
 - [x] Añadir nombres accesibles y ayudas de teclado para mover y eliminar.
 - [x] Evitar depender exclusivamente de arrastrar y soltar.
+- [x] Rotar un bloque entero en ambos sentidos como una única acción
+  reversible, sin reconstruir la lista ni invalidar las miniaturas de los
+  bloques que no giraron.
 
 ### Progreso de la vista por documentos
 
@@ -1247,6 +1250,78 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   `verify-linux-package.sh` siguen dependiendo de CI. Y `xvfb-run` no está
   instalado en esta WSL: la suite GTK corrió bajo WSLg con display real, no
   por la ruta headless que cubre el workflow `linux-gtk-ui`.
+
+- 2026-09-14 (rotación por bloque): la tarjeta de documento gana los dos
+  cuartos de vuelta que la sección 10 le dio a la tarjeta de página. La fila
+  de controles pasa a cinco —`Move up`, `Move down`, `Rotate left`,
+  `Rotate right`, `Delete`— con los giros entre los movimientos y el borrado,
+  para que el control destructivo conserve el final de la fila, que es donde
+  la memoria muscular lo dejó. Nombre accesible y tooltip con la misma forma
+  que los movimientos: `Rotate left: report.pdf`.
+- **`Command::RotatePages` es nuevo en `pdf-document`, y existe por una sola
+  razón: un click, un paso de deshacer.** Grabar un `RotatePage` por página
+  habría hecho que girar un documento de doce páginas costara doce pulsaciones
+  de Deshacer, y habría dejado el documento a medio girar si una de ellas se
+  rechazara a mitad de camino. Es el gemelo por tramo de `RotatePage` igual
+  que `RemovePages` lo es de `RemovePage`.
+- **Se direcciona por identidad (`Vec<PageId>`), no por `index`/`count` como
+  sus vecinos `MovePages` y `RemovePages`**, y la diferencia no es cosmética:
+  mover o borrar *es* una pregunta sobre posiciones —el tramo tiene que ser
+  contiguo y dónde empieza es la edición—, mientras que una rotación es sobre
+  las páginas mismas. Nada se mueve, así que lo único que el comando tiene que
+  sobrevivir es un reordenamiento posterior de exactamente esas páginas, cosa
+  que una posición no sobrevive.
+- A diferencia de `RotatePage`, **este comando sí se rechaza a sí mismo**:
+  lista vacía, id repetido o id que el documento no tiene devuelven `false`
+  antes de girar nada. La sección 10 dejó anotado que `RotatePage` es el único
+  comando que no puede reportar un id inexistente —se aplica limpiamente sobre
+  nada y devuelve `true`—, y por eso su embudo valida por él. En la variante
+  por bloque la validación tiene que ser total y previa: girar las tres
+  primeras páginas y encontrarse con la cuarta ausente dejaría el documento a
+  medias *y* al llamador convencido de que no pasó nada. El shell igual
+  resuelve el tramo a `PageId`s antes de grabar, así que nunca llega a
+  depender de ese rechazo.
+- Permisos: el mismo embudo estrecho que el giro por página. `rotation_command`
+  pregunta solo por el ensamblado, nunca por `full_rewrite_refusal` —un giro,
+  de una página o de doce, se guarda por el escritor incremental—. La prueba
+  `rotation::block::gtk_ui_a_block_turn_survives_a_document_that_can_never_be_rewritten`
+  fija el contraste en la misma tarjeta: el botón de borrar del bloque se
+  rechaza y el de girar no.
+- `pdf-save` no necesitó nada: el replay reconcilia el estado final
+  (`bridge::rotation_changes` compara la rotación de cada página contra la
+  población original), así que N páginas giradas son N deltas que el escritor
+  incremental ya sabía aplicar.
+- Invalidación de miniaturas: se reutiliza `invalidate_page_thumbnail`, una
+  vez por página del bloque. Sigue siendo la respuesta estrecha —un bloque de
+  diez páginas sobre un ensamblado de cuatrocientas olvida diez entradas, no
+  cuatrocientas— y borra tanto la miniatura de la tarjeta de página como la
+  portada del bloque, que son dos entradas distintas del mismo `PageId` a
+  tamaños distintos.
+- **El botón de girar NO llama a `rebuilt`, y ese es el detalle a no perder.**
+  El de borrar sí, porque un borrado cambia qué bloques existen. Un giro no
+  cambia la extensión de ningún bloque, y repoblar en ese momento sería
+  activamente incorrecto: la portada se renderizaría contra el handle de
+  pdfium tal como está —que todavía tiene los bytes *previos* al giro— y
+  volvería a cachear el ángulo viejo bajo una clave que `rotate_block` acaba
+  de vaciar. La reconstrucción que muestra el giro es la de
+  `refresh_after_reopen`, después de la reapertura.
+- Deshacer y rehacer: `annotations::command::history` pasa de extraer un
+  `Option<PageId>` a extraer la lista de ids que el comando gira, y trata a
+  las dos rotaciones igual. Un `RotatePages` deshecho invalida exactamente las
+  tarjetas de su bloque.
+- Las pruebas del giro pasaron a ser un directorio (`organize/tests/rotation/`
+  con `mod.rs`, `page.rs` y `block.rs`) al cruzar el umbral de 350 líneas del
+  advisory de mantenibilidad. El agrupamiento por tema —que la sección 10
+  justificó al separarlas de `history` y `refusals`— se conserva en el
+  `mod.rs`, que es donde viven el helper `rotations` y los índices de los
+  botones de la tarjeta de bloque.
+- Verificación (WSL2/Ubuntu, WSLg): `cargo clippy --workspace --all-targets
+  --locked -- -D warnings`, `cargo test --workspace --locked` (sin fallos),
+  `cargo test -p linux-gtk --locked` (469 aprobadas, 1 ignorada),
+  `cargo fmt --all -- --check` y `python3 scripts/check_maintainability.py`
+  (103 advertencias, la misma línea base que dejó la sección 10). Siguen sin
+  ejecutarse `scripts/package-linux.sh` y la ruta headless del workflow
+  `linux-gtk-ui`, por las mismas razones que en las secciones 9 y 10.
 
 ## 10. Vista por páginas
 
@@ -1333,7 +1408,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   escritor incremental, que reencripta desde el estado que lopdf retiene y no
   necesita ninguna contraseña nuestra. Preguntar por `full_rewrite_refusal`
   ahí rechazaría una rotación que se guarda perfectamente —hay una prueba
-  (`rotation::gtk_ui_a_turn_survives_a_document_that_can_never_be_rewritten`)
+  (`rotation::page::gtk_ui_a_turn_survives_a_document_that_can_never_be_rewritten`)
   que fija exactamente ese contraste: el mismo documento cifrado con una sola
   contraseña rechaza el borrado y el arrastre, y acepta el giro. Tampoco
   pregunta por `content_edit_refusal`, porque
@@ -1357,7 +1432,7 @@ Linux; el comportamiento reutilizable debe permanecer en el núcleo Rust.
   la guarda. Vaciar el caché entero habría puesto una reconstrucción completa
   detrás de cada click — los ~0,9 s de bucle bloqueado que §11 existe para
   haber eliminado. La prueba
-  `rotation::gtk_ui_a_turn_re_renders_only_the_page_that_turned` cuenta un
+  `rotation::page::gtk_ui_a_turn_re_renders_only_the_page_that_turned` cuenta un
   render, no cuatrocientos.
 - Deshacer y rehacer: `annotations::command::history` tenía un comentario que
   decía literalmente que `RotatePage` estaba ausente a propósito y que "si

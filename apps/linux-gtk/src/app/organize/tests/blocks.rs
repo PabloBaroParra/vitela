@@ -9,7 +9,7 @@ use gtk::prelude::*;
 
 use super::super::documents::gap::drop_block;
 use super::documents::{
-    base_page, card_buttons, card_text, cards, children, imported_page, source, two_blocks,
+    base_page, card_buttons, card_text, cards, children, imported_page, source, two_blocks, DELETE,
 };
 use super::{page_ids_of, with_documents, with_organize};
 use pdf_document::{Document, PageId};
@@ -81,11 +81,15 @@ fn gtk_ui_every_block_control_carries_an_accessible_name() {
             [
                 "Move up: base.pdf",
                 "Move down: base.pdf",
+                "Rotate left: base.pdf",
+                "Rotate right: base.pdf",
                 "Delete base.pdf",
             ],
             [
                 "Move up: report.pdf",
                 "Move down: report.pdf",
+                "Rotate left: report.pdf",
+                "Rotate right: report.pdf",
                 "Delete report.pdf",
             ],
         ]) {
@@ -99,7 +103,7 @@ fn gtk_ui_every_block_control_carries_an_accessible_name() {
 #[gtk::test]
 fn gtk_ui_deleting_a_block_removes_all_of_its_pages_in_one_undo_step() {
     with_documents(two_blocks(), vec![source(7, "report.pdf")], |viewer| {
-        card_buttons(&cards(viewer)[1])[2].emit_clicked();
+        card_buttons(&cards(viewer)[1])[DELETE].emit_clicked();
 
         assert_eq!(page_ids_of(viewer), vec![0, 1]);
         assert_eq!(cards(viewer).len(), 1);
@@ -129,7 +133,7 @@ fn gtk_ui_deleting_a_block_takes_its_annotations_and_undo_restores_them() {
         .insert(crate::app::test_fixtures::a_highlight(3, PageId(0)));
 
     with_documents(document, vec![source(7, "report.pdf")], |viewer| {
-        card_buttons(&cards(viewer)[1])[2].emit_clicked();
+        card_buttons(&cards(viewer)[1])[DELETE].emit_clicked();
 
         assert_eq!(
             super::session(viewer)

@@ -33,7 +33,7 @@ use crate::app::state::{DocumentSession, Viewer};
 use card::build_card;
 use gap::build_gap;
 
-mod card;
+pub(in crate::app::organize) mod card;
 pub(in crate::app::organize) mod gap;
 mod style;
 

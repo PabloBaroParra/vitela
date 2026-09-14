@@ -87,7 +87,15 @@ pub(super) fn card_text(card: &GtkBox) -> (String, String) {
     (name.text().to_string(), meta.text().to_string())
 }
 
-/// A card's Move up, Move down and Delete buttons, in that order.
+/// Where each control sits in [`card_buttons`]' order. Named rather than
+/// written as literals at the call sites, because that row has grown twice
+/// now and every index in it had to be found again each time.
+pub(super) const ROTATE_LEFT: usize = 2;
+pub(super) const ROTATE_RIGHT: usize = 3;
+pub(super) const DELETE: usize = 4;
+
+/// A card's Move up, Move down, Rotate left, Rotate right and Delete
+/// buttons, in that order.
 pub(super) fn card_buttons(card: &GtkBox) -> Vec<Button> {
     let controls = card.last_child().unwrap();
     let mut buttons = Vec::new();
