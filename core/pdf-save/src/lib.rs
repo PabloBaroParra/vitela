@@ -56,7 +56,10 @@ pub use clock::{
 };
 pub use content::{has_content_edits, replay_content_edits, validate_content_command};
 pub use error::SaveError;
-pub use export::{export_page_as_image, ExportFormat};
+pub use export::{
+    export_page_as_image, page_image_file_name, parse_page_selection, ExportFormat,
+    PageSelectionError,
+};
 pub use forms::{ensure_acroform, write_form_fields};
 pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};

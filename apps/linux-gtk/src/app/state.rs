@@ -81,6 +81,9 @@ pub(crate) struct Viewer {
     pub(crate) find_next: Button,
     pub(crate) print_button: Button,
     pub(crate) save_button: Button,
+    /// Opens the Export images dialog. Gated on the same page count as
+    /// `print_button` and `save_button` — see `document::show_document`.
+    pub(crate) export_button: Button,
     pub(crate) undo_action: gio::SimpleAction,
     pub(crate) redo_action: gio::SimpleAction,
     pub(crate) annotation_buttons: AnnotationToolbar,

@@ -93,6 +93,11 @@ pub(crate) enum Icon {
     Image,
     Save,
     Print,
+    /// Export pages as images. Composed rather than borrowed from
+    /// `Image`: the toolbar's Output group needs the *direction* of the
+    /// action visible at 24px, so the picture frame opens at its
+    /// bottom-right and the arrow leaves through the gap.
+    ExportImages,
     Undo,
     Redo,
     ZoomOut,
@@ -119,7 +124,7 @@ pub(crate) enum Icon {
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 32] = [
+const ALL_ICONS: [Icon; 33] = [
     Icon::Home,
     Icon::Recent,
     Icon::Files,
@@ -136,6 +141,7 @@ const ALL_ICONS: [Icon; 32] = [
     Icon::Image,
     Icon::Save,
     Icon::Print,
+    Icon::ExportImages,
     Icon::Undo,
     Icon::Redo,
     Icon::ZoomOut,
@@ -183,6 +189,7 @@ impl Icon {
             Icon::Image => icon_source!("image.svg"),
             Icon::Save => icon_source!("save.svg"),
             Icon::Print => icon_source!("print.svg"),
+            Icon::ExportImages => icon_source!("export-images.svg"),
             Icon::Undo => icon_source!("undo.svg"),
             Icon::Redo => icon_source!("redo.svg"),
             Icon::ZoomOut => icon_source!("zoom-out.svg"),
