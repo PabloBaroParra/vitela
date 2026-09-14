@@ -32,7 +32,7 @@ use gtk::{
 };
 use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 use pdf_edit::EditError;
-use pdf_render::{place_point, place_rect, point_to_pdf, PagePlacement, TextRect};
+use pdf_render::{place_point, point_to_pdf, PagePlacement, PageRotation};
 
 use crate::app::state::{ContentEditor, Viewer};
 use crate::app::update_content_edit_controls;
@@ -290,49 +290,79 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
 /// run's box sits, or a rejected move would leave the box somewhere the run
 /// is not.
 fn place_entry(frame: &Fixed, entry: &Entry, bbox: Rect, page: PagePlacement) {
-    // The box the run occupies on screen once the page is turned: for a
-    // quarter turn its width and height are the run's the other way round.
-    // That is the frame's footprint — the entry inside it is still the run's
-    // own upright box, and the transform below is what reconciles the two.
-    let placed = place_rect(
-        TextRect {
-            x_pt: bbox.x as f32,
-            y_pt: bbox.y as f32,
-            width_pt: bbox.width as f32,
-            height_pt: bbox.height as f32,
-        },
-        page,
-    );
+    let (width, height) = entry_size(entry, bbox, page);
+
+    // Where the run's PDF-space top-left corner lands on screen. The entry's
+    // own top-left starts there whichever way the page is turned; the turn
+    // decides which way the rest of the box then runs.
+    let anchor = place_point((bbox.x, bbox.y + bbox.height), page);
+    // The entry's box in the frame's coordinates. A quarter turn sends the
+    // entry's height into *negative* screen x and the half turn sends both
+    // sides negative, so the frame's origin is not the anchor: it is whichever
+    // corner of the turned box comes out top-left. `local` is the anchor's
+    // offset from it, and is exactly what the transform has to translate by.
+    let (local_x, local_y) = match page.rotation {
+        PageRotation::None => (0.0, 0.0),
+        PageRotation::Clockwise90 => (height, 0.0),
+        PageRotation::Clockwise180 => (width, height),
+        PageRotation::Clockwise270 => (0.0, width),
+    };
 
     frame.set_halign(gtk::Align::Start);
     frame.set_valign(gtk::Align::Start);
     // Clamped at zero because GTK refuses a negative margin, which is also
-    // what stops a drag from carrying the box off the top-left of the page.
-    frame.set_margin_start(placed.left.round().max(0.0) as i32);
-    frame.set_margin_top(placed.top.round().max(0.0) as i32);
+    // what stops a box from being carried off the top-left of the page.
+    frame.set_margin_start((anchor.0 - local_x).round().max(0.0) as i32);
+    frame.set_margin_top((anchor.1 - local_y).round().max(0.0) as i32);
 
-    entry.set_width_request((bbox.width * page.scale).round().max(1.0) as i32);
-    entry.set_height_request((bbox.height * page.scale).round().max(1.0) as i32);
-
-    // Where the run's PDF-space top-left corner lands inside the frame. On an
-    // upright page that is the frame's own origin; a turn carries it to one of
-    // the other three corners, and rotating about it is what lays the entry
-    // back down along the run. Measured against the *unclamped* placed origin
-    // so the corner offset stays purely the turn's, and the clamp above stays
-    // purely the page edge's.
-    let anchor = place_point((bbox.x, bbox.y + bbox.height), page);
-    let local = graphene::Point::new(
-        (anchor.0 - placed.left) as f32,
-        (anchor.1 - placed.top) as f32,
-    );
     frame.set_child_transform(
         entry,
         Some(
             &gsk::Transform::new()
-                .translate(&local)
+                .translate(&graphene::Point::new(local_x as f32, local_y as f32))
                 .rotate(page.rotation.degrees() as f32),
         ),
     );
+}
+
+/// The size the entry will actually occupy, in its own upright frame.
+///
+/// The run's box at this zoom is only a floor. A 14pt line is ten-odd pixels
+/// tall at a readable zoom and GTK will not shrink an `Entry` below the height
+/// of its own font, so asking for ten and getting thirty-four is the normal
+/// case, not an edge one.
+///
+/// As a bare overlay child that overflow was invisible — the entry simply drew
+/// a little taller than the run. Inside a `Fixed` it is not: the frame measures
+/// the *transformed* bounds of its child and clamps them at its own origin, so
+/// on a quarter turn an entry taller than the run asked for runs off the
+/// frame's left edge and everything past it is clipped away. That is a box with
+/// no visible text in it. Asking the entry what it actually needs, and then
+/// requesting exactly that, is what keeps the frame, the transform and the
+/// widget describing one box instead of three.
+fn entry_size(entry: &Entry, bbox: Rect, page: PagePlacement) -> (f64, f64) {
+    let requested = |points: f64| (points * page.scale).round().max(1.0) as i32;
+    entry.set_width_request(requested(bbox.width));
+    entry.set_height_request(requested(bbox.height));
+    // Pins the entry's natural width to its minimum. Without it the natural
+    // grows with the text, and `GtkFixed` measures a child by its natural: the
+    // frame would quietly widen as the user typed while the transform below
+    // went on translating by the size the box had when it opened, walking the
+    // text off the frame's edge on a quarter turn. It also makes the box match
+    // the run it is replacing rather than the sentence being typed into it —
+    // the entry scrolls its own content, the way any entry too narrow for its
+    // text does.
+    entry.set_max_width_chars(1);
+    // Read back rather than computed: the floor is GTK's — font metrics,
+    // padding and whatever the theme's CSS says an entry may not be smaller
+    // than — and none of that is ours to predict.
+    let (minimum, _) = entry.preferred_size();
+    // Re-requested so the minimum *is* the size: `GtkFixed` allocates a child
+    // its preferred size, and a request equal to the minimum leaves no room
+    // for the two to disagree.
+    entry.set_width_request(minimum.width());
+    entry.set_height_request(minimum.height());
+    (f64::from(minimum.width()), f64::from(minimum.height()))
 }
 
 /// Makes an insertion's box draggable, so a new text box can be nudged into
@@ -964,6 +994,7 @@ fn detach(viewer: &Viewer, editor: &ContentEditor) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gtk::{Overlay, Window};
     use pdf_render::PageRotation;
 
     /// A letter page turned `rotation`, drawn 1:1. The drawn size is already
@@ -1090,10 +1121,10 @@ mod tests {
     ///
     /// Checked by mapping the entry's own top-left and bottom-right through the
     /// child transform and asserting they land on opposite corners of the
-    /// frame's footprint — which is the placed box, and is what makes this a
-    /// test of the *pairing* rather than of either half alone.
+    /// frame's footprint — which makes this a test of the *pairing* rather than
+    /// of either half alone.
     #[gtk::test]
-    fn gtk_ui_the_turned_entry_covers_exactly_the_box_its_frame_occupies() {
+    fn gtk_ui_the_turned_entry_covers_exactly_the_frame_it_sits_in() {
         for rotation in [
             PageRotation::None,
             PageRotation::Clockwise90,
@@ -1108,31 +1139,28 @@ mod tests {
 
             place_entry(&frame, &entry, bbox, page);
 
-            let placed = place_rect(
-                TextRect {
-                    x_pt: bbox.x as f32,
-                    y_pt: bbox.y as f32,
-                    width_pt: bbox.width as f32,
-                    height_pt: bbox.height as f32,
-                },
-                page,
-            );
+            // The box `place_entry` settled on, which is the entry's own and
+            // not the run's — see `entry_size`.
+            let (size, _) = entry.preferred_size();
+            let (width, height) = (f64::from(size.width()), f64::from(size.height()));
+            let (footprint_width, footprint_height) = match rotation {
+                PageRotation::Clockwise90 | PageRotation::Clockwise270 => (height, width),
+                _ => (width, height),
+            };
             let transform = frame.child_transform(&entry).expect("place_entry sets one");
             let corners = [
                 transformed(&transform, (0.0, 0.0)),
-                transformed(&transform, (bbox.width, bbox.height)),
+                transformed(&transform, (width, height)),
             ];
 
             for (x, y) in corners {
                 assert!(
-                    (x - 0.0).abs() < 1e-3 || (x - placed.width).abs() < 1e-3,
-                    "{rotation:?}: x {x} is on neither edge of a {} wide frame",
-                    placed.width
+                    x.abs() < 1e-3 || (x - footprint_width).abs() < 1e-3,
+                    "{rotation:?}: x {x} is on neither edge of a {footprint_width} wide frame"
                 );
                 assert!(
-                    (y - 0.0).abs() < 1e-3 || (y - placed.height).abs() < 1e-3,
-                    "{rotation:?}: y {y} is on neither edge of a {} tall frame",
-                    placed.height
+                    y.abs() < 1e-3 || (y - footprint_height).abs() < 1e-3,
+                    "{rotation:?}: y {y} is on neither edge of a {footprint_height} tall frame"
                 );
             }
             assert!(
@@ -1142,6 +1170,86 @@ mod tests {
             );
 
             frame.remove(&entry);
+        }
+    }
+
+    /// Pumps the main loop until `widget` has been allocated.
+    fn settle(widget: &impl IsA<gtk::Widget>) {
+        let context = glib::MainContext::default();
+        for _ in 0..2_000 {
+            while context.iteration(false) {}
+            if widget.as_ref().width() > 0 {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// A text run is a dozen pixels tall at a readable zoom and GTK will not
+    /// shrink an `Entry` below the height of its own font. As a bare overlay
+    /// child that overflow was harmless — the box just drew a little taller
+    /// than the run. Inside a `Fixed` it is not: on a quarter turn the entry's
+    /// height runs into negative frame x, which `GtkFixed` clamps away, and
+    /// what the user gets is a sliver of a box with no text visible in it.
+    ///
+    /// So the frame has to be the entry's own size, turned — never the run's.
+    #[gtk::test]
+    fn gtk_ui_the_frame_holds_the_whole_entry_at_every_turn() {
+        // A 210pt line at a 14pt size: far wider than it is tall, and far
+        // shorter than an `Entry` can be drawn.
+        let bbox = Rect {
+            x: 72.0,
+            y: 700.0,
+            width: 210.0,
+            height: 14.0,
+        };
+
+        for rotation in [
+            PageRotation::None,
+            PageRotation::Clockwise90,
+            PageRotation::Clockwise180,
+            PageRotation::Clockwise270,
+        ] {
+            let page = PagePlacement {
+                scale: 0.72,
+                ..turned(rotation)
+            };
+            let entry = Entry::new();
+            entry.set_text("This file ships inside the app.");
+            let frame = Fixed::new();
+            frame.put(&entry, 0.0, 0.0);
+
+            place_entry(&frame, &entry, bbox, page);
+
+            let host = Overlay::new();
+            host.set_child(Some(&gtk::DrawingArea::new()));
+            host.add_overlay(&frame);
+            let window = Window::new();
+            window.set_default_size(1_200, 900);
+            window.set_child(Some(&host));
+            window.present();
+            settle(&frame);
+
+            let (minimum, natural) = entry.preferred_size();
+            assert_eq!(
+                (minimum.width(), minimum.height()),
+                (natural.width(), natural.height()),
+                "{rotation:?}: the entry must not be free to grow past the box \
+                 the frame was measured for"
+            );
+            let (wanted_width, wanted_height) = match rotation {
+                PageRotation::Clockwise90 | PageRotation::Clockwise270 => {
+                    (minimum.height(), minimum.width())
+                }
+                _ => (minimum.width(), minimum.height()),
+            };
+            assert_eq!(
+                (frame.width(), frame.height()),
+                (wanted_width, wanted_height),
+                "{rotation:?}: the frame is the entry's own box, turned"
+            );
+
+            window.destroy();
         }
     }
 }
