@@ -30,7 +30,7 @@ sha2 = "0.10.9"
 # Content-edit mode (T-161) validates a replacement by cloning the base
 # document and probing `pdf-edit`'s real encoder against it — same version
 # `pdf-edit` itself depends on.
-lopdf = "0.44"
+lopdf = "0.45"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 gen-fixtures = { path = "../../tests/fixtures/gen-fixtures" }

@@ -11,4 +11,4 @@ pdf-document = { path = "../pdf-document" }
 # Reuses the Standard-14 AFM width tables for word-wrap measurement — a
 # second, independently-maintained copy of Adobe's metrics would drift.
 pdf-edit = { path = "../pdf-edit" }
-lopdf = "0.44"
+lopdf = "0.45"

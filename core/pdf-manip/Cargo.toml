@@ -7,5 +7,5 @@ description = "ManipulationPort implementation (lopdf backed): merge/split/rotat
 publish = false
 
 [dependencies]
-lopdf = "0.44"
+lopdf = "0.45"
 pdf-document = { path = "../pdf-document" }
