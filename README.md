@@ -144,6 +144,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | ✅ | ✅ | — | — | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
+| Edit metadata | ✅ | — | — | — | — |
 | Organize & assemble pages | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
 | Protect with a password | ✅ | — | — | — | — |
