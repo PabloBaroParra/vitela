@@ -44,6 +44,14 @@ pub(super) fn build_card(viewer: &Viewer, grid: &FlowBox, cards: &Cards, id: Pag
     picture.add_css_class("organize-thumb");
     picture.set_content_fit(gtk::ContentFit::Contain);
     picture.set_size_request(CARD_WIDTH_PX, CARD_HEIGHT_PX);
+    // The thumbnail takes every pixel the card has spare, so the footer stays
+    // *at* the foot of the card. Without it nothing in this box expands, GTK
+    // packs all three children from the top, and whatever height the grid
+    // hands the card beyond what they need falls as blank space underneath
+    // the buttons. A quarter-turn is what makes that visible: the rendered
+    // page goes from portrait to landscape, the `Picture`'s natural height
+    // drops by the aspect ratio, and the row does not shrink with it.
+    picture.set_vexpand(true);
     card.append(&picture);
 
     // A line of its own under the thumbnail rather than a second column
