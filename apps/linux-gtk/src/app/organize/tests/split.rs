@@ -17,20 +17,20 @@ fn gtk_ui_split_sits_between_extract_and_save() {
             Some("Split")
         );
         assert_eq!(
-            viewer.organize.split_button.next_sibling(),
-            Some(viewer.organize.save_button.clone().upcast())
+            action_slot(&viewer.organize.split_button).next_sibling(),
+            Some(action_slot(&viewer.organize.save_button))
         );
         // Beside Extract, because they are the same gesture in two shapes:
         // both read the open document and write new files somewhere else.
         assert_eq!(
-            viewer.organize.extract_button.next_sibling(),
-            Some(viewer.organize.split_button.clone().upcast())
+            action_slot(&viewer.organize.extract_button).next_sibling(),
+            Some(action_slot(&viewer.organize.split_button))
         );
         // A header button, not a card one: a cut is a statement about the
         // whole document, not about the page it sits under.
         assert_eq!(
-            viewer.organize.split_button.parent(),
-            viewer.organize.save_button.parent()
+            action_slot(&viewer.organize.split_button).parent(),
+            action_slot(&viewer.organize.save_button).parent()
         );
     });
 }

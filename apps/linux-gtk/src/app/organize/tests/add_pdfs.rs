@@ -15,16 +15,27 @@ fn gtk_ui_header_exposes_add_pdfs_before_save() {
             viewer.organize.add_pdfs_button.label().as_deref(),
             Some("Add PDFs")
         );
+        // Add PDFs is an action and sits among them, between Redo and
+        // Extract. `extract::gtk_ui_extract_sits_between_add_pdfs_and_split`
+        // pins the far side of that.
         assert_eq!(
-            viewer.organize.add_pdfs_button.next_sibling(),
-            Some(viewer.organize.import_progress.clone().upcast())
+            action_slot(&viewer.organize.add_pdfs_button).next_sibling(),
+            Some(action_slot(&viewer.organize.extract_button))
         );
-        // The import group still ends where it did; what follows it is now
-        // Extract, which `extract::gtk_ui_extract_sits_between_the_import_group_and_save`
-        // pins from the other side.
+        // The progress bar and its Cancel are *not* actions: they report on
+        // one, and they are the only things in the row that want to stretch.
+        // So they stayed in the header box when the actions moved into their
+        // own wrapping container, which puts them between the heading and the
+        // buttons rather than wedged mid-row as before. See
+        // `organize::header` for why the actions wrap at all.
+        assert_eq!(
+            viewer.organize.import_progress.next_sibling(),
+            Some(viewer.organize.cancel_import_button.clone().upcast())
+        );
         assert_eq!(
             viewer.organize.cancel_import_button.next_sibling(),
-            Some(viewer.organize.extract_button.clone().upcast())
+            action_slot(&viewer.organize.add_pdfs_button).parent(),
+            "Cancel is the last thing before the actions container"
         );
         assert!(!viewer.organize.import_progress.is_visible());
         assert!(!viewer.organize.cancel_import_button.is_visible());
