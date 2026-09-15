@@ -34,38 +34,6 @@ pub(super) fn resolve_pages(typed: &str, total_pages: u32) -> Result<Vec<u32>, S
     pdf_save::parse_page_selection(typed, total_pages).map_err(|error| error.to_string())
 }
 
-/// The runs of pages to drop so that only `keep` is left, as `(index, count)`
-/// pairs **in descending index order**.
-///
-/// Descending is the whole point. Each removal shifts every later page down,
-/// so a run removed before a run that follows it would leave the second one
-/// naming pages that have already moved. Taking the last run first means
-/// every index still describes the page it was computed from.
-///
-/// `keep` is ascending and deduplicated — [`resolve_pages`] guarantees it,
-/// because `pdf_save::parse_page_selection` does — which is what lets the
-/// membership test be a binary search rather than a scan per page. On a
-/// thousand-page document the difference is a million comparisons.
-pub(super) fn removal_runs(keep: &[u32], total: u32) -> Vec<(usize, usize)> {
-    let mut runs: Vec<(usize, usize)> = Vec::new();
-    let mut open: Option<(usize, usize)> = None;
-    for index in 0..total as usize {
-        if keep.binary_search(&(index as u32)).is_ok() {
-            if let Some(finished) = open.take() {
-                runs.push(finished);
-            }
-        } else {
-            match open.as_mut() {
-                Some((_, count)) => *count += 1,
-                None => open = Some((index, 1)),
-            }
-        }
-    }
-    runs.extend(open);
-    runs.reverse();
-    runs
-}
-
 /// What the status line says once the extracted PDF is on disk.
 ///
 /// Its own function so the singular/plural, the "where did it go" half and
@@ -98,7 +66,7 @@ pub(super) fn extract_summary(count: usize, destination: &Path, signed: bool) ->
 mod tests {
     use std::path::Path;
 
-    use super::{extract_summary, removal_runs, resolve_pages};
+    use super::{extract_summary, resolve_pages};
 
     #[test]
     fn a_typed_range_becomes_zero_based_indices() {
@@ -129,38 +97,6 @@ mod tests {
             resolve_pages("1", 0),
             Err("This document has no pages to extract.".to_owned())
         );
-    }
-
-    #[test]
-    fn keeping_a_middle_run_drops_the_pages_on_both_sides_last_first() {
-        assert_eq!(removal_runs(&[2, 3], 6), vec![(4, 2), (0, 2)]);
-    }
-
-    #[test]
-    fn keeping_every_page_drops_nothing() {
-        assert_eq!(removal_runs(&[0, 1, 2], 3), Vec::<(usize, usize)>::new());
-    }
-
-    #[test]
-    fn keeping_one_page_drops_the_rest_as_two_runs() {
-        assert_eq!(removal_runs(&[1], 3), vec![(2, 1), (0, 1)]);
-    }
-
-    #[test]
-    fn keeping_the_first_page_drops_one_trailing_run() {
-        assert_eq!(removal_runs(&[0], 4), vec![(1, 3)]);
-    }
-
-    /// Applying the runs in the order they are returned must leave exactly
-    /// `keep` behind — the property the descending order exists for.
-    #[test]
-    fn applying_the_runs_in_order_leaves_exactly_the_kept_pages() {
-        let keep = [0, 3, 4, 8];
-        let mut pages: Vec<u32> = (0..10).collect();
-        for (index, count) in removal_runs(&keep, 10) {
-            pages.drain(index..index + count);
-        }
-        assert_eq!(pages, keep);
     }
 
     #[test]

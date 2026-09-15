@@ -1,16 +1,17 @@
-//! Which pages an export covers, and what each file is called.
+//! Which pages of a document an operation covers.
 //!
-//! Pure functions of what the user typed: no document, no renderer, nothing
-//! that can only run on one platform. That is exactly why they live in
-//! `pdf-save` rather than in a shell — every shell that grows an export screen
-//! needs this same grammar, and four copies of it would be four chances to
-//! disagree about what `"7-3"` means. The same reasoning put the
-//! text-selection geometry in `pdf-render` rather than in the GTK4 shell
-//! (batch B8, T-046).
+//! One grammar — `"1-3,7"` — and what it refuses. A pure function of what the
+//! user typed: no document, no renderer, nothing that can only run on one
+//! platform. That is exactly why it lives in `pdf-save` rather than in a
+//! shell — every screen that asks "which pages?" needs this same grammar, and
+//! a copy per shell would be a chance per shell to disagree about what
+//! `"7-3"` means. The same reasoning put the text-selection geometry in
+//! `pdf-render` rather than in the GTK4 shell (batch B8, T-046).
+//!
+//! What the *files* an operation produces are called is
+//! [`naming`](super::naming)'s: a different question, answered after this one.
 
 use std::fmt;
-
-use super::ExportFormat;
 
 /// Why a typed page selection could not be read.
 ///
@@ -118,55 +119,6 @@ fn one_based_page(text: &str) -> Result<u32, PageSelectionError> {
         .map_err(|_| PageSelectionError::NotANumber(text.to_owned()))
 }
 
-/// The file name one exported page is written under, inside a folder the user
-/// chose: `"report-03.png"`.
-///
-/// `page_index` is zero-based (it indexes the document) and the name is
-/// one-based (it is read by a person), padded to the width of `total_pages` so
-/// the folder sorts in page order in any file manager.
-///
-/// `stem` comes from the opened document's file name, which the shell does not
-/// control, so it is reduced to a single safe path component here rather than
-/// at each call site: every run of characters that could redirect the write — a
-/// separator above all — collapses to one `-`, and a stem left with nothing
-/// usable becomes `"page"`.
-pub fn page_image_file_name(
-    stem: &str,
-    page_index: u32,
-    total_pages: u32,
-    format: ExportFormat,
-) -> String {
-    let width = decimal_width(total_pages.max(1));
-    format!(
-        "{stem}-{number:0width$}.{extension}",
-        stem = safe_stem(stem),
-        number = page_index.saturating_add(1),
-        width = width,
-        extension = format.extension(),
-    )
-}
-
-fn safe_stem(stem: &str) -> String {
-    let mut safe = String::with_capacity(stem.len());
-    for character in stem.chars() {
-        if character.is_alphanumeric() || matches!(character, '-' | '_' | ' ') {
-            safe.push(character);
-        } else if !safe.ends_with('-') {
-            safe.push('-');
-        }
-    }
-    let safe = safe.trim_matches([' ', '-'].as_slice());
-    if safe.is_empty() {
-        "page".to_owned()
-    } else {
-        safe.to_owned()
-    }
-}
-
-fn decimal_width(value: u32) -> usize {
-    value.to_string().len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,49 +211,5 @@ mod tests {
                 "{input:?} produced {message:?}"
             );
         }
-    }
-
-    // --- output file names -------------------------------------------------
-
-    #[test]
-    fn a_file_name_is_one_based_and_padded_to_the_width_of_the_last_page() {
-        assert_eq!(
-            page_image_file_name("report", 0, 9, ExportFormat::Png),
-            "report-1.png"
-        );
-        assert_eq!(
-            page_image_file_name("report", 0, 10, ExportFormat::Png),
-            "report-01.png"
-        );
-        assert_eq!(
-            page_image_file_name("report", 399, 400, ExportFormat::Jpeg),
-            "report-400.jpg"
-        );
-    }
-
-    #[test]
-    fn a_stem_that_would_escape_the_chosen_folder_is_flattened() {
-        // The stem comes from the opened file's name, which the shell does not
-        // control. A separator in it must never redirect the write.
-        assert_eq!(
-            page_image_file_name("../etc/passwd", 0, 1, ExportFormat::Png),
-            "etc-passwd-1.png"
-        );
-    }
-
-    #[test]
-    fn a_stem_with_nothing_usable_in_it_falls_back_to_a_name() {
-        assert_eq!(
-            page_image_file_name("", 0, 1, ExportFormat::Png),
-            "page-1.png"
-        );
-        assert_eq!(
-            page_image_file_name("   ", 0, 1, ExportFormat::Png),
-            "page-1.png"
-        );
-        assert_eq!(
-            page_image_file_name("///", 0, 1, ExportFormat::Png),
-            "page-1.png"
-        );
     }
 }

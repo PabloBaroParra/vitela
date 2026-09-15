@@ -10,21 +10,21 @@
 use super::*;
 
 #[gtk::test]
-fn gtk_ui_extract_sits_between_the_import_group_and_save() {
+fn gtk_ui_extract_sits_between_add_pdfs_and_split() {
     with_organize(|viewer| {
         assert_eq!(
             viewer.organize.extract_button.label().as_deref(),
             Some("Extract")
         );
         assert_eq!(
-            viewer.organize.extract_button.next_sibling(),
-            Some(viewer.organize.save_button.clone().upcast())
+            action_slot(&viewer.organize.extract_button).next_sibling(),
+            Some(action_slot(&viewer.organize.split_button))
         );
         // A header button, not a card one: it acts on a selection that can
         // span the whole document rather than on the page it sits under.
         assert_eq!(
-            viewer.organize.extract_button.parent(),
-            viewer.organize.save_button.parent()
+            action_slot(&viewer.organize.extract_button).parent(),
+            action_slot(&viewer.organize.save_button).parent()
         );
     });
 }

@@ -801,6 +801,11 @@ pub(crate) struct OrganizePanel {
     /// page — the same reason "Add PDFs" is a header button and "Delete" is
     /// a card one.
     pub(crate) extract_button: Button,
+    /// Cuts the document into one PDF per part at the pages the user names
+    /// (`write::begin_split`). Beside [`Self::extract_button`] because it is
+    /// the same gesture with a different shape: both read the open document
+    /// and write new files somewhere else, leaving the session untouched.
+    pub(crate) split_button: Button,
     pub(crate) save_button: Button,
 }
 

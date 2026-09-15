@@ -118,7 +118,7 @@ fn build_request(viewer: &Viewer, options: ExportOptions) -> Option<ExportReques
     Some(ExportRequest {
         document: session.document,
         generation: state.generation,
-        stem: file_stem_of(&session.base_name).to_owned(),
+        stem: pdf_save::document_file_stem(&session.base_name).to_owned(),
         total_pages: session.pages.len() as u32,
         options,
     })
@@ -154,18 +154,6 @@ fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request: ExportReq
     });
 }
 
-/// The part of a document's name that the exported files are named after.
-///
-/// `DocumentSession::base_name` is a file name for a file and a stand-in for
-/// the sample, so it may or may not end in `.pdf`; either way the extension
-/// is dropped, because the files being named are not PDFs.
-fn file_stem_of(base_name: &str) -> &str {
-    base_name
-        .strip_suffix(".pdf")
-        .or_else(|| base_name.strip_suffix(".PDF"))
-        .unwrap_or(base_name)
-}
-
 /// See `protect::window_of` — a toolbar click carries no window parameter of
 /// its own.
 fn window_of(viewer: &Viewer) -> Option<ApplicationWindow> {
@@ -182,20 +170,6 @@ mod tests {
     use crate::app::test_fixtures::model_session;
     use crate::app::ui_tests::built_ui;
     use pdf_document::Document;
-
-    #[test]
-    fn a_pdf_extension_is_dropped_from_the_exported_file_names() {
-        assert_eq!(file_stem_of("report.pdf"), "report");
-        assert_eq!(file_stem_of("REPORT.PDF"), "REPORT");
-    }
-
-    /// The sample's stand-in name has no extension to drop, and a name that
-    /// merely *contains* ".pdf" keeps it.
-    #[test]
-    fn a_name_without_a_pdf_extension_is_used_whole() {
-        assert_eq!(file_stem_of("Vitela sample"), "Vitela sample");
-        assert_eq!(file_stem_of("report.pdf.backup"), "report.pdf.backup");
-    }
 
     /// The gate a cold start hits. The button is insensitive with no document
     /// open, but the accelerator-free path through `begin_export` must still

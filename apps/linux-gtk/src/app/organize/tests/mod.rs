@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 
-use gtk::{gdk, gdk_pixbuf, Picture};
+use gtk::{gdk, gdk_pixbuf, Button, Picture};
 
 use super::cache::ThumbnailKey;
 use super::command::{apply_command, command, model, move_page};
@@ -100,17 +100,33 @@ impl Drop for Teardown<'_> {
     }
 }
 
+/// Undo or Redo, found by label among the header actions.
+///
+/// Reaches through the `FlowBoxChild` each action sits in — see
+/// [`action_slot`]. Neither button is on `OrganizePanel`: they carry
+/// `win.undo`/`win.redo` action names and nothing ever needs a handle to
+/// them outside a test.
 fn history_button(viewer: &Viewer, label: &str) -> Button {
-    let header = viewer.organize.save_button.parent().unwrap();
-    let mut child = header.first_child();
-    while let Some(widget) = child {
-        match widget.downcast_ref::<Button>() {
-            Some(button) if button.label().as_deref() == Some(label) => return button.clone(),
-            _ => {}
-        }
-        child = widget.next_sibling();
-    }
-    panic!("missing {label} button beside Save");
+    let actions = action_slot(&viewer.organize.save_button)
+        .parent()
+        .expect("the actions share a container");
+    std::iter::successors(actions.first_child(), |slot| slot.next_sibling())
+        .filter_map(|slot| slot.first_child())
+        .filter_map(|child| child.downcast::<Button>().ok())
+        .find(|button| button.label().as_deref() == Some(label))
+        .unwrap_or_else(|| panic!("missing {label} button beside Save"))
+}
+
+/// The header slot `button` sits in.
+///
+/// The actions are a `FlowBox`, so each one is wrapped in a `FlowBoxChild`
+/// and the buttons are not each other's direct siblings. Comparing slots is
+/// how the row's left-to-right order is asserted — see
+/// `organize::header`'s module doc for why the row wraps at all.
+fn action_slot(button: &Button) -> gtk::Widget {
+    button
+        .parent()
+        .expect("a header action sits in the actions FlowBox")
 }
 
 fn delete_button(viewer: &Viewer, index: usize) -> Button {
@@ -310,6 +326,7 @@ mod add_pdfs;
 mod blocks;
 mod documents;
 mod extract;
+mod header;
 mod history;
 mod measure;
 mod motion;
@@ -317,4 +334,5 @@ mod pages;
 mod refusals;
 mod resolution;
 mod rotation;
+mod split;
 mod thumbnails;

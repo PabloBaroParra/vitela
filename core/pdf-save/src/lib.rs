@@ -57,8 +57,8 @@ pub use clock::{
 pub use content::{has_content_edits, replay_content_edits, validate_content_command};
 pub use error::SaveError;
 pub use export::{
-    export_page_as_image, page_image_file_name, parse_page_selection, ExportFormat,
-    PageSelectionError,
+    document_file_stem, export_page_as_image, page_image_file_name, parse_page_selection,
+    split_part_file_name, ExportFormat, PageSelectionError,
 };
 pub use forms::{ensure_acroform, write_form_fields};
 pub use imported_sources::ImportedSourceRegistry;

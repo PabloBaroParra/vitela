@@ -36,14 +36,12 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    ApplicationWindow, Box as GtkBox, Button, FlowBox, Orientation, PolicyType, ProgressBar,
-    ScrolledWindow, SelectionMode, Stack,
+    ApplicationWindow, Box as GtkBox, FlowBox, Orientation, PolicyType, ScrolledWindow,
+    SelectionMode, Stack,
 };
 
 use crate::app::state::{Cards, OrganizePanel, Viewer};
-use crate::app::write::{begin_extract, show_save_chooser};
 
-use super::tools_panel::panel_heading;
 use documents::{DOCUMENTS_VIEW, PAGES_VIEW};
 use grid::{fill_missing_thumbnails, populate_grid, sort_position};
 use views::{populate_visible, showing_documents};
@@ -58,6 +56,7 @@ pub(in crate::app::organize) mod cache;
 mod command;
 mod documents;
 mod grid;
+mod header;
 mod import;
 mod motion;
 mod views;
@@ -69,7 +68,7 @@ const CARDS_PER_ROW: u32 = 5;
 /// Builds the screen's static chrome — no signal wiring beyond the grid's
 /// own drop target, which needs no `&Viewer` any more than the drop target
 /// in `home::hero::build_drop_zone` does. [`connect_organize_panel`] wires
-/// the Save button once `Viewer` exists, mirroring
+/// the rest once `Viewer` exists, mirroring
 /// `metadata::build_metadata_panel`/`connect_metadata_panel`'s own split.
 ///
 /// Returns the panel (for `Viewer::organize`) and its container (for
@@ -82,31 +81,7 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
     root.set_margin_start(16);
     root.set_margin_end(16);
 
-    let header = GtkBox::new(Orientation::Horizontal, 12);
-    let heading = panel_heading("Organize pages");
-    heading.set_hexpand(true);
-    header.append(&heading);
-    for (label, action) in [("Undo", "win.undo"), ("Redo", "win.redo")] {
-        let button = Button::with_label(label);
-        button.set_action_name(Some(action));
-        header.append(&button);
-    }
-    let add_pdfs = Button::with_label("Add PDFs");
-    header.append(&add_pdfs);
-    let import_progress = ProgressBar::new();
-    import_progress.set_hexpand(true);
-    import_progress.set_visible(false);
-    import_progress.update_property(&[gtk::accessible::Property::Label("PDF import progress")]);
-    header.append(&import_progress);
-    let cancel_import = Button::with_label("Cancel");
-    cancel_import.set_visible(false);
-    header.append(&cancel_import);
-    let extract = Button::with_label("Extract");
-    extract.set_tooltip_text(Some("Save chosen pages as a new PDF"));
-    header.append(&extract);
-    let save = Button::with_label("Save");
-    save.add_css_class("home-primary");
-    header.append(&save);
+    let (header, controls) = header::build();
     root.append(&header);
 
     let (switch, documents_toggle, pages_toggle) = views::build_switch();
@@ -174,43 +149,24 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
             cards,
             thumbnails_stale: Rc::new(Cell::new(false)),
             thumbnails: Thumbnails::new(),
-            add_pdfs_button: add_pdfs,
-            import_progress,
-            cancel_import_button: cancel_import,
-            extract_button: extract,
-            save_button: save,
+            add_pdfs_button: controls.add_pdfs,
+            import_progress: controls.import_progress,
+            cancel_import_button: controls.cancel_import,
+            extract_button: controls.extract,
+            split_button: controls.split,
+            save_button: controls.save,
         },
         root,
     )
 }
 
-/// Wires the Extract and Save buttons. Called once from `build_ui`, right after the
+/// Wires the screen's signals. Called once from `build_ui`, right after the
 /// `Viewer` struct (and so `viewer.organize`) exists — the organize twin of
 /// `metadata::connect_metadata_panel`. Needs `window`, unlike that one,
-/// because saving opens the same file chooser Ctrl+S does.
+/// because the header's buttons open choosers that are transient for it.
 pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer) {
     views::connect(viewer);
-
-    viewer.organize.add_pdfs_button.connect_clicked({
-        let window = window.clone();
-        let viewer = viewer.clone();
-        move |_| import::show_chooser(&window, &viewer)
-    });
-    viewer.organize.cancel_import_button.connect_clicked({
-        let viewer = viewer.clone();
-        move |_| import::cancel(&viewer)
-    });
-    viewer.organize.extract_button.connect_clicked({
-        let window = window.clone();
-        let viewer = viewer.clone();
-        move |_| begin_extract(&window, &viewer)
-    });
-    viewer.organize.save_button.connect_clicked({
-        let window = window.clone();
-        let viewer = viewer.clone();
-        move |_| show_save_chooser(&window, &viewer)
-    });
-
+    header::connect(window, viewer);
     grid::connect_drop(viewer);
 }
 
