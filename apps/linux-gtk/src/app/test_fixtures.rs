@@ -135,3 +135,30 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         active_tiles: Default::default(),
     }
 }
+
+/// An encrypted document opened the only way this shell can open one: with a
+/// single password. A PDF's second password cannot be derived from the first,
+/// so no full rewrite of such a document can reproduce its encryption — which
+/// is what `Viewer::full_rewrite_refusal` exists to refuse.
+///
+/// Shared rather than copied, and the copies are what motivated the move:
+/// `organize::tests` asserts that it turns a move and a delete down, `organize
+/// ::tests::rotation` that it lets a quarter-turn through, and
+/// `write::extract` that it stops an extraction before the dialog is built.
+/// Three modules asking the same question deserve one answer to ask it with.
+///
+/// The string below is a **test fixture credential** — it names no real
+/// document and unlocks nothing. CodeQL's `rust/hard-coded-cryptographic-value`
+/// fires critical on it, as it does on every fixture password in this
+/// repository; the established handling is to dismiss that alert as a false
+/// positive with the comment "test fixture credential" rather than to
+/// path-filter the query. Keeping the literal in one place keeps that to a
+/// single ruling instead of one per test module.
+pub(crate) fn one_password_security() -> pdf_document::SecurityContext {
+    pdf_document::SecurityContext {
+        handler: pdf_document::SecurityHandler::Aes128,
+        credential: pdf_document::Credential::User,
+        credentials: pdf_document::EncryptionCredentials::user("only-the-user-password"),
+        permissions: pdf_document::Permissions(0xFFFF_FFFC),
+    }
+}

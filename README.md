@@ -146,6 +146,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Edit page content | 🚧 | 🚧 | — | — | — |
 | Edit metadata | ✅ | — | — | — | — |
 | Organize & assemble pages | ✅ | — | — | — | — |
+| Extract pages to a new PDF | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
 | Protect with a password | ✅ | — | — | — | — |
 | Export to images | ✅ | — | — | — | — |

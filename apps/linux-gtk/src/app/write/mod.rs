@@ -1,10 +1,16 @@
 //! The write chains: every path that turns the open session into bytes.
 //!
-//! Four operations live here. Three of them — [`save`], [`sign`] and
+//! Five operations live here. Three of them — [`save`], [`sign`] and
 //! [`protect`] — write a file the user names, and they are near-identical by
 //! design: ask where to write, guard an overwrite, run a writer on a worker
 //! thread, then fold the reopened document back into the session. The fourth,
 //! [`preview`], reaches the same writer with no destination at all.
+//!
+//! [`extract`] is the fifth and takes one half from each side: it names a
+//! destination and guards its overwrite like the first three, and installs
+//! nothing like the fourth. That combination is what an extraction *is* — a
+//! second file built from a subset of the open document's pages, leaving the
+//! session the user is looking at exactly as it was.
 //!
 //! ## What is shared, and why
 //!
@@ -31,6 +37,7 @@
 //! literals.
 
 mod chooser;
+mod extract;
 mod preview;
 mod protect;
 mod save;
@@ -41,6 +48,7 @@ use gtk::FileFilter;
 
 use super::state::ImportedSource;
 
+pub(crate) use extract::begin_extract;
 pub(crate) use preview::refresh_preview;
 pub(crate) use protect::{begin_protect, ProtectRequest};
 pub(crate) use save::{show_save_chooser, show_save_chooser_then};
@@ -112,4 +120,20 @@ const PROTECT: WriteOperation = WriteOperation {
     busy: "Protecting PDF...",
     done: "PDF protected, saved and reopened.",
     failed: "Could not protect PDF",
+};
+
+/// The fourth operation's vocabulary — and the one entry in this table whose
+/// `done` is not what the user sees.
+///
+/// [`extract`] reports through `extract::options::extract_summary` instead,
+/// because its completion sentence names a page count and a destination path
+/// and so cannot be a constant. The field is filled rather than made optional
+/// to keep one shape for all four; `done` stays the slot it is for the three
+/// chains that reach `worker::spawn_write`.
+const EXTRACT: WriteOperation = WriteOperation {
+    title: "Save extracted PDF",
+    cancelled: "Extraction cancelled.",
+    busy: "Extracting pages...",
+    done: "Pages extracted.",
+    failed: "Could not extract pages",
 };
