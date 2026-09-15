@@ -100,7 +100,7 @@ next** — actively being built · 🔮 **Planned** — on the roadmap, not star
 | PDF overlay | Stamp one PDF on top of another | `pdf-annotate` | 🚧 In progress / next |
 | Images to PDF | Build a PDF from image files | — | 🔮 Planned |
 | Extract images | Pull embedded images out of a PDF | — | 🔮 Planned |
-| Compress PDF | Reduce file size | — | 🔮 Planned |
+| Compress PDF | Reduce file size | `pdf-compress` *(planned)* | 🔮 Planned |
 | Optimize for web | Linearize for fast web viewing | `pdf-save` | 🔮 Planned |
 | Convert PDF | Convert to/from other document formats | — | 🔮 Planned |
 | Compare PDF | Diff two PDFs side by side | — | 🔮 Planned |

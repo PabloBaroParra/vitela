@@ -1,0 +1,13 @@
+[package]
+name = "pdf-compress"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "File-size reduction: structural repack, resource prune and image resampling, all under a never-grow guarantee. Batch 24 (T-190..T-197); T-190 ships the guarantee and the preset table, not the optimisation."
+publish = false
+
+# No dependencies yet, and that is the point. T-190 is the never-grow
+# guarantee and the preset table, neither of which parses a PDF. `lopdf`
+# arrives with the structural pass (T-191); `image` with the resampler
+# (T-194). A crate that cannot yet open a document cannot yet damage one.
+[dependencies]
