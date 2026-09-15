@@ -52,13 +52,11 @@ pub(super) fn spawn_export(viewer: &Viewer, request: &ExportRequest, folder: Pat
                 )
             })
             .await;
-            // A finished export says nothing at all once the document it was
-            // about has been replaced. Deliberately *not* `write::worker`'s
-            // `session_matches`: that one asks "may I install this result",
-            // and gates on the edit revision too. Nothing is installed here,
-            // and an edit recorded mid-export does not make the files that
-            // were written any less true — only a different document does.
-            if !session_is_still(&viewer, generation) {
+            // A finished export says nothing at all once the document it
+            // was about has been replaced — see
+            // `Viewer::session_is_generation` for why that guard, and not
+            // `write::worker::session_matches`, is the right one here.
+            if !viewer.session_is_generation(generation) {
                 return;
             }
             match result {
@@ -99,11 +97,6 @@ fn write_pages(
             .map_err(|error| format!("Could not write {name}: {error}"))?;
     }
     Ok(pages.len())
-}
-
-/// Whether the session that started an export is still the open one.
-fn session_is_still(viewer: &Viewer, generation: u64) -> bool {
-    viewer.state.borrow().generation == generation
 }
 
 #[cfg(test)]

@@ -202,6 +202,24 @@ impl Viewer {
     ///
     /// With no editable model there is nothing to answer; the Organize screen
     /// already reports that case in its own words.
+    /// Whether the document open right now is the one generation
+    /// `generation` named.
+    ///
+    /// The staleness guard for background work that **installs nothing** —
+    /// an image export, a page extraction. Both write files outside the
+    /// session and then want to say so, and both must stay silent once the
+    /// document they were about has been replaced.
+    ///
+    /// Deliberately weaker than `write::worker::session_matches`, which also
+    /// compares the edit revision. That one asks "may I install this result",
+    /// and an edit landing mid-flight is exactly what must stop an install.
+    /// Nothing is installed here, and an edit recorded while files were being
+    /// written does not make those files any less true — only a different
+    /// document does.
+    pub(crate) fn session_is_generation(&self, generation: u64) -> bool {
+        self.state.borrow().generation == generation
+    }
+
     pub(crate) fn full_rewrite_refusal(&self) -> Option<&'static str> {
         let state = self.state.borrow();
         let security = state
@@ -777,6 +795,12 @@ pub(crate) struct OrganizePanel {
     pub(crate) add_pdfs_button: Button,
     pub(crate) import_progress: ProgressBar,
     pub(crate) cancel_import_button: Button,
+    /// Pulls the pages the user names out into a second PDF
+    /// (`write::begin_extract`). Beside Save rather than on a card, because
+    /// it acts on a selection spanning the whole document rather than on one
+    /// page — the same reason "Add PDFs" is a header button and "Delete" is
+    /// a card one.
+    pub(crate) extract_button: Button,
     pub(crate) save_button: Button,
 }
 

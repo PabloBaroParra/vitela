@@ -19,9 +19,12 @@ fn gtk_ui_header_exposes_add_pdfs_before_save() {
             viewer.organize.add_pdfs_button.next_sibling(),
             Some(viewer.organize.import_progress.clone().upcast())
         );
+        // The import group still ends where it did; what follows it is now
+        // Extract, which `extract::gtk_ui_extract_sits_between_the_import_group_and_save`
+        // pins from the other side.
         assert_eq!(
             viewer.organize.cancel_import_button.next_sibling(),
-            Some(viewer.organize.save_button.clone().upcast())
+            Some(viewer.organize.extract_button.clone().upcast())
         );
         assert!(!viewer.organize.import_progress.is_visible());
         assert!(!viewer.organize.cancel_import_button.is_visible());

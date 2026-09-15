@@ -325,6 +325,7 @@ fn with_documents(
 mod add_pdfs;
 mod blocks;
 mod documents;
+mod extract;
 mod history;
 mod measure;
 mod motion;

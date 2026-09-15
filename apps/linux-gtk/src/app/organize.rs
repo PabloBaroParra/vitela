@@ -41,7 +41,7 @@ use gtk::{
 };
 
 use crate::app::state::{Cards, OrganizePanel, Viewer};
-use crate::app::write::show_save_chooser;
+use crate::app::write::{begin_extract, show_save_chooser};
 
 use super::tools_panel::panel_heading;
 use documents::{DOCUMENTS_VIEW, PAGES_VIEW};
@@ -101,6 +101,9 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
     let cancel_import = Button::with_label("Cancel");
     cancel_import.set_visible(false);
     header.append(&cancel_import);
+    let extract = Button::with_label("Extract");
+    extract.set_tooltip_text(Some("Save chosen pages as a new PDF"));
+    header.append(&extract);
     let save = Button::with_label("Save");
     save.add_css_class("home-primary");
     header.append(&save);
@@ -174,13 +177,14 @@ pub(crate) fn build_organize_panel() -> (OrganizePanel, GtkBox) {
             add_pdfs_button: add_pdfs,
             import_progress,
             cancel_import_button: cancel_import,
+            extract_button: extract,
             save_button: save,
         },
         root,
     )
 }
 
-/// Wires the Save button. Called once from `build_ui`, right after the
+/// Wires the Extract and Save buttons. Called once from `build_ui`, right after the
 /// `Viewer` struct (and so `viewer.organize`) exists — the organize twin of
 /// `metadata::connect_metadata_panel`. Needs `window`, unlike that one,
 /// because saving opens the same file chooser Ctrl+S does.
@@ -195,6 +199,11 @@ pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer
     viewer.organize.cancel_import_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| import::cancel(&viewer)
+    });
+    viewer.organize.extract_button.connect_clicked({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_| begin_extract(&window, &viewer)
     });
     viewer.organize.save_button.connect_clicked({
         let window = window.clone();
