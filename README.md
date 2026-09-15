@@ -107,7 +107,7 @@ next** — actively being built · 🔮 **Planned** — on the roadmap, not star
 | Edit PDF | Edit page body content (text / images), in-place, no reflow | `pdf-edit` *(planned)* | 🚧 In progress / next |
 | Redact PDF | Black out and remove sensitive content | — | 🔮 Planned |
 | PDF OCR | Make scanned PDFs searchable | — | 🔮 Planned |
-| Edit metadata | Edit the PDF's Info Dictionary (title, author, subject, keywords, dates) | `pdf-document`/`pdf-save` *(planned)* | 🔮 Planned |
+| Edit metadata | Edit the PDF's Info Dictionary (title, author, subject, keywords, dates) | `pdf-document`/`pdf-save` | ✅ Core ready |
 
 Note: rendering remote web pages to PDF is **deliberately excluded** — fetching
 a URL would break the offline-first, zero-network guarantee.
@@ -144,6 +144,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | ✅ | ✅ | — | — | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
+| Edit metadata | ✅ | — | — | — | — |
 | Organize & assemble pages | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
 | Protect with a password | ✅ | — | — | — | — |

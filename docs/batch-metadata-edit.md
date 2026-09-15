@@ -148,10 +148,13 @@ que convivir con ambos hechos, no reinventarlos.
 
 ## Tareas de UI (agregar a la ficha de B8, docs/batches-b8-b13.md, cuando arranque)
 
-- [ ] T-176 (dep B22) Panel "Propiedades del documento": campos editables para los
+- [x] T-176 (dep B22) Panel "Propiedades del documento": campos editables para los
       siete campos de texto + selector de fecha para Creation/ModDate; guarda vía
       `SetDocumentInfo`. Mismo patrón de panel lateral que ya usan formularios (B20).
       [MetadataUI]
+      **(2026-08-27 — completo, en `3fe5114` (#111): `apps/linux-gtk/src/app/metadata.rs`,
+      construido en `app/mod.rs:258` y conectado en `app/mod.rs:442`. Con esto B22 queda
+      cerrado entero, T-167 a T-176.)**
 
 ## Criterios de aceptación
 
