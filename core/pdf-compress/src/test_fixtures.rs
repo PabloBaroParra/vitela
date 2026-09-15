@@ -11,6 +11,7 @@
 
 use lopdf::content::{Content, Operation};
 use lopdf::xref::XrefType;
+use lopdf::ObjectId;
 use lopdf::{
     dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions, Stream,
 };
@@ -138,4 +139,53 @@ pub(crate) fn encrypted_document() -> Vec<u8> {
     document.encrypt(&state).expect("the fixture encrypts");
 
     serialise(&mut document)
+}
+
+/// A stream carrying `content`, with a `start_position` as if it had been read
+/// from `offset`.
+///
+/// That field is the point: `lopdf::Stream` derives `PartialEq` over it, so
+/// two byte-identical streams read from different offsets are "different"
+/// objects as far as `==` is concerned. A dedup written with `==` finds
+/// nothing, and a fixture that always used the same offset would never say so.
+pub(crate) fn stream_read_from(content: &[u8], offset: usize) -> Object {
+    let mut stream = Stream::new(
+        dictionary! { "Length" => content.len() as i64 },
+        content.to_vec(),
+    );
+    stream.start_position = Some(offset);
+    Object::Stream(stream)
+}
+
+/// Hangs `id` off the catalog, so a sweep can reach it.
+pub(crate) fn attach_to_catalog(document: &mut Document, id: ObjectId) {
+    let catalog_id = document
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .expect("the fixture names a catalog");
+    document
+        .get_object_mut(catalog_id)
+        .and_then(|object| object.as_dict_mut())
+        .expect("the catalog is a dictionary")
+        .set("VitelaTestHolder", id);
+}
+
+/// Adds `id` to the page tree's `/Kids`, so a cloned page is a real second
+/// page rather than an orphan.
+pub(crate) fn add_kid(document: &mut Document, id: ObjectId) {
+    let pages_id = document
+        .catalog()
+        .ok()
+        .and_then(|catalog| catalog.get(b"Pages").ok())
+        .and_then(|pages| pages.as_reference().ok())
+        .expect("the fixture has a page tree");
+    let tree = document
+        .get_object_mut(pages_id)
+        .and_then(|object| object.as_dict_mut())
+        .expect("the page tree is a dictionary");
+    if let Ok(Object::Array(kids)) = tree.get_mut(b"Kids") {
+        kids.push(Object::Reference(id));
+    }
+    tree.set("Count", 2i64);
 }

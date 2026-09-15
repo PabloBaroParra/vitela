@@ -8,12 +8,19 @@
 //! square where a font used to be. The only check that cannot be fooled that
 //! way is the raster.
 //!
-//! So this file rasterises every page of every corpus document twice — once
+//! So this file rasterises the pages of every corpus document twice — once
 //! from the bytes the user handed in, once from what
 //! [`pdf_compress::compress`] gave back — and compares the two bitmaps pixel
 //! for pixel. Not "similar", not "within a threshold": identical. `Lossless`
 //! changes how bytes are stored and nothing about what they draw, so anything
 //! short of equality is a bug rather than a tolerance.
+//!
+//! The corpus is [`common::CORPUS`] itself rather than a list kept here, so a
+//! fixture added by T-197 is rendered without anyone remembering to add it
+//! twice. Documents this crate hands back untouched — encrypted and signed —
+//! fall out on their own: comparing those renders would compare a file with
+//! itself, so they are skipped where that is detected rather than by being
+//! left off a list.
 //!
 //! The rasteriser is `pdf-render`, the same pdfium the app itself paints
 //! with, as a dev-dependency — this crate does not depend on a rasteriser to
@@ -21,56 +28,24 @@
 //! `pdf-save/tests/preview_raster.rs`, which checks the consequence of a save
 //! where the consequence was visible.
 
-use std::path::{Path, PathBuf};
+mod common;
 
+use common::{page_count, read, CORPUS};
 use pdf_compress::{compress, CompressPreset};
 use pdf_render::{PdfiumRenderer, Priority, RenderOptions};
 
 /// Rendering DPI. 72 means one bitmap pixel per PDF point — the page's own
-/// units, no resampling of the rasteriser's own making between the two
+/// units, so the rasteriser introduces no scaling of its own between the two
 /// renders being compared.
 const DPI: u32 = 72;
 
 /// How many pages of a document are checked.
 ///
-/// The whole point is the pages, so the cap is high enough to cover every
-/// committed fixture outright. It exists for the generated 200-page file,
-/// where rendering every page would turn a correctness test into a benchmark
-/// and the two-hundredth page proves nothing the twelfth did not.
+/// High enough to cover every committed fixture outright. It exists for the
+/// generated 200-page file, where rendering every page would turn a
+/// correctness test into a benchmark and the two-hundredth page proves
+/// nothing the twelfth did not.
 const MAX_PAGES: usize = 12;
-
-/// The corpus, as file paths. Encrypted and signed documents are left out on
-/// purpose: this crate hands those back byte for byte, so comparing their
-/// renders would compare a file with itself and pass no matter what the
-/// prune did.
-const RENDERABLE: &[(&str, bool)] = &[
-    ("assets/sample/vitela-sample.pdf", false),
-    (
-        "tests/fixtures/content-edit/reportlab_embedded_subset.pdf",
-        false,
-    ),
-    ("tests/fixtures/large/edit_reopen_10pg.pdf", true),
-    ("tests/fixtures/large/edit_reopen_50pg.pdf", true),
-    ("tests/fixtures/large/perf_200pg.pdf", true),
-];
-
-fn repository_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .canonicalize()
-        .expect("the crate sits two directories below the repository root")
-}
-
-/// Reads a corpus entry, or `None` when it is a generated fixture that has
-/// not been generated in this checkout.
-fn read(path: &str, generated: bool) -> Option<Vec<u8>> {
-    match std::fs::read(repository_root().join(path)) {
-        Ok(bytes) => Some(bytes),
-        Err(_) if generated => None,
-        Err(err) => panic!("committed fixture {path} is missing: {err}"),
-    }
-}
 
 /// One rendered page as `(width, height, pixels)`.
 fn render(renderer: &PdfiumRenderer, bytes: Vec<u8>, page: u32) -> (u32, u32, Vec<u8>) {
@@ -96,12 +71,6 @@ fn render(renderer: &PdfiumRenderer, bytes: Vec<u8>, page: u32) -> (u32, u32, Ve
     )
 }
 
-fn page_count(bytes: &[u8]) -> usize {
-    lopdf::Document::load_mem(bytes)
-        .map(|document| document.get_pages().len())
-        .unwrap_or(0)
-}
-
 /// The criterion. Every page of every compressible corpus document must paint
 /// exactly the same pixels after `Lossless` as before it.
 ///
@@ -112,24 +81,25 @@ fn page_count(bytes: &[u8]) -> usize {
 #[test]
 fn lossless_compression_paints_the_same_pixels() {
     let renderer = PdfiumRenderer::new();
+    let mut compared = 0;
 
-    for (path, generated) in RENDERABLE {
-        let Some(input) = read(path, *generated) else {
+    for fixture in CORPUS {
+        let Some(input) = read(fixture) else {
             continue;
         };
 
         let compressed = compress(&input, CompressPreset::Lossless)
-            .unwrap_or_else(|err| panic!("{path} could not be compressed: {err}"));
+            .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path));
 
-        // A document that came back untouched has nothing to compare; the
-        // corpus guard in `corpus.rs` is what pins that it came back
-        // untouched for a stated reason.
+        // A document that came back untouched has nothing to compare. The
+        // guardian in `corpus.rs` is what pins that it came back untouched
+        // for a stated reason.
         if compressed.bytes() == input.as_slice() {
             continue;
         }
 
-        let pages = page_count(&input).min(MAX_PAGES);
-        assert!(pages > 0, "{path} has no pages to compare");
+        let pages = page_count(&input).unwrap_or(0).min(MAX_PAGES);
+        assert!(pages > 0, "{} has no pages to compare", fixture.path);
 
         for page in 0..pages {
             let page = u32::try_from(page).expect("MAX_PAGES fits in a u32");
@@ -139,12 +109,14 @@ fn lossless_compression_paints_the_same_pixels() {
             assert_eq!(
                 (before.0, before.1),
                 (after.0, after.1),
-                "{path} page {page} changed size when compressed"
+                "{} page {page} changed size when compressed",
+                fixture.path
             );
             assert!(
                 before.2 == after.2,
-                "{path} page {page} paints different pixels after Lossless compression \
+                "{} page {page} paints different pixels after Lossless compression \
                  ({} of {} bytes differ)",
+                fixture.path,
                 before
                     .2
                     .iter()
@@ -153,8 +125,14 @@ fn lossless_compression_paints_the_same_pixels() {
                     .count(),
                 before.2.len()
             );
+            compared += 1;
         }
     }
+
+    assert!(
+        compared > 0,
+        "no page was compared; this test passed without looking at anything"
+    );
 }
 
 /// The premise under the test above, and the reason it is worth running: this
@@ -163,12 +141,8 @@ fn lossless_compression_paints_the_same_pixels() {
 #[test]
 fn the_comparison_can_tell_two_documents_apart() {
     let renderer = PdfiumRenderer::new();
-    let sample = read("assets/sample/vitela-sample.pdf", false).expect("committed");
-    let other = read(
-        "tests/fixtures/content-edit/reportlab_embedded_subset.pdf",
-        false,
-    )
-    .expect("committed");
+    let sample = read(&CORPUS[0]).expect("the first corpus entry is committed");
+    let other = read(&CORPUS[1]).expect("the second corpus entry is committed");
 
     let left = render(&renderer, sample, 0);
     let right = render(&renderer, other, 0);

@@ -369,11 +369,36 @@ para que no confunda dos cosas que se llaman igual.
       xref por objeto podado. Es otra feature, con un radio de daño mucho mayor, y no se
       cuela acá.
 
+      **Segundo commit: el corte por responsabilidad, y el bug que destapó.**
+      `prune.rs` salió en 766 líneas, muy por encima de la señal de 350 de
+      `scripts/check_maintainability.py` y de la regla de `CLAUDE.md`. Partido en
+      `prune/mod.rs` (el orden), `prune/merge.rs` (las rondas y las exclusiones),
+      `prune/sweep.rs` (alcanzabilidad e id space) y `prune/identity.rs` (*cuándo dos
+      objetos son la misma cosa* — donde vive la trampa del `start_position`). Los tests de
+      integración siguieron el mismo criterio: `tests/common/mod.rs` (el corpus),
+      `tests/corpus.rs` (guardianes), `tests/measure.rs` (la tabla).
+
+      **Y al partirlo apareció un bug que el archivo único tapaba: la fusión nunca
+      convergía.** Como no borra nada, las copias colapsadas seguían en `objects`, seguían
+      byte-idénticas a su sobreviviente, y cada ronda volvía a encontrarlas. El bucle corría
+      las **8 rondas siempre**, redirigiendo el grafo entero ocho veces en cada documento.
+      No se veía porque el contador que se usaba era el de la barrida, no el de la fusión;
+      al mover los tests al módulo de la fusión, dos empezaron a reportar 8 y 21 en vez de
+      1 y 3. Arreglado con un conjunto `retired` que excluye lo ya colapsado de las rondas
+      siguientes — ahora termina en 2 rondas en el caso simple y en 4 en el encadenado.
+      Esto es la regla de no-monolitos pagando sola: el corte no fue cosmético, encontró el
+      bug.
+
+      Tras el corte, **cero warnings de mantenibilidad en `pdf-compress`** (el total del
+      repo bajó de 105 a 103).
+
       Verificado en Windows: ciclo TDD real — el primer `cargo test -p pdf-compress --lib`
       con los dos tests de idempotencia escritos y nada implementado dio **2 fallas / 40
-      pasadas**. Gates completos: `cargo fmt --all --check` (exit 0),
-      `cargo clippy --workspace --all-targets -- -D warnings` (limpio) y
-      `cargo test --workspace` → **1127 passed, 0 failed** (eran 1100 en T-191).**
+      pasadas**. Gates completos: `cargo fmt --all -- --check` (exit 0),
+      `cargo clippy --workspace --all-targets --locked -- -D warnings` (limpio),
+      `cargo test --workspace --locked` → **1136 passed, 0 failed** (eran 1100 en T-191),
+      `scripts/check_readme_tables.py` OK y `scripts/check_maintainability.py` sin ningún
+      warning en el crate.**
 
 ### Fase 2 — Imágenes
 - [ ] T-193 (dep T-190) Inventario de imágenes con DPI **efectivo** por colocación: los
@@ -406,11 +431,11 @@ para que no confunda dos cosas que se llaman igual.
       byte-idéntico" sobre el corpus que hay hoy. T-197 es **agregar filas a `CORPUS`**, no
       escribir el harness de cero. Falta el escaneo, el vectorial puro y el de
       transparencia real.
-      **Nota de T-192:** hay un segundo arnés, `core/pdf-compress/tests/render_unchanged.rs`,
-      que rasteriza cada fixture antes y después y compara píxel a píxel. Tiene su propia
-      lista (`RENDERABLE`) porque excluye los protegidos, que vuelven byte-idénticos y
-      compararían un archivo consigo mismo. Cada fila nueva de `CORPUS` que sea comprimible
-      va también ahí, o el fixture entra sin que nadie mire lo que dibuja.
+      **Nota de T-192:** el corpus vive ahora en `tests/common/mod.rs` y lo comparten los
+      tres arneses — `corpus.rs` (los guardianes), `measure.rs` (la tabla del hecho 4) y
+      `render_unchanged.rs` (píxel a píxel). **Agregar una fila a `CORPUS` alcanza**: los
+      tres la levantan sola, incluido el render. Los protegidos se excluyen del render
+      porque vuelven byte-idénticos y se detecta ahí, no por estar fuera de una lista.
 
 ### Fase 5 — Docs
 - [x] T-198 README: la fila "Compress PDF" pasa de columna de crate `—` a
