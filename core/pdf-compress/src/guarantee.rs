@@ -58,23 +58,31 @@ impl Candidate {
 
     /// Records what producing these bytes took. Only honoured if the
     /// candidate wins.
-    //
-    // Unused by the no-op pipeline, and exercised only by this module's tests
-    // until the stages that count something arrive: T-191 (streams), T-192
-    // (objects), T-194 (images).
-    #[allow(dead_code)]
     pub(crate) fn with_work(mut self, work: Work) -> Self {
         self.work = work;
         self
     }
 
     /// Records something that could not be done. Survives rejection.
-    //
-    // Unused until the save-side gates land in T-195 (see `Refusal`).
-    #[allow(dead_code)]
     pub(crate) fn refusing(mut self, refusal: Refusal) -> Self {
         self.refusals.push(refusal);
         self
+    }
+
+    /// What this candidate claims to have done — a claim, not yet a fact
+    /// about the caller's file. Exists so a stage can assert on its own
+    /// counting without going through [`compress_with`], which zeroes the
+    /// claim of a candidate that loses.
+    #[cfg(test)]
+    pub(crate) fn work(&self) -> Work {
+        self.work
+    }
+
+    /// What this candidate could not do. Unlike the work counters, these
+    /// survive rejection — see this module's header.
+    #[cfg(test)]
+    pub(crate) fn refusals(&self) -> &[Refusal] {
+        &self.refusals
     }
 }
 

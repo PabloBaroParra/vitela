@@ -38,11 +38,17 @@ para que no confunda dos cosas que se llaman igual.
    comprime todo `Object::Stream` con `allows_compression`). La compresión estructural no
    necesita dependencias nuevas: está en una dependencia que ya está en el árbol.
 
-4. **Consecuencia a MEDIR, no a asumir:** un documento que llegó con object streams y xref
-   stream se reescribe hoy como objetos sueltos + xref clásico. Ese camino **puede inflar**
-   el archivo. La primera tarea de la fase 1 es medirlo sobre el corpus, no afirmarlo. Si se
-   confirma, esta feature no solo agrega compresión: tapa una regresión de tamaño que ya
-   existe en el full rewrite.
+4. ~~**Consecuencia a MEDIR, no a asumir:**~~ **MEDIDO en T-191 — confirmado.** Un
+   documento que llegó con object streams y xref stream se reescribe hoy como objetos
+   sueltos + xref clásico, y eso **sí infla**: +11,6 % sobre `vitela-sample`, +3,7 % sobre
+   el fixture de ReportLab. La tabla completa está en T-191, y la afirmación quedó fijada
+   por un test (`todays_full_rewrite_inflates_a_document_that_arrived_packed`) en vez de
+   por esta línea. Así que sí: esta feature tapa una regresión de tamaño que ya existía en
+   el full rewrite.
+   **Y además apareció algo peor que inflar, que el hecho 4 no anticipaba:** el full
+   rewrite de hoy *destruye* dos clases de documento. Un cifrado se carga como documento
+   vacío y se reescribe como PDF sin páginas; un firmado colapsa sus revisiones y se lleva
+   puesta la firma (−92 % de tamaño, que **es** la firma). Ver T-191.
 
 5. **Colisión de nombres, cuidado.** `pdf-save` ya tiene su propio `SaveOptions`
    (`strategy.rs:38`), que es el reloj y el generador de `/ID` inyectables para guardados
@@ -164,10 +170,94 @@ para que no confunda dos cosas que se llaman igual.
       nuevo) y `cargo test --workspace` → **1078 passed, 0 failed**. El gate de
       `linux-gtk` no se ejercita acá y no hace falta: `pdf-compress` no tiene dependencia
       de shell y en Windows ese crate compila vacío por `cfg(target_os)`.**
-- [ ] T-191 (dep T-190) Pasada estructural: `use_object_streams` + `use_xref_streams` vía
+- [x] T-191 (dep T-190) Pasada estructural: `use_object_streams` + `use_xref_streams` vía
       `save_with_options`, más `Document::compress()` sobre los streams sin filtrar.
       **Incluye medir el hecho 4**: tamaño de entrada vs. tamaño tras un full rewrite actual
       sobre todo el corpus, y dejar la tabla de resultados en esta ficha. [Compress]
+      **(2026-09-15 — completo.** Módulo nuevo `core/pdf-compress/src/structural.rs`; el
+      `pipeline.rs` deja de ser una costura vacía y pasa a ser sólo el orden de las etapas.
+      Alta de `lopdf` y de `pdf-manip` en el `Cargo.toml` del crate.
+
+      **Qué hace la pasada:** carga con `load_mem`, flatea todo stream que llegó **sin**
+      `/Filter` (contando cuántos, que es la única razón por la que no se usa
+      `Document::compress()` tal cual: devuelve `()` y el reporte tendría que adivinar), y
+      escribe con `save_with_options` pidiendo object streams + xref stream.
+
+      **La tabla del hecho 4** — reproducible con
+      `cargo test -p pdf-compress --test corpus -- --nocapture measure`:
+
+      | fixture | original | `save_to` de hoy | `compress()` | vs. original |
+      |---|---:|---:|---:|---:|
+      | `assets/sample/vitela-sample.pdf` | 2 060 | 2 060 (+0,0 %) | 1 382 | **−32,9 %** |
+      | `content-edit/reportlab_embedded_subset.pdf` | 33 175 | 32 901 (−0,8 %) | 20 080 | **−39,5 %** |
+      | `signed/rsa2048_sha256.pdf` | 34 169 | 33 754 (−1,2 %) | 34 169 | 0,0 % (rechazado) |
+      | `signed/two_signatures_rsa2048_sha256.pdf` | 67 777 | 66 825 (−1,4 %) | 67 777 | 0,0 % (rechazado) |
+      | `encrypted/rc4_128_user_and_owner.pdf` | 892 | **lo destruye** | 892 | 0,0 % (rechazado) |
+      | `encrypted/aes_128_user_and_owner.pdf` | 1 010 | **lo destruye** | 1 010 | 0,0 % (rechazado) |
+      | `large/edit_reopen_10pg.pdf` | 299 640 | 299 640 (+0,0 %) | 297 992 | −0,5 % |
+      | `large/edit_reopen_50pg.pdf` | 13 680 638 | 13 680 638 (+0,0 %) | 13 671 752 | −0,1 % |
+      | `large/perf_200pg.pdf` | 54 723 957 | 54 723 957 (+0,0 %) | 54 687 459 | −0,1 % |
+
+      **El hecho 4, respondido de verdad.** Ninguno de esos fixtures llegó *con* object
+      streams — todos se escribieron con xref clásico — así que la primera tabla no podía
+      contestar la pregunta. La medición construye el caso que faltaba: empaqueta el
+      fixture primero y **después** lo pasa por el `save_to` de hoy:
+
+      | fixture (empaquetado primero) | empaquetado | `save_to` de hoy | delta |
+      |---|---:|---:|---:|
+      | `assets/sample/vitela-sample.pdf` | 1 774 | 1 980 | **+11,6 %** |
+      | `content-edit/reportlab_embedded_subset.pdf` | 31 631 | 32 808 | **+3,7 %** |
+      | `large/edit_reopen_10pg.pdf` | 297 992 | 299 145 | +0,4 % |
+      | `large/edit_reopen_50pg.pdf` | 13 671 752 | 13 678 066 | +0,0 % |
+      | `large/perf_200pg.pdf` | 54 687 459 | 54 713 585 | +0,0 % |
+
+      Confirmado: el camino de guardado de hoy infla un documento que llegó empaquetado, y
+      el efecto es proporcionalmente grande en archivos chicos (donde el xref clásico y los
+      diccionarios sueltos son un porcentaje real del archivo) y despreciable en los
+      raster-heavy (donde las imágenes son todo). Queda fijado por test, no por esta tabla.
+
+      **Dos hallazgos que la medición encontró y el diseño no anticipaba.** Los dos son del
+      mismo tipo: la garantía de "nunca agrandar" **no** los ve, porque los dos producen un
+      archivo más chico.
+
+      1. **Un documento cifrado se carga vacío.** `Document::load_mem` sobre un PDF cifrado
+         *no falla*: devuelve un handle que no tiene más que el `/Encrypt` — el lector
+         abandona apenas ve que no hay password, antes de desempaquetar un solo objeto (el
+         mismo gotcha que `pdf_manip::open` ya documenta del lado de la carga).
+         Re-serializar eso escribe un PDF válido, chiquito y **sin páginas**. Es más chico
+         que la entrada, así que la garantía lo aceptaría y le entregaría al usuario un
+         archivo sin su documento adentro. **La garantía protege contra crecer, no contra
+         desaparecer.** La pasada ahora devuelve el cifrado intacto con
+         `Refusal::EncryptedDocumentNotRewritable`.
+      2. **Un documento firmado bajaba 92 % — y el 92 % era la firma.** Con la página
+         perfectamente intacta, así que ni siquiera el chequeo de páginas lo agarraba. Un
+         PDF firmado es una revisión base más un incremental update; cargarlo y
+         re-serializarlo colapsa las dos en una y deja el `/ByteRange` de la firma
+         describiendo bytes que ya no existen. Ahora se devuelve intacto con
+         `Refusal::SignaturesWouldBeInvalidated`, que es **exactamente** lo que esa variante
+         decía en T-190: *"el llamador no dijo que lo sabe; el archivo se deja en paz hasta
+         que lo diga"*. T-195 es quien agrega el decirlo (decisión 7). Hasta entonces el
+         default es el seguro, porque la alternativa es mostrarle a alguien "¡92 % más
+         chico!" sobre un documento cuya firma se fue.
+         La detección es `pdf_manip::document_has_signatures`, no una segunda opinión
+         escrita acá — por eso entra `pdf-manip` como dependencia.
+
+      **Dos guardas más, chicas:**
+      - La pasada **relee** el candidato y cuenta páginas antes de ofrecerlo. Un repack que
+         pierde páginas ganaría la comparación de tamaños; una parseada extra por compresión
+         cuesta menos que esa clase de bug.
+      - `SaveOptions::builder()` **no se usa**, y hay un test que lo fija: su
+         `compression_level` arranca en `0` y `build()` lo pasa tal cual, así que un builder
+         al que nadie le llamó `.compression_level()` escribe los object streams **sin
+         comprimir** — lo contrario del objetivo. `ObjectStreamConfig::default()` es nivel 6.
+
+      Verificado en Windows: ciclo TDD real — la primera corrida dio **4 fallas / 34
+      pasadas**, y tres de esas fallas eran expectativas mías equivocadas sobre `lopdf`
+      (`Stream::compress` sólo cambia el contenido si los bytes flateados ganan por más de
+      los 19 que cuesta la entrada `/FlateDecode`, así que un content stream de una línea
+      queda crudo y **bien**). Gates completos: `cargo fmt --check` (exit 0),
+      `cargo clippy --workspace --all-targets -- -D warnings` (limpio) y
+      `cargo test --workspace` → **1100 passed, 0 failed** (eran 1078 en T-190).**
 - [ ] T-192 (dep T-191) Poda: objetos huérfanos (no alcanzables desde el catálogo) y
       recursos duplicados por hash de contenido. Cero cambios visuales — verificado por
       render comparado, no por inspección del árbol. [Compress]
@@ -185,6 +275,11 @@ para que no confunda dos cosas que se llaman igual.
 - [ ] T-195 (dep T-191, T-194) Punto de entrada en `pdf-save`: compresión como paso previo
       a la escritura, con la compuerta de cifrado (`full_rewrite_blocker`) y el aviso de
       firma inválida. Sin `Command` nuevo y sin tocar el `EditLog` (decisión 2). [Compress]
+      **Nota de T-191:** el default ya es el seguro — un documento firmado se devuelve
+      intacto con `Refusal::SignaturesWouldBeInvalidated`. Lo que T-195 agrega no es el
+      rechazo sino **el camino del sí**: cómo el llamador dice "sé que se invalida, dale".
+      Mismo criterio para el cifrado: hoy se rechaza porque no se puede leer; T-195 es quien
+      decide si, teniendo la password, se puede.
 - [ ] T-196 (dep T-195) Exposición en `pdf-ffi` para los shells: preset, ejecución y
       lectura del reporte. [Compress, FFI]
 
@@ -193,6 +288,11 @@ para que no confunda dos cosas que se llaman igual.
       vectorial puro (donde la única ganancia posible es estructural), uno con transparencia
       real (`/SMask`), uno ya comprimido al máximo (caso `NoGain`), uno cifrado y uno
       firmado. Test guardián: **ningún fixture crece con ningún preset**. [CompressFixtures]
+      **Nota de T-191:** el arnés ya existe — `core/pdf-compress/tests/corpus.rs` corre el
+      guardián de "no crece", el de "no pierde páginas" y el de "protegido vuelve
+      byte-idéntico" sobre el corpus que hay hoy. T-197 es **agregar filas a `CORPUS`**, no
+      escribir el harness de cero. Falta el escaneo, el vectorial puro y el de
+      transparencia real.
 
 ### Fase 5 — Docs
 - [x] T-198 README: la fila "Compress PDF" pasa de columna de crate `—` a

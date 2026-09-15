@@ -1,50 +1,75 @@
-//! Where the optimisation will live. Empty on purpose.
+//! The order the stages run in, and nothing else.
 //!
-//! T-190 ships the guarantee, not the compression — `docs/batch-compress.md`
-//! puts it first precisely so the net exists before anyone steps onto the
-//! wire. Until the real stages land, [`run`] hands the input straight back,
-//! [`crate::guarantee`] measures it as no smaller, and [`crate::compress`]
-//! answers `NoGain`. That is the honest result for a crate that has not been
-//! taught to compress anything yet, and it is already the correct one.
+//! ## The rule this module exists to keep
 //!
-//! What replaces this body, in order:
+//! *Each stage decides what it does; this module decides only when it runs.*
 //!
-//! - **T-191** — the structural pass: object streams and a cross-reference
-//!   stream via lopdf's `save_with_options`, plus flate over streams that
-//!   arrived unfiltered. Also the task that has to *measure* whether today's
-//!   plain `save_to` inflates a document that came in with object streams.
+//! Kept thin on purpose. A stage that knows about the stage after it is a
+//! stage that cannot be tested on its own, and this is the file every future
+//! task edits — so the less it holds, the less each of those tasks can break.
+//!
+//! What runs, and in what order:
+//!
+//! - **T-191**, [`structural`] — the repack: object streams, a
+//!   cross-reference stream, flate over streams that arrived unfiltered. Runs
+//!   for every preset, because it is what
+//!   [`CompressPreset::Lossless`](crate::CompressPreset::Lossless) *is* and
+//!   the other two are it plus images.
+//!
+//! Still to land here:
+//!
 //! - **T-192** — the prune: objects unreachable from the catalog, and
 //!   byte-identical duplicate resources.
-//! - **T-194** — the image stage, under [`CompressPreset::image_policy`].
+//! - **T-194** — the image stage, under
+//!   [`CompressPreset::image_policy`](crate::CompressPreset::image_policy),
+//!   which is where the `preset` argument stops being ignored.
 
 use crate::error::CompressError;
 use crate::guarantee::Candidate;
 use crate::preset::CompressPreset;
+use crate::structural;
 
 /// The compression pipeline, as far as it has been built.
 ///
-/// Returns the input unchanged. The guarantee decides what that means, and
-/// its answer — "no smaller, so keep the original" — happens to be right
-/// both now and for a file that genuinely cannot be improved.
+/// Returns an *offer*. [`crate::guarantee`] decides whether it ships.
+//
+// `preset` is unused while the only stage is structural: every preset repacks
+// the same way, and the numbers that separate them are image numbers. T-194 is
+// where it starts being read.
 pub(crate) fn run(input: &[u8], _preset: CompressPreset) -> Result<Candidate, CompressError> {
-    Ok(Candidate::new(input.to_vec()))
+    structural::pass(input)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The pipeline's own contract, independent of what any stage achieves:
+    /// whatever comes out is still a readable document with the same pages in
+    /// it. The structural stage checks this for its own candidate; this checks
+    /// it for the chain, so a later stage cannot quietly lose a page between
+    /// two passes that each kept them.
     #[test]
-    fn the_unbuilt_pipeline_changes_nothing() {
-        let input = b"%PDF-1.7\n%%EOF\n";
+    fn every_preset_returns_a_document_with_the_same_pages() {
+        let input = crate::structural::tests::loose_document(4);
 
         for preset in CompressPreset::all() {
-            let candidate = run(input, preset).expect("the no-op pipeline cannot fail");
+            let candidate = run(&input, preset).expect("a plain document runs the pipeline");
+            let reloaded =
+                lopdf::Document::load_mem(candidate.bytes()).expect("the offer must be readable");
+
             assert_eq!(
-                candidate.bytes(),
-                input,
-                "{preset:?} must not alter bytes a stage that does not exist cannot have touched"
+                reloaded.get_pages().len(),
+                4,
+                "{preset:?} lost a page somewhere in the pipeline"
             );
         }
+    }
+
+    #[test]
+    fn a_document_that_cannot_be_read_stops_the_pipeline() {
+        let result = run(b"not a document", CompressPreset::Lossless);
+
+        assert!(matches!(result, Err(CompressError::Lopdf(_))));
     }
 }
