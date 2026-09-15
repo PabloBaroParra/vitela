@@ -211,10 +211,11 @@ fn measure_todays_rewrite_against_the_structural_pass() {
             percent(input.len(), compressed.bytes().len()),
         );
         println!(
-            "{:<52} — {:?}, {} streams flated{}",
+            "{:<52} — {:?}, {} streams flated, {} objects dropped{}",
             format!("  ({})", fixture.what),
             compressed.report().outcome(),
             compressed.report().work().streams_recompressed,
+            compressed.report().work().objects_dropped,
             if compressed.report().refusals().is_empty() {
                 String::new()
             } else {
@@ -365,5 +366,39 @@ fn a_protected_document_comes_back_exactly_as_it_arrived() {
                 );
             }
         }
+    }
+}
+
+/// T-192's fixed point, on the real corpus rather than on a built fixture.
+///
+/// Compressing a document this crate already compressed must return the very
+/// same bytes: [`Outcome::NoGain`], nothing dropped, nothing recompressed.
+/// Before the prune landed it failed here for a reason no user could ever
+/// have seen — the second pass produced a *larger* file, the never-grow
+/// guarantee caught it and handed the original back, and the outcome read
+/// `NoGain` either way. The guarantee was covering for a repack that leaked
+/// one dead cross-reference object and two object ids per round trip.
+#[test]
+fn compressing_a_compressed_document_is_a_no_op_on_every_fixture() {
+    for fixture in CORPUS {
+        let Some(input) = read(fixture) else {
+            continue;
+        };
+
+        let once = compress(&input, CompressPreset::Lossless)
+            .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path))
+            .into_bytes();
+        let twice = compress(&once, CompressPreset::Lossless).expect("compressible");
+
+        assert_eq!(
+            twice.bytes(),
+            once.as_slice(),
+            "{} was not a fixed point: {} bytes became {}",
+            fixture.path,
+            once.len(),
+            twice.bytes().len()
+        );
+        assert_eq!(twice.report().outcome(), Outcome::NoGain);
+        assert_eq!(twice.report().work(), pdf_compress::Work::default());
     }
 }

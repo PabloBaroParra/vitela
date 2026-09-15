@@ -23,8 +23,13 @@
 //! - [`report`] — what was done and what was refused, measured against the
 //!   bytes the caller actually got.
 //! - `pipeline` — the order the stages run in, and nothing else.
-//! - `structural` — T-191's repack: object streams, a cross-reference stream,
-//!   and flate over streams that arrived unfiltered.
+//! - `session` — one parse and one serialise per compression, plus the two
+//!   documents that get neither: encrypted and signed.
+//! - `structural` — T-191's repack: flate over streams that arrived
+//!   unfiltered. (Object streams and the cross-reference stream are the write
+//!   format, and live in `session`.)
+//! - `prune` — T-192's sweep: duplicate objects merged, unreachable ones
+//!   deleted.
 //! - [`error`] — [`CompressError`].
 //!
 //! ## What this crate does not do
@@ -40,8 +45,12 @@ pub mod error;
 pub mod guarantee;
 mod pipeline;
 pub mod preset;
+mod prune;
 pub mod report;
+mod session;
 mod structural;
+#[cfg(test)]
+mod test_fixtures;
 
 pub use error::CompressError;
 pub use guarantee::Compressed;
@@ -65,7 +74,7 @@ pub fn compress(input: &[u8], preset: CompressPreset) -> Result<Compressed, Comp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::structural::tests::loose_document;
+    use crate::test_fixtures::loose_document;
 
     /// T-190's acceptance criterion, still stated the way the checklist
     /// states it. It passed against a pipeline that did nothing; it passes

@@ -19,3 +19,12 @@ lopdf = "0.45"
 # uses from the destination side. A second opinion here is a second opinion
 # that can disagree.
 pdf-manip = { path = "../pdf-manip" }
+
+# Tests only. T-192's acceptance criterion is "zero visual change, verified by
+# comparing renders, not by inspecting the tree" — and for a stage whose job is
+# to delete objects, the tree is exactly the witness that cannot see the
+# failure. `tests/render_unchanged.rs` rasterises the corpus before and after
+# and compares pixels. The crate itself does not depend on a rasteriser: it
+# needs one to prove its work, not to do it.
+[dev-dependencies]
+pdf-render = { path = "../pdf-render" }

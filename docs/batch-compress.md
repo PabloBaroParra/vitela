@@ -258,9 +258,122 @@ para que no confunda dos cosas que se llaman igual.
       queda crudo y **bien**). Gates completos: `cargo fmt --check` (exit 0),
       `cargo clippy --workspace --all-targets -- -D warnings` (limpio) y
       `cargo test --workspace` → **1100 passed, 0 failed** (eran 1078 en T-190).**
-- [ ] T-192 (dep T-191) Poda: objetos huérfanos (no alcanzables desde el catálogo) y
+- [x] T-192 (dep T-191) Poda: objetos huérfanos (no alcanzables desde el catálogo) y
       recursos duplicados por hash de contenido. Cero cambios visuales — verificado por
       render comparado, no por inspección del árbol. [Compress]
+      **(2026-09-15 — completo.** Módulo nuevo `core/pdf-compress/src/prune.rs`, más dos
+      movimientos de estructura que la poda forzó y que se explican abajo. Dependencia de
+      desarrollo nueva: `pdf-render` (sólo tests).
+
+      **El hallazgo que arrancó la tarea: el repack de T-191 no era idempotente.**
+      Un documento que llegaba empaquetado volvía **más grande**, y crecía otra vez en cada
+      vuelta. Medido sobre `assets/sample/vitela-sample.pdf`: 2 060 bytes de entrada,
+      1 774 tras un repack, **2 023 tras dos**. La causa son dos fugas, no una:
+
+      1. **Un objeto `/Type /XRef` muerto por vuelta.** `Document::save_internal` —el
+         escritor clásico— filtra `[ObjStm, XRef, Linearized]` de los objetos que serializa
+         (`lopdf-0.45/src/writer.rs:80`). `save_with_object_streams`, que es el que pedimos
+         al activar `use_object_streams`, filtra **sólo `ObjStm`** (`writer.rs:149`). Un
+         xref stream es `Object::Stream`, así que `ObjectStream::can_be_compressed` lo
+         rechaza en su regla 1 y cae en `objects_to_write_directly`: se escribe entero, al
+         lado del xref stream nuevo que el escritor agrega al final. No lo referencia nadie.
+      2. **El espacio de ids no se devolvía nunca.** El escritor acuña el `ObjStm` y el
+         `XRef` en `max_id + 1`, y `max_id` sólo sube. Al recargar y barrer esos dos objetos,
+         `max_id` seguía diciendo que existían, así que la escritura siguiente acuñaba dos
+         ids *por encima* y la tabla xref cargaba dos entradas libres más. Cada vuelta, dos
+         más. Con el barrido solo, el crecimiento bajaba de +215 bytes a **+5**; los cinco
+         los saca `reclaim_id_space`.
+
+      **Por qué nadie lo había visto: la garantía lo estaba tapando.** El candidato inflado
+      perdía la comparación de tamaños y el usuario recibía sus bytes originales con
+      `NoGain`. Es decir, la red de seguridad funcionaba — y por eso el bug era invisible.
+      El test `compressing_an_already_packed_document_changes_nothing_at_all` (T-190) pasaba
+      **por el motivo equivocado**: no porque no hubiera nada que ganar, sino porque el
+      repack había salido peor. Ahora pasa por el motivo correcto, y hay dos tests nuevos
+      que lo fijan: `repacking_a_packed_document_produces_the_very_same_bytes` (punto fijo
+      byte a byte) y `compressing_a_compressed_document_is_a_no_op_on_every_fixture` (lo
+      mismo sobre el corpus real).
+
+      **Qué hace la poda.** Dos barridas, en este orden porque la primera alimenta a la
+      segunda: (1) **fusión de duplicados** — objetos con contenido idéntico colapsan en un
+      sobreviviente y toda referencia a las copias se reapunta; (2) **barrido de
+      inalcanzables** — se borra todo lo que el trailer no alcanza, incluidas las copias que
+      el paso 1 acaba de dejar huérfanas. Un solo contador (`objects_dropped`) porque hay un
+      solo camino de borrado. No hay caso especial para `/Type /XRef`: es inalcanzable, y
+      cae por la misma razón que cualquier otra cosa.
+
+      **Lo que la ganancia real resultó ser.** Sobre `edit_reopen_10pg.pdf` la poda tira 9
+      objetos, sobre `perf_200pg.pdf` tira 199 — uno por página menos uno. Son los
+      **content streams**: las diez páginas dibujan `q 612 0 0 792 0 0 cm /Im0 Do Q`, treinta
+      bytes byte-idénticos, y cada una resuelve `/Im0` por su propio `/Resources`. La
+      indirección por nombre es lo que hace seguro compartir el stream, y también la razón
+      por la que los diccionarios de recursos **no** deben fusionarse con él. Fijado por
+      `pages_that_draw_through_the_same_operators_share_one_content_stream`.
+
+      | fixture | T-191 | T-192 | vs. original |
+      |---|---:|---:|---:|
+      | `assets/sample/vitela-sample.pdf` | 1 382 | 1 382 | −32,9 % |
+      | `content-edit/reportlab_embedded_subset.pdf` | 20 080 | 20 080 | −39,5 % |
+      | `large/edit_reopen_10pg.pdf` | 297 992 | **297 237** | −0,8 % (era −0,5 %) |
+      | `large/edit_reopen_50pg.pdf` | 13 671 752 | **13 667 642** | −0,1 % |
+      | `large/perf_200pg.pdf` | 54 687 459 | **54 670 813** | −0,1 % |
+
+      **Lo que nunca se fusiona, y por qué.** Contenido idéntico no es lo mismo que
+      identidad intercambiable. Quedan excluidos `/Type /Page`, `/Type /Pages`,
+      `/Type /Annot`, `/Type /Catalog` y todo lo que el trailer referencia directo. La regla
+      detrás de la lista: *un objeto que el resto de la aplicación edita por identidad no se
+      fusiona nunca.* Dos páginas idénticas colapsadas dejan `/Kids [5 0 R, 5 0 R]` — el
+      conteo de páginas sobrevive, así que ni la garantía ni la relectura de la sesión lo
+      ven, y después una anotación puesta en la página dos aparece también en la uno.
+
+      **La fusión corre hasta punto fijo.** Colapsar duplicados cambia a los objetos que los
+      referenciaban, lo que puede volverlos idénticos a su vez: dos `FontFile2` iguales →
+      dos `/FontDescriptor` iguales → dos `/Font` iguales. Una sola ronda juntaría los
+      programas de fuente (los bytes grandes) y dejaría las dos capas de diccionarios
+      arriba. Tope de 8 rondas, que no es una cota de corrección —parar antes sólo deja
+      bytes en la mesa— sino un freno a un grafo patológico.
+
+      **Un detalle de `lopdf` que hay que saber para no escribir la fusión mal:**
+      `Stream` deriva `PartialEq` sobre **cuatro** campos, y uno es `start_position`, el
+      offset del que se leyó el stream en el archivo original. Dos streams byte-idénticos
+      del mismo documento nunca están en el mismo offset, así que `==` los declara distintos
+      y la fusión no habría encontrado **nada**. `same_content` compara lo que se va a
+      escribir: diccionario, contenido y `allows_compression`. Fijado por
+      `lopdfs_own_equality_would_have_found_no_duplicates`.
+
+      **Dos movimientos de estructura que la poda forzó** (regla de no-monolitos de
+      `CLAUDE.md`, y cero cambio de comportamiento):
+      - **`session.rs` nuevo**: la poda es una transformación *del grafo*, y `structural.rs`
+        hacía load → trabajo → save adentro suyo. Meterla como otra etapa `bytes → bytes`
+        costaba un parseo y una serialización completos por etapa (en `perf_200pg.pdf` son
+        54 MB de ida y de vuelta) y obligaba a cada etapa a tener su propia copia del
+        `SaveOptions`. Ahora hay un solo sobre: `session` abre, decide los rechazos
+        (cifrado, firmado), presta el grafo, escribe y relee el conteo de páginas.
+        `structural.rs` queda siendo sólo el flate sobre streams sin filtrar — object
+        streams y xref stream son el *formato de escritura*, no una etapa.
+      - **`test_fixtures.rs` nuevo**: `loose_document` la usan cinco módulos; vivía dentro de
+        `structural::tests`, que ya no es su casa.
+
+      **El criterio de aceptación, tomado literal.** `tests/render_unchanged.rs` rasteriza
+      cada página de cada fixture comprimible dos veces —de los bytes de entrada y de los de
+      salida— y compara píxel a píxel. No "parecido", no "dentro de un umbral": idénticos.
+      Es la única verificación que no se puede engañar: una poda que se llevó un objeto de
+      más produce un grafo que igual parsea, igual tiene el número correcto de páginas, y
+      dibuja un cuadrado en blanco donde había una fuente. **Comprobado que el test tiene
+      dientes**: mutando el barrido para que siguiera una sola referencia por objeto, el
+      render acusó el golpe (`reportlab_embedded_subset.pdf` página 0, 4 989 de 1 938 816
+      bytes distintos) — no se dejó pasar sola.
+
+      **Lo que deliberadamente NO hace: renumerar.** Compactar agujeros en el medio del
+      espacio de ids implica reescribir cada referencia del archivo y compra una entrada de
+      xref por objeto podado. Es otra feature, con un radio de daño mucho mayor, y no se
+      cuela acá.
+
+      Verificado en Windows: ciclo TDD real — el primer `cargo test -p pdf-compress --lib`
+      con los dos tests de idempotencia escritos y nada implementado dio **2 fallas / 40
+      pasadas**. Gates completos: `cargo fmt --all --check` (exit 0),
+      `cargo clippy --workspace --all-targets -- -D warnings` (limpio) y
+      `cargo test --workspace` → **1127 passed, 0 failed** (eran 1100 en T-191).**
 
 ### Fase 2 — Imágenes
 - [ ] T-193 (dep T-190) Inventario de imágenes con DPI **efectivo** por colocación: los
@@ -293,6 +406,11 @@ para que no confunda dos cosas que se llaman igual.
       byte-idéntico" sobre el corpus que hay hoy. T-197 es **agregar filas a `CORPUS`**, no
       escribir el harness de cero. Falta el escaneo, el vectorial puro y el de
       transparencia real.
+      **Nota de T-192:** hay un segundo arnés, `core/pdf-compress/tests/render_unchanged.rs`,
+      que rasteriza cada fixture antes y después y compara píxel a píxel. Tiene su propia
+      lista (`RENDERABLE`) porque excluye los protegidos, que vuelven byte-idénticos y
+      compararían un archivo consigo mismo. Cada fila nueva de `CORPUS` que sea comprimible
+      va también ahí, o el fixture entra sin que nadie mire lo que dibuja.
 
 ### Fase 5 — Docs
 - [x] T-198 README: la fila "Compress PDF" pasa de columna de crate `—` a

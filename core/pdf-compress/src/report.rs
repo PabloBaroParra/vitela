@@ -88,6 +88,24 @@ pub struct Work {
     pub objects_dropped: usize,
 }
 
+impl Work {
+    /// This tally plus another stage's.
+    ///
+    /// Stages report only what they themselves did, and
+    /// [`crate::session`] adds them up. Written as one field-wise sum rather
+    /// than as four `+=` at the call site, so a field added by a later task
+    /// is added to the total in one place instead of wherever someone
+    /// remembers.
+    pub(crate) fn plus(self, other: Work) -> Work {
+        Work {
+            images_resampled: self.images_resampled + other.images_resampled,
+            images_skipped: self.images_skipped + other.images_skipped,
+            streams_recompressed: self.streams_recompressed + other.streams_recompressed,
+            objects_dropped: self.objects_dropped + other.objects_dropped,
+        }
+    }
+}
+
 /// What a compression did to one document.
 ///
 /// Only [`crate::guarantee`] can build one, and only from the branch it
@@ -187,6 +205,34 @@ mod tests {
         assert!(Refusal::EncryptedDocumentNotRewritable
             .to_string()
             .contains("password"));
+    }
+
+    /// Every field of the tally is summed, so a stage's count cannot be lost
+    /// by being the one nobody remembered to add.
+    #[test]
+    fn adding_two_tallies_adds_every_field() {
+        let sum = Work {
+            images_resampled: 1,
+            images_skipped: 2,
+            streams_recompressed: 3,
+            objects_dropped: 4,
+        }
+        .plus(Work {
+            images_resampled: 10,
+            images_skipped: 20,
+            streams_recompressed: 30,
+            objects_dropped: 40,
+        });
+
+        assert_eq!(
+            sum,
+            Work {
+                images_resampled: 11,
+                images_skipped: 22,
+                streams_recompressed: 33,
+                objects_dropped: 44,
+            }
+        );
     }
 
     #[test]
