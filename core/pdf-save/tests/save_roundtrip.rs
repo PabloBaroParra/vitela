@@ -303,12 +303,14 @@ fn structural_edit_forces_full_rewrite_against_a_real_file() {
     let (base, security) = pdf_manip::open_document(&path, None).unwrap();
 
     let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
-    let new_page = pdf_document::Page::blank(
-        PageId(99),
+    let insert = Command::insert_blank_page(
+        &mut document,
+        1,
         pdf_document::PageSize::A4,
         pdf_document::Orientation::Portrait,
-    );
-    apply_command(&mut document, Command::insert_page(1, new_page));
+    )
+    .expect("a two-page document has ids to spare");
+    apply_command(&mut document, insert);
 
     let input = SaveInput {
         document: &document,
@@ -331,17 +333,14 @@ fn encrypted_full_rewrite_preserves_distinct_user_and_owner_passwords() {
         pdf_manip::open_document_with_passwords(&path, "user-aes-pass", "owner-aes-pass").unwrap();
 
     let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
-    apply_command(
+    let insert = Command::insert_blank_page(
         &mut document,
-        Command::insert_page(
-            1,
-            pdf_document::Page::blank(
-                PageId(99),
-                pdf_document::PageSize::A4,
-                pdf_document::Orientation::Portrait,
-            ),
-        ),
-    );
+        1,
+        pdf_document::PageSize::A4,
+        pdf_document::Orientation::Portrait,
+    )
+    .expect("a two-page document has ids to spare");
+    apply_command(&mut document, insert);
 
     let saved = save_document(SaveInput {
         document: &document,

@@ -156,8 +156,7 @@ fn gtk_ui_returning_to_documents_shows_the_order_the_pages_view_left() {
 /// again, and the cards that survive must stop naming it.
 #[gtk::test]
 fn gtk_ui_deleting_the_last_imported_page_takes_the_provenance_lines_with_it() {
-    let mut document = Document::blank();
-    document.pages = vec![base_page(0), base_page(1), imported_page(2, 7)];
+    let document = Document::with_pages(vec![base_page(0), base_page(1), imported_page(2, 7)]);
 
     with_pages(document, vec![source(7, "report.pdf")], |viewer| {
         assert_eq!(

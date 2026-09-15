@@ -306,8 +306,10 @@ fn gtk_ui_insert_page_history_rebuilds_in_both_directions() {
     with_organize(|viewer| {
         assert!(command(viewer, |session| {
             let document = model(session)?;
-            let page = Page::blank(PageId(3), PageSize::A4, PageOrientation::Portrait);
-            apply_command(document, Command::insert_page(1, page));
+            let insert =
+                Command::insert_blank_page(document, 1, PageSize::A4, PageOrientation::Portrait)
+                    .ok_or_else(|| "Page id space is exhausted.".to_string())?;
+            apply_command(document, insert);
             Ok("Inserted page.".into())
         }));
         populate_grid(viewer);

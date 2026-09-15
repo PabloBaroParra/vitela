@@ -29,8 +29,10 @@ use crate::app::state::{ImportedSource, SaveBacking, Viewer};
 /// These fields travel together because they are mutually dependent, not
 /// because they happen to be convenient: `document_model` holds the
 /// annotations and form fields the selections name and the id spaces their
-/// counters continue, and its `EditLog` is keyed to exactly the `save_backing`
-/// it was recorded against. Restoring any of them without the others produces
+/// counters continue — the page-id counter among them, which lives on the
+/// `Document` itself and so rides across the reopen inside this one field
+/// rather than needing one of its own — and its `EditLog` is keyed to exactly
+/// the `save_backing` it was recorded against. Restoring any of them without the others produces
 /// a session that contradicts itself — a selection pointing at nothing, ids
 /// colliding with live objects, or commands replayed against a base they were
 /// never validated against.
@@ -66,11 +68,6 @@ pub(super) struct EditState {
     imported_sources: Vec<ImportedSource>,
     import_warning_revision: Option<u64>,
     next_annotation_id: u64,
-    /// Carried for the same reason the two id counters beside it are, and
-    /// with a sharper failure if it is not: a reopen that reset this would
-    /// hand the next import an id the base already owns, and every later save
-    /// would be refused. See `DocumentSession::next_page_id`.
-    next_page_id: u32,
     selected_annotation: Option<pdf_document::AnnotationId>,
     next_form_field_id: u64,
     selected_form_field: Option<pdf_document::FormFieldId>,
@@ -122,7 +119,6 @@ pub(super) fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
         imported_sources: std::mem::take(&mut session.imported_sources),
         import_warning_revision: session.import_warning_revision,
         next_annotation_id: session.next_annotation_id,
-        next_page_id: session.next_page_id,
         selected_annotation: session.selected_annotation,
         next_form_field_id: session.next_form_field_id,
         selected_form_field: session.selected_form_field,
@@ -166,7 +162,6 @@ pub(super) fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) 
                 session.imported_sources = preserved.imported_sources;
                 session.import_warning_revision = preserved.import_warning_revision;
                 session.next_annotation_id = preserved.next_annotation_id;
-                session.next_page_id = preserved.next_page_id;
                 session.selected_annotation = selected_annotation;
                 session.next_form_field_id = preserved.next_form_field_id;
                 session.selected_form_field = selected_form_field;

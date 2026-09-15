@@ -68,17 +68,10 @@ struct DocumentState {
     /// render side may need to be rebuilt; it never leaves this crate, is
     /// never logged, and dies with the handle.
     render_password: Option<String>,
-    next_page_id: PageId,
     next_annotation_id: u64,
 }
 
 impl DocumentState {
-    fn allocate_page_id(&mut self) -> PageId {
-        let id = self.next_page_id;
-        self.next_page_id = PageId(id.0 + 1);
-        id
-    }
-
     fn allocate_annotation_id(&mut self) -> AnnotationId {
         let id = AnnotationId(self.next_annotation_id);
         self.next_annotation_id += 1;
@@ -92,8 +85,6 @@ impl DocumentState {
     /// the removed value itself — see `edit_log.rs` module docs — so it must
     /// be looked up before the command is built, not after).
     fn build_core_command(&mut self, command: FfiEditCommand) -> Result<Command, FfiError> {
-        use pdf_document::Page;
-
         Ok(match command {
             FfiEditCommand::RotatePage {
                 page,
@@ -115,9 +106,20 @@ impl DocumentState {
                 if index as usize > self.document.pages.len() {
                     return Err(FfiError::PageIndexOutOfBounds { index });
                 }
-                let id = self.allocate_page_id();
-                let page = Page::blank(id, size.into(), orientation.into());
-                Command::insert_page(index as usize, page)
+                // The id comes from the document, which is the only thing
+                // that knows which ids are already spent. This crate used to
+                // carry its own monotonic counter; two shells independently
+                // arriving at the same counter was the signal that the
+                // invariant belonged to the model.
+                Command::insert_blank_page(
+                    &mut self.document,
+                    index as usize,
+                    size.into(),
+                    orientation.into(),
+                )
+                .ok_or(FfiError::InvalidSaveRequest {
+                    detail: "page id space is exhausted".to_string(),
+                })?
             }
             FfiEditCommand::RemovePage { index } => {
                 // The constructor captures the page *and* the annotations and
@@ -792,7 +794,6 @@ pub fn open_from_bytes(
 ) -> Result<Arc<DocumentHandle>, FfiError> {
     let (base, security) = pdf_manip::open_document_from_bytes(&bytes, password.as_deref())?;
     let document = pdf_save::document_from_lopdf(&base, security)?;
-    let next_page_id = PageId(document.pages.len() as u32);
     let render_doc = Some(open_render_doc_from_bytes(
         bytes.clone(),
         password.as_deref(),
@@ -804,7 +805,6 @@ pub fn open_from_bytes(
         original_bytes: Some(bytes),
         render_doc,
         render_password: password,
-        next_page_id,
         next_annotation_id: 0,
     }))
 }
@@ -842,7 +842,6 @@ pub fn open_with_passwords_from_bytes(
         &owner_password,
     )?;
     let document = pdf_save::document_from_lopdf(&base, security)?;
-    let next_page_id = PageId(document.pages.len() as u32);
     let render_doc = Some(open_render_doc_from_bytes(
         bytes.clone(),
         Some(&owner_password),
@@ -854,7 +853,6 @@ pub fn open_with_passwords_from_bytes(
         original_bytes: Some(bytes),
         render_doc,
         render_password: Some(owner_password),
-        next_page_id,
         next_annotation_id: 0,
     }))
 }
@@ -888,7 +886,6 @@ pub fn create_blank_document(
         original_bytes: None,
         render_doc,
         render_password: None,
-        next_page_id: PageId(0),
         next_annotation_id: 0,
     }))
 }

@@ -9,7 +9,7 @@ use gtk::{
     gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, FileDialog, FileFilter,
     Label, Orientation, PasswordEntry, Window,
 };
-use pdf_document::{Command, ImportedDocumentId, Page};
+use pdf_document::{Command, ImportedDocumentId, Page, PageId};
 
 use crate::app::state::{ImportedSource, SessionToken, Viewer};
 
@@ -31,7 +31,7 @@ struct ImportRequest {
     passwords: HashMap<PathBuf, String>,
     token: SessionToken,
     first_source_id: u64,
-    first_page_id: u32,
+    first_page_id: PageId,
     cancellation: Arc<AtomicBool>,
 }
 
@@ -212,24 +212,29 @@ fn run(window: ApplicationWindow, viewer: Viewer, request: ImportRequest) {
     });
 }
 
-fn import_ids(viewer: &Viewer) -> Option<(SessionToken, u64, u32)> {
+fn import_ids(viewer: &Viewer) -> Option<(SessionToken, u64, PageId)> {
     let state = viewer.state.borrow();
     let session = state.session.as_ref()?;
     // A session with no editable model has nothing to import into, and
     // `start` turns the `None` into the "open a PDF first" refusal.
-    session.document_model.as_ref()?;
+    let document = session.document_model.as_ref()?;
     let next_source_id = session
         .imported_sources
         .iter()
         .map(|source| source.id.0)
         .max()
         .map_or(0, |id| id.saturating_add(1));
-    // The session's counter, NOT one past the highest id in `document.pages`.
+    // The model's own cursor, NOT one past the highest id in `document.pages`.
     // After a delete that maximum drops below ids `save_backing.base` still
     // owns, and an imported page wearing one of them makes every later save
-    // fail with "page origin changed for an existing PageId". See
-    // `DocumentSession::next_page_id`.
-    let next_page_id = session.next_page_id;
+    // fail with "page origin changed for an existing PageId". The document is
+    // asked rather than told because it is the only thing that knows which
+    // ids are already spent — see `Document::allocate_page_ids`.
+    //
+    // Read, not taken: the pages are minted on the worker thread below, out
+    // of the document's reach. Applying the resulting `ImportPages` is what
+    // spends the run.
+    let next_page_id = document.next_page_id()?;
     Some((
         SessionToken {
             generation: state.generation,
@@ -244,7 +249,7 @@ fn prepare(
     paths: Vec<PathBuf>,
     passwords: &HashMap<PathBuf, String>,
     first_source_id: u64,
-    first_page_id: u32,
+    first_page_id: PageId,
     cancellation: &AtomicBool,
     mut report: impl FnMut(ImportProgress),
 ) -> Result<PreparedImport, PrepareError> {
@@ -252,7 +257,7 @@ fn prepare(
     let mut sources = Vec::with_capacity(total);
     let mut pages = Vec::new();
     let mut warnings = Vec::new();
-    let mut next_page_id = first_page_id;
+    let mut next_page_id = first_page_id.0;
 
     report(ImportProgress {
         completed: 0,
@@ -306,7 +311,7 @@ fn prepare(
         let imported = pdf_save::imported_pages_from_lopdf(
             &document,
             ImportedDocumentId(source_id),
-            next_page_id,
+            PageId(next_page_id),
         )
         .map_err(|error| failed(format!("Could not import {name}: {error}")))?;
         let imported_count = u32::try_from(imported.len())
@@ -558,15 +563,6 @@ fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
         return;
     }
     let count = prepared.pages.len();
-    // Read before the pages are moved into the command. `max` rather than a
-    // plain assignment so a batch that somehow lands below the counter cannot
-    // walk it backwards — the one property `next_page_id` has to keep.
-    let past_imported = prepared
-        .pages
-        .iter()
-        .map(|page| page.id.0)
-        .max()
-        .map_or(0, |max| max.saturating_add(1));
     let result = command(viewer, |session| {
         let index = model(session)?.pages.len();
         if !apply_command(
@@ -579,7 +575,9 @@ fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
             return Err("Could not add the selected PDFs.".to_string());
         }
         session.imported_sources.extend(prepared.sources);
-        session.next_page_id = session.next_page_id.max(past_imported);
+        // Nothing to bump: applying `ImportPages` claimed every id it
+        // carried, so the model's counter is already past the batch — and
+        // past it whether or not this shell counted the pages correctly.
         session.import_warning_revision = Some(session.edit_revision.saturating_add(1));
         Ok(format!("Imported {count} pages."))
     });
@@ -591,7 +589,7 @@ fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
 /// The ids [`start`] would mint right now, for the tests that need to assert
 /// what an import is about to claim without driving a file chooser.
 #[cfg(test)]
-pub(super) fn ids_for_test(viewer: &Viewer) -> Option<(u64, u32)> {
+pub(super) fn ids_for_test(viewer: &Viewer) -> Option<(u64, PageId)> {
     import_ids(viewer).map(|(_, source, page)| (source, page))
 }
 
@@ -640,7 +638,7 @@ mod tests {
             vec![PathBuf::from("missing.pdf")],
             &HashMap::new(),
             0,
-            0,
+            PageId(0),
             &cancellation,
             |_| {},
         );
@@ -655,7 +653,7 @@ mod tests {
             vec![path.clone()],
             &HashMap::new(),
             0,
-            0,
+            PageId(0),
             &AtomicBool::new(false),
             |_| {},
         );
@@ -680,7 +678,7 @@ mod tests {
             vec![aes.clone(), rc4.clone()],
             &passwords,
             0,
-            0,
+            PageId(0),
             &AtomicBool::new(false),
             |update| progress.push((update.completed, update.total)),
         );
@@ -706,7 +704,7 @@ mod tests {
             vec![aes.clone(), rc4.clone()],
             &passwords,
             0,
-            0,
+            PageId(0),
             &AtomicBool::new(false),
             |_| {},
         );
@@ -731,7 +729,7 @@ mod tests {
             vec![valid.clone(), missing],
             &passwords,
             7,
-            3,
+            PageId(3),
             &AtomicBool::new(false),
             |_| {},
         );

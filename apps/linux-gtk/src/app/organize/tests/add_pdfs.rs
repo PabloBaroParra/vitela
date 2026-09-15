@@ -102,7 +102,7 @@ fn gtk_ui_an_import_after_a_delete_does_not_reuse_a_deleted_page_s_id() {
             super::import::ids_for_test(viewer)
                 .expect("a document is open")
                 .1,
-            3,
+            PageId(3),
             "a three-page document has claimed ids 0, 1 and 2"
         );
 
@@ -113,7 +113,8 @@ fn gtk_ui_an_import_after_a_delete_does_not_reuse_a_deleted_page_s_id() {
         let (_, next_page_id) = super::import::ids_for_test(viewer).expect("a document is open");
 
         assert_eq!(
-            next_page_id, 3,
+            next_page_id,
+            PageId(3),
             "deleting pages must not hand their ids back: the base still has them"
         );
     });
@@ -154,7 +155,7 @@ fn gtk_ui_the_page_id_counter_never_walks_backwards() {
             super::import::ids_for_test(viewer)
                 .expect("a document is open")
                 .1,
-            4,
+            PageId(4),
             "the import consumed id 3"
         );
 
@@ -166,7 +167,7 @@ fn gtk_ui_the_page_id_counter_never_walks_backwards() {
             super::import::ids_for_test(viewer)
                 .expect("a document is open")
                 .1,
-            4,
+            PageId(4),
             "an id that has been used once is spent, deleted or not"
         );
     });

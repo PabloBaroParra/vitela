@@ -77,8 +77,10 @@ fn gtk_ui_a_blank_page_resolves_to_nothing() {
     with_organize(|viewer| {
         assert!(command(viewer, |session| {
             let document = model(session)?;
-            let page = Page::blank(PageId(3), PageSize::A4, PageOrientation::Portrait);
-            apply_command(document, Command::insert_page(0, page));
+            let insert =
+                Command::insert_blank_page(document, 0, PageSize::A4, PageOrientation::Portrait)
+                    .ok_or_else(|| "Page id space is exhausted.".to_string())?;
+            apply_command(document, insert);
             Ok("Inserted page.".into())
         }));
 
