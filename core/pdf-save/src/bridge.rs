@@ -1035,6 +1035,75 @@ mod tests {
         );
     }
 
+    /// The contract a shell's page-id allocator has to honour, stated from
+    /// this side because this is where breaking it is detected.
+    ///
+    /// Deleting pages and then importing is an ordinary gesture, and the
+    /// obvious allocator — one past the highest id still in the model —
+    /// hands the imported page an id the *base* has not given up. `original`
+    /// is re-derived from that base on every save, so the reused id arrives
+    /// here as `Base { page_index }` on one side and `Imported { .. }` on the
+    /// other, and the save is refused for ever. An id past the base's page
+    /// count is what makes the same edit replay cleanly.
+    ///
+    /// `linux-gtk`'s `DocumentSession::next_page_id` is the counter that
+    /// keeps this true; `organize::tests::add_pdfs` pins its half.
+    #[test]
+    fn replay_page_ops_grafts_an_import_whose_id_is_past_the_deleted_pages() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2", "P3"]));
+        let original = populate_document(&base).unwrap();
+        let source = LopdfDocument::from_lopdf(labeled_pdf(&["S1"]));
+
+        // The user deleted pages 2 and 3, leaving PageId(0) alone.
+        let mut current: Vec<Page> = original
+            .iter()
+            .filter(|page| page.id == PageId(0))
+            .cloned()
+            .collect();
+        // Past every id the base owns — three pages, so 3 — and NOT one past
+        // the highest id left in `current`, which is the 1 the base still
+        // holds for "P2".
+        current.extend(imported_pages_from_lopdf(&source, ImportedDocumentId(0), 3).unwrap());
+
+        let registry = [(ImportedDocumentId(0), &source)];
+        let written = replay(&base, &original, &current, ImportedSources::new(&registry))
+            .expect("an import past the base's ids must graft after a delete");
+
+        assert_eq!(
+            written.as_lopdf().get_pages().len(),
+            2,
+            "the surviving base page plus the imported one"
+        );
+    }
+
+    /// The same edit with the id the naive allocator would have picked: the
+    /// refusal the user actually saw, pinned so the shell-side fix cannot be
+    /// reverted without something going red.
+    #[test]
+    fn replay_page_ops_rejects_an_import_that_reuses_a_deleted_page_s_id() {
+        let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2", "P3"]));
+        let original = populate_document(&base).unwrap();
+        let source = LopdfDocument::from_lopdf(labeled_pdf(&["S1"]));
+
+        let mut current: Vec<Page> = original
+            .iter()
+            .filter(|page| page.id == PageId(0))
+            .cloned()
+            .collect();
+        // One past the highest id left in the model — and one the base still
+        // owns, because "P2" was deleted from the model and not from the base.
+        current.extend(imported_pages_from_lopdf(&source, ImportedDocumentId(0), 1).unwrap());
+
+        let registry = [(ImportedDocumentId(0), &source)];
+        let error =
+            replay(&base, &original, &current, ImportedSources::new(&registry)).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid save request: page origin changed for an existing PageId"
+        );
+    }
+
     #[test]
     fn replay_page_ops_handles_delete_and_insert_together() {
         let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2", "P3"]));

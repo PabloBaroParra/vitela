@@ -580,6 +580,21 @@ fn next_form_field_id(document_model: Option<&Document>) -> u64 {
         .map_or(0, |max| max + 1)
 }
 
+/// The id the next page added to a freshly shown document should get.
+///
+/// One past the highest id the model already carries, which at open time is
+/// the page count: `pdf_save::populate_document` hands out `PageId(0..n)`.
+/// From here on the counter only ever grows — see
+/// [`DocumentSession::next_page_id`](crate::app::state::DocumentSession::
+/// next_page_id) for why re-deriving this maximum later is a bug rather than
+/// a simplification.
+fn next_page_id(document_model: Option<&Document>) -> u32 {
+    document_model
+        .map(|document| document.pages.iter().map(|page| page.id.0).max())
+        .unwrap_or(None)
+        .map_or(0, |max| max.saturating_add(1))
+}
+
 /// The overlay one page is drawn in: its render underneath, and room above it
 /// for the highlight layer and the tile pictures.
 ///
@@ -696,6 +711,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
 
     let page_count = slots.len();
     let next_form_field_id = next_form_field_id(document.document_model.as_ref());
+    let next_page_id = next_page_id(document.document_model.as_ref());
     // The handle installed below and the model beside it were read from the
     // same bytes, so pdfium's page order *is* this model's page order. A
     // preview refresh reopens with a model that is thrown away again a moment
@@ -730,6 +746,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             unsaved_to_disk: false,
             edit_revision: 0,
             next_annotation_id: 0,
+            next_page_id,
             selected_annotation: None,
             next_form_field_id,
             selected_form_field: None,

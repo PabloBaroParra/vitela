@@ -85,6 +85,15 @@ pub(crate) fn a_form_field(id: u64) -> FormField {
 /// holds exactly these pages, in exactly this order.
 pub(crate) fn model_session(document: Document) -> DocumentSession {
     let backend_pages = document.pages.iter().map(|page| page.id).collect();
+    // Seeded from the document, the way `document::next_page_id` seeds a real
+    // session — a fixture that started this at 0 would let a test mint a page
+    // id the document already holds and call that passing.
+    let next_page_id = document
+        .pages
+        .iter()
+        .map(|page| page.id.0)
+        .max()
+        .map_or(0, |max| max.saturating_add(1));
     DocumentSession {
         // SAFETY: `DocumentHandle` wraps a `u64`. A session built here never
         // submits the handle to PDFium — tests that render capture the
@@ -107,6 +116,7 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         unsaved_to_disk: false,
         edit_revision: 0,
         next_annotation_id: 0,
+        next_page_id,
         selected_annotation: None,
         next_form_field_id: 0,
         selected_form_field: None,
