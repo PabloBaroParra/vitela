@@ -1,0 +1,30 @@
+[package]
+name = "pdf-compress"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "File-size reduction: structural repack, resource prune and image resampling, all under a never-grow guarantee. Batch 24 (T-190..T-197); T-190 ships the guarantee and the preset table, not the optimisation."
+publish = false
+
+# `lopdf` arrives with the structural pass (T-191): object streams, the
+# cross-reference stream and flate over unfiltered streams are all levers it
+# already has (`docs/batch-compress.md` fact 3), so the pass that halves a
+# loose document costs no new dependency. `image` still waits for the
+# resampler (T-194) — nothing here decodes a pixel yet.
+[dependencies]
+lopdf = "0.45"
+# `pdf-manip` for one question: does this file carry a signature? Detecting
+# one is a question about the object graph, and the repository already has a
+# single answer to it (`pdf_manip::document_has_signatures`) that `pdf-save`
+# uses from the destination side. A second opinion here is a second opinion
+# that can disagree.
+pdf-manip = { path = "../pdf-manip" }
+
+# Tests only. T-192's acceptance criterion is "zero visual change, verified by
+# comparing renders, not by inspecting the tree" — and for a stage whose job is
+# to delete objects, the tree is exactly the witness that cannot see the
+# failure. `tests/render_unchanged.rs` rasterises the corpus before and after
+# and compares pixels. The crate itself does not depend on a rasteriser: it
+# needs one to prove its work, not to do it.
+[dev-dependencies]
+pdf-render = { path = "../pdf-render" }
