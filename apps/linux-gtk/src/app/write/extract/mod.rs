@@ -194,21 +194,8 @@ mod tests {
 
     use super::begin_extract;
     use crate::app::state::TextAccess;
-    use crate::app::test_fixtures::model_session;
+    use crate::app::test_fixtures::{model_session, one_password_security};
     use crate::app::ui_tests::built_ui;
-
-    /// An encrypted document opened the only way this shell can open one:
-    /// with a single password. The second cannot be derived from the first,
-    /// so no full rewrite of it can reproduce its encryption — and a new file
-    /// holding a different page set is nothing but a full rewrite.
-    fn one_password_security() -> pdf_document::SecurityContext {
-        pdf_document::SecurityContext {
-            handler: pdf_document::SecurityHandler::Aes128,
-            credential: pdf_document::Credential::User,
-            credentials: pdf_document::EncryptionCredentials::user("only-the-user-password"),
-            permissions: pdf_document::Permissions(0xFFFF_FFFC),
-        }
-    }
 
     fn a_document_of(pages: u32) -> Document {
         let mut document = Document::blank();

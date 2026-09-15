@@ -11,7 +11,7 @@ use super::grid::{populate_grid, CARD_HEIGHT_PX, CARD_WIDTH_PX};
 use super::*;
 use crate::app::home::EDITOR_PAGE;
 use crate::app::state::DocumentSession;
-use crate::app::test_fixtures::{a_highlight, model_session};
+use crate::app::test_fixtures::{a_highlight, model_session, one_password_security};
 use crate::app::ui_tests::built_ui;
 use crate::app::BuiltUi;
 use pdf_document::{
@@ -145,22 +145,6 @@ fn footer_button(viewer: &Viewer, index: usize, label: &str) -> Button {
         child = widget.next_sibling();
     }
     panic!("card {index} has no {label:?} button");
-}
-
-/// An encrypted document opened the only way this shell can open one today:
-/// with a single password. A PDF's second password cannot be derived from the
-/// first, so no full rewrite of it can reproduce its encryption.
-///
-/// Shared by the two modules that care, and they care in opposite directions:
-/// [`refusals`] asserts that it turns a move and a delete down, [`rotation`]
-/// that it lets a quarter-turn through.
-fn one_password_security() -> pdf_document::SecurityContext {
-    pdf_document::SecurityContext {
-        handler: pdf_document::SecurityHandler::Aes128,
-        credential: pdf_document::Credential::User,
-        credentials: pdf_document::EncryptionCredentials::user("only-the-user-password"),
-        permissions: pdf_document::Permissions(0xFFFF_FFFC),
-    }
 }
 
 fn session(viewer: &Viewer) -> std::cell::RefMut<'_, DocumentSession> {
