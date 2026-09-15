@@ -389,12 +389,23 @@ un documento corrupto — y la decisión 3 prohíbe exactamente lo segundo.
 | Encoding | Cobertura | Efecto de lo no cubierto |
 | --- | --- | --- |
 | WinAnsiEncoding | **Completo y exacto** — ASCII, el bloque Windows-1252 `0x80-0x9F` y Latin-1 `0xA0-0xFF` | — |
-| StandardEncoding (default) | ASCII, con las dos excepciones de comillas | codes > 0x7E: `EncodingGap` al escribir, U+FFFD al leer |
-| MacRomanEncoding | Solo ASCII | ídem — su mitad alta **no** está tabulada |
-| `/Differences` | Nombres de glyph latinos + formas `uniXXXX`/`uXXXX` + letras sueltas | nombre desconocido ⇒ el code queda sin mapear |
+| StandardEncoding (default) | **Completo** — ASCII con las dos excepciones de comillas (`STANDARD_ASCII_OVERRIDES`) + toda la mitad alta del Annex D (`STANDARD_HIGH`) | los codes que el encoding deja sin usar siguen siendo `EncodingGap` al escribir, U+FFFD al leer |
+| MacRomanEncoding | **Completo salvo dos codes** — ASCII + `MAC_ROMAN_HIGH`, que suma a la columna `MAC` del Annex D los slots no-latinos de `ROMAN.TXT` (`≠ ∞ ≤ ≥ ∂ ∑ ∏ π ∫ Ω √ ≈ Δ ◊`) | `0xDB` y `0xF0` quedan sin mapear a propósito, ver abajo |
+| `/Differences` | Nombres de glyph del set latino del Annex D + los no-latinos de MacRoman + formas `uniXXXX`/`uXXXX` + letras sueltas | nombre desconocido ⇒ el code queda sin mapear |
 
-Completar las mitades altas de MacRoman y Standard es trabajo mecánico de tabla, no de
-diseño; conviene hacerlo contra el Annex D de la spec, no de memoria.
+Las tres tablas viven en `core/pdf-edit/src/encoding/tables.rs` y un test las mantiene
+ordenadas, sin codes repetidos y con un nombre de glyph para cada carácter que alguna de
+ellas pinta — de modo que una fuente que reafirme su propio encoding vía `/Differences` no
+pierda codes que ya tenía.
+
+**Los dos codes que MacRoman deja sin mapear** son los únicos donde dos autoridades se
+contradicen, y la política del módulo es rechazar, no elegir:
+
+- `0xDB` — el Annex D lo llama `currency` (U+00A4); Mac OS Roman pone ahí el Euro (U+20AC).
+- `0xF0` — el logo de Apple, en U+F8FF, área de uso privado.
+
+Lo que sigue **fuera** de las tablas es lo que ninguna tabla arregla: Type0/CID conservando
+la fuente (ver "Fuera de scope").
 
 ## Otras limitaciones conocidas de Fase 2
 

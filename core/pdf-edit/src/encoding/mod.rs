@@ -239,12 +239,20 @@ fn base_table(base_encoding: &str) -> Vec<Option<char>> {
                 table[code as usize] = Some(character);
             }
         }
-        // MacRomanEncoding's upper half is intentionally unmapped in v1 —
-        // see `tables::STANDARD_OVERRIDES`. It behaves as ASCII-only, which
-        // rejects edits it cannot make rather than guessing them.
-        "MacRomanEncoding" => {}
+        "MacRomanEncoding" => {
+            for &(code, character) in tables::MAC_ROMAN_HIGH {
+                table[code as usize] = Some(character);
+            }
+        }
         _ => {
-            for &(code, character) in tables::STANDARD_OVERRIDES {
+            // StandardEncoding is the fallback for a font that names no
+            // encoding at all, so this arm runs far more often than the
+            // name suggests. Its two ASCII overrides come first for reading
+            // order only — the two tables do not overlap.
+            for &(code, character) in tables::STANDARD_ASCII_OVERRIDES {
+                table[code as usize] = Some(character);
+            }
+            for &(code, character) in tables::STANDARD_HIGH {
                 table[code as usize] = Some(character);
             }
         }
@@ -605,19 +613,107 @@ mod tests {
         assert!((helvetica.width_of(&accented) - 0.5).abs() < 1e-9);
     }
 
-    /// A documented v1 limitation, pinned by a test so it is a decision and
-    /// not a surprise: MacRomanEncoding's upper half is unmapped, so those
-    /// characters are refused rather than guessed.
-    #[test]
-    fn macroman_handles_ascii_and_refuses_its_unmapped_upper_half() {
-        let font = dictionary! {
+    fn mac_roman() -> FontInfo {
+        resolve_in(dictionary! {
             "Subtype" => "Type1",
             "BaseFont" => "Times-Roman",
             "Encoding" => "MacRomanEncoding",
-        };
-        let font = resolve_in(font);
+        })
+    }
+
+    fn standard() -> FontInfo {
+        resolve_in(dictionary! {
+            "Subtype" => "Type1",
+            "BaseFont" => "Times-Roman",
+            "Encoding" => "StandardEncoding",
+        })
+    }
+
+    #[test]
+    fn macroman_maps_its_upper_half_in_both_directions() {
+        let font = mac_roman();
 
         assert_eq!(font.encode("Hi").expect("ascii"), b"Hi".to_vec());
-        assert!(font.encode("é").is_err());
+        // Its accented block sits nowhere near Latin-1's: `é` is 0x8E here
+        // and 0xE9 in WinAnsi, which is exactly why the two need separate
+        // tables rather than one shared "high half".
+        assert_eq!(font.encode("é").expect("mac roman"), vec![0x8E]);
+        assert_eq!(font.decode(&[0x8E]), "é");
+        assert_eq!(font.decode(&[0xD0, 0xD1]), "–—");
+        assert_eq!(font.encode("Œ").expect("OE"), vec![0xCE]);
+        assert_eq!(font.encode("\u{00A0}").expect("nbsp"), vec![0xCA]);
+    }
+
+    /// Mac OS Roman's non-Latin slots are not in Annex D's table — it only
+    /// enumerates the Latin set — but no second authority claims them, so
+    /// they are mapped rather than left as holes.
+    #[test]
+    fn macroman_maps_the_mac_os_slots_annex_d_does_not_enumerate() {
+        let font = mac_roman();
+
+        assert_eq!(font.decode(&[0xAD]), "≠");
+        assert_eq!(font.encode("π").expect("pi"), vec![0xB9]);
+        assert_eq!(font.encode("√").expect("radical"), vec![0xC3]);
+    }
+
+    /// The two codes where the authorities genuinely disagree stay unmapped:
+    /// Annex D calls 0xDB `currency`, Mac OS Roman calls it the Euro, and
+    /// 0xF0 is Apple's private-use logo. Refusing both is this module's whole
+    /// policy — an unwritable code costs an edit, a wrong one costs the page.
+    #[test]
+    fn macroman_leaves_the_two_contested_codes_unmapped() {
+        let font = mac_roman();
+
+        assert_eq!(font.decode(&[0xDB, 0xF0]), "\u{FFFD}\u{FFFD}");
+        // `currency` is still writable — through WinAnsi's own code for it,
+        // not through the contested one.
+        assert!(font.encode("¤").is_err());
+    }
+
+    #[test]
+    fn standard_encoding_maps_its_upper_half_in_both_directions() {
+        let font = standard();
+
+        assert_eq!(font.decode(&[0xD0]), "—");
+        assert_eq!(font.encode("—").expect("em dash"), vec![0xD0]);
+        assert_eq!(font.encode("Œ").expect("OE"), vec![0xEA]);
+        assert_eq!(font.encode("Ł").expect("Lslash"), vec![0xE8]);
+        assert_eq!(font.decode(&[0xFB]), "ß");
+    }
+
+    /// StandardEncoding's own trap: 0x27/0x60 paint curly quotes, and the
+    /// plain apostrophe and grave live up in the high half. Getting this
+    /// backwards would silently swap a straight quote for a curly one.
+    #[test]
+    fn standard_encoding_keeps_the_straight_quotes_in_its_upper_half() {
+        let font = standard();
+
+        assert_eq!(font.decode(&[0x27, 0x60]), "’‘");
+        assert_eq!(font.encode("'").expect("quotesingle"), vec![0xA9]);
+        assert_eq!(font.encode("`").expect("grave"), vec![0xC1]);
+    }
+
+    /// StandardEncoding has no Latin-1 block: `é` is simply not in it, and
+    /// must stay a refusal even now that the rest of the high half is mapped.
+    #[test]
+    fn standard_encoding_still_refuses_what_it_genuinely_cannot_paint() {
+        assert!(standard().encode("é").is_err());
+    }
+
+    /// `uacute` strips to `acute` — the right length for the `uXXXX` code
+    /// point form and not hexadecimal — so the shortcut has to fall through
+    /// to the glyph table instead of deciding the name is unknown.
+    #[test]
+    fn a_glyph_name_that_only_looks_like_a_code_point_still_resolves() {
+        let font = dictionary! {
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+            "Encoding" => dictionary! {
+                "BaseEncoding" => "WinAnsiEncoding",
+                "Differences" => vec![200.into(), "uacute".into(), "ugrave".into()],
+            },
+        };
+
+        assert_eq!(resolve_in(font).decode(&[200, 201]), "úù");
     }
 }
