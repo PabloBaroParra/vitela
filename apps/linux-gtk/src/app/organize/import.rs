@@ -215,19 +215,21 @@ fn run(window: ApplicationWindow, viewer: Viewer, request: ImportRequest) {
 fn import_ids(viewer: &Viewer) -> Option<(SessionToken, u64, u32)> {
     let state = viewer.state.borrow();
     let session = state.session.as_ref()?;
-    let document = session.document_model.as_ref()?;
+    // A session with no editable model has nothing to import into, and
+    // `start` turns the `None` into the "open a PDF first" refusal.
+    session.document_model.as_ref()?;
     let next_source_id = session
         .imported_sources
         .iter()
         .map(|source| source.id.0)
         .max()
         .map_or(0, |id| id.saturating_add(1));
-    let next_page_id = document
-        .pages
-        .iter()
-        .map(|page| page.id.0)
-        .max()
-        .map_or(0, |id| id.saturating_add(1));
+    // The session's counter, NOT one past the highest id in `document.pages`.
+    // After a delete that maximum drops below ids `save_backing.base` still
+    // owns, and an imported page wearing one of them makes every later save
+    // fail with "page origin changed for an existing PageId". See
+    // `DocumentSession::next_page_id`.
+    let next_page_id = session.next_page_id;
     Some((
         SessionToken {
             generation: state.generation,
@@ -556,6 +558,15 @@ fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
         return;
     }
     let count = prepared.pages.len();
+    // Read before the pages are moved into the command. `max` rather than a
+    // plain assignment so a batch that somehow lands below the counter cannot
+    // walk it backwards — the one property `next_page_id` has to keep.
+    let past_imported = prepared
+        .pages
+        .iter()
+        .map(|page| page.id.0)
+        .max()
+        .map_or(0, |max| max.saturating_add(1));
     let result = command(viewer, |session| {
         let index = model(session)?.pages.len();
         if !apply_command(
@@ -568,12 +579,20 @@ fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
             return Err("Could not add the selected PDFs.".to_string());
         }
         session.imported_sources.extend(prepared.sources);
+        session.next_page_id = session.next_page_id.max(past_imported);
         session.import_warning_revision = Some(session.edit_revision.saturating_add(1));
         Ok(format!("Imported {count} pages."))
     });
     if result {
         populate_grid(viewer);
     }
+}
+
+/// The ids [`start`] would mint right now, for the tests that need to assert
+/// what an import is about to claim without driving a file chooser.
+#[cfg(test)]
+pub(super) fn ids_for_test(viewer: &Viewer) -> Option<(u64, u32)> {
+    import_ids(viewer).map(|(_, source, page)| (source, page))
 }
 
 #[cfg(test)]

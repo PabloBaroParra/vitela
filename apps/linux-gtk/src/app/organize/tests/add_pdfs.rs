@@ -70,6 +70,97 @@ fn gtk_ui_document_change_actively_cancels_import() {
     });
 }
 
+/// The regression this file exists for since a user hit it: an import after a
+/// delete must not mint a `PageId` the *base* still owns.
+///
+/// One past the highest id in the live model is the obvious allocator and it
+/// is wrong, because a delete lowers that maximum while `save_backing.base`
+/// keeps the page the id belonged to. `pdf_save::replay_page_ops` derives
+/// `PageId(0..base.page_count())` with `Base` origins from that base, so an
+/// imported page wearing a reused id contradicts it and *every* later save is
+/// refused with "page origin changed for an existing PageId" — the session
+/// cannot be saved at all until the user undoes their way out.
+///
+/// Asserted at the allocator rather than through a save because the fixture
+/// session has no `save_backing` to replay against; the core half of the
+/// contract is pinned in `pdf_save::bridge`'s own tests.
+#[gtk::test]
+fn gtk_ui_an_import_after_a_delete_does_not_reuse_a_deleted_page_s_id() {
+    with_organize(|viewer| {
+        assert_eq!(
+            super::import::ids_for_test(viewer)
+                .expect("a document is open")
+                .1,
+            3,
+            "a three-page document has claimed ids 0, 1 and 2"
+        );
+
+        delete_button(viewer, 2).emit_clicked();
+        delete_button(viewer, 1).emit_clicked();
+        assert_grid(viewer, &[0]);
+
+        let (_, next_page_id) = super::import::ids_for_test(viewer).expect("a document is open");
+
+        assert_eq!(
+            next_page_id, 3,
+            "deleting pages must not hand their ids back: the base still has them"
+        );
+    });
+}
+
+/// The counter only ever goes forward, which is what makes the guarantee
+/// above survive a second round of the same gesture.
+#[gtk::test]
+fn gtk_ui_the_page_id_counter_never_walks_backwards() {
+    with_organize(|viewer| {
+        let token = {
+            let state = viewer.state.borrow();
+            let session = state.session.as_ref().unwrap();
+            crate::app::state::SessionToken {
+                generation: state.generation,
+                edit_revision: session.edit_revision,
+            }
+        };
+        super::import::apply_prepared(
+            viewer,
+            token,
+            vec![crate::app::state::ImportedSource {
+                id: ImportedDocumentId(7),
+                document: pdf_manip::LopdfDocument::from_lopdf(lopdf::Document::new()),
+                name: "source-7.pdf".to_owned(),
+            }],
+            vec![Page::imported(
+                PageId(3),
+                ImportedDocumentId(7),
+                0,
+                PageSize::A4,
+                PageOrientation::Portrait,
+                pdf_document::Rotation::None,
+            )],
+        );
+        assert_grid(viewer, &[0, 1, 2, 3]);
+        assert_eq!(
+            super::import::ids_for_test(viewer)
+                .expect("a document is open")
+                .1,
+            4,
+            "the import consumed id 3"
+        );
+
+        // Delete the page that was just imported, then ask again.
+        delete_button(viewer, 3).emit_clicked();
+        assert_grid(viewer, &[0, 1, 2]);
+
+        assert_eq!(
+            super::import::ids_for_test(viewer)
+                .expect("a document is open")
+                .1,
+            4,
+            "an id that has been used once is spent, deleted or not"
+        );
+    });
+}
+
 #[gtk::test]
 fn gtk_ui_multi_source_import_is_one_dirty_history_step() {
     with_organize(|viewer| {
