@@ -198,11 +198,11 @@ mod tests {
     use crate::app::ui_tests::built_ui;
 
     fn a_document_of(pages: u32) -> Document {
-        let mut document = Document::blank();
-        document.pages = (0..pages)
-            .map(|id| Page::blank(PageId(id), PageSize::A4, Orientation::Portrait))
-            .collect();
-        document
+        Document::with_pages(
+            (0..pages)
+                .map(|id| Page::blank(PageId(id), PageSize::A4, Orientation::Portrait))
+                .collect(),
+        )
     }
 
     /// The gate a cold start hits. The path through `begin_extract` must say

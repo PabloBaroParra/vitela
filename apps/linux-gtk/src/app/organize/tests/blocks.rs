@@ -200,8 +200,7 @@ fn gtk_ui_a_session_without_a_model_leaves_the_list_empty() {
 /// better than a gap in the list.
 #[gtk::test]
 fn gtk_ui_an_unregistered_source_still_gets_a_named_card() {
-    let mut document = Document::blank();
-    document.pages = vec![base_page(0), imported_page(1, 9)];
+    let document = Document::with_pages(vec![base_page(0), imported_page(1, 9)]);
 
     with_documents(document, Vec::new(), |viewer| {
         assert_eq!(card_text(&cards(viewer)[1]).0, "Imported PDF");

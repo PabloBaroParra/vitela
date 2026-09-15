@@ -266,23 +266,32 @@ pub fn document_from_lopdf(
         form_fields.insert(field);
     }
 
-    Ok(Document {
-        pages: populate_document(lopdf)?,
-        annotations: Default::default(),
-        form_fields,
-        pending_edits: Default::default(),
-        audit_log: Default::default(),
-        security,
-    })
+    // `with_pages`, not a struct literal: this is where a document is born,
+    // and the one moment its page-id counter can be seeded correctly —
+    // `populate_document` hands out `PageId(0..n)` and nothing has been
+    // deleted yet, so "highest id in the model" and "highest id ever minted"
+    // are the same number here and nowhere later.
+    let mut document = Document::with_pages(populate_document(lopdf)?);
+    document.form_fields = form_fields;
+    document.security = security;
+    Ok(document)
 }
 
 /// Builds model pages for every page in an imported PDF, preserving the
-/// source document and source-page identity while assigning fresh session
-/// page ids supplied by the caller.
+/// source document and source-page identity while numbering them from
+/// `first_page_id` upwards.
+///
+/// `first_page_id` must come from the document the pages are destined for —
+/// `Document::allocate_page_ids` when the caller holds it, or
+/// `Document::next_page_id` when it does not (a shell that opens source PDFs
+/// on a worker thread), in which case applying the resulting
+/// `Command::ImportPages` is what spends the run. Never a number the caller
+/// derived from the pages it can see: a deleted page's id is still owned by
+/// the base PDF, and reusing it makes the session unsaveable.
 pub fn imported_pages_from_lopdf(
     lopdf: &LopdfDocument,
     source: ImportedDocumentId,
-    first_page_id: u32,
+    first_page_id: PageId,
 ) -> Result<Vec<Page>, SaveError> {
     populate_document(lopdf)?
         .into_iter()
@@ -291,6 +300,7 @@ pub fn imported_pages_from_lopdf(
             let offset = u32::try_from(index)
                 .map_err(|_| SaveError::InvalidSaveRequest("imported PDF has too many pages"))?;
             let id = first_page_id
+                .0
                 .checked_add(offset)
                 .ok_or(SaveError::InvalidSaveRequest("page id space is exhausted"))?;
             Ok(Page::imported(
@@ -773,7 +783,7 @@ mod tests {
         raw.get_dictionary_mut(second).unwrap().set("Rotate", 90);
         let source = LopdfDocument::from_lopdf(raw);
 
-        let pages = imported_pages_from_lopdf(&source, ImportedDocumentId(9), 40)
+        let pages = imported_pages_from_lopdf(&source, ImportedDocumentId(9), PageId(40))
             .expect("imported model pages should build");
 
         assert_eq!(
@@ -1035,8 +1045,8 @@ mod tests {
         );
     }
 
-    /// The contract a shell's page-id allocator has to honour, stated from
-    /// this side because this is where breaking it is detected.
+    /// The contract the page-id allocator has to honour, stated from this
+    /// side because this is where breaking it is detected.
     ///
     /// Deleting pages and then importing is an ordinary gesture, and the
     /// obvious allocator — one past the highest id still in the model —
@@ -1046,8 +1056,10 @@ mod tests {
     /// other, and the save is refused for ever. An id past the base's page
     /// count is what makes the same edit replay cleanly.
     ///
-    /// `linux-gtk`'s `DocumentSession::next_page_id` is the counter that
-    /// keeps this true; `organize::tests::add_pdfs` pins its half.
+    /// `pdf_document::Document`'s own counter is what keeps this true — no
+    /// shell picks a page id any more — and `Document::allocate_page_ids`
+    /// carries the rest of the reasoning; `organize::tests::add_pdfs` pins
+    /// the shell's half of the same gesture.
     #[test]
     fn replay_page_ops_grafts_an_import_whose_id_is_past_the_deleted_pages() {
         let base = LopdfDocument::from_lopdf(labeled_pdf(&["P1", "P2", "P3"]));
@@ -1062,8 +1074,12 @@ mod tests {
             .collect();
         // Past every id the base owns — three pages, so 3 — and NOT one past
         // the highest id left in `current`, which is the 1 the base still
-        // holds for "P2".
-        current.extend(imported_pages_from_lopdf(&source, ImportedDocumentId(0), 3).unwrap());
+        // holds for "P2". That is exactly what the model's own allocator
+        // hands out, so ask it rather than restate the number.
+        let first = pdf_document::Document::with_pages(original.clone())
+            .allocate_page_id()
+            .expect("a three-page document has ids to spare");
+        current.extend(imported_pages_from_lopdf(&source, ImportedDocumentId(0), first).unwrap());
 
         let registry = [(ImportedDocumentId(0), &source)];
         let written = replay(&base, &original, &current, ImportedSources::new(&registry))
@@ -1092,7 +1108,8 @@ mod tests {
             .collect();
         // One past the highest id left in the model — and one the base still
         // owns, because "P2" was deleted from the model and not from the base.
-        current.extend(imported_pages_from_lopdf(&source, ImportedDocumentId(0), 1).unwrap());
+        current
+            .extend(imported_pages_from_lopdf(&source, ImportedDocumentId(0), PageId(1)).unwrap());
 
         let registry = [(ImportedDocumentId(0), &source)];
         let error =

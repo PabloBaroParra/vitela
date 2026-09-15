@@ -182,6 +182,18 @@ pub struct Document {
     pub pending_edits: EditLog,
     pub audit_log: AuditLog,
     pub security: Option<SecurityContext>,
+    /// The next never-yet-minted page id, as a `u64` so that running out of
+    /// `PageId` space is a value this can hold and report rather than an
+    /// overflow.
+    ///
+    /// Private, and the only reason this whole module owns page identity:
+    /// **an id, once minted, is spent — even if the page wearing it has
+    /// since been deleted.** Every shell used to reimplement that rule, and
+    /// the obvious implementation ("one past the highest id in the model")
+    /// is correct until the first delete, at which point the document stops
+    /// being saveable and stays that way. See
+    /// [`Document::allocate_page_ids`].
+    next_page_id: u64,
 }
 
 impl Document {
@@ -189,6 +201,107 @@ impl Document {
     /// context — the starting point for `create_blank_document`.
     pub fn blank() -> Self {
         Self::default()
+    }
+
+    /// A document holding `pages`, with the page-id counter seeded past
+    /// every id they carry.
+    ///
+    /// The one correct place to seed the counter, because it is the one
+    /// moment at which "the highest id in the model" and "the highest id
+    /// ever minted" are the same number: nothing has been deleted yet. Every
+    /// document is born here — `pdf_save::document_from_lopdf` builds one
+    /// from a just-opened PDF.
+    ///
+    /// A test fixture that assigns [`Document::pages`] directly should build
+    /// one from this instead. The floor in [`Document::next_page_id`] keeps
+    /// such a fixture from minting an id it can still see, but only this
+    /// remembers an id whose page the fixture then deletes — which is the
+    /// gesture the whole counter exists for.
+    pub fn with_pages(pages: Vec<Page>) -> Self {
+        let mut document = Self::blank();
+        document.claim_page_ids(pages.iter());
+        document.pages = pages;
+        document
+    }
+
+    /// The id [`Document::allocate_page_id`] would hand out next, without
+    /// taking it — `None` once the `PageId` space is exhausted.
+    ///
+    /// For the one caller that cannot hold the document while it mints: a
+    /// shell that builds imported pages on a worker thread, whose count is
+    /// not known until each source PDF has been opened. Read the cursor,
+    /// mint `first..first + n` off-thread, and hand the finished pages to
+    /// [`crate::Command::ImportPages`] — applying it claims them, so the
+    /// counter ends up past the run whether or not the caller counted right.
+    ///
+    /// Anything that *can* hold the document should call
+    /// [`Document::allocate_page_id`] instead and never see a number at all.
+    pub fn next_page_id(&self) -> Option<PageId> {
+        u32::try_from(self.next_page_id.max(self.page_id_floor()))
+            .ok()
+            .map(PageId)
+    }
+
+    /// One past the highest id the document currently *holds* — the floor
+    /// the cursor is never allowed below.
+    ///
+    /// Not the allocator, and the difference is the whole bug this module
+    /// guards: this drops when a page is deleted, and the counter does not.
+    /// Taking the larger of the two is therefore strictly safer than either
+    /// alone — it can only ever move the cursor forward. It exists so that a
+    /// page which entered `pages` without going through
+    /// [`crate::Command::apply`] (a hand-built test fixture, most often)
+    /// cannot have its id handed out a second time.
+    fn page_id_floor(&self) -> u64 {
+        self.pages
+            .iter()
+            .map(|page| u64::from(page.id.0) + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Mints one fresh page id, or `None` once the `PageId` space is
+    /// exhausted.
+    pub fn allocate_page_id(&mut self) -> Option<PageId> {
+        self.allocate_page_ids(1)
+    }
+
+    /// Mints `count` consecutive fresh page ids and returns the first, or
+    /// `None` when `count` is zero or the `PageId` space cannot fit the run.
+    ///
+    /// The counter only ever moves forward. Deleting a page does not return
+    /// its id, and neither does undoing the insert that minted it: the base
+    /// PDF a save replays against still owns every id it was opened with,
+    /// and `pdf_save::bridge::replay_page_ops` re-derives them on every save.
+    /// Handing a reused id to a new page makes that id `Base` on one side
+    /// and `Imported`/`Blank` on the other, which is refused — for the rest
+    /// of the session, with a message that says nothing about where the id
+    /// came from.
+    pub fn allocate_page_ids(&mut self, count: usize) -> Option<PageId> {
+        if count == 0 {
+            return None;
+        }
+        let first = self.next_page_id()?;
+        let end = u64::from(first.0) + count as u64;
+        // A run that ends past the space is no more usable than one that
+        // starts past it, so refuse before spending anything.
+        u32::try_from(end - 1).ok()?;
+        self.next_page_id = end;
+        Some(first)
+    }
+
+    /// Moves the counter past every id in `pages`, so an id minted somewhere
+    /// this document could not be held — a shell building an import on a
+    /// worker thread — can never be handed out a second time.
+    ///
+    /// Called by [`crate::Command::apply`] for every command that puts pages
+    /// into the document — including the inverses that put removed pages
+    /// back, where it is a no-op because the counter is already past them.
+    /// Never lowers the counter: that is the entire invariant.
+    pub(crate) fn claim_page_ids<'a>(&mut self, pages: impl IntoIterator<Item = &'a Page>) {
+        for page in pages {
+            self.next_page_id = self.next_page_id.max(u64::from(page.id.0) + 1);
+        }
     }
 
     /// The zero-based position `id` occupies in the current page order, or
@@ -252,13 +365,11 @@ mod tests {
     /// A document whose `PageId`s deliberately do not match their positions,
     /// so a test that passes by accident on `PageId.0 == index` cannot.
     fn document_with_page_ids(ids: &[u32]) -> Document {
-        Document {
-            pages: ids
-                .iter()
+        Document::with_pages(
+            ids.iter()
                 .map(|id| Page::blank(PageId(*id), PageSize::A4, Orientation::Portrait))
                 .collect(),
-            ..Document::default()
-        }
+        )
     }
 
     #[test]
@@ -331,6 +442,113 @@ mod tests {
             assert_eq!(document.render_index(page.id), Some(position));
             assert_eq!(document.page_id_at(position), Some(page.id));
         }
+    }
+
+    #[test]
+    fn a_blank_document_mints_from_zero() {
+        let mut document = Document::blank();
+
+        assert_eq!(document.allocate_page_id(), Some(PageId(0)));
+        assert_eq!(document.allocate_page_id(), Some(PageId(1)));
+    }
+
+    #[test]
+    fn with_pages_seeds_the_counter_past_every_page_it_is_given() {
+        let mut document = Document::with_pages(
+            [9, 4, 7]
+                .iter()
+                .map(|id| Page::blank(PageId(*id), PageSize::A4, Orientation::Portrait))
+                .collect(),
+        );
+
+        assert_eq!(document.allocate_page_id(), Some(PageId(10)));
+    }
+
+    /// The bug the counter exists for. "One past the highest id still in the
+    /// model" is what anyone writes first, and it is correct right up until
+    /// the first delete — after which it hands out an id the base PDF still
+    /// owns, and every later save is refused.
+    #[test]
+    fn a_deleted_page_does_not_give_its_id_back() {
+        let mut document = document_with_page_ids(&[0, 1, 2]);
+        document.pages.truncate(1);
+
+        assert_eq!(
+            document.allocate_page_id(),
+            Some(PageId(3)),
+            "the ids of the two deleted pages are spent, not free"
+        );
+    }
+
+    /// The counter is the authority on ids that are *spent*; the pages are
+    /// the authority on ids that are *taken*. A page that entered the model
+    /// without going through a command — a hand-built fixture — is covered
+    /// by the second, so the cursor can never fall behind what is on screen.
+    #[test]
+    fn a_page_pushed_straight_onto_the_model_still_takes_its_id() {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(5), PageSize::A4, Orientation::Portrait));
+
+        assert_eq!(document.allocate_page_id(), Some(PageId(6)));
+    }
+
+    #[test]
+    fn allocate_page_ids_reserves_a_contiguous_run() {
+        let mut document = Document::blank();
+
+        assert_eq!(document.allocate_page_ids(3), Some(PageId(0)));
+        assert_eq!(
+            document.allocate_page_id(),
+            Some(PageId(3)),
+            "the run is spent whether or not the caller used all of it"
+        );
+    }
+
+    #[test]
+    fn allocate_page_ids_refuses_an_empty_run() {
+        let mut document = Document::blank();
+
+        assert_eq!(document.allocate_page_ids(0), None);
+        assert_eq!(
+            document.allocate_page_id(),
+            Some(PageId(0)),
+            "a refused run spends nothing"
+        );
+    }
+
+    #[test]
+    fn allocation_stops_at_the_end_of_the_page_id_space() {
+        let mut document = Document::with_pages(vec![Page::blank(
+            PageId(u32::MAX),
+            PageSize::A4,
+            Orientation::Portrait,
+        )]);
+
+        assert_eq!(document.next_page_id(), None);
+        assert_eq!(document.allocate_page_id(), None);
+    }
+
+    #[test]
+    fn allocation_refuses_a_run_that_would_end_past_the_page_id_space() {
+        let mut document = Document::with_pages(vec![Page::blank(
+            PageId(u32::MAX - 2),
+            PageSize::A4,
+            Orientation::Portrait,
+        )]);
+
+        assert_eq!(document.allocate_page_ids(3), None);
+        assert_eq!(document.allocate_page_ids(2), Some(PageId(u32::MAX - 1)));
+    }
+
+    #[test]
+    fn next_page_id_reports_the_cursor_without_spending_it() {
+        let mut document = document_with_page_ids(&[0, 1]);
+
+        assert_eq!(document.next_page_id(), Some(PageId(2)));
+        assert_eq!(document.next_page_id(), Some(PageId(2)));
+        assert_eq!(document.allocate_page_id(), Some(PageId(2)));
     }
 
     #[test]

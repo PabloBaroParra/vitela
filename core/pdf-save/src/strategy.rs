@@ -777,8 +777,14 @@ mod tests {
     #[test]
     fn save_document_writes_an_inserted_page_and_annotation() {
         let mut fixture = Fixture::blank();
-        let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(&mut fixture.document, Command::insert_page(0, page));
+        let insert = Command::insert_blank_page(
+            &mut fixture.document,
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+        )
+        .expect("the fixture has page ids to spare");
+        apply_command(&mut fixture.document, insert);
         apply_command(&mut fixture.document, Command::AddAnnotation(a_highlight()));
 
         let bytes = save_document(fixture.input()).expect("save should succeed");
@@ -798,8 +804,14 @@ mod tests {
     #[test]
     fn save_document_writes_a_new_form_field_that_reads_back() {
         let mut fixture = Fixture::blank();
-        let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(&mut fixture.document, Command::insert_page(0, page));
+        let insert = Command::insert_blank_page(
+            &mut fixture.document,
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+        )
+        .expect("the fixture has page ids to spare");
+        apply_command(&mut fixture.document, insert);
         apply_command(&mut fixture.document, Command::AddFormField(a_text_field()));
 
         let bytes = save_document(fixture.input()).expect("save should succeed");
@@ -968,8 +980,14 @@ mod tests {
     #[test]
     fn save_preview_still_materializes_a_page_operation() {
         let mut fixture = fixture_over(base_with_an_existing_annotation());
-        let page = pdf_document::Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
-        apply_command(&mut fixture.document, Command::insert_page(1, page));
+        let insert = Command::insert_blank_page(
+            &mut fixture.document,
+            1,
+            PageSize::A4,
+            Orientation::Portrait,
+        )
+        .expect("the fixture has page ids to spare");
+        apply_command(&mut fixture.document, insert);
 
         let preview = save_preview(fixture.input()).expect("preview should succeed");
         let reloaded = lopdf::Document::load_mem(&preview).expect("output must reload");
@@ -985,8 +1003,14 @@ mod tests {
     fn full_rewrite_with_fixed_options_is_byte_identical_across_runs() {
         let build_bytes = || {
             let mut fixture = Fixture::blank();
-            let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-            apply_command(&mut fixture.document, Command::insert_page(0, page));
+            let insert = Command::insert_blank_page(
+                &mut fixture.document,
+                0,
+                PageSize::A4,
+                Orientation::Portrait,
+            )
+            .expect("the fixture has page ids to spare");
+            apply_command(&mut fixture.document, insert);
             let original_pages = fixture.original_pages();
             save_full_rewrite(
                 fixture.input(),
@@ -1010,8 +1034,14 @@ mod tests {
     fn incremental_save_rejects_structural_changes() {
         let mut fixture = Fixture::blank();
         fixture.original_bytes = Some(vec![]);
-        let page = pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        apply_command(&mut fixture.document, Command::insert_page(0, page));
+        let insert = Command::insert_blank_page(
+            &mut fixture.document,
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+        )
+        .expect("the fixture has page ids to spare");
+        apply_command(&mut fixture.document, insert);
 
         let original_pages = fixture.original_pages();
         let result = save_incremental(
@@ -1237,8 +1267,14 @@ mod tests {
             intent: SaveIntent::Default,
             signatures: SignatureAcknowledgement::Unacknowledged,
         };
-        let page = pdf_document::Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
-        apply_command(&mut fixture.document, Command::insert_page(1, page));
+        let insert = Command::insert_blank_page(
+            &mut fixture.document,
+            1,
+            PageSize::A4,
+            Orientation::Portrait,
+        )
+        .expect("the fixture has page ids to spare");
+        apply_command(&mut fixture.document, insert);
 
         let original_pages = fixture.original_pages();
         let bytes = save_full_rewrite(

@@ -126,7 +126,11 @@ fn importing_rendering_and_switching_views_on_a_large_assembly() {
     let selected: Vec<usize> = (0..source.page_count()).collect();
     let (_, graft_report) =
         timed(|| pdf_manip::graft_report(&source, &selected).expect("graft report"));
-    let next_page_id = u32::try_from(document.pages.len()).expect("page count fits in u32");
+    // The model's own cursor, the way a shell reads it before minting a run
+    // on a worker thread.
+    let next_page_id = document
+        .next_page_id()
+        .expect("the model has page ids to spare");
     let (imported, page_list) = timed(|| {
         pdf_save::imported_pages_from_lopdf(&source, ImportedDocumentId(1), next_page_id)
             .expect("imported page list")

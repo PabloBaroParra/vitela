@@ -134,10 +134,7 @@ mod tests {
     }
 
     fn document_with(pages: Vec<Page>) -> Document {
-        Document {
-            pages,
-            ..Document::default()
-        }
+        Document::with_pages(pages)
     }
 
     #[test]

@@ -45,15 +45,13 @@ pub(super) fn source(id: u64, name: &str) -> ImportedSource {
 /// Two base pages followed by three imported ones: two blocks, which is the
 /// smallest model with a move that is not a no-op.
 pub(super) fn two_blocks() -> Document {
-    let mut document = Document::blank();
-    document.pages = vec![
+    Document::with_pages(vec![
         base_page(0),
         base_page(1),
         imported_page(2, 7),
         imported_page(3, 7),
         imported_page(4, 7),
-    ];
-    document
+    ])
 }
 
 /// The list's children in order: gap, card, gap, card, … gap.
@@ -193,13 +191,12 @@ fn gtk_ui_the_list_offers_a_drop_position_before_between_and_after_every_card() 
 /// says "Part 2" is the one whose pages come second.
 #[gtk::test]
 fn gtk_ui_a_source_split_in_two_is_labeled_by_part() {
-    let mut document = Document::blank();
-    document.pages = vec![
+    let document = Document::with_pages(vec![
         imported_page(0, 7),
         base_page(1),
         imported_page(2, 7),
         imported_page(3, 7),
-    ];
+    ]);
 
     with_documents(document, vec![source(7, "report.pdf")], |viewer| {
         let cards = cards(viewer);

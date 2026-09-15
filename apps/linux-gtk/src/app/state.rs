@@ -1296,25 +1296,11 @@ pub(crate) struct DocumentSession {
     pub(crate) unsaved_to_disk: bool,
     pub(crate) edit_revision: u64,
     pub(crate) next_annotation_id: u64,
-    /// Next id a page added to this document gets — imported today, inserted
-    /// when a blank-page command grows a UI.
-    ///
-    /// A **monotonic counter that never goes backwards**, and that is the
-    /// whole point. The obvious alternative, one past the highest id in
-    /// `document_model.pages`, is wrong after a delete: the maximum drops,
-    /// but `save_backing.base` still holds the page that id belonged to. The
-    /// save replays against that base — `pdf_save::replay_page_ops` derives
-    /// `PageId(0..base.page_count())` with `Base` origins from it — so an
-    /// imported page wearing a reused id contradicts the base and the save is
-    /// refused with "page origin changed for an existing PageId", leaving the
-    /// session unable to save at all.
-    ///
-    /// `document::next_page_id` seeds it on open and
-    /// `write::preview::edits` carries it across the refresh reopen, exactly
-    /// as `next_annotation_id` and `next_form_field_id` are carried. A
-    /// document's page count can never exceed the number of ids ever minted,
-    /// so the counter always clears whatever the reopened base owns.
-    pub(crate) next_page_id: u32,
+    // There is no `next_page_id` beside these two, and deliberately so: page
+    // ids are minted by `Document` itself (`allocate_page_id` /
+    // `next_page_id`), so the counter rides along inside `document_model`
+    // and is carried across a preview refresh with it, for free. It used to
+    // live here, and every other shell had to reimplement the same rule.
     pub(crate) selected_annotation: Option<AnnotationId>,
     /// Next id a placed form field gets (T-141). Unlike
     /// `next_annotation_id`, this cannot always start at 0: an opened PDF's

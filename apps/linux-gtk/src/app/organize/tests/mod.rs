@@ -59,18 +59,19 @@ fn with_organize(test: impl FnOnce(&Viewer)) {
 /// a document big enough for the answer to matter.
 fn with_organize_of(pages: u32, test: impl FnOnce(&Viewer)) {
     let built = built_ui();
-    let mut document = Document::blank();
-    document.pages = (0..pages)
-        .map(|id| {
-            Page::base(
-                PageId(id),
-                id,
-                PageSize::A4,
-                PageOrientation::Portrait,
-                pdf_document::Rotation::None,
-            )
-        })
-        .collect();
+    let document = Document::with_pages(
+        (0..pages)
+            .map(|id| {
+                Page::base(
+                    PageId(id),
+                    id,
+                    PageSize::A4,
+                    PageOrientation::Portrait,
+                    pdf_document::Rotation::None,
+                )
+            })
+            .collect(),
+    );
     built.viewer.state.borrow_mut().session = Some(model_session(document));
     THUMBNAILS.set(Some(Vec::new()));
     show(&built.viewer);

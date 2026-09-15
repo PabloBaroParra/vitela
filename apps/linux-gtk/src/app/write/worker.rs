@@ -203,15 +203,11 @@ mod tests {
     use pdf_document::{Document, Orientation, Page, PageId, PageSize};
 
     fn a_document_of(pages: usize) -> Document {
-        let mut document = Document::blank();
-        for index in 0..pages {
-            document.pages.push(Page::blank(
-                PageId(index as u32),
-                PageSize::A4,
-                Orientation::Portrait,
-            ));
-        }
-        document
+        Document::with_pages(
+            (0..pages)
+                .map(|index| Page::blank(PageId(index as u32), PageSize::A4, Orientation::Portrait))
+                .collect(),
+        )
     }
 
     #[test]

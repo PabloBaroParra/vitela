@@ -38,13 +38,9 @@ fn apply_command(document: &mut pdf_document::Document, command: Command) {
 fn document_with_one_highlight() -> (pdf_document::Document, pdf_manip::LopdfDocument) {
     let base = pdf_manip::create_blank_document(PageSize::A4, Orientation::Portrait);
     let mut document = pdf_save::document_from_lopdf(&base, None).unwrap();
-    apply_command(
-        &mut document,
-        Command::insert_page(
-            0,
-            pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
-        ),
-    );
+    let insert = Command::insert_blank_page(&mut document, 0, PageSize::A4, Orientation::Portrait)
+        .expect("a zero-page document has ids to spare");
+    apply_command(&mut document, insert);
     apply_command(
         &mut document,
         Command::AddAnnotation(Annotation {
@@ -177,13 +173,9 @@ const FIELD: Rect = Rect {
 fn document_with_one_filled_field() -> (pdf_document::Document, pdf_manip::LopdfDocument) {
     let base = pdf_manip::create_blank_document(PageSize::A4, Orientation::Portrait);
     let mut document = pdf_save::document_from_lopdf(&base, None).unwrap();
-    apply_command(
-        &mut document,
-        Command::insert_page(
-            0,
-            pdf_document::Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
-        ),
-    );
+    let insert = Command::insert_blank_page(&mut document, 0, PageSize::A4, Orientation::Portrait)
+        .expect("a zero-page document has ids to spare");
+    apply_command(&mut document, insert);
     apply_command(
         &mut document,
         Command::AddFormField(FormField {

@@ -14,7 +14,7 @@ use std::collections::HashSet;
 use crate::annotation::{Annotation, Rect};
 use crate::content::{ImageItem, TextRun};
 use crate::document::PageId;
-use crate::document::{Document, Page};
+use crate::document::{Document, Orientation, Page, PageSize};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
 use crate::metadata::DocumentInfo;
 
@@ -76,8 +76,8 @@ pub enum Command {
     /// fields that belong on it.
     ///
     /// Both payloads are empty for an ordinary blank insert — use
-    /// [`Command::insert_page`] for that. They carry values only when this
-    /// command is the inverse of a [`Command::RemovePage`], which is what
+    /// [`Command::insert_blank_page`] for that. They carry values only when
+    /// this command is the inverse of a [`Command::RemovePage`], which is what
     /// makes undoing a page deletion restore the page *and* what was drawn
     /// on it as one step. Each entry names the position it held in
     /// `Document.annotations` / `Document.form_fields`, because those sets
@@ -351,19 +351,37 @@ impl Command {
     /// pdfium actually renders) needs to classify the command *before*
     /// stepping the log — `EditLog::peek_undo`/`peek_redo` exist for exactly
     /// that, so the caller can decide first and act once.
-    /// An insert of `page` alone, with nothing anchored to it — the ordinary
-    /// blank-page insert.
+    /// An insert of one new blank page at `index`, wearing an id minted by
+    /// `document` — the ordinary blank-page insert, and the only place the
+    /// model gains a page that is not a copy of one it already had.
+    ///
+    /// `None` when the `PageId` space is exhausted. An `index` past the end
+    /// is *not* refused here: [`Command::apply`] rejects it, which is where
+    /// every other range check on this command lives, and a caller that
+    /// wants to name the bad index in an error should check it before
+    /// calling rather than have two validators disagree.
+    ///
+    /// Takes `&mut Document` and no id, because a caller that could pass an
+    /// id would eventually pass the wrong one: "one past the highest id in
+    /// the model" is the obvious allocator and it is correct only until the
+    /// first delete. See [`Document::allocate_page_ids`] for what that costs.
     ///
     /// The payload-carrying form of this command exists only as
     /// [`Command::remove_page`]'s inverse, so a caller that is genuinely
     /// inserting a *new* page never has to spell out two empty vectors.
-    pub fn insert_page(index: usize, page: Page) -> Command {
-        Command::InsertPage {
+    pub fn insert_blank_page(
+        document: &mut Document,
+        index: usize,
+        size: PageSize,
+        orientation: Orientation,
+    ) -> Option<Command> {
+        let id = document.allocate_page_id()?;
+        Some(Command::InsertPage {
             index,
-            page,
+            page: Page::blank(id, size, orientation),
             annotations: Vec::new(),
             form_fields: Vec::new(),
-        }
+        })
     }
 
     /// A removal of the page at `index` in `document`, capturing that page
@@ -621,6 +639,10 @@ impl Command {
                     return false;
                 }
                 document.pages.insert(*index, page.clone());
+                // Spends the id whether this command minted it or merely
+                // carries one back (a `RemovePage` inverse), which is a
+                // no-op in the second case — the counter is already past it.
+                document.claim_page_ids(std::iter::once(page));
                 // After the page, never before: these name a page id that
                 // has to be in the document for the result to be saveable at
                 // all, which is the whole reason they travel with it.
@@ -635,6 +657,11 @@ impl Command {
                     return false;
                 }
                 document.pages.splice(*index..*index, pages.clone());
+                // The import itself was built off the document — possibly on
+                // a worker thread, from a cursor read before the pages
+                // existed. Claiming here is what makes the counter right
+                // without the caller having to count what it minted.
+                document.claim_page_ids(pages.iter());
             }
             Command::RemovePage { index, .. } => {
                 if *index >= document.pages.len() {
@@ -687,6 +714,10 @@ impl Command {
                     return false;
                 }
                 document.pages.splice(*index..*index, pages.clone());
+                // A no-op in practice — this command only ever restores pages
+                // the document already minted — but the counter must never be
+                // behind a page that is in the document, whatever put it there.
+                document.claim_page_ids(pages.iter());
                 // After the pages, never before — see `InsertPage`.
                 document.annotations.restore(annotations.clone());
                 document.form_fields.restore(form_fields.clone());
@@ -1127,6 +1158,19 @@ mod tests {
     /// exercise index validation or command classification, where reaching
     /// for [`Command::remove_page`] would mean building a document just to
     /// read two empty vectors out of it.
+    /// An `InsertPage` wearing an id this test chose, which
+    /// [`Command::insert_blank_page`] deliberately does not let production
+    /// code do — a test that pins `apply`'s own validation (a duplicate id,
+    /// an out-of-range index) has to be able to build the bad command.
+    fn a_blank_insert(index: usize, page: Page) -> Command {
+        Command::InsertPage {
+            index,
+            page,
+            annotations: Vec::new(),
+            form_fields: Vec::new(),
+        }
+    }
+
     fn a_remove_page(index: usize, page: Page) -> Command {
         Command::RemovePage {
             index,
@@ -1137,13 +1181,90 @@ mod tests {
     }
 
     fn document_with_pages(ids: &[u32]) -> Document {
-        Document {
-            pages: ids
-                .iter()
+        Document::with_pages(
+            ids.iter()
                 .map(|id| Page::blank(PageId(*id), PageSize::A4, Orientation::Portrait))
                 .collect(),
-            ..Document::default()
+        )
+    }
+
+    /// The document is the only thing that knows which ids are spent, so the
+    /// commands that put pages into it are what keep that true — including
+    /// for pages minted somewhere the document could not be held, which is
+    /// how a shell builds an import on a worker thread.
+    #[test]
+    fn applying_an_import_claims_the_ids_it_carries() {
+        let mut document = document_with_pages(&[0]);
+
+        assert!(Command::ImportPages {
+            index: 1,
+            pages: vec![imported_page(40, 0), imported_page(41, 1)],
         }
+        .apply(&mut document));
+
+        assert_eq!(document.allocate_page_id(), Some(PageId(42)));
+    }
+
+    #[test]
+    fn applying_an_insert_claims_the_id_it_carries() {
+        let mut document = Document::blank();
+        let command =
+            Command::insert_blank_page(&mut document, 0, PageSize::A4, Orientation::Portrait)
+                .expect("a blank document has ids to spare");
+
+        assert!(command.apply(&mut document));
+
+        assert_eq!(document.allocate_page_id(), Some(PageId(1)));
+    }
+
+    #[test]
+    fn insert_blank_page_takes_its_id_from_the_document() {
+        let mut document = document_with_pages(&[0, 1, 2]);
+        document.pages.truncate(1);
+
+        let command =
+            Command::insert_blank_page(&mut document, 1, PageSize::A4, Orientation::Portrait)
+                .expect("a document with two spent ids has more");
+
+        let Command::InsertPage { page, .. } = &command else {
+            panic!("insert_blank_page must build an InsertPage");
+        };
+        assert_eq!(
+            page.id,
+            PageId(3),
+            "not PageId(1), which the base PDF still owns"
+        );
+    }
+
+    #[test]
+    fn insert_blank_page_is_refused_when_the_page_id_space_is_exhausted() {
+        let mut document = Document::with_pages(vec![Page::blank(
+            PageId(u32::MAX),
+            PageSize::A4,
+            Orientation::Portrait,
+        )]);
+
+        assert!(
+            Command::insert_blank_page(&mut document, 1, PageSize::A4, Orientation::Portrait)
+                .is_none()
+        );
+    }
+
+    /// Undo is not a refund. The base PDF a save replays against still owns
+    /// the id, so re-minting it makes every later save refuse the document.
+    #[test]
+    fn undoing_an_insert_does_not_return_its_id_to_the_pool() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        let command =
+            Command::insert_blank_page(&mut document, 0, PageSize::A4, Orientation::Portrait)
+                .expect("a blank document has ids to spare");
+        log.apply(&mut document, command);
+
+        assert!(log.undo(&mut document));
+
+        assert!(document.pages.is_empty());
+        assert_eq!(document.allocate_page_id(), Some(PageId(1)));
     }
 
     fn page_ids(document: &Document) -> Vec<PageId> {
@@ -1543,9 +1664,10 @@ mod tests {
 
     #[test]
     fn an_ordinary_blank_insert_carries_nothing_to_restore() {
-        let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let mut document = Document::blank();
         assert!(matches!(
-            Command::insert_page(0, page),
+            Command::insert_blank_page(&mut document, 0, PageSize::A4, Orientation::Portrait)
+                .expect("a blank document has ids to spare"),
             Command::InsertPage {
                 ref annotations,
                 ref form_fields,
@@ -1582,10 +1704,7 @@ mod tests {
             imported_page_from(11, 7, 1),
             imported_page_from(12, 8, 0),
         ];
-        let mut document = Document {
-            pages: vec![base.clone()],
-            ..Document::default()
-        };
+        let mut document = Document::with_pages(vec![base.clone()]);
         let mut log = EditLog::new();
 
         assert!(log.apply(
@@ -1631,10 +1750,7 @@ mod tests {
     #[test]
     fn undo_removes_an_imported_batch_in_one_step() {
         let base = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        let mut document = Document {
-            pages: vec![base.clone()],
-            ..Document::default()
-        };
+        let mut document = Document::with_pages(vec![base.clone()]);
         let mut log = EditLog::new();
         log.apply(
             &mut document,
@@ -1702,7 +1818,7 @@ mod tests {
         let mut log = EditLog::new();
         log.apply(
             &mut document,
-            Command::insert_page(
+            a_blank_insert(
                 0,
                 Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
             ),
@@ -1724,10 +1840,7 @@ mod tests {
     #[test]
     fn removing_a_mismatched_imported_batch_is_rejected_before_mutating() {
         let original = vec![imported_page(10, 0), imported_page(11, 1)];
-        let mut document = Document {
-            pages: original.clone(),
-            ..Document::default()
-        };
+        let mut document = Document::with_pages(original.clone());
         let command = Command::RemoveImportedPages {
             index: 0,
             pages: vec![imported_page(12, 0), imported_page(13, 1)],
@@ -1745,7 +1858,7 @@ mod tests {
         let mut log = EditLog::new();
         log.apply(
             &mut document,
-            Command::insert_page(
+            a_blank_insert(
                 0,
                 Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
             ),
@@ -1768,7 +1881,7 @@ mod tests {
     #[test]
     fn an_out_of_range_insert_page_is_rejected_without_panicking() {
         let mut document = Document::blank();
-        let command = Command::insert_page(
+        let command = a_blank_insert(
             9,
             Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
         );
@@ -1780,7 +1893,7 @@ mod tests {
     #[test]
     fn insert_page_rejects_an_id_already_in_the_document() {
         let mut document = document_with_pages(&[0, 1]);
-        let command = Command::insert_page(
+        let command = a_blank_insert(
             2,
             Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
         );
@@ -1797,7 +1910,7 @@ mod tests {
             .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
         let appended = Page::blank(PageId(1), PageSize::A4, Orientation::Portrait);
 
-        let applied = Command::insert_page(1, appended.clone()).apply(&mut document);
+        let applied = a_blank_insert(1, appended.clone()).apply(&mut document);
 
         assert!(applied);
         assert_eq!(document.pages[1], appended);
@@ -1806,10 +1919,7 @@ mod tests {
     #[test]
     fn an_out_of_range_remove_page_is_rejected_without_panicking() {
         let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
-        let mut document = Document {
-            pages: vec![page.clone()],
-            ..Document::default()
-        };
+        let mut document = Document::with_pages(vec![page.clone()]);
 
         let applied = a_remove_page(5, page).apply(&mut document);
 
@@ -1823,10 +1933,7 @@ mod tests {
             Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
             Page::blank(PageId(1), PageSize::A4, Orientation::Portrait),
         ];
-        let mut document = Document {
-            pages: original.clone(),
-            ..Document::default()
-        };
+        let mut document = Document::with_pages(original.clone());
 
         // `to` past the end is the half a naive bounds check misses: `from`
         // is removed first, so an unchecked `insert` would panic on a vector
@@ -2175,7 +2282,7 @@ mod tests {
     #[test]
     fn every_page_structure_edit_needs_assembly_permission() {
         for command in [
-            Command::insert_page(
+            a_blank_insert(
                 0,
                 Page::blank(PageId(0), PageSize::A4, Orientation::Portrait),
             ),
@@ -2767,7 +2874,7 @@ mod tests {
         let others = [
             Command::AddAnnotation(annotation.clone()),
             Command::RemoveAnnotation(annotation),
-            Command::insert_page(0, page.clone()),
+            a_blank_insert(0, page.clone()),
             Command::RemovePage {
                 index: 0,
                 page,
@@ -2834,7 +2941,7 @@ mod tests {
                 page: PageId(0),
                 delta_degrees: 90,
             },
-            Command::insert_page(0, page.clone()),
+            a_blank_insert(0, page.clone()),
             a_remove_page(0, page),
             Command::MovePages {
                 from: 0,
