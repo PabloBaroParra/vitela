@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 
-use gtk::{gdk, gdk_pixbuf, Picture};
+use gtk::{gdk, gdk_pixbuf, Button, Picture};
 
 use super::cache::ThumbnailKey;
 use super::command::{apply_command, command, model, move_page};
@@ -317,4 +317,5 @@ mod pages;
 mod refusals;
 mod resolution;
 mod rotation;
+mod split;
 mod thumbnails;

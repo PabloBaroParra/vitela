@@ -3,15 +3,21 @@
 //! rather than a separate export-specific rasterizer — the same principle
 //! `design.md`'s Printing section applies (one renderer, many DPIs).
 //!
-//! Rendering and encoding one page live here. **Which** pages an export covers
-//! and **what** each file is called live in [`selection`]: they are pure
-//! functions of a typed string, needing no document and no renderer, and every
-//! shell that grows an export screen needs exactly them. See that module's own
-//! doc for why they are shared rather than written once per shell.
+//! Rendering and encoding one page live here. The two questions that come
+//! before and after it are pure functions of a string — no document, no
+//! renderer — and live in their own modules because every shell that grows a
+//! screen asking them needs exactly these answers: **which** pages are covered
+//! is [`selection`]'s, and **what** each written file is called is
+//! [`naming`]'s. Both outgrew "export": the page grammar is what Extract and
+//! Split ask in too, and `naming` is what a split's parts are called. See each
+//! module's own doc for why they are shared rather than written once per
+//! shell.
 
+pub mod naming;
 pub mod selection;
 
-pub use selection::{page_image_file_name, parse_page_selection, PageSelectionError};
+pub use naming::{document_file_stem, page_image_file_name, split_part_file_name};
+pub use selection::{parse_page_selection, PageSelectionError};
 
 use image::{DynamicImage, ImageFormat, RgbaImage};
 

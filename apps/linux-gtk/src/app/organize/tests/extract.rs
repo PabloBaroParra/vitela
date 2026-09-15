@@ -10,7 +10,7 @@
 use super::*;
 
 #[gtk::test]
-fn gtk_ui_extract_sits_between_the_import_group_and_save() {
+fn gtk_ui_extract_sits_between_the_import_group_and_split() {
     with_organize(|viewer| {
         assert_eq!(
             viewer.organize.extract_button.label().as_deref(),
@@ -18,7 +18,7 @@ fn gtk_ui_extract_sits_between_the_import_group_and_save() {
         );
         assert_eq!(
             viewer.organize.extract_button.next_sibling(),
-            Some(viewer.organize.save_button.clone().upcast())
+            Some(viewer.organize.split_button.clone().upcast())
         );
         // A header button, not a card one: it acts on a selection that can
         // span the whole document rather than on the page it sits under.
