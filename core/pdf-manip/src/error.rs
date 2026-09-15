@@ -154,7 +154,7 @@ impl fmt::Display for ManipError {
             ),
             ManipError::SourceHasSignature(page) => write!(
                 f,
-                "page {page} carries a digital signature; its signature cannot be verified in                  another document, so importing the page is not supported"
+                "page {page} carries a digital signature; its signature cannot be verified in another document, so importing the page is not supported"
             ),
             ManipError::SourceForbidsCopying => {
                 write!(f, "the PDF does not permit copying its pages")
@@ -175,5 +175,119 @@ impl std::error::Error for ManipError {
 impl From<lopdf::Error> for ManipError {
     fn from(err: lopdf::Error) -> Self {
         ManipError::Lopdf(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ManipError;
+
+    /// Every message this crate writes itself.
+    ///
+    /// `Lopdf` is deliberately absent: its text comes from `lopdf`, so
+    /// holding it to this crate's standards would be asserting against
+    /// someone else's string. Every other variant is listed, and the compiler
+    /// is what keeps the list complete — see
+    /// [`every_variant_is_covered_by_the_message_checks`].
+    fn authored_messages() -> Vec<ManipError> {
+        vec![
+            ManipError::PasswordRequired,
+            ManipError::WrongPassword,
+            ManipError::UnsupportedSecurityHandler,
+            ManipError::EmptyMerge,
+            ManipError::EmptyPageSelection,
+            ManipError::DuplicatePageSelection(3),
+            ManipError::InvalidPageNumber(11),
+            ManipError::InvalidPageIndex(7),
+            ManipError::InvalidPageRange {
+                after_page: 9,
+                total_pages: 4,
+            },
+            ManipError::InvalidPageOrder,
+            ManipError::MalformedPageTree,
+            ManipError::SourceHasFormFields(0),
+            ManipError::SourceHasXfaForm(0),
+            ManipError::SourceHasOptionalContent(0),
+            ManipError::SourceHasSignature(0),
+            ManipError::SourceForbidsCopying,
+        ]
+    }
+
+    /// The regression. `SourceHasSignature` carried eighteen consecutive
+    /// spaces mid-sentence — a source line that had been reflowed with the
+    /// indentation left inside the quotes — and it reached the user as a gap
+    /// in the status bar that looked like truncation.
+    ///
+    /// Every message is checked rather than that one, because the mistake is
+    /// a property of how these are written (one long literal per arm, wrapped
+    /// by hand) and not of that variant. A test for the single string would
+    /// have been a test for the typo rather than for the class of it.
+    #[test]
+    fn no_message_carries_a_run_of_spaces_from_a_wrapped_source_line() {
+        for error in authored_messages() {
+            let message = error.to_string();
+            assert!(
+                !message.contains("  "),
+                "{error:?} renders with a double space: {message:?}"
+            );
+        }
+    }
+
+    /// Whitespace at either end reaches the status bar just as invisibly.
+    #[test]
+    fn no_message_is_padded_at_either_end() {
+        for error in authored_messages() {
+            let message = error.to_string();
+            assert_eq!(message.trim(), message, "{error:?} is padded: {message:?}");
+            assert!(!message.is_empty(), "{error:?} renders as nothing");
+        }
+    }
+
+    /// Keeps [`authored_messages`] honest: a new variant has to be added
+    /// there, or this stops compiling.
+    ///
+    /// A `match` rather than a count, so the compiler names the variant that
+    /// was forgotten instead of leaving whoever added it to work out which
+    /// number changed.
+    #[test]
+    fn every_variant_is_covered_by_the_message_checks() {
+        fn assert_listed(error: &ManipError) {
+            match error {
+                // Not this crate's words to answer for.
+                ManipError::Lopdf(_) => {}
+                ManipError::PasswordRequired
+                | ManipError::WrongPassword
+                | ManipError::UnsupportedSecurityHandler
+                | ManipError::EmptyMerge
+                | ManipError::EmptyPageSelection
+                | ManipError::DuplicatePageSelection(_)
+                | ManipError::InvalidPageNumber(_)
+                | ManipError::InvalidPageIndex(_)
+                | ManipError::InvalidPageRange { .. }
+                | ManipError::InvalidPageOrder
+                | ManipError::MalformedPageTree
+                | ManipError::SourceHasFormFields(_)
+                | ManipError::SourceHasXfaForm(_)
+                | ManipError::SourceHasOptionalContent(_)
+                | ManipError::SourceHasSignature(_)
+                | ManipError::SourceForbidsCopying => {}
+            }
+        }
+
+        assert_eq!(authored_messages().len(), 16);
+        for error in authored_messages() {
+            assert_listed(&error);
+        }
+    }
+
+    /// The message the user reported, in full, now that it reads as one
+    /// sentence.
+    #[test]
+    fn a_signed_source_page_is_refused_in_one_unbroken_sentence() {
+        assert_eq!(
+            ManipError::SourceHasSignature(0).to_string(),
+            "page 0 carries a digital signature; its signature cannot be verified \
+             in another document, so importing the page is not supported"
+        );
     }
 }
