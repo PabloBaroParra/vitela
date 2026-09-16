@@ -31,7 +31,7 @@
 mod common;
 
 use common::{page_count, read, CORPUS};
-use pdf_compress::{compress, CompressPreset};
+use pdf_compress::{compress, CompressPreset, SignedDocuments};
 use pdf_render::{PdfiumRenderer, Priority, RenderOptions};
 
 /// Rendering DPI. 72 means one bitmap pixel per PDF point — the page's own
@@ -88,8 +88,12 @@ fn lossless_compression_paints_the_same_pixels() {
             continue;
         };
 
-        let compressed = compress(&input, CompressPreset::Lossless)
-            .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path));
+        let compressed = compress(
+            &input,
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        )
+        .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path));
 
         // A document that came back untouched has nothing to compare. The
         // guardian in `corpus.rs` is what pins that it came back untouched

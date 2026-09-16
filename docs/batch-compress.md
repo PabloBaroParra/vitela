@@ -569,14 +569,74 @@ para que no confunda dos cosas que se llaman igual.
       warnings, el mismo número que antes del cambio, con `pdf-compress` en cero.**
 
 ### Fase 3 — Integración de guardado
-- [ ] T-195 (dep T-191, T-194) Punto de entrada en `pdf-save`: compresión como paso previo
+- [x] T-195 (dep T-191, T-194) Punto de entrada en `pdf-save`: compresión como paso previo
       a la escritura, con la compuerta de cifrado (`full_rewrite_blocker`) y el aviso de
       firma inválida. Sin `Command` nuevo y sin tocar el `EditLog` (decisión 2). [Compress]
-      **Nota de T-191:** el default ya es el seguro — un documento firmado se devuelve
-      intacto con `Refusal::SignaturesWouldBeInvalidated`. Lo que T-195 agrega no es el
-      rechazo sino **el camino del sí**: cómo el llamador dice "sé que se invalida, dale".
-      Mismo criterio para el cifrado: hoy se rechaza porque no se puede leer; T-195 es quien
-      decide si, teniendo la password, se puede.
+      **(2026-09-16 — completo.** Módulo nuevo `core/pdf-save/src/compress.rs`
+      (`save_document_compressed`, `compression_blocker`,
+      `compressed_save_will_invalidate_signatures`, `CompressedSave`), más
+      `core/pdf-compress/src/consent.rs` del otro lado de la frontera. Dependencia nueva:
+      `pdf-save` → `pdf-compress`, en esa dirección y sólo en esa.
+
+      **El camino del sí para la firma, que era el punto de la tarea.** `SignedDocuments`
+      es el valor que el llamador pasa; `pdf_save::SignatureAcknowledgement` es el mismo
+      valor del lado de acá, y `compress.rs` es el único lugar del repo donde las dos
+      palabras están una al lado de la otra. Con `ProceedAndInvalidate` la compresión
+      corre; sin él, `pdf-compress` devuelve el archivo intacto como venía haciendo.
+
+      **Un hallazgo que forzó tocar el selector de escritor.** La compuerta de firma de
+      `pdf-save` vive en la rama de reescritura, porque sólo una reescritura puede romper
+      una firma. Pero *comprimir sin editar nada* —el caso exacto del botón "achicá este
+      archivo"— tomaba el escritor incremental y esquivaba la compuerta por completo. Por
+      eso existe `strategy::Compression`: una compresión pedida fuerza la reescritura, lo
+      que hace que la compuerta que ya existía dispare para el caso que antes no veía.
+      Sin eso, además, el append quedaba tirado a la basura por el repack que venía
+      después. `compressed_save_will_invalidate_signatures` es la consulta que corresponde:
+      sobre un archivo firmado sin ediciones, `will_invalidate_signatures` contesta `false`
+      y ésta contesta `true`, y las dos tienen razón.
+
+      **La decisión 7, corregida: para el cifrado no hay camino del sí, y tener la password
+      no cambia nada.** La decisión decía consultar `full_rewrite_blocker` —el gate que
+      responde si un PDF protegido puede reescribirse con su protección intacta— con la
+      implicación de que un documento cuyas dos passwords tenemos podría comprimirse. No
+      puede, y el motivo es anterior a cualquier política: `save_with_object_streams` de
+      `lopdf` hace `return self.save_internal(target)` para un documento cifrado
+      (`writer.rs:108`), porque los objetos ya están cifrados cuando llegan al escritor y
+      la clave de archivo ya no existe. Se pide el repack y no se obtiene. Desde el otro
+      lado llega la misma respuesta: `pdf-compress` tampoco puede *leer* un cifrado. Así
+      que `compression_blocker` contesta la pregunta más angosta que el escritor sí deja
+      abierta —*¿estos bytes van a salir cifrados?*— leyendo los mismos dos campos que lee
+      `apply_encryption_for_full_rewrite`, para que no puedan estar en desacuerdo sobre lo
+      que se está por escribir. `full_rewrite_blocker` se sigue consultando en ese mismo
+      guardado, por `build_encryption_state`, en el camino del escritor; llamarlo de nuevo
+      acá agregaría un motivo sin agregar una respuesta. **El camino del sí para un
+      documento protegido es `SaveIntent::StripProtection`**, que es otra cosa para
+      preguntarle a un usuario que "comprimí igual", y está bien que lo sea.
+
+      **Por qué la compresión corre después del escritor y no adentro.** Object streams y
+      xref stream se deciden al serializar. Pasarle el grafo a `pdf-compress` en medio del
+      guardado y serializar acá tiraría el repack, porque el `save_to` final de
+      `strategy.rs` es el escritor clásico. La compresión tiene que ser lo último que
+      produce bytes. Cuesta una parseada y una serializada extra por guardado comprimido, y
+      compra que el modo de falla de toda la feature sea "el guardado de siempre".
+
+      **Dos archivos partidos, forzados por el propio cambio.** `session.rs` pasó a
+      `session/mod.rs` (el sobre: el grafo, el tally, el formato de escritura, la relectura)
+      + `session/gate.rs` (la puerta: los dos documentos que no entran, y sus dos razones
+      que no son simétricas) — los tests nuevos lo habían empujado sobre las 350 líneas y
+      la cabecera del módulo ya nombraba las dos responsabilidades por separado. Los tests
+      de rechazo se mudaron de `pipeline.rs` a `gate.rs`, donde vive la decisión. El
+      archivo de tests de integración se partió por la misma regla en `compressed_save.rs`
+      (qué produce) + `compressed_save_gates.rs` (a quién se le niega), con
+      `tests/compressed/mod.rs` compartido. `scripts/check_maintainability.py` vuelve a
+      **103 warnings**, el mismo número que antes del cambio, con `pdf-compress` en cero.
+
+      Verificado en Windows: ciclo TDD real — el test del camino del sí falló primero con
+      *"consented compression produced 5082 bytes from 5082"* antes de que `open` mirara el
+      consentimiento. Gates completos: `cargo fmt --all -- --check` (exit 0),
+      `cargo clippy --workspace --all-targets -- -D warnings` (limpio),
+      `cargo test --workspace` → **1217 passed, 0 failed** (eran 1199 en T-194),
+      `scripts/check_readme_tables.py` OK.**
 - [ ] T-196 (dep T-195) Exposición en `pdf-ffi` para los shells: preset, ejecución y
       lectura del reporte. [Compress, FFI]
 

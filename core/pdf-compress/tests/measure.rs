@@ -24,7 +24,7 @@
 mod common;
 
 use common::{percent, read, CORPUS};
-use pdf_compress::{compress, CompressPreset};
+use pdf_compress::{compress, CompressPreset, SignedDocuments};
 
 /// What today's `pdf-save` full rewrite does to these bytes: load them, write
 /// them straight back out with `save_to`. Fact 2's "most expensive path in
@@ -91,8 +91,12 @@ fn measure_todays_rewrite_against_the_structural_pass() {
         };
 
         let rewritten = todays_full_rewrite(&input);
-        let compressed = compress(&input, CompressPreset::Lossless)
-            .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path));
+        let compressed = compress(
+            &input,
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        )
+        .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path));
 
         let rewritten_cell = match rewritten {
             Some(size) => format!("{size} ({:+.1}%)", percent(input.len(), size)),

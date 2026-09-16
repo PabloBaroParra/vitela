@@ -19,6 +19,9 @@
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
 //! - [`content`] (T-156): replays page-content edits (Batch 21) at save
 //!   time, and reports whether the rewrite invalidates existing signatures.
+//! - [`compress`] (T-195, Batch 24): the compressed-save entry point — when
+//!   `pdf-compress` runs over what the writer produced, and the two gates
+//!   that decide whether it may.
 //! - [`metadata`] (T-170, Batch 22): applies `Command::SetDocumentInfo` to
 //!   the `/Info` dict at save time.
 //! - [`strategy`] (T-032, T-033): writer selection and
@@ -34,6 +37,7 @@
 pub mod annotations;
 pub mod bridge;
 pub mod clock;
+pub mod compress;
 pub mod content;
 pub mod error;
 pub mod export;
@@ -53,6 +57,10 @@ pub use bridge::{
 };
 pub use clock::{
     Clock, FixedClock, IdGenerator, RandomIdGenerator, SequentialIdGenerator, SystemClock,
+};
+pub use compress::{
+    compressed_save_will_invalidate_signatures, compression_blocker, save_document_compressed,
+    CompressedSave,
 };
 pub use content::{has_content_edits, replay_content_edits, validate_content_command};
 pub use error::SaveError;

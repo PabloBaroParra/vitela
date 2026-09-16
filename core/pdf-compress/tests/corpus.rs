@@ -11,7 +11,7 @@
 mod common;
 
 use common::{page_count, read, Fixture, CORPUS};
-use pdf_compress::{compress, CompressPreset, Outcome, Refusal};
+use pdf_compress::{compress, CompressPreset, Outcome, Refusal, SignedDocuments};
 
 /// The guarantee, against files nobody in this repository wrote to be
 /// compressible. T-197 owns the widened corpus; this is the same assertion on
@@ -24,7 +24,7 @@ fn no_real_document_grows_under_any_preset() {
         };
 
         for preset in CompressPreset::all() {
-            let compressed = compress(&input, preset)
+            let compressed = compress(&input, preset, SignedDocuments::LeaveAlone)
                 .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path));
 
             assert!(
@@ -51,7 +51,12 @@ fn no_real_document_loses_a_page() {
             continue;
         };
 
-        let compressed = compress(&input, CompressPreset::Lossless).expect("compressible");
+        let compressed = compress(
+            &input,
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        )
+        .expect("compressible");
 
         assert_eq!(
             page_count(compressed.bytes()),
@@ -90,7 +95,8 @@ fn a_protected_document_comes_back_exactly_as_it_arrived() {
             let input = read(fixture).expect("the protected fixtures are committed");
 
             for preset in CompressPreset::all() {
-                let compressed = compress(&input, preset).expect("not an error");
+                let compressed =
+                    compress(&input, preset, SignedDocuments::LeaveAlone).expect("not an error");
 
                 assert_eq!(
                     compressed.bytes(),
@@ -122,7 +128,12 @@ fn lossless_never_looks_at_an_image() {
             continue;
         };
 
-        let compressed = compress(&input, CompressPreset::Lossless).expect("compressible");
+        let compressed = compress(
+            &input,
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        )
+        .expect("compressible");
 
         assert_eq!(
             compressed.report().work().images_skipped,
@@ -152,7 +163,12 @@ fn a_raster_heavy_document_reports_the_images_the_pass_left_alone() {
         return;
     };
 
-    let compressed = compress(&input, CompressPreset::Balanced).expect("compressible");
+    let compressed = compress(
+        &input,
+        CompressPreset::Balanced,
+        SignedDocuments::LeaveAlone,
+    )
+    .expect("compressible");
 
     assert_eq!(compressed.report().outcome(), Outcome::Reduced);
     assert!(
@@ -186,10 +202,15 @@ fn compressing_a_compressed_document_is_a_no_op_on_every_fixture() {
             continue;
         };
 
-        let once = compress(&input, CompressPreset::Lossless)
-            .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path))
-            .into_bytes();
-        let twice = compress(&once, CompressPreset::Lossless).expect("compressible");
+        let once = compress(
+            &input,
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        )
+        .unwrap_or_else(|err| panic!("{} could not be compressed: {err}", fixture.path))
+        .into_bytes();
+        let twice = compress(&once, CompressPreset::Lossless, SignedDocuments::LeaveAlone)
+            .expect("compressible");
 
         assert_eq!(
             twice.bytes(),

@@ -125,13 +125,32 @@ pub enum SignatureAcknowledgement {
 /// layer that can end up on screen twice; see [`save_preview`] for why form
 /// fields are *not* in that category even though they are annotations too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnnotationLayer {
+pub(crate) enum AnnotationLayer {
     /// Write it. The only correct answer for bytes that become the document.
     Materialize,
     /// Leave it alone. The base document's own annotations are carried
     /// through untouched — nothing is stripped — but nothing from the model's
     /// own set is appended to them.
     Preserve,
+}
+
+/// Whether the bytes this save produces are on their way to
+/// [`crate::compress`].
+///
+/// It changes the writer choice, which is the only reason it is threaded this
+/// deep. A compression repacks the whole file into object streams, so an
+/// incremental append underneath it would be work thrown away — and worse, it
+/// would route the save around the signature check below, which lives on the
+/// rewrite branch because a rewrite is the only thing that can break a
+/// signature. A compressed save *is* a rewrite; saying so here is what makes
+/// the existing gate fire for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Compression {
+    /// An ordinary save. The writer is chosen as it always was.
+    None,
+    /// The bytes will be compressed. Full rewrite, and the signature
+    /// question is asked whether or not anything was edited.
+    Requested,
 }
 
 /// Auto-selects the incremental or full-rewrite path for `input` and produces
@@ -147,7 +166,12 @@ pub struct SaveOutcome {
 }
 
 pub fn save_document_with_report(input: SaveInput<'_>) -> Result<SaveOutcome, SaveError> {
-    save_with_layer(input, SaveOptions::default(), AnnotationLayer::Materialize)
+    save_with_layer(
+        input,
+        SaveOptions::default(),
+        AnnotationLayer::Materialize,
+        Compression::None,
+    )
 }
 
 /// Produces bytes for an in-memory **preview** of `input` — a buffer the
@@ -197,7 +221,12 @@ pub fn save_preview(input: SaveInput<'_>) -> Result<Vec<u8>, SaveError> {
 /// report here would mean the warnings only surfaced on the eventual disk
 /// save, long after the user stopped thinking about the import.
 pub fn save_preview_with_report(input: SaveInput<'_>) -> Result<SaveOutcome, SaveError> {
-    save_with_layer(input, SaveOptions::default(), AnnotationLayer::Preserve)
+    save_with_layer(
+        input,
+        SaveOptions::default(),
+        AnnotationLayer::Preserve,
+        Compression::None,
+    )
 }
 
 /// Same as [`save_document`], with explicit clock/id-generator hooks — used
@@ -206,7 +235,13 @@ pub fn save_document_with_options(
     input: SaveInput<'_>,
     options: SaveOptions,
 ) -> Result<Vec<u8>, SaveError> {
-    save_with_layer(input, options, AnnotationLayer::Materialize).map(|outcome| outcome.bytes)
+    save_with_layer(
+        input,
+        options,
+        AnnotationLayer::Materialize,
+        Compression::None,
+    )
+    .map(|outcome| outcome.bytes)
 }
 
 /// The one save. `layer` says whether the model's annotation layer is written
@@ -215,10 +250,11 @@ pub fn save_document_with_options(
 /// refused by the same graft that would refuse a real save — so they are a
 /// parameter and a return value on the same function rather than two
 /// functions that would each have to grow the other's half.
-fn save_with_layer(
+pub(crate) fn save_with_layer(
     input: SaveInput<'_>,
     options: SaveOptions,
     layer: AnnotationLayer,
+    compression: Compression,
 ) -> Result<SaveOutcome, SaveError> {
     // Populated once and threaded into whichever writer runs. Both the writer
     // choice and the writer itself need the base document's *original* page
@@ -229,7 +265,7 @@ fn save_with_layer(
 
     let original_pages = bridge::populate_document(input.base)?;
 
-    if !requires_full_rewrite(input, &original_pages) {
+    if !requires_full_rewrite(input, &original_pages, compression) {
         return save_incremental(input, &original_pages, layer).map(|bytes| SaveOutcome {
             bytes,
             graft_warnings: Vec::new(),
@@ -332,8 +368,15 @@ fn check_protection_intent(input: SaveInput<'_>) -> Result<(), SaveError> {
     }
 }
 
-fn requires_full_rewrite(input: SaveInput<'_>, original_pages: &[Page]) -> bool {
-    input.intent == SaveIntent::StripProtection
+fn requires_full_rewrite(
+    input: SaveInput<'_>,
+    original_pages: &[Page],
+    compression: Compression,
+) -> bool {
+    // A repack into object streams cannot be expressed as an append; see
+    // [`Compression`].
+    compression == Compression::Requested
+        || input.intent == SaveIntent::StripProtection
         // Protection the file does not already carry can only be written by
         // the rewriter: the incremental writer re-encrypts appended objects
         // from the base document's own encryption state, which an unprotected
@@ -370,7 +413,11 @@ pub fn will_invalidate_signatures(input: SaveInput<'_>) -> Result<bool, SaveErro
     }
 
     let original_pages = bridge::populate_document(input.base)?;
-    Ok(requires_full_rewrite(input, &original_pages))
+    Ok(requires_full_rewrite(
+        input,
+        &original_pages,
+        Compression::None,
+    ))
 }
 
 fn save_full_rewrite(
@@ -734,7 +781,44 @@ mod tests {
         let fixture = Fixture::blank();
         assert!(requires_full_rewrite(
             fixture.input(),
-            &fixture.original_pages()
+            &fixture.original_pages(),
+            Compression::None
+        ));
+    }
+
+    /// T-195: a save that is about to be compressed takes the rewrite branch
+    /// no matter what was edited — including nothing at all. That is what
+    /// puts a compression-only save of a signed file in front of the
+    /// signature gate below.
+    #[test]
+    fn a_compressed_save_forces_full_rewrite_with_nothing_edited() {
+        let base = base_with_populated_info();
+        let document = bridge::document_from_lopdf(&base, None).unwrap();
+        let fixture = Fixture {
+            document,
+            base,
+            original_bytes: Some(
+                b"%PDF-1.7
+%%EOF
+"
+                .to_vec(),
+            ),
+            intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
+        };
+
+        assert!(
+            !requires_full_rewrite(
+                fixture.input(),
+                &fixture.original_pages(),
+                Compression::None
+            ),
+            "nothing was edited, so an ordinary save of this document is incremental"
+        );
+        assert!(requires_full_rewrite(
+            fixture.input(),
+            &fixture.original_pages(),
+            Compression::Requested
         ));
     }
 

@@ -149,6 +149,20 @@ impl CompressReport {
         &self.refusals
     }
 
+    /// A report for a compression that was refused before it ran.
+    ///
+    /// The one report this crate lets an outside caller build, and only in
+    /// this shape: nothing was done, `size` bytes went in and the same
+    /// `size` bytes came out, and `refusal` is why. `pdf-save`'s `compress`
+    /// module needs it because its gates fire *before* any bytes reach this
+    /// crate — see `docs/batch-compress.md` decision 7, which puts the
+    /// encryption gate on the save side. Everything else about a report
+    /// stays unconstructible from outside, including the ability to claim
+    /// work.
+    pub fn refused(size: u64, refusal: Refusal) -> Self {
+        CompressReport::new(size, size, Work::default(), vec![refusal])
+    }
+
     /// Whether the file got smaller, derived from the two counts above.
     pub fn outcome(&self) -> Outcome {
         if self.after < self.before {
@@ -195,6 +209,23 @@ mod tests {
         let report = report(1_000, 4_000);
         assert_eq!(report.outcome(), Outcome::NoGain);
         assert_eq!(report.saved_bytes(), 0);
+    }
+
+    /// The shape a save-side gate reports: no gain, no work, and the reason
+    /// the caller is owed.
+    #[test]
+    fn a_refused_compression_did_nothing_and_says_why() {
+        let report = CompressReport::refused(9_000, Refusal::EncryptedDocumentNotRewritable);
+
+        assert_eq!(report.outcome(), Outcome::NoGain);
+        assert_eq!(report.before(), 9_000);
+        assert_eq!(report.after(), 9_000);
+        assert_eq!(report.saved_bytes(), 0);
+        assert_eq!(report.work(), Work::default());
+        assert_eq!(
+            report.refusals(),
+            &[Refusal::EncryptedDocumentNotRewritable]
+        );
     }
 
     #[test]

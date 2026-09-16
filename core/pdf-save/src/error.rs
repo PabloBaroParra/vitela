@@ -36,6 +36,14 @@ pub enum SaveError {
     Image(image::ImageError),
     /// Failure from `pdf-render` while rendering a page for export (T-037).
     Render(pdf_render::RenderError),
+    /// Failure compressing the bytes a save produced (Batch 24, T-195).
+    ///
+    /// Narrow by construction: `pdf-compress` reports what it *could not do*
+    /// in the report rather than as an error, so this only carries the cases
+    /// where there was nothing to work on — bytes that will not parse, or no
+    /// bytes at all. A file that simply would not get smaller is
+    /// [`pdf_compress::Outcome::NoGain`], not a failure.
+    Compress(pdf_compress::CompressError),
     /// A save was requested with `SaveIntent::Default` re-encryption but no
     /// `SecurityContext` was supplied, or the reconciled page set could not
     /// be resolved to a base document — a caller-contract violation rather
@@ -73,6 +81,7 @@ impl fmt::Display for SaveError {
             SaveError::Io(err) => write!(f, "I/O error while saving: {err}"),
             SaveError::Image(err) => write!(f, "image encode failed: {err}"),
             SaveError::Render(err) => write!(f, "render failed during export: {err}"),
+            SaveError::Compress(err) => write!(f, "compression failed after save: {err}"),
             SaveError::InvalidSaveRequest(msg) => write!(f, "invalid save request: {msg}"),
             SaveError::SourceForbidsImport => write!(
                 f,
@@ -100,6 +109,7 @@ impl std::error::Error for SaveError {
             SaveError::Io(err) => Some(err),
             SaveError::Image(err) => Some(err),
             SaveError::Render(err) => Some(err),
+            SaveError::Compress(err) => Some(err),
             SaveError::InvalidSaveRequest(_)
             | SaveError::SignaturesWouldBeInvalidated
             | SaveError::SourceForbidsImport => None,
@@ -152,6 +162,12 @@ impl From<image::ImageError> for SaveError {
 impl From<pdf_render::RenderError> for SaveError {
     fn from(err: pdf_render::RenderError) -> Self {
         SaveError::Render(err)
+    }
+}
+
+impl From<pdf_compress::CompressError> for SaveError {
+    fn from(err: pdf_compress::CompressError) -> Self {
+        SaveError::Compress(err)
     }
 }
 

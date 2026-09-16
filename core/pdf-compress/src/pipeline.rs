@@ -7,8 +7,9 @@
 //! Kept thin on purpose. A stage that knows about the stage after it is a
 //! stage that cannot be tested on its own, and this is the file every future
 //! task edits — so the less it holds, the less each of those tasks can break.
-//! The load, the refusals and the write are not here either: they are
-//! [`crate::session`], the envelope every stage runs inside.
+//! The load and the write are not here either: they are [`crate::session`],
+//! the envelope every stage runs inside, and the documents that never get one
+//! are its `gate`.
 //!
 //! What runs, and in what order:
 //!
@@ -34,6 +35,7 @@
 //! objects, and the same two brought down to the same target may well be
 //! one. Last is where it collects everything.
 
+use crate::consent::SignedDocuments;
 use crate::error::CompressError;
 use crate::guarantee::Candidate;
 use crate::preset::CompressPreset;
@@ -47,8 +49,12 @@ use crate::{images, prune, structural};
 // The preset is read for one thing so far — whether images are in scope at
 // all. The numbers inside the policy are T-194's; every preset still repacks
 // and prunes the same way.
-pub(crate) fn run(input: &[u8], preset: CompressPreset) -> Result<Candidate, CompressError> {
-    let mut session = match session::open(input)? {
+pub(crate) fn run(
+    input: &[u8],
+    preset: CompressPreset,
+    signed: SignedDocuments,
+) -> Result<Candidate, CompressError> {
+    let mut session = match session::open(input, signed)? {
         Opened::Ready(session) => session,
         Opened::Refused(refusal) => {
             return Ok(Candidate::new(input.to_vec()).refusing(refusal));
@@ -74,17 +80,15 @@ mod tests {
     use lopdf::Document;
 
     use super::*;
-    use crate::report::{Refusal, Work};
-    use crate::test_fixtures::{
-        encrypted_document, loose_document, raster_document, signed_document,
-    };
+    use crate::test_fixtures::{loose_document, raster_document};
 
     fn reload(bytes: &[u8]) -> Document {
         Document::load_mem(bytes).expect("a candidate must be a readable document")
     }
 
     fn lossless(input: &[u8]) -> Candidate {
-        run(input, CompressPreset::Lossless).expect("a plain document runs the pipeline")
+        run(input, CompressPreset::Lossless, SignedDocuments::LeaveAlone)
+            .expect("a plain document runs the pipeline")
     }
 
     #[test]
@@ -135,7 +139,8 @@ mod tests {
         let input = loose_document(4);
 
         for preset in CompressPreset::all() {
-            let candidate = run(&input, preset).expect("a plain document runs the pipeline");
+            let candidate = run(&input, preset, SignedDocuments::LeaveAlone)
+                .expect("a plain document runs the pipeline");
 
             assert_eq!(
                 reload(candidate.bytes()).get_pages().len(),
@@ -207,71 +212,6 @@ mod tests {
         );
     }
 
-    /// The document that keeps its page and loses what made it worth
-    /// anything. Measured on the real fixtures before the check existed:
-    /// `tests/fixtures/signed/rsa2048_sha256.pdf` came back 92% smaller with
-    /// every page intact, because the 92% *was* the signature.
-    #[test]
-    fn a_signed_document_is_handed_back_untouched() {
-        let input = signed_document();
-
-        let candidate = lossless(&input);
-
-        assert_eq!(
-            candidate.bytes(),
-            input.as_slice(),
-            "a signed document must come back byte for byte, not repacked"
-        );
-        assert_eq!(
-            candidate.refusals(),
-            &[Refusal::SignaturesWouldBeInvalidated]
-        );
-        assert_eq!(candidate.work(), Work::default());
-    }
-
-    /// The counterpart, so the check above cannot be a blanket refusal that
-    /// happens to pass its own test.
-    #[test]
-    fn an_unsigned_document_is_repacked_as_usual() {
-        let candidate = lossless(&loose_document(4));
-
-        assert!(candidate.refusals().is_empty());
-        assert!(candidate.bytes().len() < loose_document(4).len());
-    }
-
-    /// The one that matters. An encrypted document loads as an *empty*
-    /// document, so repacking it would hand back a small, valid, page-less
-    /// file — and the never-grow guarantee would happily accept it.
-    #[test]
-    fn an_encrypted_document_is_handed_back_untouched() {
-        let input = encrypted_document();
-
-        let candidate = lossless(&input);
-
-        assert_eq!(
-            candidate.bytes(),
-            input.as_slice(),
-            "an encrypted document must come back byte for byte, not repacked"
-        );
-        assert_eq!(
-            candidate.refusals(),
-            &[Refusal::EncryptedDocumentNotRewritable]
-        );
-        assert_eq!(candidate.work(), Work::default());
-    }
-
-    /// The premise the refusal rests on, pinned so it cannot rot silently: if
-    /// a future `lopdf` starts populating an encrypted document's objects
-    /// without a password, this test goes red and the refusal is worth
-    /// revisiting. Until then, repacking that handle writes out an empty file.
-    #[test]
-    fn an_encrypted_document_really_does_load_as_an_empty_one() {
-        let document = reload(&encrypted_document());
-
-        assert!(document.is_encrypted());
-        assert_eq!(document.get_pages().len(), 0);
-    }
-
     /// The image stage seen from outside: the same 600 DPI page under a
     /// preset that has an image policy and one that has not. Lossless keeps
     /// every sample and says so; Balanced brings the one image down and the
@@ -286,7 +226,12 @@ mod tests {
         let input = raster_document((600, 600), &[(72.0, 72.0)]);
 
         let untouched = lossless(&input);
-        let resampled = run(&input, CompressPreset::Balanced).expect("a raster page compresses");
+        let resampled = run(
+            &input,
+            CompressPreset::Balanced,
+            SignedDocuments::LeaveAlone,
+        )
+        .expect("a raster page compresses");
 
         assert_eq!(untouched.work().images_resampled, 0);
         assert_eq!(untouched.work().images_skipped, 0, "Lossless does not look");
@@ -306,7 +251,12 @@ mod tests {
     fn a_resampled_page_still_paints_its_image() {
         let input = raster_document((600, 600), &[(72.0, 72.0)]);
 
-        let candidate = run(&input, CompressPreset::Balanced).expect("a raster page compresses");
+        let candidate = run(
+            &input,
+            CompressPreset::Balanced,
+            SignedDocuments::LeaveAlone,
+        )
+        .expect("a raster page compresses");
 
         let document = reload(candidate.bytes());
         let page = *document.get_pages().values().next().expect("one page");
@@ -318,7 +268,11 @@ mod tests {
 
     #[test]
     fn a_document_that_cannot_be_read_stops_the_pipeline() {
-        let result = run(b"not a document", CompressPreset::Lossless);
+        let result = run(
+            b"not a document",
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        );
 
         assert!(matches!(result, Err(CompressError::Lopdf(_))));
     }

@@ -18,13 +18,15 @@
 //!
 //! - [`preset`] — the closed set of three, and the only copy of the numbers
 //!   that decide image quality.
+//! - [`consent`] — the one thing the caller, not this crate, decides: what
+//!   happens to a document that already carries a signature.
 //! - [`guarantee`] — the never-grow rule, and [`Compressed`], the only way
 //!   out.
 //! - [`report`] — what was done and what was refused, measured against the
 //!   bytes the caller actually got.
 //! - `pipeline` — the order the stages run in, and nothing else.
-//! - `session` — one parse and one serialise per compression, plus the two
-//!   documents that get neither: encrypted and signed.
+//! - `session` — one parse and one serialise per compression; its `gate` is
+//!   the two documents that get neither, encrypted and signed.
 //! - `images` — T-193's inventory: every image the document actually draws,
 //!   measured against the size the page draws it at.
 //! - `structural` — T-191's repack: flate over streams that arrived
@@ -43,6 +45,7 @@
 //! `docs/batch-compress.md` decision 2, and the same treatment the protection
 //! strip already gets.
 
+pub mod consent;
 pub mod error;
 pub mod guarantee;
 mod images;
@@ -55,6 +58,7 @@ mod structural;
 #[cfg(test)]
 mod test_fixtures;
 
+pub use consent::SignedDocuments;
 pub use error::CompressError;
 pub use guarantee::Compressed;
 pub use preset::{CompressPreset, ImagePolicy};
@@ -65,13 +69,25 @@ pub use report::{CompressReport, Outcome, Refusal, Work};
 /// The only entry point. Never returns bytes larger than `input`; see the
 /// crate header.
 ///
+/// `signed` is the caller's position on a document that already carries a
+/// signature, and it is an argument rather than a default so that every call
+/// site has to take one — see [`consent`]. A caller with nothing to say about
+/// signatures writes [`SignedDocuments::LeaveAlone`], which is also
+/// `SignedDocuments::default()`.
+///
 /// # Errors
 ///
 /// [`CompressError::EmptyInput`] when there is no document to work on,
 /// [`CompressError::Lopdf`] when `input` cannot be read as a PDF, and
 /// [`CompressError::Io`] when the compressed document cannot be serialised.
-pub fn compress(input: &[u8], preset: CompressPreset) -> Result<Compressed, CompressError> {
-    guarantee::compress_with(input, preset, pipeline::run)
+pub fn compress(
+    input: &[u8],
+    preset: CompressPreset,
+    signed: SignedDocuments,
+) -> Result<Compressed, CompressError> {
+    guarantee::compress_with(input, preset, |bytes, preset| {
+        pipeline::run(bytes, preset, signed)
+    })
 }
 
 #[cfg(test)]
@@ -88,7 +104,8 @@ mod tests {
         let document = loose_document(8);
 
         for preset in CompressPreset::all() {
-            let result = compress(&document, preset).expect("a real document is not an error");
+            let result = compress(&document, preset, SignedDocuments::LeaveAlone)
+                .expect("a real document is not an error");
 
             assert!(
                 result.bytes().len() <= document.len(),
@@ -106,7 +123,12 @@ mod tests {
     fn a_loosely_written_document_actually_comes_back_smaller() {
         let document = loose_document(8);
 
-        let result = compress(&document, CompressPreset::Lossless).expect("not an error");
+        let result = compress(
+            &document,
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        )
+        .expect("not an error");
 
         assert_eq!(result.report().outcome(), Outcome::Reduced);
         assert!(result.report().saved_bytes() > 0);
@@ -125,11 +147,16 @@ mod tests {
     /// win, and it must cost them nothing — not even a re-serialisation.
     #[test]
     fn compressing_an_already_packed_document_changes_nothing_at_all() {
-        let once = compress(&loose_document(8), CompressPreset::Lossless)
-            .expect("not an error")
-            .into_bytes();
+        let once = compress(
+            &loose_document(8),
+            CompressPreset::Lossless,
+            SignedDocuments::LeaveAlone,
+        )
+        .expect("not an error")
+        .into_bytes();
 
-        let twice = compress(&once, CompressPreset::Lossless).expect("not an error");
+        let twice = compress(&once, CompressPreset::Lossless, SignedDocuments::LeaveAlone)
+            .expect("not an error");
 
         assert_eq!(twice.report().outcome(), Outcome::NoGain);
         assert_eq!(twice.bytes(), once.as_slice());
@@ -139,7 +166,7 @@ mod tests {
 
     #[test]
     fn there_is_nothing_to_compress_in_nothing() {
-        let result = compress(&[], CompressPreset::Lossless);
+        let result = compress(&[], CompressPreset::Lossless, SignedDocuments::LeaveAlone);
 
         assert!(matches!(result, Err(CompressError::EmptyInput)));
     }
@@ -149,6 +176,7 @@ mod tests {
         let result = compress(
             b"%PDF-1.7\n% looks like one, is not one\n%%EOF\n",
             CompressPreset::Small,
+            SignedDocuments::LeaveAlone,
         );
 
         assert!(matches!(result, Err(CompressError::Lopdf(_))));
