@@ -17,7 +17,8 @@
 mod images;
 
 pub(crate) use images::{
-    document_drawing_one_image, grey_image, jpeg_image, painted_once, raster_document, rgb_image,
+    document_drawing_one_image, document_shadowing_an_image_name, grey_image, jpeg_image,
+    painted_once, raster_document, rgb_image,
 };
 
 use lopdf::content::{Content, Operation};

@@ -20,11 +20,86 @@ use lopdf::{dictionary, Document, Object, ObjectId, Stream};
 /// The resource dictionary also carries `/Unplaced`, a second image XObject
 /// nothing paints. Every inventory built from this fixture therefore also
 /// says something about the image it must *not* include: an image declared in
-/// resources but drawn from inside a form XObject, or as an inline image,
-/// looks exactly like this from outside, and neither can be measured.
+/// resources but written as an inline image looks exactly like this from
+/// outside, and cannot be measured. (An image inside a **form** used to look
+/// like this too, and no longer does — see
+/// [`document_shadowing_an_image_name`].)
 pub(crate) fn document_drawing_one_image(pixels: (u32, u32), drawn: &[(f64, f64)]) -> Document {
     let (width, height) = pixels;
     painting(image_xobject(width, height, 0x20), drawn).0
+}
+
+/// A page that paints its own `/Im0`, and then invokes a form that paints a
+/// *different* `/Im0` of its own.
+///
+/// The collision is the point, and it is not contrived: a form's own
+/// `/Resources` replace its caller's rather than merging, and `/Im0` is the
+/// name most producers generate for the first image in any dictionary they
+/// write. Resolving a placement's name against the page therefore reports the
+/// page's image for the form's `Do` — one image measured twice, the other
+/// never — which is how the wrong photograph gets resampled to the size of a
+/// logo it has nothing to do with.
+///
+/// Returns the page's image and the form's, in that order.
+pub(crate) fn document_shadowing_an_image_name(
+    page_pixels: (u32, u32),
+    page_drawn: (f64, f64),
+    form_pixels: (u32, u32),
+    form_drawn: (f64, f64),
+) -> (Document, ObjectId, ObjectId) {
+    let mut document = Document::with_version("1.5");
+    let pages_id = document.new_object_id();
+
+    let page_image = document.add_object(image_xobject(page_pixels.0, page_pixels.1, 0x20));
+    let form_image = document.add_object(image_xobject(form_pixels.0, form_pixels.1, 0x7f));
+    let form_id = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 1.into(), 1.into()],
+            "Resources" => dictionary! {
+                "XObject" => dictionary! { "Im0" => form_image },
+            },
+        },
+        b"/Im0 Do".to_vec(),
+    ));
+
+    let content_id = document.add_object(Stream::new(
+        dictionary! {},
+        format!(
+            "q {} 0 0 {} 0 0 cm /Im0 Do Q q {} 0 0 {} 0 0 cm /Fm0 Do Q",
+            page_drawn.0, page_drawn.1, form_drawn.0, form_drawn.1
+        )
+        .into_bytes(),
+    ));
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "Contents" => content_id,
+        "Resources" => dictionary! {
+            "XObject" => dictionary! {
+                "Im0" => page_image,
+                "Fm0" => form_id,
+            },
+        },
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+    });
+
+    document.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page_id.into()],
+            "Count" => 1,
+        }),
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+
+    (document, page_image, form_image)
 }
 
 /// The same document with one page, built around an image the caller supplies

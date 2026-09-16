@@ -443,17 +443,28 @@ para que no confunda dos cosas que se llaman igual.
 
       **La propiedad de seguridad, que no estaba en la ficha: el inventario se construye
       desde las COLOCACIONES, no desde `/Resources /XObject`.** Una imagen puede estar en
-      el documento y ser invisible para este recorrido de dos maneras, las dos normales:
-      pintada desde el content stream de un **form XObject** (que el intérprete trata como
-      un `Do` opaco) o escrita como **inline image** (hecho 8, que el lexer saltea entera).
-      De ninguna de las dos se vio la matriz, así que de ninguna se puede medir el DPI.
-      Un inventario leído del diccionario de recursos las listaría igual, sin colocación
-      detrás — y la lectura natural de "sin colocación" es "nada la restringe", que es
-      justo la lectura que resamplea una foto hasta la nada. Construido desde las
-      colocaciones **no aparecen**, y lo que no aparece no se toca. Fijado por
+      el documento y ser invisible para este recorrido: escrita como **inline image**
+      (hecho 8, que el lexer saltea entera). No se vio su matriz, así que no se puede medir
+      su DPI. Un inventario leído del diccionario de recursos la listaría igual, sin
+      colocación detrás — y la lectura natural de "sin colocación" es "nada la restringe",
+      que es justo la lectura que resamplea una foto hasta la nada. Construido desde las
+      colocaciones **no aparece**, y lo que no aparece no se toca. Fijado por
       `an_image_the_document_never_paints_is_not_in_the_inventory`, y el fixture lleva un
       `/Unplaced` permanente para que cada test del inventario diga algo también sobre la
       imagen que no debe incluir.
+
+      **Corrección posterior (B21, descenso a los forms).** Cuando se escribió esto un
+      form XObject también era invisible: el intérprete lo trataba como un `Do` opaco. Dejó
+      de serlo, y `page_image_placements` quedó descendiendo al form pero resolviendo el
+      nombre contra la página — que es peor que no verlo. Un form redefine `/Im0` (sus
+      `/Resources` **reemplazan** las del llamador, no se fusionan), así que la colocación
+      del form se le atribuía a la imagen de la página: y como `governed_by` es un `min`,
+      un ícono de 64 px estirado a 200 puntos bajaba el DPI gobernante de la foto de 288 a
+      23 y la foto se resampleaba al tamaño de un ícono con el que no tiene nada que ver.
+      Ahora el nombre lo resuelve el intérprete en el scope que pintó
+      (`LocatedImage::xobject`) y las imágenes dentro de un form entran al inventario como
+      cualquier otra. Fijado por
+      `a_form_that_shadows_an_image_name_does_not_govern_the_page_image`.
       El `/SMask` queda afuera por la misma razón y con la misma suerte: cuelga del
       diccionario de su imagen padre y nunca es operando de un `Do`. T-194 llega a él por
       el padre, que es la única forma en que se lo puede resamplear sin perder la

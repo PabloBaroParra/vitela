@@ -452,10 +452,15 @@ Detalles que la implementación fija:
   `MAX_INHERITANCE_DEPTH` de la cadena `/Parent`, y generoso para cualquier archivo real.
   Rechazo ruidoso, nunca contenido truncado en silencio: una página que reportara sólo los
   primeros 32 niveles escondería items que el usuario ve pintados.
-- **Dos walkers discrepan sobre los forms.** `parse::placement::page_image_placements` los
-  saltea; `parse::interpreter::interpret` desciende. El inventario de compresión (T-193) lee
-  placements, así que una imagen dentro de un form es invisible para comprimir y visible
-  para editar.
+- **Los dos walkers ya no discrepan sobre los forms.** `parse::interpreter::interpret`
+  desciende y `parse::placement::page_image_placements` lo hereda, así que una imagen
+  dentro de un form es visible tanto para editar como para el inventario de compresión
+  (T-193). Lo que lo hacía divergir no era el descenso sino la **resolución del nombre**:
+  el placement resolvía `/Im0` contra los recursos de la *página* después de haber entrado
+  a un form que redefine ese nombre, y devolvía el objeto equivocado con la matriz correcta.
+  Ahora el id lo resuelve el intérprete en el scope que pintó (`LocatedImage::xobject`) y el
+  módulo de placements sólo mide. Un recurso que no es objeto indirecto sigue afuera: no hay
+  id que un llamador pueda tocar.
 - **El ancho del bbox de un run es aproximado** cuando la fuente no trae `/Widths` (caso
   típico de las Standard-14): se asume medio em por glyph. El alto usa 0.75/-0.25 em en vez
   de leer `/Ascent`/`/Descent`. Afecta la precisión del hit-test en la UI, nunca lo que se

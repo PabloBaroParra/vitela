@@ -21,18 +21,29 @@
 //! transformed *v* axis — both correct under rotation, because a rotation
 //! does not change a length.
 //!
+//! ## Scope, and why the name is not resolved here
+//!
+//! The walk descends into **form XObjects**, so an image a form paints is a
+//! placement like any other. It has to be: a form is the one place where the
+//! same name means two different images, because a form's own `/Resources`
+//! *replace* its caller's rather than merging. Resolving `/Im0` against the
+//! page after walking into a form that redefines it reports the page's image
+//! with the form's matrix — the wrong object, measured by a placement it
+//! never had, which is how a caller resamples a photograph it never saw
+//! drawn small. So the name is resolved by the interpreter, in the scope
+//! that painted it (`LocatedImage::xobject`), and this module only measures.
+//!
 //! ## What is deliberately not here
 //!
-//! An image painted from **inside a form XObject's** own content stream, and
-//! an **inline image** (`BI … ID … EI`), are both invisible to this walk: the
-//! interpreter treats a form as an opaque `Do` and the lexer skips an inline
-//! image as one opaque operation (`crate::parse::lexer::skip_inline_image`).
-//! That is the existing contract, not an omission — and it is why this
-//! returns *placements observed* rather than *images present*. A caller that
-//! acts only on what is returned here cannot act on an image whose placement
-//! it never saw, which is the safe half of the trade.
+//! An **inline image** (`BI … ID … EI`) is invisible to this walk: the lexer
+//! skips it as one opaque operation
+//! (`crate::parse::lexer::skip_inline_image`), and it has no resource name to
+//! report anyway. That is the existing contract, not an omission — and it is
+//! why this returns *placements observed* rather than *images present*. A
+//! caller that acts only on what is returned here cannot act on an image
+//! whose placement it never saw, which is the safe half of the trade.
 
-use lopdf::{Document, Object, ObjectId};
+use lopdf::{Document, ObjectId};
 
 use super::matrix::Matrix;
 use crate::error::EditError;
@@ -44,7 +55,8 @@ pub struct ImagePlacement {
     /// read or replace its bytes without touching the content stream that
     /// names it.
     pub xobject: ObjectId,
-    /// The key naming it in the page's `/Resources /XObject`.
+    /// The key naming it in the resource dictionary that was in effect where
+    /// it was painted — the page's, or a form's own.
     pub resource_xobject_name: String,
     /// The CTM in effect at the `Do`.
     pub ctm: Matrix,
@@ -67,7 +79,8 @@ impl ImagePlacement {
     }
 }
 
-/// Every image `page_object` paints, in the order it paints them.
+/// Every image `page_object` paints, in the order it paints them —
+/// including the ones painted from inside the form XObjects it invokes.
 ///
 /// An image resource that is not an indirect object is left out: a stream
 /// written directly into the resource dictionary has no id to address, so a
@@ -75,36 +88,21 @@ impl ImagePlacement {
 ///
 /// # Errors
 ///
-/// [`EditError`] when the page's content streams cannot be read or tokenized.
+/// [`EditError`] when the page's content streams cannot be read or tokenized,
+/// or when its form invocations nest deeper than the interpreter allows.
 pub fn page_image_placements(
     document: &Document,
     page_object: ObjectId,
 ) -> Result<Vec<ImagePlacement>, EditError> {
     let located = super::read_located_content(document, page_object)?;
-    let page_dict = document.get_dictionary(page_object)?;
-    let resources = super::page_resources(document, page_dict);
-
-    let Some(Object::Dictionary(xobjects)) = resources
-        .get(b"XObject")
-        .ok()
-        .and_then(|object| super::dereference(document, object))
-    else {
-        return Ok(Vec::new());
-    };
 
     Ok(located
         .images
         .iter()
         .filter_map(|image| {
-            let name = &image.item.resource_xobject_name;
-            let xobject = xobjects
-                .get(name.as_bytes())
-                .ok()
-                .and_then(|entry| entry.as_reference().ok())?;
-
             Some(ImagePlacement {
-                xobject,
-                resource_xobject_name: name.clone(),
+                xobject: image.xobject?,
+                resource_xobject_name: image.item.resource_xobject_name.clone(),
                 ctm: image.ctm_at_paint,
             })
         })
@@ -113,7 +111,7 @@ pub fn page_image_placements(
 
 #[cfg(test)]
 mod tests {
-    use lopdf::{dictionary, Dictionary, Stream};
+    use lopdf::{dictionary, Dictionary, Object, Stream};
 
     use super::*;
     use crate::fixture::document_with_content;
@@ -135,6 +133,26 @@ mod tests {
                 ),
             },
         }
+    }
+
+    /// Bind `object` under `name` in the page's `/Resources /XObject`.
+    fn add_page_xobject(document: &mut Document, page: ObjectId, name: &str, object: ObjectId) {
+        let resources = document
+            .get_object_mut(page)
+            .and_then(|object| object.as_dict_mut())
+            .expect("the fixture page is a dictionary")
+            .get_mut(b"Resources")
+            .and_then(|object| object.as_dict_mut())
+            .expect("the fixture page carries a direct resource dictionary");
+
+        if resources.get(b"XObject").is_err() {
+            resources.set("XObject", Dictionary::new());
+        }
+        resources
+            .get_mut(b"XObject")
+            .and_then(|object| object.as_dict_mut())
+            .expect("the resource dictionary holds a direct /XObject")
+            .set(name, Object::Reference(object));
     }
 
     fn placements(content: &[u8], resources: Dictionary) -> Vec<ImagePlacement> {
@@ -266,6 +284,133 @@ mod tests {
         assert!(page_image_placements(&document, page)
             .expect("the page still reads")
             .is_empty());
+    }
+
+    /// A form's own `/Resources` replace its caller's, so `/Im0` inside a
+    /// form and `/Im0` on the page are two different images that happen to
+    /// share a name — and `/Im0` is the name most producers generate. The
+    /// walk descends into forms, so it has to resolve the name in the scope
+    /// that painted it or it reports the wrong object with the right matrix.
+    #[test]
+    fn an_image_inside_a_form_resolves_against_the_forms_own_resources() {
+        let (mut document, page) = document_with_content(
+            b"q 100 0 0 50 0 0 cm /Im0 Do Q q 1 0 0 1 0 0 cm /Fm0 Do Q",
+            image_resources("Im0"),
+        );
+
+        let inner = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 640,
+                "Height" => 320,
+                "ColorSpace" => "DeviceRGB",
+                "BitsPerComponent" => 8,
+            },
+            vec![0; 16],
+        ));
+        let form = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+                "Resources" => dictionary! {
+                    "XObject" => dictionary! { "Im0" => inner },
+                },
+            },
+            b"q 20 0 0 10 0 0 cm /Im0 Do Q".to_vec(),
+        ));
+        add_page_xobject(&mut document, page, "Fm0", form);
+
+        let placed = page_image_placements(&document, page).expect("the fixture page reads");
+
+        assert_eq!(placed.len(), 2, "the page image and the form's own image");
+        assert_eq!(placed[0].drawn_width(), 100.0);
+        assert_eq!(placed[1].drawn_width(), 20.0);
+        assert_ne!(
+            placed[0].xobject, placed[1].xobject,
+            "the form's /Im0 is not the page's /Im0"
+        );
+        assert_eq!(placed[1].xobject, inner);
+    }
+
+    /// The other half of the same divergence: a form image whose name the
+    /// page cannot resolve at all was dropped on the floor, which is how an
+    /// image inside a form stayed invisible to compression.
+    #[test]
+    fn an_image_only_a_form_can_name_is_still_a_placement() {
+        let (mut document, page) = document_with_content(b"/Fm0 Do", Dictionary::new());
+
+        let inner = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 64,
+                "Height" => 32,
+                "ColorSpace" => "DeviceRGB",
+                "BitsPerComponent" => 8,
+            },
+            vec![0; 16],
+        ));
+        let form = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+                "Resources" => dictionary! {
+                    "XObject" => dictionary! { "Inner" => inner },
+                },
+            },
+            b"q 300 0 0 150 0 0 cm /Inner Do Q".to_vec(),
+        ));
+        add_page_xobject(&mut document, page, "Fm0", form);
+
+        let placed = page_image_placements(&document, page).expect("the fixture page reads");
+
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].xobject, inner);
+        assert_eq!(placed[0].resource_xobject_name, "Inner");
+        assert_eq!(placed[0].drawn_width(), 300.0);
+        assert_eq!(placed[0].drawn_height(), 150.0);
+    }
+
+    /// A form's `/Matrix` is part of the transform that placed what it
+    /// paints, so a placement measured from inside one has to carry it.
+    #[test]
+    fn a_forms_matrix_composes_into_the_placement_it_holds() {
+        let (mut document, page) =
+            document_with_content(b"q 2 0 0 2 0 0 cm /Fm0 Do Q", Dictionary::new());
+
+        let inner = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Image",
+                "Width" => 64,
+                "Height" => 32,
+                "ColorSpace" => "DeviceRGB",
+                "BitsPerComponent" => 8,
+            },
+            vec![0; 16],
+        ));
+        let form = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+                "Matrix" => vec![3.into(), 0.into(), 0.into(), 3.into(), 0.into(), 0.into()],
+                "Resources" => dictionary! {
+                    "XObject" => dictionary! { "Inner" => inner },
+                },
+            },
+            b"q 10 0 0 10 0 0 cm /Inner Do Q".to_vec(),
+        ));
+        add_page_xobject(&mut document, page, "Fm0", form);
+
+        let placed = page_image_placements(&document, page).expect("the fixture page reads");
+
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].drawn_width(), 60.0, "10 x /Matrix 3 x cm 2");
+        assert_eq!(placed[0].drawn_height(), 60.0);
     }
 
     #[test]

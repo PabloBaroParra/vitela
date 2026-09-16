@@ -105,6 +105,15 @@ pub struct LocatedTextRun {
 #[derive(Debug, Clone)]
 pub struct LocatedImage {
     pub item: ImageItem,
+    /// The image XObject the name resolved to, **in the scope that painted
+    /// it** — `None` when the resource is a stream written directly into the
+    /// dictionary, which has no id for a caller to address.
+    ///
+    /// Resolved here because here is the only place that can: a form's own
+    /// `/Resources` replace its caller's, so the same `/Im0` means one image
+    /// on the page and another inside a form, and only the walk that entered
+    /// the form knows which table was in effect.
+    pub xobject: Option<ObjectId>,
     pub stream_index: usize,
     /// The Form invocations traversed from the page to this stream.
     pub form_path: Vec<FormStep>,
@@ -393,7 +402,7 @@ struct Context<'a> {
 
 #[derive(Debug, Clone, Copy)]
 enum XObjectKind {
-    Image,
+    Image(Option<ObjectId>),
     Form(ObjectId),
 }
 
@@ -472,13 +481,14 @@ fn apply_operation(
         "Do" => {
             if let Some(Operand::Name(name)) = operands.first() {
                 match context.xobjects.get(name) {
-                    Some(XObjectKind::Image) => images.push(LocatedImage {
+                    Some(XObjectKind::Image(xobject)) => images.push(LocatedImage {
                         item: ImageItem {
                             id: ContentItemId(images.len() as u64),
                             page: UNSTAMPED_PAGE,
                             bbox: state.ctm.bounding_box(0.0, 0.0, 1.0, 1.0),
                             resource_xobject_name: name.clone(),
                         },
+                        xobject: *xobject,
                         stream_index: context.stream_index,
                         form_path: context.form_path.to_vec(),
                         operation_span: operation.span.clone(),
@@ -678,7 +688,7 @@ fn xobject_table(document: &Document, resources: &Dictionary) -> HashMap<String,
             let stream = dereference(document, value)?.as_stream().ok()?;
             let subtype = stream.dict.get(b"Subtype").ok()?.as_name().ok()?;
             let kind = match subtype {
-                b"Image" => XObjectKind::Image,
+                b"Image" => XObjectKind::Image(value.as_reference().ok()),
                 b"Form" => XObjectKind::Form(value.as_reference().ok()?),
                 _ => return None,
             };
