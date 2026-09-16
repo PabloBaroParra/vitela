@@ -637,8 +637,71 @@ para que no confunda dos cosas que se llaman igual.
       `cargo clippy --workspace --all-targets -- -D warnings` (limpio),
       `cargo test --workspace` → **1217 passed, 0 failed** (eran 1199 en T-194),
       `scripts/check_readme_tables.py` OK.**
-- [ ] T-196 (dep T-195) Exposición en `pdf-ffi` para los shells: preset, ejecución y
+- [x] T-196 (dep T-195) Exposición en `pdf-ffi` para los shells: preset, ejecución y
       lectura del reporte. [Compress, FFI]
+      **(2026-09-16 — completo.** Módulo nuevo `core/pdf-ffi/src/compress.rs` y
+      dependencia nueva `pdf-ffi` → `pdf-compress`. Cinco funciones exportadas:
+      `compress_presets`, `compression_refusal`,
+      `compressed_save_will_invalidate_signatures`, `save_compressed_to_bytes` y
+      `save_compressed_to_path`; seis tipos: `FfiCompressPreset`, `FfiCompressOutcome`,
+      `FfiCompressRefusal`, `FfiCompressWork`, `FfiCompressReport` y `FfiCompressedSave`.
+
+      **Las dos compuertas se preguntan en momentos distintos, así que son dos
+      funciones.** `compression_refusal` contesta antes de ofrecer el botón —el
+      documento protegido que no se puede comprimir de ninguna manera— y
+      `compressed_save_will_invalidate_signatures` contesta la que sí tiene un sí. Esta
+      segunda **no** es la misma pregunta que `will_invalidate_signatures`, que ya
+      cruzaba: sobre un archivo firmado sin ediciones, la vieja contesta `false` y la
+      nueva `true`. Un shell que pregunte la que ya existía avisa sobre otro guardado.
+
+      **`save_compressed_to_path` devuelve el reporte donde `save_to_path` no devuelve
+      nada.** No es asimetría por descuido: un guardado común no tiene resultado que
+      contarle a nadie, y una compresión que el usuario pidió sí. Del mismo modo,
+      `FfiCompressedSave` es **un** record y no dos valores de retorno, por la misma razón
+      que `pdf_compress::Compressed`: no se pueden tomar los bytes sin ver qué se les hizo.
+
+      **`Refusal` es `#[non_exhaustive]` y `CompressPreset` no lo es, y eso decide los dos
+      `match`.** El de refusals lleva `Other { detail }` con el `Display` del core, para
+      que una variante agregada río arriba llegue al shell como una frase mostrable y no
+      como un rechazo que desaparece. El de presets es total y sin comodín a propósito:
+      un cuarto preset es una decisión para reabrir acá (decisión 3), no algo para
+      absorber en silencio. `Work` cruza como `u64` porque `usize` no tiene ancho en una
+      FFI, y así toda conversión ensancha.
+
+      **Un hallazgo que la UI de T-199 necesita saber, y que fue medido, no supuesto.**
+      El primer test afirmaba `streams_recompressed > 0` sobre el documento de 8 páginas
+      del generador y **falló con la compresión funcionando**. La sospecha inicial —que el
+      escritor de `pdf-save` ya venía filtrando esos streams— es falsa: medido sobre los
+      bytes del guardado, los 8 content streams llegan **sin** `/Filter`, de 51 bytes cada
+      uno. Flate no le gana a 51 bytes, así que `pdf-compress` se niega correctamente a
+      atribuirse un trabajo que no hizo. **La ganancia entera (2457 → 1511 bytes) es
+      formato de escritura —object streams y xref stream—, y el formato no se cuenta en
+      `Work`.** Conclusión operativa: *un `Work` en cero es compatible con un `Reduced`
+      real*, y un diálogo que muestre "no se hizo nada" a partir del tally va a mentir
+      sobre un archivo que acaba de perder un tercio de su tamaño. Lo que se lee es
+      `outcome` y los bytes. Queda congelado en
+      `a_real_saving_can_arrive_with_nothing_in_the_tally`.
+
+      **Un refactor chico que el cambio forzó.** `DocumentState::save_input` reemplaza los
+      tres literales de `pdf_save::SaveInput` que había en `document.rs`: las cuatro
+      funciones con forma de guardado —común, comprimida, y las dos preguntas previas—
+      tienen que describir **el mismo guardado**, o la respuesta que recibe un shell deja
+      de ser sobre el archivo que va a escribir. Sin cambio de comportamiento; lo cubren
+      los 43 tests de `smoke.rs` que ya existían.
+
+      El registro del consentimiento de strip sigue donde estaba —en la frontera, no en
+      `pdf-save`— y la compresión lo hace igual que el guardado común: comprimir con
+      `StripProtection` deja la entrada en el `AuditLog`.
+
+      Verificado en Windows: `cargo fmt --all -- --check` (exit 0),
+      `cargo clippy --workspace --all-targets -- -D warnings` (limpio),
+      `cargo test --workspace` → **1232 passed, 0 failed** (eran 1217 en T-195),
+      `scripts/check_readme_tables.py` OK y `scripts/check_maintainability.py` en 103
+      warnings, el mismo número que antes del cambio. `core/pdf-ffi/**` está excluido de
+      ese script por `.maintainabilityignore` ("se revisa como contrato de integración"),
+      así que las 450 líneas del módulo nuevo no disparan el aviso de tamaño: se justifican
+      solas por ser una responsabilidad única —el vocabulario de compresión cruzando la
+      frontera— y partirlas en tipos/funciones sería una capa artificial.**
 
 ### Fase 4 — Pruebas y fixtures
 - [ ] T-197 (dep T-194) Corpus: un PDF de escaneo (imágenes grandes con pérdida), uno

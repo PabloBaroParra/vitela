@@ -25,6 +25,10 @@ pdf-render = { path = "../pdf-render" }
 pdf-annotate = { path = "../pdf-annotate" }
 pdf-save = { path = "../pdf-save" }
 pdf-edit = { path = "../pdf-edit" }
+# The preset a shell picks and the report it reads back (T-196). `pdf-save`
+# owns when a compression runs; this crate only has to carry the vocabulary
+# across the boundary, which means naming the types that vocabulary is in.
+pdf-compress = { path = "../pdf-compress" }
 
 [features]
 # Enables the `uniffi-bindgen` CLI binary below (T-042). Off by default so
