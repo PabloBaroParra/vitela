@@ -16,9 +16,6 @@
 //!
 //! ## What v1 does not descend into
 //!
-//! - **Form XObjects.** Text painted inside a `/Subtype /Form` XObject is
-//!   not reported, because its bytes live in a stream that may be shared by
-//!   several pages — editing it would silently change all of them.
 //! - **Inline images** (`BI`..`EI`). They have no resource name, so they do
 //!   not fit `ImageItem`, and their payload is passed through opaquely.
 
@@ -28,7 +25,7 @@ use crate::encoding::{resolve_font, FontInfo};
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use pdf_document::{ContentItemId, ImageItem, PageContent, PageId, TextRun};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 /// One of the page's content streams, decoded.
@@ -86,6 +83,8 @@ pub struct TextPlacement {
 pub struct LocatedTextRun {
     pub run: TextRun,
     pub stream_index: usize,
+    /// The Form invocations traversed from the page to this stream.
+    pub form_path: Vec<FormStep>,
     /// The whole show-text operation, operands included.
     pub operation_span: Range<usize>,
     /// Just the string or array operand being shown.
@@ -107,11 +106,22 @@ pub struct LocatedTextRun {
 pub struct LocatedImage {
     pub item: ImageItem,
     pub stream_index: usize,
+    /// The Form invocations traversed from the page to this stream.
+    pub form_path: Vec<FormStep>,
     /// The `/Name Do` operation.
     pub operation_span: Range<usize>,
     /// The CTM in effect when it was painted — the transform a move or
     /// resize has to correct.
     pub ctm_at_paint: Matrix,
+}
+
+/// One Form XObject invocation on the path to located content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormStep {
+    pub object_id: ObjectId,
+    pub resource_name: String,
+    pub stream_index: usize,
+    pub operation_span: Range<usize>,
 }
 
 /// Everything one page's content streams yielded.
@@ -218,30 +228,22 @@ pub fn interpret(
     resources: &Dictionary,
     streams: &[PageStream],
 ) -> Result<LocatedContent, EditError> {
-    let fonts = font_table(document, resources);
-    let image_names = image_xobject_names(document, resources);
-
     let mut state = State::default();
-    let mut stack: Vec<State> = Vec::new();
     let mut text_runs = Vec::new();
     let mut images = Vec::new();
-
-    for (stream_index, stream) in streams.iter().enumerate() {
-        for operation in super::lexer::tokenize(&stream.bytes)? {
-            apply_operation(
-                &operation,
-                &mut state,
-                &mut stack,
-                &Context {
-                    stream_index,
-                    fonts: &fonts,
-                    image_names: &image_names,
-                },
-                &mut text_runs,
-                &mut images,
-            );
-        }
-    }
+    let mut active_forms = HashSet::new();
+    let mut decode_budget = super::filter::MAX_PAGE_CONTENT_BYTES;
+    interpret_streams(
+        document,
+        resources,
+        streams,
+        &mut state,
+        &[],
+        &mut active_forms,
+        &mut decode_budget,
+        &mut text_runs,
+        &mut images,
+    )?;
 
     Ok(LocatedContent {
         streams: streams.to_vec(),
@@ -251,10 +253,133 @@ pub fn interpret(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn interpret_streams(
+    document: &Document,
+    resources: &Dictionary,
+    streams: &[PageStream],
+    state: &mut State,
+    form_path: &[FormStep],
+    active_forms: &mut HashSet<ObjectId>,
+    decode_budget: &mut usize,
+    text_runs: &mut Vec<LocatedTextRun>,
+    images: &mut Vec<LocatedImage>,
+) -> Result<(), EditError> {
+    let fonts = font_table(document, resources);
+    let xobjects = xobject_table(document, resources);
+    let mut stack = Vec::new();
+
+    for (stream_index, stream) in streams.iter().enumerate() {
+        for operation in super::lexer::tokenize(&stream.bytes)? {
+            let form = apply_operation(
+                &operation,
+                state,
+                &mut stack,
+                &Context {
+                    stream_index,
+                    fonts: &fonts,
+                    xobjects: &xobjects,
+                    form_path,
+                },
+                text_runs,
+                images,
+            );
+            if let Some((name, object_id)) = form {
+                interpret_form(
+                    document,
+                    resources,
+                    state.ctm,
+                    FormStep {
+                        object_id,
+                        resource_name: name,
+                        stream_index,
+                        operation_span: operation.span.clone(),
+                    },
+                    form_path,
+                    active_forms,
+                    decode_budget,
+                    text_runs,
+                    images,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn interpret_form(
+    document: &Document,
+    parent_resources: &Dictionary,
+    caller_ctm: Matrix,
+    step: FormStep,
+    parent_path: &[FormStep],
+    active_forms: &mut HashSet<ObjectId>,
+    decode_budget: &mut usize,
+    text_runs: &mut Vec<LocatedTextRun>,
+    images: &mut Vec<LocatedImage>,
+) -> Result<(), EditError> {
+    let object_id = step.object_id;
+    if !active_forms.insert(object_id) {
+        return Ok(());
+    }
+
+    let result = (|| {
+        let stream = document.get_object(step.object_id)?.as_stream()?;
+        let decoded = super::filter::decode(document, stream, step.object_id, *decode_budget)?;
+        *decode_budget = decode_budget.saturating_sub(decoded.bytes.len());
+        let resources = stream
+            .dict
+            .get(b"Resources")
+            .ok()
+            .and_then(|object| dereference(document, object))
+            .and_then(|object| object.as_dict().ok())
+            .cloned()
+            .unwrap_or_else(|| parent_resources.clone());
+        let matrix = stream
+            .dict
+            .get(b"Matrix")
+            .ok()
+            .and_then(object_matrix)
+            .unwrap_or(Matrix::IDENTITY);
+        let mut state = State {
+            ctm: matrix.then(caller_ctm),
+            ..State::default()
+        };
+        let mut path = parent_path.to_vec();
+        path.push(step);
+        interpret_streams(
+            document,
+            &resources,
+            &[PageStream {
+                object_id: path.last().expect("path contains the form").object_id,
+                bytes: decoded.bytes,
+                filtered: decoded.filtered,
+            }],
+            &mut state,
+            &path,
+            active_forms,
+            decode_budget,
+            text_runs,
+            images,
+        )
+    })();
+
+    active_forms.remove(&object_id);
+    result
+}
+
 struct Context<'a> {
     stream_index: usize,
     fonts: &'a HashMap<String, FontInfo>,
-    image_names: &'a [String],
+    xobjects: &'a HashMap<String, XObjectKind>,
+    form_path: &'a [FormStep],
+}
+
+#[derive(Debug, Clone, Copy)]
+enum XObjectKind {
+    Image,
+    Form(ObjectId),
 }
 
 fn apply_operation(
@@ -264,7 +389,7 @@ fn apply_operation(
     context: &Context<'_>,
     text_runs: &mut Vec<LocatedTextRun>,
     images: &mut Vec<LocatedImage>,
-) {
+) -> Option<(String, ObjectId)> {
     let operands = &operation.operands;
 
     match operation.operator.as_str() {
@@ -331,8 +456,8 @@ fn apply_operation(
         }
         "Do" => {
             if let Some(Operand::Name(name)) = operands.first() {
-                if context.image_names.iter().any(|known| known == name) {
-                    images.push(LocatedImage {
+                match context.xobjects.get(name) {
+                    Some(XObjectKind::Image) => images.push(LocatedImage {
                         item: ImageItem {
                             id: ContentItemId(images.len() as u64),
                             page: UNSTAMPED_PAGE,
@@ -340,14 +465,18 @@ fn apply_operation(
                             resource_xobject_name: name.clone(),
                         },
                         stream_index: context.stream_index,
+                        form_path: context.form_path.to_vec(),
                         operation_span: operation.span.clone(),
                         ctm_at_paint: state.ctm,
-                    });
+                    }),
+                    Some(XObjectKind::Form(object_id)) => return Some((name.clone(), *object_id)),
+                    None => {}
                 }
             }
         }
         _ => {}
     }
+    None
 }
 
 fn translate_line(state: &mut State, operands: &[Operand]) {
@@ -426,6 +555,7 @@ fn show_text(
             text,
         },
         stream_index: context.stream_index,
+        form_path: context.form_path.to_vec(),
         operation_span: operation.span.clone(),
         operand_span: span,
         operator: operation.operator.clone(),
@@ -522,27 +652,45 @@ fn font_table(document: &Document, resources: &Dictionary) -> HashMap<String, Fo
     table
 }
 
-/// The names in `/Resources /XObject` whose `/Subtype` is `/Image`. Form
-/// XObjects are excluded on purpose — see the module docs.
-fn image_xobject_names(document: &Document, resources: &Dictionary) -> Vec<String> {
+fn xobject_table(document: &Document, resources: &Dictionary) -> HashMap<String, XObjectKind> {
     let Some(xobjects) = sub_dictionary(document, resources, b"XObject") else {
-        return Vec::new();
+        return HashMap::new();
     };
 
     xobjects
         .iter()
-        .filter(|(_, value)| {
-            let subtype = match dereference(document, value) {
-                Some(Object::Stream(stream)) => stream.dict.get(b"Subtype").ok().cloned(),
-                Some(Object::Dictionary(dict)) => dict.get(b"Subtype").ok().cloned(),
-                _ => None,
+        .filter_map(|(name, value)| {
+            let stream = dereference(document, value)?.as_stream().ok()?;
+            let subtype = stream.dict.get(b"Subtype").ok()?.as_name().ok()?;
+            let kind = match subtype {
+                b"Image" => XObjectKind::Image,
+                b"Form" => XObjectKind::Form(value.as_reference().ok()?),
+                _ => return None,
             };
-            subtype
-                .and_then(|object| object.as_name().ok().map(<[u8]>::to_vec))
-                .is_some_and(|name| name == b"Image")
+            Some((String::from_utf8_lossy(name).into_owned(), kind))
         })
-        .map(|(name, _)| String::from_utf8_lossy(name).into_owned())
         .collect()
+}
+
+fn object_matrix(object: &Object) -> Option<Matrix> {
+    let Object::Array(values) = object else {
+        return None;
+    };
+    if values.len() != 6 {
+        return None;
+    }
+    let values: Option<Vec<f64>> = values
+        .iter()
+        .map(|value| match value {
+            Object::Integer(value) => Some(*value as f64),
+            Object::Real(value) => Some((*value).into()),
+            _ => None,
+        })
+        .collect();
+    let values = values?;
+    Some(Matrix::new(
+        values[0], values[1], values[2], values[3], values[4], values[5],
+    ))
 }
 
 fn sub_dictionary(document: &Document, parent: &Dictionary, key: &[u8]) -> Option<Dictionary> {
@@ -573,6 +721,30 @@ mod tests {
 
     fn text(content: &[u8]) -> LocatedContent {
         located(content, fixture::helvetica_resources())
+    }
+
+    fn form_document(form_content: &[u8], form_entries: Dictionary) -> (Document, ObjectId) {
+        use lopdf::{dictionary, Stream};
+
+        let (mut document, page) =
+            fixture::document_with_content(b"q 2 0 0 2 10 20 cm /Fm1 Do Q", Dictionary::new());
+        let form_id = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+                "Resources" => form_entries,
+            },
+            form_content.to_vec(),
+        ));
+        document
+            .get_dictionary_mut(page)
+            .expect("page dictionary")
+            .set(
+                "Resources",
+                dictionary! { "XObject" => dictionary! { "Fm1" => form_id } },
+            );
+        (document, page)
     }
 
     fn close(left: f64, right: f64) -> bool {
@@ -731,21 +903,158 @@ mod tests {
         assert!(close(bbox.width, 100.0) && close(bbox.height, 50.0));
     }
 
-    /// Form XObjects are skipped, and skipping is a decision rather than an
-    /// oversight — their stream can be shared by other pages.
     #[test]
-    fn a_form_xobject_is_not_reported_as_an_image() {
-        use lopdf::dictionary;
-        let resources = dictionary! {
-            "XObject" => dictionary! {
-                "Fm1" => lopdf::Stream::new(
-                    dictionary! { "Type" => "XObject", "Subtype" => "Form" },
-                    b"BT ET".to_vec(),
-                ),
-            },
-        };
+    fn text_inside_a_form_is_reported_with_its_invocation_path() {
+        let (document, page) = form_document(
+            b"BT /F1 12 Tf 5 7 Td (inside) Tj ET",
+            fixture::helvetica_resources(),
+        );
 
-        assert!(located(b"q /Fm1 Do Q", resources).images.is_empty());
+        let content = read_located_content(&document, page).expect("readable form");
+
+        assert_eq!(content.text_runs.len(), 1);
+        assert_eq!(content.text_runs[0].run.text, "inside");
+        assert_eq!(content.text_runs[0].form_path.len(), 1);
+        assert_eq!(content.text_runs[0].form_path[0].resource_name, "Fm1");
+        assert!(close(content.text_runs[0].run.bbox.x, 20.0));
+        assert!(close(content.text_runs[0].run.bbox.y, 28.0));
+    }
+
+    #[test]
+    fn a_form_without_resources_uses_its_callers_resources() {
+        use lopdf::{dictionary, Stream};
+
+        let (mut document, page) = fixture::document_with_content(b"/Fm1 Do", Dictionary::new());
+        let form = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 100.into(), 100.into()],
+            },
+            b"BT /F1 12 Tf (inherited) Tj ET".to_vec(),
+        ));
+        let mut resources = fixture::helvetica_resources();
+        resources.set("XObject", dictionary! { "Fm1" => form });
+        document
+            .get_dictionary_mut(page)
+            .expect("page dictionary")
+            .set("Resources", resources);
+
+        let content = read_located_content(&document, page).expect("readable form");
+
+        assert_eq!(content.text_runs[0].run.text, "inherited");
+    }
+
+    #[test]
+    fn a_form_matrix_composes_with_the_invocation_ctm() {
+        let (mut document, page) = form_document(
+            b"BT /F1 10 Tf 1 0 0 1 1 0 Tm (x) Tj ET",
+            fixture::helvetica_resources(),
+        );
+        let form_id = document
+            .get_dictionary(page)
+            .expect("page dictionary")
+            .get(b"Resources")
+            .expect("resources")
+            .as_dict()
+            .expect("resources dictionary")
+            .get(b"XObject")
+            .expect("xobjects")
+            .as_dict()
+            .expect("xobject dictionary")
+            .get(b"Fm1")
+            .expect("form")
+            .as_reference()
+            .expect("form reference");
+        document
+            .get_object_mut(form_id)
+            .expect("form object")
+            .as_stream_mut()
+            .expect("form stream")
+            .dict
+            .set(
+                "Matrix",
+                vec![1.into(), 0.into(), 0.into(), 1.into(), 3.into(), 0.into()],
+            );
+
+        let content = read_located_content(&document, page).expect("readable form");
+
+        assert!(close(content.text_runs[0].run.bbox.x, 18.0));
+    }
+
+    #[test]
+    fn the_same_form_invoked_twice_produces_two_distinct_paths() {
+        let (mut document, page) =
+            form_document(b"BT /F1 10 Tf (x) Tj ET", fixture::helvetica_resources());
+        let contents_id = document
+            .get_dictionary(page)
+            .expect("page dictionary")
+            .get(b"Contents")
+            .expect("contents")
+            .as_reference()
+            .expect("contents reference");
+        document
+            .get_object_mut(contents_id)
+            .expect("contents object")
+            .as_stream_mut()
+            .expect("contents stream")
+            .set_plain_content(b"/Fm1 Do 1 0 0 1 20 0 cm /Fm1 Do".to_vec());
+
+        let content = read_located_content(&document, page).expect("readable forms");
+
+        assert_eq!(content.text_runs.len(), 2);
+        assert_ne!(
+            content.text_runs[0].form_path[0].operation_span,
+            content.text_runs[1].form_path[0].operation_span
+        );
+        assert!(close(content.text_runs[0].run.bbox.x, 0.0));
+        assert!(close(content.text_runs[1].run.bbox.x, 20.0));
+    }
+
+    #[test]
+    fn a_cyclic_form_graph_stops_at_the_active_form() {
+        use lopdf::{dictionary, Stream};
+
+        let (mut document, page) = fixture::document_with_content(b"/A Do", Dictionary::new());
+        let a = document.add_object(Stream::new(
+            dictionary! { "Type" => "XObject", "Subtype" => "Form" },
+            b"/B Do".to_vec(),
+        ));
+        let b = document.add_object(Stream::new(
+            dictionary! { "Type" => "XObject", "Subtype" => "Form" },
+            b"/A Do".to_vec(),
+        ));
+        document
+            .get_object_mut(a)
+            .expect("form A")
+            .as_stream_mut()
+            .expect("form A stream")
+            .dict
+            .set(
+                "Resources",
+                dictionary! { "XObject" => dictionary! { "B" => b } },
+            );
+        document
+            .get_object_mut(b)
+            .expect("form B")
+            .as_stream_mut()
+            .expect("form B stream")
+            .dict
+            .set(
+                "Resources",
+                dictionary! { "XObject" => dictionary! { "A" => a } },
+            );
+        document
+            .get_dictionary_mut(page)
+            .expect("page dictionary")
+            .set(
+                "Resources",
+                dictionary! { "XObject" => dictionary! { "A" => a } },
+            );
+
+        let content = read_located_content(&document, page).expect("cycle is bounded");
+
+        assert!(content.text_runs.is_empty());
     }
 
     #[test]

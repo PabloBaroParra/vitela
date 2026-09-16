@@ -9,7 +9,11 @@
 //!
 //! 1. **Nothing is written until everything is checked.** A replacement the
 //!    font cannot encode fails with the stream untouched (batch decision 3).
-//! 2. **The item is what identifies the target, not its id.** An id is a
+//! 2. **A rewrite reaches one page.** Content the page paints through a
+//!    Form XObject lives in a stream other pages may invoke too, so the
+//!    edit takes a page-owned copy of every form on the way to it and
+//!    rewrites that — see [`own_scope`].
+//! 3. **The item is what identifies the target, not its id.** An id is a
 //!    position in a parse, and replaying several commands in one save
 //!    renumbers the page as soon as one of them removes something. The
 //!    target is confirmed by its own content and position, so an edit is
@@ -26,7 +30,9 @@
 use crate::encoding::resolve_font;
 use crate::error::EditError;
 use crate::parse::matrix::Matrix;
-use crate::parse::{read_located_content, LocatedContent, LocatedImage, LocatedTextRun};
+use crate::parse::{
+    read_located_content, FormStep, LocatedContent, LocatedImage, LocatedTextRun, PageStream,
+};
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use pdf_document::{ContentItemId, ImageItem, Rect, TextRun};
 
@@ -46,10 +52,12 @@ pub fn replace_text_run(
 ) -> Result<(), EditError> {
     let located = read_located_content(document, page_object)?;
     let target = resolve_text_run(&located, item)?;
+    let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
 
     // Encode first: an unrepresentable character must abort before any byte
-    // of the document is written.
-    let font = page_font(document, page_object, &target.run.resource_font_name)?;
+    // of the document is written — the copies `own_scope` takes included.
+    let resources = scope_resources(document, page_object, &target.form_path);
+    let font = scope_font(document, &resources, &target.run.resource_font_name)?;
     let codes = font.encode(after)?;
 
     let replacement = if target.operator == "TJ" {
@@ -61,8 +69,9 @@ pub fn replace_text_run(
         literal_string(&codes)
     };
 
-    let (stream_index, span) = (target.stream_index, target.operand_span.clone());
-    splice(document, &located, stream_index, span, &replacement)
+    let span = target.operand_span.clone();
+    let scope = own_scope(document, page_object, &target.form_path, &stream)?;
+    splice(document, scope.stream_object, &stream, span, &replacement)
 }
 
 /// Replaces a Type0/CID run with text in the standard font used for inserted
@@ -88,7 +97,9 @@ pub fn replace_text_run_with_inserted_font(
         });
     }
 
-    let resource_font_name = crate::insert::inserted_font_resource_name(document, page_object);
+    let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
+    let resources = scope_resources(document, page_object, &target.form_path);
+    let resource_font_name = crate::insert::inserted_font_resource_name_in(document, &resources);
     let font = resolve_font(
         document,
         &crate::insert::inserted_font_dictionary(),
@@ -104,7 +115,7 @@ pub fn replace_text_run_with_inserted_font(
         literal_string(&codes)
     };
 
-    let operation = &located.streams[target.stream_index].bytes[target.operation_span.clone()];
+    let operation = &stream.bytes[target.operation_span.clone()];
     let operand_start = target.operand_span.start - target.operation_span.start;
     let operand_end = target.operand_span.end - target.operation_span.start;
     let mut replacement = format!(
@@ -126,11 +137,15 @@ pub fn replace_text_run_with_inserted_font(
     );
 
     let mut working = document.clone();
-    crate::insert::ensure_inserted_font_resource(&mut working, page_object)?;
+    let scope = own_scope(&mut working, page_object, &target.form_path, &stream)?;
+    // The name is the one already written into `replacement`, so the font is
+    // registered under it rather than under whatever a second choice made
+    // against the copy would have picked.
+    crate::insert::ensure_font_resource(&mut working, scope.owner, &resource_font_name)?;
     splice(
         &mut working,
-        &located,
-        target.stream_index,
+        scope.stream_object,
+        &stream,
         target.operation_span.clone(),
         &replacement,
     )?;
@@ -176,7 +191,8 @@ pub fn text_run_bbox(
     run: &TextRun,
     text: &str,
 ) -> Result<Rect, EditError> {
-    let font = match page_font(document, page_object, &run.resource_font_name) {
+    let resources = run_scope_resources(document, page_object, run);
+    let font = match scope_font(document, &resources, &run.resource_font_name) {
         Ok(font) => font,
         // The composed-insertion case. Deliberately keyed on the font being
         // absent rather than on a flag the caller passes: a run naming a
@@ -222,6 +238,7 @@ pub fn remove_text_run(
 ) -> Result<(), EditError> {
     let located = read_located_content(document, page_object)?;
     let target = resolve_text_run(&located, item)?;
+    let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
 
     let replacement = if target.advance_adjustment.abs() < 1e-9 {
         Vec::new()
@@ -229,8 +246,9 @@ pub fn remove_text_run(
         format!("[{}] TJ", format_number(target.advance_adjustment)).into_bytes()
     };
 
-    let (stream_index, span) = (target.stream_index, target.operation_span.clone());
-    splice(document, &located, stream_index, span, &replacement)
+    let span = target.operation_span.clone();
+    let scope = own_scope(document, page_object, &target.form_path, &stream)?;
+    splice(document, scope.stream_object, &stream, span, &replacement)
 }
 
 /// Repositions an existing run so its box sits at `to`'s origin, keeping
@@ -275,6 +293,7 @@ pub fn move_text_run(
 ) -> Result<(), EditError> {
     let located = read_located_content(document, page_object)?;
     let target = resolve_text_run(&located, item)?;
+    let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
 
     // `"` sets word and character spacing for everything after it; the
     // rewrite below emits a plain show operator and would drop both.
@@ -322,7 +341,7 @@ pub fn move_text_run(
         -restored_advance * 1000.0 / placement.advance_scale
     };
 
-    let operand = &located.streams[target.stream_index].bytes[target.operand_span.clone()];
+    let operand = &stream.bytes[target.operand_span.clone()];
     let show = if target.operator == "TJ" { "TJ" } else { "Tj" };
 
     let mut replacement = matrix_operator(moved);
@@ -333,8 +352,9 @@ pub fn move_text_run(
         replacement.extend_from_slice(format!("[{}] TJ", format_number(adjustment)).as_bytes());
     }
 
-    let (stream_index, span) = (target.stream_index, target.operation_span.clone());
-    splice(document, &located, stream_index, span, &replacement)
+    let span = target.operation_span.clone();
+    let scope = own_scope(document, page_object, &target.form_path, &stream)?;
+    splice(document, scope.stream_object, &stream, span, &replacement)
 }
 
 /// `a b c d e f Tm `, trailing space included so operands never run together.
@@ -386,17 +406,20 @@ pub fn remove_image(
 ) -> Result<(), EditError> {
     let located = read_located_content(document, page_object)?;
     let target = resolve_image(&located, item)?;
+    let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
 
-    let (stream_index, span) = (target.stream_index, target.operation_span.clone());
-    splice(document, &located, stream_index, span, &[])
+    let span = target.operation_span.clone();
+    let scope = own_scope(document, page_object, &target.form_path, &stream)?;
+    splice(document, scope.stream_object, &stream, span, &[])
 }
 
 /// Swaps the bytes behind an image, keeping its resource name and its place
 /// on the page. The content stream is not touched at all.
 ///
-/// **The XObject is replaced in place.** If another page references the same
-/// object, it shows the new image too — v1 does not clone the resource to
-/// isolate the edit.
+/// The replacement is registered in a page-owned copy of `/Resources`, so
+/// pages that share the original XObject or resource dictionary stay
+/// unchanged. An image painted inside a Form XObject is registered on a
+/// page-owned copy of that form for the same reason.
 pub fn replace_image_source(
     document: &mut Document,
     page_object: ObjectId,
@@ -404,12 +427,18 @@ pub fn replace_image_source(
     bytes: &[u8],
 ) -> Result<(), EditError> {
     let located = read_located_content(document, page_object)?;
-    resolve_image(&located, item)?;
+    let target = resolve_image(&located, item)?;
+    let form_path = target.form_path.clone();
 
-    // Decode before locating the object to overwrite: bad bytes must not
+    // Decode before registering any objects: bad bytes must not
     // leave a half-updated resource behind.
     let replacement = crate::insert::image_xobject(bytes)?;
-    let object_id = image_xobject_id(document, page_object, &item.resource_xobject_name)?;
+    let resources = scope_resources(document, page_object, &form_path);
+    image_xobject_id_in(document, &resources, &item.resource_xobject_name)?;
+
+    // Copying the path is the last thing that can fail before anything is
+    // added, so the refusals above still leave the document as it was.
+    let owner = own_form_path(document, page_object, &form_path)?;
 
     let smask_reference = replacement
         .smask
@@ -422,8 +451,14 @@ pub fn replace_image_source(
         }
     }
 
-    document.objects.insert(object_id, Object::Stream(image));
-    Ok(())
+    let image_id = document.add_object(image);
+    crate::insert::add_resource(
+        document,
+        owner,
+        b"XObject",
+        &item.resource_xobject_name,
+        Object::Reference(image_id),
+    )
 }
 
 /// Reads back the bytes behind an existing image, re-encoded as PNG when the
@@ -456,9 +491,10 @@ pub fn image_source_bytes(
     item: &ImageItem,
 ) -> Result<Vec<u8>, EditError> {
     let located = read_located_content(document, page_object)?;
-    resolve_image(&located, item)?;
+    let target = resolve_image(&located, item)?;
 
-    let object_id = image_xobject_id(document, page_object, &item.resource_xobject_name)?;
+    let resources = scope_resources(document, page_object, &target.form_path);
+    let object_id = image_xobject_id_in(document, &resources, &item.resource_xobject_name)?;
     let stream = document.get_object(object_id)?.as_stream()?;
     decode_image_source(document, stream, &item.resource_xobject_name)
 }
@@ -689,6 +725,7 @@ fn place_image(
 ) -> Result<(), EditError> {
     let located = read_located_content(document, page_object)?;
     let target = resolve_image(&located, item)?;
+    let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
 
     let inverse = target
         .ctm_at_paint
@@ -711,8 +748,9 @@ fn place_image(
     )
     .into_bytes();
 
-    let (stream_index, span) = (target.stream_index, target.operation_span.clone());
-    splice(document, &located, stream_index, span, &replacement)
+    let span = target.operation_span.clone();
+    let scope = own_scope(document, page_object, &target.form_path, &stream)?;
+    splice(document, scope.stream_object, &stream, span, &replacement)
 }
 
 /// Finds the run a command targets.
@@ -812,17 +850,184 @@ fn same_rect(left: Rect, right: Rect) -> bool {
         && (left.height - right.height).abs() < TOLERANCE
 }
 
-/// Writes `replacement` over `span` in one of the page's content streams and
-/// stores the stream back. Every other stream, and every other byte of this
-/// one, is left as it was.
+/// Where a rewrite lands: the object whose `/Resources` the edit resolves
+/// names against, and the stream object its bytes are stored back into.
+///
+/// For content painted straight onto the page both are what they always
+/// were. For content inside a Form XObject both are the page-owned copy of
+/// the innermost form — the same object twice, because a form's dictionary
+/// lives on its stream.
+struct Scope {
+    owner: ObjectId,
+    stream_object: ObjectId,
+}
+
+/// Gives the page its own copy of every Form XObject on `form_path`, so a
+/// rewrite inside one cannot reach a page that shares it.
+///
+/// This is the answer to the question that kept form content unreportable
+/// until now: a form's stream can be invoked from any number of pages, and
+/// there is no way to edit the shared object for one of them. So it is not
+/// edited — each step is copied, and the copy is bound in the copy of its
+/// caller, which leaves every other page reaching the originals it always
+/// reached.
+///
+/// A copy that had no `/Resources` of its own is given the caller's, which
+/// is the dictionary [`crate::parse`] resolved its names against on the way
+/// in. Without that, the first resource this crate registers on the copy
+/// would become the only name the form could still see.
+///
+/// **This writes.** Callers own invariant 1: everything that can refuse the
+/// edit has to have refused it before this runs.
+///
+/// Repeating an edit inside the same form copies it again — the previous
+/// copy is left unreferenced rather than reused, because deciding that a
+/// copy is exclusively this page's means proving no other object reaches it,
+/// and that is a whole-document reachability walk this crate does not have.
+/// `pdf-compress`'s prune collects them on the way out.
+fn own_form_path(
+    document: &mut Document,
+    page_object: ObjectId,
+    form_path: &[FormStep],
+) -> Result<ObjectId, EditError> {
+    let mut owner = page_object;
+    let mut inherited = resources_of(document, page_object);
+
+    for step in form_path {
+        let mut copy = document.get_object(step.object_id)?.as_stream()?.clone();
+        let scope = form_resources(document, &copy.dict).unwrap_or_else(|| inherited.clone());
+        copy.dict
+            .set("Resources", Object::Dictionary(scope.clone()));
+
+        let copy_id = document.add_object(Object::Stream(copy));
+        crate::insert::add_resource(
+            document,
+            owner,
+            b"XObject",
+            &step.resource_name,
+            Object::Reference(copy_id),
+        )?;
+
+        owner = copy_id;
+        inherited = scope;
+    }
+
+    Ok(owner)
+}
+
+/// [`own_form_path`], plus the stream object the rewrite is stored into.
+fn own_scope(
+    document: &mut Document,
+    page_object: ObjectId,
+    form_path: &[FormStep],
+    stream: &PageStream,
+) -> Result<Scope, EditError> {
+    let owner = own_form_path(document, page_object, form_path)?;
+    let stream_object = if form_path.is_empty() {
+        stream.object_id
+    } else {
+        owner
+    };
+    Ok(Scope {
+        owner,
+        stream_object,
+    })
+}
+
+/// The decoded bytes a located item's spans address — the read-only half of
+/// [`own_scope`], for the checks that run before anything is written.
+///
+/// The copy `own_scope` takes is byte for byte the stream read here, so a
+/// span measured against these bytes still means the same bytes there.
+fn scope_stream(
+    document: &Document,
+    located: &LocatedContent,
+    form_path: &[FormStep],
+    stream_index: usize,
+) -> Result<PageStream, EditError> {
+    match form_path.last() {
+        None => {
+            located
+                .streams
+                .get(stream_index)
+                .cloned()
+                .ok_or_else(|| EditError::MalformedContent {
+                    reason: "the located item names a content stream the page does not have"
+                        .to_string(),
+                    offset: 0,
+                })
+        }
+        Some(step) => crate::parse::form_stream(document, step.object_id),
+    }
+}
+
+/// The resource dictionary that governs content at the end of `form_path` —
+/// the same one [`crate::parse`] resolved the item's names against.
+///
+/// A form's own `/Resources` replaces its caller's outright rather than
+/// merging with it, which is the rule the interpreter walks in with.
+fn scope_resources(
+    document: &Document,
+    page_object: ObjectId,
+    form_path: &[FormStep],
+) -> Dictionary {
+    let mut resources = resources_of(document, page_object);
+    for step in form_path {
+        let Ok(stream) = document
+            .get_object(step.object_id)
+            .and_then(|object| object.as_stream())
+        else {
+            break;
+        };
+        if let Some(own) = form_resources(document, &stream.dict) {
+            resources = own;
+        }
+    }
+    resources
+}
+
+/// A Form XObject's own `/Resources`, or `None` when it reads its caller's.
+fn form_resources(document: &Document, form: &Dictionary) -> Option<Dictionary> {
+    dereferenced_dict(document, form.get(b"Resources").ok()?)
+}
+
+/// The resources that govern `run`.
+///
+/// Costs a parse of the page, because a run carries no record of the form it
+/// was painted inside — and resolving its font against the page when the
+/// form redefines the name would measure the wrong glyphs. A run the page
+/// cannot locate at all is one the shell composed for insertion and has not
+/// written yet; those fall back to the page's own resources, which is where
+/// [`crate::insert_text_run`] will register their font.
+fn run_scope_resources(document: &Document, page_object: ObjectId, run: &TextRun) -> Dictionary {
+    let form_path = read_located_content(document, page_object)
+        .ok()
+        .and_then(|located| {
+            resolve_text_run(&located, run)
+                .ok()
+                .map(|target| target.form_path.clone())
+        });
+
+    match form_path {
+        Some(path) => scope_resources(document, page_object, &path),
+        None => resources_of(document, page_object),
+    }
+}
+
+/// Writes `replacement` over `span` in `stream`'s bytes and stores the
+/// result into `destination`. Every other stream, and every other byte of
+/// this one, is left as it was.
+///
+/// `destination` is not `stream.object_id`: for form content the bytes were
+/// read from the shared original and are stored into the page's own copy of
+/// it.
 fn splice(
     document: &mut Document,
-    located: &crate::parse::LocatedContent,
-    stream_index: usize,
+    destination: ObjectId,
+    stream: &PageStream,
     span: std::ops::Range<usize>,
     replacement: &[u8],
 ) -> Result<(), EditError> {
-    let stream = &located.streams[stream_index];
     let mut bytes = Vec::with_capacity(stream.bytes.len() + replacement.len());
     bytes.extend_from_slice(&stream.bytes[..span.start]);
     bytes.extend_from_slice(replacement);
@@ -837,7 +1042,7 @@ fn splice(
         None
     };
 
-    let object = document.get_object_mut(stream.object_id)?.as_stream_mut()?;
+    let object = document.get_object_mut(destination)?.as_stream_mut()?;
     match content {
         // `set_plain_content` first: it clears `/Filter` and `/DecodeParms`,
         // so the dictionary cannot end up describing an encoding the bytes no
@@ -853,12 +1058,12 @@ fn splice(
 }
 
 /// Resolves one of the page's font resources.
-fn page_font(
+fn scope_font(
     document: &Document,
-    page_object: ObjectId,
+    resources: &Dictionary,
     resource_name: &str,
 ) -> Result<crate::encoding::FontInfo, EditError> {
-    let font_dict = resource_entry(document, page_object, b"Font", resource_name)
+    let font_dict = resource_entry(document, resources, b"Font", resource_name)
         .and_then(|object| match object {
             Object::Dictionary(dict) => Some(dict),
             _ => None,
@@ -872,18 +1077,17 @@ fn page_font(
 
 /// The object id of an image XObject, so its stream can be swapped without
 /// disturbing the name that refers to it.
-fn image_xobject_id(
+fn image_xobject_id_in(
     document: &Document,
-    page_object: ObjectId,
+    resources: &Dictionary,
     resource_name: &str,
 ) -> Result<ObjectId, EditError> {
-    let resources = resources_of(document, page_object);
     let xobjects = resources
         .get(b"XObject")
         .ok()
         .and_then(|object| dereferenced_dict(document, object))
         .ok_or_else(|| EditError::MalformedContent {
-            reason: format!("page has no XObject resources to hold {resource_name}"),
+            reason: format!("no XObject resources in scope to hold {resource_name}"),
             offset: 0,
         })?;
 
@@ -900,11 +1104,10 @@ fn image_xobject_id(
 
 fn resource_entry(
     document: &Document,
-    page_object: ObjectId,
+    resources: &Dictionary,
     category: &[u8],
     name: &str,
 ) -> Option<Object> {
-    let resources = resources_of(document, page_object);
     let category = dereferenced_dict(document, resources.get(category).ok()?)?;
     let entry = category.get(name.as_bytes()).ok()?;
     match entry {
@@ -913,12 +1116,15 @@ fn resource_entry(
     }
 }
 
-/// The page's own or inherited resource dictionary. Mirrors the lookup in
+/// The owner's own or inherited resource dictionary. Mirrors the lookup in
 /// [`crate::parse`] so an edit resolves exactly the font the parse did.
-fn resources_of(document: &Document, page_id: ObjectId) -> Dictionary {
-    let mut current = match document.get_dictionary(page_id) {
-        Ok(dict) => dict.clone(),
-        Err(_) => return Dictionary::new(),
+///
+/// `owner` is a page or a Form XObject; the `/Parent` walk only ever finds
+/// something for the first, which is the only one that inherits.
+fn resources_of(document: &Document, owner: ObjectId) -> Dictionary {
+    let mut current = match crate::insert::owner_dictionary(document, owner) {
+        Some(dict) => dict.clone(),
+        None => return Dictionary::new(),
     };
 
     for _ in 0..32 {
@@ -1053,6 +1259,17 @@ mod tests {
 
     fn image_document(content: &[u8]) -> (Document, ObjectId) {
         fixture::document_with_content(content, fixture::image_resources())
+    }
+
+    /// The page-scoped lookup the production code no longer needs — an image
+    /// is resolved against whichever scope paints it — kept here because a
+    /// test that asks "what does this page bind `/Im1` to" still wants it.
+    fn image_xobject_id(
+        document: &Document,
+        page: ObjectId,
+        name: &str,
+    ) -> Result<ObjectId, EditError> {
+        image_xobject_id_in(document, &resources_of(document, page), name)
     }
 
     // --- replace_text_run -------------------------------------------------
@@ -2146,6 +2363,55 @@ mod tests {
         assert!(matches!(error, EditError::InvalidImage(_)));
     }
 
+    #[test]
+    fn replacing_a_shared_image_source_isolated_to_the_target_page() {
+        let (mut document, first_page) = image_document(b"q 10 0 0 10 0 0 cm /Im1 Do Q");
+        let first_page_dict = document
+            .get_dictionary(first_page)
+            .expect("first page")
+            .clone();
+        let pages_id = match first_page_dict.get(b"Parent").expect("parent") {
+            Object::Reference(id) => *id,
+            other => panic!("unexpected parent: {other:?}"),
+        };
+        let second_content = document.add_object(Stream::new(
+            dictionary! {},
+            b"q 20 0 0 20 0 0 cm /Im1 Do Q".to_vec(),
+        ));
+        let second_page = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => second_content,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Resources" => first_page_dict.get(b"Resources").expect("resources").clone(),
+        });
+        let pages = document
+            .get_dictionary_mut(pages_id)
+            .expect("pages dictionary");
+        pages.set("Count", 2);
+        pages.set("Kids", vec![first_page.into(), second_page.into()]);
+
+        let target = image_of(&document, 0);
+        let second_before = image_xobject_id(&document, second_page, "Im1").expect("shared image");
+
+        replace_image_source(&mut document, first_page, &target, &png_bytes(8, 4, false))
+            .expect("decodable png");
+
+        let first_after = image_xobject_id(&document, first_page, "Im1").expect("new image");
+        let second_after = image_xobject_id(&document, second_page, "Im1").expect("shared image");
+        assert_ne!(first_after, second_after);
+        assert_eq!(second_after, second_before);
+        let second_stream = document
+            .get_object(second_after)
+            .expect("second image")
+            .as_stream()
+            .expect("image stream");
+        assert_eq!(
+            second_stream.dict.get(b"Width").expect("width"),
+            &Object::Integer(2)
+        );
+    }
+
     // --- image_source_bytes ------------------------------------------------
 
     /// Builds a one-page document with `/Im1` set to `pixels` (`DeviceRGB`,
@@ -2539,5 +2805,498 @@ mod tests {
             Object::Stream(stream) => stream.dict.clone(),
             other => panic!("unexpected xobject form: {other:?}"),
         }
+    }
+
+    // --- content inside a Form XObject -------------------------------------
+
+    /// Two pages that share one **indirect** `/Resources` dictionary, which
+    /// in turn binds one Form XObject both of them invoke.
+    ///
+    /// The nastiest shape the isolation has to survive, and the one a real
+    /// file arrives in: the form stream is shared, and so is the dictionary
+    /// that names it — so a rewrite that owns only one of the two still
+    /// reaches the other page.
+    struct SharedForm {
+        document: Document,
+        first_page: ObjectId,
+        second_page: ObjectId,
+        form: ObjectId,
+        resources: ObjectId,
+    }
+
+    /// Builds [`SharedForm`] around `form_content`, giving the form its own
+    /// `/Resources` only when `form_resources` says so.
+    fn shared_form(form_content: &[u8], form_resources: Option<Dictionary>) -> SharedForm {
+        let (mut document, first_page) =
+            fixture::document_with_content(b"/Fm1 Do", fixture::text_and_image_resources());
+
+        let mut form_dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        };
+        if let Some(own) = form_resources {
+            let own = indirect_resources(&mut document, own);
+            form_dict.set("Resources", Object::Reference(own));
+        }
+        let form = document.add_object(Stream::new(form_dict, form_content.to_vec()));
+
+        let mut shared = document
+            .get_dictionary(first_page)
+            .expect("page dictionary")
+            .get(b"Resources")
+            .expect("resources")
+            .as_dict()
+            .expect("direct resources")
+            .clone();
+        let mut xobjects = shared
+            .get(b"XObject")
+            .expect("xobjects")
+            .as_dict()
+            .expect("xobject dictionary")
+            .clone();
+        xobjects.set("Fm1", Object::Reference(form));
+        shared.set("XObject", Object::Dictionary(xobjects));
+        let resources = document.add_object(Object::Dictionary(shared));
+
+        let pages_id = match document
+            .get_dictionary(first_page)
+            .expect("page dictionary")
+            .get(b"Parent")
+            .expect("parent")
+        {
+            Object::Reference(id) => *id,
+            other => panic!("unexpected parent: {other:?}"),
+        };
+        document
+            .get_dictionary_mut(first_page)
+            .expect("page dictionary")
+            .set("Resources", Object::Reference(resources));
+
+        let second_content = document.add_object(Stream::new(dictionary! {}, b"/Fm1 Do".to_vec()));
+        let second_page = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "Contents" => second_content,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            "Resources" => Object::Reference(resources),
+        });
+        let pages = document
+            .get_dictionary_mut(pages_id)
+            .expect("pages dictionary");
+        pages.set("Count", 2);
+        pages.set("Kids", vec![first_page.into(), second_page.into()]);
+
+        SharedForm {
+            document,
+            first_page,
+            second_page,
+            form,
+            resources,
+        }
+    }
+
+    /// Promotes a hand-written resource dictionary to an indirect object,
+    /// stream entries included — the shape `fixture` already guarantees for
+    /// a page, applied to a form's own dictionary.
+    fn indirect_resources(document: &mut Document, resources: Dictionary) -> ObjectId {
+        let mut fixed = Dictionary::new();
+        for (category, value) in resources.iter() {
+            let Object::Dictionary(entries) = value else {
+                fixed.set(
+                    String::from_utf8_lossy(category).into_owned(),
+                    value.clone(),
+                );
+                continue;
+            };
+            let mut fixed_entries = Dictionary::new();
+            for (name, entry) in entries.iter() {
+                let name = String::from_utf8_lossy(name).into_owned();
+                match entry {
+                    Object::Stream(stream) => {
+                        let id = document.add_object(stream.clone());
+                        fixed_entries.set(name, Object::Reference(id));
+                    }
+                    other => fixed_entries.set(name, other.clone()),
+                }
+            }
+            fixed.set(
+                String::from_utf8_lossy(category).into_owned(),
+                Object::Dictionary(fixed_entries),
+            );
+        }
+        document.add_object(Object::Dictionary(fixed))
+    }
+
+    /// The object a page's effective `/Resources /XObject /<name>` names.
+    fn xobject_binding(document: &Document, page: ObjectId, name: &str) -> ObjectId {
+        let resources = resources_of(document, page);
+        xobject_binding_in(document, &resources, name)
+    }
+
+    fn xobject_binding_in(document: &Document, resources: &Dictionary, name: &str) -> ObjectId {
+        let xobjects = match resources.get(b"XObject").expect("xobjects") {
+            Object::Reference(id) => document
+                .get_object(*id)
+                .expect("xobjects")
+                .as_dict()
+                .expect("xobject dictionary")
+                .clone(),
+            Object::Dictionary(dict) => dict.clone(),
+            other => panic!("unexpected xobjects: {other:?}"),
+        };
+        match xobjects.get(name.as_bytes()).expect("binding") {
+            Object::Reference(id) => *id,
+            other => panic!("{name} is not indirect: {other:?}"),
+        }
+    }
+
+    fn stream_content(document: &Document, id: ObjectId) -> Vec<u8> {
+        document
+            .get_object(id)
+            .expect("stream")
+            .as_stream()
+            .expect("stream")
+            .content
+            .clone()
+    }
+
+    fn run_on(document: &Document, page: PageId, id: u64) -> TextRun {
+        read_page_content(document, page)
+            .expect("readable page")
+            .text_run(ContentItemId(id))
+            .expect("run is present")
+            .clone()
+    }
+
+    fn image_on(document: &Document, page: PageId, id: u64) -> ImageItem {
+        read_page_content(document, page)
+            .expect("readable page")
+            .image(ContentItemId(id))
+            .expect("image is present")
+            .clone()
+    }
+
+    #[test]
+    fn editing_text_inside_a_form_leaves_the_page_that_shares_it_alone() {
+        let SharedForm {
+            mut document,
+            first_page,
+            form,
+            ..
+        } = shared_form(b"BT /F1 12 Tf 10 20 Td (shared) Tj ET", None);
+        let target = run_on(&document, PageId(0), 0);
+
+        replace_text_run(&mut document, first_page, &target, "mine").expect("encodable");
+
+        assert_eq!(run_on(&document, PageId(0), 0).text, "mine");
+        assert_eq!(run_on(&document, PageId(1), 0).text, "shared");
+        assert_eq!(
+            stream_content(&document, form),
+            b"BT /F1 12 Tf 10 20 Td (shared) Tj ET"
+        );
+    }
+
+    /// The invocation is not the content: `/Fm1 Do` comes out byte for byte.
+    #[test]
+    fn editing_text_inside_a_form_leaves_the_invoking_content_stream_alone() {
+        let SharedForm {
+            mut document,
+            first_page,
+            ..
+        } = shared_form(b"BT /F1 12 Tf 10 20 Td (shared) Tj ET", None);
+        let target = run_on(&document, PageId(0), 0);
+
+        replace_text_run(&mut document, first_page, &target, "mine").expect("encodable");
+
+        assert_eq!(stream_bytes(&document), b"/Fm1 Do");
+    }
+
+    /// Owning the stream is only half of it — the binding that names it has
+    /// to become the page's own too, or the copy is written and never read.
+    #[test]
+    fn a_form_copy_is_bound_in_the_editing_pages_own_resources() {
+        let SharedForm {
+            mut document,
+            first_page,
+            second_page,
+            form,
+            resources,
+        } = shared_form(b"BT /F1 12 Tf (shared) Tj ET", None);
+        let target = run_on(&document, PageId(0), 0);
+
+        replace_text_run(&mut document, first_page, &target, "mine").expect("encodable");
+
+        assert_ne!(
+            xobject_binding(&document, first_page, "Fm1"),
+            form,
+            "the edited page got its own copy"
+        );
+        assert_eq!(
+            xobject_binding(&document, second_page, "Fm1"),
+            form,
+            "the sharing page kept the original"
+        );
+        let shared = document
+            .get_object(resources)
+            .expect("shared resources")
+            .as_dict()
+            .expect("resources dictionary")
+            .clone();
+        assert_eq!(
+            xobject_binding_in(&document, &shared, "Fm1"),
+            form,
+            "the dictionary both pages shared is untouched"
+        );
+    }
+
+    #[test]
+    fn removing_a_run_inside_a_form_rewrites_only_the_copy() {
+        let SharedForm {
+            mut document,
+            first_page,
+            ..
+        } = shared_form(b"BT /F1 12 Tf (shared) Tj ET", None);
+        let target = run_on(&document, PageId(0), 0);
+
+        remove_text_run(&mut document, first_page, &target).expect("removable");
+
+        assert!(read_page_content(&document, PageId(0))
+            .expect("readable page")
+            .text_runs
+            .is_empty());
+        assert_eq!(run_on(&document, PageId(1), 0).text, "shared");
+    }
+
+    #[test]
+    fn moving_an_image_inside_a_form_rewrites_only_the_copy() {
+        let SharedForm {
+            mut document,
+            first_page,
+            ..
+        } = shared_form(b"q 10 0 0 10 0 0 cm /Im1 Do Q", None);
+        let target = image_on(&document, PageId(0), 0);
+
+        move_image(
+            &mut document,
+            first_page,
+            &target,
+            Rect {
+                x: 50.0,
+                y: 60.0,
+                width: 10.0,
+                height: 10.0,
+            },
+        )
+        .expect("movable");
+
+        assert!((image_on(&document, PageId(0), 0).bbox.x - 50.0).abs() < 1e-6);
+        assert!((image_on(&document, PageId(1), 0).bbox.x).abs() < 1e-6);
+    }
+
+    #[test]
+    fn replacing_an_image_source_inside_a_form_rebinds_the_forms_own_resources() {
+        let SharedForm {
+            mut document,
+            first_page,
+            second_page,
+            ..
+        } = shared_form(
+            b"q 10 0 0 10 0 0 cm /Im1 Do Q",
+            Some(fixture::image_resources()),
+        );
+        let target = image_on(&document, PageId(0), 0);
+
+        replace_image_source(&mut document, first_page, &target, &png_bytes(8, 4, false))
+            .expect("decodable png");
+
+        assert_eq!(
+            form_image_width(&document, first_page, "Fm1", "Im1"),
+            8,
+            "the edited page sees the replacement"
+        );
+        assert_eq!(
+            form_image_width(&document, second_page, "Fm1", "Im1"),
+            2,
+            "the sharing page still sees the original"
+        );
+    }
+
+    /// `/Width` of the image `form_name`'s own resources bind under
+    /// `image_name`, reached through `page`'s own binding for the form.
+    fn form_image_width(
+        document: &Document,
+        page: ObjectId,
+        form_name: &str,
+        image_name: &str,
+    ) -> i64 {
+        let form = xobject_binding(document, page, form_name);
+        let form_stream = document
+            .get_object(form)
+            .expect("form")
+            .as_stream()
+            .expect("form stream");
+        let resources = match form_stream.dict.get(b"Resources").expect("form resources") {
+            Object::Reference(id) => document
+                .get_object(*id)
+                .expect("resources")
+                .as_dict()
+                .expect("resources dictionary")
+                .clone(),
+            Object::Dictionary(dict) => dict.clone(),
+            other => panic!("unexpected resources: {other:?}"),
+        };
+        let image = xobject_binding_in(document, &resources, image_name);
+        document
+            .get_object(image)
+            .expect("image")
+            .as_stream()
+            .expect("image stream")
+            .dict
+            .get(b"Width")
+            .expect("width")
+            .as_i64()
+            .expect("integer width")
+    }
+
+    /// A name the page has never heard of resolves because the form's own
+    /// `/Resources` is the scope the edit runs in — the same scope the parse
+    /// resolved it against on the way in.
+    #[test]
+    fn a_form_that_names_its_own_font_is_edited_against_that_font() {
+        let form_resources = dictionary! {
+            "Font" => dictionary! {
+                "FF1" => dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => "Helvetica",
+                    "Encoding" => "WinAnsiEncoding",
+                },
+            },
+        };
+        let SharedForm {
+            mut document,
+            first_page,
+            ..
+        } = shared_form(b"BT /FF1 12 Tf (own) Tj ET", Some(form_resources));
+        let target = run_on(&document, PageId(0), 0);
+        assert_eq!(target.resource_font_name, "FF1");
+
+        replace_text_run(&mut document, first_page, &target, "mine").expect("encodable");
+
+        assert_eq!(run_on(&document, PageId(0), 0).text, "mine");
+    }
+
+    /// A form with no `/Resources` reads names from its caller. Writing one
+    /// into the copy must not cut that off — a dictionary holding only the
+    /// newly added name would hide every font the form was already using.
+    #[test]
+    fn registering_a_font_on_a_form_without_resources_keeps_the_inherited_ones() {
+        let page_resources = dictionary! {
+            "Font" => dictionary! {
+                "F1" => dictionary! {
+                    "Subtype" => "Type0",
+                    "BaseFont" => "AAAAAA+Noto",
+                },
+            },
+        };
+        let (mut document, first_page) = fixture::document_with_content(b"/Fm1 Do", page_resources);
+        let form = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            },
+            b"BT /F1 12 Tf (Hello) Tj (World) Tj ET".to_vec(),
+        ));
+        let mut resources = document
+            .get_dictionary(first_page)
+            .expect("page dictionary")
+            .get(b"Resources")
+            .expect("resources")
+            .as_dict()
+            .expect("direct resources")
+            .clone();
+        resources.set("XObject", dictionary! { "Fm1" => form });
+        document
+            .get_dictionary_mut(first_page)
+            .expect("page dictionary")
+            .set("Resources", resources);
+        let target = run_on(&document, PageId(0), 0);
+
+        replace_text_run_with_inserted_font(&mut document, first_page, &target, "Alberto")
+            .expect("WinAnsi replacement");
+
+        let content = read_page_content(&document, PageId(0)).expect("readable page");
+        assert_eq!(content.text_runs[0].text, "Alberto");
+        assert_eq!(
+            content.text_runs[1].font_kind,
+            pdf_document::FontKind::EmbeddedComposite,
+            "the untouched run still resolves the inherited composite font"
+        );
+    }
+
+    #[test]
+    fn a_nested_form_edit_owns_every_step_of_the_path() {
+        let SharedForm {
+            mut document,
+            first_page,
+            second_page,
+            form,
+            ..
+        } = shared_form(b"/Fm2 Do", None);
+        let inner = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+            },
+            b"BT /F1 12 Tf (deep) Tj ET".to_vec(),
+        ));
+        let mut outer_resources = fixture::helvetica_resources();
+        outer_resources.set("XObject", dictionary! { "Fm2" => inner });
+        document
+            .get_object_mut(form)
+            .expect("outer form")
+            .as_stream_mut()
+            .expect("outer form stream")
+            .dict
+            .set("Resources", outer_resources);
+        let target = run_on(&document, PageId(0), 0);
+
+        replace_text_run(&mut document, first_page, &target, "mine").expect("encodable");
+
+        assert_eq!(run_on(&document, PageId(0), 0).text, "mine");
+        assert_eq!(run_on(&document, PageId(1), 0).text, "deep");
+        assert_ne!(
+            xobject_binding(&document, first_page, "Fm1"),
+            xobject_binding(&document, second_page, "Fm1"),
+            "the outer form was copied too"
+        );
+        assert_eq!(
+            stream_content(&document, inner),
+            b"BT /F1 12 Tf (deep) Tj ET"
+        );
+    }
+
+    /// Invariant 1 reaches the copies: a replacement the font cannot encode
+    /// leaves no half-owned path behind either.
+    #[test]
+    fn an_unencodable_replacement_inside_a_form_copies_nothing() {
+        let SharedForm {
+            mut document,
+            first_page,
+            form,
+            ..
+        } = shared_form(b"BT /F1 12 Tf (shared) Tj ET", None);
+        let target = run_on(&document, PageId(0), 0);
+        let before_objects = document.objects.len();
+
+        let error = replace_text_run(&mut document, first_page, &target, "日本語")
+            .expect_err("WinAnsi cannot encode Japanese");
+
+        assert!(matches!(error, EditError::EncodingGap { .. }));
+        assert_eq!(document.objects.len(), before_objects);
+        assert_eq!(xobject_binding(&document, first_page, "Fm1"), form);
     }
 }

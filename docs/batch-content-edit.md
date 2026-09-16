@@ -407,15 +407,50 @@ contradicen, y la política del módulo es rechazar, no elegir:
 Lo que sigue **fuera** de las tablas es lo que ninguna tabla arregla: Type0/CID conservando
 la fuente (ver "Fuera de scope").
 
+## Form XObjects: copia propia de la página al escribir
+
+El texto y las imágenes pintados dentro de un `/Subtype /Form` **sí** se reportan y se
+editan. El interpreter desciende al form y cada item se lleva su `form_path`: la cadena de
+invocaciones `Do` que va de la página hasta el stream donde vive.
+
+Escribir ahí no puede tocar el objeto compartido —el stream de un form lo puede invocar
+cualquier cantidad de páginas, y no existe forma de editarlo "para una sola"—, así que no se
+edita: `edit::own_form_path` **copia cada paso del camino** y liga la copia en la copia de su
+llamador. La página que edita pasa a alcanzar sus copias; todas las demás siguen alcanzando
+los originales. Lo mismo vale para el `/Resources` de la página, que se desprende de
+cualquier diccionario indirecto compartido antes de reescribir la ligadura.
+
+Detalles que la implementación fija:
+
+- Una copia que no tenía `/Resources` propio recibe el de su llamador —el mismo diccionario
+  contra el que el parse resolvió sus nombres—. Sin eso, el primer recurso que se registre en
+  la copia sería el único nombre que el form podría seguir viendo.
+- Los nombres se resuelven en el **scope** del item, no en la página: un form que redefine
+  `/F1` se edita contra *su* fuente. `edit::scope_resources` camina el `form_path` con la
+  misma regla que el interpreter (el `/Resources` propio reemplaza al del llamador, no se
+  mezcla con él).
+- La invariante 1 sigue en pie: todo lo que puede rechazar la edición corre **antes** de que
+  se copie nada. Un reemplazo que la fuente no puede codificar no deja copias a medio hacer.
+- **Repetir una edición dentro del mismo form lo copia de nuevo.** La copia anterior queda
+  sin referenciar en lugar de reusarse: decidir que una copia es exclusiva de esta página
+  significa probar que ningún otro objeto la alcanza, y eso es un recorrido de alcanzabilidad
+  de todo el documento que este crate no tiene. El prune de `pdf-compress` las junta a la
+  salida.
+
 ## Otras limitaciones conocidas de Fase 2
 
-- **Form XObjects:** el texto pintado dentro de un `/Subtype /Form` no se reporta. Su stream
-  puede estar compartido por varias páginas, y editarlo las cambiaría todas en silencio.
 - **Inline images (`BI`..`EI`):** se atraviesan de forma opaca (el lexer se las traga
   enteras para no desincronizarse con su payload binario) pero no son `ImageItem`: no tienen
   nombre de recurso al que apuntar.
-- **`replace_image_source` reemplaza el XObject in situ.** Si otra página referencia el
-  mismo objeto, también cambia. Clonar el recurso para aislar la edición queda pendiente.
+- **Profundidad de anidamiento de forms sin tope.** El descenso corta ciclos (un form que
+  ya está activo no se vuelve a entrar) pero no cadenas largas no cíclicas: ~600 niveles
+  desbordan la pila de un thread de test de 2 MiB, y un desborde es un abort, no un `Err`.
+  El presupuesto de `MAX_PAGE_CONTENT_BYTES` no lo acota, porque cada nivel cuesta los ~7
+  bytes de un `/N Do`. Falta un `MAX_FORM_DEPTH`.
+- **Dos walkers discrepan sobre los forms.** `parse::placement::page_image_placements` los
+  saltea; `parse::interpreter::interpret` desciende. El inventario de compresión (T-193) lee
+  placements, así que una imagen dentro de un form es invisible para comprimir y visible
+  para editar.
 - **El ancho del bbox de un run es aproximado** cuando la fuente no trae `/Widths` (caso
   típico de las Standard-14): se asume medio em por glyph. El alto usa 0.75/-0.25 em en vez
   de leer `/Ascent`/`/Descent`. Afecta la precisión del hit-test en la UI, nunca lo que se
