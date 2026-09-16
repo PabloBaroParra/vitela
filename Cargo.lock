@@ -1481,6 +1481,7 @@ dependencies = [
  "image",
  "lopdf",
  "pdf-annotate",
+ "pdf-compress",
  "pdf-document",
  "pdf-edit",
  "pdf-form",

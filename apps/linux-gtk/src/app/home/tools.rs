@@ -40,13 +40,15 @@ use crate::app::tools_panel::{property_row, ANNOTATE_PAGE, EDIT_PAGE, FILL_SIGN_
 /// One tile: its label, the tool it opens (`None` for a section this shell
 /// has no feature behind yet), its icon and accent, and what it is for.
 ///
-/// The remaining `None` entries are kept visible and disabled rather than dropped,
-/// the same treatment `shell::rail_item` gives its own unfinished sections —
-/// a disabled control with a tooltip says "later", an absent one says
-/// "never", and only one of those is true. Their accent is carried here all
-/// the same: [`tile_tint`] decides whether a tile is coloured, so the palette
-/// stays one table rather than a colour in one place and an exception in
-/// another.
+/// A `None` entry is kept visible and disabled rather than dropped — a
+/// disabled control with a tooltip says "later", an absent one says "never",
+/// and only one of those is true. Its accent is carried here all the same:
+/// [`tile_tint`] decides whether a tile is coloured, so the palette stays one
+/// table rather than a colour in one place and an exception in another.
+///
+/// Since T-199 every row in [`TOOLS`] is live, so the treatment is reached
+/// only by a row a future section adds. It is still exercised — see
+/// [`build_tile`] for why that needed a function of its own.
 struct ToolTile {
     label: &'static str,
     tool: Option<HomeTool>,
@@ -87,10 +89,10 @@ const TOOLS: [ToolTile; 6] = [
     },
     ToolTile {
         label: "Compress",
-        tool: None,
+        tool: Some(HomeTool::Compress),
         icon: Icon::Compress,
         tint: COMPRESS_TINT,
-        description: "",
+        description: "Write a smaller copy of the file",
     },
     ToolTile {
         label: "Protect",
@@ -129,31 +131,7 @@ pub(crate) fn build_tools_card(window: &ApplicationWindow, viewer: &Viewer) -> T
     let tiles = TOOLS
         .iter()
         .map(|entry| {
-            let content = GtkBox::new(Orientation::Vertical, 6);
-            content.set_halign(Align::Center);
-            content.append(&build_icon(entry.icon, TILE_ICON_PX, tile_tint(entry)));
-            content.append(&Label::new(Some(entry.label)));
-
-            let tile = Button::new();
-            tile.set_child(Some(&content));
-            tile.add_css_class("tool-tile");
-            // Set explicitly: a `Button` given a custom child no longer has a
-            // label of its own for the accessibility layer to fall back on.
-            tile.update_property(&[gtk::accessible::Property::Label(entry.label)]);
-            match entry.tool {
-                Some(tool) => {
-                    tile.set_tooltip_text(Some(entry.description));
-                    tile.connect_clicked({
-                        let window = window.clone();
-                        let viewer = viewer.clone();
-                        move |_| open_tool(&window, &viewer, tool)
-                    });
-                }
-                None => {
-                    tile.set_sensitive(false);
-                    tile.set_tooltip_text(Some("Not available yet"));
-                }
-            }
+            let tile = build_tile(window, viewer, entry);
             grid.append(&tile);
             (entry.label.to_lowercase(), tile)
         })
@@ -168,13 +146,53 @@ pub(crate) fn build_tools_card(window: &ApplicationWindow, viewer: &Viewer) -> T
     }
 }
 
+/// One tile, built from its table row.
+///
+/// Its own function rather than a closure inside [`build_tools_card`], and
+/// T-199 is why: enabling Compress left `TOOLS` with no `None` row in it, so
+/// the disabled branch below — and the "visible but disabled" contract it
+/// holds — lost the only tile a test could reach it through. A tile builder
+/// that takes a [`ToolTile`] can be handed one the table does not contain,
+/// which is what `a_tool_with_no_feature_behind_it_is_disabled_not_missing`
+/// does. The branch is not dead: it is the treatment every section this shell
+/// has not built yet still gets, and the next one lands as a table row rather
+/// than as a re-argued decision.
+fn build_tile(window: &ApplicationWindow, viewer: &Viewer, entry: &ToolTile) -> Button {
+    let content = GtkBox::new(Orientation::Vertical, 6);
+    content.set_halign(Align::Center);
+    content.append(&build_icon(entry.icon, TILE_ICON_PX, tile_tint(entry)));
+    content.append(&Label::new(Some(entry.label)));
+
+    let tile = Button::new();
+    tile.set_child(Some(&content));
+    tile.add_css_class("tool-tile");
+    // Set explicitly: a `Button` given a custom child no longer has a
+    // label of its own for the accessibility layer to fall back on.
+    tile.update_property(&[gtk::accessible::Property::Label(entry.label)]);
+    match entry.tool {
+        Some(tool) => {
+            tile.set_tooltip_text(Some(entry.description));
+            tile.connect_clicked({
+                let window = window.clone();
+                let viewer = viewer.clone();
+                move |_| open_tool(&window, &viewer, tool)
+            });
+        }
+        None => {
+            tile.set_sensitive(false);
+            tile.set_tooltip_text(Some("Not available yet"));
+        }
+    }
+    tile
+}
+
 /// A tile's icon colour: its own accent when the tool is live, the muted grey
 /// when it is not.
 ///
-/// The reference design colours all five of its tools, but all five are live
-/// in that drawing. Three of ours are not, and a full-strength brand colour
-/// inside a greyed-out tile is the one signal on the card that says "click
-/// me" — which is exactly what the disabled state exists to deny.
+/// A full-strength brand colour inside a greyed-out tile is the one signal on
+/// the card that says "click me" — which is exactly what the disabled state
+/// exists to deny. Kept as a rule rather than folded away now that every row
+/// is live, for the same reason the disabled branch is.
 fn tile_tint(entry: &ToolTile) -> &'static str {
     if entry.tool.is_some() {
         entry.tint
@@ -265,6 +283,11 @@ pub(crate) fn apply(viewer: &Viewer, tool: HomeTool) {
         // single entry. `begin_protect` reports its own refusals, so unlike
         // the arming arms above there is nothing to drop silently here.
         HomeTool::Protect => crate::app::protect::begin_protect(viewer),
+        // The second arm that is not navigation, and it sits next to `Protect`
+        // for the reason that one does: "compress the document I just picked"
+        // is a cold-start gesture, and `begin_compress` reports its own
+        // refusals, so there is nothing to drop silently here either.
+        HomeTool::Compress => crate::app::write::begin_compress(viewer),
     }
 }
 
@@ -380,23 +403,68 @@ mod tests {
             .unwrap_or_else(|| panic!("the grid must offer a {label} tile"))
     }
 
-    /// Sections with no feature behind them stay visible and disabled, the
-    /// same contract `shell::rail_item` holds for the rail.
+    /// Every row in the table is live, and each one says what it is for.
+    ///
+    /// Compress was the last `None` in [`TOOLS`] until T-199, and this case
+    /// used to be where its disabled state was pinned. The contract itself did
+    /// not go away with the row — it moved to the case below, which reaches
+    /// the same branch through a tile the table does not contain. What is
+    /// asserted here instead is the thing that replaced it: a live tile has a
+    /// tooltip that describes the tool rather than apologises for it, and an
+    /// empty `description` would be a silent regression otherwise.
     #[gtk::test]
-    fn gtk_ui_tools_without_a_feature_are_disabled_not_missing() {
+    fn gtk_ui_every_tool_tile_is_live_and_says_what_it_does() {
         let built = built_ui();
         let card = build_tools_card(&built.window, &built.viewer);
 
-        assert!(tile(&card, "edit").is_sensitive());
-        assert!(tile(&card, "sign").is_sensitive());
-        assert!(tile(&card, "organize").is_sensitive());
-        assert!(tile(&card, "protect").is_sensitive());
-        let compress = tile(&card, "compress");
-        assert!(!compress.is_sensitive());
-        assert_eq!(
-            compress.tooltip_text().as_deref(),
-            Some("Not available yet")
-        );
+        for entry in TOOLS.iter() {
+            let tile = tile(&card, &entry.label.to_lowercase());
+            assert!(tile.is_sensitive(), "{} must be live", entry.label);
+            assert_eq!(
+                tile.tooltip_text().as_deref(),
+                Some(entry.description),
+                "{} must describe itself",
+                entry.label
+            );
+            assert!(
+                !entry.description.is_empty(),
+                "{} must have something to describe",
+                entry.label
+            );
+        }
+
+        built.window.close();
+    }
+
+    /// The "visible but disabled" contract, kept alive after its last tile
+    /// went live.
+    ///
+    /// A section this shell has not built yet is shown greyed out with a
+    /// tooltip, never dropped from the grid — the treatment Recent, Organize,
+    /// Protect and finally Compress each had in turn. `shell::rail_item` made
+    /// the opposite call when its own last `false` disappeared and deleted the
+    /// branch; here the branch stays, because the grid is the one place the
+    /// shell still advertises what is coming. Driven through [`build_tile`] on
+    /// a row of this test's own so the rule survives the table being fully
+    /// populated.
+    #[gtk::test]
+    fn gtk_ui_a_tool_with_no_feature_behind_it_is_disabled_not_missing() {
+        let built = built_ui();
+        let unbuilt = ToolTile {
+            label: "Later",
+            tool: None,
+            icon: Icon::Compress,
+            tint: COMPRESS_TINT,
+            description: "",
+        };
+
+        let tile = build_tile(&built.window, &built.viewer, &unbuilt);
+
+        // `get_visible`, not `is_visible`: the latter answers for the whole
+        // ancestor chain, and this tile was never put in one.
+        assert!(tile.get_visible());
+        assert!(!tile.is_sensitive());
+        assert_eq!(tile.tooltip_text().as_deref(), Some("Not available yet"));
 
         built.window.close();
     }

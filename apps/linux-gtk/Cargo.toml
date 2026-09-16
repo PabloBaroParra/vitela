@@ -18,6 +18,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 pdf-manip = { path = "../../core/pdf-manip" }
 pdf-render = { path = "../../core/pdf-render" }
 pdf-annotate = { path = "../../core/pdf-annotate" }
+# T-199: the Compress tile names presets and reads a compression report.
+# The crate that *runs* one is reached through `pdf-save`
+# (`save_document_compressed`); what is needed here is only the
+# vocabulary — `CompressPreset`, `CompressReport`, `Refusal`.
+pdf-compress = { path = "../../core/pdf-compress" }
 pdf-document = { path = "../../core/pdf-document" }
 pdf-edit = { path = "../../core/pdf-edit" }
 pdf-form = { path = "../../core/pdf-form" }

@@ -825,16 +825,33 @@ para que no confunda dos cosas que se llaman igual.
       `pdf-compress *(planned)*` (hecho en el mismo cambio que crea este documento, mismo
       criterio que T-175 en B22).
 
-## Tareas de UI (agregar a la ficha de B8, docs/batches-b8-b13.md, cuando arranque)
+## Tareas de UI (listadas en la ficha de B8, docs/batches-b8-b13.md)
 
-- [ ] T-199 (dep B24) Habilitar el tile Compress en Home: sacar `tool: None` de
-      `tools.rs:90`, darle `description` (hoy es `""`), rutear por `HomeTool::Compress`
-      incluido el arranque en frío vía `pending_tool`. Diálogo con los tres presets y un
-      estimado; ejecución en worker; al terminar, tamaño antes/después y chooser de destino.
-      El icono ya existe: `assets/icons/compress.svg` y `Icon::Compress`. **Ojo:** este tile
-      es hoy el único sujeto del test que fija el contrato "visible pero deshabilitado"
-      (`tools.rs:394`); cuando se habilite hay que mover ese contrato a otro lado o
-      justificar por qué deja de estar cubierto — no borrarlo y seguir. [CompressUI]
+- [x] T-199 (dep B24) Habilitar el tile Compress en Home: sacar `tool: None` de
+      `tools.rs`, darle `description` (era `""`), rutear por `HomeTool::Compress`
+      incluido el arranque en frío vía `pending_tool`. Diálogo con los tres presets;
+      ejecución en worker; al terminar, tamaño antes/después y chooser de destino.
+      El icono ya existía: `assets/icons/compress.svg` y `Icon::Compress`. **Ojo:** este
+      tile era el único sujeto del test que fija el contrato "visible pero deshabilitado";
+      al habilitarse hubo que mover ese contrato a otro lado — no borrarlo y seguir.
+      [CompressUI]
+      **(2026-09-16 — completo, en `apps/linux-gtk/src/app/write/compress/`. La ficha larga
+      está en [batches-b8-b13.md](batches-b8-b13.md), donde esta sección pedía que se
+      listara. Dos cosas que este documento pidió y que la implementación cambió a
+      propósito, y por qué:**
+
+      **(1) "un estimado" no existe, y no debería.** El diálogo iba a mostrar un ahorro
+      previsto por preset. Nada en `pdf-compress` puede contestarlo sin correr —T-193 midió
+      un corpus donde ninguna imagen supera siquiera los 96 DPI de `Small`, y T-196 midió un
+      documento cuya ganancia entera era formato de escritura— así que el número sería una
+      adivinanza impresa junto a mediciones. El diálogo muestra el tamaño del archivo en
+      disco, que sí sabe, y las cifras reales llegan apenas termina la compresión.
+
+      **(2) El chooser de destino va DESPUÉS de correr, no antes.** Es el orden que este
+      documento ya sugería ("ejecución en worker; al terminar, tamaño antes/después y
+      chooser de destino") y resultó ser el único honesto: la garantía es "nunca más
+      grande", no "siempre más chico", así que hasta no correr nadie sabe si hay una copia
+      que valga la pena archivar. Un `NoGain` lo dice y no abre chooser.**
 
 ## Criterios de aceptación
 
