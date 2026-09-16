@@ -442,11 +442,16 @@ Detalles que la implementación fija:
 - **Inline images (`BI`..`EI`):** se atraviesan de forma opaca (el lexer se las traga
   enteras para no desincronizarse con su payload binario) pero no son `ImageItem`: no tienen
   nombre de recurso al que apuntar.
-- **Profundidad de anidamiento de forms sin tope.** El descenso corta ciclos (un form que
-  ya está activo no se vuelve a entrar) pero no cadenas largas no cíclicas: ~600 niveles
-  desbordan la pila de un thread de test de 2 MiB, y un desborde es un abort, no un `Err`.
-  El presupuesto de `MAX_PAGE_CONTENT_BYTES` no lo acota, porque cada nivel cuesta los ~7
-  bytes de un `/N Do`. Falta un `MAX_FORM_DEPTH`.
+- **Los forms no anidan más de `MAX_FORM_DEPTH` (32) niveles.** El descenso corta ciclos
+  (un form que ya está activo no se vuelve a entrar) pero eso no acota una cadena larga de
+  forms *distintos*: ~600 niveles desbordan la pila de un thread de test de 2 MiB, y un
+  desborde es un abort del proceso, no un `Err` que alguien pueda manejar. El presupuesto de
+  `MAX_PAGE_CONTENT_BYTES` tampoco lo acota, porque cada nivel cuesta los ~7 bytes de un
+  `/N Do`. Por eso el tope es explícito y el nivel 33 se rechaza con
+  `EditError::FormNestingTooDeep` **antes** de bajar: mismo techo que el
+  `MAX_INHERITANCE_DEPTH` de la cadena `/Parent`, y generoso para cualquier archivo real.
+  Rechazo ruidoso, nunca contenido truncado en silencio: una página que reportara sólo los
+  primeros 32 niveles escondería items que el usuario ve pintados.
 - **Dos walkers discrepan sobre los forms.** `parse::placement::page_image_placements` los
   saltea; `parse::interpreter::interpret` desciende. El inventario de compresión (T-193) lee
   placements, así que una imagen dentro de un form es invisible para comprimir y visible

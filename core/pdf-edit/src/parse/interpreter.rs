@@ -307,6 +307,15 @@ fn interpret_streams(
     Ok(())
 }
 
+/// How many `/Form Do` invocations may nest before the reader refuses.
+///
+/// Real files nest a handful of levels; this is the same generous ceiling
+/// `MAX_INHERITANCE_DEPTH` puts on a `/Parent` chain. It exists because the
+/// descent below is recursive and a chain of distinct forms is bounded by
+/// nothing else — the cycle guard only catches re-entry, and a level costs
+/// too few bytes for the decode budget to reach.
+pub(crate) const MAX_FORM_DEPTH: usize = 32;
+
 #[allow(clippy::too_many_arguments)]
 fn interpret_form(
     document: &Document,
@@ -319,6 +328,12 @@ fn interpret_form(
     text_runs: &mut Vec<LocatedTextRun>,
     images: &mut Vec<LocatedImage>,
 ) -> Result<(), EditError> {
+    if parent_path.len() >= MAX_FORM_DEPTH {
+        return Err(EditError::FormNestingTooDeep {
+            limit: MAX_FORM_DEPTH,
+        });
+    }
+
     let object_id = step.object_id;
     if !active_forms.insert(object_id) {
         return Ok(());
@@ -1055,6 +1070,77 @@ mod tests {
         let content = read_located_content(&document, page).expect("cycle is bounded");
 
         assert!(content.text_runs.is_empty());
+    }
+
+    /// A page that calls a chain of `levels` distinct forms, each invoking
+    /// the next; only the innermost one shows text. The objects are all
+    /// distinct, so the cycle guard never fires — depth is the only thing
+    /// that can bound this descent.
+    fn form_chain(levels: usize) -> (Document, ObjectId) {
+        use lopdf::{dictionary, Stream};
+
+        let (mut document, page) = fixture::document_with_content(b"/Fm Do", Dictionary::new());
+        let forms: Vec<ObjectId> = (0..levels)
+            .map(|level| {
+                let content: &[u8] = if level + 1 == levels {
+                    b"BT /F1 12 Tf (deep) Tj ET"
+                } else {
+                    b"/Fm Do"
+                };
+                document.add_object(Stream::new(
+                    dictionary! { "Type" => "XObject", "Subtype" => "Form" },
+                    content.to_vec(),
+                ))
+            })
+            .collect();
+
+        for (level, form) in forms.iter().enumerate() {
+            let resources = if level + 1 == levels {
+                fixture::helvetica_resources()
+            } else {
+                dictionary! { "XObject" => dictionary! { "Fm" => forms[level + 1] } }
+            };
+            document
+                .get_object_mut(*form)
+                .expect("form object")
+                .as_stream_mut()
+                .expect("form stream")
+                .dict
+                .set("Resources", resources);
+        }
+
+        document
+            .get_dictionary_mut(page)
+            .expect("page dictionary")
+            .set(
+                "Resources",
+                dictionary! { "XObject" => dictionary! { "Fm" => forms[0] } },
+            );
+
+        (document, page)
+    }
+
+    #[test]
+    fn a_form_chain_at_the_depth_cap_still_reads() {
+        let (document, page) = form_chain(MAX_FORM_DEPTH);
+
+        let content = read_located_content(&document, page).expect("the cap is inclusive");
+
+        assert_eq!(content.text_runs.len(), 1);
+        assert_eq!(content.text_runs[0].run.text, "deep");
+        assert_eq!(content.text_runs[0].form_path.len(), MAX_FORM_DEPTH);
+    }
+
+    #[test]
+    fn a_form_chain_past_the_depth_cap_is_refused() {
+        let (document, page) = form_chain(MAX_FORM_DEPTH + 1);
+
+        let error = read_located_content(&document, page).expect_err("one level too deep");
+
+        assert!(
+            matches!(error, EditError::FormNestingTooDeep { limit } if limit == MAX_FORM_DEPTH),
+            "a stack overflow is an abort, not an error, so the descent refuses first: {error}"
+        );
     }
 
     #[test]

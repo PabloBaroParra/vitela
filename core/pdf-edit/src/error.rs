@@ -98,6 +98,16 @@ pub enum EditError {
         object_id: (u32, u16),
         detail: String,
     },
+    /// A form XObject invokes a form XObject invokes a form XObject, more
+    /// than `limit` levels deep.
+    ///
+    /// The descent that reads them is recursive, and a blown stack is a
+    /// process abort, not an `Err` a caller can handle — so the reader
+    /// refuses the file before it can get there. The cycle guard does not
+    /// cover this: a long chain of *distinct* forms never re-enters one.
+    /// Neither does the content-byte budget, because a level costs the
+    /// seven bytes of a `/N Do`.
+    FormNestingTooDeep { limit: usize },
     /// A structural problem reported by lopdf while reading the document.
     Lopdf(String),
 }
@@ -175,6 +185,10 @@ impl fmt::Display for EditError {
                 f,
                 "content stream {} {} is encoded in a way this version does not edit: {detail}",
                 object_id.0, object_id.1
+            ),
+            EditError::FormNestingTooDeep { limit } => write!(
+                f,
+                "this page nests form xobjects more than {limit} levels deep,                  which is past what this version reads"
             ),
             EditError::Lopdf(msg) => write!(f, "pdf structure error: {msg}"),
         }
