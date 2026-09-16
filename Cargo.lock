@@ -1014,6 +1014,7 @@ version = "0.1.0"
 dependencies = [
  "cms 0.2.3",
  "der 0.7.10",
+ "image",
  "lopdf",
  "p12-keystore",
  "p256",
@@ -1480,6 +1481,7 @@ dependencies = [
  "image",
  "lopdf",
  "pdf-annotate",
+ "pdf-compress",
  "pdf-document",
  "pdf-edit",
  "pdf-form",
@@ -1773,6 +1775,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdf-compress"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lopdf",
+ "pdf-edit",
+ "pdf-manip",
+ "pdf-render",
+]
+
+[[package]]
 name = "pdf-document"
 version = "0.1.0"
 
@@ -1794,6 +1807,7 @@ dependencies = [
  "image",
  "lopdf",
  "pdf-annotate",
+ "pdf-compress",
  "pdf-document",
  "pdf-edit",
  "pdf-manip",
@@ -1837,6 +1851,7 @@ dependencies = [
  "image",
  "lopdf",
  "pdf-annotate",
+ "pdf-compress",
  "pdf-document",
  "pdf-edit",
  "pdf-form",

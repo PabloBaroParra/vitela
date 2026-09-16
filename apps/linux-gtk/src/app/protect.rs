@@ -90,7 +90,7 @@ fn protection_refusal(viewer: &Viewer) -> Option<&'static str> {
 
 /// Opens the Protect dialog, or says why it cannot.
 pub(crate) fn begin_protect(viewer: &Viewer) {
-    let Some(window) = window_of(viewer) else {
+    let Some(window) = viewer.window() else {
         return;
     };
     if let Some(refusal) = protection_refusal(viewer) {
@@ -267,15 +267,6 @@ fn build_request(
     })
 }
 
-/// See `content_edit::window_of` — a rail click carries no window parameter
-/// of its own, and `home::tools::apply` dispatches every tool without one.
-fn window_of(viewer: &Viewer) -> Option<ApplicationWindow> {
-    viewer
-        .status
-        .root()
-        .and_then(|root| root.downcast::<ApplicationWindow>().ok())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,7 +278,7 @@ mod tests {
     /// rather than open a dialog asking for two passwords to protect nothing.
     ///
     /// It also pins the window recovery: `begin_protect` returns silently
-    /// when `window_of` finds no `ApplicationWindow` to parent a modal
+    /// when `Viewer::window` finds no `ApplicationWindow` to parent a modal
     /// against, so a status message here is proof that lookup worked.
     #[gtk::test]
     fn gtk_ui_protecting_without_an_open_document_is_refused() {

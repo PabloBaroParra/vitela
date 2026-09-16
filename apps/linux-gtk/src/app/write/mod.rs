@@ -1,19 +1,24 @@
 //! The write chains: every path that turns the open session into bytes.
 //!
-//! Six operations live here. Three of them — [`save`], [`sign`] and
+//! Seven operations live here. Three of them — [`save`], [`sign`] and
 //! [`protect`] — write a file the user names, and they are near-identical by
 //! design: ask where to write, guard an overwrite, run a writer on a worker
 //! thread, then fold the reopened document back into the session. The fourth,
 //! [`preview`], reaches the same writer with no destination at all.
 //!
-//! [`extract`] and [`split`] are the last two, and both take one half from
-//! each side: they name a destination and guard its overwrite like the first
-//! three, and install nothing like the fourth. That combination is what both
-//! *are* — new files built from the open document's pages, leaving the
-//! session the user is looking at exactly as it was. They differ only in how
-//! many files come out, which is why the pruning they both do lives once in
-//! [`prune`] and why a split asks for a folder where an extraction asks for a
-//! name.
+//! [`extract`] and [`split`] take one half from each side: they name a
+//! destination and guard its overwrite like the first three, and install
+//! nothing like the fourth. That combination is what both *are* — new files
+//! built from the open document's pages, leaving the session the user is
+//! looking at exactly as it was. They differ only in how many files come out,
+//! which is why the pruning they both do lives once in [`prune`] and why a
+//! split asks for a folder where an extraction asks for a name.
+//!
+//! [`compress`] is the seventh, and the only one that reverses the order:
+//! it runs its writer *first* and asks for a destination afterwards, because
+//! a compression is the one operation whose worth cannot be known until it has
+//! run. See that module's header — the ordering is the feature, not a
+//! shortcut.
 //!
 //! ## What is shared, and why
 //!
@@ -40,6 +45,7 @@
 //! literals.
 
 mod chooser;
+mod compress;
 mod extract;
 mod preview;
 mod protect;
@@ -53,6 +59,7 @@ use gtk::FileFilter;
 
 use super::state::ImportedSource;
 
+pub(crate) use compress::begin_compress;
 pub(crate) use extract::begin_extract;
 pub(crate) use preview::refresh_preview;
 pub(crate) use protect::{begin_protect, ProtectRequest};
@@ -85,10 +92,10 @@ pub(crate) fn pdf_filter() -> FileFilter {
 
 /// What one write operation calls itself, everywhere it has to speak.
 ///
-/// Five strings, three operations, one table. The alternative — each chain
-/// carrying its own literals through its own copy of the chooser and the
-/// replace guard — is what had three separately maintained dialogs saying the
-/// same sentence in the first place.
+/// Five strings, one table. The alternative — each chain carrying its own
+/// literals through its own copy of the chooser and the replace guard — is
+/// what had three separately maintained dialogs saying the same sentence in
+/// the first place.
 #[derive(Clone, Copy)]
 struct WriteOperation {
     /// The destination chooser's title.
@@ -153,4 +160,19 @@ const SPLIT: WriteOperation = WriteOperation {
     busy: "Splitting PDF...",
     done: "PDF split.",
     failed: "Could not split PDF",
+};
+
+/// The third entry whose `done` the user never sees, and for a sharper reason
+/// than [`EXTRACT`]'s: by the time a compression has a destination it has
+/// already been reported on, so its ending sentence names a path *and* two
+/// sizes (`compress::options::written_summary`). `busy` covers the
+/// compression itself; the shorter write that follows has its own line in
+/// `compress::options`, because "Compressing PDF..." shown twice reads as the
+/// work starting over.
+const COMPRESS: WriteOperation = WriteOperation {
+    title: "Save compressed PDF",
+    cancelled: "Compression cancelled.",
+    busy: "Compressing PDF...",
+    done: "PDF compressed.",
+    failed: "Could not compress PDF",
 };

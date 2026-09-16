@@ -49,7 +49,7 @@ use crate::types::{
 };
 use crate::BitmapHandle;
 
-struct DocumentState {
+pub(crate) struct DocumentState {
     document: Document,
     base: LopdfDocument,
     /// `None` for a freshly created document with nothing yet saved (forces
@@ -312,10 +312,42 @@ impl DocumentHandle {
         })
     }
 
-    fn lock(&self) -> MutexGuard<'_, DocumentState> {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, DocumentState> {
         self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl DocumentState {
+    /// The save this handle's state describes, in `pdf-save`'s own words.
+    ///
+    /// One constructor rather than a struct literal per entry point: every
+    /// save-shaped function here — ordinary, compressed, and the two
+    /// questions asked before them — has to describe *the same save*, or the
+    /// answer a shell gets stops being about the file it is going to write.
+    /// `intent` and `signatures` stay arguments because they are the only
+    /// two fields a caller actually decides.
+    pub(crate) fn save_input(
+        &self,
+        intent: FfiSaveIntent,
+        signatures: FfiSignatureAcknowledgement,
+    ) -> pdf_save::SaveInput<'_> {
+        pdf_save::SaveInput {
+            document: &self.document,
+            base: &self.base,
+            original_bytes: self.original_bytes.as_deref(),
+            intent: intent.into(),
+            signatures: signatures.into(),
+            imported_sources: pdf_save::ImportedSources::none(),
+        }
+    }
+
+    /// Records the explicit-strip audit event when `intent` asks for one —
+    /// see [`record_strip_consent_if_requested`], which this exists to reach
+    /// from the sibling modules that cannot see this struct's fields.
+    pub(crate) fn record_strip_consent(&mut self, intent: FfiSaveIntent) {
+        record_strip_consent_if_requested(&mut self.document, intent);
     }
 }
 
@@ -1254,17 +1286,9 @@ pub fn save_to_bytes(
     signatures: FfiSignatureAcknowledgement,
 ) -> Result<Vec<u8>, FfiError> {
     let mut state = handle.lock();
-    record_strip_consent_if_requested(&mut state.document, intent);
+    state.record_strip_consent(intent);
 
-    let input = pdf_save::SaveInput {
-        document: &state.document,
-        base: &state.base,
-        original_bytes: state.original_bytes.as_deref(),
-        intent: intent.into(),
-        signatures: signatures.into(),
-        imported_sources: pdf_save::ImportedSources::none(),
-    };
-    pdf_save::save_document(input).map_err(Into::into)
+    pdf_save::save_document(state.save_input(intent, signatures)).map_err(Into::into)
 }
 
 /// Whether saving `handle` with `intent` would break a signature the file
@@ -1280,16 +1304,11 @@ pub fn will_invalidate_signatures(
 ) -> Result<bool, FfiError> {
     let state = handle.lock();
 
-    pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
-        document: &state.document,
-        base: &state.base,
-        original_bytes: state.original_bytes.as_deref(),
-        intent: intent.into(),
-        // Irrelevant to the question: this reports what the file and the
-        // edits imply, not what the caller has agreed to.
-        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-        imported_sources: pdf_save::ImportedSources::none(),
-    })
+    // The acknowledgement is irrelevant to the question: this reports what
+    // the file and the edits imply, not what the caller has agreed to.
+    pdf_save::will_invalidate_signatures(
+        state.save_input(intent, FfiSignatureAcknowledgement::Unacknowledged),
+    )
     .map_err(Into::into)
 }
 

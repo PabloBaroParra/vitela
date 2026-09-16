@@ -623,6 +623,88 @@ ninguno de los dos.
       `gtk_ui_sections_without_a_feature_stay_disabled` se reemplazó por el candado propio de
       Protect; el contrato de "visible pero deshabilitado" sigue vivo y testeado en el grid
       de Home, sobre el tile Compress.
+- [x] T-199 (dep B24) Tile "Compress" de Home habilitado: diálogo de presets, ejecución en
+      worker, tamaños antes/después y chooser de destino. Ver
+      [batch-compress.md](batch-compress.md), cuya sección de tareas de UI pedía que esta
+      ficha lo listara. [CompressUI, ui-linux]
+      **(2026-09-16 — completo. Módulo nuevo `app/write/compress/` con el corte que ya hacen
+      `export` y `extract`: `mod.rs` (compuertas, snapshot, pregunta de firma), `options.rs`
+      (las reglas y *todas* las frases, sin un widget a la vista), `dialog.rs` (los widgets
+      que preguntan) y `worker.rs` (compresión, validación, destino y escritura). Nueva
+      dependencia `linux-gtk` → `pdf-compress`, solo por el vocabulario: quien *corre* una
+      compresión es `pdf_save::save_document_compressed`.**
+
+      **La decisión que define la cadena: el destino se pregunta ÚLTIMO.** Las otras seis
+      operaciones de `write` preguntan dónde escribir antes de escribir nada. Ésta corre el
+      writer primero y recién después abre el chooser, porque la compresión es la única
+      operación cuyo valor no se puede saber hasta haberla corrido: `pdf-compress` garantiza
+      que el resultado nunca es más grande, no que alguna vez sea más chico. Un archivo ya
+      empaquetado vuelve como `Outcome::NoGain` con los bytes del propio save. Pedir un
+      nombre antes sería pedirle al usuario que archive una copia de su documento antes de
+      que nadie —este shell incluido— supiera si había una copia que valiera la pena
+      archivar. `NoGain` por eso **no abre chooser**: lo dice y termina ahí.
+
+      **El diálogo no muestra ningún ahorro estimado, a propósito.** La tercera columna
+      obvia de una lista de presets es "≈40% más chico", y no está. Nada en `pdf-compress`
+      puede contestarla sin correr: T-193 midió un corpus donde *ninguna* imagen de ninguna
+      página supera siquiera los 96 DPI de `Small`, y T-196 midió un documento cuya ganancia
+      entera era formato de escritura. Un porcentaje puesto ahí sería una adivinanza impresa
+      en la misma tipografía que una medición. Lo que muestra es el único número que sabe:
+      el tamaño del archivo en disco. Los números reales llegan al status line apenas
+      termina la compresión, antes del chooser.
+
+      **Ninguna frase cuenta `Work`.** Es directamente el hallazgo de T-196: una reducción
+      real del 38% puede llegar con el tally en cero, porque la ganancia fue object streams
+      y xref stream y eso `Work` no lo cuenta. Un diálogo que reportara el tally le diría al
+      usuario que no se hizo nada sobre un archivo que acaba de perder un tercio de su
+      tamaño. Se leen el `outcome` y los bytes, que son medidos y no atribuidos. Por el
+      mismo criterio, `before` se escribe siempre como "uncompressed" y nunca como "el
+      original": es el tamaño de *este* save, no el del archivo que el usuario abrió, y con
+      una edición sin guardar esos dos números no son el mismo.
+
+      **Dos compuertas, las dos de `pdf-save`.** `compression_blocker` (¿estos bytes salen
+      cifrados?) es un rechazo mostrado antes del diálogo, no una pregunta: no hay
+      "comprimir igual" para un documento protegido, porque `lopdf` escribe cada objeto
+      suelto en un save cifrado y el yes-path (`SaveIntent::StripProtection`) no lo pide
+      ningún gesto de este shell. Y la de firmas es
+      `compressed_save_will_invalidate_signatures`, **no** la `will_invalidate_signatures`
+      que usa el Save común: un save comprimido es un full rewrite aunque no se haya editado
+      nada, así que un documento firmado sin ediciones contesta `false` a la pregunta del
+      Save y `true` a ésta. Preguntar la del Save acá avisaría sobre otro guardado. No se
+      preguntan `page_assembly_refusal` ni `content_edit_refusal`: comprimir no cambia
+      ninguna página ni edita ningún contenido.
+
+      **Lo que T-199 tenía que resolver y resolvió: el contrato huérfano.** Compress era el
+      último `tool: None` del grid, y con él habilitado el test que fijaba "visible pero
+      deshabilitado" se quedaba sin sujeto — el mismo lugar donde `shell::rail_item` decidió
+      borrar la rama cuando perdió su último `false`. Acá la rama **se queda**, porque el
+      grid es el único lugar donde este shell todavía anuncia lo que viene: se extrajo
+      `build_tile`, que toma un `ToolTile` cualquiera, y
+      `gtk_ui_a_tool_with_no_feature_behind_it_is_disabled_not_missing` le pasa una fila que
+      la tabla no contiene. En el lugar que dejó libre quedó
+      `gtk_ui_every_tool_tile_is_live_and_says_what_it_does`, que fija lo contrario: cada
+      tile vivo tiene tooltip y ningún `description` vacío.
+
+      **Un refactor chico que el cambio forzó.** `Viewer::window()` reemplaza las **tres**
+      copias verbatim de `window_of` que había (`protect`, `export`, `content_edit`) — la
+      cadena de compresión habría sido la cuarta, y recuperar la ventana desde
+      `status.root()` es una propiedad del viewer, no de ninguna cadena. Sin cambio de
+      comportamiento.
+
+      **README, terminando lo que T-198 empezó.** La fila "Compress PDF" pasa de
+      `pdf-compress *(planned)*` / 🔮 Planned a `pdf-compress` / ✅ Core ready —el crate
+      existe y está testeado desde T-190..T-197— y la tabla de shells gana la fila
+      "Compress to a smaller PDF" con Linux en ✅. Dejarla en "Planned" con el tile vivo
+      sería una afirmación falsa en la primera tabla que alguien lee.
+
+      Verificado en WSL2+WSLg: `cargo fmt --all -- --check` (exit 0),
+      `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` limpio y
+      `cargo test --workspace --locked` → **1818 passed, 0 failed, 9 ignored**, de los
+      cuales 567 son de `linux-gtk` (los 1251 de T-197 se midieron en Windows, donde ese
+      crate se saltea entero). 17 casos nuevos. `scripts/check_readme_tables.py` OK y
+      `scripts/check_maintainability.py` en **103 warnings**, el mismo número que antes del
+      cambio: ningún archivo nuevo dispara el aviso de tamaño (el mayor es `mod.rs`, 331
+      líneas).**
 
 ### Criterios de aceptación (spec)
 - PDF válido sin cifrar abre y renderiza página 1.

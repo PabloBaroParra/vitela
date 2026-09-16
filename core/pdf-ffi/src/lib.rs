@@ -4,7 +4,8 @@
 //! open_from_bytes/open_with_passwords/open_with_passwords_from_bytes/
 //! create_blank_document/create_document_with_blank_page/render_page/
 //! apply_edit/insert_image_stamp/
-//! read_page_content/save_to_bytes/save_to_path/undo/redo), and `FfiError`
+//! read_page_content/save_to_bytes/save_to_path/save_compressed_to_bytes/
+//! save_compressed_to_path/undo/redo), and `FfiError`
 //! mirroring the core crates' error types. See Batch 7 (T-039..T-043,
 //! T-068 DELTA) and `design.md` "FFI Design (pdf-ffi / UniFFI)".
 //!
@@ -22,6 +23,11 @@
 //!   queries in shells that cannot link `pdf-render` directly.
 //! - [`document`] (T-039, T-040, T-068 DELTA): [`DocumentHandle`] and every
 //!   FFI command function.
+//! - [`compress`] (T-196): the compression surface — the preset a shell
+//!   offers, the save that applies it, and the report it reads back. Its own
+//!   module rather than more of [`document`], because what it carries across
+//!   is a second crate's vocabulary (`pdf-compress`) and one save-time
+//!   decision, not another way to edit a page.
 //!
 //! ## Why this crate builds the FFI surface from real APIs, not port traits
 //!
@@ -36,12 +42,18 @@
 //! rather than reintroducing a trait layer.
 
 mod bitmap;
+mod compress;
 mod document;
 mod error;
 mod selection;
 mod types;
 
 pub use bitmap::BitmapHandle;
+pub use compress::{
+    compress_presets, compressed_save_will_invalidate_signatures, compression_refusal,
+    save_compressed_to_bytes, save_compressed_to_path, FfiCompressOutcome, FfiCompressPreset,
+    FfiCompressRefusal, FfiCompressReport, FfiCompressWork, FfiCompressedSave,
+};
 pub use document::{
     apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp, open,
     open_from_bytes, open_with_passwords, open_with_passwords_from_bytes, redo, refresh_preview,

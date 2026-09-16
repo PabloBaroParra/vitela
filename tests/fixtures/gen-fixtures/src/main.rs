@@ -1,9 +1,25 @@
 //! CLI entry point: regenerates the committed test corpora under
-//! `tests/fixtures/encrypted/` and `tests/fixtures/signed/`.
+//! `tests/fixtures/encrypted/`, `tests/fixtures/signed/` and
+//! `tests/fixtures/compress/`.
 //!
-//! Usage: `cargo run -p gen-fixtures`
+//! Usage:
+//!
+//! ```text
+//! cargo run -p gen-fixtures                  # every corpus
+//! cargo run -p gen-fixtures -- compress      # one of them
+//! ```
+//!
+//! **Naming one matters**, which is why the argument exists. The signed
+//! corpus mints fresh random keys and certificates on every run, so
+//! regenerating it always rewrites four files whether or not anything about
+//! them changed — and someone regenerating the compression corpus after
+//! editing its generator would otherwise hand a reviewer four unrelated,
+//! unexplainable binary diffs.
 
 use std::path::{Path, PathBuf};
+
+/// The corpora this binary can write, by the name it answers to.
+const CORPORA: [&str; 3] = ["encrypted", "signed", "compress"];
 
 fn report(label: &str, out_dir: &Path, paths: &[PathBuf]) {
     println!(
@@ -16,24 +32,40 @@ fn report(label: &str, out_dir: &Path, paths: &[PathBuf]) {
     }
 }
 
-fn main() {
-    let fixtures_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+/// Runs one corpus, or exits with its error.
+fn generate(name: &str, fixtures_root: &Path) {
+    let out_dir = fixtures_root.join(name);
+    let written = match name {
+        "encrypted" => gen_fixtures::generate_all(&out_dir),
+        "signed" => gen_fixtures::signed::generate_signed_corpus(&out_dir),
+        "compress" => gen_fixtures::compress::generate_compress_corpus(&out_dir),
+        _ => unreachable!("the caller checked the name against CORPORA"),
+    };
 
-    let encrypted_dir = fixtures_root.join("encrypted");
-    match gen_fixtures::generate_all(&encrypted_dir) {
-        Ok(paths) => report("encrypted", &encrypted_dir, &paths),
+    match written {
+        Ok(paths) => report(name, &out_dir, &paths),
         Err(err) => {
-            eprintln!("Failed to generate encrypted fixtures: {err}");
+            eprintln!("Failed to generate {name} fixtures: {err}");
             std::process::exit(1);
         }
     }
+}
 
-    let signed_dir = fixtures_root.join("signed");
-    match gen_fixtures::signed::generate_signed_corpus(&signed_dir) {
-        Ok(paths) => report("signed", &signed_dir, &paths),
-        Err(err) => {
-            eprintln!("Failed to generate signed fixtures: {err}");
-            std::process::exit(1);
+fn main() {
+    let fixtures_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+
+    let requested: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(unknown) = requested
+        .iter()
+        .find(|name| !CORPORA.contains(&name.as_str()))
+    {
+        eprintln!("Unknown corpus {unknown:?}; expected one of {CORPORA:?}");
+        std::process::exit(2);
+    }
+
+    for name in CORPORA {
+        if requested.is_empty() || requested.iter().any(|wanted| wanted == name) {
+            generate(name, &fixtures_root);
         }
     }
 }

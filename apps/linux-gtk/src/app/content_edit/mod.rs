@@ -63,7 +63,7 @@ pub(crate) mod panel;
 pub(crate) mod text;
 
 use gtk::prelude::*;
-use gtk::{ApplicationWindow, GestureDrag, ToggleButton};
+use gtk::{GestureDrag, ToggleButton};
 
 use crate::app::annotations;
 use crate::app::selection::{pointer_to_pdf, redraw};
@@ -593,7 +593,7 @@ pub(crate) fn handle_drag_end(
             return;
         }
         Some(ContentInsertKind::Image) => {
-            let Some(window) = window_of(viewer) else {
+            let Some(window) = viewer.window() else {
                 viewer
                     .status
                     .set_text("The application window is unavailable.");
@@ -645,19 +645,6 @@ pub(crate) fn handle_drag_end(
         // opening nothing and leaving it stranded.
         None => editor::commit(viewer),
     }
-}
-
-/// Recovers the shell's top-level window from a widget that is always in the
-/// tree once a document is open — `image::insert_at`'s file picker needs one
-/// to parent itself against, and `handle_drag_end` has no window parameter
-/// of its own to hand it. Mirrors `document::open_file`'s own recovery of
-/// the window from `viewer.status.root()` for the same reason: a drop (there)
-/// or a page click (here) has no direct window parameter either.
-fn window_of(viewer: &Viewer) -> Option<ApplicationWindow> {
-    viewer
-        .status
-        .root()
-        .and_then(|root| root.downcast::<ApplicationWindow>().ok())
 }
 
 #[cfg(test)]

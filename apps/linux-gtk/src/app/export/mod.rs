@@ -65,7 +65,7 @@ struct ExportRequest {
 
 /// Opens the export dialog, or says why it cannot.
 pub(crate) fn begin_export(viewer: &Viewer) {
-    let Some(window) = window_of(viewer) else {
+    let Some(window) = viewer.window() else {
         return;
     };
     if let Some(refusal) = viewer.text_extraction_refusal() {
@@ -152,15 +152,6 @@ fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request: ExportReq
             spawn_export(&viewer, &request, folder);
         }
     });
-}
-
-/// See `protect::window_of` — a toolbar click carries no window parameter of
-/// its own.
-fn window_of(viewer: &Viewer) -> Option<ApplicationWindow> {
-    viewer
-        .status
-        .root()
-        .and_then(|root| root.downcast::<ApplicationWindow>().ok())
 }
 
 #[cfg(test)]

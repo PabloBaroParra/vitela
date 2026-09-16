@@ -13,10 +13,12 @@ pub(crate) use filter::encode_flate;
 pub mod interpreter;
 pub mod lexer;
 pub mod matrix;
+pub mod placement;
 
 pub use interpreter::{LocatedContent, LocatedImage, LocatedTextRun, PageStream, TextPlacement};
 pub use lexer::{tokenize, Operand, SpannedOperation};
 pub use matrix::Matrix;
+pub use placement::{page_image_placements, ImagePlacement};
 
 pub use fonts::{page_font_families, page_object_font_families};
 

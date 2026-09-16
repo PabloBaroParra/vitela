@@ -11,8 +11,9 @@ use std::sync::Arc;
 use crate::app::organize::Thumbnails;
 use gtk::prelude::*;
 use gtk::{
-    cairo, gio, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Fixed, FlowBox, Label,
-    Overlay, Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton, Window,
+    cairo, gio, ApplicationWindow, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Fixed,
+    FlowBox, Label, Overlay, Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton,
+    Window,
 };
 use pdf_document::{
     AnnotationId, Document, FieldValue, FormFieldId, ImageItem, ImportedDocumentId, PageContent,
@@ -220,6 +221,20 @@ impl Viewer {
         self.state.borrow().generation == generation
     }
 
+    /// The window these widgets live in, or `None` before they are rooted.
+    ///
+    /// A toolbar click, a rail click and a Home tile all arrive with a
+    /// `&Viewer` and no window, and three chains that open a modal — `protect`,
+    /// `export` and `write::compress` — each need one to be transient for.
+    /// Two of them carried a verbatim private `window_of` before this existed;
+    /// the third would have made three copies of a lookup that is a property
+    /// of the viewer, not of any one chain.
+    pub(crate) fn window(&self) -> Option<ApplicationWindow> {
+        self.status
+            .root()
+            .and_then(|root| root.downcast::<ApplicationWindow>().ok())
+    }
+
     pub(crate) fn full_rewrite_refusal(&self) -> Option<&'static str> {
         let state = self.state.borrow();
         let security = state
@@ -385,6 +400,11 @@ pub(crate) enum HomeTool {
     /// "protect the document I just picked" is exactly the cold-start gesture
     /// that path exists to serve.
     Protect,
+    /// `Protect`'s twin in shape (T-199): a modal, not a control revealed on
+    /// a page, and here for the same reason — "make the file I just picked
+    /// smaller" is a cold-start gesture, and `pending_tool` is what carries it
+    /// across the file chooser.
+    Compress,
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.

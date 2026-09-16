@@ -13,6 +13,13 @@ pdf-annotate = { path = "../pdf-annotate" }
 pdf-form = { path = "../pdf-form" }
 pdf-edit = { path = "../pdf-edit" }
 pdf-render = { path = "../pdf-render" }
+# Batch 24 (T-195): compression is a step this crate *orders*, not one it
+# implements. `pdf-compress` owns the quality tables, the resampling, the
+# prune and the never-grow guarantee; this crate owns when that runs and what
+# it is allowed to run on (`docs/batch-compress.md` decision 1 and the
+# responsibility boundary under it). The dependency points this way and only
+# this way — `pdf-compress` knows nothing about saving.
+pdf-compress = { path = "../pdf-compress" }
 lopdf = "0.45"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 
