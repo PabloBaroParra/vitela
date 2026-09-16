@@ -401,10 +401,90 @@ para que no confunda dos cosas que se llaman igual.
       warning en el crate.**
 
 ### Fase 2 — Imágenes
-- [ ] T-193 (dep T-190) Inventario de imágenes con DPI **efectivo** por colocación: los
+- [x] T-193 (dep T-190) Inventario de imágenes con DPI **efectivo** por colocación: los
       píxeles del XObject contra el tamaño al que la matriz lo dibuja. Una misma imagen
       colocada dos veces a escalas distintas manda la mayor. Reusa el localizador de
       `pdf-edit` (hecho 7). [Compress]
+      **(2026-09-16 — completo.** Módulo nuevo `core/pdf-compress/src/images/` (`mod.rs`,
+      el recorrido; `dpi.rs`, la aritmética y la regla de quién manda) y **una función
+      pública nueva en `pdf-edit`**: `parse/placement.rs` →
+      `page_image_placements(document, page_object) -> Vec<ImagePlacement>`. Alta de
+      `pdf-edit` en el `Cargo.toml` de `pdf-compress`.
+
+      **Por qué `pdf-edit` tuvo que exponer algo nuevo, si el hecho 7 decía que ya estaba.**
+      Estaba el recorrido, no el dato. Lo que es público hoy es `read_page_content`, que
+      entrega cada imagen con su `bbox` — y el `bbox` es la caja **alineada a ejes** del
+      cuadrado unitario colocado. Para hit-testing (lo que hace un shell) está perfecto;
+      para medir está mal: una imagen girada un cuarto de vuelta reporta su alto como
+      ancho, y una con skew reporta una caja más grande que lo que se pintó. Quien mide
+      píxeles contra papel resamplearía por el factor recíproco en cada foto rotada del
+      documento. Lo que hace falta es la `ctm_at_paint`, que vivía en `LocatedImage` detrás
+      de un `read_located_content` que es `pub(crate)`.
+      Alternativa descartada: hacer público `read_located_content`. Entrega los spans de
+      bytes de cada operación — el vocabulario de la *edición*— a un crate que no debe
+      editar contenido. La función nueva contesta exactamente una pregunta y devuelve
+      exactamente lo que hace falta para contestarla: el `ObjectId` del XObject, su nombre
+      de recurso y la matriz. Fijado por
+      `a_rotated_placement_reports_the_size_it_draws_not_the_box_it_covers`, que es el
+      único test que cae si se vuelve a `ctm.a` en lugar de `hypot(a, b)` — comprobado
+      mutando la implementación.
+
+      **La regla que el módulo existe para sostener: manda la colocación más GRANDE.**
+      La resolución no es propiedad de la imagen. Una foto de 1 000 px colocada a una
+      pulgada son 1 000 DPI; el mismo objeto colocado a diez pulgadas son 100. Si un
+      documento la coloca dos veces, las respuestas no se promedian ni se toma la primera:
+      resamplear para satisfacer la chica deja la grande dibujando 150 px en diez pulgadas
+      —quince DPI, destruida— mientras que resamplear para satisfacer la grande sólo deja
+      la chica más nítida de lo necesario. La grande es la que se puede arruinar, así que
+      es la que decide. **En DPI efectivo eso es el mínimo**, por eso `governed_by` es un
+      `min` y no un `max`; y es por eje, porque una matriz puede estirar ancho y alto
+      distinto. Comprobado que los tests muerden: cambiando `min` por `max` caen tres,
+      incluido el de punta a punta.
+
+      **La propiedad de seguridad, que no estaba en la ficha: el inventario se construye
+      desde las COLOCACIONES, no desde `/Resources /XObject`.** Una imagen puede estar en
+      el documento y ser invisible para este recorrido de dos maneras, las dos normales:
+      pintada desde el content stream de un **form XObject** (que el intérprete trata como
+      un `Do` opaco) o escrita como **inline image** (hecho 8, que el lexer saltea entera).
+      De ninguna de las dos se vio la matriz, así que de ninguna se puede medir el DPI.
+      Un inventario leído del diccionario de recursos las listaría igual, sin colocación
+      detrás — y la lectura natural de "sin colocación" es "nada la restringe", que es
+      justo la lectura que resamplea una foto hasta la nada. Construido desde las
+      colocaciones **no aparecen**, y lo que no aparece no se toca. Fijado por
+      `an_image_the_document_never_paints_is_not_in_the_inventory`, y el fixture lleva un
+      `/Unplaced` permanente para que cada test del inventario diga algo también sobre la
+      imagen que no debe incluir.
+      El `/SMask` queda afuera por la misma razón y con la misma suerte: cuelga del
+      diccionario de su imagen padre y nunca es operando de un `Do`. T-194 llega a él por
+      el padre, que es la única forma en que se lo puede resamplear sin perder la
+      alineación que lo hace máscara.
+
+      **Qué reporta hoy.** La etapa corre sólo bajo un preset con `image_policy` —
+      `Lossless` ni pregunta, y hay un guardián de corpus (`lossless_never_looks_at_an_image`)
+      que falla si esa compuerta se afloja. Lo que cuenta es `images_skipped`: hoy **todas**
+      las imágenes medidas, porque T-193 mide y T-194 resamplea. No es una cuenta de
+      imágenes *presentes* sino de imágenes *medidas*, a propósito: una imagen que el crate
+      no pudo ver colocada no es una imagen que decidió no resamplear.
+
+      **Lo que la medición sobre el corpus real encontró, y que T-197 necesita saber:**
+
+      | fixture | imágenes | píxeles | dibujada a | DPI efectivo |
+      |---|---:|---:|---:|---:|
+      | `large/edit_reopen_10pg.pdf` | 10 | 100 × 100 | 612 × 792 pt | 11,8 × 9,1 |
+      | `large/edit_reopen_50pg.pdf` | 50 | 316 × 316 | 612 × 792 pt | 37,2 × 28,7 |
+      | `large/perf_200pg.pdf` | 200 | 316 × 316 | 612 × 792 pt | 37,2 × 28,7 |
+
+      Los otros seis fixtures no pintan ni una imagen. **Ninguna imagen del corpus de hoy
+      supera siquiera los 96 DPI de `Small`** — es decir, T-194 no tendría nada que hacer
+      sobre el corpus actual, y un test suyo que pase sobre estos archivos no probaría
+      nada. Tampoco hay ningún fixture que coloque la misma imagen dos veces, que es el
+      caso que la regla de arriba existe para resolver. Los dos huecos son de T-197.
+
+      Verificado en Windows: `cargo fmt --all -- --check` (exit 0),
+      `cargo clippy --workspace --all-targets --locked -- -D warnings` (limpio),
+      `cargo test --workspace --locked` → **1159 passed, 0 failed** (eran 1136 en T-192),
+      `scripts/check_readme_tables.py` OK y `scripts/check_maintainability.py` sin ningún
+      warning nuevo (103, igual que antes; `pdf-compress` sigue en cero).**
 - [ ] T-194 (dep T-193) Resampleo y re-encode: nunca upscalear, nunca romper alfa,
       `/SMask` preservado, y "me quedo con la más chica" por imagen. Las imágenes que no
       se tocan quedan **byte-idénticas**, no re-escritas. [Compress]
@@ -431,6 +511,13 @@ para que no confunda dos cosas que se llaman igual.
       byte-idéntico" sobre el corpus que hay hoy. T-197 es **agregar filas a `CORPUS`**, no
       escribir el harness de cero. Falta el escaneo, el vectorial puro y el de
       transparencia real.
+      **Nota de T-193 — el corpus de hoy no puede validar el resampleo.** Medido: la
+      imagen más detallada del corpus está a **37 DPI efectivos**, muy por debajo de los
+      96 de `Small`, así que T-194 correría sin encontrar un solo candidato y sus tests
+      pasarían sin ejercitar nada. Falta además el caso que la regla del DPI gobernante
+      existe para resolver: **la misma imagen colocada dos veces a escalas distintas**.
+      Las filas nuevas tienen que traer, como mínimo, una imagen bien por encima de 150
+      DPI efectivos y un documento que reutilice un XObject en dos tamaños.
       **Nota de T-192:** el corpus vive ahora en `tests/common/mod.rs` y lo comparten los
       tres arneses — `corpus.rs` (los guardianes), `measure.rs` (la tabla del hecho 4) y
       `render_unchanged.rs` (píxel a píxel). **Agregar una fila a `CORPUS` alcanza**: los

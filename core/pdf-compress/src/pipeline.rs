@@ -16,6 +16,12 @@
 //!   (The other two levers of the repack, object streams and a
 //!   cross-reference stream, are the write format rather than a stage; they
 //!   live in [`crate::session`].)
+//! - **T-193**, [`images`] — take stock of every image the document draws and
+//!   measure it against the paper. Runs only under a preset that has an image
+//!   policy, because it is the first stage a preset can switch off: measuring
+//!   costs an interpreter walk per page, and
+//!   [`CompressPreset::Lossless`](crate::CompressPreset::Lossless) has
+//!   already promised not to touch a pixel with whatever it finds.
 //! - **T-192**, [`prune`] — merge duplicate objects, then delete everything
 //!   the trailer cannot reach.
 //!
@@ -27,25 +33,25 @@
 //!
 //! Still to land here:
 //!
-//! - **T-194** — the image stage, under
-//!   [`CompressPreset::image_policy`](crate::CompressPreset::image_policy),
-//!   which is where the `preset` argument stops being ignored. It goes
-//!   *before* the prune, for the reason above.
+//! - **T-194** — the resampler, reading the inventory T-193's stage builds and
+//!   rewriting the images it finds oversized for
+//!   [`CompressPreset::image_policy`](crate::CompressPreset::image_policy)'s
+//!   target. It replaces the [`images`] call below rather than joining it.
 
 use crate::error::CompressError;
 use crate::guarantee::Candidate;
 use crate::preset::CompressPreset;
 use crate::session::{self, Opened};
-use crate::{prune, structural};
+use crate::{images, prune, structural};
 
 /// The compression pipeline, as far as it has been built.
 ///
 /// Returns an *offer*. [`crate::guarantee`] decides whether it ships.
 //
-// `preset` is unused while no stage touches an image: every preset repacks
-// and prunes the same way, and the numbers that separate them are image
-// numbers. T-194 is where it starts being read.
-pub(crate) fn run(input: &[u8], _preset: CompressPreset) -> Result<Candidate, CompressError> {
+// The preset is read for one thing so far — whether images are in scope at
+// all. The numbers inside the policy are T-194's; every preset still repacks
+// and prunes the same way.
+pub(crate) fn run(input: &[u8], preset: CompressPreset) -> Result<Candidate, CompressError> {
     let mut session = match session::open(input)? {
         Opened::Ready(session) => session,
         Opened::Refused(refusal) => {
@@ -55,6 +61,11 @@ pub(crate) fn run(input: &[u8], _preset: CompressPreset) -> Result<Candidate, Co
 
     let work = structural::pass(session.document_mut());
     session.record(work);
+
+    if preset.image_policy().is_some() {
+        let work = images::pass(session.document_mut());
+        session.record(work);
+    }
 
     let work = prune::pass(session.document_mut());
     session.record(work);

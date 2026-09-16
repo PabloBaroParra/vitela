@@ -110,6 +110,63 @@ fn a_protected_document_comes_back_exactly_as_it_arrived() {
     }
 }
 
+/// Decision 3's "no toca un solo píxel", taken all the way: the lossless
+/// preset does not merely leave images alone, it never asks about them. A
+/// non-zero count here would mean the image stage ran under a preset that has
+/// promised it would not, which is the cheapest possible early warning that
+/// the pipeline's gate has come loose.
+#[test]
+fn lossless_never_looks_at_an_image() {
+    for fixture in CORPUS {
+        let Some(input) = read(fixture) else {
+            continue;
+        };
+
+        let compressed = compress(&input, CompressPreset::Lossless).expect("compressible");
+
+        assert_eq!(
+            compressed.report().work().images_skipped,
+            0,
+            "{} reported image work under a preset that does not touch images",
+            fixture.path
+        );
+    }
+}
+
+/// T-193's inventory, against a document this repository did not write to be
+/// convenient: every page of `perf_200pg.pdf` paints a raster, and the stage
+/// has to find them through `pdf-edit`'s interpreter rather than by reading a
+/// resource dictionary.
+///
+/// It is the end-to-end proof that the reuse works on real producer output —
+/// a hand-built fixture can only show that the arithmetic is right. Skipped
+/// in a checkout that has not run `gen-fixtures`, like every other generated
+/// row.
+#[test]
+fn a_raster_heavy_document_reports_the_images_the_pass_left_alone() {
+    let fixture = CORPUS
+        .iter()
+        .find(|fixture| fixture.path.ends_with("perf_200pg.pdf"))
+        .expect("the corpus must keep a raster-heavy document");
+    let Some(input) = read(fixture) else {
+        return;
+    };
+
+    let compressed = compress(&input, CompressPreset::Balanced).expect("compressible");
+
+    assert_eq!(compressed.report().outcome(), Outcome::Reduced);
+    assert!(
+        compressed.report().work().images_skipped > 0,
+        "{} paints a raster on every page and the inventory found none",
+        fixture.path
+    );
+    assert_eq!(
+        compressed.report().work().images_resampled,
+        0,
+        "T-193 measures; nothing resamples until T-194"
+    );
+}
+
 /// T-192's fixed point, on the real corpus rather than on a built fixture.
 ///
 /// Compressing a document this crate already compressed must return the very

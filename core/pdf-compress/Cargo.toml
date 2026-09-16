@@ -13,6 +13,12 @@ publish = false
 # resampler (T-194) — nothing here decodes a pixel yet.
 [dependencies]
 lopdf = "0.45"
+# `pdf-edit` for one question too: where does this page paint its images, and
+# under what matrix? That inventory already exists there (`docs/batch-compress.md`
+# fact 7) — the interpreter that reads it is the same one content editing uses,
+# and a second walk written here would be a second walk to keep in step with
+# the lexer. T-193 consumes `page_image_placements`; it does not duplicate it.
+pdf-edit = { path = "../pdf-edit" }
 # `pdf-manip` for one question: does this file carry a signature? Detecting
 # one is a question about the object graph, and the repository already has a
 # single answer to it (`pdf_manip::document_has_signatures`) that `pdf-save`

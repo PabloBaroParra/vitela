@@ -25,6 +25,8 @@
 //! - `pipeline` — the order the stages run in, and nothing else.
 //! - `session` — one parse and one serialise per compression, plus the two
 //!   documents that get neither: encrypted and signed.
+//! - `images` — T-193's inventory: every image the document actually draws,
+//!   measured against the size the page draws it at.
 //! - `structural` — T-191's repack: flate over streams that arrived
 //!   unfiltered. (Object streams and the cross-reference stream are the write
 //!   format, and live in `session`.)
@@ -43,6 +45,7 @@
 
 pub mod error;
 pub mod guarantee;
+mod images;
 mod pipeline;
 pub mod preset;
 mod prune;
