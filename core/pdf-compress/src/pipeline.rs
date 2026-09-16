@@ -16,10 +16,11 @@
 //!   (The other two levers of the repack, object streams and a
 //!   cross-reference stream, are the write format rather than a stage; they
 //!   live in [`crate::session`].)
-//! - **T-193**, [`images`] — take stock of every image the document draws and
-//!   measure it against the paper. Runs only under a preset that has an image
-//!   policy, because it is the first stage a preset can switch off: measuring
-//!   costs an interpreter walk per page, and
+//! - **T-193/T-194**, [`images`] — take stock of every image the document
+//!   draws, measure it against the paper, and bring down the ones that carry
+//!   more detail than the preset asks for. Runs only under a preset that has
+//!   an image policy, because it is the first stage a preset can switch off:
+//!   measuring costs an interpreter walk per page, and
 //!   [`CompressPreset::Lossless`](crate::CompressPreset::Lossless) has
 //!   already promised not to touch a pixel with whatever it finds.
 //! - **T-192**, [`prune`] — merge duplicate objects, then delete everything
@@ -28,15 +29,10 @@
 //! **Why the prune runs last.** It is the stage that decides what gets
 //! written, so it has to see the graph every earlier stage left behind. Run
 //! before the flate pass it would be equally correct and equally useless;
-//! run before T-194's image stage it would miss the image XObjects that
-//! resampling makes identical. Last is where it collects everything.
-//!
-//! Still to land here:
-//!
-//! - **T-194** — the resampler, reading the inventory T-193's stage builds and
-//!   rewriting the images it finds oversized for
-//!   [`CompressPreset::image_policy`](crate::CompressPreset::image_policy)'s
-//!   target. It replaces the [`images`] call below rather than joining it.
+//! run before the image stage it would miss the image XObjects that
+//! resampling makes identical — two photographs at different sizes are two
+//! objects, and the same two brought down to the same target may well be
+//! one. Last is where it collects everything.
 
 use crate::error::CompressError;
 use crate::guarantee::Candidate;
@@ -62,8 +58,8 @@ pub(crate) fn run(input: &[u8], preset: CompressPreset) -> Result<Candidate, Com
     let work = structural::pass(session.document_mut());
     session.record(work);
 
-    if preset.image_policy().is_some() {
-        let work = images::pass(session.document_mut());
+    if let Some(policy) = preset.image_policy() {
+        let work = images::pass(session.document_mut(), policy);
         session.record(work);
     }
 
@@ -79,7 +75,9 @@ mod tests {
 
     use super::*;
     use crate::report::{Refusal, Work};
-    use crate::test_fixtures::{encrypted_document, loose_document, signed_document};
+    use crate::test_fixtures::{
+        encrypted_document, loose_document, raster_document, signed_document,
+    };
 
     fn reload(bytes: &[u8]) -> Document {
         Document::load_mem(bytes).expect("a candidate must be a readable document")
@@ -272,6 +270,50 @@ mod tests {
 
         assert!(document.is_encrypted());
         assert_eq!(document.get_pages().len(), 0);
+    }
+
+    /// The image stage seen from outside: the same 600 DPI page under a
+    /// preset that has an image policy and one that has not. Lossless keeps
+    /// every sample and says so; Balanced brings the one image down and the
+    /// file with it.
+    ///
+    /// The gap is the point. A repack alone cannot touch a raster — the
+    /// flate the structural pass applies to it is the same flate either way —
+    /// so any difference between these two numbers is the resampler and
+    /// nothing else.
+    #[test]
+    fn only_a_preset_with_an_image_policy_brings_an_oversized_image_down() {
+        let input = raster_document((600, 600), &[(72.0, 72.0)]);
+
+        let untouched = lossless(&input);
+        let resampled = run(&input, CompressPreset::Balanced).expect("a raster page compresses");
+
+        assert_eq!(untouched.work().images_resampled, 0);
+        assert_eq!(untouched.work().images_skipped, 0, "Lossless does not look");
+        assert_eq!(resampled.work().images_resampled, 1);
+        assert!(
+            resampled.bytes().len() < untouched.bytes().len() / 2,
+            "resampling 600 dpi down to 150 saved only {} bytes of {}",
+            untouched.bytes().len() - resampled.bytes().len(),
+            untouched.bytes().len()
+        );
+    }
+
+    /// And the page survives it: a resampled image is still an image the
+    /// document paints, under the same resource name, at the same size on
+    /// paper. Only the sample count behind it changed.
+    #[test]
+    fn a_resampled_page_still_paints_its_image() {
+        let input = raster_document((600, 600), &[(72.0, 72.0)]);
+
+        let candidate = run(&input, CompressPreset::Balanced).expect("a raster page compresses");
+
+        let document = reload(candidate.bytes());
+        let page = *document.get_pages().values().next().expect("one page");
+        let placements =
+            pdf_edit::page_image_placements(&document, page).expect("the page still reads");
+        assert_eq!(placements.len(), 1);
+        assert_eq!(placements[0].drawn_width(), 72.0);
     }
 
     #[test]

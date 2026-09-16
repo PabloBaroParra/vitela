@@ -485,9 +485,88 @@ para que no confunda dos cosas que se llaman igual.
       `cargo test --workspace --locked` → **1159 passed, 0 failed** (eran 1136 en T-192),
       `scripts/check_readme_tables.py` OK y `scripts/check_maintainability.py` sin ningún
       warning nuevo (103, igual que antes; `pdf-compress` sigue en cero).**
-- [ ] T-194 (dep T-193) Resampleo y re-encode: nunca upscalear, nunca romper alfa,
+- [x] T-194 (dep T-193) Resampleo y re-encode: nunca upscalear, nunca romper alfa,
       `/SMask` preservado, y "me quedo con la más chica" por imagen. Las imágenes que no
       se tocan quedan **byte-idénticas**, no re-escritas. [Compress]
+      **(2026-09-16 — completo.** `core/pdf-compress/src/images/` pasa de dos módulos a
+      cinco: `mod.rs` (el inventario) y `dpi.rs` (la aritmética) ya estaban; se suman
+      `format.rs` (qué declara el diccionario), `codec.rs` (abrir el stream a muestras y
+      volver a cerrarlo) y `rewrite.rs` (la decisión). `images::pass` ahora recibe la
+      `ImagePolicy` y devuelve `images_resampled` de verdad. Alta de `image` 0.25 en el
+      `Cargo.toml` del crate — mismas features que ya compila el resto del workspace, así
+      que suma un dependiente, no una dependencia.
+
+      **El techo, no el objetivo.** `resample::shrunk_to` devuelve `None` — no "redimensionar
+      a sí misma" — cuando la imagen ya está en el objetivo o por debajo, y ese `None` es
+      exactamente lo que `rewrite` convierte en **byte-idéntica**: el objeto no se reasigna.
+      Es la diferencia entre invisible en un render y decisiva en un diff, y es lo que
+      sostiene que "comprimir un archivo ya comprimido no cambia nada" siga siendo cierto
+      en un documento lleno de fotos y no sólo en uno lleno de texto. Cada eje se decide
+      solo: una matriz puede estirar ancho y alto distinto, y una imagen puede sobrar de
+      detalle a lo ancho y estar justa a lo alto. Comprobado que muerde: sacando la
+      compuerta `measured <= target` caen cinco tests, incluido el de punta a punta.
+
+      **El error que cometí con el `/SMask`, y el test que lo corrigió.** Escribí primero
+      que la máscara baja *por el mismo factor* que su padre. Es falso, y el test lo dijo
+      antes que yo: una máscara de 300 muestras sobre una imagen de 600 dibujadas en la
+      misma pulgada está a **la mitad de DPI** que su padre, o sea ya a mitad de camino;
+      aplicarle el factor del padre la dejaría más gruesa que el color que oculta. Lo
+      correcto es que hereda su resolución (`EffectiveDpi::shared_with`) y después se le
+      aplica **el mismo objetivo**: las dos terminan en 150 DPI, que es para lo que existe
+      tener un objetivo. La máscara sigue al padre y sólo si el padre efectivamente cambió;
+      y no se cuenta aparte — una foto con canal alfa es *una* imagen resampleada, no dos.
+
+      **La regla de "me quedo con la más chica" no es decorativa, y el caso que la hace
+      real es estrecho.** Un resampleo que produce más bytes de los que reemplaza se tira.
+      Pasa cuando la imagen venía guardada a una calidad JPEG baja y el preset la
+      re-encodea a la suya, más alta: detalle que nadie pidió a un precio que nadie aceptó.
+      Para que un test lo demuestre hace falta que el resampleo apenas achique — 160 DPI
+      efectivos contra un objetivo de 150 recupera un 12% de las muestras, y re-encodear
+      ruido a q75 cuesta muchísimo más que los q5 a los que estaba. Con una imagen a 600
+      DPI el test *no* falla aunque se saque la compuerta, porque bajar a un dieciseisavo
+      de los píxeles gana siempre. Medido, no razonado: sacando la comparación cae ese
+      test y sólo ese.
+
+      **Las familias nunca se cruzan.** Un flate no se convierte en JPEG para ganar bytes
+      (decisión 5: JPEG no tiene alfa y el `/SMask` se iría con él), y un DCT vuelve a
+      salir DCT. `codec.rs` tiene las dos direcciones en el mismo archivo a propósito: un
+      cambio en una que la otra no acompañe es exactamente cómo una imagen sale de una
+      compresión ilegible.
+
+      **Lo que el crate se niega a tocar, y sigue byte-idéntico.** No es una lista de
+      pendientes: es la política. Profundidad distinta de 8 bits (las muestras vienen
+      empaquetadas con relleno de fila); todo espacio de color que no sea gris o RGB —
+      `/Indexed` son *offsets* de tabla y el promedio de dos offsets es un tercer color sin
+      relación con ninguno, `/Separation` y `/DeviceN` son tintas detrás de una transformada,
+      `/DeviceCMYK` son cuatro canales que el decodificador devuelve como tres; cualquier
+      cadena de filtros que no sea sin filtrar, `/FlateDecode` solo o `/DCTDecode` solo, y
+      sin `/DecodeParms` (un predictor significa que los bytes bajo el filtro son
+      diferencias entre filas, no muestras); y `/Decode`, `/Mask` o `/ImageMask`, que hacen
+      que una muestra signifique otra cosa que su propio valor. Más un techo de 256 MiB por
+      imagen decodificada, que es lo que impide que un stream que dice ser una estampilla
+      se infle a un gigabyte en un crate que corre al guardar sobre lo que el usuario abrió.
+
+      **Por qué el módulo quedó en cinco archivos y no en tres.** El primer corte fue
+      `source.rs` (leer) + `resample.rs` + `rewrite.rs`, y `scripts/check_maintainability.py`
+      marcó tres archivos sobre las 350 líneas. El CLAUDE.md de este repo dice que eso es la
+      señal de partir, no de seguir agregando, así que se partió por responsabilidad real y
+      no por cuota: `format.rs` contesta qué declara el diccionario (componentes y familia
+      de almacenamiento) y `codec.rs` hace lo que depende de esa respuesta (decodificar y
+      volver a codificar). `test_fixtures.rs` pasó a carpeta por el mismo motivo y con el
+      mismo criterio: `mod.rs` son los *documentos*, `images.rs` son los *rásters*. El crate
+      vuelve a cero warnings.
+
+      **Sobre el corpus, sin novedad y a propósito.** T-193 ya había medido que ninguna
+      imagen de los fixtures de hoy supera siquiera los 96 DPI de `Small`, así que
+      `images_resampled` sigue en 0 sobre el corpus real — el guardián de `tests/corpus.rs`
+      se mantiene, con el motivo corregido: ya no es "T-194 no existe" sino "acá no hay nada
+      que hacer, y no debe inventarlo". El PDF de escaneo que sí lo ejercite es de T-197.
+
+      Verificado en Windows: `cargo fmt --all -- --check` (exit 0),
+      `cargo clippy --workspace --all-targets -- -D warnings` (limpio),
+      `cargo test --workspace` → **1199 passed, 0 failed** (eran 1159 en T-193),
+      `scripts/check_readme_tables.py` OK y `scripts/check_maintainability.py` en 103
+      warnings, el mismo número que antes del cambio, con `pdf-compress` en cero.**
 
 ### Fase 3 — Integración de guardado
 - [ ] T-195 (dep T-191, T-194) Punto de entrada en `pdf-save`: compresión como paso previo

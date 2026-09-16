@@ -163,7 +163,10 @@ fn a_raster_heavy_document_reports_the_images_the_pass_left_alone() {
     assert_eq!(
         compressed.report().work().images_resampled,
         0,
-        "T-193 measures; nothing resamples until T-194"
+        "every raster in this corpus is already below the lowest preset's 96 dpi — \
+         `perf_200pg.pdf` draws 316 samples across a full page, which is 37 — so the \
+         resampler has nothing to do here and must not invent something. The fixture \
+         that would exercise it is T-197's."
     );
 }
 

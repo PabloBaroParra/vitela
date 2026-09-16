@@ -9,10 +9,17 @@ publish = false
 # `lopdf` arrives with the structural pass (T-191): object streams, the
 # cross-reference stream and flate over unfiltered streams are all levers it
 # already has (`docs/batch-compress.md` fact 3), so the pass that halves a
-# loose document costs no new dependency. `image` still waits for the
-# resampler (T-194) — nothing here decodes a pixel yet.
+# loose document costs no new dependency.
 [dependencies]
 lopdf = "0.45"
+# `image` arrives with the resampler (T-194), for two jobs a PDF library has
+# no opinion about: scaling a buffer of samples down, and writing a baseline
+# JPEG. The same version and the same two features the rest of the workspace
+# already builds (`pdf-edit`, `pdf-save`, `pdf-annotate`), so this adds a
+# dependant rather than a dependency. `png` is in the feature list only
+# because the workspace shares one `image` build; nothing here reads or
+# writes a PNG.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # `pdf-edit` for one question too: where does this page paint its images, and
 # under what matrix? That inventory already exists there (`docs/batch-compress.md`
 # fact 7) — the interpreter that reads it is the same one content editing uses,

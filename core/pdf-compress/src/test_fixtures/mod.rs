@@ -8,6 +8,17 @@
 //!
 //! Same reason `apps/linux-gtk/src/app/test_fixtures.rs` exists, and the same
 //! `#[cfg(test)]`-only visibility.
+//!
+//! Split in two by what a fixture is *for*. This file holds the documents:
+//! the shape a save produces, and the two a compression refuses. [`images`]
+//! holds the rasters — the image XObjects and the pages that paint them,
+//! which the image stage needs in shapes no real corpus reliably contains.
+
+mod images;
+
+pub(crate) use images::{
+    document_drawing_one_image, grey_image, jpeg_image, painted_once, raster_document, rgb_image,
+};
 
 use lopdf::content::{Content, Operation};
 use lopdf::xref::XrefType;
@@ -91,84 +102,6 @@ pub(crate) fn loose_document(pages: usize) -> Vec<u8> {
 /// the graph rather than on bytes.
 pub(crate) fn loaded_document(pages: usize) -> Document {
     Document::load_mem(&loose_document(pages)).expect("the fixture loads")
-}
-
-/// A document whose pages each paint the same image XObject once.
-///
-/// The image is `pixels` samples; page *n* draws it `drawn[n]` user-space
-/// units wide and tall. One page per entry, so a two-entry call is the case
-/// that matters most — the same image placed at two scales.
-///
-/// The resource dictionary also carries `/Unplaced`, a second image XObject
-/// nothing paints. Every inventory built from this fixture therefore also
-/// says something about the image it must *not* include: an image declared in
-/// resources but drawn from inside a form XObject, or as an inline image,
-/// looks exactly like this from outside, and neither can be measured.
-pub(crate) fn document_drawing_one_image(pixels: (u32, u32), drawn: &[(f64, f64)]) -> Document {
-    let (width, height) = pixels;
-    let mut document = Document::with_version("1.5");
-    let pages_id = document.new_object_id();
-
-    let image_id = document.add_object(image_xobject(width, height, 0x20));
-    let unplaced_id = document.add_object(image_xobject(width, height, 0x7f));
-    let resources_id = document.add_object(dictionary! {
-        "XObject" => dictionary! {
-            "Im0" => image_id,
-            "Unplaced" => unplaced_id,
-        },
-    });
-
-    let mut kids = Vec::with_capacity(drawn.len());
-    for (drawn_width, drawn_height) in drawn {
-        let content_id = document.add_object(Stream::new(
-            dictionary! {},
-            format!("q {drawn_width} 0 0 {drawn_height} 0 0 cm /Im0 Do Q").into_bytes(),
-        ));
-        let page_id = document.add_object(dictionary! {
-            "Type" => "Page",
-            "Parent" => pages_id,
-            "Contents" => content_id,
-            "Resources" => resources_id,
-            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
-        });
-        kids.push(page_id.into());
-    }
-
-    document.objects.insert(
-        pages_id,
-        Object::Dictionary(dictionary! {
-            "Type" => "Pages",
-            "Kids" => kids,
-            "Count" => drawn.len() as i64,
-        }),
-    );
-    let catalog_id = document.add_object(dictionary! {
-        "Type" => "Catalog",
-        "Pages" => pages_id,
-    });
-    document.trailer.set("Root", catalog_id);
-
-    document
-}
-
-/// One image XObject of `width` × `height` grey samples, filled with `fill`.
-///
-/// `fill` differs between the placed and unplaced images on purpose: two
-/// byte-identical streams are one object as far as [`crate::prune`] is
-/// concerned, and a fixture whose two images are the same image would be
-/// testing something else.
-fn image_xobject(width: u32, height: u32, fill: u8) -> Stream {
-    Stream::new(
-        dictionary! {
-            "Type" => "XObject",
-            "Subtype" => "Image",
-            "Width" => i64::from(width),
-            "Height" => i64::from(height),
-            "ColorSpace" => "DeviceGray",
-            "BitsPerComponent" => 8,
-        },
-        vec![fill; (width as usize) * (height as usize)],
-    )
 }
 
 fn serialise(document: &mut Document) -> Vec<u8> {

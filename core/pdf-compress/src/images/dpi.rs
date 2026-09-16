@@ -65,6 +65,29 @@ impl EffectiveDpi {
             vertical: self.vertical.min(other.vertical),
         }
     }
+
+    /// The resolution of a companion image of `pixels` samples that is drawn
+    /// over the same area as the image of `over` samples measured here.
+    ///
+    /// A `/SMask` is that companion, and it is the reason this exists: a mask
+    /// is never the operand of a `Do`, so no placement in the document
+    /// measures it. What does measure it is the image it masks — the two
+    /// cover exactly the same paper, so the mask's DPI is its parent's,
+    /// scaled by how many samples it spends on it.
+    ///
+    /// `None` when either sample count is zero, which would make the ratio a
+    /// zero or an infinity rather than a resolution.
+    pub(crate) fn shared_with(self, over: (u32, u32), pixels: (u32, u32)) -> Option<EffectiveDpi> {
+        let along = |measured: f64, parent: u32, companion: u32| {
+            (parent > 0 && companion > 0 && measured.is_finite())
+                .then(|| measured * f64::from(companion) / f64::from(parent))
+        };
+
+        Some(EffectiveDpi {
+            horizontal: along(self.horizontal, over.0, pixels.0)?,
+            vertical: along(self.vertical, over.1, pixels.1)?,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -152,5 +175,30 @@ mod tests {
     fn an_image_with_no_samples_cannot_be_measured() {
         assert_eq!(EffectiveDpi::measure((0, 300), (150.0, 150.0)), None);
         assert_eq!(EffectiveDpi::measure((300, 0), (150.0, 150.0)), None);
+    }
+
+    /// A companion spending half as many samples on the same paper is at half
+    /// the resolution — which is the whole reason a soft mask is resampled by
+    /// its parent's *factor* and not to its parent's size.
+    #[test]
+    fn a_companion_over_the_same_area_measures_by_its_own_sample_count() {
+        let parent = dpi((600, 600), (72.0, 72.0));
+
+        assert_eq!(
+            parent.shared_with((600, 600), (300, 300)),
+            Some(EffectiveDpi {
+                horizontal: 300.0,
+                vertical: 300.0
+            })
+        );
+        assert_eq!(parent.shared_with((600, 600), (600, 600)), Some(parent));
+    }
+
+    #[test]
+    fn a_companion_with_no_samples_cannot_be_measured() {
+        let parent = dpi((600, 600), (72.0, 72.0));
+
+        assert_eq!(parent.shared_with((600, 600), (0, 300)), None);
+        assert_eq!(parent.shared_with((0, 600), (300, 300)), None);
     }
 }

@@ -4,11 +4,24 @@
 //!
 //! *An image this pass never saw drawn is an image this crate never touches.*
 //!
-//! T-193 is the measuring half of the image stage; T-194 is the half that
-//! resamples. Splitting them that way is not ceremony — deciding *which*
-//! images may be touched is the decision that can destroy a document, and it
-//! is worth making on its own, against tests that do not have to encode a
-//! single JPEG to run.
+//! This file is the measuring half of the image stage (T-193); [`rewrite`] is
+//! the half that resamples (T-194). Splitting them that way is not ceremony —
+//! deciding *which* images may be touched is the decision that can destroy a
+//! document, and it is worth making on its own, against tests that do not
+//! have to encode a single JPEG to run.
+//!
+//! The stage in full, in the order a single image moves through it:
+//!
+//! - here — every image the document *draws*, measured against the paper;
+//! - [`dpi`] — the arithmetic of that measurement, and which placement wins
+//!   when there is more than one;
+//! - [`format`] — what an image's dictionary declares it to be, and every
+//!   declaration this crate refuses;
+//! - [`codec`] — an image opened into samples, and closed again into a
+//!   stream;
+//! - [`resample`] — the new sample counts and the scaling itself;
+//! - [`rewrite`] — putting the result back, with its soft mask, if and only
+//!   if it is smaller.
 //!
 //! The inventory is built from placements, not from resource dictionaries.
 //! That distinction is the safety property. An image can be present in a
@@ -25,9 +38,9 @@
 //!
 //! A `/SMask` is invisible for the same reason and by the same luck: it hangs
 //! off its parent image's dictionary and is never itself the operand of a
-//! `Do`. T-194 reaches one through the image it belongs to, which is the only
-//! way it may be resampled at all — alone, it would lose the alignment with
-//! its parent that makes it a mask.
+//! `Do`. [`rewrite`] reaches one through the image it belongs to, which is
+//! the only way it may be resampled at all — alone, nothing in the document
+//! says how large it is drawn.
 //!
 //! ## What it costs
 //!
@@ -38,24 +51,29 @@
 //! images alone, not a reason to hand the user back a file they cannot
 //! shrink.
 
+mod codec;
 pub(crate) mod dpi;
+mod format;
+mod resample;
+mod rewrite;
 
 use std::collections::BTreeMap;
 
 use lopdf::{Document, ObjectId};
 
+use crate::preset::ImagePolicy;
 use crate::report::Work;
 use dpi::EffectiveDpi;
 
 /// One image XObject, as the document draws it.
 ///
-/// Fields beyond the count are T-194's: it resamples by `governing_dpi`
-/// against a preset's target, rewrites the stream `id` names, and needs
-/// `pixels` to know what it is scaling from. They are measured here because
-/// measuring is the part that has to be right.
+/// Everything [`rewrite`] needs to decide what to do with it: what it is
+/// scaling from (`pixels`), what it is scaling to (`governing_dpi` against
+/// the preset's target), and which object to swap the bytes of (`id`). They
+/// are measured here because measuring is the part that has to be right.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlacedImage {
-    /// The XObject's object id — what T-194 swaps the bytes of.
+    /// The XObject's object id — what [`rewrite`] swaps the bytes of.
     pub(crate) id: ObjectId,
     /// `/Width` × `/Height`, the samples the stream actually holds.
     pub(crate) pixels: (u32, u32),
@@ -117,29 +135,44 @@ fn pixel_size(document: &Document, id: ObjectId) -> Option<(u32, u32)> {
     Some((side(b"Width")?, side(b"Height")?))
 }
 
-/// T-193's contribution to the report: every image the document draws was
-/// left byte-identical.
+/// Brings every image the document draws down to `policy`'s target, and
+/// reports what moved.
 ///
-/// Which is the whole truth today and will still be true of most of them
-/// after T-194 — decision 5's "an image already below the target comes out
-/// byte-identical" is a promise, not a shortcut. What T-194 changes here is
-/// that some of this count moves to `images_resampled`.
-///
-/// The count is of images *measured*, not of images present, and that is
-/// deliberate: an image this crate could not see placed is not an image it
+/// The two counts are of images *measured*, not of images present, and that
+/// is deliberate: an image this crate could not see placed is not an image it
 /// declined to resample, so claiming it as skipped would be claiming a
 /// decision that was never made.
-pub(crate) fn pass(document: &Document) -> Work {
-    Work {
-        images_skipped: inventory(document).len(),
-        ..Work::default()
+///
+/// `images_skipped` is therefore still the larger number on most documents,
+/// and that is the feature working: it counts every image already below the
+/// target, every image [`codec`] will not open, and every resample that came
+/// out bigger than what it replaced. All three come out byte-identical.
+pub(crate) fn pass(document: &mut Document, policy: ImagePolicy) -> Work {
+    let mut work = Work::default();
+
+    for image in inventory(document) {
+        if rewrite::shrink(document, &image, policy) {
+            work.images_resampled += 1;
+        } else {
+            work.images_skipped += 1;
+        }
     }
+
+    work
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_fixtures::{document_drawing_one_image, loaded_document};
+
+    /// The middle preset's row of the table, spelled out so the stage's tests
+    /// read against a number rather than against `CompressPreset::Balanced`
+    /// — the table itself is [`crate::preset`]'s to test.
+    const BALANCED: ImagePolicy = ImagePolicy {
+        target_dpi: 150,
+        jpeg_quality: 75,
+    };
 
     #[test]
     fn a_document_that_paints_no_image_has_an_empty_inventory() {
@@ -213,19 +246,59 @@ mod tests {
 
     #[test]
     fn the_report_counts_every_image_the_pass_left_alone() {
-        let document = document_drawing_one_image((300, 300), &[(150.0, 150.0), (300.0, 300.0)]);
+        let mut document =
+            document_drawing_one_image((300, 300), &[(150.0, 150.0), (300.0, 300.0)]);
 
         assert_eq!(
-            pass(&document),
+            pass(&mut document, BALANCED),
             Work {
                 images_skipped: 1,
                 ..Work::default()
-            }
+            },
+            "72 effective dpi is under the target, so the image keeps its bytes"
         );
     }
 
     #[test]
     fn a_document_without_images_reports_no_image_work() {
-        assert_eq!(pass(&loaded_document(3)), Work::default());
+        assert_eq!(pass(&mut loaded_document(3), BALANCED), Work::default());
+    }
+
+    /// The stage end to end: one oversized image in, one resampled image out,
+    /// counted as resampled rather than skipped.
+    #[test]
+    fn an_oversized_image_is_resampled_and_counted_as_one() {
+        let mut document = document_drawing_one_image((600, 600), &[(72.0, 72.0)]);
+
+        assert_eq!(
+            pass(&mut document, BALANCED),
+            Work {
+                images_resampled: 1,
+                ..Work::default()
+            }
+        );
+    }
+
+    /// The safety property carried through to the rewrite: the fixture's
+    /// permanent `/Unplaced` is as oversized as the image beside it, and it
+    /// is still holding every one of its bytes afterwards. An image painted
+    /// from inside a form XObject, or written inline, is out of reach in
+    /// exactly this way.
+    #[test]
+    fn an_image_the_document_never_paints_keeps_every_byte() {
+        let mut document = document_drawing_one_image((600, 600), &[(72.0, 72.0)]);
+        let painted: Vec<_> = inventory(&document).iter().map(|image| image.id).collect();
+        let (id, before) = document
+            .objects
+            .iter()
+            .find(|(id, object)| {
+                object.type_name().ok() == Some(b"XObject") && !painted.contains(id)
+            })
+            .map(|(id, object)| (*id, object.clone()))
+            .expect("the fixture declares an image nothing paints");
+
+        pass(&mut document, BALANCED);
+
+        assert_eq!(document.objects.get(&id), Some(&before));
     }
 }
