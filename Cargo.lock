@@ -1014,6 +1014,7 @@ version = "0.1.0"
 dependencies = [
  "cms 0.2.3",
  "der 0.7.10",
+ "image",
  "lopdf",
  "p12-keystore",
  "p256",

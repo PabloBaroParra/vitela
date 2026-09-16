@@ -704,27 +704,106 @@ para que no confunda dos cosas que se llaman igual.
       frontera— y partirlas en tipos/funciones sería una capa artificial.**
 
 ### Fase 4 — Pruebas y fixtures
-- [ ] T-197 (dep T-194) Corpus: un PDF de escaneo (imágenes grandes con pérdida), uno
+- [x] T-197 (dep T-194) Corpus: un PDF de escaneo (imágenes grandes con pérdida), uno
       vectorial puro (donde la única ganancia posible es estructural), uno con transparencia
       real (`/SMask`), uno ya comprimido al máximo (caso `NoGain`), uno cifrado y uno
       firmado. Test guardián: **ningún fixture crece con ningún preset**. [CompressFixtures]
-      **Nota de T-191:** el arnés ya existe — `core/pdf-compress/tests/corpus.rs` corre el
-      guardián de "no crece", el de "no pierde páginas" y el de "protegido vuelve
-      byte-idéntico" sobre el corpus que hay hoy. T-197 es **agregar filas a `CORPUS`**, no
-      escribir el harness de cero. Falta el escaneo, el vectorial puro y el de
-      transparencia real.
-      **Nota de T-193 — el corpus de hoy no puede validar el resampleo.** Medido: la
-      imagen más detallada del corpus está a **37 DPI efectivos**, muy por debajo de los
-      96 de `Small`, así que T-194 correría sin encontrar un solo candidato y sus tests
-      pasarían sin ejercitar nada. Falta además el caso que la regla del DPI gobernante
-      existe para resolver: **la misma imagen colocada dos veces a escalas distintas**.
-      Las filas nuevas tienen que traer, como mínimo, una imagen bien por encima de 150
-      DPI efectivos y un documento que reutilice un XObject en dos tamaños.
-      **Nota de T-192:** el corpus vive ahora en `tests/common/mod.rs` y lo comparten los
-      tres arneses — `corpus.rs` (los guardianes), `measure.rs` (la tabla del hecho 4) y
-      `render_unchanged.rs` (píxel a píxel). **Agregar una fila a `CORPUS` alcanza**: los
-      tres la levantan sola, incluido el render. Los protegidos se excluyen del render
-      porque vuelven byte-idénticos y se detecta ahí, no por estar fuera de una lista.
+      **(2026-09-16 — completo.** Cinco archivos nuevos **commiteados** en
+      `tests/fixtures/compress/` (~510 KB en total), generados por
+      `tests/fixtures/gen-fixtures/src/compress/` (`mod.rs` los documentos, `raster.rs` los
+      píxeles). El cifrado y el firmado ya estaban: los cuatro de `encrypted/` y `signed/`
+      son las dos filas que la compresión devuelve intactas. Arnés nuevo:
+      `core/pdf-compress/tests/image_stage.rs` y
+      `tests/fixtures/gen-fixtures/tests/compress_corpus.rs`.
+
+      | fixture | para qué está | tamaño |
+      |---|---|---|
+      | `scan_200dpi.pdf` | una imagen con pérdida muy por encima de todo techo: 1700 × 2200 `/DCTDecode` sobre Letter | 238 KB |
+      | `reused_image_two_scales.pdf` | *gobierna la colocación más grande* — un XObject pintado a 72pt y a 18pt (300 y 1200 DPI) | 88 KB |
+      | `transparency_smask.pdf` | transparencia real: foto `/DCTDecode` con `/SMask` `/FlateDecode`, las dos a 300 DPI | 174 KB |
+      | `vector_only.pdf` | una página de trazos y tipografía: la etapa de imágenes no debe encontrar nada | 8 KB |
+      | `already_packed.pdf` | object streams, xref stream, todo flateado — sin holgura, así que `NoGain` | 3 KB |
+
+      **Commiteados y no generados, que es la decisión de la tarea.** `tests/fixtures/large/`
+      está en `.gitignore` por sus 50 MB, y `common::CORPUS` lee esas filas como opcionales:
+      un checkout que no corrió el generador simplemente las saltea. Acá eso sería lo
+      contrario de lo que se pide. **Ningún workflow de CI corre `gen-fixtures`** —
+      verificado sobre los once workflows de `.github/workflows/`—, así que un fixture que
+      no entra al repositorio es un guardián que nunca dispara en CI, que es exactamente el
+      agujero que T-197 existe para cerrar. Por eso cada ráster es sintético y suave, y
+      medio megabyte alcanza para las cinco filas.
+
+      **Lo que la etapa de imágenes hace ahora sobre archivos reales, medido:**
+
+      | fixture | Lossless | Balanced | Small |
+      |---|---:|---:|---:|
+      | `scan_200dpi.pdf` | −0,0 % | **−35,4 %** (1700→1275) | **−66,8 %** (1700→816) |
+      | `reused_image_two_scales.pdf` | −0,1 % | **−77,2 %** (300→150) | **−90,3 %** (300→96) |
+      | `transparency_smask.pdf` | −0,0 % | **−82,4 %** (600→300, máscara incluida) | **−91,4 %** |
+      | `vector_only.pdf` | −67,1 % | −67,1 % | −67,1 % |
+      | `already_packed.pdf` | 0,0 % `NoGain` | 0,0 % `NoGain` | 0,0 % `NoGain` |
+
+      Antes de estas filas, `images_resampled` era **0 sobre todo el corpus** y ningún test
+      de T-194 tocaba un solo píxel de un archivo real.
+
+      **Las aserciones son sobre cantidad de muestras, no sobre bytes.** "Quedó más chico"
+      lo cumplen muchísimas respuestas equivocadas; "esta imagen ahora tiene 1275 muestras
+      de ancho, que son 150 DPI sobre 612 puntos de papel" lo cumple una sola. El caso que
+      mejor lo muestra es el del XObject reutilizado: tomar el **máximo** de las colocaciones
+      se lee perfectamente razonable —"satisfacé la colocación más exigente"— y produce una
+      imagen de 37 × 37, con la miniatura nítida y la colocación grande destruida. Las dos
+      respuestas achican el archivo; sólo la cantidad de muestras las distingue.
+
+      **Dos intentos del ráster que pasaban y no probaban nada, porque esto es lo que un
+      fixture commiteado tiene de traicionero.** Un degradado continuo se guarda carísimo
+      (600 × 600 RGB = un cuarto de megabyte) porque cada fila difiere de la anterior en
+      todos sus bytes. Cuantizarlo arregla el tamaño y **rompe el fixture**: el resampleo
+      *promedia*, o sea vuelve a poner todos los valores intermedios que la cuantización
+      sacó, y la imagen reducida termina pesando **más** que la original. Ahí `rewrite`
+      aplica correctamente su regla de "más chica o nada", la descarta, y el corpus queda
+      con un fixture de transparencia que reporta `images_skipped: 1` en los tres presets.
+      Lo mismo con baldosas planas. Lo que funciona es degradado + ruido de amplitud baja:
+      la única forma en que el peso guardado acompaña a la cantidad de muestras, que es la
+      premisa de todo esto. Medido, no razonado — con las dos primeras versiones el corpus
+      no resampleaba nada.
+
+      **Una fila que el enunciado pedía y no tenía archivo: `NoGain` sin negativa.** El
+      corpus ya llegaba a `Outcome::NoGain` por dos archivos cifrados y dos firmados, pero
+      en los cuatro casos es una **negativa**: el crate no los reescribe. `already_packed.pdf`
+      llega al mismo veredicto por el camino opuesto —se reescribe, se mide, y no hay nada
+      que ganar— y por eso su guardián exige además que `refusals()` esté vacío. Son dos
+      rutas distintas que terminan en la misma palabra, y hasta ahora sólo una tenía un
+      archivo real detrás. Dato al pasar: el `save_to` de hoy **infla** ese archivo un 7,9 %,
+      que es el hecho 4 otra vez, ahora sobre un archivo del repositorio.
+
+      **El guardián de abajo del guardián.** `compress_corpus.rs` pregunta lo que está un
+      escalón antes: ¿los archivos son los que los tests de al lado creen estar leyendo? Un
+      fixture que dejara de traer `/SMask`, o de estar muestreado por encima del techo,
+      dejaría pasando a todos los guardianes sin que prueben nada. Como este generador
+      **sí** es byte-reproducible (nada en él es aleatorio, a diferencia del corpus firmado
+      con sus claves frescas), el último test fija los archivos commiteados contra el
+      generador: editar un builder sin regenerar falla ahí y dice qué comando correr.
+
+      Un detalle encontrado escribiendo eso: en el archivo empaquetado, el único stream sin
+      `/Filter` es el propio `/XRef`, que lopdf escribe sin comprimir. No es holgura del
+      documento —se reconstruye entero en cada guardado—, así que la aserción se acotó a los
+      streams de contenido en vez de aflojarla.
+
+      **Cuatro archivos y no uno, por la misma razón que T-194.** El primer corte fue un
+      `compress/mod.rs` solo, y `scripts/check_maintainability.py` lo marcó en 506 líneas.
+      El CLAUDE.md dice que eso es la señal de partir, así que se partió por responsabilidad
+      real: `mod.rs` es qué filas hay y cómo llegan al disco, `documents.rs` son las cinco
+      formas (cuántas páginas, qué se pinta y a qué tamaño), `images.rs` es cómo un conjunto
+      de muestras se vuelve un XObject de imagen, y `raster.rs` son las muestras. Es el
+      mismo corte que el crate bajo prueba hace entre `format`/`codec` y el resto: "qué
+      declara este diccionario" no es la misma pregunta que "qué pinta esta página".
+
+      Verificado en Windows: `cargo fmt --all -- --check` (exit 0),
+      `cargo clippy --workspace --all-targets -- -D warnings` (limpio),
+      `cargo test --workspace` → **1251 passed, 0 failed** (eran 1232 en T-196),
+      `scripts/check_readme_tables.py` OK y `scripts/check_maintainability.py` en 103
+      warnings, el mismo número que antes del cambio: ningún archivo nuevo dispara el aviso
+      de tamaño.**
 
 ### Fase 5 — Docs
 - [x] T-198 README: la fila "Compress PDF" pasa de columna de crate `—` a

@@ -15,6 +15,10 @@ name = "gen-fixtures"
 path = "src/main.rs"
 
 [dependencies]
+# T-197: the compression corpus needs a baseline JPEG writer, for the one
+# fixture whose point is that it arrived lossy. Same version and features the
+# rest of the workspace already builds.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 lopdf = "0.45"
 p12-keystore = "0.3.1"
 pdf-manip = { path = "../../../core/pdf-manip" }

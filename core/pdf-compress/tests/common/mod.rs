@@ -63,6 +63,40 @@ pub const CORPUS: &[Fixture] = &[
         generated: false,
         protected: true,
     },
+    // T-197's rows: the cases the repository's own documents cannot make.
+    // Committed rather than generated, because CI never runs `gen-fixtures`
+    // and a guardian that skips in CI is not a guardian — see
+    // `tests/fixtures/gen-fixtures/src/compress/mod.rs` for the trade.
+    Fixture {
+        path: "tests/fixtures/compress/scan_200dpi.pdf",
+        what: "a scan: one lossy image at 200 effective dpi",
+        generated: false,
+        protected: false,
+    },
+    Fixture {
+        path: "tests/fixtures/compress/reused_image_two_scales.pdf",
+        what: "one image XObject painted large and small",
+        generated: false,
+        protected: false,
+    },
+    Fixture {
+        path: "tests/fixtures/compress/transparency_smask.pdf",
+        what: "real transparency: an image with a soft mask",
+        generated: false,
+        protected: false,
+    },
+    Fixture {
+        path: "tests/fixtures/compress/vector_only.pdf",
+        what: "pure vector: no image for the image stage to find",
+        generated: false,
+        protected: false,
+    },
+    Fixture {
+        path: "tests/fixtures/compress/already_packed.pdf",
+        what: "object streams, xref stream, every stream flated",
+        generated: false,
+        protected: false,
+    },
     Fixture {
         path: "tests/fixtures/large/edit_reopen_10pg.pdf",
         what: "10 pages",
@@ -100,6 +134,18 @@ pub fn read(fixture: &Fixture) -> Option<Vec<u8>> {
         Err(_) if fixture.generated => None,
         Err(err) => panic!("committed fixture {} is missing: {err}", fixture.path),
     }
+}
+
+/// The corpus entry whose path ends in `file_name`.
+///
+/// Panics rather than returning an `Option`: a test naming a fixture that is
+/// not in the corpus is a test that would otherwise pass by looking at
+/// nothing, which is the failure mode this whole harness exists to prevent.
+pub fn fixture(file_name: &str) -> &'static Fixture {
+    CORPUS
+        .iter()
+        .find(|fixture| fixture.path.ends_with(file_name))
+        .unwrap_or_else(|| panic!("{file_name} is not in the corpus"))
 }
 
 /// How many pages `bytes` has, or `None` if it is not a readable document.
