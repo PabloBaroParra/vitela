@@ -173,45 +173,66 @@ fn an_image_painted_twice_is_counted_once() {
 /// parent, because it is drawn over exactly the same paper and a mask coarser
 /// than the colour it hides shows as a halo. And it must not be *counted*: a
 /// photograph with an alpha channel is one image the user has, not two.
+///
+/// **Both resampling presets, because the acceptance criterion names both.**
+/// Until this loop existed, every soft-mask test in the crate — the four unit
+/// ones in `images::rewrite` included — ran at `Balanced` and nothing
+/// exercised a mask at `Small`. 600 samples over 144 points is 300 dpi, so
+/// the expected counts are 600 x 150/300 and 600 x 96/300.
 #[test]
 fn a_soft_mask_follows_its_image_down_and_is_not_counted_twice() {
-    let compressed = compressed("transparency_smask.pdf", CompressPreset::Balanced);
+    let cases = [
+        (CompressPreset::Balanced, (300, 300)),
+        (CompressPreset::Small, (192, 192)),
+    ];
 
-    assert_eq!(
-        compressed.report().work().images_resampled,
-        1,
-        "the mask was counted as an image of its own"
-    );
+    for (preset, expected) in cases {
+        let compressed = compressed("transparency_smask.pdf", preset);
 
-    let images = images_in(compressed.bytes());
-    assert_eq!(images.len(), 2, "the image and its mask");
+        assert_eq!(
+            compressed.report().work().images_resampled,
+            1,
+            "{preset:?} counted the mask as an image of its own"
+        );
 
-    let (_, parent) = images
-        .iter()
-        .find(|(_, stream)| stream.dict.has(b"SMask"))
-        .expect("the photograph must still declare its soft mask");
-    let mask_id = parent
-        .dict
-        .get(b"SMask")
-        .and_then(Object::as_reference)
-        .expect("/SMask is a reference to the mask stream");
-    let (_, mask) = images
-        .iter()
-        .find(|(id, _)| *id == mask_id)
-        .expect("the mask the photograph points at must still exist");
+        let images = images_in(compressed.bytes());
+        assert_eq!(images.len(), 2, "the image and its mask");
 
-    assert_eq!(samples(parent), (300, 300), "the photograph came down");
-    assert_eq!(
-        samples(mask),
-        samples(parent),
-        "the mask no longer matches the image it masks"
-    );
-    assert_eq!(
-        parent.dict.get(b"Filter").and_then(Object::as_name).ok(),
-        Some(b"DCTDecode".as_slice()),
-        "a lossy image must come back lossy; a JPEG that became a flate \
-         would have dropped its own alpha arrangement on the way"
-    );
+        let (_, parent) = images
+            .iter()
+            .find(|(_, stream)| stream.dict.has(b"SMask"))
+            .unwrap_or_else(|| {
+                panic!("{preset:?}: the photograph must still declare its soft mask")
+            });
+        let mask_id = parent
+            .dict
+            .get(b"SMask")
+            .and_then(Object::as_reference)
+            .expect("/SMask is a reference to the mask stream");
+        let (_, mask) = images
+            .iter()
+            .find(|(id, _)| *id == mask_id)
+            .unwrap_or_else(|| {
+                panic!("{preset:?}: the mask the photograph points at must still exist")
+            });
+
+        assert_eq!(
+            samples(parent),
+            expected,
+            "{preset:?} did not bring the photograph to its own ceiling"
+        );
+        assert_eq!(
+            samples(mask),
+            samples(parent),
+            "{preset:?} left the mask at a resolution its image no longer has"
+        );
+        assert_eq!(
+            parent.dict.get(b"Filter").and_then(Object::as_name).ok(),
+            Some(b"DCTDecode".as_slice()),
+            "{preset:?}: a lossy image must come back lossy; a JPEG that became \
+             a flate would have dropped its own alpha arrangement on the way"
+        );
+    }
 }
 
 /// A document with no images in it gives the image stage nothing to report.

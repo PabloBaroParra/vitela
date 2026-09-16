@@ -776,6 +776,21 @@ para que no confunda dos cosas que se llaman igual.
       archivo real detrás. Dato al pasar: el `save_to` de hoy **infla** ese archivo un 7,9 %,
       que es el hecho 4 otra vez, ahora sobre un archivo del repositorio.
 
+      **Un criterio de aceptación que decía "Balanced y Small" y sólo tenía Balanced.**
+      Repasando los criterios contra los tests apareció que los cuatro tests de máscara de
+      `images/rewrite.rs` corren todos con la constante `BALANCED`, y el de corpus también:
+      **nadie ejercitaba un `/SMask` bajo `Small`**. `a_soft_mask_follows_its_image_down_...`
+      es ahora un loop sobre los dos presets — 600 muestras sobre 144 puntos son 300 DPI,
+      así que da 300 y 192. Comprobado que el caso nuevo muerde y no sólo pasa: sacando la
+      llamada a `soft_mask` en `rewrite::shrink`, la iteración de `Small` falla sola con
+      *"Small left the mask at a resolution its image no longer has: left (600, 600),
+      right (192, 192)"*.
+
+      Lo que este fixture **no** puede distinguir, y conviene decirlo: como la máscara es
+      del mismo tamaño que su padre, "mismo factor" y "mismo objetivo" dan el mismo número.
+      La regla que T-194 corrigió sigue apoyada en el test unitario de máscara a media
+      resolución, no acá.
+
       **El guardián de abajo del guardián.** `compress_corpus.rs` pregunta lo que está un
       escalón antes: ¿los archivos son los que los tests de al lado creen estar leyendo? Un
       fixture que dejara de traer `/SMask`, o de estar muestreado por encima del techo,
