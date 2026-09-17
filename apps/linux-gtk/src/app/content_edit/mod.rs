@@ -169,6 +169,108 @@ pub(crate) struct PageProbe<'a> {
     pub(crate) object: lopdf::ObjectId,
 }
 
+/// What the Edit card's image half can offer for whatever is selected right
+/// now — the single answer its two buttons and its hint are all read from.
+///
+/// It exists because those three had drifted into being gated by three
+/// different expressions of the same question. "Is an image selected"
+/// decided the buttons; T-204 gave Replace a second condition of its own;
+/// and "does this image already carry an unsaved edit" — which refuses every
+/// one of the four operations — was asked nowhere in the UI at all, only
+/// inside the handlers, after the gesture had been made and, for Replace,
+/// after a file dialog had been opened and answered.
+///
+/// One enum with one resolver ([`image_controls`]) means the sentence beside
+/// a control and the control's own sensitivity are two readings of the same
+/// value and cannot disagree. It is deliberately *not* stored on the
+/// session: see [`ImageControls::PendingEdit`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImageControls {
+    /// No image is selected — or there is no document, or this one refuses
+    /// content editing outright. All three are "there is nothing to act on",
+    /// and the card has always said the first one's sentence for all of them.
+    Nothing,
+    /// Selected, and all four operations are available.
+    Ready,
+    /// Selected, but its bytes cannot be read back, so replacing it is off
+    /// while moving, resizing and deleting stay on (T-204).
+    NoReplace,
+    /// Selected, and it already carries an edit that has not reached disk.
+    /// **Every** operation is off until a save and reopen.
+    ///
+    /// The one state here that is temporary, which is why the whole enum is
+    /// recomputed rather than cached: a save→reopen clears the `EditLog`
+    /// this reads, and a remembered `true` would outlive the condition and
+    /// leave the card refusing an image that is free again.
+    PendingEdit,
+}
+
+impl ImageControls {
+    /// Deleting needs a selection that nothing else is queued against, and
+    /// nothing more — it rewrites the operator and never reads the picture.
+    pub(crate) fn delete_enabled(self) -> bool {
+        matches!(self, Self::Ready | Self::NoReplace)
+    }
+
+    /// Replacing needs everything deleting needs, plus bytes `pdf-edit` can
+    /// read back for undo's `before`.
+    pub(crate) fn replace_enabled(self) -> bool {
+        matches!(self, Self::Ready)
+    }
+
+    /// The sentence the card shows underneath them. Every state has one:
+    /// a greyed control with no stated reason is what
+    /// [`panel`]'s module doc exists to argue against.
+    pub(crate) fn hint(self) -> &'static str {
+        match self {
+            Self::Nothing => panel::NO_IMAGE_SELECTED,
+            Self::Ready => panel::IMAGE_SELECTED,
+            Self::NoReplace => panel::IMAGE_SELECTED_NO_REPLACE,
+            Self::PendingEdit => panel::IMAGE_PENDING_EDIT,
+        }
+    }
+}
+
+/// Resolves [`ImageControls`] from the session as it stands.
+///
+/// Cheap enough to run on every control update, which is the property that
+/// lets `PendingEdit` stay uncached: answering it is a scan of the
+/// `EditLog`'s entries plus an id comparison — no page parse, no decode.
+/// That is exactly what makes this refusal worth moving in front of the
+/// gesture, where the T-204 readback refusal had to be weighed against a
+/// full decode first.
+///
+/// **`PendingEdit` outranks `NoReplace`** when both hold. It is the broader
+/// answer — it takes Delete away too — and it is the one the user can act
+/// on: saving clears it, while nothing clears an encoding. Reporting the
+/// narrower, permanent-sounding sentence over the wider, temporary one would
+/// send someone looking for a different image when what they need is a save.
+pub(crate) fn image_controls(
+    session: Option<&crate::app::state::DocumentSession>,
+) -> ImageControls {
+    let Some(session) = session else {
+        return ImageControls::Nothing;
+    };
+    if session.content_edit_access.refusal().is_some() {
+        return ImageControls::Nothing;
+    }
+    let Some(selected) = session.selected_image.as_ref() else {
+        return ImageControls::Nothing;
+    };
+    // No model means no `EditLog` to consult and no probe to validate
+    // against, so nothing could be recorded anyway.
+    let Some(document) = session.document_model.as_ref() else {
+        return ImageControls::Nothing;
+    };
+    if command::image_already_edited(document, &selected.item) {
+        return ImageControls::PendingEdit;
+    }
+    if selected.replace_refused {
+        return ImageControls::NoReplace;
+    }
+    ImageControls::Ready
+}
+
 /// A drag shorter than this, in device pixels on either axis, is a click —
 /// mirrors the annotation placement gesture's own click collapse
 /// (`annotations::builder`'s "arrastre < 8pt"), in screen space rather than
@@ -652,6 +754,180 @@ mod tests {
     use super::*;
     use crate::app::ui_tests::built_ui;
 
+    // --- image_controls ---------------------------------------------------
+    //
+    // No GTK here: the whole point of resolving the card's state into a value
+    // is that the decision can be tested without a display, leaving the
+    // `gtk_ui_` cases below to check only that widgets are spent from it.
+
+    mod image_controls_tests {
+        use super::super::{image_controls, ImageControls};
+        use crate::app::state::{ContentEditAccess, DocumentSession, SaveBacking, SelectedImage};
+        use crate::app::test_fixtures::model_session;
+        use pdf_document::{
+            Command, ContentItemId, Document, ImageItem, ImageSource, Orientation, Page, PageId,
+            PageSize, Rect, Rotation,
+        };
+
+        fn an_image(id: u64) -> ImageItem {
+            ImageItem {
+                id: ContentItemId(id),
+                page: PageId(0),
+                bbox: Rect {
+                    x: 100.0,
+                    y: 600.0,
+                    width: 80.0,
+                    height: 40.0,
+                },
+                source: ImageSource::Resource("Im1".to_string()),
+            }
+        }
+
+        fn a_session() -> DocumentSession {
+            let mut session = model_session(Document::with_pages(vec![Page::base(
+                PageId(0),
+                0,
+                PageSize::A4,
+                Orientation::Portrait,
+                Rotation::None,
+            )]));
+            session.save_backing = Some(SaveBacking {
+                base: pdf_manip::LopdfDocument::from_lopdf(
+                    gen_fixtures::content_edit::build_image_page_document(),
+                ),
+                original_bytes: Vec::new(),
+                password: None,
+            });
+            session
+        }
+
+        fn selecting(item: ImageItem, replace_refused: bool) -> DocumentSession {
+            let mut session = a_session();
+            session.selected_image = Some(SelectedImage {
+                page_index: 0,
+                item,
+                replace_refused,
+            });
+            session
+        }
+
+        /// Records a real `MoveImage` against `item` the way the shell does
+        /// — through `command::apply_command`, so the log ends up in exactly
+        /// the state a finished drag leaves it in.
+        fn queue_move(session: &mut DocumentSession, item: &ImageItem) {
+            let document = session
+                .document_model
+                .as_mut()
+                .expect("the fixture session carries a model");
+            crate::app::content_edit::command::apply_command(
+                document,
+                Command::MoveImage {
+                    item: item.clone(),
+                    to: item.bbox,
+                },
+            );
+        }
+
+        #[test]
+        fn no_session_has_nothing_to_act_on() {
+            assert_eq!(image_controls(None), ImageControls::Nothing);
+        }
+
+        #[test]
+        fn a_session_with_no_selection_has_nothing_to_act_on() {
+            assert_eq!(image_controls(Some(&a_session())), ImageControls::Nothing);
+        }
+
+        /// A document that forbids content changes says so through its own
+        /// notice, not through this card — so the card must not claim an
+        /// image is actionable underneath it.
+        #[test]
+        fn a_document_that_forbids_content_changes_offers_nothing() {
+            let mut session = selecting(an_image(1), false);
+            session.content_edit_access = ContentEditAccess::Forbidden;
+
+            assert_eq!(image_controls(Some(&session)), ImageControls::Nothing);
+        }
+
+        #[test]
+        fn a_plain_selection_offers_everything() {
+            let controls = image_controls(Some(&selecting(an_image(1), false)));
+
+            assert_eq!(controls, ImageControls::Ready);
+            assert!(controls.delete_enabled());
+            assert!(controls.replace_enabled());
+        }
+
+        #[test]
+        fn an_unreadable_selection_keeps_delete_and_loses_replace() {
+            let controls = image_controls(Some(&selecting(an_image(1), true)));
+
+            assert_eq!(controls, ImageControls::NoReplace);
+            assert!(controls.delete_enabled());
+            assert!(!controls.replace_enabled());
+        }
+
+        /// The state this change exists for: a queued edit takes *both*
+        /// buttons, because `pdf-save` could not resolve a second command
+        /// against the same item.
+        #[test]
+        fn a_selection_with_a_queued_edit_loses_both_buttons() {
+            let item = an_image(1);
+            let mut session = selecting(item.clone(), false);
+            queue_move(&mut session, &item);
+
+            let controls = image_controls(Some(&session));
+
+            assert_eq!(controls, ImageControls::PendingEdit);
+            assert!(!controls.delete_enabled());
+            assert!(!controls.replace_enabled());
+        }
+
+        /// A queued edit against a *different* image on the same page leaves
+        /// this one alone — the refusal is per item, not per page.
+        #[test]
+        fn a_queued_edit_on_another_image_leaves_this_one_ready() {
+            let mut session = selecting(an_image(1), false);
+            let other = an_image(2);
+            queue_move(&mut session, &other);
+
+            assert_eq!(image_controls(Some(&session)), ImageControls::Ready);
+        }
+
+        /// Precedence, stated as a test because both conditions can hold at
+        /// once and only one sentence fits on the card. The queued edit wins:
+        /// it is the wider answer, and it is the one a save clears.
+        #[test]
+        fn a_queued_edit_outranks_an_unreadable_encoding() {
+            let item = an_image(1);
+            let mut session = selecting(item.clone(), true);
+            queue_move(&mut session, &item);
+
+            assert_eq!(image_controls(Some(&session)), ImageControls::PendingEdit);
+        }
+
+        /// Every state carries a sentence, and no two states share one — a
+        /// greyed control with no stated reason, or with the reason for a
+        /// different state, is what the card exists to prevent.
+        #[test]
+        fn every_state_has_its_own_hint() {
+            let hints = [
+                ImageControls::Nothing.hint(),
+                ImageControls::Ready.hint(),
+                ImageControls::NoReplace.hint(),
+                ImageControls::PendingEdit.hint(),
+            ];
+
+            for (index, hint) in hints.iter().enumerate() {
+                assert!(!hint.is_empty());
+                assert!(
+                    !hints[index + 1..].contains(hint),
+                    "two states share the sentence {hint:?}"
+                );
+            }
+        }
+    }
+
     /// The window opens with no document, so the Edit page opens saying so.
     ///
     /// This is the branch [`update_controls`] gained along with the page: the
@@ -778,6 +1054,52 @@ mod tests {
         built.window.close();
     }
 
+    /// The widget half of `ImageControls::PendingEdit`: an image carrying an
+    /// unsaved edit loses **both** buttons, and the card says which state it
+    /// is in.
+    ///
+    /// The unit tests above own the decision; this one owns only the claim
+    /// that `update_content_edit_controls` still spends it — the two
+    /// sensitivities and the label are three separate widget calls, and a
+    /// regression that dropped one of them would leave the other two
+    /// disagreeing with it.
+    #[gtk::test]
+    fn gtk_ui_an_image_with_a_queued_edit_loses_both_buttons_and_says_why() {
+        use pdf_document::Command;
+
+        let built = built_with_selected_image(false);
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("the fixture installed one");
+            let item = session
+                .selected_image
+                .as_ref()
+                .expect("the fixture selected one")
+                .item
+                .clone();
+            let document = session.document_model.as_mut().expect("a model");
+            command::apply_command(
+                document,
+                Command::MoveImage {
+                    item: item.clone(),
+                    to: item.bbox,
+                },
+            );
+        }
+
+        crate::app::update_content_edit_controls(&built.viewer);
+
+        assert!(!built.viewer.delete_image_button.is_sensitive());
+        assert!(!built.viewer.replace_image_button.is_sensitive());
+        assert_eq!(
+            built.viewer.edit_panel.image_hint.text(),
+            panel::IMAGE_PENDING_EDIT
+        );
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
+    }
+
     /// The join the two tests above take as given, over a real document:
     /// clicking Replace on an image whose bytes cannot be read back records
     /// the refusal and re-states the card — *without* having opened a file
@@ -850,6 +1172,80 @@ mod tests {
             built.viewer.delete_image_button.is_sensitive(),
             "only replacing reads the picture back — the other operations are unaffected"
         );
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
+    }
+
+    /// The twin of the test above for the *other* refusal on that button:
+    /// an image with a queued edit answers before the picker too, and does it
+    /// without paying for a readback.
+    ///
+    /// The fixture image here is deliberately **readable**. That is what
+    /// makes the test discriminating: with the queued-edit guard removed, the
+    /// readback would succeed, the dialog would open, and the status line
+    /// would never carry this sentence. So the assertion below can only pass
+    /// because the guard ran — and `replace_refused` staying `false` is the
+    /// second half of the same proof, since a readback that had run on this
+    /// image could not have latched anything either way.
+    #[gtk::test]
+    fn gtk_ui_replacing_an_image_with_a_queued_edit_refuses_before_the_file_picker() {
+        use crate::app::state::{SaveBacking, SelectedImage};
+        use crate::app::test_fixtures::model_session;
+        use pdf_document::{Command, Document, Orientation, Page, PageId, PageSize, Rotation};
+
+        let built = built_ui();
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = pdf_edit::read_page_content(&base, PageId(0))
+            .expect("the fixture page parses")
+            .images
+            .remove(0);
+
+        let mut session = model_session(Document::with_pages(vec![Page::base(
+            PageId(0),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )]));
+        session.save_backing = Some(SaveBacking {
+            base: pdf_manip::LopdfDocument::from_lopdf(base),
+            original_bytes: Vec::new(),
+            password: None,
+        });
+        command::apply_command(
+            session.document_model.as_mut().expect("a model"),
+            Command::MoveImage {
+                item: item.clone(),
+                to: item.bbox,
+            },
+        );
+        session.selected_image = Some(SelectedImage {
+            page_index: 0,
+            item,
+            replace_refused: false,
+        });
+        built.viewer.state.borrow_mut().session = Some(session);
+
+        image::replace_selected(&built.window, &built.viewer);
+
+        assert_eq!(
+            built.viewer.status.text(),
+            panel::IMAGE_PENDING_EDIT,
+            "the queued edit was not answered before the picker"
+        );
+        {
+            let state = built.viewer.state.borrow();
+            let selected = state
+                .session
+                .as_ref()
+                .and_then(|session| session.selected_image.as_ref())
+                .expect("a refusal leaves the selection exactly as it was");
+            assert!(
+                !selected.replace_refused,
+                "a queued edit says nothing about the image's encoding and must not latch"
+            );
+        }
 
         built.viewer.state.borrow_mut().session = None;
         built.window.close();

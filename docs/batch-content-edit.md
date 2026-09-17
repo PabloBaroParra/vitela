@@ -396,6 +396,24 @@ Las imágenes `BI`..`EI` dejan de ser un agujero del modelo. Ver la sección
       botón explícito — no por selección ni por frame. Los bytes del pre-chequeo se
       tiran: la selección puede cambiar mientras el diálogo está abierto, así que el
       `before` que se graba tiene que venir de una lectura tomada en el commit.
+      **Seguimiento, mismo día:** el otro rechazo del mismo botón —"esta imagen ya
+      tiene una edición pendiente"— tenía la misma forma y la misma cura, y encima es
+      gratis de contestar (`command::image_already_edited` es un scan del `EditLog`, sin
+      decode). El estado de la tarjeta dejó de vivir en tres expresiones distintas de la
+      misma pregunta y pasó a ser un valor: `content_edit::ImageControls`
+      (`Nothing`/`Ready`/`NoReplace`/`PendingEdit`), resuelto por `image_controls` y
+      gastado en widgets por `update_content_edit_controls`. `PendingEdit` apaga los dos
+      botones —una edición encolada refuta las cuatro operaciones, no sólo el reemplazo—
+      y **gana** sobre `NoReplace` cuando valen las dos: es la respuesta más ancha y es
+      la única que el usuario puede resolver, guardando. A diferencia de
+      `replace_refused`, **no se cachea**: `write::preview::edits` lleva el
+      `document_model` —y con él el `EditLog`— a través del refresh, así que un `true`
+      recordado sobrevivría a su causa. Por eso mismo el handler de undo/redo
+      (`annotations::command::history`) ahora llama a `update_content_edit_controls`
+      junto a sus dos hermanas, con el argumento que ya estaba escrito ahí para ellas:
+      el refresh de un content edit re-corre esto cuando aterriza, pero puede no
+      aterrizar, y un refresh fallido no puede dejar la tarjeta rechazando una imagen que
+      el log acaba de liberar.
 
 ## Tareas de UI (agregadas a la ficha de B8, docs/batches-b8-b13.md)
 

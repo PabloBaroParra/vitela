@@ -138,6 +138,14 @@ fn history(viewer: &Viewer, undo: bool) {
     // `selected_form_field`, which the step above may just have cleared —
     // see that assignment's own comment.
     crate::app::forms::update_forms_controls(viewer);
+    // And the Edit card's image half, for exactly the reason stated above
+    // the annotation call: its two buttons are gated on whether the selected
+    // image already carries a queued edit (`content_edit::image_controls`),
+    // and the step just taken may have been the one that queued or unqueued
+    // it. The content-edit refresh below re-runs this when its reopen lands,
+    // but only if it lands — and a failed refresh must not leave the card
+    // refusing an image the log has just set free.
+    crate::app::update_content_edit_controls(viewer);
     // `SetDocumentInfo` (T-176) is neither an annotation nor a form-field
     // command, so neither call above touches it — the log is shared, and an
     // undo/redo step here may just as easily have moved a metadata command.

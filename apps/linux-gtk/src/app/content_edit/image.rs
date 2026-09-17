@@ -276,11 +276,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
             // stale item would fail to resolve at save time and take the
             // whole save down with it. Refusing here instead turns that into
             // an immediate, recoverable status message.
-            Err(
-                "This image already has a pending edit — save and reopen before editing it \
-                 again."
-                    .to_string(),
-            )
+            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
         } else {
             let validated = match drag.mode {
                 AnnotationDragMode::Move => command::validate_move(probe, &drag.item, to),
@@ -354,11 +350,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
             // that already has a queued edit would fail to resolve at save
             // time and take the whole save down with it.
             session.selected_image = Some(selected);
-            Err(
-                "This image already has a pending edit — save and reopen before editing it \
-                 again."
-                    .to_string(),
-            )
+            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
         } else {
             match command::validate_remove(probe, &selected.item) {
                 Ok(()) => {
@@ -442,6 +434,27 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
         .as_ref()
         .is_some_and(|session| session.selected_image.is_some());
     if !has_selection {
+        return;
+    }
+
+    // Asked first, because it is the cheapest of the two and the broadest:
+    // an image with an edit already queued is refused whatever its bytes
+    // look like, so there is no reason to decode them to find that out.
+    //
+    // The card's Replace button is already insensitive in this state
+    // (`super::image_controls` resolves it to `ImageControls::PendingEdit`,
+    // and GTK emits no `clicked` from an insensitive button), so this is the
+    // belt to that braces — it holds for any path that reaches this function
+    // without having gone through a fresh `update_content_edit_controls`.
+    // It stays because the alternative is a file dialog opened for an
+    // operation that was never going to be recorded.
+    // Resolved into a local so the `Ref` is released before anything below
+    // touches the session again — the same discipline every other borrow in
+    // this module keeps, rather than relying on where a temporary in a
+    // condition happens to drop.
+    let controls = super::image_controls(viewer.state.borrow().session.as_ref());
+    if controls == super::ImageControls::PendingEdit {
+        viewer.status.set_text(super::panel::IMAGE_PENDING_EDIT);
         return;
     }
 
@@ -568,11 +581,7 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
             // that already has a queued edit would fail to resolve at save
             // time and take the whole save down with it.
             session.selected_image = Some(selected);
-            Err(
-                "This image already has a pending edit — save and reopen before editing it \
-                 again."
-                    .to_string(),
-            )
+            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
         } else {
             // `before` has to come from the *original* bytes, read back
             // through `pdf-edit` before anything is written — it is the only

@@ -666,61 +666,48 @@ fn connect_standard_shortcuts(
 /// `annotations::toolbar::update_annotation_controls`.
 ///
 /// The three do not share a gate, only a shape. "Delete image" and "Replace
-/// image" (T-162) wait on an image being **selected**; "Delete text" waits on
-/// an inline editor being **open over an existing run**, because content-edit
-/// mode has no text selection at all — clicking a run opens an editor over it
-/// instead of marking it. Both halves still answer the same question, so they
-/// are answered in one place: a control that is off, and a sentence saying
-/// what it is waiting for.
+/// image" (T-162) wait on an image being **selected** — and on two further
+/// conditions of their own, which [`content_edit::ImageControls`] owns;
+/// "Delete text" waits on an inline editor being **open over an existing
+/// run**, because content-edit mode has no text selection at all — clicking a
+/// run opens an editor over it instead of marking it. Both halves still
+/// answer the same question, so they are answered in one place: a control
+/// that is off, and a sentence saying what it is waiting for.
 ///
 /// Called wherever `update_annotation_controls` already is (document
-/// open/close, content-edit mode toggle), after every image
+/// open/close, content-edit mode toggle, and every undo/redo step —
+/// `annotations::command::history`), after every image
 /// select/deselect/delete/replace inside `content_edit::image`, and from
 /// every open and every teardown of an editor in `content_edit::editor`.
+///
+/// Called often, and deliberately: the image half's answer depends on the
+/// `EditLog`, which every one of those moments can change, and it is
+/// recomputed rather than cached precisely so that none of them can leave it
+/// stale. Resolving it is a log scan — see [`content_edit::image_controls`].
 pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
-    let (image_enabled, replace_enabled, text_enabled) =
-        state
-            .session
-            .as_ref()
-            .map_or((false, false, false), |session| {
-                if session.content_edit_access.refusal().is_some() {
-                    return (false, false, false);
-                }
-                (
-                    session.selected_image.is_some(),
-                    // Replace is gated one notch tighter than its three
-                    // siblings (T-204): it is the only image operation that
-                    // has to read the current picture back, and an image
-                    // whose encoding `pdf-edit` cannot read has no `before`
-                    // for undo to restore. `SelectedImage::replace_refused`
-                    // carries that answer once it is known.
-                    session
-                        .selected_image
-                        .as_ref()
-                        .is_some_and(|selected| !selected.replace_refused),
-                    // An insertion's blank box is not a target: there is no run on
-                    // the page to remove, and nothing recorded for it to undo.
-                    session
-                        .content_editor
-                        .as_ref()
-                        .is_some_and(|editor| !editor.is_insertion),
-                )
-            });
+    // The image half is one value, resolved where the reasoning about it
+    // lives (`content_edit::image_controls`); this function's remaining job
+    // for it is to spend that value on widgets. The text half is still
+    // answered inline because its only question is the one below.
+    let images = content_edit::image_controls(state.session.as_ref());
+    let text_enabled = state.session.as_ref().is_some_and(|session| {
+        session.content_edit_access.refusal().is_none()
+            // An insertion's blank box is not a target: there is no run on
+            // the page to remove, and nothing recorded for it to undo.
+            && session
+                .content_editor
+                .as_ref()
+                .is_some_and(|editor| !editor.is_insertion)
+    });
     drop(state);
-    viewer.delete_image_button.set_sensitive(image_enabled);
-    viewer.replace_image_button.set_sensitive(replace_enabled);
     viewer
-        .edit_panel
-        .image_hint
-        .set_text(match (image_enabled, replace_enabled) {
-            (false, _) => content_edit::panel::NO_IMAGE_SELECTED,
-            (true, true) => content_edit::panel::IMAGE_SELECTED,
-            // Selected, but the one operation the card's own buttons lead
-            // with is off. Saying why here is what keeps a dead button from
-            // reading as a broken one.
-            (true, false) => content_edit::panel::IMAGE_SELECTED_NO_REPLACE,
-        });
+        .delete_image_button
+        .set_sensitive(images.delete_enabled());
+    viewer
+        .replace_image_button
+        .set_sensitive(images.replace_enabled());
+    viewer.edit_panel.image_hint.set_text(images.hint());
     viewer.delete_text_button.set_sensitive(text_enabled);
     viewer.edit_panel.text_hint.set_text(if text_enabled {
         content_edit::panel::TEXT_SELECTED
