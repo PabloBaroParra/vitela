@@ -84,7 +84,10 @@ impl ImagePlacement {
 ///
 /// An image resource that is not an indirect object is left out: a stream
 /// written directly into the resource dictionary has no id to address, so a
-/// caller could not act on it even if it were reported.
+/// caller could not act on it even if it were reported. An **inline image**
+/// is left out for the same reason — its samples are bytes inside the
+/// content stream, not an object — and it is `crate::edit` that reaches
+/// those, through the stream.
 ///
 /// # Errors
 ///
@@ -102,7 +105,7 @@ pub fn page_image_placements(
         .filter_map(|image| {
             Some(ImagePlacement {
                 xobject: image.xobject?,
-                resource_xobject_name: image.item.resource_xobject_name.clone(),
+                resource_xobject_name: image.item.resource_xobject_name()?.to_string(),
                 ctm: image.ctm_at_paint,
             })
         })

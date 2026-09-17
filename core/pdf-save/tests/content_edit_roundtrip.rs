@@ -78,6 +78,16 @@ fn roundtrip_image_document(label: &str) -> (Document, pdf_manip::LopdfDocument,
     (document, base, original_bytes)
 }
 
+fn roundtrip_inline_image_document(label: &str) -> (Document, pdf_manip::LopdfDocument, Vec<u8>) {
+    let mut fixture = gen_fixtures::content_edit::build_inline_image_page_document();
+    let path = temp_pdf_path(label);
+    fixture.save(&path).expect("write fixture");
+    let original_bytes = std::fs::read(&path).expect("read fixture");
+    let (base, security) = pdf_manip::open_document(&path, None).expect("open fixture");
+    let document = pdf_save::document_from_lopdf(&base, security).expect("convert fixture");
+    (document, base, original_bytes)
+}
+
 fn image_content(document: &pdf_manip::LopdfDocument) -> pdf_document::PageContent {
     pdf_save::read_page_content(document, PageId(0)).expect("readable image page")
 }
@@ -1016,7 +1026,7 @@ fn the_image_fixture_parses_as_one_image_at_its_documented_rect() {
     assert_eq!(content.images.len(), 1);
     let image = content.images.first().expect("fixture painted one image");
     assert_eq!(
-        image.resource_xobject_name,
+        image.resource_xobject_name().expect("a resource image"),
         gen_fixtures::content_edit::IMAGE_RESOURCE_NAME
     );
     assert_eq!((image.bbox.x, image.bbox.y), (100.0, 600.0));
@@ -1034,11 +1044,15 @@ fn the_roundtrip_image_fixture_exposes_distinct_target_and_control_images() {
 
     assert_eq!(content.images.len(), 2);
     assert_eq!(
-        content.images[0].resource_xobject_name,
+        content.images[0]
+            .resource_xobject_name()
+            .expect("a resource image"),
         gen_fixtures::content_edit::TARGET_IMAGE_RESOURCE_NAME
     );
     assert_eq!(
-        content.images[1].resource_xobject_name,
+        content.images[1]
+            .resource_xobject_name()
+            .expect("a resource image"),
         gen_fixtures::content_edit::CONTROL_IMAGE_RESOURCE_NAME
     );
     assert_ne!(
@@ -1093,13 +1107,29 @@ fn moving_a_target_image_preserves_its_source_and_the_control_image() {
         (80.0, 40.0)
     );
     assert_eq!(
-        image_stream_bytes(&base, &target.resource_xobject_name),
-        image_stream_bytes_from_lopdf(&reloaded, &target.resource_xobject_name)
+        image_stream_bytes(
+            &base,
+            target.resource_xobject_name().expect("a resource image")
+        ),
+        image_stream_bytes_from_lopdf(
+            &reloaded,
+            target.resource_xobject_name().expect("a resource image")
+        )
     );
     assert_eq!(after.images[1], before.images[1]);
     assert_eq!(
-        image_stream_bytes(&base, &before.images[1].resource_xobject_name),
-        image_stream_bytes_from_lopdf(&reloaded, &before.images[1].resource_xobject_name)
+        image_stream_bytes(
+            &base,
+            before.images[1]
+                .resource_xobject_name()
+                .expect("a resource image")
+        ),
+        image_stream_bytes_from_lopdf(
+            &reloaded,
+            before.images[1]
+                .resource_xobject_name()
+                .expect("a resource image")
+        )
     );
     assert_eq!(
         after_snapshot.xobjects.get(b"ImTarget" as &[u8]),
@@ -1144,8 +1174,14 @@ fn resizing_a_target_image_preserves_its_position_source_and_control_image() {
         (120.0, 70.0)
     );
     assert_eq!(
-        image_stream_bytes(&base, &target.resource_xobject_name),
-        image_stream_bytes_from_lopdf(&reloaded, &target.resource_xobject_name)
+        image_stream_bytes(
+            &base,
+            target.resource_xobject_name().expect("a resource image")
+        ),
+        image_stream_bytes_from_lopdf(
+            &reloaded,
+            target.resource_xobject_name().expect("a resource image")
+        )
     );
     assert_eq!(after.images[1], before.images[1]);
     assert_eq!(
@@ -1168,7 +1204,10 @@ fn replacing_a_target_image_preserves_its_geometry_and_the_control_image() {
         &mut document,
         Command::ReplaceImageSource {
             item: target.clone(),
-            before: image_stream_bytes(&base, &target.resource_xobject_name),
+            before: image_stream_bytes(
+                &base,
+                target.resource_xobject_name().expect("a resource image"),
+            ),
             after: gen_fixtures::content_edit::replacement_image_png_bytes(),
         },
     );
@@ -1180,17 +1219,33 @@ fn replacing_a_target_image_preserves_its_geometry_and_the_control_image() {
 
     assert_eq!(after.images[0].bbox, target.bbox);
     assert_eq!(
-        after.images[0].resource_xobject_name,
-        target.resource_xobject_name
+        after.images[0].resource_xobject_name(),
+        target.resource_xobject_name()
     );
     assert_ne!(
-        image_stream_bytes(&base, &target.resource_xobject_name),
-        image_stream_bytes_from_lopdf(&reloaded, &target.resource_xobject_name)
+        image_stream_bytes(
+            &base,
+            target.resource_xobject_name().expect("a resource image")
+        ),
+        image_stream_bytes_from_lopdf(
+            &reloaded,
+            target.resource_xobject_name().expect("a resource image")
+        )
     );
     assert_eq!(after.images[1], before.images[1]);
     assert_eq!(
-        image_stream_bytes(&base, &before.images[1].resource_xobject_name),
-        image_stream_bytes_from_lopdf(&reloaded, &before.images[1].resource_xobject_name)
+        image_stream_bytes(
+            &base,
+            before.images[1]
+                .resource_xobject_name()
+                .expect("a resource image")
+        ),
+        image_stream_bytes_from_lopdf(
+            &reloaded,
+            before.images[1]
+                .resource_xobject_name()
+                .expect("a resource image")
+        )
     );
     assert_eq!(
         after_snapshot.xobjects.get(b"ImControl" as &[u8]),
@@ -1258,4 +1313,71 @@ fn an_unsigned_document_reports_no_signature_invalidation() {
     .expect("check should succeed");
 
     assert!(!warned);
+}
+
+/// The whole T-203 round trip in one file: the inline image is read back as
+/// a picture, replaced, and the saved-and-reopened document paints the
+/// replacement in the same place — as an XObject, because that is the one
+/// thing replacing cannot keep inline.
+#[test]
+fn replacing_an_inline_image_reaches_the_saved_file_as_a_resource() {
+    let (mut document, base, original_bytes) = roundtrip_inline_image_document("replace-inline");
+    let before = image_content(&base);
+    let target = before.images[0].clone();
+    assert_eq!(target.source, pdf_document::ImageSource::Inline);
+
+    // The `before` a shell would record for undo: the samples as a picture.
+    let page_object = *base
+        .as_lopdf()
+        .get_pages()
+        .get(&1)
+        .expect("first page exists");
+    let recovered = pdf_edit::image_source_bytes(base.as_lopdf(), page_object, &target)
+        .expect("an unfiltered DeviceGray inline image is readable");
+    let decoded = image::load_from_memory(&recovered).expect("a png");
+    assert_eq!((decoded.width(), decoded.height()), (2, 2));
+    assert_eq!(
+        decoded.to_luma8().into_raw(),
+        gen_fixtures::content_edit::INLINE_IMAGE_SAMPLES.to_vec(),
+        "the samples come back as themselves, `EI` bytes and all"
+    );
+
+    apply_command(
+        &mut document,
+        Command::ReplaceImageSource {
+            item: target.clone(),
+            before: recovered,
+            after: gen_fixtures::content_edit::replacement_image_png_bytes(),
+        },
+    );
+
+    let saved = save_with_original(&document, &base, &original_bytes);
+    let reloaded = lopdf::Document::load_mem(&saved).expect("output must reload");
+    let after = image_content_from_lopdf(&reloaded);
+
+    assert_eq!(after.images.len(), 2, "nothing gained or lost a paint");
+    assert_eq!(after.images[0].bbox, target.bbox, "same place on the page");
+    assert_eq!(
+        after.images[0].source,
+        pdf_document::ImageSource::Resource("ImInline0".to_string()),
+        "the samples were the operation, so the operation had to change"
+    );
+    assert!(
+        !decoded_page_contents(
+            &reloaded,
+            reloaded
+                .get_dictionary(*reloaded.get_pages().get(&1).expect("first page exists"))
+                .expect("page dictionary")
+                .get(b"Contents")
+                .expect("contents"),
+        )
+        .concat()
+        .windows(2)
+        .any(|pair| pair == b"BI"),
+        "no inline image may survive the replacement"
+    );
+    assert_eq!(
+        after.images[1], before.images[1],
+        "the control image is untouched"
+    );
 }

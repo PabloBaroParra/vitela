@@ -438,7 +438,7 @@ mod tests {
         }
     }
     use crate::app::content_edit::model;
-    use pdf_document::{annotation::Rect, ContentItemId, FontKind, PageId};
+    use pdf_document::{annotation::Rect, ContentItemId, FontKind, ImageSource, PageId};
 
     fn first_run(base: &lopdf::Document) -> TextRun {
         pdf_edit::read_page_content(base, PageId(0))
@@ -570,7 +570,7 @@ mod tests {
                 width: 80.0,
                 height: 40.0,
             },
-            resource_xobject_name: name.to_string(),
+            source: ImageSource::Resource(name.to_string()),
         }
     }
 
@@ -636,7 +636,7 @@ mod tests {
     fn a_stale_item_is_refused_rather_than_applied_to_the_wrong_image() {
         let base = gen_fixtures::content_edit::build_image_page_document();
         let mut stale = first_image(&base);
-        stale.resource_xobject_name = "DoesNotExist".to_string();
+        stale.source = ImageSource::Resource("DoesNotExist".to_string());
         let to = Rect {
             x: 300.0,
             y: 400.0,
@@ -1041,7 +1041,7 @@ mod tests {
                 width: 200.0,
                 height: 40.0,
             },
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 

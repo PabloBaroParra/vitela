@@ -65,10 +65,13 @@ para que no confunda dos cosas que se llaman igual.
    `edit.rs::image_source_bytes` / `replace_image_source`. Un resampleador reusa eso; no
    escribe un segundo recorrido de XObjects.
 
-8. **Las inline images están fuera de alcance físico hoy.** El lexer las trata como una
-   operación opaca (`parse/lexer.rs:453`, `skip_inline_image`) y el intérprete no las
-   reporta como items — está fijado por el test `an_inline_image_is_not_reported_as_an_item`.
-   No es un olvido, es el contrato actual. Por eso quedan fuera de scope (abajo).
+8. **Las inline images siguen fuera de alcance, por una razón distinta a la de antes.**
+   Ya no son opacas: `parse/inline.rs` (B21 T-200) lee su diccionario y mide dónde
+   terminan sus muestras, y el intérprete las reporta como `ImageItem` con
+   `ImageSource::Inline`. Lo que este crate hace, en cambio, es **reemplazar objetos** —
+   y una inline image no es un objeto, sus bytes viven adentro del content stream. Por eso
+   `page_image_placements` las deja afuera a propósito y siguen fuera de scope (abajo):
+   resamplearlas sería reescribir el stream que las contiene, que es trabajo de `pdf-edit`.
 
 9. **Los documentos cifrados no reciben object streams.** Es decisión de lopdf, documentada
    en `writer.rs:28`: un documento cifrado se escribe con cada objeto serializado suelto.
@@ -444,8 +447,8 @@ para que no confunda dos cosas que se llaman igual.
       **La propiedad de seguridad, que no estaba en la ficha: el inventario se construye
       desde las COLOCACIONES, no desde `/Resources /XObject`.** Una imagen puede estar en
       el documento y ser invisible para este recorrido: escrita como **inline image**
-      (hecho 8, que el lexer saltea entera). No se vio su matriz, así que no se puede medir
-      su DPI. Un inventario leído del diccionario de recursos la listaría igual, sin
+      (hecho 8, que este crate no puede reemplazar porque no es un objeto). No hay objeto
+      que resamplear, así que no hay nada que inventariar. Un inventario leído del diccionario de recursos la listaría igual, sin
       colocación detrás — y la lectura natural de "sin colocación" es "nada la restringe",
       que es justo la lectura que resamplea una foto hasta la nada. Construido desde las
       colocaciones **no aparece**, y lo que no aparece no se toca. Fijado por

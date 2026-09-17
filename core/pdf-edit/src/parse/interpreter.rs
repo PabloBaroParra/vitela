@@ -14,17 +14,20 @@
 //! double-rotate every box in a shell that already handles `/Rotate` for
 //! annotations. That equivalence is pinned by a test.
 //!
-//! ## What v1 does not descend into
+//! ## Both ways of painting an image
 //!
-//! - **Inline images** (`BI`..`EI`). They have no resource name, so they do
-//!   not fit `ImageItem`, and their payload is passed through opaquely.
+//! A `Do` against an image XObject and an inline `BI`..`EI` run are the same
+//! item to everything downstream: both map the unit square through the CTM,
+//! so both produce an `ImageItem` with a real box. What differs is how the
+//! samples are reached — a named, shared object, or bytes inside this very
+//! span — and that is exactly what `ImageSource` carries.
 
 use super::lexer::{Operand, SpannedOperation};
 use super::matrix::Matrix;
 use crate::encoding::{resolve_font, FontInfo};
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object, ObjectId};
-use pdf_document::{ContentItemId, ImageItem, PageContent, PageId, TextRun};
+use pdf_document::{ContentItemId, ImageItem, ImageSource, PageContent, PageId, TextRun};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
@@ -101,12 +104,14 @@ pub struct LocatedTextRun {
     pub placement: TextPlacement,
 }
 
-/// An image plus where its `Do` is and what transform placed it.
+/// An image plus where the bytes that paint it are, and what transform
+/// placed it.
 #[derive(Debug, Clone)]
 pub struct LocatedImage {
     pub item: ImageItem,
     /// The image XObject the name resolved to, **in the scope that painted
-    /// it** — `None` when the resource is a stream written directly into the
+    /// it** — `None` for an inline image, which is not an object at all, and
+    /// `None` when the resource is a stream written directly into the
     /// dictionary, which has no id for a caller to address.
     ///
     /// Resolved here because here is the only place that can: a form's own
@@ -117,7 +122,8 @@ pub struct LocatedImage {
     pub stream_index: usize,
     /// The Form invocations traversed from the page to this stream.
     pub form_path: Vec<FormStep>,
-    /// The `/Name Do` operation.
+    /// What paints it: the `/Name Do`, or — for an inline image — every byte
+    /// from the `BI` to the `EI`, samples included.
     pub operation_span: Range<usize>,
     /// The CTM in effect when it was painted — the transform a move or
     /// resize has to correct.
@@ -481,27 +487,63 @@ fn apply_operation(
         "Do" => {
             if let Some(Operand::Name(name)) = operands.first() {
                 match context.xobjects.get(name) {
-                    Some(XObjectKind::Image(xobject)) => images.push(LocatedImage {
-                        item: ImageItem {
-                            id: ContentItemId(images.len() as u64),
-                            page: UNSTAMPED_PAGE,
-                            bbox: state.ctm.bounding_box(0.0, 0.0, 1.0, 1.0),
-                            resource_xobject_name: name.clone(),
-                        },
-                        xobject: *xobject,
-                        stream_index: context.stream_index,
-                        form_path: context.form_path.to_vec(),
-                        operation_span: operation.span.clone(),
-                        ctm_at_paint: state.ctm,
-                    }),
+                    Some(XObjectKind::Image(xobject)) => images.push(located_image(
+                        ImageSource::Resource(name.clone()),
+                        *xobject,
+                        operation,
+                        state,
+                        context,
+                        images.len(),
+                    )),
                     Some(XObjectKind::Form(object_id)) => return Some((name.clone(), *object_id)),
                     None => {}
                 }
             }
         }
+        // An inline image paints the same unit square a `Do` does, so it
+        // needs no separate geometry — only a different way of saying where
+        // its samples are, which is: right here, inside the span.
+        "BI" => images.push(located_image(
+            ImageSource::Inline,
+            None,
+            operation,
+            state,
+            context,
+            images.len(),
+        )),
         _ => {}
     }
     None
+}
+
+/// The item and its location, for either way of painting an image.
+///
+/// `index` is the id the item gets: a position among the images parsed so
+/// far, which is all a `ContentItemId` ever is (see
+/// [`crate::parse::read_page_content`]). Numbering both kinds in one
+/// sequence is deliberate — a shell hit-tests what is painted, and what
+/// painted it is not a reason to renumber.
+fn located_image(
+    source: ImageSource,
+    xobject: Option<ObjectId>,
+    operation: &SpannedOperation,
+    state: &State,
+    context: &Context<'_>,
+    index: usize,
+) -> LocatedImage {
+    LocatedImage {
+        item: ImageItem {
+            id: ContentItemId(index as u64),
+            page: UNSTAMPED_PAGE,
+            bbox: state.ctm.bounding_box(0.0, 0.0, 1.0, 1.0),
+            source,
+        },
+        xobject,
+        stream_index: context.stream_index,
+        form_path: context.form_path.to_vec(),
+        operation_span: operation.span.clone(),
+        ctm_at_paint: state.ctm,
+    }
 }
 
 fn translate_line(state: &mut State, operands: &[Operand]) {
@@ -912,7 +954,7 @@ mod tests {
 
         assert_eq!(content.images.len(), 1);
         let item = &content.images[0].item;
-        assert_eq!(item.resource_xobject_name, "Im1");
+        assert_eq!(item.resource_xobject_name(), Some("Im1"));
         assert!(close(item.bbox.x, 10.0) && close(item.bbox.y, 20.0));
         assert!(close(item.bbox.width, 100.0) && close(item.bbox.height, 50.0));
     }
@@ -1153,16 +1195,45 @@ mod tests {
         );
     }
 
+    /// An inline image paints into the same unit square a `Do` does, so it
+    /// gets the same kind of box — and its span covers every byte of the
+    /// `BI`..`EI`, which is what makes it editable at all.
     #[test]
-    fn an_inline_image_is_not_reported_as_an_item() {
+    fn an_inline_image_is_an_item_with_a_real_box() {
+        let source: &[u8] =
+            b"q 100 0 0 50 10 20 cm BI /W 2 /H 2 /CS /G /BPC 8 ID \x00\x01\x02\x03 EI Q";
+        let content = located(source, fixture::image_resources());
+
+        assert_eq!(content.images.len(), 1);
+        let image = &content.images[0];
+        assert_eq!(image.item.source, ImageSource::Inline);
+        assert_eq!(image.xobject, None, "there is no object to address");
+        assert!(close(image.item.bbox.x, 10.0) && close(image.item.bbox.y, 20.0));
+        assert!(close(image.item.bbox.width, 100.0) && close(image.item.bbox.height, 50.0));
+        let span = &content.streams[0].bytes[image.operation_span.clone()];
+        assert!(span.starts_with(b"BI") && span.ends_with(b"EI"));
+    }
+
+    /// Both kinds are numbered in one sequence: a shell hit-tests what is
+    /// painted, and how it was painted is not a reason to renumber.
+    #[test]
+    fn both_kinds_of_image_share_one_numbering() {
         let content = located(
-            b"q BI /W 2 /H 2 /CS /G /BPC 8 ID \x00\x01\x02\x03 EI Q",
+            b"q /Im1 Do BI /W 1 /H 1 /IM true ID \xff EI /Im1 Do Q",
             fixture::image_resources(),
         );
 
-        assert!(
-            content.images.is_empty(),
-            "an inline image has no resource name to target"
+        assert_eq!(
+            content
+                .images
+                .iter()
+                .map(|image| (image.item.id, image.item.source.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (ContentItemId(0), ImageSource::Resource("Im1".to_string())),
+                (ContentItemId(1), ImageSource::Inline),
+                (ContentItemId(2), ImageSource::Resource("Im1".to_string())),
+            ]
         );
     }
 

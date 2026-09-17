@@ -16,7 +16,7 @@
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
-use pdf_document::{Command, ContentItemId, ImageItem, Rect};
+use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, Rect};
 
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
@@ -658,21 +658,22 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
-        let resource_xobject_name =
-            match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
-                Ok(content) => model::unused_xobject_resource_name(content, &reserved),
-                Err(error) => {
-                    drop(state);
-                    viewer.status.set_text(&error.to_string());
-                    return;
-                }
-            };
+        let source = match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
+            Ok(content) => {
+                ImageSource::Resource(model::unused_xobject_resource_name(content, &reserved))
+            }
+            Err(error) => {
+                drop(state);
+                viewer.status.set_text(&error.to_string());
+                return;
+            }
+        };
 
         let item = ImageItem {
             id: ContentItemId(0),
             page: page_id,
             bbox,
-            resource_xobject_name,
+            source,
         };
 
         match command::validate_insert_image(probe, &item, &bytes) {
@@ -726,7 +727,7 @@ mod tests {
             id: ContentItemId(0),
             page: PageId(0),
             bbox: a_rect(100.0, 500.0, 200.0, 40.0),
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 

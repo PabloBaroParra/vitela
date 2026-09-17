@@ -266,7 +266,7 @@ pub(crate) fn unused_xobject_resource_name(content: &PageContent, reserved: &[St
         let taken = content
             .images
             .iter()
-            .any(|image| image.resource_xobject_name == candidate)
+            .any(|image| image.resource_xobject_name() == Some(candidate.as_str()))
             || reserved.contains(&candidate);
         if !taken {
             return candidate;
@@ -308,7 +308,7 @@ pub(crate) fn reserved_xobject_resource_names(pending: &EditLog) -> Vec<String> 
         .iter()
         .filter_map(|command| match command {
             Command::InsertImage { item, .. } | Command::RemoveImage { item, .. } => {
-                Some(item.resource_xobject_name.clone())
+                item.resource_xobject_name().map(str::to_string)
             }
             _ => None,
         })
@@ -338,7 +338,7 @@ mod tests {
             object: pdf_edit::page_object_id(base, PageId(0)).expect("page 0 exists"),
         }
     }
-    use pdf_document::{annotation::Rect, ContentItemId, FontKind};
+    use pdf_document::{annotation::Rect, ContentItemId, FontKind, ImageSource};
 
     fn image(id: u64, x: f64, y: f64, width: f64, height: f64) -> ImageItem {
         ImageItem {
@@ -350,7 +350,7 @@ mod tests {
                 width,
                 height,
             },
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 
@@ -451,15 +451,15 @@ mod tests {
 
         let found = image_at(&content, (110.0, 610.0)).expect("point is inside the target image");
         assert_eq!(
-            found.resource_xobject_name,
-            gen_fixtures::content_edit::TARGET_IMAGE_RESOURCE_NAME
+            found.resource_xobject_name(),
+            Some(gen_fixtures::content_edit::TARGET_IMAGE_RESOURCE_NAME)
         );
 
         // The control image, painted elsewhere on the page, must not be hit
         // by a click aimed at the target.
         assert_ne!(
-            found.resource_xobject_name,
-            gen_fixtures::content_edit::CONTROL_IMAGE_RESOURCE_NAME
+            found.resource_xobject_name(),
+            Some(gen_fixtures::content_edit::CONTROL_IMAGE_RESOURCE_NAME)
         );
     }
 
@@ -798,7 +798,7 @@ mod tests {
     #[test]
     fn a_taken_xobject_name_is_skipped_for_the_next_candidate() {
         let mut taken = image(1, 0.0, 0.0, 10.0, 10.0);
-        taken.resource_xobject_name = "XIns1".to_string();
+        taken.source = ImageSource::Resource("XIns1".to_string());
         let content = PageContent {
             text_runs: Vec::new(),
             images: vec![taken],
@@ -864,7 +864,7 @@ mod tests {
         let mut inserted_run = run(1, 0.0, 0.0, 10.0, 10.0);
         inserted_run.resource_font_name = "FIns1".to_string();
         let mut inserted_image = image(1, 0.0, 0.0, 10.0, 10.0);
-        inserted_image.resource_xobject_name = "XIns1".to_string();
+        inserted_image.source = ImageSource::Resource("XIns1".to_string());
 
         let mut document = pdf_document::Document::blank();
         let mut log = EditLog::new();
@@ -888,7 +888,7 @@ mod tests {
     #[test]
     fn a_queued_removal_still_reserves_its_xobject_name() {
         let mut removed = image(1, 0.0, 0.0, 10.0, 10.0);
-        removed.resource_xobject_name = "XIns1".to_string();
+        removed.source = ImageSource::Resource("XIns1".to_string());
 
         let mut document = pdf_document::Document::blank();
         let mut log = EditLog::new();

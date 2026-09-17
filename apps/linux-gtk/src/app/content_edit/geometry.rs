@@ -98,7 +98,7 @@ pub(crate) fn dragged_rect(bbox: Rect, drag: &ImageDrag) -> Option<Rect> {
 mod tests {
     use super::*;
     use crate::app::state::{AnnotationDragMode, Corner, ImageDrag};
-    use pdf_document::{ContentItemId, ImageItem, PageId};
+    use pdf_document::{ContentItemId, ImageItem, ImageSource, PageId};
 
     fn a_rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
         Rect {
@@ -114,7 +114,7 @@ mod tests {
             id: ContentItemId(0),
             page: PageId(0),
             bbox: a_rect(100.0, 500.0, 200.0, 40.0),
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 

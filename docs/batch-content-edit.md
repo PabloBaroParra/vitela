@@ -338,6 +338,35 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
 - [x] T-166 README: mover "Edit PDF" de `🔮 Planned` al roadmap activo; enlazar esta ficha
       (hecho en el mismo cambio que crea este documento).
 
+### Fase 7 — Inline images
+
+Las imágenes `BI`..`EI` dejan de ser un agujero del modelo. Ver la sección
+"Inline images: medir en vez de adivinar" más abajo para el porqué de cada decisión.
+
+- [x] T-200 `core/pdf-edit/src/parse/inline.rs`: parsear el diccionario del `BI` (pares
+      sueltos entre el operador y `ID`, no un `<< >>`) y **medir** dónde terminan las
+      muestras — `/L`, aritmética exacta cuando no hay filtro, y recién ahí el scan de
+      `EI`. El lexer deja de buscar `ID` a ojo, que un valor que deletree el marcador
+      (`/CS /IDSpot`) cortaba antes de tiempo.
+- [x] T-201 `ImageSource` en `pdf-document`: una imagen se pinta con `Do` contra un
+      recurso o inline, y el modelo lo dice en vez de cargar un nombre vacío. El
+      interpreter reporta las dos en una sola numeración; `page_image_placements` (el
+      inventario de compresión, T-193) deja afuera la inline porque no hay objeto que
+      tocar; la FFI la pasa como nombre opcional.
+- [x] T-202 Mover/redimensionar/borrar una inline image: las tres son reescrituras del
+      span, y las muestras se copian byte a byte. Lo que sí necesita un recurso —
+      reemplazar la fuente, leerla de vuelta para el undo, insertar una nueva — se rechaza
+      con `EditError::InlineImageNotSupported`, ruidoso y antes de tocar nada.
+- [x] T-203 `replace_image_source`/`image_source_bytes` para inline images: leer las
+      muestras del stream y devolverlas como PNG/JPEG para el `before` del undo, y
+      reescribir el `BI`..`EI` como XObject de página propia + `Do` al reemplazar (una
+      inline image no puede llevar `/SMask`, así que el reemplazo con alpha no puede
+      quedarse inline). La lectura pasa por `InlineImage::as_image_stream`, que expande el
+      diccionario abreviado al de un XObject y deja que el lector que ya existía haga el
+      resto — la inline no aprende un vocabulario nuevo, se traduce al que había.
+- [ ] T-204 (dep T-203) UI: que el shell Linux las trate como cualquier otra imagen, y
+      que el rechazo de lo que no se puede se vea como explicación, no como fallo.
+
 ## Tareas de UI (agregadas a la ficha de B8, docs/batches-b8-b13.md)
 
 - [x] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
@@ -437,11 +466,54 @@ Detalles que la implementación fija:
   de todo el documento que este crate no tiene. El prune de `pdf-compress` las junta a la
   salida.
 
+## Inline images: medir en vez de adivinar
+
+Una inline image lleva sus muestras **dentro** del content stream: `BI`, el diccionario,
+`ID`, binario crudo, `EI`. No hay objeto, no hay nombre, y hasta PDF 2.0 no hay largo
+declarado — así que encontrar dónde termina es todo el problema, y el scan del próximo
+`EI` que usan los visores es una heurística que se equivoca sobre sus propias muestras.
+
+`core/pdf-edit/src/parse/inline.rs` deriva el final y sólo adivina cuando no puede:
+
+1. `/L` (`/Length`), y sólo si efectivamente hay un `EI` ahí — un `/L` mentiroso no puede
+   cortar la imagen en silencio.
+2. Sin filtro, aritmética exacta: `ceil(W × BPC × componentes / 8) × H`. Cero heurística,
+   y es el caso común de las imágenes chiquitas para las que la codificación inline existe.
+3. Recién entonces, el scan de `EI` delimitado por whitespace — el largo de la salida de un
+   filtro no se deriva del diccionario, así que no hay nada mejor disponible.
+
+Un espacio de color nombrado contra `/Resources /ColorSpace` cae al scan a propósito: sus
+componentes se saben, pero no desde el stream, y un conteo equivocado daría un final
+confiadamente incorrecto.
+
+Lo que se puede hacer con una, y lo que no:
+
+| Operación | Inline | Por qué |
+| --- | --- | --- |
+| Mover / redimensionar / borrar | ✅ | Son reescrituras del span; las muestras se copian byte a byte, nunca se re-codifican |
+| Aparecer en `PageContent` con su caja | ✅ | Pinta el mismo cuadrado unitario que un `Do` |
+| Leerla de vuelta para el undo | ✅ | Su diccionario abreviado se traduce al de un XObject y lo lee el mismo lector (T-203) |
+| Reemplazar la fuente | ✅ — deja de ser inline | Las muestras *son* la operación: el reemplazo se registra como XObject de la página y el span pasa a ser un `Do` (T-203) |
+| Insertarla nueva | ❌ | Lo que se agrega es un `Do`, y un `Do` necesita un nombre |
+| Entrar al inventario de compresión (T-193) | ❌ | `pdf-compress` reemplaza objetos; acá no hay objeto |
+
+El modelo lo dice con `ImageSource::{Resource, Inline}` en vez de un nombre vacío, y a
+diferencia de `FontKind` **no** es `#[non_exhaustive]`: el formato define exactamente dos
+formas de pintar una imagen, y quien escribe tiene que manejar las dos.
+
+Reemplazar es la única edición que no puede dejarla inline, y no por comodidad: las
+muestras **son** la operación, así que reescribirlas es reescribir el `BI … EI` entero, y
+la codificación inline no puede cargar lo que produce nuestro encoder — no tiene `/SMask`,
+así que cualquier reemplazo con alpha saldría opaco, y sus abreviaturas de filtro no
+cubren la cadena con predictor PNG que escribe `insert::image_xobject`. Entonces el
+reemplazo se registra como XObject sobre el *scope que pintaba la inline* (página o copia
+propia del form), con un nombre recién acuñado porque la inline no traía ninguno, y el
+span pasa a ser un `/Nombre Do`. Ese `Do` pinta el mismo cuadrado unitario, bajo el mismo
+CTM, en el mismo punto del stream: cambia el dibujo y nada más.
+
+
 ## Otras limitaciones conocidas de Fase 2
 
-- **Inline images (`BI`..`EI`):** se atraviesan de forma opaca (el lexer se las traga
-  enteras para no desincronizarse con su payload binario) pero no son `ImageItem`: no tienen
-  nombre de recurso al que apuntar.
 - **Los forms no anidan más de `MAX_FORM_DEPTH` (32) niveles.** El descenso corta ciclos
   (un form que ya está activo no se vuelve a entrar) pero eso no acota una cadena larga de
   forms *distintos*: ~600 niveles desbordan la pila de un thread de test de 2 MiB, y un

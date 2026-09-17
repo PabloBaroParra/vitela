@@ -34,7 +34,7 @@ use crate::parse::{
     read_located_content, FormStep, LocatedContent, LocatedImage, LocatedTextRun, PageStream,
 };
 use lopdf::{Dictionary, Document, Object, ObjectId};
-use pdf_document::{ContentItemId, ImageItem, Rect, TextRun};
+use pdf_document::{ContentItemId, ImageItem, ImageSource, Rect, TextRun};
 
 /// Replaces the text a run shows, keeping its font, size and position.
 ///
@@ -413,19 +413,25 @@ pub fn remove_image(
     splice(document, scope.stream_object, &stream, span, &[])
 }
 
-/// Swaps the bytes behind an image, keeping its resource name and its place
-/// on the page. The content stream is not touched at all.
+/// Swaps the bytes behind an image, keeping its place on the page.
 ///
 /// The replacement is registered in a page-owned copy of `/Resources`, so
 /// pages that share the original XObject or resource dictionary stay
 /// unchanged. An image painted inside a Form XObject is registered on a
 /// page-owned copy of that form for the same reason.
+///
+/// An image painted with `Do` keeps its resource name and the content
+/// stream is not touched at all. An inline image has no resource to swap,
+/// so it stops being inline: see [`replace_inline_image_source`].
 pub fn replace_image_source(
     document: &mut Document,
     page_object: ObjectId,
     item: &ImageItem,
     bytes: &[u8],
 ) -> Result<(), EditError> {
+    let ImageSource::Resource(name) = &item.source else {
+        return replace_inline_image_source(document, page_object, item, bytes);
+    };
     let located = read_located_content(document, page_object)?;
     let target = resolve_image(&located, item)?;
     let form_path = target.form_path.clone();
@@ -434,7 +440,7 @@ pub fn replace_image_source(
     // leave a half-updated resource behind.
     let replacement = crate::insert::image_xobject(bytes)?;
     let resources = scope_resources(document, page_object, &form_path);
-    image_xobject_id_in(document, &resources, &item.resource_xobject_name)?;
+    image_xobject_id_in(document, &resources, name)?;
 
     // Copying the path is the last thing that can fail before anything is
     // added, so the refusals above still leave the document as it was.
@@ -456,9 +462,93 @@ pub fn replace_image_source(
         document,
         owner,
         b"XObject",
-        &item.resource_xobject_name,
+        name,
         Object::Reference(image_id),
     )
+}
+
+/// Swaps the bytes behind an inline image — which means it stops being one.
+///
+/// There is nowhere inside a `BI … ID … EI` to put the replacement: the
+/// samples are the operation, so rewriting them is rewriting the whole
+/// operation, and the encoding cannot carry what this crate's own encoder
+/// produces. An inline image has no `/SMask`, so anything with alpha would
+/// come out opaque, and its filter abbreviations do not cover the PNG
+/// predictor chain [`crate::insert::image_xobject`] writes.
+///
+/// So the replacement is registered as an ordinary image XObject on the
+/// scope that painted the inline one, and the `BI … EI` span is replaced by
+/// a `Do` on it. That `Do` paints the same unit square the inline image
+/// painted, under the same CTM, at the same point in the stream — the
+/// picture changes and nothing else does.
+///
+/// The name is minted here rather than taken from the caller: an inline
+/// image brought none, and a name already in the table maps to an object
+/// other operators paint.
+fn replace_inline_image_source(
+    document: &mut Document,
+    page_object: ObjectId,
+    item: &ImageItem,
+    bytes: &[u8],
+) -> Result<(), EditError> {
+    let located = read_located_content(document, page_object)?;
+    let target = resolve_image(&located, item)?;
+    let form_path = target.form_path.clone();
+    let span = target.operation_span.clone();
+    let stream = scope_stream(document, &located, &form_path, target.stream_index)?;
+
+    // Decode before registering any objects: bad bytes must not leave a
+    // half-updated page behind.
+    let replacement = crate::insert::image_xobject(bytes)?;
+    let resources = scope_resources(document, page_object, &form_path);
+    let name = free_xobject_name(document, &resources);
+
+    // Copying the path is the last thing that can fail before anything is
+    // added, so the refusals above still leave the document as it was.
+    let scope = own_scope(document, page_object, &form_path, &stream)?;
+
+    let mut image = replacement.image;
+    if let Some(smask) = replacement.smask {
+        let smask_id = document.add_object(smask);
+        image.dict.set("SMask", Object::Reference(smask_id));
+    }
+    let image_id = document.add_object(image);
+    crate::insert::add_resource(
+        document,
+        scope.owner,
+        b"XObject",
+        &name,
+        Object::Reference(image_id),
+    )?;
+
+    splice(
+        document,
+        scope.stream_object,
+        &stream,
+        span,
+        format!("/{name} Do").as_bytes(),
+    )
+}
+
+/// A `/XObject` key nothing in this scope resolves.
+///
+/// Registering under a name that is already there does not add a picture:
+/// it repaints every operator in scope that names it.
+fn free_xobject_name(document: &Document, resources: &Dictionary) -> String {
+    let taken = resources
+        .get(b"XObject")
+        .ok()
+        .and_then(|object| dereferenced_dict(document, object))
+        .unwrap_or_default();
+
+    let mut ordinal = 0u32;
+    loop {
+        let candidate = format!("ImInline{ordinal}");
+        if !taken.has(candidate.as_bytes()) {
+            return candidate;
+        }
+        ordinal += 1;
+    }
 }
 
 /// Reads back the bytes behind an existing image, re-encoded as PNG when the
@@ -485,6 +575,16 @@ pub fn replace_image_source(
 /// `/Decode` array that remaps every sample, a `/Mask`'s transparency — has
 /// to be refused here, not silently returned as a `before` that restores a
 /// visibly different image.
+///
+/// An inline image is read through exactly the same rules, by reading its
+/// `BI` dictionary as the image XObject dictionary it abbreviates (see
+/// [`crate::parse::inline::InlineImage::as_image_stream`]). It has no
+/// `/SMask` to mismatch, and it very often has no filter at all, so in
+/// practice it is the *easier* of the two to read back — what refuses is
+/// what would refuse for an XObject too: a colour space that is not 8-bit
+/// `DeviceGray`/`DeviceRGB` (including one that names a page resource,
+/// which this cannot resolve), a filter outside the supported set, or a
+/// `/D` array.
 pub fn image_source_bytes(
     document: &Document,
     page_object: ObjectId,
@@ -493,15 +593,35 @@ pub fn image_source_bytes(
     let located = read_located_content(document, page_object)?;
     let target = resolve_image(&located, item)?;
 
-    let resources = scope_resources(document, page_object, &target.form_path);
-    let object_id = image_xobject_id_in(document, &resources, &item.resource_xobject_name)?;
-    let stream = document.get_object(object_id)?.as_stream()?;
-    decode_image_source(document, stream, &item.resource_xobject_name)
+    match &item.source {
+        ImageSource::Resource(name) => {
+            let resources = scope_resources(document, page_object, &target.form_path);
+            let object_id = image_xobject_id_in(document, &resources, name)?;
+            let stream = document.get_object(object_id)?.as_stream()?;
+            decode_image_source(document, stream, name)
+        }
+        // The samples are in the content stream rather than in an object,
+        // and that is the only difference that matters here: read as the
+        // XObject the same dictionary describes, an inline image is exactly
+        // as recoverable — or as unrecoverable — as any other.
+        ImageSource::Inline => {
+            let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
+            let inline = crate::parse::inline::parse(&stream.bytes, target.operation_span.start)?;
+            let as_xobject = inline
+                .as_image_stream(&stream.bytes)
+                .ok_or_else(|| unrecoverable(INLINE))?;
+            decode_image_source(document, &as_xobject, INLINE)
+        }
+    }
 }
 
-fn unrecoverable(resource_xobject_name: &str) -> EditError {
+/// How the refusal names an image that has no name: the label
+/// [`EditError::ImageSourceNotRecoverable`] carries for an inline image.
+const INLINE: &str = "stored inline";
+
+fn unrecoverable(image: &str) -> EditError {
     EditError::ImageSourceNotRecoverable {
-        resource_xobject_name: resource_xobject_name.to_string(),
+        image: image.to_string(),
     }
 }
 
@@ -527,7 +647,7 @@ fn has_unreadable_sample_semantics(stream: &lopdf::Stream) -> bool {
 fn decode_image_source(
     document: &Document,
     stream: &lopdf::Stream,
-    resource_xobject_name: &str,
+    image: &str,
 ) -> Result<Vec<u8>, EditError> {
     match stream.filters().ok().as_deref() {
         // Already an encoded JPEG file byte for byte — `image` decodes it
@@ -540,17 +660,16 @@ fn decode_image_source(
             // file's channels and removes it when there are none, so undoing
             // with these bytes would restore the image opaque.
             if stream.dict.has(b"SMask") || has_unreadable_sample_semantics(stream) {
-                return Err(unrecoverable(resource_xobject_name));
+                return Err(unrecoverable(image));
             }
-            image::load_from_memory(&stream.content)
-                .map_err(|_| unrecoverable(resource_xobject_name))?;
+            image::load_from_memory(&stream.content).map_err(|_| unrecoverable(image))?;
             Ok(stream.content.clone())
         }
         Some(filters) if filters.iter().all(|filter| is_stream_filter(filter)) => {
-            encode_raw_samples(document, stream, resource_xobject_name)
+            encode_raw_samples(document, stream, image)
         }
-        None => encode_raw_samples(document, stream, resource_xobject_name),
-        _ => Err(unrecoverable(resource_xobject_name)),
+        None => encode_raw_samples(document, stream, image),
+        _ => Err(unrecoverable(image)),
     }
 }
 
@@ -575,9 +694,9 @@ fn resolved_name(document: &Document, object: &Object) -> Option<Vec<u8>> {
 fn encode_raw_samples(
     document: &Document,
     stream: &lopdf::Stream,
-    resource_xobject_name: &str,
+    image: &str,
 ) -> Result<Vec<u8>, EditError> {
-    let refuse = || unrecoverable(resource_xobject_name);
+    let refuse = || unrecoverable(image);
 
     // Both planes come back already proven to hold exactly
     // `width * height * components` samples, so the zips below cannot
@@ -712,11 +831,18 @@ fn decode_plane(
 }
 
 /// The shared body of move and resize: leave the placement that is already
-/// in the stream alone and correct it locally at the `Do`.
+/// in the stream alone and correct it locally at the paint operation.
 ///
 /// Rewriting the preceding `cm` instead would be shorter, and wrong whenever
 /// that `cm` is composed from several transforms or shared with another
 /// operator — a `q`/`Q` pair around the correction is unconditionally safe.
+///
+/// Both kinds of image move the same way, because both paint the same unit
+/// square: what goes back inside the `q`/`Q` is a `Do` for an XObject, and
+/// the image's **own bytes, verbatim** for an inline one. Re-encoding those
+/// bytes is not on the table — they are raw samples whose length the
+/// dictionary declares, and a writer that reformatted them would be writing
+/// a different image.
 fn place_image(
     document: &mut Document,
     page_object: ObjectId,
@@ -736,17 +862,25 @@ fn place_image(
         })?;
     let correction = Matrix::placing_unit_square(to).then(inverse);
 
-    let replacement = format!(
-        "q {} {} {} {} {} {} cm /{} Do Q",
+    let mut replacement = format!(
+        "q {} {} {} {} {} {} cm ",
         format_number(correction.a),
         format_number(correction.b),
         format_number(correction.c),
         format_number(correction.d),
         format_number(correction.e),
         format_number(correction.f),
-        item.resource_xobject_name,
     )
     .into_bytes();
+    match &item.source {
+        ImageSource::Resource(name) => {
+            replacement.extend_from_slice(format!("/{name} Do").as_bytes())
+        }
+        ImageSource::Inline => {
+            replacement.extend_from_slice(&stream.bytes[target.operation_span.clone()])
+        }
+    }
+    replacement.extend_from_slice(b" Q");
 
     let span = target.operation_span.clone();
     let scope = own_scope(document, page_object, &target.form_path, &stream)?;
@@ -835,8 +969,14 @@ fn same_run(parsed: &TextRun, held: &TextRun) -> bool {
         && same_rect(parsed.bbox, held.bbox)
 }
 
+/// An image's identity is what it paints and where.
+///
+/// For an inline image "what it paints" degenerates to *inline*, because the
+/// samples are not named by anything — two of them at the same box are
+/// genuinely indistinguishable from out here, which is precisely the case
+/// [`resolve`] refuses rather than guesses at.
 fn same_image(parsed: &ImageItem, held: &ImageItem) -> bool {
-    parsed.resource_xobject_name == held.resource_xobject_name && same_rect(parsed.bbox, held.bbox)
+    parsed.source == held.source && same_rect(parsed.bbox, held.bbox)
 }
 
 /// Boxes are compared with a tolerance, not exactly: an earlier edit in the
@@ -2266,6 +2406,191 @@ mod tests {
 
     // --- remove_image -----------------------------------------------------
 
+    // --- inline images ----------------------------------------------------
+
+    /// A 2×2 grey inline image whose samples spell ` EI ` — the trap that
+    /// tells a byte scan apart from a reader that measures. Everything an
+    /// edit does to it has to leave those four bytes untouched.
+    const INLINE_TRAP: &[u8] =
+        b"q 100 0 0 50 10 20 cm BI /W 2 /H 2 /CS /G /BPC 8 ID \x20EI\x20 EI Q";
+
+    #[test]
+    fn moving_an_inline_image_carries_its_samples_along() {
+        let (mut document, page) = image_document(INLINE_TRAP);
+        let target = image_of(&document, 0);
+        assert_eq!(target.source, ImageSource::Inline);
+        let destination = Rect {
+            x: 300.0,
+            y: 400.0,
+            width: 100.0,
+            height: 50.0,
+        };
+
+        move_image(&mut document, page, &target, destination).expect("movable");
+
+        let moved = image_of(&document, 0);
+        assert_eq!(moved.source, ImageSource::Inline);
+        assert!((moved.bbox.x - 300.0).abs() < 1e-6 && (moved.bbox.y - 400.0).abs() < 1e-6);
+        assert!((moved.bbox.width - 100.0).abs() < 1e-6 && (moved.bbox.height - 50.0).abs() < 1e-6);
+        let after = stream_bytes(&document);
+        assert_eq!(
+            after
+                .windows(10)
+                .filter(|run| *run == b"ID \x20EI\x20 EI")
+                .count(),
+            1,
+            "the samples must be copied over once, verbatim: {}",
+            String::from_utf8_lossy(&after)
+        );
+    }
+
+    #[test]
+    fn removing_an_inline_image_takes_its_samples_with_it() {
+        let (mut document, page) = image_document(INLINE_TRAP);
+        let target = image_of(&document, 0);
+
+        remove_image(&mut document, page, &target).expect("removable");
+
+        assert!(content_of(&document).images.is_empty());
+        let after = stream_bytes(&document);
+        assert!(
+            !after.windows(2).any(|pair| pair == b"BI"),
+            "nothing of the image may be left behind: {}",
+            String::from_utf8_lossy(&after)
+        );
+    }
+
+    /// The samples come back as the picture they are, `EI` bytes and all —
+    /// the whole point of measuring the image instead of scanning for its
+    /// terminator.
+    #[test]
+    fn an_inline_images_source_reads_back_as_its_own_pixels() {
+        let (document, page) = image_document(INLINE_TRAP);
+        let target = image_of(&document, 0);
+
+        let bytes = image_source_bytes(&document, page, &target).expect("readable");
+
+        let decoded = image::load_from_memory(&bytes).expect("a png");
+        assert_eq!((decoded.width(), decoded.height()), (2, 2));
+        assert_eq!(
+            decoded.to_luma8().into_raw(),
+            b" EI ".to_vec(),
+            "the four samples are the four bytes the stream holds"
+        );
+    }
+
+    /// An inline image whose colour space names a page resource is not
+    /// readable from the stream alone, and the refusal says so with the
+    /// label an image with no name gets.
+    #[test]
+    fn an_unreadable_inline_image_is_refused_by_name() {
+        let (document, page) =
+            image_document(b"q 10 0 0 10 0 0 cm BI /W 1 /H 1 /CS /Cs1 /BPC 8 /L 3 ID abc EI Q");
+        let target = image_of(&document, 0);
+
+        let error = image_source_bytes(&document, page, &target).expect_err("no component count");
+
+        assert_eq!(
+            error,
+            EditError::ImageSourceNotRecoverable {
+                image: "stored inline".to_string()
+            }
+        );
+    }
+
+    /// Replacing is the one edit that cannot keep the image inline: the
+    /// samples *are* the operation, so the replacement becomes a resource
+    /// and the span becomes a `Do` on it.
+    #[test]
+    fn replacing_an_inline_images_source_turns_it_into_a_resource() {
+        let (mut document, page) = image_document(INLINE_TRAP);
+        let target = image_of(&document, 0);
+
+        replace_image_source(&mut document, page, &target, &png_bytes(8, 4, false))
+            .expect("decodable png");
+
+        let after = stream_bytes(&document);
+        assert!(
+            !after.windows(2).any(|pair| pair == b"BI"),
+            "no inline image may be left behind: {}",
+            String::from_utf8_lossy(&after)
+        );
+        let painted = image_of(&document, 0);
+        assert_eq!(
+            painted.source,
+            ImageSource::Resource("ImInline0".to_string())
+        );
+        assert_eq!(painted.bbox, target.bbox, "the picture moved, nothing else");
+
+        let xobject_id = image_xobject_id(&document, page, "ImInline0").expect("registered");
+        let xobject = document
+            .get_object(xobject_id)
+            .expect("object")
+            .as_stream()
+            .expect("stream");
+        assert_eq!(
+            xobject.dict.get(b"Width").expect("width"),
+            &Object::Integer(8)
+        );
+    }
+
+    /// The minted name never lands on one the scope already resolves —
+    /// overwriting it would repaint every other operator that names it.
+    #[test]
+    fn a_replaced_inline_image_does_not_take_a_name_already_in_use() {
+        let (mut document, page) =
+            image_document(b"q 100 0 0 50 10 20 cm BI /W 2 /H 2 /CS /G /BPC 8 ID \x20EI\x20 EI Q");
+        crate::insert::add_resource(&mut document, page, b"XObject", "ImInline0", Object::Null)
+            .expect("registered");
+        let target = image_of(&document, 0);
+
+        replace_image_source(&mut document, page, &target, &png_bytes(8, 4, false))
+            .expect("decodable png");
+
+        assert_eq!(
+            image_of(&document, 0).source,
+            ImageSource::Resource("ImInline1".to_string())
+        );
+    }
+
+    #[test]
+    fn undecodable_bytes_leave_an_inline_image_alone() {
+        let (mut document, page) = image_document(INLINE_TRAP);
+        let target = image_of(&document, 0);
+
+        let error = replace_image_source(&mut document, page, &target, b"not an image")
+            .expect_err("garbage must not be written");
+
+        assert!(matches!(error, EditError::InvalidImage(_)));
+        assert_eq!(stream_bytes(&document), INLINE_TRAP);
+    }
+
+    #[test]
+    fn inserting_an_image_that_claims_to_be_inline_is_refused() {
+        let (mut document, page) = image_document(b"q Q");
+        let item = ImageItem {
+            id: ContentItemId(0),
+            page: PageId(0),
+            bbox: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            source: ImageSource::Inline,
+        };
+
+        let error = crate::insert::insert_image(&mut document, page, &item, None)
+            .expect_err("a Do needs a name");
+
+        assert_eq!(
+            error,
+            EditError::InlineImageNotSupported {
+                operation: "inserting an image"
+            }
+        );
+    }
+
     #[test]
     fn removing_an_image_drops_it_from_the_page() {
         let (mut document, page) = image_document(b"q 100 0 0 50 10 20 cm /Im1 Do Q");
@@ -2484,8 +2809,12 @@ mod tests {
         key: &str,
         value: Object,
     ) {
-        let object_id = image_xobject_id(document, page, &target.resource_xobject_name)
-            .expect("Im1 is an indirect object");
+        let object_id = image_xobject_id(
+            document,
+            page,
+            target.resource_xobject_name().expect("a resource image"),
+        )
+        .expect("Im1 is an indirect object");
         document
             .get_object_mut(object_id)
             .expect("image xobject")

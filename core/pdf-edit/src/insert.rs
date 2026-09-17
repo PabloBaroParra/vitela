@@ -141,17 +141,29 @@ pub fn insert_text_run(
 /// it, and for every other page sharing the dictionary. So a `source` whose
 /// name is taken is refused with [`EditError::ResourceNameInUse`]; painting
 /// the image that is already registered is what `source: None` is for.
+///
+/// An item whose source is `ImageSource::Inline` is refused: what this
+/// appends is a `Do`, and a `Do` needs a name. Writing new content inline
+/// would be a different feature, not a detail of this one — inline encoding
+/// exists to save a few bytes on tiny images, and it cannot carry the
+/// `/SMask` this crate's own encoder produces for anything with alpha.
 pub fn insert_image(
     document: &mut Document,
     page_object: ObjectId,
     item: &ImageItem,
     source: Option<&[u8]>,
 ) -> Result<(), EditError> {
+    let name = item
+        .resource_xobject_name()
+        .ok_or(EditError::InlineImageNotSupported {
+            operation: "inserting an image",
+        })?;
+
     if let Some(bytes) = source {
-        if xobject_resource(document, page_object, &item.resource_xobject_name).is_some() {
+        if xobject_resource(document, page_object, name).is_some() {
             return Err(EditError::ResourceNameInUse {
                 category: "XObject".to_string(),
-                name: item.resource_xobject_name.clone(),
+                name: name.to_string(),
             });
         }
 
@@ -169,18 +181,14 @@ pub fn insert_image(
             document,
             page_object,
             b"XObject",
-            &item.resource_xobject_name,
+            name,
             Object::Reference(image_id),
         )?;
     }
 
     let correction = correction_matrix(document, page_object)?;
     let placement = Matrix::placing_unit_square(item.bbox).then(correction);
-    let operators = format!(
-        "\nq {} /{} Do Q\n",
-        matrix_operator(placement),
-        item.resource_xobject_name,
-    );
+    let operators = format!("\nq {} /{} Do Q\n", matrix_operator(placement), name);
 
     append_to_content(document, page_object, operators.as_bytes())
 }
@@ -452,7 +460,7 @@ mod tests {
     use super::*;
     use crate::fixture;
     use crate::parse::read_page_content;
-    use pdf_document::{ContentItemId, FontKind, PageContent, PageId, Rect};
+    use pdf_document::{ContentItemId, FontKind, ImageSource, PageContent, PageId, Rect};
 
     fn content_of(document: &Document) -> PageContent {
         read_page_content(document, PageId(0)).expect("readable page")
@@ -479,7 +487,7 @@ mod tests {
             id: ContentItemId(0),
             page: PageId(0),
             bbox,
-            resource_xobject_name: name.to_string(),
+            source: ImageSource::Resource(name.to_string()),
         }
     }
 
@@ -668,7 +676,7 @@ mod tests {
 
         let images = content_of(&document).images;
         assert_eq!(images.len(), 1);
-        assert_eq!(images[0].resource_xobject_name, "ImNew");
+        assert_eq!(images[0].resource_xobject_name(), Some("ImNew"));
         assert_eq!(images[0].bbox, target);
     }
 

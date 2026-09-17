@@ -10,6 +10,7 @@
 mod filter;
 mod fonts;
 pub(crate) use filter::encode_flate;
+pub mod inline;
 pub mod interpreter;
 pub mod lexer;
 pub mod matrix;
