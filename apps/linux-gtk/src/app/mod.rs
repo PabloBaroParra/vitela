@@ -679,28 +679,48 @@ fn connect_standard_shortcuts(
 /// every open and every teardown of an editor in `content_edit::editor`.
 pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
-    let (image_enabled, text_enabled) = state.session.as_ref().map_or((false, false), |session| {
-        if session.content_edit_access.refusal().is_some() {
-            return (false, false);
-        }
-        (
-            session.selected_image.is_some(),
-            // An insertion's blank box is not a target: there is no run on
-            // the page to remove, and nothing recorded for it to undo.
-            session
-                .content_editor
-                .as_ref()
-                .is_some_and(|editor| !editor.is_insertion),
-        )
-    });
+    let (image_enabled, replace_enabled, text_enabled) =
+        state
+            .session
+            .as_ref()
+            .map_or((false, false, false), |session| {
+                if session.content_edit_access.refusal().is_some() {
+                    return (false, false, false);
+                }
+                (
+                    session.selected_image.is_some(),
+                    // Replace is gated one notch tighter than its three
+                    // siblings (T-204): it is the only image operation that
+                    // has to read the current picture back, and an image
+                    // whose encoding `pdf-edit` cannot read has no `before`
+                    // for undo to restore. `SelectedImage::replace_refused`
+                    // carries that answer once it is known.
+                    session
+                        .selected_image
+                        .as_ref()
+                        .is_some_and(|selected| !selected.replace_refused),
+                    // An insertion's blank box is not a target: there is no run on
+                    // the page to remove, and nothing recorded for it to undo.
+                    session
+                        .content_editor
+                        .as_ref()
+                        .is_some_and(|editor| !editor.is_insertion),
+                )
+            });
     drop(state);
     viewer.delete_image_button.set_sensitive(image_enabled);
-    viewer.replace_image_button.set_sensitive(image_enabled);
-    viewer.edit_panel.image_hint.set_text(if image_enabled {
-        content_edit::panel::IMAGE_SELECTED
-    } else {
-        content_edit::panel::NO_IMAGE_SELECTED
-    });
+    viewer.replace_image_button.set_sensitive(replace_enabled);
+    viewer
+        .edit_panel
+        .image_hint
+        .set_text(match (image_enabled, replace_enabled) {
+            (false, _) => content_edit::panel::NO_IMAGE_SELECTED,
+            (true, true) => content_edit::panel::IMAGE_SELECTED,
+            // Selected, but the one operation the card's own buttons lead
+            // with is off. Saying why here is what keeps a dead button from
+            // reading as a broken one.
+            (true, false) => content_edit::panel::IMAGE_SELECTED_NO_REPLACE,
+        });
     viewer.delete_text_button.set_sensitive(text_enabled);
     viewer.edit_panel.text_hint.set_text(if text_enabled {
         content_edit::panel::TEXT_SELECTED

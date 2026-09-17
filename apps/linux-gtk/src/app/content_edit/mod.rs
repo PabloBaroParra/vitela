@@ -704,4 +704,154 @@ mod tests {
 
         built.window.close();
     }
+
+    /// Installs a session whose selected image either can or cannot be
+    /// replaced, then lets the one function that drives this card answer.
+    fn built_with_selected_image(replace_refused: bool) -> crate::app::BuiltUi {
+        use crate::app::state::SelectedImage;
+        use crate::app::test_fixtures::model_session;
+        use pdf_document::{ContentItemId, ImageItem, ImageSource, PageId, Rect};
+
+        let built = built_ui();
+        let mut session = model_session(pdf_document::Document::blank());
+        session.selected_image = Some(SelectedImage {
+            page_index: 0,
+            item: ImageItem {
+                id: ContentItemId(1),
+                page: PageId(0),
+                bbox: Rect {
+                    x: 100.0,
+                    y: 600.0,
+                    width: 80.0,
+                    height: 40.0,
+                },
+                // Deliberately the *named* kind: what decides whether an
+                // image can be replaced is its encoding, never whether its
+                // samples sit in an object or inline in the stream, and a
+                // fixture that used an inline image here would let a
+                // packaging-based gate pass this test by accident.
+                source: ImageSource::Resource("Im1".to_string()),
+            },
+            replace_refused,
+        });
+        built.viewer.state.borrow_mut().session = Some(session);
+        crate::app::update_content_edit_controls(&built.viewer);
+        built
+    }
+
+    /// The ordinary case, pinned as the baseline the next test departs from.
+    #[gtk::test]
+    fn gtk_ui_a_selected_image_offers_both_of_its_buttons() {
+        let built = built_with_selected_image(false);
+
+        assert!(built.viewer.delete_image_button.is_sensitive());
+        assert!(built.viewer.replace_image_button.is_sensitive());
+        assert_eq!(
+            built.viewer.edit_panel.image_hint.text(),
+            panel::IMAGE_SELECTED
+        );
+
+        built.window.close();
+    }
+
+    /// T-204's whole point, as a gate: an image this shell cannot replace
+    /// loses *that one button* and gains a sentence saying why, while Delete
+    /// — which never reads the picture back — stays live beside it.
+    ///
+    /// A refusal that left both buttons armed would be a failure waiting to
+    /// happen on the next click; one that disarmed both would be a lie about
+    /// what is possible. The card has to say exactly this much.
+    #[gtk::test]
+    fn gtk_ui_an_unreplaceable_image_loses_replace_and_explains_it() {
+        let built = built_with_selected_image(true);
+
+        assert!(
+            built.viewer.delete_image_button.is_sensitive(),
+            "deleting never reads the image back, so it must stay available"
+        );
+        assert!(!built.viewer.replace_image_button.is_sensitive());
+        assert_eq!(
+            built.viewer.edit_panel.image_hint.text(),
+            panel::IMAGE_SELECTED_NO_REPLACE
+        );
+
+        built.window.close();
+    }
+
+    /// The join the two tests above take as given, over a real document:
+    /// clicking Replace on an image whose bytes cannot be read back records
+    /// the refusal and re-states the card — *without* having opened a file
+    /// picker first.
+    ///
+    /// That last part is the whole of T-204's second half, and it is why
+    /// this test drives `replace_selected` rather than setting the flag by
+    /// hand: a dialog that opens and then refuses what the user picked is
+    /// the same answer delivered as a failure. The assertion that survives a
+    /// regression is the pair — the flag latched *and* the button dead —
+    /// because reaching the picker would have left both untouched.
+    #[gtk::test]
+    fn gtk_ui_replacing_an_unreadable_image_refuses_before_the_file_picker() {
+        use crate::app::state::{SaveBacking, SelectedImage};
+        use crate::app::test_fixtures::model_session;
+        use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
+
+        let built = built_ui();
+        let base = gen_fixtures::content_edit::build_unreadable_inline_image_page_document();
+        let item = pdf_edit::read_page_content(&base, PageId(0))
+            .expect("the fixture page parses")
+            .images
+            .remove(0);
+
+        let mut session = model_session(Document::with_pages(vec![Page::base(
+            PageId(0),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )]));
+        session.save_backing = Some(SaveBacking {
+            base: pdf_manip::LopdfDocument::from_lopdf(base),
+            original_bytes: Vec::new(),
+            password: None,
+        });
+        session.selected_image = Some(SelectedImage {
+            page_index: 0,
+            item,
+            replace_refused: false,
+        });
+        built.viewer.state.borrow_mut().session = Some(session);
+        crate::app::update_content_edit_controls(&built.viewer);
+
+        // Nothing has asked yet, so nothing is refused yet — the button has
+        // to be live going in, or this test would pass on a shell that
+        // greyed it out for the wrong reason.
+        assert!(built.viewer.replace_image_button.is_sensitive());
+
+        image::replace_selected(&built.window, &built.viewer);
+
+        {
+            let state = built.viewer.state.borrow();
+            let selected = state
+                .session
+                .as_ref()
+                .and_then(|session| session.selected_image.as_ref())
+                .expect("a refusal leaves the selection exactly as it was");
+            assert!(
+                selected.replace_refused,
+                "the refusal was reported but not remembered, so the next click repeats it"
+            );
+        }
+        assert!(!built.viewer.replace_image_button.is_sensitive());
+        assert_eq!(
+            built.viewer.edit_panel.image_hint.text(),
+            panel::IMAGE_SELECTED_NO_REPLACE
+        );
+        assert!(
+            built.viewer.delete_image_button.is_sensitive(),
+            "only replacing reads the picture back — the other operations are unaffected"
+        );
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
+    }
 }

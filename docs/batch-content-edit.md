@@ -364,8 +364,38 @@ Las imágenes `BI`..`EI` dejan de ser un agujero del modelo. Ver la sección
       quedarse inline). La lectura pasa por `InlineImage::as_image_stream`, que expande el
       diccionario abreviado al de un XObject y deja que el lector que ya existía haga el
       resto — la inline no aprende un vocabulario nuevo, se traduce al que había.
-- [ ] T-204 (dep T-203) UI: que el shell Linux las trate como cualquier otra imagen, y
+- [x] T-204 (dep T-203) UI: que el shell Linux las trate como cualquier otra imagen, y
       que el rechazo de lo que no se puede se vea como explicación, no como fallo.
+      **(2026-09-17 — completo.)** La primera mitad ya era cierta *por construcción*:
+      ninguna de las cinco operaciones de imagen del shell (seleccionar, mover,
+      redimensionar, borrar, reemplazar) lee jamás el nombre del recurso — hit-test y
+      drag trabajan sobre el `bbox`, y las validaciones llaman a `pdf-edit` con el
+      `ImageItem` entero. Lo que no existía era una *garantía*: cero tests del shell
+      sobre una página con inline image, así que la uniformidad vivía en el comentario
+      de un módulo. Ahora es un gate — `build_inline_image_page_document` pinta una
+      inline y un XObject en la misma página, y los tests corren las cinco validaciones
+      contra las dos y comparan resultados.
+      **El rechazo.** El único alcanzable desde el shell es
+      `EditError::ImageSourceNotRecoverable` al leer los bytes actuales para el `before`
+      del undo — y no es una propiedad de la inline sino de la *codificación* (una
+      `Indexed`, un `/Decode`, 16 bits, un JPEG con `/SMask`; en una inline, un `/CS`
+      que nombra un recurso de página). Aparecía **después** del file picker, como la
+      frase cruda del core en la barra de estado: al usuario se le pedía elegir un
+      archivo de reemplazo para recién entonces decirle que ningún reemplazo era
+      posible. Eso es un rechazo entregado como fallo. Ahora la lectura se hace *antes*
+      de abrir el diálogo (`image::replace_readback_refusal`), el resultado se recuerda
+      en `SelectedImage::replace_refused`, y el botón "Replace image" queda insensible
+      con `panel::IMAGE_SELECTED_NO_REPLACE` al lado explicando por qué — mientras
+      Delete, mover y redimensionar siguen vivos, porque ninguno de los tres lee la
+      imagen de vuelta.
+      **Qué se recuerda y qué no**: `command::is_unreplaceable` acepta ese error y
+      ninguno más. Un archivo de reemplazo que no decodifica, un item viejo o una imagen
+      con una edición ya encolada son respuestas sobre *este intento*, y latchear
+      cualquiera de ellas dejaría un control muerto detrás de una frase falsa.
+      **Costo**: una decodificación extra en el camino feliz, pagada por click en un
+      botón explícito — no por selección ni por frame. Los bytes del pre-chequeo se
+      tiran: la selección puede cambiar mientras el diálogo está abierto, así que el
+      `before` que se graba tiene que venir de una lectura tomada en el commit.
 
 ## Tareas de UI (agregadas a la ficha de B8, docs/batches-b8-b13.md)
 

@@ -463,6 +463,39 @@ mod tests {
         );
     }
 
+    /// Hit-testing is the door every image gesture in this shell goes
+    /// through — select, drag, resize, delete, replace all start with a
+    /// click landing on an item. The inline fixture paints one of each kind
+    /// on one page, so this asserts the door opens for both (T-204).
+    #[test]
+    fn image_at_finds_an_inline_image_the_same_way_it_finds_an_xobject() {
+        let base = gen_fixtures::content_edit::build_inline_image_page_document();
+        let content = pdf_edit::read_page_content(&base, PageId(0)).expect("page 0 parses");
+
+        // The inline image: 100x100 at (100, 600), with no resource name to
+        // identify it by — which is the whole distinction, and precisely
+        // what hit-testing must not depend on.
+        let inline = image_at(&content, (150.0, 650.0)).expect("inside the inline image");
+        assert_eq!(inline.source, pdf_document::ImageSource::Inline);
+
+        // The control XObject beside it: 50x30 at (300, 500).
+        let control = image_at(&content, (310.0, 510.0)).expect("inside the control image");
+        assert_eq!(
+            control.resource_xobject_name(),
+            Some(gen_fixtures::content_edit::CONTROL_IMAGE_RESOURCE_NAME)
+        );
+    }
+
+    /// An inline image claims no name, so it can never make one unavailable
+    /// — the first candidate is still free on a page that paints one.
+    #[test]
+    fn an_inline_image_does_not_take_an_xobject_resource_name() {
+        let base = gen_fixtures::content_edit::build_inline_image_page_document();
+        let content = pdf_edit::read_page_content(&base, PageId(0)).expect("page 0 parses");
+
+        assert_eq!(unused_xobject_resource_name(&content, &[]), "XIns1");
+    }
+
     #[test]
     fn ensure_page_content_reads_a_real_document_once_and_caches_it() {
         let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);

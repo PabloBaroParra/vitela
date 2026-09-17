@@ -78,6 +78,30 @@ pub(crate) const NO_DOCUMENT_NOTICE: &str = "Open a PDF to edit the text and ima
 pub(crate) const NO_IMAGE_SELECTED: &str = "Click an image on the page to select it.";
 pub(crate) const IMAGE_SELECTED: &str = "Image selected — replace or delete it.";
 
+/// The third state of the same pair (T-204): an image is selected and three
+/// of its four operations are available, but replacing it is not.
+///
+/// `pdf-edit` can only record a replacement it could also undo, and undo
+/// means putting the original picture back — so an image whose encoding it
+/// cannot read back (`EditError::ImageSourceNotRecoverable`: an `Indexed` or
+/// `DeviceCMYK` colour space, 16-bit samples, a `/Decode` array, JPEG2000,
+/// an inline image whose colour space names a page resource, …) has no
+/// `before` to carry and the replace is refused outright.
+///
+/// It is said **here**, beside a greyed-out button, rather than only as the
+/// status line the refusal used to be, for the reason this whole module
+/// exists: a control that does nothing with no stated reason reads as broken.
+/// And it is said *instead of* letting the file picker open — being asked to
+/// choose a replacement and only then being told none was ever possible is
+/// the same refusal delivered as a failure.
+///
+/// Says nothing about how the image is stored, and that is the point: this
+/// is the same sentence whether the samples sit in an XObject or inline in
+/// the content stream. What decides is the encoding, not the packaging.
+pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str =
+    "Image selected — move, resize or delete it. It cannot be replaced: its current \
+     encoding cannot be read back, so the swap could not be undone.";
+
 /// The text card's twin of the two above, maintained by the same call.
 ///
 /// The "nothing picked yet" half is the sentence this card already carried as
