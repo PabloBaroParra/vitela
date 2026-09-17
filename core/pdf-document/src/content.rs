@@ -74,8 +74,30 @@ pub struct TextRun {
     pub text: String,
 }
 
-/// An image painted by a `Do` operator against an XObject in the page's
-/// resources.
+/// Where an image's samples live, which is also how the image is addressed.
+///
+/// The two forms the format gives are not variations on one thing: an
+/// XObject is a shared object with a name, and an inline image is a run of
+/// bytes in the middle of the content stream with neither. Collapsing them
+/// into one shape — an empty name, a boolean beside the name — would make
+/// every consumer carry a field that is a lie for half its values.
+///
+/// Deliberately **not** `#[non_exhaustive]`, unlike [`FontKind`]: the format
+/// defines exactly two ways to paint an image, and a writer has to handle
+/// both of them. Reserving the right to add a third would buy nothing and
+/// cost `pdf-edit` the compiler error that tells it a case is unhandled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageSource {
+    /// An image XObject painted by `Do`, carrying the key it is registered
+    /// under in the scope's `/Resources /XObject` dictionary.
+    Resource(String),
+    /// A `BI … ID … EI` run: the samples sit in the content stream itself,
+    /// so there is no resource, no name, and nothing another page can share.
+    Inline,
+}
+
+/// An image painted onto the page — by a `Do` operator against an XObject in
+/// the resources, or inline in the content stream itself.
 ///
 /// The image *bytes* are deliberately absent: they live in the file and can
 /// be large, and the only operation that needs them is
@@ -85,10 +107,22 @@ pub struct ImageItem {
     pub id: ContentItemId,
     pub page: PageId,
     /// Bounding box in page space — the unit square mapped through the `cm`
-    /// matrix in effect at the `Do`.
+    /// matrix in effect where the image is painted. Inline images use the
+    /// same unit square as XObjects (PDF 32000-1 8.9.5.1), so this means the
+    /// same thing for both.
     pub bbox: Rect,
-    /// The XObject's key in the page's `/Resources /XObject` dictionary.
-    pub resource_xobject_name: String,
+    pub source: ImageSource,
+}
+
+impl ImageItem {
+    /// The `/Resources /XObject` key this image is painted from, or `None`
+    /// when its samples are inline and there is no key to give.
+    pub fn resource_xobject_name(&self) -> Option<&str> {
+        match &self.source {
+            ImageSource::Resource(name) => Some(name),
+            ImageSource::Inline => None,
+        }
+    }
 }
 
 /// The parsed content of a single page: what a shell needs to hit-test and
@@ -148,7 +182,7 @@ mod tests {
             id: ContentItemId(id),
             page: PageId(0),
             bbox: rect(72.0, 400.0),
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 
@@ -184,7 +218,7 @@ mod tests {
         let found = content
             .image(ContentItemId(5))
             .expect("id 5 was parsed on this page");
-        assert_eq!(found.resource_xobject_name, "Im1");
+        assert_eq!(found.resource_xobject_name(), Some("Im1"));
         assert!(content.image(ContentItemId(6)).is_none());
     }
 
@@ -205,8 +239,8 @@ mod tests {
         assert_eq!(
             content
                 .image(ContentItemId(1))
-                .map(|image| &image.resource_xobject_name),
-            Some(&"Im1".to_string())
+                .and_then(|image| image.resource_xobject_name()),
+            Some("Im1")
         );
     }
 

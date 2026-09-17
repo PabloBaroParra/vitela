@@ -161,6 +161,24 @@ pub(super) fn current_source_bytes(
     pdf_edit::image_source_bytes(probe.document, probe.object, item)
 }
 
+/// Whether `error` says this *image* can never be replaced, as opposed to
+/// something about this one attempt (T-204).
+///
+/// The distinction is what makes the refusal worth remembering. A
+/// replacement file that will not decode, a stale item, an image that
+/// already has an edit queued — those are all answers about *now*, and the
+/// next attempt can succeed. [`EditError::ImageSourceNotRecoverable`] is an
+/// answer about the picture already on the page: its encoding is what it is,
+/// nothing the user can do from here changes it, and every further attempt
+/// would be refused identically.
+///
+/// Only that one, and deliberately narrowly: latching on an error that could
+/// have gone the other way would leave a live control dead for the rest of
+/// the selection with a sentence that is not true.
+pub(super) fn is_unreplaceable(error: &EditError) -> bool {
+    matches!(error, EditError::ImageSourceNotRecoverable { .. })
+}
+
 /// Whether `item` already has a content command recorded against it in
 /// `document`'s `EditLog`.
 ///
@@ -438,7 +456,7 @@ mod tests {
         }
     }
     use crate::app::content_edit::model;
-    use pdf_document::{annotation::Rect, ContentItemId, FontKind, PageId};
+    use pdf_document::{annotation::Rect, ContentItemId, FontKind, ImageSource, PageId};
 
     fn first_run(base: &lopdf::Document) -> TextRun {
         pdf_edit::read_page_content(base, PageId(0))
@@ -570,7 +588,7 @@ mod tests {
                 width: 80.0,
                 height: 40.0,
             },
-            resource_xobject_name: name.to_string(),
+            source: ImageSource::Resource(name.to_string()),
         }
     }
 
@@ -629,6 +647,137 @@ mod tests {
         assert!(image::load_from_memory(&bytes).is_ok());
     }
 
+    // --- inline images (T-204) -------------------------------------------
+
+    /// The fixture paints an inline image at (100, 600) and an ordinary
+    /// image XObject at (300, 500), in that order.
+    fn inline_and_control() -> (lopdf::Document, ImageItem, ImageItem) {
+        let base = gen_fixtures::content_edit::build_inline_image_page_document();
+        let mut images = pdf_edit::read_page_content(&base, PageId(0))
+            .expect("page 0 parses")
+            .images;
+        assert_eq!(images.len(), 2, "the fixture paints two images");
+        let control = images.remove(1);
+        let inline = images.remove(0);
+        assert_eq!(inline.source, ImageSource::Inline);
+        assert!(matches!(control.source, ImageSource::Resource(_)));
+        (base, inline, control)
+    }
+
+    /// The claim T-204 makes about this shell, as a gate rather than a
+    /// comment: the four validations it runs before recording an image
+    /// command do not care which of the format's two ways of painting an
+    /// image produced the item.
+    ///
+    /// Asserted against *both* images on one page, so a regression that
+    /// broke only the inline half could not hide behind the other passing.
+    #[test]
+    fn every_image_validation_treats_an_inline_image_like_any_other() {
+        let (base, inline, control) = inline_and_control();
+        let to = Rect {
+            x: 300.0,
+            y: 400.0,
+            width: 80.0,
+            height: 40.0,
+        };
+        let replacement = gen_fixtures::content_edit::replacement_image_png_bytes();
+
+        for item in [&inline, &control] {
+            let which = &item.source;
+            assert!(
+                validate_move(probe_of(&base), item, to).is_ok(),
+                "move refused for {which:?}"
+            );
+            assert!(
+                validate_resize(probe_of(&base), item, to).is_ok(),
+                "resize refused for {which:?}"
+            );
+            assert!(
+                validate_remove(probe_of(&base), item).is_ok(),
+                "remove refused for {which:?}"
+            );
+            assert!(
+                validate_replace(probe_of(&base), item, &replacement).is_ok(),
+                "replace refused for {which:?}"
+            );
+            assert!(
+                current_source_bytes(probe_of(&base), item).is_ok(),
+                "readback refused for {which:?}"
+            );
+        }
+    }
+
+    /// An inline image has no resource name, so a `RemoveImage` recorded
+    /// against one reserves nothing — and the next insertion on that page is
+    /// free to take the first candidate. The opposite behaviour would be the
+    /// real bug: a name reserved on behalf of an image that never had one.
+    #[test]
+    fn removing_an_inline_image_reserves_no_xobject_name() {
+        let (_, inline, _) = inline_and_control();
+        let mut document = Document::default();
+        apply_command(
+            &mut document,
+            Command::RemoveImage {
+                item: inline,
+                source: None,
+            },
+        );
+
+        assert!(model::reserved_xobject_resource_names(&document.pending_edits).is_empty());
+    }
+
+    // --- is_unreplaceable (T-204) ----------------------------------------
+
+    /// The one error that says something about the *image* rather than
+    /// about this attempt, taken from the real call rather than constructed
+    /// by hand — a fixture the crate can actually produce is the only
+    /// version of this test that stays true if the classification moves.
+    #[test]
+    fn an_image_that_cannot_be_read_back_is_unreplaceable() {
+        let base = gen_fixtures::content_edit::build_unreadable_inline_image_page_document();
+        let item = first_image(&base);
+
+        let error = current_source_bytes(probe_of(&base), &item)
+            .expect_err("a colour space naming a page resource is not readable from the stream");
+
+        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
+        assert!(is_unreplaceable(&error));
+    }
+
+    /// The same image the shell refuses to *replace* still moves, resizes
+    /// and deletes — the three operations that rewrite the operator and
+    /// never read the picture. This is what makes the panel's sentence
+    /// ("move, resize or delete it") true rather than merely reassuring.
+    #[test]
+    fn an_unreplaceable_image_still_moves_resizes_and_deletes() {
+        let base = gen_fixtures::content_edit::build_unreadable_inline_image_page_document();
+        let item = first_image(&base);
+        let to = Rect {
+            x: 200.0,
+            y: 200.0,
+            width: 50.0,
+            height: 50.0,
+        };
+
+        assert!(validate_move(probe_of(&base), &item, to).is_ok());
+        assert!(validate_resize(probe_of(&base), &item, to).is_ok());
+        assert!(validate_remove(probe_of(&base), &item).is_ok());
+    }
+
+    /// A refusal about *this attempt* must not latch: the replacement file
+    /// is the user's next move, and greying the button out would strand a
+    /// working image behind a sentence blaming its encoding.
+    #[test]
+    fn a_refusal_about_the_attempt_is_not_unreplaceable() {
+        let base = gen_fixtures::content_edit::build_image_page_document();
+        let item = first_image(&base);
+
+        let error = validate_replace(probe_of(&base), &item, b"not an image at all")
+            .expect_err("undecodable replacement bytes");
+
+        assert!(!is_unreplaceable(&error));
+    }
+
     /// An item whose resource name/box no longer matches anything parsed on
     /// the page is refused — the shell is holding a stale read, and applying
     /// the edit anyway would target whatever now occupies the position.
@@ -636,7 +785,7 @@ mod tests {
     fn a_stale_item_is_refused_rather_than_applied_to_the_wrong_image() {
         let base = gen_fixtures::content_edit::build_image_page_document();
         let mut stale = first_image(&base);
-        stale.resource_xobject_name = "DoesNotExist".to_string();
+        stale.source = ImageSource::Resource("DoesNotExist".to_string());
         let to = Rect {
             x: 300.0,
             y: 400.0,
@@ -1041,7 +1190,7 @@ mod tests {
                 width: 200.0,
                 height: 40.0,
             },
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 

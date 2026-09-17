@@ -78,6 +78,56 @@ pub(crate) const NO_DOCUMENT_NOTICE: &str = "Open a PDF to edit the text and ima
 pub(crate) const NO_IMAGE_SELECTED: &str = "Click an image on the page to select it.";
 pub(crate) const IMAGE_SELECTED: &str = "Image selected — replace or delete it.";
 
+/// The third state of the same pair (T-204): an image is selected and three
+/// of its four operations are available, but replacing it is not.
+///
+/// `pdf-edit` can only record a replacement it could also undo, and undo
+/// means putting the original picture back — so an image whose encoding it
+/// cannot read back (`EditError::ImageSourceNotRecoverable`: an `Indexed` or
+/// `DeviceCMYK` colour space, 16-bit samples, a `/Decode` array, JPEG2000,
+/// an inline image whose colour space names a page resource, …) has no
+/// `before` to carry and the replace is refused outright.
+///
+/// It is said **here**, beside a greyed-out button, rather than only as the
+/// status line the refusal used to be, for the reason this whole module
+/// exists: a control that does nothing with no stated reason reads as broken.
+/// And it is said *instead of* letting the file picker open — being asked to
+/// choose a replacement and only then being told none was ever possible is
+/// the same refusal delivered as a failure.
+///
+/// Says nothing about how the image is stored, and that is the point: this
+/// is the same sentence whether the samples sit in an XObject or inline in
+/// the content stream. What decides is the encoding, not the packaging.
+pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str =
+    "Image selected — move, resize or delete it. It cannot be replaced: its current \
+     encoding cannot be read back, so the swap could not be undone.";
+
+/// The fourth state, and the only temporary one: this image already carries
+/// an edit that has not reached disk, so **nothing** can be recorded against
+/// it until a save and reopen.
+///
+/// Why it is a refusal and not an amendment is `command::image_already_edited`'s
+/// subject — in short, `pdf-save` replays queued commands against a document
+/// it mutates as it goes, and this shell has no live re-render to read a
+/// post-edit box back from, so a second command would carry the pre-edit
+/// snapshot and fail to resolve, taking the whole save with it.
+///
+/// One string, four callers. The three refusal sites in
+/// `content_edit::image` said this sentence as their own literal, which is
+/// three copies of one answer and a drift waiting to happen now that the
+/// card says it too. Whoever hears it — from a click on a greyed-out
+/// control's explanation or from the status line after a drag — hears the
+/// same words.
+///
+/// **This one must never be latched.** Unlike
+/// [`IMAGE_SELECTED_NO_REPLACE`], which is a property of bytes that will not
+/// change, this state ends the moment the document is saved and reopened:
+/// `write::preview::edits` carries `document_model` — and with it the
+/// `EditLog` this reads — across the refresh, so the answer has to be
+/// recomputed from that log every time, never remembered on the selection.
+pub(crate) const IMAGE_PENDING_EDIT: &str =
+    "This image already has a pending edit — save and reopen before editing it again.";
+
 /// The text card's twin of the two above, maintained by the same call.
 ///
 /// The "nothing picked yet" half is the sentence this card already carried as

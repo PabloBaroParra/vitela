@@ -159,6 +159,101 @@ pub fn build_roundtrip_image_page_document() -> Document {
     doc
 }
 
+/// The samples of the inline image [`build_inline_image_page_document`]
+/// paints: a 2x2 `DeviceGray` picture whose four bytes spell ` EI `.
+///
+/// That is the trap on purpose. A reader that scans the stream for the next
+/// whitespace-delimited `EI` cuts this image in half and then reads the rest
+/// of the page as operators over binary; a reader that *measures* it from
+/// `/W`, `/H` and `/BPC` does not. Every test that touches this fixture is
+/// therefore also a test that the measuring path is the one running.
+pub const INLINE_IMAGE_SAMPLES: &[u8] = b"\x20EI\x20";
+
+/// A single-page document that paints an inline image at (100, 600),
+/// 100x100 points, and an ordinary image XObject beside it at (300, 500) as
+/// a control.
+///
+/// The content stream is written by hand rather than through
+/// `lopdf::content::Content`, which has no operation for `BI … ID … EI`:
+/// the samples are raw bytes in the middle of the operators, which is the
+/// entire difference between an inline image and every other one.
+pub fn build_inline_image_page_document() -> Document {
+    let mut doc = Document::with_version("1.5");
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    let pages_id = doc.new_object_id();
+    let control_id = add_image(&mut doc, control_image_pixels());
+    let resources_id = doc.add_object(dictionary! {
+        "XObject" => dictionary! { CONTROL_IMAGE_RESOURCE_NAME => control_id },
+    });
+
+    let mut content = Vec::new();
+    content.extend_from_slice(b"q 100 0 0 100 100 600 cm BI /W 2 /H 2 /CS /G /BPC 8 ID ");
+    content.extend_from_slice(INLINE_IMAGE_SAMPLES);
+    content.extend_from_slice(b" EI Q\n");
+    let control: Content<Vec<Operation>> = Content {
+        operations: paint_image(CONTROL_IMAGE_RESOURCE_NAME, 50, 30, 300, 500),
+    };
+    content.extend_from_slice(&control.encode().expect("encode the control paint"));
+
+    let content_id = doc.add_object(Stream::new(dictionary! {}, content));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
+        "Resources" => resources_id, "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
+/// A single-page document whose one image is paintable but **not readable
+/// back**: an inline image whose `/CS` names an entry in the page's
+/// `/ColorSpace` dictionary instead of a device colour space.
+///
+/// The distinction it exists to test is the one T-204's UI turns into a
+/// sentence. Nothing is wrong with this image — a viewer paints it, and this
+/// shell can still move, resize and delete it, because all three rewrite the
+/// operator and copy the samples byte for byte. What it cannot do is
+/// *replace* it: `pdf_edit::image_source_bytes` reads an inline image from
+/// the stream alone, and the stream alone does not say how many components
+/// `/Cs1` has, so there is no `before` for undo to restore and the whole
+/// replace is refused with `EditError::ImageSourceNotRecoverable`.
+///
+/// `/Cs1` is deliberately left undefined in `/Resources`: the refusal comes
+/// from the colour space not being derivable from the stream, so a defined
+/// one would only make the fixture longer without changing the answer.
+pub fn build_unreadable_inline_image_page_document() -> Document {
+    let mut doc = Document::with_version("1.5");
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    let pages_id = doc.new_object_id();
+
+    let mut content = Vec::new();
+    content.extend_from_slice(b"q 100 0 0 100 100 600 cm BI /W 2 /H 2 /CS /Cs1 /BPC 8 /L 4 ID ");
+    content.extend_from_slice(INLINE_IMAGE_SAMPLES);
+    content.extend_from_slice(b" EI Q\n");
+
+    let content_id = doc.add_object(Stream::new(dictionary! {}, content));
+    let page_id = doc.add_object(dictionary! {
+        "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
+        "Resources" => dictionary! {},
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+    doc.trailer.set("Root", catalog_id);
+    doc
+}
+
 fn checkerboard_pixels(side: u32, light: u8, dark: u8) -> Vec<u8> {
     let mut pixels = Vec::with_capacity((side * side * 3) as usize);
     for y in 0..side {

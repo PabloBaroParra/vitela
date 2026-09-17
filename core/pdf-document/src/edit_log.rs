@@ -1119,6 +1119,7 @@ impl EditLog {
 mod tests {
     use super::*;
     use crate::annotation::{AnnotationId, AnnotationKind, Color};
+    use crate::content::ImageSource;
     use crate::content::{ContentItemId, FontKind};
     use crate::document::{ImportedDocumentId, Orientation, PageSize, Rotation};
     use crate::form::{FontFamily, FormFieldKind};
@@ -2385,7 +2386,7 @@ mod tests {
             id: ContentItemId(1),
             page: PageId(0),
             bbox: sample_rect(72.0, 400.0),
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 

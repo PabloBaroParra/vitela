@@ -1044,6 +1044,23 @@ pub(crate) struct DragPreview {
 pub(crate) struct SelectedImage {
     pub(crate) page_index: usize,
     pub(crate) item: ImageItem,
+    /// Set once this image has been found unreplaceable — its current bytes
+    /// are encoded in a way `pdf-edit` cannot read back, so there is no
+    /// `before` for `Command::ReplaceImageSource` and undo could never
+    /// restore it (T-204).
+    ///
+    /// Carried on the selection rather than recomputed per redraw because
+    /// answering it costs a full decode-and-re-encode of the image
+    /// (`pdf_edit::image_source_bytes`), which is not a per-frame price. It
+    /// starts `false` on every fresh selection and is only ever set, never
+    /// cleared: the bytes behind a selected image do not change underneath
+    /// it — the one edit that would change them is the replace this flag
+    /// says cannot happen.
+    ///
+    /// The other three operations are unaffected, and deliberately so: a
+    /// move, a resize and a delete rewrite the operator, never the samples,
+    /// so none of them needs to read the picture back.
+    pub(crate) replace_refused: bool,
 }
 
 /// A form field being moved or resized right now, in forms-edit mode

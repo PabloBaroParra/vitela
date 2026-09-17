@@ -10,12 +10,15 @@
 mod filter;
 mod fonts;
 pub(crate) use filter::encode_flate;
+pub mod inline;
 pub mod interpreter;
 pub mod lexer;
 pub mod matrix;
 pub mod placement;
 
-pub use interpreter::{LocatedContent, LocatedImage, LocatedTextRun, PageStream, TextPlacement};
+pub use interpreter::{
+    FormStep, LocatedContent, LocatedImage, LocatedTextRun, PageStream, TextPlacement,
+};
 pub use lexer::{tokenize, Operand, SpannedOperation};
 pub use matrix::Matrix;
 pub use placement::{page_image_placements, ImagePlacement};
@@ -25,6 +28,30 @@ pub use fonts::{page_font_families, page_object_font_families};
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object, ObjectId};
 use pdf_document::{PageContent, PageId};
+
+/// Decodes one Form XObject's content stream.
+///
+/// The bytes a [`FormStep`]'s spans address, read back the same way the
+/// interpreter read them on the way in — so an offset taken during the parse
+/// still means the same byte here. The ceiling is the page's shared one, not
+/// a per-stream allowance, for the reason `filter` gives.
+pub(crate) fn form_stream(
+    document: &Document,
+    form_object: ObjectId,
+) -> Result<PageStream, EditError> {
+    let stream = document.get_object(form_object)?.as_stream()?;
+    let decoded = filter::decode(
+        document,
+        stream,
+        form_object,
+        filter::MAX_PAGE_CONTENT_BYTES,
+    )?;
+    Ok(PageStream {
+        object_id: form_object,
+        bytes: decoded.bytes,
+        filtered: decoded.filtered,
+    })
+}
 
 /// Reads the text runs and images painted by `page`, on demand.
 ///

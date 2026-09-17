@@ -25,16 +25,21 @@
 //!
 //! The inventory is built from placements, not from resource dictionaries.
 //! That distinction is the safety property. An image can be present in a
-//! document and invisible to this walk in two ways, both of them normal:
-//! painted from inside a **form XObject's** own content stream, which the
-//! interpreter treats as one opaque `Do`, or written as an **inline image**,
-//! which the lexer skips whole (`docs/batch-compress.md` fact 8). Neither can
-//! be measured, because the matrix that places it was never seen. Building
-//! the inventory from `/Resources /XObject` would list those images anyway,
-//! with no placement behind them — and the natural reading of "no placement"
-//! is "nothing constrains it", which is the reading that resamples a
-//! photograph down to nothing. Built from placements, they are simply absent,
-//! and absent is untouchable.
+//! document and invisible to this walk: written as an **inline image**, which
+//! the lexer skips whole (`docs/batch-compress.md` fact 8). It cannot be
+//! measured, because the matrix that places it was never seen. Building the
+//! inventory from `/Resources /XObject` would list it anyway, with no
+//! placement behind it — and the natural reading of "no placement" is
+//! "nothing constrains it", which is the reading that resamples a photograph
+//! down to nothing. Built from placements, it is simply absent, and absent is
+//! untouchable.
+//!
+//! An image painted from inside a **form XObject** *is* measured: the walk
+//! descends into forms and resolves each name in the scope that painted it.
+//! It has to resolve it there, not on the page — a form's own `/Resources`
+//! replace its caller's, so the same `/Im0` is two different images, and
+//! attributing a form's placement to the page's image drags that image's
+//! governing DPI down to whatever the form drew (`governed_by` is a `min`).
 //!
 //! A `/SMask` is invisible for the same reason and by the same luck: it hangs
 //! off its parent image's dictionary and is never itself the operand of a
@@ -164,7 +169,9 @@ pub(crate) fn pass(document: &mut Document, policy: ImagePolicy) -> Work {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_fixtures::{document_drawing_one_image, loaded_document};
+    use crate::test_fixtures::{
+        document_drawing_one_image, document_shadowing_an_image_name, loaded_document,
+    };
 
     /// The middle preset's row of the table, spelled out so the stage's tests
     /// read against a number rather than against `CompressPreset::Balanced`
@@ -214,8 +221,7 @@ mod tests {
     /// The safety property, stated as a test rather than as a paragraph. The
     /// fixture's `/Unplaced` is in the same resource dictionary as the image
     /// that *is* drawn, and it is not in the inventory — which is how an
-    /// image hidden inside a form XObject, or written inline, stays out of
-    /// T-194's reach.
+    /// image written inline stays out of T-194's reach.
     #[test]
     fn an_image_the_document_never_paints_is_not_in_the_inventory() {
         let document = document_drawing_one_image((300, 300), &[(150.0, 150.0)]);
@@ -229,6 +235,44 @@ mod tests {
             .count();
         assert_eq!(declared, 2, "the fixture declares two image XObjects");
         assert_eq!(inventory.len(), 1, "only the painted one is inventoried");
+    }
+
+    /// The bug the placement walk used to have, stated in the terms that
+    /// matter here: a form paints its own `/Im0`, the page paints a different
+    /// `/Im0`, and resolving the name against the page attributed the form's
+    /// placement to the page's image. `governed_by` takes the *minimum*
+    /// effective DPI, so a 64-sample icon stretched across 200 points drags
+    /// the photograph's governing resolution from 288 DPI down to 23 — and
+    /// the photograph is then resampled to the size of an icon it has nothing
+    /// to do with.
+    #[test]
+    fn a_form_that_shadows_an_image_name_does_not_govern_the_page_image() {
+        let (document, photograph, icon) = document_shadowing_an_image_name(
+            (1200, 1200),
+            (300.0, 300.0),
+            (64, 64),
+            (200.0, 200.0),
+        );
+
+        let inventory = inventory(&document);
+
+        assert_eq!(inventory.len(), 2, "two images, two entries");
+
+        let photograph = inventory
+            .iter()
+            .find(|image| image.id == photograph)
+            .expect("the page's image is inventoried");
+        assert_eq!(photograph.pixels, (1200, 1200));
+        assert_eq!(photograph.placements, 1);
+        assert_eq!(photograph.governing_dpi.horizontal, 288.0);
+
+        let icon = inventory
+            .iter()
+            .find(|image| image.id == icon)
+            .expect("the image only the form can name is inventoried too");
+        assert_eq!(icon.pixels, (64, 64));
+        assert_eq!(icon.placements, 1);
+        assert_eq!(icon.governing_dpi.horizontal, 23.04);
     }
 
     /// A placement that collapses an axis paints nothing, so it neither

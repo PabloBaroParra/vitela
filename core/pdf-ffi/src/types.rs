@@ -7,8 +7,8 @@
 //! not break every time an internal core type gains a field.
 
 use pdf_document::{
-    ContentItemId, DocumentInfo, FontKind, ImageItem, Orientation, PageContent, PageId, PageSize,
-    PdfDate, PdfDateOffset, Rect, TextRun,
+    ContentItemId, DocumentInfo, FontKind, ImageItem, ImageSource, Orientation, PageContent,
+    PageId, PageSize, PdfDate, PdfDateOffset, Rect, TextRun,
 };
 
 /// Mirrors `pdf_document::PageSize`.
@@ -399,12 +399,21 @@ impl From<FfiContentTextRun> for TextRun {
 /// An image parsed from a page's content stream (T-158). Bytes are
 /// deliberately absent, matching `pdf_document::ImageItem` — only
 /// `Command::ReplaceImageSource`/`InsertImage` carry them, explicitly.
+///
+/// `pdf_document::ImageSource` arrives here as an **optional name**: absent
+/// means the image is inline, its samples sitting in the content stream with
+/// no resource to name. The two carry exactly the same information — the
+/// format has two ways to paint an image and no more — and a nullable string
+/// is what every binding this crate generates already speaks, where an enum
+/// with a payload becomes a class hierarchy in three languages for one bit.
+/// The round trip below is lossless in both directions, which is the
+/// property that matters.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct FfiContentImageItem {
     pub id: u64,
     pub page: u32,
     pub bbox: FfiRect,
-    pub resource_xobject_name: String,
+    pub resource_xobject_name: Option<String>,
 }
 
 impl From<ImageItem> for FfiContentImageItem {
@@ -413,7 +422,10 @@ impl From<ImageItem> for FfiContentImageItem {
             id: item.id.0,
             page: item.page.0,
             bbox: item.bbox.into(),
-            resource_xobject_name: item.resource_xobject_name,
+            resource_xobject_name: match item.source {
+                ImageSource::Resource(name) => Some(name),
+                ImageSource::Inline => None,
+            },
         }
     }
 }
@@ -424,7 +436,10 @@ impl From<FfiContentImageItem> for ImageItem {
             id: ContentItemId(item.id),
             page: PageId(item.page),
             bbox: item.bbox.into(),
-            resource_xobject_name: item.resource_xobject_name,
+            source: match item.resource_xobject_name {
+                Some(name) => ImageSource::Resource(name),
+                None => ImageSource::Inline,
+            },
         }
     }
 }
