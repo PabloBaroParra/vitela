@@ -65,7 +65,18 @@ pub enum EditError {
     /// not match its base image, or a filter beyond `DCTDecode`/
     /// `FlateDecode`/`LZWDecode`/`ASCII85Decode`. Replacing this image is
     /// refused rather than recorded without a way for undo to restore it.
-    ImageSourceNotRecoverable { resource_xobject_name: String },
+    ///
+    /// `image` names the image the way the page holds it — `/Im0` for a
+    /// resource, `stored inline` for one whose samples live in the content
+    /// stream and that therefore has no name to give.
+    ImageSourceNotRecoverable { image: String },
+    /// An operation only an image XObject supports was aimed at an inline
+    /// image, whose samples are bytes inside the content stream rather than
+    /// a shared, named object. `operation` names what was attempted.
+    ///
+    /// Geometry is *not* in this category: moving, resizing and deleting an
+    /// inline image are rewrites of its span, and they work.
+    InlineImageNotSupported { operation: &'static str },
     /// A new resource was asked to be registered under a name the page
     /// already uses for a different object. Overwriting it would silently
     /// repaint every other operator on the page that names it.
@@ -98,6 +109,16 @@ pub enum EditError {
         object_id: (u32, u16),
         detail: String,
     },
+    /// A form XObject invokes a form XObject invokes a form XObject, more
+    /// than `limit` levels deep.
+    ///
+    /// The descent that reads them is recursive, and a blown stack is a
+    /// process abort, not an `Err` a caller can handle — so the reader
+    /// refuses the file before it can get there. The cycle guard does not
+    /// cover this: a long chain of *distinct* forms never re-enters one.
+    /// Neither does the content-byte budget, because a level costs the
+    /// seven bytes of a `/N Do`.
+    FormNestingTooDeep { limit: usize },
     /// A structural problem reported by lopdf while reading the document.
     Lopdf(String),
 }
@@ -148,12 +169,15 @@ impl fmt::Display for EditError {
                 write!(f, "font resource {resource_font_name} is missing")
             }
             EditError::InvalidImage(msg) => write!(f, "invalid image bytes: {msg}"),
-            EditError::ImageSourceNotRecoverable {
-                resource_xobject_name,
-            } => write!(
+            EditError::ImageSourceNotRecoverable { image } => write!(
                 f,
-                "image {resource_xobject_name} is encoded in a way this version cannot read \
-                 back, so replacing it cannot be undone safely"
+                "image {image} is encoded in a way this version cannot read back, so \
+                 replacing it cannot be undone safely"
+            ),
+            EditError::InlineImageNotSupported { operation } => write!(
+                f,
+                "{operation} is not supported for an image stored inline in the page's \
+                 content stream"
             ),
             EditError::ResourceNameInUse { category, name } => write!(
                 f,
@@ -175,6 +199,10 @@ impl fmt::Display for EditError {
                 f,
                 "content stream {} {} is encoded in a way this version does not edit: {detail}",
                 object_id.0, object_id.1
+            ),
+            EditError::FormNestingTooDeep { limit } => write!(
+                f,
+                "this page nests form xobjects more than {limit} levels deep,                  which is past what this version reads"
             ),
             EditError::Lopdf(msg) => write!(f, "pdf structure error: {msg}"),
         }

@@ -184,7 +184,14 @@ internal sealed record PdfCoreBitmap(uint Width, uint Height, uint Stride, byte[
 internal enum PdfCoreFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
 
 internal sealed record PdfCoreContentTextRun(ulong Id, uint PageIndex, PdfCoreRect Bbox, string ResourceFontName, PdfCoreFontKind FontKind, string Text);
-internal sealed record PdfCoreContentImage(ulong Id, uint PageIndex, PdfCoreRect Bbox, string ResourceXObjectName);
+/// <summary>
+/// An image painted by a page's content stream. <c>ResourceXObjectName</c> is
+/// null when the image is <em>inline</em> — its samples live in the content
+/// stream itself, so there is no <c>/Resources /XObject</c> key naming it.
+/// The core models that as an enum; the boundary carries the same information
+/// as an optional name (see <c>FfiContentImageItem</c>).
+/// </summary>
+internal sealed record PdfCoreContentImage(ulong Id, uint PageIndex, PdfCoreRect Bbox, string? ResourceXObjectName);
 internal sealed record PdfCorePageContent(IReadOnlyList<PdfCoreContentTextRun> TextRuns, IReadOnlyList<PdfCoreContentImage> Images);
 internal sealed record PdfCoreSearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
 internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyList<PdfCoreSearchRect> CharacterBounds);

@@ -141,17 +141,29 @@ pub fn insert_text_run(
 /// it, and for every other page sharing the dictionary. So a `source` whose
 /// name is taken is refused with [`EditError::ResourceNameInUse`]; painting
 /// the image that is already registered is what `source: None` is for.
+///
+/// An item whose source is `ImageSource::Inline` is refused: what this
+/// appends is a `Do`, and a `Do` needs a name. Writing new content inline
+/// would be a different feature, not a detail of this one — inline encoding
+/// exists to save a few bytes on tiny images, and it cannot carry the
+/// `/SMask` this crate's own encoder produces for anything with alpha.
 pub fn insert_image(
     document: &mut Document,
     page_object: ObjectId,
     item: &ImageItem,
     source: Option<&[u8]>,
 ) -> Result<(), EditError> {
+    let name = item
+        .resource_xobject_name()
+        .ok_or(EditError::InlineImageNotSupported {
+            operation: "inserting an image",
+        })?;
+
     if let Some(bytes) = source {
-        if xobject_resource(document, page_object, &item.resource_xobject_name).is_some() {
+        if xobject_resource(document, page_object, name).is_some() {
             return Err(EditError::ResourceNameInUse {
                 category: "XObject".to_string(),
-                name: item.resource_xobject_name.clone(),
+                name: name.to_string(),
             });
         }
 
@@ -169,18 +181,14 @@ pub fn insert_image(
             document,
             page_object,
             b"XObject",
-            &item.resource_xobject_name,
+            name,
             Object::Reference(image_id),
         )?;
     }
 
     let correction = correction_matrix(document, page_object)?;
     let placement = Matrix::placing_unit_square(item.bbox).then(correction);
-    let operators = format!(
-        "\nq {} /{} Do Q\n",
-        matrix_operator(placement),
-        item.resource_xobject_name,
-    );
+    let operators = format!("\nq {} /{} Do Q\n", matrix_operator(placement), name);
 
     append_to_content(document, page_object, operators.as_bytes())
 }
@@ -274,8 +282,13 @@ pub(crate) fn inserted_font_dictionary() -> Dictionary {
 
 /// Returns a page font resource backed by the standard font used for inserted
 /// text, reusing a compatible one or choosing a collision-free name.
-pub(crate) fn inserted_font_resource_name(document: &Document, page_object: ObjectId) -> String {
-    let resources = owned_resources_snapshot(document, page_object);
+///
+/// Takes the resolved dictionary rather than the object that owns it: the
+/// form-scoped caller is choosing a name for a copy that does not exist yet.
+pub(crate) fn inserted_font_resource_name_in(
+    document: &Document,
+    resources: &Dictionary,
+) -> String {
     let fonts = resources
         .get(b"Font")
         .ok()
@@ -306,41 +319,27 @@ pub(crate) fn inserted_font_resource_name(document: &Document, page_object: Obje
     unreachable!("the finite font dictionary cannot occupy every u32 suffix")
 }
 
-/// Makes the page resolve a collision-free resource name to the inserted
-/// standard font and returns that name.
-pub(crate) fn ensure_inserted_font_resource(
-    document: &mut Document,
-    page_object: ObjectId,
-) -> Result<String, EditError> {
-    let name = inserted_font_resource_name(document, page_object);
-    ensure_font_resource(document, page_object, &name)?;
-    Ok(name)
-}
-
-/// Adds a standard font under `name` unless the page already has a font
+/// Adds a standard font under `name` unless `owner` already has a font
 /// resource by that name.
-fn ensure_font_resource(
+///
+/// Takes the name rather than choosing one because a caller that has already
+/// written it into a content stream cannot accept a different answer here.
+pub(crate) fn ensure_font_resource(
     document: &mut Document,
-    page_object: ObjectId,
+    owner: ObjectId,
     name: &str,
 ) -> Result<(), EditError> {
-    if font_resource(document, page_object, name).is_some() {
+    if font_resource(document, owner, name).is_some() {
         return Ok(());
     }
 
     let font_id = document.add_object(inserted_font_dictionary());
 
-    add_resource(
-        document,
-        page_object,
-        b"Font",
-        name,
-        Object::Reference(font_id),
-    )
+    add_resource(document, owner, b"Font", name, Object::Reference(font_id))
 }
 
-fn font_resource(document: &Document, page_object: ObjectId, name: &str) -> Option<Dictionary> {
-    let resources = owned_resources_snapshot(document, page_object);
+fn font_resource(document: &Document, owner: ObjectId, name: &str) -> Option<Dictionary> {
+    let resources = owned_resources_snapshot(document, owner);
     let fonts = dereferenced_dict(document, resources.get(b"Font").ok()?)?;
     dereferenced_dict(document, fonts.get(name.as_bytes()).ok()?)
 }
@@ -356,20 +355,24 @@ fn xobject_resource(document: &Document, page_object: ObjectId, name: &str) -> O
     xobjects.get(name.as_bytes()).ok().cloned()
 }
 
-/// Registers `value` under `/Resources /<category> /<name>` for this page.
+/// Registers `value` under `/Resources /<category> /<name>` for `owner`.
 ///
-/// The page is given its **own** direct resource dictionary first, copying
+/// `owner` is whatever object holds the resources this content resolves
+/// names against: a page, or a Form XObject, whose dictionary lives on its
+/// stream.
+///
+/// The owner is given its **own** direct resource dictionary first, copying
 /// whatever it was inheriting or sharing. Writing into an inherited or
 /// indirect dictionary would quietly add the resource to every other page
 /// that shares it.
-fn add_resource(
+pub(crate) fn add_resource(
     document: &mut Document,
-    page_object: ObjectId,
+    owner: ObjectId,
     category: &[u8],
     name: &str,
     value: Object,
 ) -> Result<(), EditError> {
-    let mut resources = owned_resources_snapshot(document, page_object);
+    let mut resources = owned_resources_snapshot(document, owner);
 
     let mut category_dict = resources
         .get(category)
@@ -382,19 +385,17 @@ fn add_resource(
         Object::Dictionary(category_dict),
     );
 
-    document
-        .get_dictionary_mut(page_object)?
-        .set("Resources", Object::Dictionary(resources));
+    owner_dictionary_mut(document, owner)?.set("Resources", Object::Dictionary(resources));
 
     Ok(())
 }
 
-/// The resource dictionary this page effectively has, resolved through
+/// The resource dictionary `owner` effectively has, resolved through
 /// indirection and `/Parent` inheritance, as a detached copy.
-fn owned_resources_snapshot(document: &Document, page_object: ObjectId) -> Dictionary {
-    let mut current = match document.get_dictionary(page_object) {
-        Ok(dict) => dict.clone(),
-        Err(_) => return Dictionary::new(),
+pub(crate) fn owned_resources_snapshot(document: &Document, owner: ObjectId) -> Dictionary {
+    let mut current = match owner_dictionary(document, owner) {
+        Some(dict) => dict.clone(),
+        None => return Dictionary::new(),
     };
 
     for _ in 0..32 {
@@ -415,6 +416,33 @@ fn owned_resources_snapshot(document: &Document, page_object: ObjectId) -> Dicti
     Dictionary::new()
 }
 
+/// The dictionary of an object that can own `/Resources`.
+///
+/// A page carries one directly; a Form XObject carries it on its stream. The
+/// two are the same thing to every resource lookup in this crate, and
+/// keeping them apart would mean a second copy of every one of them.
+pub(crate) fn owner_dictionary(document: &Document, owner: ObjectId) -> Option<&Dictionary> {
+    match document.get_object(owner).ok()? {
+        Object::Dictionary(dict) => Some(dict),
+        Object::Stream(stream) => Some(&stream.dict),
+        _ => None,
+    }
+}
+
+fn owner_dictionary_mut(
+    document: &mut Document,
+    owner: ObjectId,
+) -> Result<&mut Dictionary, EditError> {
+    match document.get_object_mut(owner)? {
+        Object::Dictionary(dict) => Ok(dict),
+        Object::Stream(stream) => Ok(&mut stream.dict),
+        _ => Err(EditError::MalformedContent {
+            reason: "resources were asked of an object that cannot hold them".to_string(),
+            offset: 0,
+        }),
+    }
+}
+
 fn dereferenced_dict(document: &Document, object: &Object) -> Option<Dictionary> {
     match object {
         Object::Dictionary(dict) => Some(dict.clone()),
@@ -432,7 +460,7 @@ mod tests {
     use super::*;
     use crate::fixture;
     use crate::parse::read_page_content;
-    use pdf_document::{ContentItemId, FontKind, PageContent, PageId, Rect};
+    use pdf_document::{ContentItemId, FontKind, ImageSource, PageContent, PageId, Rect};
 
     fn content_of(document: &Document) -> PageContent {
         read_page_content(document, PageId(0)).expect("readable page")
@@ -459,7 +487,7 @@ mod tests {
             id: ContentItemId(0),
             page: PageId(0),
             bbox,
-            resource_xobject_name: name.to_string(),
+            source: ImageSource::Resource(name.to_string()),
         }
     }
 
@@ -472,7 +500,12 @@ mod tests {
         };
         let (document, page) = fixture::document_with_content(b"", resources);
 
-        assert_eq!(inserted_font_resource_name(&document, page), "Existing");
+        let resources = owned_resources_snapshot(&document, page);
+
+        assert_eq!(
+            inserted_font_resource_name_in(&document, &resources),
+            "Existing"
+        );
     }
 
     #[test]
@@ -488,7 +521,12 @@ mod tests {
         };
         let (document, page) = fixture::document_with_content(b"", resources);
 
-        assert_eq!(inserted_font_resource_name(&document, page), "FVitela2");
+        let resources = owned_resources_snapshot(&document, page);
+
+        assert_eq!(
+            inserted_font_resource_name_in(&document, &resources),
+            "FVitela2"
+        );
     }
 
     fn png_bytes(width: u32, height: u32, alpha: bool) -> Vec<u8> {
@@ -638,7 +676,7 @@ mod tests {
 
         let images = content_of(&document).images;
         assert_eq!(images.len(), 1);
-        assert_eq!(images[0].resource_xobject_name, "ImNew");
+        assert_eq!(images[0].resource_xobject_name(), Some("ImNew"));
         assert_eq!(images[0].bbox, target);
     }
 

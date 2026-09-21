@@ -16,7 +16,8 @@
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
-use pdf_document::{Command, ContentItemId, ImageItem, Rect};
+use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, Rect};
+use pdf_edit::EditError;
 
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
@@ -160,6 +161,11 @@ pub(crate) fn begin_image_drag(
             session.selected_image = Some(SelectedImage {
                 page_index,
                 item: item.clone(),
+                // Unknown until something asks, and asking costs a full
+                // decode — see the field's own doc. A fresh selection is
+                // optimistic; `replace_selected` is where the question gets
+                // put, and where a "no" gets recorded.
+                replace_refused: false,
             });
             session.image_drag = Some(ImageDrag {
                 page_index,
@@ -270,11 +276,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
             // stale item would fail to resolve at save time and take the
             // whole save down with it. Refusing here instead turns that into
             // an immediate, recoverable status message.
-            Err(
-                "This image already has a pending edit — save and reopen before editing it \
-                 again."
-                    .to_string(),
-            )
+            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
         } else {
             let validated = match drag.mode {
                 AnnotationDragMode::Move => command::validate_move(probe, &drag.item, to),
@@ -348,11 +350,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
             // that already has a queued edit would fail to resolve at save
             // time and take the whole save down with it.
             session.selected_image = Some(selected);
-            Err(
-                "This image already has a pending edit — save and reopen before editing it \
-                 again."
-                    .to_string(),
-            )
+            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
         } else {
             match command::validate_remove(probe, &selected.item) {
                 Ok(()) => {
@@ -388,6 +386,33 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
     selection::redraw(viewer);
 }
 
+/// Reads the selected image's current bytes back and reports only whether
+/// that failed — the precondition [`replace_selected`] checks before opening
+/// its file picker (T-204).
+///
+/// `None` covers both "it read back fine" and "there was nothing to read":
+/// no session, no selection, or a page this shell cannot probe. Collapsing
+/// those together is safe because none of them is a refusal — every one of
+/// them is a state the caller already declines to act on — and keeping them
+/// out of the `Some` arm is what stops a missing document from greying out a
+/// button with a sentence blaming the image's encoding.
+fn replace_readback_refusal(viewer: &Viewer) -> Option<EditError> {
+    let state = viewer.state.borrow();
+    let session = state.session.as_ref()?;
+    let selected = session.selected_image.as_ref()?;
+    let base = session.save_backing.as_ref().map(|backing| &backing.base)?;
+    let document = session.document_model.as_ref()?;
+    // Resolved while the model is still borrowed immutably — see
+    // `super::page_probe`.
+    let probe = super::page_probe(
+        document,
+        base,
+        &session.imported_sources,
+        selected.item.page,
+    )?;
+    command::current_source_bytes(probe, &selected.item).err()
+}
+
 /// Opens a file picker and swaps the selected image's bytes for the picked
 /// file's contents (T-162 Slice 2) — the file-picker counterpart to
 /// `delete_selected`.
@@ -409,6 +434,64 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
         .as_ref()
         .is_some_and(|session| session.selected_image.is_some());
     if !has_selection {
+        return;
+    }
+
+    // Asked first, because it is the cheapest of the two and the broadest:
+    // an image with an edit already queued is refused whatever its bytes
+    // look like, so there is no reason to decode them to find that out.
+    //
+    // The card's Replace button is already insensitive in this state
+    // (`super::image_controls` resolves it to `ImageControls::PendingEdit`,
+    // and GTK emits no `clicked` from an insensitive button), so this is the
+    // belt to that braces — it holds for any path that reaches this function
+    // without having gone through a fresh `update_content_edit_controls`.
+    // It stays because the alternative is a file dialog opened for an
+    // operation that was never going to be recorded.
+    // Resolved into a local so the `Ref` is released before anything below
+    // touches the session again — the same discipline every other borrow in
+    // this module keeps, rather than relying on where a temporary in a
+    // condition happens to drop.
+    let controls = super::image_controls(viewer.state.borrow().session.as_ref());
+    if controls == super::ImageControls::PendingEdit {
+        viewer.status.set_text(super::panel::IMAGE_PENDING_EDIT);
+        return;
+    }
+
+    // The readback `apply_replacement` has to do anyway, brought forward to
+    // here for the case where it fails (T-204). Being asked to choose a
+    // replacement file and only *then* being told that no replacement was
+    // ever possible is the same refusal delivered as a failure: the dialog
+    // implies the operation is available, and the work of picking a file is
+    // spent before the answer arrives. This module's own doc already sets
+    // the rule — "a refusal or an empty selection never shows a dialog the
+    // click could not have acted on anyway" — and this is one more refusal
+    // that qualifies.
+    //
+    // It costs one extra decode on the success path, paid per click on an
+    // explicit button rather than per selection or per frame, and the bytes
+    // it produces are deliberately thrown away: the selection can change
+    // while the dialog is open, so the `before` that actually gets recorded
+    // has to come from a read taken at commit time, against whatever is
+    // selected *then*.
+    if let Some(error) = replace_readback_refusal(viewer) {
+        if command::is_unreplaceable(&error) {
+            let mut state = viewer.state.borrow_mut();
+            if let Some(selected) = state
+                .session
+                .as_mut()
+                .and_then(|session| session.selected_image.as_mut())
+            {
+                selected.replace_refused = true;
+            }
+        }
+        // Two places, two jobs: the status line carries `EditError`'s own
+        // sentence, which names the specific reason this image cannot be
+        // read back, and `update_content_edit_controls` puts the standing
+        // explanation beside the button it just greyed out — where it stays
+        // after the next status message has replaced this one.
+        viewer.status.set_text(&error.to_string());
+        update_content_edit_controls(viewer);
         return;
     }
 
@@ -469,7 +552,7 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
         let Some(session) = state.session.as_mut() else {
             return;
         };
-        let Some(selected) = session.selected_image.take() else {
+        let Some(mut selected) = session.selected_image.take() else {
             return;
         };
         let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
@@ -498,11 +581,7 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
             // that already has a queued edit would fail to resolve at save
             // time and take the whole save down with it.
             session.selected_image = Some(selected);
-            Err(
-                "This image already has a pending edit — save and reopen before editing it \
-                 again."
-                    .to_string(),
-            )
+            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
         } else {
             // `before` has to come from the *original* bytes, read back
             // through `pdf-edit` before anything is written — it is the only
@@ -531,6 +610,13 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
                     Ok(())
                 }
                 Err(error) => {
+                    // `replace_selected` already asked this question before
+                    // opening the picker, so reaching an unreadable image
+                    // here means the selection moved to a different one
+                    // while the dialog was open. Latching it still matters:
+                    // the button is now pointing at *this* image, and the
+                    // card has to say so (T-204).
+                    selected.replace_refused |= command::is_unreplaceable(&error);
                     session.selected_image = Some(selected);
                     Err(error.to_string())
                 }
@@ -658,21 +744,22 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
         let Some(page) = session.pages.get_mut(page_index) else {
             return;
         };
-        let resource_xobject_name =
-            match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
-                Ok(content) => model::unused_xobject_resource_name(content, &reserved),
-                Err(error) => {
-                    drop(state);
-                    viewer.status.set_text(&error.to_string());
-                    return;
-                }
-            };
+        let source = match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
+            Ok(content) => {
+                ImageSource::Resource(model::unused_xobject_resource_name(content, &reserved))
+            }
+            Err(error) => {
+                drop(state);
+                viewer.status.set_text(&error.to_string());
+                return;
+            }
+        };
 
         let item = ImageItem {
             id: ContentItemId(0),
             page: page_id,
             bbox,
-            resource_xobject_name,
+            source,
         };
 
         match command::validate_insert_image(probe, &item, &bytes) {
@@ -726,7 +813,7 @@ mod tests {
             id: ContentItemId(0),
             page: PageId(0),
             bbox: a_rect(100.0, 500.0, 200.0, 40.0),
-            resource_xobject_name: "Im1".to_string(),
+            source: ImageSource::Resource("Im1".to_string()),
         }
     }
 

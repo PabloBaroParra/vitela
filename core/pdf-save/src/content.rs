@@ -316,7 +316,7 @@ mod tests {
                 width: 10.0,
                 height: 10.0,
             },
-            resource_xobject_name: "Im1".to_string(),
+            source: pdf_document::ImageSource::Resource("Im1".to_string()),
         }
     }
 

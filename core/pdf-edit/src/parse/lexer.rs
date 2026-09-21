@@ -30,9 +30,11 @@ pub enum Operand {
     /// A `<hex string>`, decoded to the same kind of raw code bytes.
     HexString(Vec<u8>),
     Array(Vec<Operand>),
-    /// A `<< ... >>` dictionary, as ordered key/value pairs — only ever
-    /// appears on marked-content and inline-image operators, which this
-    /// crate passes through rather than interprets.
+    /// A dictionary, as ordered key/value pairs. Two operators carry one: a
+    /// marked-content operator, where it is written `<< ... >>` and this
+    /// crate passes it through, and `BI`, where the format writes the pairs
+    /// bare between the operator and `ID` and this crate reads them (see
+    /// [`super::inline`]).
     Dictionary(Vec<(String, Operand)>),
     Boolean(bool),
     Null,
@@ -106,14 +108,10 @@ impl<'a> Lexer<'a> {
         let mut operands: Vec<Operand> = Vec::new();
         let mut operand_spans: Vec<Range<usize>> = Vec::new();
 
-        while let Some(byte) = self.peek() {
-            if is_whitespace(byte) {
-                self.position += 1;
-                continue;
-            }
-            if byte == b'%' {
-                self.skip_comment();
-                continue;
+        loop {
+            self.skip_insignificant();
+            if self.peek().is_none() {
+                break;
             }
 
             let start = self.position;
@@ -126,13 +124,28 @@ impl<'a> Lexer<'a> {
                     let operator = self.read_operator();
                     let span_start = operand_spans.first().map_or(start, |first| first.start);
                     let operation = if operator == "BI" {
-                        // The payload is opaque binary; swallow it whole so
-                        // the operator stream stays in sync.
-                        let end = self.skip_inline_image(start)?;
+                        // An inline image's operands follow its operator
+                        // rather than preceding it, and its samples are raw
+                        // binary that has to be measured, not tokenized —
+                        // `super::inline` does both.
+                        let dictionary_start = self.position;
+                        let image = super::inline::parse_body(self.bytes, start, self.position)?;
+                        self.position = image.end;
+                        // Anything pending belonged to no operator: `BI`
+                        // takes its operands from after itself.
+                        operands.clear();
+                        operands.push(Operand::Dictionary(image.entries));
+                        operand_spans.clear();
+                        // The dictionary, `ID` and its separator included:
+                        // the operand ends where the samples begin.
+                        operand_spans.push(dictionary_start..image.data.start);
                         SpannedOperation {
                             operator,
                             operands: std::mem::take(&mut operands),
-                            span: span_start..end,
+                            // From the `BI`, never from a stray operand
+                            // before it: the image owns these bytes and
+                            // nothing that precedes the operator.
+                            span: start..image.end,
                             operand_spans: std::mem::take(&mut operand_spans),
                         }
                     } else {
@@ -153,6 +166,20 @@ impl<'a> Lexer<'a> {
 
     fn peek(&self) -> Option<u8> {
         self.bytes.get(self.position).copied()
+    }
+
+    /// Skips over everything that separates tokens without being one:
+    /// whitespace and comments.
+    fn skip_insignificant(&mut self) {
+        while let Some(byte) = self.peek() {
+            if is_whitespace(byte) {
+                self.position += 1;
+            } else if byte == b'%' {
+                self.skip_comment();
+            } else {
+                break;
+            }
+        }
     }
 
     fn skip_comment(&mut self) {
@@ -441,45 +468,68 @@ impl<'a> Lexer<'a> {
             }
         }
     }
+}
 
-    /// Consumes an inline image's dictionary, `ID`, binary payload and `EI`,
-    /// returning the offset just past the `EI`.
-    ///
-    /// The payload has no length prefix, so the end is found the only way
-    /// available: the first `EI` that is preceded by whitespace and followed
-    /// by whitespace or end-of-stream. That is a heuristic — the same one
-    /// viewers use — and it is why inline images are passed through opaquely
-    /// rather than edited.
-    fn skip_inline_image(&mut self, start: usize) -> Result<usize, EditError> {
-        while self.position < self.bytes.len() {
-            if self.bytes[self.position..].starts_with(b"ID") {
-                self.position += 2;
-                // Exactly one whitespace byte separates `ID` from the data.
-                if self.peek().is_some_and(is_whitespace) {
-                    self.position += 1;
+/// Reads an inline image's dictionary — the key/value pairs between `BI` and
+/// `ID` — and returns them with the offset where the samples begin.
+///
+/// Lives here because it is tokenizing, and is called from
+/// [`super::inline`], which owns the harder half: where those samples end.
+/// The pairs are *parsed* rather than scanned for `ID`, which is the only
+/// way to keep a value that spells the terminator — `/CS /IDSpace`, a
+/// `/DP` dictionary — from ending the dictionary early.
+pub(super) fn read_inline_entries(
+    bytes: &[u8],
+    bi_offset: usize,
+    from: usize,
+) -> Result<(Vec<(String, Operand)>, usize), EditError> {
+    let mut lexer = Lexer {
+        bytes,
+        position: from,
+    };
+    let mut entries = Vec::new();
+    let mut key: Option<String> = None;
+
+    loop {
+        lexer.skip_insignificant();
+        let start = lexer.position;
+        if lexer.peek().is_none() {
+            return Err(lexer.malformed("inline image without an ID", bi_offset));
+        }
+
+        match lexer.read_operand()? {
+            // Keys and values alternate, so a name is a key exactly when no
+            // key is waiting for one — `/CS /RGB` is one pair, not two keys.
+            Some(Operand::Name(name)) if key.is_none() => key = Some(name),
+            Some(value) => match key.take() {
+                Some(key) => entries.push((key, value)),
+                None => {
+                    return Err(lexer.malformed("inline image value without a key", start));
                 }
-                break;
+            },
+            None => {
+                let operator = lexer.read_operator();
+                if operator == "ID" {
+                    break;
+                }
+                return Err(lexer.malformed(
+                    &format!("inline image dictionary interrupted by {operator}"),
+                    start,
+                ));
             }
-            self.position += 1;
         }
-
-        while self.position + 1 < self.bytes.len() {
-            let is_ei = self.bytes[self.position] == b'E' && self.bytes[self.position + 1] == b'I';
-            let preceded_by_space =
-                self.position > 0 && is_whitespace(self.bytes[self.position - 1]);
-            let followed_by_space = self
-                .bytes
-                .get(self.position + 2)
-                .is_none_or(|&byte| is_whitespace(byte));
-            if is_ei && preceded_by_space && followed_by_space {
-                self.position += 2;
-                return Ok(self.position);
-            }
-            self.position += 1;
-        }
-
-        Err(self.malformed("unterminated inline image", start))
     }
+
+    if key.is_some() {
+        return Err(lexer.malformed("inline image key without a value", lexer.position));
+    }
+    // Exactly one whitespace byte separates `ID` from the samples, and it is
+    // the separator rather than data — but only when it is there at all.
+    if lexer.peek().is_some_and(is_whitespace) {
+        lexer.position += 1;
+    }
+
+    Ok((entries, lexer.position))
 }
 
 #[cfg(test)]
@@ -674,9 +724,9 @@ mod tests {
     /// Inline-image data is arbitrary binary that can contain anything —
     /// `)`, `EI`, an entire fake operator. Tokenizing it as if it were
     /// operators would desynchronize the rest of the page, so the whole
-    /// `BI`..`EI` run is taken as one opaque operation.
+    /// `BI`..`EI` run is one operation whose span covers every byte of it.
     #[test]
-    fn an_inline_image_is_one_opaque_operation() {
+    fn an_inline_image_is_one_operation_covering_its_payload() {
         let source: &[u8] = b"q BI /W 2 /H 2 ID \x00(Tj\xff\xfe EI Q";
         let operations = tokenize(source).expect("valid content stream");
 
@@ -692,6 +742,51 @@ mod tests {
             String::from_utf8_lossy(&source[operations[1].span.clone()]).ends_with("EI"),
             "the span must cover the whole inline image"
         );
+    }
+
+    /// The dictionary is the operator's operand, even though the format
+    /// writes it *after* the operator — that is what every consumer needs to
+    /// know what was painted.
+    #[test]
+    fn an_inline_image_carries_its_dictionary_as_one_operand() {
+        let operations = tokenize(b"BI /W 2 /H 2 /IM true ID \xff\xff EI").expect("valid stream");
+
+        assert_eq!(
+            operations[0].operands,
+            vec![Operand::Dictionary(vec![
+                ("W".to_string(), Operand::Integer(2)),
+                ("H".to_string(), Operand::Integer(2)),
+                ("IM".to_string(), Operand::Boolean(true)),
+            ])]
+        );
+    }
+
+    /// The old reader found the samples by scanning for the next `ID`, which
+    /// a *value* spelling it ends early — and everything after that point is
+    /// then read as operators, on binary.
+    #[test]
+    fn a_value_that_spells_the_data_marker_does_not_end_the_dictionary() {
+        let operations =
+            tokenize(b"BI /W 1 /H 1 /BPC 8 /CS /IDSpot ID \xff EI Q").expect("valid stream");
+
+        assert_eq!(
+            operations
+                .iter()
+                .map(|op| op.operator.as_str())
+                .collect::<Vec<_>>(),
+            vec!["BI", "Q"]
+        );
+    }
+
+    #[test]
+    fn an_inline_image_whose_dictionary_never_reaches_id_is_an_error() {
+        let error = tokenize(b"q BI /W 2 /H 2 Tj (x) EI").expect_err("must not be accepted");
+
+        assert!(matches!(
+            error,
+            EditError::MalformedContent { ref reason, .. }
+                if reason == "inline image dictionary interrupted by Tj"
+        ));
     }
 
     #[test]

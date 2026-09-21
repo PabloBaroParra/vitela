@@ -338,6 +338,83 @@ Escribir el writer expuso dos huecos que ninguna de las dos fases anteriores pod
 - [x] T-166 README: mover "Edit PDF" de `🔮 Planned` al roadmap activo; enlazar esta ficha
       (hecho en el mismo cambio que crea este documento).
 
+### Fase 7 — Inline images
+
+Las imágenes `BI`..`EI` dejan de ser un agujero del modelo. Ver la sección
+"Inline images: medir en vez de adivinar" más abajo para el porqué de cada decisión.
+
+- [x] T-200 `core/pdf-edit/src/parse/inline.rs`: parsear el diccionario del `BI` (pares
+      sueltos entre el operador y `ID`, no un `<< >>`) y **medir** dónde terminan las
+      muestras — `/L`, aritmética exacta cuando no hay filtro, y recién ahí el scan de
+      `EI`. El lexer deja de buscar `ID` a ojo, que un valor que deletree el marcador
+      (`/CS /IDSpot`) cortaba antes de tiempo.
+- [x] T-201 `ImageSource` en `pdf-document`: una imagen se pinta con `Do` contra un
+      recurso o inline, y el modelo lo dice en vez de cargar un nombre vacío. El
+      interpreter reporta las dos en una sola numeración; `page_image_placements` (el
+      inventario de compresión, T-193) deja afuera la inline porque no hay objeto que
+      tocar; la FFI la pasa como nombre opcional.
+- [x] T-202 Mover/redimensionar/borrar una inline image: las tres son reescrituras del
+      span, y las muestras se copian byte a byte. Lo que sí necesita un recurso —
+      reemplazar la fuente, leerla de vuelta para el undo, insertar una nueva — se rechaza
+      con `EditError::InlineImageNotSupported`, ruidoso y antes de tocar nada.
+- [x] T-203 `replace_image_source`/`image_source_bytes` para inline images: leer las
+      muestras del stream y devolverlas como PNG/JPEG para el `before` del undo, y
+      reescribir el `BI`..`EI` como XObject de página propia + `Do` al reemplazar (una
+      inline image no puede llevar `/SMask`, así que el reemplazo con alpha no puede
+      quedarse inline). La lectura pasa por `InlineImage::as_image_stream`, que expande el
+      diccionario abreviado al de un XObject y deja que el lector que ya existía haga el
+      resto — la inline no aprende un vocabulario nuevo, se traduce al que había.
+- [x] T-204 (dep T-203) UI: que el shell Linux las trate como cualquier otra imagen, y
+      que el rechazo de lo que no se puede se vea como explicación, no como fallo.
+      **(2026-09-17 — completo.)** La primera mitad ya era cierta *por construcción*:
+      ninguna de las cinco operaciones de imagen del shell (seleccionar, mover,
+      redimensionar, borrar, reemplazar) lee jamás el nombre del recurso — hit-test y
+      drag trabajan sobre el `bbox`, y las validaciones llaman a `pdf-edit` con el
+      `ImageItem` entero. Lo que no existía era una *garantía*: cero tests del shell
+      sobre una página con inline image, así que la uniformidad vivía en el comentario
+      de un módulo. Ahora es un gate — `build_inline_image_page_document` pinta una
+      inline y un XObject en la misma página, y los tests corren las cinco validaciones
+      contra las dos y comparan resultados.
+      **El rechazo.** El único alcanzable desde el shell es
+      `EditError::ImageSourceNotRecoverable` al leer los bytes actuales para el `before`
+      del undo — y no es una propiedad de la inline sino de la *codificación* (una
+      `Indexed`, un `/Decode`, 16 bits, un JPEG con `/SMask`; en una inline, un `/CS`
+      que nombra un recurso de página). Aparecía **después** del file picker, como la
+      frase cruda del core en la barra de estado: al usuario se le pedía elegir un
+      archivo de reemplazo para recién entonces decirle que ningún reemplazo era
+      posible. Eso es un rechazo entregado como fallo. Ahora la lectura se hace *antes*
+      de abrir el diálogo (`image::replace_readback_refusal`), el resultado se recuerda
+      en `SelectedImage::replace_refused`, y el botón "Replace image" queda insensible
+      con `panel::IMAGE_SELECTED_NO_REPLACE` al lado explicando por qué — mientras
+      Delete, mover y redimensionar siguen vivos, porque ninguno de los tres lee la
+      imagen de vuelta.
+      **Qué se recuerda y qué no**: `command::is_unreplaceable` acepta ese error y
+      ninguno más. Un archivo de reemplazo que no decodifica, un item viejo o una imagen
+      con una edición ya encolada son respuestas sobre *este intento*, y latchear
+      cualquiera de ellas dejaría un control muerto detrás de una frase falsa.
+      **Costo**: una decodificación extra en el camino feliz, pagada por click en un
+      botón explícito — no por selección ni por frame. Los bytes del pre-chequeo se
+      tiran: la selección puede cambiar mientras el diálogo está abierto, así que el
+      `before` que se graba tiene que venir de una lectura tomada en el commit.
+      **Seguimiento, mismo día:** el otro rechazo del mismo botón —"esta imagen ya
+      tiene una edición pendiente"— tenía la misma forma y la misma cura, y encima es
+      gratis de contestar (`command::image_already_edited` es un scan del `EditLog`, sin
+      decode). El estado de la tarjeta dejó de vivir en tres expresiones distintas de la
+      misma pregunta y pasó a ser un valor: `content_edit::ImageControls`
+      (`Nothing`/`Ready`/`NoReplace`/`PendingEdit`), resuelto por `image_controls` y
+      gastado en widgets por `update_content_edit_controls`. `PendingEdit` apaga los dos
+      botones —una edición encolada refuta las cuatro operaciones, no sólo el reemplazo—
+      y **gana** sobre `NoReplace` cuando valen las dos: es la respuesta más ancha y es
+      la única que el usuario puede resolver, guardando. A diferencia de
+      `replace_refused`, **no se cachea**: `write::preview::edits` lleva el
+      `document_model` —y con él el `EditLog`— a través del refresh, así que un `true`
+      recordado sobrevivría a su causa. Por eso mismo el handler de undo/redo
+      (`annotations::command::history`) ahora llama a `update_content_edit_controls`
+      junto a sus dos hermanas, con el argumento que ya estaba escrito ahí para ellas:
+      el refresh de un content edit re-corre esto cuando aterriza, pero puede no
+      aterrizar, y un refresh fallido no puede dejar la tarjeta rechazando una imagen que
+      el log acaba de liberar.
+
 ## Tareas de UI (agregadas a la ficha de B8, docs/batches-b8-b13.md)
 
 - [x] T-161 (dep B21) Modo edición de contenido en el canvas: click sobre un text run
@@ -407,15 +484,103 @@ contradicen, y la política del módulo es rechazar, no elegir:
 Lo que sigue **fuera** de las tablas es lo que ninguna tabla arregla: Type0/CID conservando
 la fuente (ver "Fuera de scope").
 
+## Form XObjects: copia propia de la página al escribir
+
+El texto y las imágenes pintados dentro de un `/Subtype /Form` **sí** se reportan y se
+editan. El interpreter desciende al form y cada item se lleva su `form_path`: la cadena de
+invocaciones `Do` que va de la página hasta el stream donde vive.
+
+Escribir ahí no puede tocar el objeto compartido —el stream de un form lo puede invocar
+cualquier cantidad de páginas, y no existe forma de editarlo "para una sola"—, así que no se
+edita: `edit::own_form_path` **copia cada paso del camino** y liga la copia en la copia de su
+llamador. La página que edita pasa a alcanzar sus copias; todas las demás siguen alcanzando
+los originales. Lo mismo vale para el `/Resources` de la página, que se desprende de
+cualquier diccionario indirecto compartido antes de reescribir la ligadura.
+
+Detalles que la implementación fija:
+
+- Una copia que no tenía `/Resources` propio recibe el de su llamador —el mismo diccionario
+  contra el que el parse resolvió sus nombres—. Sin eso, el primer recurso que se registre en
+  la copia sería el único nombre que el form podría seguir viendo.
+- Los nombres se resuelven en el **scope** del item, no en la página: un form que redefine
+  `/F1` se edita contra *su* fuente. `edit::scope_resources` camina el `form_path` con la
+  misma regla que el interpreter (el `/Resources` propio reemplaza al del llamador, no se
+  mezcla con él).
+- La invariante 1 sigue en pie: todo lo que puede rechazar la edición corre **antes** de que
+  se copie nada. Un reemplazo que la fuente no puede codificar no deja copias a medio hacer.
+- **Repetir una edición dentro del mismo form lo copia de nuevo.** La copia anterior queda
+  sin referenciar en lugar de reusarse: decidir que una copia es exclusiva de esta página
+  significa probar que ningún otro objeto la alcanza, y eso es un recorrido de alcanzabilidad
+  de todo el documento que este crate no tiene. El prune de `pdf-compress` las junta a la
+  salida.
+
+## Inline images: medir en vez de adivinar
+
+Una inline image lleva sus muestras **dentro** del content stream: `BI`, el diccionario,
+`ID`, binario crudo, `EI`. No hay objeto, no hay nombre, y hasta PDF 2.0 no hay largo
+declarado — así que encontrar dónde termina es todo el problema, y el scan del próximo
+`EI` que usan los visores es una heurística que se equivoca sobre sus propias muestras.
+
+`core/pdf-edit/src/parse/inline.rs` deriva el final y sólo adivina cuando no puede:
+
+1. `/L` (`/Length`), y sólo si efectivamente hay un `EI` ahí — un `/L` mentiroso no puede
+   cortar la imagen en silencio.
+2. Sin filtro, aritmética exacta: `ceil(W × BPC × componentes / 8) × H`. Cero heurística,
+   y es el caso común de las imágenes chiquitas para las que la codificación inline existe.
+3. Recién entonces, el scan de `EI` delimitado por whitespace — el largo de la salida de un
+   filtro no se deriva del diccionario, así que no hay nada mejor disponible.
+
+Un espacio de color nombrado contra `/Resources /ColorSpace` cae al scan a propósito: sus
+componentes se saben, pero no desde el stream, y un conteo equivocado daría un final
+confiadamente incorrecto.
+
+Lo que se puede hacer con una, y lo que no:
+
+| Operación | Inline | Por qué |
+| --- | --- | --- |
+| Mover / redimensionar / borrar | ✅ | Son reescrituras del span; las muestras se copian byte a byte, nunca se re-codifican |
+| Aparecer en `PageContent` con su caja | ✅ | Pinta el mismo cuadrado unitario que un `Do` |
+| Leerla de vuelta para el undo | ✅ | Su diccionario abreviado se traduce al de un XObject y lo lee el mismo lector (T-203) |
+| Reemplazar la fuente | ✅ — deja de ser inline | Las muestras *son* la operación: el reemplazo se registra como XObject de la página y el span pasa a ser un `Do` (T-203) |
+| Insertarla nueva | ❌ | Lo que se agrega es un `Do`, y un `Do` necesita un nombre |
+| Entrar al inventario de compresión (T-193) | ❌ | `pdf-compress` reemplaza objetos; acá no hay objeto |
+
+El modelo lo dice con `ImageSource::{Resource, Inline}` en vez de un nombre vacío, y a
+diferencia de `FontKind` **no** es `#[non_exhaustive]`: el formato define exactamente dos
+formas de pintar una imagen, y quien escribe tiene que manejar las dos.
+
+Reemplazar es la única edición que no puede dejarla inline, y no por comodidad: las
+muestras **son** la operación, así que reescribirlas es reescribir el `BI … EI` entero, y
+la codificación inline no puede cargar lo que produce nuestro encoder — no tiene `/SMask`,
+así que cualquier reemplazo con alpha saldría opaco, y sus abreviaturas de filtro no
+cubren la cadena con predictor PNG que escribe `insert::image_xobject`. Entonces el
+reemplazo se registra como XObject sobre el *scope que pintaba la inline* (página o copia
+propia del form), con un nombre recién acuñado porque la inline no traía ninguno, y el
+span pasa a ser un `/Nombre Do`. Ese `Do` pinta el mismo cuadrado unitario, bajo el mismo
+CTM, en el mismo punto del stream: cambia el dibujo y nada más.
+
+
 ## Otras limitaciones conocidas de Fase 2
 
-- **Form XObjects:** el texto pintado dentro de un `/Subtype /Form` no se reporta. Su stream
-  puede estar compartido por varias páginas, y editarlo las cambiaría todas en silencio.
-- **Inline images (`BI`..`EI`):** se atraviesan de forma opaca (el lexer se las traga
-  enteras para no desincronizarse con su payload binario) pero no son `ImageItem`: no tienen
-  nombre de recurso al que apuntar.
-- **`replace_image_source` reemplaza el XObject in situ.** Si otra página referencia el
-  mismo objeto, también cambia. Clonar el recurso para aislar la edición queda pendiente.
+- **Los forms no anidan más de `MAX_FORM_DEPTH` (32) niveles.** El descenso corta ciclos
+  (un form que ya está activo no se vuelve a entrar) pero eso no acota una cadena larga de
+  forms *distintos*: ~600 niveles desbordan la pila de un thread de test de 2 MiB, y un
+  desborde es un abort del proceso, no un `Err` que alguien pueda manejar. El presupuesto de
+  `MAX_PAGE_CONTENT_BYTES` tampoco lo acota, porque cada nivel cuesta los ~7 bytes de un
+  `/N Do`. Por eso el tope es explícito y el nivel 33 se rechaza con
+  `EditError::FormNestingTooDeep` **antes** de bajar: mismo techo que el
+  `MAX_INHERITANCE_DEPTH` de la cadena `/Parent`, y generoso para cualquier archivo real.
+  Rechazo ruidoso, nunca contenido truncado en silencio: una página que reportara sólo los
+  primeros 32 niveles escondería items que el usuario ve pintados.
+- **Los dos walkers ya no discrepan sobre los forms.** `parse::interpreter::interpret`
+  desciende y `parse::placement::page_image_placements` lo hereda, así que una imagen
+  dentro de un form es visible tanto para editar como para el inventario de compresión
+  (T-193). Lo que lo hacía divergir no era el descenso sino la **resolución del nombre**:
+  el placement resolvía `/Im0` contra los recursos de la *página* después de haber entrado
+  a un form que redefine ese nombre, y devolvía el objeto equivocado con la matriz correcta.
+  Ahora el id lo resuelve el intérprete en el scope que pintó (`LocatedImage::xobject`) y el
+  módulo de placements sólo mide. Un recurso que no es objeto indirecto sigue afuera: no hay
+  id que un llamador pueda tocar.
 - **El ancho del bbox de un run es aproximado** cuando la fuente no trae `/Widths` (caso
   típico de las Standard-14): se asume medio em por glyph. El alto usa 0.75/-0.25 em en vez
   de leer `/Ascent`/`/Descent`. Afecta la precisión del hit-test en la UI, nunca lo que se
