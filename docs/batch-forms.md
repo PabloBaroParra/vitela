@@ -237,13 +237,68 @@ representación visual es una anotación `/Subtype /Widget` en el `/Annots` de l
       contra los fixtures unitarios de cada módulo por separado. Pasó a la primera.)**
 
 ### Fase 4 — FFI (`core/pdf-ffi`)
-- [ ] T-140 `FfiFormField`/`FfiTextStyle`/`FfiFieldValue` en types.rs; `FfiEditCommand` gana
+- [x] T-140 `FfiFormField`/`FfiTextStyle`/`FfiFieldValue`; `FfiEditCommand` gana
       `AddTextField/AddCheckbox/AddRadioGroup/AddDropdown/RemoveFormField/MoveFormField/
       ResizeFormField/RestyleFormField/SetFieldValue` (traducción en `build_core_command`
       resolviendo estados `from` actuales, patrón RemoveAnnotation);
       `DocumentHandle::list_form_fields() -> Vec<FfiFormField>` — **la API del panel
-      lateral**; `next_form_field_id` en DocumentState; smoke test: crear campo → set value
+      lateral**; `next_form_field_id`; smoke test: crear campo → set value
       → save_to_bytes → reabrir → list_form_fields devuelve el campo con su valor. [FormFFI]
+      **(2026-09-21 — completo. **No en `types.rs`**: los tipos y la traducción viven en un
+      módulo nuevo, `core/pdf-ffi/src/form.rs`, por el mismo criterio con el que `compress.rs`
+      es su propio módulo — lo que cruza es el vocabulario de un segundo crate (`pdf-form`,
+      dependencia nueva de `pdf-ffi`) más la validación que ese vocabulario posee, no otra
+      forma de editar una página. `types.rs` ya estaba en 706 líneas; solo recibe las
+      variantes del enum de comandos, que no pueden vivir en otro lado.
+      Siete tipos: `FfiFormField`, `FfiFormFieldKind`, `FfiFieldValue`, `FfiTextStyle`,
+      `FfiFontFamily`, `FfiRadioOption`, `FfiFieldOrigin`.
+      **Una variante de más y una decisión de menos.** `RenameFormField` no estaba en la
+      lista de esta tarea y se agregó igual: el `Command` del core existe, `ops::rename_field`
+      lo valida, y sin él este boundary sería el único lugar donde un campo se puede crear
+      pero nunca nombrar — el inspector del shell GTK4 sí lo ofrece. En sentido contrario,
+      los cuatro `Add*` **no** aceptan nombre: el `/T` lo elige `FormFieldSet::unique_name`
+      con las mismas cuatro bases que usa el shell GTK4 (`Text`/`Checkbox`/`RadioGroup`/
+      `Dropdown`), así que dos shells editando el mismo documento no producen dos esquemas
+      de nombres. Quien quiera el suyo manda `RenameFormField` después, que es exactamente
+      lo que hace el shell GTK4.
+      **`next_form_field_id` no puede arrancar en 0 como `next_annotation_id`.** Las
+      anotaciones nacen vacías en `document_from_lopdf`; los campos NO — `pdf_form::read_form_fields`
+      los puebla al abrir, con ids que este boundary nunca emitió. Es uno más que el mayor
+      en uso, leído del documento en cada comando en vez de ser un contador sembrado al abrir:
+      undo/redo mueven campos dentro y fuera del set entre llamadas, y lo único que siempre
+      sabe qué ids están gastados es el set. Test: guardar → reabrir → colocar un segundo
+      campo, y los dos ids son distintos.
+      **La compuerta de permisos es de dos bits, y ese es el hallazgo.** ISO 32000-1 tabla 22
+      bit 6 cubre *rellenar* un campo existente por sí solo; crearlo o modificarlo exige
+      además el bit 4 ("…and, if bit 4 is also set, create or modify interactive form
+      fields"). Un documento que concede el 6 sin el 4 es real y legal. Así que
+      `is_structural_form_command` separa los nueve estructurales de `SetFieldValue`, y
+      `apply_edit` le pide el bit 4 solo a los primeros — el mismo corte que
+      `forms::command::structural_edit_refusal` hace en el shell GTK4, para que un documento
+      restringido se comporte igual en las dos plataformas. Ninguno queda excluido de
+      `is_annotation_command`: el bit 6 es el piso de todos.
+      **La trampa que eso esconde:** el `content_editing_is_allowed` *local* de `document.rs`
+      no es el del core — le hace AND con `full_rewrite_blocker`. Un comando de formulario
+      nunca fuerza rewrite (decisión 6 de T-139), así que usarlo habría rechazado la edición
+      de campos en un AES-256 abierto con una sola contraseña, que guarda incremental sin
+      problema. La compuerta llama a `pdf_manip::content_editing_is_allowed` directo. Por eso
+      `form_field_editing_allowed()` existe como método propio en vez de dejar que el shell
+      componga `annotation_editing_allowed() && content_editing_allowed()`, que daría la
+      respuesta equivocada.
+      **Validación antes de registrar, nunca en el save.** `set_field_value` y `rename_field`
+      corren `pdf_form::ops` contra una *copia* del campo y recién ahí construyen el comando;
+      el rename registra `validated.name`, no el string del caller, porque `ops` recorta
+      espacios. `FormError` cruza como `UnsupportedOperation` (es un rechazo entendido, no una
+      falla), y un id ausente como la variante nueva `FfiError::FormFieldNotFound`.
+      `FfiFieldOrigin` descarta el id de objeto indirecto de `FieldOrigin::Existing` y conserva
+      el único bit accionable: un campo que ya venía en el archivo lo rasteriza pdfium desde su
+      propio `/AP`, así que un overlay que también dibuje su valor lo dibuja dos veces.
+      Verificado en Windows: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets
+      -D warnings`, `cargo test --workspace` (86 binarios, 0 fallos). 12 tests de integración
+      nuevos en `core/pdf-ffi/tests/forms.rs` — archivo propio, mismo criterio que
+      `compress.rs` — incluido el criterio de aceptación de esta tarea end-to-end y sin mocks,
+      más 14 unitarios en `form.rs` y 4 de compuerta en `document.rs` que construyen un
+      `DocumentState` con permisos fabricados y prueban las tres combinaciones de bits.)**
 
 ### Fase 5 — Fixtures e interop
 - [ ] T-144 Fixture AcroForm generado en tests (patrón `labeled_pdf`) + **un fixture

@@ -23,6 +23,10 @@ pdf-document = { path = "../pdf-document" }
 pdf-manip = { path = "../pdf-manip" }
 pdf-render = { path = "../pdf-render" }
 pdf-annotate = { path = "../pdf-annotate" }
+# The four field builders and the value/name rules a form command has to
+# pass before it is recorded (T-140). Only the vocabulary crosses; writing
+# the `/AcroForm` objects stays `pdf-save`'s job.
+pdf-form = { path = "../pdf-form" }
 pdf-save = { path = "../pdf-save" }
 pdf-edit = { path = "../pdf-edit" }
 # The preset a shell picks and the report it reads back (T-196). `pdf-save`

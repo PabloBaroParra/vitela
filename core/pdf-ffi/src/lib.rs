@@ -23,6 +23,11 @@
 //!   queries in shells that cannot link `pdf-render` directly.
 //! - [`document`] (T-039, T-040, T-068 DELTA): [`DocumentHandle`] and every
 //!   FFI command function.
+//! - [`form`] (T-140): the AcroForm field surface — the shapes a side panel
+//!   reads (`FfiFormField` and friends) and the translation of the ten field
+//!   commands into real `pdf_document::Command`s, with `pdf-form`'s own
+//!   validation run before any of them is recorded. Its own module for the
+//!   same reason [`compress`] is: a second crate's vocabulary.
 //! - [`compress`] (T-196): the compression surface — the preset a shell
 //!   offers, the save that applies it, and the report it reads back. Its own
 //!   module rather than more of [`document`], because what it carries across
@@ -45,6 +50,7 @@ mod bitmap;
 mod compress;
 mod document;
 mod error;
+mod form;
 mod selection;
 mod types;
 
@@ -61,6 +67,10 @@ pub use document::{
     will_invalidate_signatures, DocumentHandle,
 };
 pub use error::FfiError;
+pub use form::{
+    FfiFieldOrigin, FfiFieldValue, FfiFontFamily, FfiFormField, FfiFormFieldKind, FfiRadioOption,
+    FfiTextStyle,
+};
 pub use selection::FfiPageCharacters;
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,

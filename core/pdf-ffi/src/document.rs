@@ -41,6 +41,7 @@ use pdf_document::{Annotation, AnnotationId, AnnotationKind, Command, Document, 
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
+use crate::form::{self, FfiFormField};
 use crate::selection::FfiPageCharacters;
 use crate::types::{
     FfiAnnotation, FfiAnnotationKind, FfiDocumentInfo, FfiEditCommand, FfiOrientation,
@@ -259,6 +260,71 @@ impl DocumentState {
                 before,
                 after,
             },
+            FfiEditCommand::AddTextField {
+                page,
+                rect,
+                style,
+                multiline,
+                max_len,
+            } => form::add_field(
+                &self.document,
+                page,
+                rect,
+                style,
+                pdf_document::FormFieldKind::Text { multiline, max_len },
+            ),
+            FfiEditCommand::AddCheckbox { page, rect, style } => form::add_field(
+                &self.document,
+                page,
+                rect,
+                style,
+                pdf_document::FormFieldKind::Checkbox,
+            ),
+            FfiEditCommand::AddRadioGroup {
+                page,
+                rect,
+                style,
+                options,
+            } => form::add_field(
+                &self.document,
+                page,
+                rect,
+                style,
+                pdf_document::FormFieldKind::RadioGroup {
+                    options: options.into_iter().map(Into::into).collect(),
+                },
+            ),
+            FfiEditCommand::AddDropdown {
+                page,
+                rect,
+                style,
+                options,
+                editable,
+            } => form::add_field(
+                &self.document,
+                page,
+                rect,
+                style,
+                pdf_document::FormFieldKind::Dropdown { options, editable },
+            ),
+            FfiEditCommand::RemoveFormField { field_id } => {
+                form::remove_field(&self.document, field_id)?
+            }
+            FfiEditCommand::MoveFormField { field_id, to } => {
+                form::move_field(&self.document, field_id, to)?
+            }
+            FfiEditCommand::ResizeFormField { field_id, to } => {
+                form::resize_field(&self.document, field_id, to)?
+            }
+            FfiEditCommand::RestyleFormField { field_id, style } => {
+                form::restyle_field(&self.document, field_id, style)?
+            }
+            FfiEditCommand::SetFieldValue { field_id, value } => {
+                form::set_field_value(&self.document, field_id, value)?
+            }
+            FfiEditCommand::RenameFormField { field_id, name } => {
+                form::rename_field(&self.document, field_id, name)?
+            }
             FfiEditCommand::SetDocumentInfo { after } => {
                 let before = pdf_save::pending_document_info(&self.document)
                     .cloned()
@@ -627,6 +693,39 @@ impl DocumentHandle {
         annotation_editing_is_allowed(&self.lock().document)
     }
 
+    /// Every AcroForm field the document holds, in `/Fields` write order —
+    /// **the side panel's API** (T-140). Fields the opened file already had
+    /// are in here too: `pdf_save::document_from_lopdf` populates the set at
+    /// open, unlike annotations, which start empty.
+    ///
+    /// Read-only, so like [`Self::annotations`] it stays available however
+    /// restricted the document is.
+    pub fn list_form_fields(&self) -> Vec<FfiFormField> {
+        self.lock()
+            .document
+            .form_fields
+            .iter()
+            .map(form::ffi_form_field)
+            .collect()
+    }
+
+    /// Reports whether this document permits *creating or modifying* a form
+    /// field — placing, removing, moving, resizing, restyling or renaming
+    /// one.
+    ///
+    /// Filling an existing field in is a separate, weaker permission, and
+    /// the answer to that one is [`Self::annotation_editing_allowed`]; see
+    /// `form::is_structural_form_command` for the spec text that splits
+    /// them. A shell must not compose this answer out of
+    /// `annotation_editing_allowed() && content_editing_allowed()` either:
+    /// the latter also refuses a document whose encryption cannot survive a
+    /// full rewrite, which a form edit never asks for.
+    pub fn form_field_editing_allowed(&self) -> bool {
+        let state = self.lock();
+        annotation_editing_is_allowed(&state.document)
+            && pdf_manip::content_editing_is_allowed(state.document.security.as_ref())
+    }
+
     /// Reports whether rewriting this page's own content — retyping a text
     /// run, moving an image — would be allowed by the PDF's security
     /// context. Separate from [`Self::annotation_editing_allowed`]: a
@@ -758,6 +857,123 @@ mod tests {
 
         document.security.as_mut().unwrap().credential = Credential::Owner;
         assert!(annotation_editing_is_allowed(&document));
+    }
+
+    /// `/P` bit 6 (annotate) and bit 4 (modify contents), the two the form
+    /// gate is built out of. Named here rather than reached for as magic
+    /// numbers, because getting either wrong silently widens the gate.
+    const ANNOTATE_BIT: u32 = 1 << 5;
+    const MODIFY_CONTENTS_BIT: u32 = 1 << 3;
+
+    fn restricted_handle(permissions: u32) -> Arc<DocumentHandle> {
+        let base = pdf_manip::create_blank_document(
+            pdf_document::PageSize::A4,
+            pdf_document::Orientation::Portrait,
+        );
+        let mut document = pdf_save::document_from_lopdf(&base, None).expect("blank model");
+        document.security = Some(SecurityContext {
+            handler: SecurityHandler::Rc4_128,
+            credential: Credential::User,
+            credentials: EncryptionCredentials::default(),
+            permissions: Permissions(permissions),
+        });
+        DocumentHandle::new(DocumentState {
+            document,
+            base,
+            original_bytes: None,
+            // No pdfium needed: nothing below this line renders.
+            render_doc: None,
+            render_password: None,
+            next_annotation_id: 0,
+        })
+    }
+
+    fn a_checkbox() -> FfiEditCommand {
+        FfiEditCommand::AddCheckbox {
+            page: 0,
+            rect: FfiRect {
+                x: 0.0,
+                y: 0.0,
+                width: 20.0,
+                height: 20.0,
+            },
+            style: crate::form::FfiTextStyle {
+                font: crate::form::FfiFontFamily::Helvetica,
+                size_pt: 12.0,
+                color: crate::types::FfiColor { r: 0, g: 0, b: 0 },
+            },
+        }
+    }
+
+    /// The document that makes the form gate worth having: ISO 32000-1
+    /// table 22 lets bit 6 stand without bit 4, and such a document may be
+    /// filled in but not restructured. Placing a field has to be refused
+    /// even though annotating is allowed.
+    #[test]
+    fn a_document_granting_only_the_annotate_bit_refuses_a_new_field() {
+        let handle = restricted_handle(ANNOTATE_BIT);
+
+        assert!(handle.annotation_editing_allowed());
+        assert!(!handle.form_field_editing_allowed());
+
+        let error = apply_edit(&handle, a_checkbox()).expect_err("placing should be refused");
+        assert!(
+            matches!(error, FfiError::UnsupportedOperation { .. }),
+            "unexpected error: {error}"
+        );
+        assert!(handle.list_form_fields().is_empty());
+    }
+
+    #[test]
+    fn a_document_granting_both_bits_lets_a_new_field_through() {
+        let handle = restricted_handle(ANNOTATE_BIT | MODIFY_CONTENTS_BIT);
+
+        assert!(handle.form_field_editing_allowed());
+        apply_edit(&handle, a_checkbox()).expect("placing should be allowed");
+        assert_eq!(handle.list_form_fields().len(), 1);
+    }
+
+    /// The modify-contents bit alone is not enough either: every form
+    /// command needs the annotate bit, which is why none of them is
+    /// excluded from [`is_annotation_command`].
+    #[test]
+    fn a_document_withholding_the_annotate_bit_refuses_a_new_field_too() {
+        let handle = restricted_handle(MODIFY_CONTENTS_BIT);
+
+        assert!(!handle.form_field_editing_allowed());
+        assert!(apply_edit(&handle, a_checkbox()).is_err());
+    }
+
+    /// Filling in a field the document already has is the weaker
+    /// permission, and a bit-6-only document must still allow it.
+    #[test]
+    fn a_document_granting_only_the_annotate_bit_still_allows_a_fill() {
+        let handle = restricted_handle(ANNOTATE_BIT | MODIFY_CONTENTS_BIT);
+        apply_edit(&handle, a_checkbox()).expect("placing should be allowed");
+        let id = handle.list_form_fields()[0].id;
+
+        // Narrow the document to bit 6 only, as if it had been opened that
+        // way with the field already in the file.
+        handle
+            .lock()
+            .document
+            .security
+            .as_mut()
+            .expect("restricted")
+            .permissions = Permissions(ANNOTATE_BIT);
+
+        apply_edit(
+            &handle,
+            FfiEditCommand::SetFieldValue {
+                field_id: id,
+                value: crate::form::FfiFieldValue::Checked { checked: true },
+            },
+        )
+        .expect("filling should still be allowed");
+        assert_eq!(
+            handle.list_form_fields()[0].value,
+            crate::form::FfiFieldValue::Checked { checked: true }
+        );
     }
 
     /// The page commands are the ones this boundary used to let through
@@ -1034,6 +1250,21 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
     {
         return Err(FfiError::UnsupportedOperation {
             detail: "this document does not permit inserting, removing or rotating its pages"
+                .to_string(),
+        });
+    }
+    // Deliberately *not* excluded from `is_annotation_command` above: bit 6
+    // is the floor for every form command, including filling one in. What
+    // the structural nine need on top of it is bit 4, and only bit 4 — a
+    // form edit never forces the full-rewrite writer (Batch 20 decision 6),
+    // so unlike a page-content edit it must not be asked the rewrite
+    // question below. Asking it would refuse field editing on an AES-256
+    // document that saves incrementally without complaint.
+    if form::is_structural_form_command(&command)
+        && !pdf_manip::content_editing_is_allowed(state.document.security.as_ref())
+    {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this document does not permit creating or modifying its form fields"
                 .to_string(),
         });
     }

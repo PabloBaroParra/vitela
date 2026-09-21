@@ -51,6 +51,13 @@ pub enum FfiError {
     /// document's current `AnnotationSet`.
     #[error("annotation {annotation_id} not found on this document")]
     AnnotationNotFound { annotation_id: u64 },
+    /// A form-field command referenced an id absent from this document's
+    /// current `FormFieldSet` — the form twin of [`FfiError::AnnotationNotFound`],
+    /// and its own variant for the same reason: a shell showing a side panel
+    /// has a list of ids on screen and needs to know *which* kind of thing
+    /// went missing to say anything useful about it.
+    #[error("form field {field_id} not found on this document")]
+    FormFieldNotFound { field_id: u64 },
     /// Image bytes passed to `insert_image_stamp` (or an `AddStamp` edit
     /// command) could not be decoded as a supported format (PNG/JPEG).
     #[error("invalid image bytes: {detail}")]
@@ -166,6 +173,19 @@ impl From<pdf_annotate::AnnotateError> for FfiError {
             other => FfiError::Internal {
                 detail: other.to_string(),
             },
+        }
+    }
+}
+
+/// Both variants are refusals, not malfunctions: the document is intact and
+/// the request was understood — the value simply is not one the field can
+/// hold, or the name is already another field's. `UnsupportedOperation` is
+/// the variant that means exactly that, and `FormError`'s own wording is
+/// what a shell shows, the same posture `EditError`'s refusals take below.
+impl From<pdf_form::FormError> for FfiError {
+    fn from(err: pdf_form::FormError) -> Self {
+        FfiError::UnsupportedOperation {
+            detail: err.to_string(),
         }
     }
 }
