@@ -86,6 +86,24 @@ fn style(font: FontFamily, size_pt: f64) -> TextStyle {
     }
 }
 
+/// A style with a colour that is not the default black — the only half of a
+/// `/Btn` field's `TextStyle` that anything downstream consumes, and so the
+/// only half a round trip can be asked to carry (T-205).
+fn colored_style(font: FontFamily, size_pt: f64, color: Color) -> TextStyle {
+    TextStyle {
+        font,
+        size_pt,
+        color,
+    }
+}
+
+const CHECKBOX_RED: Color = Color { r: 204, g: 0, b: 0 };
+const RADIO_BLUE: Color = Color {
+    r: 0,
+    g: 64,
+    b: 192,
+};
+
 fn rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
     Rect {
         x,
@@ -114,14 +132,14 @@ fn the_four_kinds() -> Vec<FormField> {
             PageId(0),
             "agrees",
             rect(72.0, 660.0, 18.0, 18.0),
-            style(FontFamily::TimesRoman, 10.0),
+            colored_style(FontFamily::TimesRoman, 10.0, CHECKBOX_RED),
         ),
         pdf_form::radio_group(
             FormFieldId(2),
             PageId(0),
             "plan",
             rect(72.0, 600.0, 78.0, 18.0),
-            style(FontFamily::Helvetica, 11.0),
+            colored_style(FontFamily::Helvetica, 11.0, RADIO_BLUE),
             vec![
                 RadioOption {
                     export_value: "basic".to_string(),
@@ -187,14 +205,14 @@ fn author_the_four_kinds(document: &mut Document) {
 /// - `origin`, because every field read back out of a file is
 ///   `Existing(oid)` by definition — that is the whole point of the entry —
 ///   and the object id it names cannot be predicted from the input.
-/// - `style`, but only because of a real gap, not because it is
-///   unpredictable. See [`KNOWN GAP`][style_is_not_persisted_for_buttons]
-///   below: `write_form_fields` emits `/DA` for `Tx` and `Ch` fields only,
-///   so a checkbox's or radio group's `TextStyle` does not survive the trip.
-///   Style *is* compared for the two kinds that keep it, by
-///   [`the_variable_text_kinds_keep_their_style`].
-///
-/// [style_is_not_persisted_for_buttons]: fn.a_buttons_style_does_not_survive_the_round_trip.html
+/// - `style`, because how much of it survives depends on the kind, which
+///   makes a whole-struct comparison the wrong shape rather than a weaker
+///   one. `Tx` and `Ch` keep all three attributes
+///   ([`the_variable_text_kinds_keep_their_style`]); a `/Btn` keeps its
+///   colour and only its colour, by design
+///   ([`a_buttons_color_survives_the_round_trip`] and
+///   [`a_buttons_font_and_size_do_not_survive_and_are_not_meant_to`]).
+///   Those three tests compare it, per kind, where the contract differs.
 #[derive(Debug, PartialEq)]
 struct Comparable {
     name: String,
@@ -325,45 +343,63 @@ fn the_variable_text_kinds_keep_their_style() {
     );
 }
 
-/// **KNOWN GAP**, pinned deliberately rather than left to be discovered.
+/// A `/Btn` field's **colour** survives the round trip (T-205), because it
+/// is the one half of a button's `TextStyle` that anything consumes:
+/// `appearance::build_field_appearance` paints the ZapfDingbats check mark
+/// and the radio dot with it and bakes the result into `/AP`. Before T-205
+/// the writer emitted `/DA` for `Tx` and `Ch` only, so a red check was drawn
+/// red, saved red, and read back black — and the GTK4 inspector, which
+/// offers colour for any field with no per-kind gating, then showed a colour
+/// the file was not painting.
 ///
-/// `forms::write_new_single_field` and `update_existing_single_field` emit
-/// `/DA` for `Tx` and `Ch` only, so a `/Btn` field's `TextStyle` is not
-/// written anywhere and `parse_da` hands back decision 3's default on the
-/// way in. That is defensible for `font` and `size_pt`, which nothing
-/// consumes for a button — `appearance::build_field_appearance` draws a
-/// checkbox from ZapfDingbats at a size derived from its rect.
-///
-/// It is **not** defensible for `color`, which that same function *does*
-/// consume: a red check mark is drawn red, baked into `/AP`, and then read
-/// back as black. The GTK4 shell's style inspector offers font, size and
-/// colour for any selected field with no per-kind gating
-/// (`forms::style::refresh`), so a user really can set a checkbox's colour,
-/// really does see it, and really does lose it on reopen — while the file
-/// keeps painting the colour they can no longer see in the inspector.
-///
-/// Closing it means deciding what `/DA` on a `/Btn` should say, which is an
-/// interop question (Acrobat writes `/ZaDb 0 Tf 0 g` there, and `parse_da`
-/// currently discards the whole string when the font resource is not one of
-/// its three families) — a decision for its own change, not for the task
-/// that happened to surface it. Recorded as an open item in
-/// `docs/batch-forms.md`.
-///
-/// When it is closed, this test fails. That is the point of it.
+/// The `/DA` written for a button is Acrobat's own shape,
+/// `/ZaDb 0 Tf <r g b> rg`: the resource a button's appearance actually
+/// draws from, at the auto size, rather than this crate's `format_da` — a
+/// downstream tool that regenerates the appearance from `/DA` must find
+/// ZapfDingbats there, not `/Helv`.
 #[test]
-fn a_buttons_style_does_not_survive_the_round_trip() {
+fn a_buttons_color_survives_the_round_trip() {
     let (document, base) = an_authored_form();
     assert_eq!(
-        field_named(&document, "agrees").style,
-        style(FontFamily::TimesRoman, 10.0),
-        "the authored checkbox really does carry a non-default style"
+        field_named(&document, "agrees").style.color,
+        CHECKBOX_RED,
+        "the authored checkbox really does carry a non-default colour"
     );
 
     let reloaded = reopen(&save(&document, &base, None));
 
-    let default = style(FontFamily::Helvetica, 12.0);
-    assert_eq!(field_named(&reloaded, "agrees").style, default);
-    assert_eq!(field_named(&reloaded, "plan").style, default);
+    assert_eq!(field_named(&reloaded, "agrees").style.color, CHECKBOX_RED);
+    assert_eq!(field_named(&reloaded, "plan").style.color, RADIO_BLUE);
+}
+
+/// The other half of T-205's decision, asserted so it is a contract rather
+/// than an accident: a button's `font` and `size_pt` do **not** come back,
+/// and must not. `/ZaDb 0 Tf` states the only font a button's appearance
+/// ever draws with and leaves the size to the viewer, so there is nowhere in
+/// the file for the user's family and point size to live — and nothing would
+/// read them if there were (`build_field_appearance` sizes the glyph from
+/// the control's own rect). They default on the way back in.
+#[test]
+fn a_buttons_font_and_size_do_not_survive_and_are_not_meant_to() {
+    let (document, base) = an_authored_form();
+    assert_eq!(
+        (
+            field_named(&document, "agrees").style.font,
+            field_named(&document, "agrees").style.size_pt
+        ),
+        (FontFamily::TimesRoman, 10.0),
+        "the authored checkbox really does carry a non-default family and size"
+    );
+
+    let reloaded = reopen(&save(&document, &base, None));
+
+    let checkbox = field_named(&reloaded, "agrees").style;
+    assert_eq!(
+        (checkbox.font, checkbox.size_pt),
+        (FontFamily::Helvetica, 12.0)
+    );
+    let radio = field_named(&reloaded, "plan").style;
+    assert_eq!((radio.font, radio.size_pt), (FontFamily::Helvetica, 12.0));
 }
 
 /// The fill case, on a document this workspace did not write: change one

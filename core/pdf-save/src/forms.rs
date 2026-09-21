@@ -217,6 +217,31 @@ fn build_single_field_appearance<S: ObjectSink>(
     }
 }
 
+/// The `/DA` a field of this kind carries — the writer's single per-kind
+/// rule, so the "new field" and "patch an existing one" paths can never
+/// disagree about it.
+///
+/// Variable text (`Tx`, `Ch`) gets the whole `TextStyle`; a `/Btn` gets the
+/// ZapfDingbats shape, which carries its colour and nothing else (T-205).
+/// Every kind gets one: a button's colour is baked into its `/AP` by
+/// `pdf_form::build_field_appearance`, and leaving `/DA` off is what used to
+/// make that colour unreadable on the way back in.
+fn field_da(field: &FormField) -> String {
+    match field.kind {
+        FormFieldKind::Text { .. } | FormFieldKind::Dropdown { .. } => {
+            pdf_form::format_da(&field.style)
+        }
+        FormFieldKind::Checkbox | FormFieldKind::RadioGroup { .. } => {
+            pdf_form::format_button_da(field.style.color)
+        }
+        // `FormFieldKind` is `#[non_exhaustive]`. A kind added later gets the
+        // variable-text shape — the one the spec actually defines `/DA` for,
+        // and the one this crate wrote everywhere before T-205 — until
+        // whoever adds it decides it needs its own.
+        _ => pdf_form::format_da(&field.style),
+    }
+}
+
 fn write_new_single_field<S: ObjectSink>(
     sink: &mut S,
     acroform_id: ObjectId,
@@ -231,13 +256,10 @@ fn write_new_single_field<S: ObjectSink>(
     dict.set("FT", ft_name(&field.kind));
     dict.set("T", Object::string_literal(field.name.clone()));
     dict.set("Rect", rect_array(&field.rect));
+    dict.set("DA", Object::string_literal(field_da(field)));
 
     match &field.kind {
         FormFieldKind::Text { multiline, max_len } => {
-            dict.set(
-                "DA",
-                Object::string_literal(pdf_form::format_da(&field.style)),
-            );
             if *multiline {
                 dict.set("Ff", flag_bit(FF_TX_MULTILINE));
             }
@@ -246,10 +268,6 @@ fn write_new_single_field<S: ObjectSink>(
             }
         }
         FormFieldKind::Dropdown { options, editable } => {
-            dict.set(
-                "DA",
-                Object::string_literal(pdf_form::format_da(&field.style)),
-            );
             let mut flags = flag_bit(FF_CH_COMBO);
             if *editable {
                 flags |= flag_bit(FF_CH_EDIT);
@@ -284,17 +302,11 @@ fn update_existing_single_field<S: ObjectSink>(
     object_id: ObjectId,
 ) -> Result<(), SaveError> {
     let built = build_single_field_appearance(sink, field)?;
-    let da = matches!(
-        field.kind,
-        FormFieldKind::Text { .. } | FormFieldKind::Dropdown { .. }
-    )
-    .then(|| pdf_form::format_da(&field.style));
+    let da = field_da(field);
 
     let dict = sink.page_dict_mut(object_id)?;
     dict.set("Rect", rect_array(&field.rect));
-    if let Some(da) = da {
-        dict.set("DA", Object::string_literal(da));
-    }
+    dict.set("DA", Object::string_literal(da));
     dict.set("V", built.value);
     dict.set("AP", built.ap);
     if let Some(as_state) = built.as_state {
@@ -363,6 +375,9 @@ fn write_new_radio_group<S: ObjectSink>(
     parent.set("FT", "Btn");
     parent.set("T", Object::string_literal(field.name.clone()));
     parent.set("Ff", flag_bit(FF_BTN_RADIO));
+    // On the parent, next to `/FT` and `/T`: a kid is a widget, not a field,
+    // and `/DA` is inheritable (ISO 32000-1 table 220).
+    parent.set("DA", Object::string_literal(field_da(field)));
     parent.set("V", selected_name_object(&selected));
     parent.set(
         "Kids",
@@ -388,8 +403,10 @@ fn update_existing_radio_group<S: ObjectSink>(
     options: &[pdf_document::RadioOption],
 ) -> Result<(), SaveError> {
     let selected = selected_choice(field);
+    let da = field_da(field);
     let kid_ids: Vec<ObjectId> = {
         let parent = sink.page_dict_mut(parent_id)?;
+        parent.set("DA", Object::string_literal(da));
         parent.set("V", selected_name_object(&selected));
         parent
             .get(b"Kids")
@@ -497,6 +514,21 @@ mod tests {
             color: Color { r: 0, g: 0, b: 0 },
         }
     }
+
+    /// A style whose family and size a button ignores and whose colour it
+    /// does not — the shape T-205's `/DA` has to carry.
+    fn red_style() -> TextStyle {
+        TextStyle {
+            font: FontFamily::TimesRoman,
+            size_pt: 10.0,
+            color: Color { r: 255, g: 0, b: 0 },
+        }
+    }
+
+    /// What [`red_style`]'s colour serializes to on a `/Btn`, written out
+    /// literally so the assertions pin the bytes rather than re-deriving
+    /// them from the same function under test.
+    const RED_BUTTON_DA: &[u8] = b"/ZaDb 0 Tf 1 0 0 rg";
 
     fn one_page_doc() -> lopdf::Document {
         use lopdf::dictionary;
@@ -747,6 +779,141 @@ mod tests {
         );
         let no_kid = doc.get_dictionary(kids[1].as_reference().unwrap()).unwrap();
         assert_eq!(no_kid.get(b"AS").unwrap().as_name().unwrap(), b"Off");
+    }
+
+    /// T-205: a `/Btn` carries a `/DA` too, in the ZapfDingbats shape — the
+    /// resource its own appearance draws from, at the viewer-chosen size,
+    /// with the colour that appearance is painted in.
+    #[test]
+    fn a_new_checkbox_carries_the_zapf_dingbats_da() {
+        let mut doc = one_page_doc();
+        let page_object_id = *doc.get_pages().get(&1).unwrap();
+        let page_ids = HashMap::from([(PageId(0), page_object_id)]);
+        let catalog_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+
+        let mut set = FormFieldSet::new();
+        set.insert(FormField {
+            id: FormFieldId(1),
+            page: PageId(0),
+            name: "Agree".to_string(),
+            rect: rect(),
+            style: red_style(),
+            value: FieldValue::Checked(true),
+            kind: FormFieldKind::Checkbox,
+            origin: FieldOrigin::New,
+        });
+
+        write_form_fields(&mut doc, catalog_id, &page_ids, &set).expect("should write");
+
+        let annots = doc
+            .get_dictionary(page_object_id)
+            .unwrap()
+            .get(b"Annots")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let dict = doc
+            .get_dictionary(annots[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(dict.get(b"DA").unwrap().as_str().unwrap(), RED_BUTTON_DA);
+    }
+
+    /// The radio group's `/DA` belongs on the parent field dict, next to its
+    /// `/FT` and `/T` — a kid is a widget, not a field, and inherits it.
+    #[test]
+    fn a_new_radio_groups_parent_carries_the_zapf_dingbats_da() {
+        let mut doc = one_page_doc();
+        let page_object_id = *doc.get_pages().get(&1).unwrap();
+        let page_ids = HashMap::from([(PageId(0), page_object_id)]);
+        let catalog_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+
+        let mut set = FormFieldSet::new();
+        set.insert(FormField {
+            id: FormFieldId(1),
+            page: PageId(0),
+            name: "Choice".to_string(),
+            rect: rect(),
+            style: red_style(),
+            value: FieldValue::Choice(Some("Yes".to_string())),
+            kind: FormFieldKind::RadioGroup {
+                options: vec![RadioOption {
+                    export_value: "Yes".to_string(),
+                    rect: rect(),
+                }],
+            },
+            origin: FieldOrigin::New,
+        });
+
+        write_form_fields(&mut doc, catalog_id, &page_ids, &set).expect("should write");
+
+        let acroform_id = doc
+            .get_dictionary(catalog_id)
+            .unwrap()
+            .get(b"AcroForm")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let fields = doc
+            .get_dictionary(acroform_id)
+            .unwrap()
+            .get(b"Fields")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let parent = doc
+            .get_dictionary(fields[0].as_reference().unwrap())
+            .unwrap();
+        assert_eq!(parent.get(b"DA").unwrap().as_str().unwrap(), RED_BUTTON_DA);
+
+        let kids = parent.get(b"Kids").unwrap().as_array().unwrap();
+        let kid = doc.get_dictionary(kids[0].as_reference().unwrap()).unwrap();
+        assert!(
+            !kid.has(b"DA"),
+            "a kid widget inherits the field's /DA rather than restating it"
+        );
+    }
+
+    /// An existing button is patched the same way an existing text field is
+    /// — the writer has one `/DA` rule per kind, not one per code path.
+    #[test]
+    fn updating_an_existing_checkbox_writes_its_da() {
+        use lopdf::dictionary;
+
+        let mut doc = one_page_doc();
+        let page_object_id = *doc.get_pages().get(&1).unwrap();
+        let field_id = doc.add_object(dictionary! {
+            "FT" => "Btn",
+            "T" => Object::string_literal("Agree"),
+            "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        });
+        doc.get_dictionary_mut(page_object_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(field_id)]);
+        let acroform_id = doc.add_object(dictionary! {
+            "Fields" => vec![Object::Reference(field_id)],
+        });
+        let catalog_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        doc.get_dictionary_mut(catalog_id)
+            .unwrap()
+            .set("AcroForm", acroform_id);
+
+        let page_ids = HashMap::from([(PageId(0), page_object_id)]);
+        let mut set = FormFieldSet::new();
+        set.insert(FormField {
+            id: FormFieldId(1),
+            page: PageId(0),
+            name: "Agree".to_string(),
+            rect: rect(),
+            style: red_style(),
+            value: FieldValue::Checked(true),
+            kind: FormFieldKind::Checkbox,
+            origin: FieldOrigin::Existing(field_id),
+        });
+
+        write_form_fields(&mut doc, catalog_id, &page_ids, &set).expect("should write");
+
+        let dict = doc.get_dictionary(field_id).unwrap();
+        assert_eq!(dict.get(b"DA").unwrap().as_str().unwrap(), RED_BUTTON_DA);
     }
 
     #[test]

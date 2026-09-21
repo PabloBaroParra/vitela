@@ -11,7 +11,11 @@
 //! this crate does not model (CMYK `k`, extra operators like `Tr`), and
 //! T-137's read path cannot let one malformed field abort reading the whole
 //! AcroForm. Decision 3's own default — Helvetica, 12pt, black — is the
-//! fallback.
+//! fallback, applied **per attribute**: a `/DA` this crate only half
+//! understands gives up only the half it does not (T-205).
+//!
+//! A `/Btn` field's `/DA` is written by [`format_button_da`], not
+//! [`format_da`] — see its doc for why the two shapes differ.
 
 use pdf_document::{Color, FontFamily, TextStyle};
 
@@ -79,6 +83,9 @@ fn channel_to_byte(value: f64) -> u8 {
 }
 
 /// Serializes a `TextStyle` as a `/DA` string, e.g. `"0 0 0 rg /Helv 12 Tf"`.
+///
+/// This is the *variable text* shape, and so belongs on a `Tx` or `Ch` field
+/// only. A `/Btn` gets [`format_button_da`] instead.
 pub fn format_da(style: &TextStyle) -> String {
     format!(
         "{} {} {} rg /{} {} Tf",
@@ -90,50 +97,96 @@ pub fn format_da(style: &TextStyle) -> String {
     )
 }
 
-/// Parses a `/DA` string into a `TextStyle`, falling back to Helvetica/12pt/
-/// black (decision 3's default) whenever the string does not contain both a
-/// recognized color operator and a `Tf` naming one of this crate's own
-/// Standard-14 resource names.
-pub fn parse_da(da: &str) -> TextStyle {
-    try_parse_da(da).unwrap_or_else(default_style)
+/// Serializes a `/Btn` field's `/DA`, e.g. `"/ZaDb 0 Tf 1 0 0 rg"` (T-205).
+///
+/// Acrobat's own shape, and deliberately not [`format_da`]'s: a button's
+/// appearance is a ZapfDingbats glyph (`appearance::glyph_stream`), so the
+/// resource named here is `/ZaDb` — the font a downstream tool regenerating
+/// that appearance has to find — and the size is `0`, "chosen by the
+/// viewer", because the glyph is sized from the control's own rect and the
+/// user's point size never reaches it.
+///
+/// Colour is therefore the only part of a button's `TextStyle` this carries,
+/// which is also the only part anything consumes: `build_field_appearance`
+/// paints the check mark and the radio dot with it.
+pub fn format_button_da(color: Color) -> String {
+    format!(
+        "/{} 0 Tf {} {} {} rg",
+        crate::appearance::ZAPF_DINGBATS_RESOURCE,
+        format_number(byte_to_channel(color.r)),
+        format_number(byte_to_channel(color.g)),
+        format_number(byte_to_channel(color.b)),
+    )
 }
 
-fn try_parse_da(da: &str) -> Option<TextStyle> {
+/// Parses a `/DA` string into a `TextStyle`, filling in decision 3's default
+/// (Helvetica, 12pt, black) **per attribute** for whatever the string does
+/// not state in terms this crate models.
+///
+/// Attribute-by-attribute rather than all-or-nothing (T-205): a `/DA` that
+/// names a font outside this crate's three families still states its colour
+/// plainly, and throwing the colour away with the font is how a red checkbox
+/// — whose `/DA` says `/ZaDb`, which is never a `FontFamily` — used to read
+/// back black.
+pub fn parse_da(da: &str) -> TextStyle {
+    let scanned = scan_da(da);
+    let default = default_style();
+    TextStyle {
+        font: scanned.font.unwrap_or(default.font),
+        // `0 Tf` means "size chosen by the viewer" (ISO 32000-1 12.7.3.3),
+        // not a 0pt font — taken literally it would hand `appearance.rs` a
+        // zero-height glyph to draw.
+        size_pt: scanned
+            .size_pt
+            .filter(|size| *size > 0.0)
+            .unwrap_or(default.size_pt),
+        color: scanned.color.unwrap_or(default.color),
+    }
+}
+
+/// What a `/DA` actually stated, attribute by attribute. Each is independent
+/// so that one unmodelled operand cannot take the others down with it.
+#[derive(Default)]
+struct ScannedDa {
+    color: Option<Color>,
+    font: Option<FontFamily>,
+    size_pt: Option<f64>,
+}
+
+fn scan_da(da: &str) -> ScannedDa {
     let tokens: Vec<&str> = da.split_whitespace().collect();
     let mut numbers: Vec<f64> = Vec::new();
-    let mut color: Option<Color> = None;
-    let mut font: Option<FontFamily> = None;
-    let mut size_pt: Option<f64> = None;
+    let mut scanned = ScannedDa::default();
 
     for (index, token) in tokens.iter().enumerate() {
         match *token {
             "rg" => {
-                if numbers.len() < 3 {
-                    return None;
+                if numbers.len() >= 3 {
+                    let b = numbers.pop().expect("length checked");
+                    let g = numbers.pop().expect("length checked");
+                    let r = numbers.pop().expect("length checked");
+                    scanned.color = Some(Color {
+                        r: channel_to_byte(r),
+                        g: channel_to_byte(g),
+                        b: channel_to_byte(b),
+                    });
                 }
-                let b = numbers.pop()?;
-                let g = numbers.pop()?;
-                let r = numbers.pop()?;
-                color = Some(Color {
-                    r: channel_to_byte(r),
-                    g: channel_to_byte(g),
-                    b: channel_to_byte(b),
-                });
                 numbers.clear();
             }
             "g" => {
-                let gray = channel_to_byte(numbers.pop()?);
-                color = Some(Color {
-                    r: gray,
-                    g: gray,
-                    b: gray,
-                });
+                if let Some(gray) = numbers.pop().map(channel_to_byte) {
+                    scanned.color = Some(Color {
+                        r: gray,
+                        g: gray,
+                        b: gray,
+                    });
+                }
                 numbers.clear();
             }
             "Tf" => {
-                size_pt = numbers.pop();
+                scanned.size_pt = numbers.pop();
                 numbers.clear();
-                font = index
+                scanned.font = index
                     .checked_sub(2)
                     .and_then(|i| tokens.get(i))
                     .and_then(|t| t.strip_prefix('/'))
@@ -147,11 +200,7 @@ fn try_parse_da(da: &str) -> Option<TextStyle> {
         }
     }
 
-    Some(TextStyle {
-        font: font?,
-        size_pt: size_pt?,
-        color: color?,
-    })
+    scanned
 }
 
 #[cfg(test)]
@@ -226,21 +275,58 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_default_on_unrecognized_font_resource() {
+    fn keeps_the_color_when_the_font_resource_is_not_one_of_ours() {
         // A custom embedded font (not one of this crate's Standard-14
-        // resource names) — decision 3 does not model it, so the whole
-        // style defaults rather than guessing a substitute font.
-        assert_eq!(parse_da("0 0 0 rg /CustomFont1 12 Tf"), default_style());
+        // resource names): decision 3 does not model it, so the family
+        // defaults rather than guessing a substitute — but the color and
+        // the size are stated plainly and survive on their own (T-205).
+        let parsed = parse_da("1 0 0 rg /CustomFont1 8 Tf");
+        assert_eq!(parsed.font, FontFamily::Helvetica);
+        assert_eq!(parsed.size_pt, 8.0);
+        assert_eq!(parsed.color, Color { r: 255, g: 0, b: 0 });
     }
 
     #[test]
-    fn falls_back_to_default_when_the_font_operator_is_missing() {
-        assert_eq!(parse_da("0 0 0 rg"), default_style());
+    fn keeps_the_color_when_the_font_operator_is_missing() {
+        let parsed = parse_da("1 0 0 rg");
+        assert_eq!(parsed.font, FontFamily::Helvetica);
+        assert_eq!(parsed.size_pt, 12.0);
+        assert_eq!(parsed.color, Color { r: 255, g: 0, b: 0 });
     }
 
     #[test]
-    fn falls_back_to_default_when_the_color_operator_is_missing() {
+    fn falls_back_to_the_default_color_when_the_color_operator_is_missing() {
         assert_eq!(parse_da("/Helv 12 Tf"), default_style());
+    }
+
+    #[test]
+    fn an_auto_sized_da_reads_back_at_the_default_size() {
+        // `0 Tf` is "size chosen by the viewer" (ISO 32000-1 12.7.3.3), not
+        // a 0pt font. Modeling it literally would hand `appearance.rs` a
+        // zero-height glyph to draw.
+        assert_eq!(parse_da("0 0 0 rg /Helv 0 Tf").size_pt, 12.0);
+    }
+
+    #[test]
+    fn formats_a_buttons_da_the_way_acrobat_writes_one() {
+        let red = Color { r: 255, g: 0, b: 0 };
+        assert_eq!(format_button_da(red), "/ZaDb 0 Tf 1 0 0 rg");
+    }
+
+    #[test]
+    fn a_buttons_da_round_trips_its_color() {
+        let color = Color {
+            r: 200,
+            g: 16,
+            b: 64,
+        };
+        let parsed = parse_da(&format_button_da(color));
+        assert_eq!(parsed.color, color);
+        assert_eq!(
+            (parsed.font, parsed.size_pt),
+            (FontFamily::Helvetica, 12.0),
+            "a button's /DA states no family and no size of ours, so both default"
+        );
     }
 
     #[test]
