@@ -11,6 +11,8 @@ use pdf_document::{
     PageId, PageSize, PdfDate, PdfDateOffset, Rect, TextRun,
 };
 
+use crate::form::{FfiFieldValue, FfiRadioOption, FfiTextStyle};
+
 /// Mirrors `pdf_document::PageSize`.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
 pub enum FfiPageSize {
@@ -691,6 +693,76 @@ pub enum FfiEditCommand {
         item: FfiContentImageItem,
         before: Vec<u8>,
         after: Vec<u8>,
+    },
+
+    // --- Form fields (Batch 20, T-140) ----------------------------------
+    //
+    // The four `Add*` variants carry no id and no name: both are allocated
+    // by `form::add_field` against the open document, because both have to
+    // be unique across fields this session never created (see that module's
+    // header). Every other variant names its field by `id` and carries only
+    // the attribute it changes — the `from` half of the real
+    // `MoveFormField`/`RestyleFormField`/`SetFieldValue`/`RenameFormField`
+    // is resolved from the current `FormFieldSet`, the same pattern
+    // `RemoveAnnotation` and `SetDocumentInfo` already use here.
+    AddTextField {
+        page: u32,
+        rect: FfiRect,
+        style: FfiTextStyle,
+        multiline: bool,
+        max_len: Option<u32>,
+    },
+    AddCheckbox {
+        page: u32,
+        rect: FfiRect,
+        style: FfiTextStyle,
+    },
+    AddRadioGroup {
+        page: u32,
+        rect: FfiRect,
+        style: FfiTextStyle,
+        options: Vec<FfiRadioOption>,
+    },
+    AddDropdown {
+        page: u32,
+        rect: FfiRect,
+        style: FfiTextStyle,
+        options: Vec<String>,
+        editable: bool,
+    },
+    RemoveFormField {
+        field_id: u64,
+    },
+    /// Repositions a field. `MoveFormField` and `ResizeFormField` carry the
+    /// same payload and mean different user intents — a drag versus a
+    /// handle — exactly as the core commands they translate to do.
+    MoveFormField {
+        field_id: u64,
+        to: FfiRect,
+    },
+    ResizeFormField {
+        field_id: u64,
+        to: FfiRect,
+    },
+    RestyleFormField {
+        field_id: u64,
+        style: FfiTextStyle,
+    },
+    /// Sets what the field holds — the fill half of the surface, and the one
+    /// field command a document can permit on its own (see
+    /// `form::is_structural_form_command`). Validated against the field's
+    /// kind before it is recorded.
+    SetFieldValue {
+        field_id: u64,
+        value: FfiFieldValue,
+    },
+    /// Renames a field's `/T`. Not in T-140's own list, and added anyway:
+    /// the core command exists, `pdf_form::rename_field` validates it, and
+    /// leaving it out would make this boundary the only place a field can be
+    /// created but never named — the GTK4 shell's inspector offers it.
+    RenameFormField {
+        field_id: u64,
+        name: String,
     },
 
     // --- Document metadata (Batch 22, T-173) ----------------------------
