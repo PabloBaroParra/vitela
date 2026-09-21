@@ -23,6 +23,7 @@ use lopdf::{
 
 pub mod compress;
 pub mod content_edit;
+pub mod forms;
 pub mod large;
 pub mod signed;
 

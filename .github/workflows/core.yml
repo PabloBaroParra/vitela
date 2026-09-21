@@ -281,6 +281,47 @@ jobs:
             sh -c 'ip link set lo up && exec python3 tools/pypdf-validation/validate_content_roundtrip.py "$1"' \
             sh "$output"
 
+  forms-roundtrip-validation:
+    name: AcroForm round-trip validation (T-146)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v3.13.0
+        with:
+          python-version: "3.13"
+      - name: Install pinned pypdf before network isolation
+        run: python3 -m pip install --require-hashes -r tools/pypdf-validation/requirements.txt
+      # A validator that cannot fail is not evidence. These are the three
+      # validators' own unit tests, which feed each one a deliberately
+      # broken document and require a non-zero exit — the step that keeps
+      # the two below honest. Nothing ran them before this job existed.
+      - name: Check that the validators reject what they should
+        run: python3 -m unittest discover -s tools/pypdf-validation -p "test_*.py"
+      # Two independent scenarios (T-145). "authored": a form this
+      # workspace created from nothing, one field of each supported kind,
+      # through the full-rewrite writer. "filled": the committed
+      # reportlab fixture (T-144) with two fields filled in and saved
+      # incrementally, where what matters as much as the two that changed
+      # is the four that did not — including a listbox `pdf-form`
+      # deliberately never models.
+      - name: Produce and validate the authored form offline
+        run: |
+          output="$RUNNER_TEMP/t146 authored;form.pdf"
+          trap 'rm -f "$output"' EXIT
+          PDF_FORMS_VALIDATION_OUTPUT="$output"             cargo test -p pdf-save --locked --test forms_roundtrip             write_pypdf_validation_output_for_authored_form -- --ignored --exact
+          sudo -E env "PATH=$PATH" unshare --net             sh -c 'ip link set lo up && exec python3 tools/pypdf-validation/validate_forms_roundtrip.py "$1" authored'             sh "$output"
+      - name: Produce and validate the filled foreign form offline
+        run: |
+          output="$RUNNER_TEMP/t146 filled;form.pdf"
+          trap 'rm -f "$output"' EXIT
+          PDF_FORMS_VALIDATION_OUTPUT="$output"             cargo test -p pdf-save --locked --test forms_roundtrip             write_pypdf_validation_output_for_filled_foreign_form -- --ignored --exact
+          sudo -E env "PATH=$PATH" unshare --net             sh -c 'ip link set lo up && exec python3 tools/pypdf-validation/validate_forms_roundtrip.py "$1" filled'             sh "$output"
+
   metadata-roundtrip-validation:
     name: /Info dict round-trip validation (T-174)
     runs-on: ubuntu-latest

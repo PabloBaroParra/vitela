@@ -137,10 +137,26 @@ fn radio_option_of(document: &Document, kid_id: ObjectId) -> Option<RadioOption>
 }
 
 /// `true` when `dict`'s own `/Kids` (if any) are widget annotations of this
-/// same terminal field — no own `/T`, no own `/FT` — rather than genuinely
-/// separate child fields contributing their own name segment. A node with
-/// even one named or typed kid is a naming group, not a fillable field
-/// itself, and every kid is then walked as a child field instead.
+/// same terminal field, rather than genuinely separate child fields
+/// contributing their own name segment. A node with even one *named* kid is
+/// a naming group, not a fillable field itself, and every kid is then
+/// walked as a child field instead.
+///
+/// The test is `/T` and only `/T`. A field is addressed by the `/T` entries
+/// of itself and its ancestors (ISO 32000-1 §12.7.4.2), so a kid without one
+/// cannot be named, cannot be addressed, and therefore is not a field —
+/// whatever else it carries.
+///
+/// `/FT` used to be part of this test and had to come out. It is an
+/// *inheritable* attribute (table 220): a widget kid may legally restate the
+/// value it already inherits, and reportlab writes `/FT /Btn` on every radio
+/// button it emits. Reading that as evidence of a child field turned one
+/// radio group into one nameless checkbox per button, each of them answering
+/// to the parent's `/T` — two fields sharing a name, which is exactly what
+/// `FormFieldSet` guarantees cannot happen. Found by
+/// `tests/fixtures/forms/reportlab_acroform.pdf` (T-144), not by inspection:
+/// every lopdf-built fixture in this crate omits `/FT` on its kids, so the
+/// suite agreed with itself all the way through.
 fn kids_are_widgets(document: &Document, kids: &[Object]) -> bool {
     kids.iter().all(|kid| {
         let Object::Reference(id) = kid else {
@@ -149,7 +165,7 @@ fn kids_are_widgets(document: &Document, kids: &[Object]) -> bool {
         let Ok(dict) = document.get_dictionary(*id) else {
             return false;
         };
-        !dict.has(b"T") && !dict.has(b"FT")
+        !dict.has(b"T")
     })
 }
 
@@ -692,6 +708,71 @@ mod tests {
             }
             other => panic!("expected RadioGroup, got {other:?}"),
         }
+    }
+
+    /// The shape `tests/fixtures/forms/reportlab_acroform.pdf` actually has,
+    /// and the one this parser used to get wrong: reportlab restates `/FT`
+    /// on every widget kid. `/FT` is an inheritable attribute (ISO 32000-1
+    /// table 220) and a widget may legally carry it, so it says nothing
+    /// about whether the kid is a field of its own — only `/T` does. Reading
+    /// `/FT` as evidence of a child field turned one radio group into two
+    /// nameless checkboxes that both answered to the parent's `/T`.
+    #[test]
+    fn a_radio_kid_that_restates_its_inherited_ft_is_still_a_widget() {
+        let mut fixture = FormFixture::new();
+        let kid_yes = radio_kid(&mut fixture.doc, [0, 0, 12, 12], b"Yes");
+        let kid_no = radio_kid(&mut fixture.doc, [20, 0, 32, 12], b"No");
+        for kid in [kid_yes, kid_no] {
+            fixture
+                .doc
+                .get_dictionary_mut(kid)
+                .unwrap()
+                .set("FT", "Btn");
+        }
+        let field_id = fixture.doc.add_object(dictionary! {
+            "FT" => "Btn",
+            "T" => Object::string_literal("plan"),
+            "Ff" => 1 << 15,
+            "V" => Object::Name(b"Yes".to_vec()),
+            "Kids" => vec![Object::Reference(kid_yes), Object::Reference(kid_no)],
+        });
+        fixture.add_annot(kid_yes);
+        fixture.add_annot(kid_no);
+        fixture.set_acroform(vec![field_id]);
+
+        let fields = read_form_fields(&fixture.doc);
+
+        assert_eq!(fields.len(), 1, "one group, not one field per button");
+        assert_eq!(fields[0].name, "plan");
+        assert_eq!(fields[0].value, FieldValue::Choice(Some("Yes".to_string())));
+        assert!(matches!(
+            &fields[0].kind,
+            FormFieldKind::RadioGroup { options } if options.len() == 2
+        ));
+    }
+
+    /// The other half of the same rule: a kid with its own `/T` *is* a child
+    /// field, whether or not it also restates `/FT`.
+    #[test]
+    fn a_named_kid_is_still_a_child_field_not_a_widget() {
+        let mut fixture = FormFixture::new();
+        let street_id = fixture.doc.add_object(dictionary! {
+            "T" => Object::string_literal("street"),
+            "FT" => "Tx",
+            "Rect" => vec![0.into(), 0.into(), 100.into(), 20.into()],
+        });
+        let group_id = fixture.doc.add_object(dictionary! {
+            "T" => Object::string_literal("address"),
+            "FT" => "Tx",
+            "Kids" => vec![Object::Reference(street_id)],
+        });
+        fixture.add_annot(street_id);
+        fixture.set_acroform(vec![group_id]);
+
+        let fields = read_form_fields(&fixture.doc);
+
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].name, "address.street");
     }
 
     #[test]

@@ -301,15 +301,75 @@ representación visual es una anotación `/Subtype /Widget` en el `/Annots` de l
       `DocumentState` con permisos fabricados y prueban las tres combinaciones de bits.)**
 
 ### Fase 5 — Fixtures e interop
-- [ ] T-144 Fixture AcroForm generado en tests (patrón `labeled_pdf`) + **un fixture
+- [x] T-144 Fixture AcroForm generado en tests (patrón `labeled_pdf`) + **un fixture
       committeado creado por herramienta externa** (pypdf/reportlab, una sola vez,
       versionado en tests/fixtures/) para probar el parser contra AcroForm "de verdad". [FormRead]
-- [ ] T-145 Tests round-trip: crear los 4 tipos → save (incremental Y full) → reabrir →
+      **(2026-09-21 — completo, y **encontró un bug real en la primera corrida**, que es
+      exactamente para lo que esta tarea existe.
+      El fixture committeado es `tests/fixtures/forms/reportlab_acroform.pdf` (~12 KB) con
+      su generador al lado (`generate_reportlab_acroform.py`, no lo corre CI ni ningún
+      test — mismo criterio "herramienta externa, generado una vez, versionado" que
+      `content-edit/generate_reportlab_embedded_subset.py`, que ya citaba esta tarea como
+      precedente). Trae un campo de cada tipo modelado + un **listbox**, que a propósito
+      NO se modela: un fixture donde todo se lee no puede atrapar una regresión que empiece
+      a modelar de más.
+      **El bug:** reportlab repite el `/FT` heredado en cada widget kid de un radio group.
+      `read::kids_are_widgets` exigía `!has(T) && !has(FT)` para considerar un kid como
+      widget, así que leía esos kids como *campos propios* — un radio group se convertía en
+      un checkbox anónimo por botón, los dos respondiendo al `/T` del padre. Dos campos con
+      el mismo nombre, que es justo lo que `FormFieldSet` garantiza que no puede pasar.
+      **Por qué nadie lo vio antes:** `/FT` es un atributo **heredable** (ISO 32000-1 tabla
+      220) y un widget puede repetirlo legalmente; todos los fixtures de este repo están
+      hechos con lopdf y ninguno lo escribe en los kids, así que la suite entera se daba la
+      razón a sí misma. El discriminador correcto es `/T` y solo `/T`: un campo se direcciona
+      por los `/T` de él y sus ancestros (§12.7.4.2), así que un kid sin `/T` no es
+      direccionable y por lo tanto no es un campo. Fix de una línea, con dos tests nuevos que
+      cubren las dos mitades de la regla.
+      El fixture **generado** vive en código y no en disco:
+      `gen_fixtures::forms::build_acroform_document` (una página, un text field vacío y un
+      checkbox apagado, ambos merged field+widget), para los tests que necesitan dictar el
+      estado inicial en vez de describir lo que reportlab haya emitido.
+      7 tests nuevos en `core/pdf-form/tests/external_acroform.rs`.)**
+- [x] T-145 Tests round-trip: crear los 4 tipos → save (incremental Y full) → reabrir →
       parsear → igualdad de modelo. Fill de PDF ajeno → save incremental → `/V` y `/AP`
       cambian, bytes originales intactos como prefijo. [FormSave, FirmaCripto]
-- [ ] T-146 Validador Python independiente con pypdf: abre el export de los tests, lee
+      **(2026-09-21 — completo en `core/pdf-save/tests/forms_roundtrip.rs`, 6 tests + 2
+      `#[ignore]` que exportan para T-146.
+      Los dos writers se eligen por `original_bytes`: un documento autorado desde cero no
+      tiene, así que va por full-rewrite; uno abierto sí, y como una edición de formulario
+      nunca fuerza rewrite (decisión 6 de T-139) va por incremental. El test incremental
+      afirma `saved.starts_with(&original_bytes)` además de la igualdad de modelo, así que
+      la elección de writer queda clavada y no solo el resultado.
+      El fill de PDF ajeno usa el fixture de reportlab de T-144. `/V` y `/AP` se verifican
+      sobre el checkbox del fixture generado, donde los dos son visibles: `/V` es un `/Name`
+      y `/AS` selecciona uno de los estados de `/AP /N`.
+      **Igualdad de modelo, con tres exclusiones y una de ellas es un gap real.** `id` queda
+      afuera porque `read_form_fields` reasigna ids secuencialmente en orden de `/Fields`
+      (el orden sí se afirma, comparando las secuencias posición por posición) y `origin`
+      porque todo campo releído es `Existing(oid)` por definición. La tercera es `style`, y
+      no por ser impredecible — ver el ítem abierto al final de esta ficha.)**
+- [x] T-146 Validador Python independiente con pypdf: abre el export de los tests, lee
       campos AcroForm y verifica nombre/tipo/valor (validador independiente de lopdf,
       mismo espíritu que la cross-validación de B12). [Parity, AnnoInterop]
+      **(2026-09-21 — completo. `tools/pypdf-validation/validate_forms_roundtrip.py` con dos
+      modos (`authored`, `filled`), su propio test (`test_validate_forms_roundtrip.py`, 14
+      casos) y un job nuevo en `core.yml`: **AcroForm round-trip validation (T-146)**, con la
+      misma estructura de los de T-160/T-174 — instalar pypdf con hashes, después producir y
+      validar bajo `unshare --net`.
+      Verifica `/FT`, `/V`, los bits de `/Ff` (multiline 13, radio 16, combo 18) y `/Opt`.
+      Los flags importan tanto como el valor: son los que llevan el *tipo* al archivo, y un
+      writer que los perdiera igual round-trippearía por nuestro propio reader, que tiene el
+      modelo en la mano de los dos lados.
+      El modo `filled` afirma tanto los dos campos que cambiaron como los **cuatro que no**,
+      incluido el listbox que `pdf-form` nunca modela: "lo no modelado se preserva intacto"
+      es un contrato sobre el archivo, y solo un lector que no seamos nosotros puede
+      confirmarlo. pypdf lo ve intacto después de un save que reescribió el AcroForm.
+      **Un paso extra, fuera de lo pedido y a propósito:** el job corre
+      `python3 -m unittest discover -s tools/pypdf-validation` antes de validar nada. Los
+      tests de los tres validadores (content T-160, metadata T-174 y este) no los corría
+      **nadie** — un validador que no puede fallar no es evidencia, y uno que devolviera 0
+      siempre habría pasado CI para siempre. Son 29 casos y un `discover` de una línea, más
+      corto que apuntar solo al mío.)**
 
 ### Fase 6 — Docs
 - [x] T-147 README: mover forms de "out of scope" al roadmap/features; enlazar esta ficha. [docs]
@@ -378,6 +438,47 @@ comb o multilínea; la capa de dibujo solo puede aproximarlos. La regla está en
 - Arrastrar el `SpinButton` del tamaño de fuente dispara un `RestyleFormField`
   por paso. `refresh_preview` los une (uno en vuelo más uno pendiente), así que
   una ráfaga se reduce a dos refrescos, no a uno por paso.
+
+## Abierto: el estilo de un `/Btn` no sobrevive el round-trip (T-145)
+
+Encontrado al escribir T-145, **no arreglado ahí**: cerrarlo es una decisión de
+interop, no un test, y no pertenece al cambio que la destapó.
+
+`forms::write_new_single_field` y `update_existing_single_field` escriben `/DA`
+solo para `Tx` y `Ch`. El `TextStyle` de un checkbox o de un radio group no se
+escribe en ningún lado, y al releer `parse_da` devuelve el default de la
+decisión 3 (Helvetica 12pt negro).
+
+Para `font` y `size_pt` da igual: nada los consume en un botón —
+`appearance::build_field_appearance` dibuja el check en ZapfDingbats a un
+tamaño derivado del rect. Para **`color` no da igual**: esa misma función sí lo
+consume. Un tilde rojo se dibuja rojo, se hornea en `/AP`, y se relee negro. Y
+el inspector del shell GTK4 ofrece fuente, tamaño y color para cualquier campo
+seleccionado, sin distinción por tipo (`forms::style::refresh`) — así que el
+usuario realmente puede poner un checkbox en rojo, realmente lo ve, y realmente
+lo pierde al reabrir, mientras el archivo sigue pintando un color que el
+inspector ya no muestra.
+
+Clavado por `forms_roundtrip.rs::a_buttons_style_does_not_survive_the_round_trip`,
+que **falla el día que esto se arregle** — ese es el punto.
+
+Las dos salidas, con su costo:
+
+1. **Escribir `/DA` para los cuatro tipos**, con el `format_da` que ya existe.
+   Dos líneas. Round-trip exacto. Pero `/DA` es un atributo de *variable text*
+   (tabla 222) y `/Btn` no lo es: un visor que regenere la apariencia desde
+   `/DA` (con `NeedAppearances`, que nunca ponemos, pero una herramienta río
+   abajo puede) buscaría `/Helv` donde espera `/ZaDb` y dibujaría el glifo
+   equivocado.
+2. **Escribir la forma convencional**, `/ZaDb 0 Tf <r g b> rg`, que es lo que
+   escribe Acrobat. Interop correcto, pero hoy no alcanza: `try_parse_da`
+   devuelve `None` salvo que encuentre **a la vez** un color y una de sus tres
+   familias, así que un `/DA` con `/ZaDb` pierde también el color. Requiere que
+   `parse_da` recupere el color independientemente de la fuente — cambio chico
+   en `da.rs`, pero cambio al parser.
+
+La 2 es la correcta si se arregla; la 1 es la barata. Ninguna es urgente: el
+archivo se pinta bien, lo que miente es el inspector.
 
 ## Fuera de scope (v1)
 
