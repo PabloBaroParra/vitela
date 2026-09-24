@@ -6,10 +6,11 @@
 
 use pdf_ffi::{
     apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp,
-    open_from_bytes, open_with_passwords_from_bytes, redo, refresh_preview, render_page,
-    save_to_bytes, stamp_placement, undo, FfiColor, FfiContentTextRun, FfiDocumentInfo,
-    FfiEditCommand, FfiError, FfiFontKind, FfiOrientation, FfiPageSize, FfiPdfDate,
-    FfiPdfDateOffset, FfiRect, FfiRenderOptions, FfiSaveIntent, FfiSignatureAcknowledgement,
+    open_from_bytes, open_with_passwords_from_bytes, protect_to_bytes, redo, refresh_preview,
+    render_page, save_to_bytes, stamp_placement, undo, FfiColor, FfiContentTextRun,
+    FfiDocumentInfo, FfiEditCommand, FfiError, FfiFontKind, FfiOrientation, FfiPageSize,
+    FfiPdfDate, FfiPdfDateOffset, FfiRect, FfiRenderOptions, FfiSaveIntent,
+    FfiSignatureAcknowledgement,
 };
 
 fn fixture_bytes(name: &str) -> Vec<u8> {
@@ -1315,4 +1316,37 @@ fn editing_title_and_creation_date_then_saving_and_reopening_shows_the_new_value
             offset: FfiPdfDateOffset::Utc,
         })
     );
+}
+
+#[test]
+fn protecting_a_document_requires_the_new_open_password() {
+    let handle = open_single_line_fixture("Protected by the FFI");
+
+    let protected = protect_to_bytes(
+        &handle,
+        "open-pw".to_string(),
+        "permissions-pw".to_string(),
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("protection should be applied");
+
+    assert!(matches!(
+        open_from_bytes(protected.clone(), None),
+        Err(FfiError::PasswordRequired)
+    ));
+    assert!(open_from_bytes(protected, Some("open-pw".to_string())).is_ok());
+}
+
+#[test]
+fn protecting_a_document_refuses_equal_password_roles() {
+    let handle = open_single_line_fixture("Protected by the FFI");
+
+    let result = protect_to_bytes(
+        &handle,
+        "same-pw".to_string(),
+        "same-pw".to_string(),
+        FfiSignatureAcknowledgement::Unacknowledged,
+    );
+
+    assert!(matches!(result, Err(FfiError::InvalidSaveRequest { .. })));
 }

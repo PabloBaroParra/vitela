@@ -17,6 +17,8 @@ internal interface IPdfCore
 {
     IPdfCoreDocument OpenFromBytes(byte[] bytes, string? password);
 
+    IPdfCoreDocument OpenWithPasswordsFromBytes(byte[] bytes, string openPassword, string permissionsPassword);
+
     /// <summary>
     /// Returns a new document that already holds one page, ready to annotate.
     /// A zero-page result is not an acceptable implementation of this method —
@@ -139,6 +141,8 @@ internal interface IPdfCore
     /// </remarks>
     bool WillInvalidateSignatures(IPdfCoreDocument document);
 
+    bool ProtectionWillInvalidateSignatures(IPdfCoreDocument document);
+
     /// <summary>
     /// Saves <paramref name="document"/>.
     /// </summary>
@@ -150,6 +154,8 @@ internal interface IPdfCore
     /// verifies.
     /// </param>
     byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged);
+
+    byte[] ProtectToBytes(IPdfCoreDocument document, string openPassword, string permissionsPassword, bool signaturesAcknowledged);
 }
 
 /// <summary>

@@ -144,12 +144,12 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | ✅ | ✅ | — | — | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
-| Edit metadata | ✅ | — | — | — | — |
+| Edit metadata | ✅ | ✅ | — | — | — |
 | Organize & assemble pages | ✅ | — | — | — | — |
 | Extract pages to a new PDF | ✅ | — | — | — | — |
 | Split into several PDFs | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
-| Protect with a password | ✅ | — | — | — | — |
+| Protect with a password | ✅ | ✅ | — | — | — |
 | Export to images | ✅ | — | — | — | — |
 | Compress to a smaller PDF | ✅ | — | — | — | — |
 | Sign | ✅ | — | — | — | — |

@@ -49,6 +49,7 @@
                 Save
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="S" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
+            <Button x:Name="ProtectButton" Content="Protect" Click="ProtectButton_Click" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
             <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>

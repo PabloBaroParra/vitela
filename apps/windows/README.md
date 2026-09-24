@@ -38,11 +38,16 @@ The current vertical opens a local PDF — either through the file picker or the
 the executable as `Assets\vitela-sample.pdf` (see
 [`assets/README.md`](../../assets/README.md)) — lazily renders its pages, and
 supports case-sensitive exact-text search. Selecting a result navigates to its page and highlights the
-matching PDF-space character geometry. It intentionally does not include
-editing, saving, password UI, or update logic. CI runs in
+matching PDF-space character geometry. CI runs in
 `.github/workflows/windows.yml`: the Rust workspace on a Windows runner, the
 facade suite, and a full shell build (native dll + regenerated bindings +
 MSBuild).
+
+The current shell also edits document properties and can protect a saved copy
+with AES-128 encryption. Protection asks for distinct open and permissions
+passwords, warns before invalidating an existing signature, writes through a
+temporary destination, and reopens the protected bytes with the new open
+password.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:
