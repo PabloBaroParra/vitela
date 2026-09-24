@@ -664,6 +664,31 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+    public async Task<OperationResult<bool>> ProtectionWillInvalidateSignaturesAsync(string sessionId)
+    {
+        SessionEntry session;
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out session))
+            {
+                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "protect_signatures", sessionId, null));
+            }
+        }
+
+        try
+        {
+            return OperationResult<bool>.Success(await Task.Run(() => _core.ProtectionWillInvalidateSignatures(session.Document)).ConfigureAwait(false));
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<bool>.Failure(MapError(error, "protect_signatures", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<bool>.Failure(MapUnexpected(error, "protect_signatures", sessionId, null));
+        }
+    }
+
     /// <param name="signaturesAcknowledged">
     /// Pass <c>true</c> only after the reader has been told the save breaks an
     /// existing signature and chose to continue — see
@@ -702,6 +727,88 @@ public sealed class PdfDocumentFacade : IDisposable
         catch (Exception error)
         {
             return OperationResult<SavedDocument>.Failure(MapUnexpected(error, "save", sessionId, null));
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    public async Task<OperationResult<byte[]>> ProtectToDestinationAsync(
+        string sessionId,
+        string openPassword,
+        string permissionsPassword,
+        Func<byte[], Task> replaceDestination,
+        bool signaturesAcknowledged = false)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SessionEntry session;
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<byte[]>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "protect", sessionId, null));
+                }
+                if (!session.ContentEditingAllowed)
+                {
+                    return OperationResult<byte[]>.Failure(CreateError("This document does not permit protection changes.", PdfCoreError.UnsupportedOperation, "protect", sessionId, null));
+                }
+            }
+
+            var bytes = await Task.Run(() => _core.ProtectToBytes(session.Document, openPassword, permissionsPassword, signaturesAcknowledged)).ConfigureAwait(false);
+            await replaceDestination(bytes).ConfigureAwait(false);
+            return OperationResult<byte[]>.Success(bytes);
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<byte[]>.Failure(MapError(error, "protect", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<byte[]>.Failure(MapUnexpected(error, "protect", sessionId, null));
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    public async Task<OperationResult<DocumentSession>> ReopenProtectedAsync(
+        string sessionId,
+        string displayName,
+        byte[] bytes,
+        string openPassword,
+        string permissionsPassword)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out _))
+                {
+                    return OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "reopen_protected", sessionId, null));
+                }
+            }
+
+            var document = await Task.Run(() => _core.OpenWithPasswordsFromBytes(bytes, openPassword, permissionsPassword)).ConfigureAwait(false);
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document));
+            lock (_gate)
+            {
+                RetireCurrentSessionLocked();
+                _currentSession = session;
+                return OperationResult<DocumentSession>.Success(session.ToDto());
+            }
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<DocumentSession>.Failure(MapError(error, "reopen_protected", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<DocumentSession>.Failure(MapUnexpected(error, "reopen_protected", sessionId, null));
         }
         finally
         {

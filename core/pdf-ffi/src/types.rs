@@ -287,6 +287,11 @@ pub enum FfiSaveIntent {
     StripProtection,
 }
 
+/// The permission mask used when a shell applies password protection without
+/// offering a restrictions editor. The passwords control access; every
+/// document permission remains granted.
+pub(crate) const GRANTED_PROTECTION_PERMISSIONS: u32 = 0xFFFF_FFFC;
+
 impl From<FfiSaveIntent> for pdf_save::SaveIntent {
     fn from(intent: FfiSaveIntent) -> Self {
         match intent {

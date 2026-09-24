@@ -85,6 +85,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refuses to silently break a signature", RefusesToSilentlyBreakASignatureAsync)
     ,("reports whether saving breaks a signature", ReportsWhetherSavingBreaksASignatureAsync)
     ,("saves a signed document once acknowledged", SavesASignedDocumentOnceAcknowledgedAsync)
+    ,("protects with two distinct password roles", ProtectsWithTwoDistinctPasswordRolesAsync)
+    ,("reopens protected bytes with both password roles", ReopensProtectedBytesWithBothPasswordRolesAsync)
+    ,("refuses protection when content changes are forbidden", RefusesForbiddenProtectionAsync)
     ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
     ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
     ,("reads a page's editable text runs", ReadsPageContentForEditingAsync)
@@ -1245,6 +1248,56 @@ static async Task SavesASignedDocumentOnceAcknowledgedAsync()
     Assert(core.LastSaveAcknowledgedSignatures == true, "the acknowledgement must reach the core, not stop at the facade");
 }
 
+static async Task ProtectsWithTwoDistinctPasswordRolesAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    byte[]? written = null;
+
+    var result = await facade.ProtectToDestinationAsync(
+        session.SessionId,
+        "open-pw",
+        "permissions-pw",
+        bytes => { written = bytes; return Task.CompletedTask; });
+
+    Assert(result.IsSuccess && written is not null, "protected bytes must reach the selected destination");
+    Assert(core.LastProtectionPasswords == ("open-pw", "permissions-pw"), "both password roles must reach the core unchanged");
+}
+
+static async Task RefusesForbiddenProtectionAsync()
+{
+    var core = new FakeCore { ContentEditingPermitted = false };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.ProtectToDestinationAsync(
+        session.SessionId,
+        "open-pw",
+        "permissions-pw",
+        _ => Task.CompletedTask);
+
+    Assert(!result.IsSuccess, "protection must use the general content-modification permission");
+    Assert(core.LastProtectionPasswords is null, "a refused request must not reach the core");
+}
+
+static async Task ReopensProtectedBytesWithBothPasswordRolesAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.ReopenProtectedAsync(
+        session.SessionId,
+        "protected.pdf",
+        [2],
+        "open-pw",
+        "permissions-pw");
+
+    Assert(result.IsSuccess && result.Value!.DisplayName == "protected.pdf", "the protected copy must become the current session");
+    Assert(core.LastOpenWithPasswords == ("open-pw", "permissions-pw"), "the reopen must retain both roles for later full rewrites");
+}
+
 static List<PageSpan> Stack(int count, double height)
 {
     var pages = new List<PageSpan>(count);
@@ -1887,6 +1940,14 @@ sealed class FakeCore : IPdfCore
         return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt) { ContentEditingAllowed = ContentEditingPermitted };
     }
 
+    public (string Open, string Permissions)? LastOpenWithPasswords;
+
+    public IPdfCoreDocument OpenWithPasswordsFromBytes(byte[] bytes, string openPassword, string permissionsPassword)
+    {
+        LastOpenWithPasswords = (openPassword, permissionsPassword);
+        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt) { ContentEditingAllowed = ContentEditingPermitted };
+    }
+
     /// <summary>
     /// Deliberately ignores <see cref="PageCount"/>. That knob describes the
     /// document an <see cref="OpenFromBytes"/> returns; the core's create
@@ -2068,6 +2129,9 @@ sealed class FakeCore : IPdfCore
     public bool? LastSaveAcknowledgedSignatures;
 
     public bool WillInvalidateSignatures(IPdfCoreDocument document) => SignedDocument;
+    public bool ProtectionWillInvalidateSignatures(IPdfCoreDocument document) => SignedDocument;
+
+    public (string Open, string Permissions)? LastProtectionPasswords;
 
     public byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged)
     {
@@ -2085,6 +2149,16 @@ sealed class FakeCore : IPdfCore
             throw new PdfCoreException(PdfCoreError.SignaturesWouldBeInvalidated, "signed document");
         }
         return [1];
+    }
+
+    public byte[] ProtectToBytes(IPdfCoreDocument document, string openPassword, string permissionsPassword, bool signaturesAcknowledged)
+    {
+        LastProtectionPasswords = (openPassword, permissionsPassword);
+        if (SignedDocument && !signaturesAcknowledged)
+        {
+            throw new PdfCoreException(PdfCoreError.SignaturesWouldBeInvalidated, "signed document");
+        }
+        return [2];
     }
 }
 

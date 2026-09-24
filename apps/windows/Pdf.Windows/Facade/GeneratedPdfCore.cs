@@ -16,6 +16,18 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
+    public IPdfCoreDocument OpenWithPasswordsFromBytes(byte[] bytes, string openPassword, string permissionsPassword)
+    {
+        try
+        {
+            return new GeneratedDocument(PdfFfiMethods.OpenWithPasswordsFromBytes(bytes, openPassword, permissionsPassword));
+        }
+        catch (FfiException error)
+        {
+            throw Translate(error);
+        }
+    }
+
     /// <remarks>
     /// <c>CreateDocumentWithBlankPage</c>, not <c>CreateBlankDocument</c>: the
     /// latter returns a <em>zero-page</em> document whose size/orientation are
@@ -193,12 +205,27 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public bool ProtectionWillInvalidateSignatures(IPdfCoreDocument document)
+    {
+        try { return PdfFfiMethods.ProtectionWillInvalidateSignatures(((GeneratedDocument)document).Handle); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     public byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged)
     {
         var acknowledgement = signaturesAcknowledged
             ? FfiSignatureAcknowledgement.ProceedAndInvalidate
             : FfiSignatureAcknowledgement.Unacknowledged;
         try { return PdfFfiMethods.SaveToBytes(((GeneratedDocument)document).Handle, FfiSaveIntent.Default, acknowledgement); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public byte[] ProtectToBytes(IPdfCoreDocument document, string openPassword, string permissionsPassword, bool signaturesAcknowledged)
+    {
+        var acknowledgement = signaturesAcknowledged
+            ? FfiSignatureAcknowledgement.ProceedAndInvalidate
+            : FfiSignatureAcknowledgement.Unacknowledged;
+        try { return PdfFfiMethods.ProtectToBytes(((GeneratedDocument)document).Handle, openPassword, permissionsPassword, acknowledgement); }
         catch (FfiException error) { throw Translate(error); }
     }
 

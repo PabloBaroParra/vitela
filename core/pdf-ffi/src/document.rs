@@ -37,7 +37,10 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pdf_document::{Annotation, AnnotationId, AnnotationKind, Command, Document, PageId};
+use pdf_document::{
+    Annotation, AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials,
+    PageId, Permissions, SecurityContext, SecurityHandler,
+};
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
@@ -47,6 +50,7 @@ use crate::types::{
     FfiAnnotation, FfiAnnotationKind, FfiDocumentInfo, FfiEditCommand, FfiOrientation,
     FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions,
     FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
+    GRANTED_PROTECTION_PERMISSIONS,
 };
 use crate::BitmapHandle;
 
@@ -1520,6 +1524,73 @@ pub fn save_to_bytes(
     state.record_strip_consent(intent);
 
     pdf_save::save_document(state.save_input(intent, signatures)).map_err(Into::into)
+}
+
+/// Applies new AES-128 password protection to a snapshot of `handle` and
+/// returns the protected PDF bytes. The live handle is not mutated: a caller
+/// may cancel or fail while writing the destination without changing the open
+/// document's security state.
+///
+/// Both PDF password roles are required and must differ. Giving both roles
+/// the same value would let everyone who can open the file also bypass its
+/// permission policy, which is not an equivalent simplification.
+#[uniffi::export]
+pub fn protect_to_bytes(
+    handle: &DocumentHandle,
+    open_password: String,
+    permissions_password: String,
+    signatures: FfiSignatureAcknowledgement,
+) -> Result<Vec<u8>, FfiError> {
+    if open_password.is_empty() || permissions_password.is_empty() {
+        return Err(FfiError::InvalidSaveRequest {
+            detail: "both open and permissions passwords are required".to_string(),
+        });
+    }
+    if open_password == permissions_password {
+        return Err(FfiError::InvalidSaveRequest {
+            detail: "the open and permissions passwords must be different".to_string(),
+        });
+    }
+
+    let state = handle.lock();
+    let mut document = state.document.clone();
+    document.security = Some(SecurityContext {
+        handler: SecurityHandler::Aes128,
+        credential: Credential::Owner,
+        credentials: EncryptionCredentials::both(open_password, permissions_password),
+        permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
+    });
+    pdf_save::save_document(pdf_save::SaveInput {
+        document: &document,
+        base: &state.base,
+        original_bytes: state.original_bytes.as_deref(),
+        intent: pdf_save::SaveIntent::ApplyProtection,
+        signatures: signatures.into(),
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .map_err(Into::into)
+}
+
+/// Whether applying new password protection would invalidate a signature.
+#[uniffi::export]
+pub fn protection_will_invalidate_signatures(handle: &DocumentHandle) -> Result<bool, FfiError> {
+    let state = handle.lock();
+    let mut document = state.document.clone();
+    document.security = Some(SecurityContext {
+        handler: SecurityHandler::Aes128,
+        credential: Credential::Owner,
+        credentials: EncryptionCredentials::both("probe-open", "probe-permissions"),
+        permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
+    });
+    pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
+        document: &document,
+        base: &state.base,
+        original_bytes: state.original_bytes.as_deref(),
+        intent: pdf_save::SaveIntent::ApplyProtection,
+        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .map_err(Into::into)
 }
 
 /// Whether saving `handle` with `intent` would break a signature the file

@@ -718,6 +718,7 @@ public sealed partial class MainWindow : Window
         RefreshSessionCommands();
         UpdateAnnotationControls(null);
         ApplyMetadataButton.IsEnabled = false;
+        ProtectButton.IsEnabled = false;
     }
 
     /// <summary>
@@ -734,6 +735,7 @@ public sealed partial class MainWindow : Window
     private void RefreshSessionCommands()
     {
         SaveButton.IsEnabled = !_isBusy && _session is not null;
+        ProtectButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
         ApplyMetadataButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
     }
 }
