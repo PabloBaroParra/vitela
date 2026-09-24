@@ -292,6 +292,79 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+    public Task<OperationResult<DocumentInfo>> DocumentInfoAsync(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(OperationResult<DocumentInfo>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "document_info", sessionId, null)));
+            }
+
+            try
+            {
+                return Task.FromResult(OperationResult<DocumentInfo>.Success(ToDocumentInfo(_core.ReadDocumentInfo(session.Document))));
+            }
+            catch (PdfCoreException error)
+            {
+                return Task.FromResult(OperationResult<DocumentInfo>.Failure(MapError(error, "document_info", sessionId, null)));
+            }
+        }
+    }
+
+    public async Task<OperationResult<DocumentInfo>> SetDocumentInfoAsync(string sessionId, DocumentInfo info)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out var session))
+                {
+                    return OperationResult<DocumentInfo>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "document_info", sessionId, null));
+                }
+
+                if (!session.ContentEditingAllowed)
+                {
+                    return OperationResult<DocumentInfo>.Failure(CreateError("This document does not permit metadata changes.", PdfCoreError.UnsupportedOperation, "document_info", sessionId, null));
+                }
+
+                try
+                {
+                    var current = _core.ReadDocumentInfo(session.Document);
+                    var after = current with
+                    {
+                        Title = EmptyToNull(info.Title),
+                        Author = EmptyToNull(info.Author),
+                        Subject = EmptyToNull(info.Subject),
+                        Keywords = EmptyToNull(info.Keywords),
+                        Creator = EmptyToNull(info.Creator),
+                        Producer = EmptyToNull(info.Producer),
+                    };
+                    if (after != current)
+                    {
+                        _core.ApplyEdit(session.Document, new PdfCoreEdit.SetDocumentInfo(after));
+                        session.EditRevision++;
+                    }
+                    return OperationResult<DocumentInfo>.Success(ToDocumentInfo(after));
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<DocumentInfo>.Failure(MapError(error, "document_info", sessionId, null));
+                }
+            }
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    private static string? EmptyToNull(string? value) => string.IsNullOrEmpty(value) ? null : value;
+
+    private static DocumentInfo ToDocumentInfo(PdfCoreDocumentInfo info) =>
+        new(info.Title, info.Author, info.Subject, info.Keywords, info.Creator, info.Producer);
+
     internal async Task<OperationResult<AnnotationState>> EditAnnotationAsync(string sessionId, PdfCoreEdit edit)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);

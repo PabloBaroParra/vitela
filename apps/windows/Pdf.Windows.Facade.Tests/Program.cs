@@ -94,6 +94,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("names the character a font cannot show", NamesTheCharacterAFontCannotShowAsync)
     ,("keeps a content edit when the preview refresh fails", KeepsTheEditWhenThePreviewRefreshFailsAsync)
     ,("refreshes the preview on history only after a content edit", RefreshesThePreviewOnHistoryOnlyAfterAContentEditAsync)
+    ,("reads the effective document properties", ReadsEffectiveDocumentPropertiesAsync)
+    ,("updates document properties without dropping dates", UpdatesDocumentPropertiesWithoutDroppingDatesAsync)
+    ,("does not record an unchanged document properties edit", DoesNotRecordUnchangedDocumentPropertiesAsync)
+    ,("refuses document properties when content editing is forbidden", RefusesForbiddenDocumentPropertiesAsync)
     ,("refuses page content once the session is retired", RefusesPageContentAfterSessionSwapAsync)
     ,("picks the smallest text run under a content-edit click", PicksTheSmallestRunUnderTheClick)
     ,("matches a PDF font name to a local face", MatchesPdfFontsToLocalFaces)
@@ -1417,6 +1421,66 @@ static async Task RefreshesThePreviewOnHistoryOnlyAfterAContentEditAsync()
     Assert(core.RefreshPreviewCalls == 3, "and redoing it must bring it back");
 }
 
+static async Task ReadsEffectiveDocumentPropertiesAsync()
+{
+    var core = new FakeCore
+    {
+        DocumentInfo = new PdfCoreDocumentInfo("Vitela", "A. Editor", null, "pdf", "Creator", "Producer", new object(), new object()),
+    };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.DocumentInfoAsync(session.SessionId);
+
+    Assert(result.IsSuccess && result.Value!.Title == "Vitela", "the panel must read the core's effective metadata snapshot");
+    Assert(result.Value!.Author == "A. Editor" && result.Value.Keywords == "pdf", "all exposed text fields must cross the facade");
+}
+
+static async Task UpdatesDocumentPropertiesWithoutDroppingDatesAsync()
+{
+    var creation = new object();
+    var modified = new object();
+    var core = new FakeCore
+    {
+        DocumentInfo = new PdfCoreDocumentInfo("Before", null, null, null, null, null, creation, modified),
+    };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.SetDocumentInfoAsync(session.SessionId, new DocumentInfo("After", "Author", "", "keyword", "", "Producer"));
+
+    Assert(result.IsSuccess && core.DocumentInfo.Title == "After", "the requested properties must be recorded");
+    Assert(core.DocumentInfo.Subject is null && core.DocumentInfo.Creator is null, "empty fields must remove their Info keys");
+    Assert(ReferenceEquals(core.DocumentInfo.CreationDate, creation) && ReferenceEquals(core.DocumentInfo.ModDate, modified), "dates outside this slice must survive unchanged");
+    Assert(core.LastDocument!.CanUndo, "a metadata update must join shared history");
+}
+
+static async Task DoesNotRecordUnchangedDocumentPropertiesAsync()
+{
+    var core = new FakeCore
+    {
+        DocumentInfo = new PdfCoreDocumentInfo("Vitela", null, null, null, null, null, null, null),
+    };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.SetDocumentInfoAsync(session.SessionId, new DocumentInfo("Vitela", "", "", "", "", ""));
+
+    Assert(result.IsSuccess && !core.LastDocument!.CanUndo, "an unchanged snapshot must not add an undo step");
+}
+
+static async Task RefusesForbiddenDocumentPropertiesAsync()
+{
+    var core = new FakeCore { ContentEditingPermitted = false };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.SetDocumentInfoAsync(session.SessionId, new DocumentInfo("Blocked", null, null, null, null, null));
+
+    Assert(!result.IsSuccess, "metadata must use the general content-modification permission");
+    Assert(!core.LastDocument!.CanUndo, "a refused edit must not enter history");
+}
+
 static async Task RefusesPageContentAfterSessionSwapAsync()
 {
     var core = new FakeCore();
@@ -1898,6 +1962,8 @@ sealed class FakeCore : IPdfCore
 
     public bool RefreshPreviewThrows { get; init; }
 
+    public PdfCoreDocumentInfo DocumentInfo { get; set; } = new(null, null, null, null, null, null, null, null);
+
     public System.Collections.Concurrent.ConcurrentQueue<uint> PageContentReads { get; } = new();
     public int RefreshPreviewCalls;
 
@@ -1912,6 +1978,8 @@ sealed class FakeCore : IPdfCore
         new Dictionary<string, string> { ["F1"] = "Helvetica" };
 
     public IReadOnlyDictionary<string, string> PageFontFamilies(IPdfCoreDocument document, uint pageIndex) => FontFamilies;
+
+    public PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document) => DocumentInfo;
 
     public void RefreshPreview(IPdfCoreDocument document)
     {
@@ -1955,6 +2023,14 @@ sealed class FakeCore : IPdfCore
             }
 
             SubstitutionEdits.Add(substitution);
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.SetDocumentInfo metadata)
+        {
+            if (!fake.ContentEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            DocumentInfo = metadata.After;
             fake.Apply(edit);
             return;
         }
@@ -2052,6 +2128,7 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
                 break;
             case PdfCoreEdit.ReplaceTextRun:
             case PdfCoreEdit.ReplaceTextRunWithInsertedFont:
+            case PdfCoreEdit.SetDocumentInfo:
                 // Page content is not mirrored on the model — the queued
                 // command is the edit — so there is nothing to mutate here
                 // beyond the history the facade reads back.

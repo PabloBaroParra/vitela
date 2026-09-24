@@ -54,8 +54,14 @@ public sealed partial class MainWindow
     private void NoteButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.TextNote);
     private void StampButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Stamp);
     private void PointerButton_Click(object sender, RoutedEventArgs e) => Arm(null);
-    private async void UndoButton_Click(object sender, RoutedEventArgs e) => await ApplyHistoryAsync(undo: true);
-    private async void RedoButton_Click(object sender, RoutedEventArgs e) => await ApplyHistoryAsync(undo: false);
+    private async void UndoButton_Click(object sender, RoutedEventArgs e) => await ApplyHistoryAndMetadataAsync(undo: true);
+    private async void RedoButton_Click(object sender, RoutedEventArgs e) => await ApplyHistoryAndMetadataAsync(undo: false);
+
+    private async Task ApplyHistoryAndMetadataAsync(bool undo)
+    {
+        await ApplyHistoryAsync(undo);
+        await RefreshDocumentInfoAsync();
+    }
 
     /// <summary>
     /// Repaints the selected annotation with the color under the pointer, live,

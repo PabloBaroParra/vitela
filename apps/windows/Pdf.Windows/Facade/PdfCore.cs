@@ -52,6 +52,8 @@ internal interface IPdfCore
 
     IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document);
 
+    PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document);
+
     /// <summary>
     /// Parses one page's content stream and returns the text runs and images
     /// it paints — the editable page itself, not the annotations drawn over
@@ -208,6 +210,8 @@ internal abstract record PdfCoreEdit
     public sealed record Resize(ulong AnnotationId, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record Restyle(ulong AnnotationId, PdfCoreColor Color) : PdfCoreEdit;
 
+    public sealed record SetDocumentInfo(PdfCoreDocumentInfo After) : PdfCoreEdit;
+
     /// <summary>
     /// Retypes an existing text run, keeping its font, size and position.
     /// Carries the run as it was read from <see cref="IPdfCore.ReadPageContent"/>:
@@ -217,6 +221,16 @@ internal abstract record PdfCoreEdit
     public sealed record ReplaceTextRun(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
     public sealed record ReplaceTextRunWithInsertedFont(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
 }
+
+internal sealed record PdfCoreDocumentInfo(
+    string? Title,
+    string? Author,
+    string? Subject,
+    string? Keywords,
+    string? Creator,
+    string? Producer,
+    object? CreationDate,
+    object? ModDate);
 
 /// <summary>
 /// The renderer may pad each pixel row to a stride wider than width * 4;

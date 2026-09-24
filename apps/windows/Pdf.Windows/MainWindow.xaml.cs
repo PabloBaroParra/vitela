@@ -573,6 +573,7 @@ public sealed partial class MainWindow : Window
         ResetContentEditMode();
         _session = session;
         RefreshSessionCommands();
+        _ = RefreshDocumentInfoAsync();
         DocumentTitle.Text = _session.DisplayName;
         ClearSearchResults();
         // The status line describes the *previous* document's last action, so it
@@ -716,6 +717,7 @@ public sealed partial class MainWindow : Window
         FitPageButton.IsEnabled = !isBusy;
         RefreshSessionCommands();
         UpdateAnnotationControls(null);
+        ApplyMetadataButton.IsEnabled = false;
     }
 
     /// <summary>
@@ -732,5 +734,6 @@ public sealed partial class MainWindow : Window
     private void RefreshSessionCommands()
     {
         SaveButton.IsEnabled = !_isBusy && _session is not null;
+        ApplyMetadataButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
     }
 }

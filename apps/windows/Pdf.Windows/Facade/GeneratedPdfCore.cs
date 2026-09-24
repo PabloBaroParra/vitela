@@ -129,6 +129,12 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document)
+    {
+        var info = ((GeneratedDocument)document).Handle.ReadDocumentInfo();
+        return new PdfCoreDocumentInfo(info.Title, info.Author, info.Subject, info.Keywords, info.Creator, info.Producer, info.CreationDate, info.ModDate);
+    }
+
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
         try
@@ -220,6 +226,15 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.Move value => new FfiEditCommand.MoveAnnotation(value.AnnotationId, value.Dx, value.Dy),
         PdfCoreEdit.Resize value => new FfiEditCommand.ResizeAnnotation(value.AnnotationId, Rect(value.Rect)),
         PdfCoreEdit.Restyle value => new FfiEditCommand.RestyleAnnotation(value.AnnotationId, Color(value.Color)),
+        PdfCoreEdit.SetDocumentInfo value => new FfiEditCommand.SetDocumentInfo(new FfiDocumentInfo(
+            value.After.Title,
+            value.After.Author,
+            value.After.Subject,
+            value.After.Keywords,
+            value.After.Creator,
+            value.After.Producer,
+            (FfiPdfDate?)value.After.CreationDate,
+            (FfiPdfDate?)value.After.ModDate)),
         PdfCoreEdit.ReplaceTextRun value =>
             new FfiEditCommand.ReplaceTextRunContent(ContentRun(value.Item), value.After),
         PdfCoreEdit.ReplaceTextRunWithInsertedFont value =>
