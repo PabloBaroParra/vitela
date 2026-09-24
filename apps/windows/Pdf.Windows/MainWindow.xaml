@@ -95,7 +95,7 @@
 
         <TextBlock x:Name="AnnotationStatus" Grid.Row="2" TextWrapping="Wrap" />
 
-        <Grid Grid.Row="3" ColumnSpacing="16" ColumnDefinitions="*,260">
+        <Grid Grid.Row="3" ColumnSpacing="16" ColumnDefinitions="*,300">
             <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="2" IsActive="False" Visibility="Collapsed" />
             <StackPanel x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
@@ -113,6 +113,18 @@
                 <StackPanel x:Name="PageStack" HorizontalAlignment="Center" />
             </ScrollViewer>
             <StackPanel Grid.Column="1" Spacing="8">
+                <Expander x:Name="DocumentProperties" Header="Document properties" IsExpanded="False">
+                    <StackPanel Spacing="6" Padding="0,8,0,8">
+                        <TextBlock x:Name="MetadataPermission" TextWrapping="Wrap" />
+                        <TextBox x:Name="MetadataTitle" Header="Title" />
+                        <TextBox x:Name="MetadataAuthor" Header="Author" />
+                        <TextBox x:Name="MetadataSubject" Header="Subject" />
+                        <TextBox x:Name="MetadataKeywords" Header="Keywords" />
+                        <TextBox x:Name="MetadataCreator" Header="Creator" />
+                        <TextBox x:Name="MetadataProducer" Header="Producer" />
+                        <Button x:Name="ApplyMetadataButton" Content="Apply properties" Click="ApplyMetadataButton_Click" />
+                    </StackPanel>
+                </Expander>
                 <TextBlock x:Name="SearchStatus" TextWrapping="Wrap" />
                 <ListView x:Name="SearchResultsList" SelectionChanged="SearchResultsList_SelectionChanged" />
             </StackPanel>
