@@ -13,6 +13,7 @@ main = _MODULE.main
 COMBO = _MODULE.COMBO
 MULTILINE = _MODULE.MULTILINE
 RADIO = _MODULE.RADIO
+EXPECTED_DA = _MODULE.EXPECTED_DA
 
 
 def _field_object(name: str, spec: dict) -> bytes:
@@ -33,6 +34,8 @@ def _field_object(name: str, spec: dict) -> bytes:
     if spec.get("opt") is not None:
         rendered = " ".join(f"({option})" for option in spec["opt"])
         entries.append(f"/Opt [{rendered}]".encode())
+    if spec.get("da") is not None:
+        entries.append(f"/DA ({spec['da']})".encode())
     return b"<< " + b" ".join(entries) + b" >>"
 
 
@@ -82,15 +85,25 @@ def _acroform_pdf(fields: dict[str, dict]) -> bytes:
 
 
 def _authored_fields() -> dict[str, dict]:
+    """A document that should pass. The `/DA` strings come from the
+    validator's own table rather than being restated here — a copy would let
+    the two drift apart and still agree with each other."""
+    da = EXPECTED_DA["authored"]
     return {
-        "applicant": {"ft": "/Tx", "v": "Ada Lovelace", "ff": MULTILINE},
-        "agrees": {"ft": "/Btn", "v": "/Yes"},
-        "plan": {"ft": "/Btn", "v": "/pro", "ff": RADIO},
+        "applicant": {
+            "ft": "/Tx",
+            "v": "Ada Lovelace",
+            "ff": MULTILINE,
+            "da": da["applicant"],
+        },
+        "agrees": {"ft": "/Btn", "v": "/Yes", "da": da["agrees"]},
+        "plan": {"ft": "/Btn", "v": "/pro", "ff": RADIO, "da": da["plan"]},
         "country": {
             "ft": "/Ch",
             "v": "Uruguay",
             "ff": COMBO,
             "opt": ["Argentina", "Uruguay", "Chile"],
+            "da": da["country"],
         },
     }
 
@@ -162,6 +175,37 @@ class ValidatorCliTests(unittest.TestCase):
     def test_rejects_an_unexpected_extra_field(self) -> None:
         fields = _authored_fields()
         fields["stowaway"] = {"ft": "/Tx", "v": "surprise"}
+
+        self.assertEqual(self._run(fields), 1)
+
+    def test_rejects_a_button_that_lost_its_da_entirely(self) -> None:
+        """The T-205 regression itself: a `/Btn` written with no `/DA` is
+        exactly the file the writer used to produce, and the colour the user
+        picked has nowhere to live in it."""
+        fields = _authored_fields()
+        fields["agrees"]["da"] = None
+
+        self.assertEqual(self._run(fields), 1)
+
+    def test_rejects_a_button_whose_da_lost_its_color(self) -> None:
+        fields = _authored_fields()
+        fields["agrees"]["da"] = "/ZaDb 0 Tf 0 0 0 rg"
+
+        self.assertEqual(self._run(fields), 1)
+
+    def test_rejects_a_button_whose_da_names_a_text_font(self) -> None:
+        """Keeping the colour but naming `/Helv` is the cheap fix T-205
+        turned down: a tool regenerating the appearance from `/DA` would
+        look for Helvetica where the check mark's glyph lives in
+        ZapfDingbats."""
+        fields = _authored_fields()
+        fields["agrees"]["da"] = "0.8 0 0 rg /Helv 10 Tf"
+
+        self.assertEqual(self._run(fields), 1)
+
+    def test_rejects_a_text_field_whose_da_lost_its_size(self) -> None:
+        fields = _authored_fields()
+        fields["country"]["da"] = "0 0 0 rg /Cour 12 Tf"
 
         self.assertEqual(self._run(fields), 1)
 

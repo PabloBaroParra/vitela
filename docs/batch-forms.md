@@ -374,6 +374,12 @@ representación visual es una anotación `/Subtype /Widget` en el `/Annots` de l
 ### Fase 6 — Docs
 - [x] T-147 README: mover forms de "out of scope" al roadmap/features; enlazar esta ficha. [docs]
 
+### Fase 7 — Cierre de interop
+- [x] T-205 `/DA` para los cuatro tipos: un `/Btn` escribe `/ZaDb 0 Tf <r g b> rg`
+      (la forma de Acrobat) y `parse_da` recupera cada atributo por separado, así el
+      color de un checkbox o de un radio group sobrevive el round-trip. [FormWrite/FormRead]
+      **(2026-09-21 — completo. Detalle abajo, en la sección que antes decía "Abierto".)**
+
 ## Criterios de aceptación
 
 - Export abre en Acrobat/Preview/Firefox/Chrome y los campos son rellenables ahí (los 4
@@ -383,7 +389,9 @@ representación visual es una anotación `/Subtype /Widget` en el `/Annots` de l
 - Fill + save incremental NO invalida firmas existentes (bytes originales = prefijo intacto).
 - Campos `/FT /Sig`, pushbuttons, listbox multi-select y acciones JS se preservan intactos
   sin aparecer como editables. XFA: no soportado jamás.
-- Estilo (fuente standard-14, tamaño, color) round-tripea por `/DA`.
+- Estilo (fuente standard-14, tamaño, color) round-tripea por `/DA` en `Tx` y `Ch`.
+  En un `/Btn` round-tripea el **color** y solo el color: es lo único que su
+  apariencia consume (T-205, sección "Cerrado" más abajo).
 - Undo/redo completo para add/remove/move/resize/restyle/set_value desde el día uno.
 - Salida determinista bajo el clock/ID-generator de CI (orden = FormFieldSet).
 
@@ -439,10 +447,11 @@ comb o multilínea; la capa de dibujo solo puede aproximarlos. La regla está en
   por paso. `refresh_preview` los une (uno en vuelo más uno pendiente), así que
   una ráfaga se reduce a dos refrescos, no a uno por paso.
 
-## Abierto: el estilo de un `/Btn` no sobrevive el round-trip (T-145)
+## Cerrado: el color de un `/Btn` sobrevive el round-trip (T-145 → T-205)
 
-Encontrado al escribir T-145, **no arreglado ahí**: cerrarlo es una decisión de
-interop, no un test, y no pertenece al cambio que la destapó.
+Encontrado al escribir T-145 y **no arreglado ahí**: cerrarlo era una decisión de
+interop, no un test, y no pertenecía al cambio que lo destapó. Se cerró en T-205,
+por la salida 2 de las dos que se habían escrito acá.
 
 `forms::write_new_single_field` y `update_existing_single_field` escriben `/DA`
 solo para `Tx` y `Ch`. El `TextStyle` de un checkbox o de un radio group no se
@@ -459,10 +468,12 @@ usuario realmente puede poner un checkbox en rojo, realmente lo ve, y realmente
 lo pierde al reabrir, mientras el archivo sigue pintando un color que el
 inspector ya no muestra.
 
-Clavado por `forms_roundtrip.rs::a_buttons_style_does_not_survive_the_round_trip`,
-que **falla el día que esto se arregle** — ese es el punto.
+Estuvo clavado por `forms_roundtrip.rs::a_buttons_style_does_not_survive_the_round_trip`,
+que **fallaba el día que esto se arreglara** — y eso fue exactamente lo que pasó:
+T-205 lo reemplazó por `a_buttons_color_survives_the_round_trip` y su complemento
+`a_buttons_font_and_size_do_not_survive_and_are_not_meant_to`.
 
-Las dos salidas, con su costo:
+Las dos salidas que se habían escrito, con su costo:
 
 1. **Escribir `/DA` para los cuatro tipos**, con el `format_da` que ya existe.
    Dos líneas. Round-trip exacto. Pero `/DA` es un atributo de *variable text*
@@ -477,8 +488,46 @@ Las dos salidas, con su costo:
    `parse_da` recupere el color independientemente de la fuente — cambio chico
    en `da.rs`, pero cambio al parser.
 
-La 2 es la correcta si se arregla; la 1 es la barata. Ninguna es urgente: el
-archivo se pinta bien, lo que miente es el inspector.
+### Lo que se hizo (T-205): la 2
+
+`format_button_da(color)` en `da.rs` escribe `/ZaDb 0 Tf <r g b> rg`. `pdf-save`
+la elige con una sola regla por tipo (`forms::field_da`), compartida por los
+cuatro caminos de escritura —campo nuevo, campo existente, radio nuevo, radio
+existente— así que "qué `/DA` lleva este tipo" se decide en un lugar y no en
+cuatro. En un radio group el `/DA` va **en el padre**, al lado de su `/FT` y su
+`/T`: un kid es un widget, no un campo, y `/DA` es heredable (tabla 220).
+
+`parse_da` pasó a rellenar el default **por atributo** en vez de todo-o-nada. Un
+`/DA` que nombra una fuente que este crate no modela —`/ZaDb` en un botón, una
+embebida en un campo de texto— ya no se tira entero: se pierde solo la familia.
+De yapa cayó un bug latente: `0 Tf` es "tamaño elegido por el visor"
+(12.7.3.3), no una fuente de 0pt, y antes se modelaba literal — un campo de
+texto auto-size le habría entregado a `appearance.rs` un glifo de altura cero.
+
+Lo que **no** sobrevive, y es contrato explícito: la familia y el tamaño de un
+botón. `/ZaDb 0 Tf` dice la única fuente con la que se dibuja su apariencia y le
+deja el tamaño al visor, así que no hay dónde guardarlos — y nada los leería si
+lo hubiera (`build_field_appearance` saca el tamaño del rect del control).
+
+Dos efectos sobre archivos ajenos, medidos contra el fixture de reportlab:
+
+- reportlab **no escribe `/DA` en sus botones**; una guardada de Vitela se lo
+  agrega. Es negro, que es el color con el que su apariencia ya se pintaba, así
+  que el archivo dice lo que siempre mostró — pero es un dict que crece en un
+  campo que el usuario no tocó. Queda anotado, no descubierto.
+- el listbox que `pdf-form` nunca modela conserva el `/DA` de reportlab con sus
+  operadores en el orden de reportlab: intacto significa intacto, hasta los bytes.
+
+Lo verifica `tools/pypdf-validation/validate_forms_roundtrip.py`, que ahora
+compara el `/DA` de cada campo contra bytes literales (`EXPECTED_DA`) leídos del
+`/Fields` crudo — `get_fields()` proyecta el campo a cuatro claves y `/DA` no es
+una. Chequearlo contra nuestro propio parser no probaría nada: el writer y el
+parser se ponen de acuerdo por construcción.
+
+**Lo que sigue abierto:** el inspector del shell GTK4 ofrece fuente y tamaño para
+un botón, y ahora eso es honesto sobre el archivo (no se guardan) pero sigue
+siendo una perilla que no hace nada. Gatearlas por tipo en `forms::style::refresh`
+es una tarea del shell, no de core.
 
 ## Fuera de scope (v1)
 

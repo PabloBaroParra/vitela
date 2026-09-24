@@ -22,6 +22,12 @@ Two modes, one per emitted file:
 *kind* across: multiline is bit 13 (4096), radio is bit 16 (32768) and combo
 is bit 18 (131072). A writer that dropped them would still round-trip
 through our own reader, which has the model in hand either way.
+
+`/DA` is checked for the same reason, one step further (T-205): a field's
+colour lives there and nowhere else, so a reader that regenerates
+appearances rather than trusting our `/AP` sees only what that string says.
+Checking it against our own parser would prove nothing — the writer and the
+parser agree by construction. See `EXPECTED_DA`.
 """
 
 import sys
@@ -55,6 +61,58 @@ EXPECTED = {
     },
 }
 
+# name -> the exact `/DA` the file must spell out (T-205).
+#
+# Pinned as literal bytes, not re-derived, because `/DA` *is* the interop
+# surface: it is the one place a colour a user picked survives for a reader
+# that regenerates appearances instead of trusting our `/AP`. Two shapes,
+# one per field class — variable text (`Tx`, `Ch`) gets a family and a point
+# size; a `/Btn` gets `/ZaDb 0 Tf <r g b> rg`, naming the ZapfDingbats
+# resource its check mark is actually drawn from, at the viewer-chosen size,
+# carrying colour and nothing else.
+EXPECTED_DA = {
+    "authored": {
+        "applicant": "0 0 0 rg /Helv 12 Tf",
+        # The two the round trip exists for: a colour the model carried, in
+        # a file, read back by a library that is not ours.
+        "agrees": "/ZaDb 0 Tf 0.8 0 0 rg",
+        "plan": "/ZaDb 0 Tf 0 0.25098 0.75294 rg",
+        "country": "0 0 0 rg /Cour 9 Tf",
+    },
+    "filled": {
+        "notes": "0 0 0 rg /Helv 12 Tf",
+        "country": "0 0 0 rg /Cour 12 Tf",
+        "full_name": "0 0 0 rg /Helv 12 Tf",
+        # reportlab writes no `/DA` at all on its buttons; a Vitela save
+        # gives them one. Recorded here so that stays a decision rather
+        # than a surprise — the colour is the black its own appearance was
+        # already painted in, so the file says what it always showed.
+        "subscribe": "/ZaDb 0 Tf 0 0 0 rg",
+        "plan": "/ZaDb 0 Tf 0 0 0 rg",
+        # And the listbox pdf-form never models keeps reportlab's own
+        # string, operators in reportlab's own order: untouched means
+        # untouched, down to the bytes.
+        "languages": "/Helv 12 Tf 0 0 0 rg",
+    },
+}
+
+
+def da_by_name(reader: PdfReader) -> dict[str, str]:
+    """Every field's `/DA` as the file spells it, walked from the raw
+    `/Fields` array — `PdfReader.get_fields` projects each field down to a
+    handful of keys and `/DA` is not one of them."""
+    try:
+        fields = reader.trailer["/Root"]["/AcroForm"]["/Fields"]
+    except Exception:
+        return {}
+    found: dict[str, str] = {}
+    for reference in fields:
+        field = reference.get_object()
+        name, da = field.get("/T"), field.get("/DA")
+        if name is not None and da is not None:
+            found[str(name)] = str(da)
+    return found
+
 
 def fail(message: str, code: int) -> int:
     print(message, file=sys.stderr)
@@ -72,7 +130,8 @@ def main(argv: list[str]) -> int:
         return fail(f"input PDF does not exist: {path}", 2)
 
     try:
-        fields = PdfReader(path).get_fields()
+        reader = PdfReader(path)
+        fields = reader.get_fields()
     except Exception as error:
         return fail(f"cannot parse or read form fields from {path}: {error}", 1)
     if not fields:
@@ -111,6 +170,13 @@ def main(argv: list[str]) -> int:
                 return fail(
                     f"{path}: {name} /Opt was {actual_options!r}, expected {options!r}", 1
                 )
+
+    actual_da = da_by_name(reader)
+    for name, da in EXPECTED_DA[mode].items():
+        if actual_da.get(name) != da:
+            return fail(
+                f"{path}: {name} /DA was {actual_da.get(name)!r}, expected {da!r}", 1
+            )
 
     return 0
 
