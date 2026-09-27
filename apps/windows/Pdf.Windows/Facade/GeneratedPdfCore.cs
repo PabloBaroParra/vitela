@@ -229,6 +229,56 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public string? CompressionRefusal(IPdfCoreDocument document)
+    {
+        var refusal = PdfFfiMethods.CompressionRefusal(((GeneratedDocument)document).Handle, FfiSaveIntent.Default);
+        return refusal is null ? null : RefusalSentence(refusal);
+    }
+
+    public bool CompressedSaveWillInvalidateSignatures(IPdfCoreDocument document)
+    {
+        try { return PdfFfiMethods.CompressedSaveWillInvalidateSignatures(((GeneratedDocument)document).Handle, FfiSaveIntent.Default); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public PdfCoreCompressedSave SaveCompressedToBytes(IPdfCoreDocument document, PdfCoreCompressPreset preset, bool signaturesAcknowledged)
+    {
+        var acknowledgement = signaturesAcknowledged
+            ? FfiSignatureAcknowledgement.ProceedAndInvalidate
+            : FfiSignatureAcknowledgement.Unacknowledged;
+        var ffiPreset = preset switch
+        {
+            PdfCoreCompressPreset.Lossless => FfiCompressPreset.Lossless,
+            PdfCoreCompressPreset.Balanced => FfiCompressPreset.Balanced,
+            PdfCoreCompressPreset.Small => FfiCompressPreset.Small,
+            _ => throw new ArgumentOutOfRangeException(nameof(preset)),
+        };
+        try
+        {
+            var saved = PdfFfiMethods.SaveCompressedToBytes(((GeneratedDocument)document).Handle, FfiSaveIntent.Default, acknowledgement, ffiPreset);
+            var report = saved.Report;
+            return new PdfCoreCompressedSave(
+                saved.Bytes,
+                report.BeforeBytes,
+                report.AfterBytes,
+                report.SavedBytes,
+                report.Outcome == FfiCompressOutcome.Reduced,
+                [.. report.Refusals.Select(RefusalSentence)]);
+        }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    // The two modelled refusals cross the boundary without text, so their
+    // wording is restated here verbatim from `pdf_compress::Refusal`'s Display
+    // — the sentence the GTK shell shows — and `Other` carries the core's own.
+    private static string RefusalSentence(FfiCompressRefusal refusal) => refusal switch
+    {
+        FfiCompressRefusal.EncryptedDocumentNotRewritable => "this document's password protection does not allow it to be rewritten, so it cannot be compressed",
+        FfiCompressRefusal.SignaturesWouldBeInvalidated => "compressing rewrites the file and would stop its signature from verifying",
+        FfiCompressRefusal.Other other => other.Detail,
+        _ => "the compression was refused for a reason this build does not recognise",
+    };
+
     private static PdfCoreAnnotation ConvertAnnotation(FfiAnnotation annotation) => annotation.Kind switch
     {
         FfiAnnotationKind.Highlight value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Highlight, Rect(value.Rect), Color(value.Color), []),
