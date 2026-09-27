@@ -57,6 +57,15 @@ internal interface IPdfCore
     PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document);
 
     /// <summary>
+    /// Every AcroForm field the document holds, the ones the file already had
+    /// included. Read-only, so it answers however restricted the document is;
+    /// whether a field may be <em>filled</em> is
+    /// <see cref="AnnotationEditingAllowed"/>'s answer, the core's floor for
+    /// every field command.
+    /// </summary>
+    IReadOnlyList<PdfCoreFormField> ListFormFields(IPdfCoreDocument document);
+
+    /// <summary>
     /// Parses one page's content stream and returns the text runs and images
     /// it paints — the editable page itself, not the annotations drawn over
     /// it. Parsed on demand and never cached by the core, so this is a real
@@ -264,6 +273,12 @@ internal abstract record PdfCoreEdit
     public sealed record SetDocumentInfo(PdfCoreDocumentInfo After) : PdfCoreEdit;
 
     /// <summary>
+    /// Fills an existing field in. The core validates <paramref name="Value"/>
+    /// against the field's kind before recording it.
+    /// </summary>
+    public sealed record SetFieldValue(ulong FieldId, FormFieldValue Value) : PdfCoreEdit;
+
+    /// <summary>
     /// Retypes an existing text run, keeping its font, size and position.
     /// Carries the run as it was read from <see cref="IPdfCore.ReadPageContent"/>:
     /// that snapshot is how the core re-finds the run at save time, so it is
@@ -272,6 +287,8 @@ internal abstract record PdfCoreEdit
     public sealed record ReplaceTextRun(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
     public sealed record ReplaceTextRunWithInsertedFont(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
 }
+
+internal sealed record PdfCoreFormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value);
 
 internal sealed record PdfCoreDocumentInfo(
     string? Title,
@@ -317,6 +334,7 @@ internal enum PdfCoreError
     BitmapNotFound,
     PageIndexOutOfBounds,
     AnnotationNotFound,
+    FormFieldNotFound,
     InvalidImage,
     InvalidSaveRequest,
     SignaturesWouldBeInvalidated,

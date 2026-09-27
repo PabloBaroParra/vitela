@@ -122,14 +122,13 @@ Evidence: [`core/pdf-ffi/src/error.rs`](../../core/pdf-ffi/src/error.rs).
 
 ## Non-Goals And Required Ports
 
-This contract includes text extraction/search through `DocumentHandle.text_runs(pageIndex)` and `DocumentHandle.search(query)`. Matches carry a 0-indexed page and per-character PDF-point rectangles with a bottom-left origin, enabling WinUI overlays without renderer types. It does not add thumbnail/prefetch scheduling, progress reporting, true rendering cancellation, or form editing. Advanced screens require explicit `pdf-ffi` ports before implementation:
+This contract includes text extraction/search through `DocumentHandle.text_runs(pageIndex)` and `DocumentHandle.search(query)`. Matches carry a 0-indexed page and per-character PDF-point rectangles with a bottom-left origin, enabling WinUI overlays without renderer types. It does not add thumbnail/prefetch scheduling, progress reporting, true rendering cancellation, or placing new form fields. Filling existing fields in goes through `DocumentHandle.list_form_fields()`, `FfiEditCommand::SetFieldValue` and `refresh_preview`, gated on `annotation_editing_allowed()` — the fill permission, not content editing. Advanced screens require explicit `pdf-ffi` ports before implementation:
 
 | Screen capability | Required missing port |
 |---|---|
 | Thumbnail rail and prefetch | Render priority, bounded queue visibility, and cancellable request handle. |
 | Long-operation progress | Progress callback or operation status port. |
 | Real cancellation | FFI cancellation token/handle that reaches the render job before dequeue; mid-render cancellation remains a separate capability. |
-| Forms | Form field discovery, value mutation, validation, appearance regeneration, and save integration. |
 
 ## First Facade Acceptance Criteria
 

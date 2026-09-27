@@ -108,6 +108,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("updates document properties without dropping dates", UpdatesDocumentPropertiesWithoutDroppingDatesAsync)
     ,("does not record an unchanged document properties edit", DoesNotRecordUnchangedDocumentPropertiesAsync)
     ,("refuses document properties when content editing is forbidden", RefusesForbiddenDocumentPropertiesAsync)
+    ,("lists the document's form fields with the fill permission", ListsFormFieldsAsync)
+    ,("fills a form field and rebuilds the preview", FillsAFormFieldAsync)
+    ,("does not record a fill that changes nothing", DoesNotRecordAnUnchangedFillAsync)
+    ,("refuses a fill when the document forbids form filling", RefusesAForbiddenFillAsync)
+    ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
+    ,("refuses a fill for a field that is no longer there", RefusesAFillForAMissingFieldAsync)
+    ,("refreshes the preview on history after a fill", RefreshesThePreviewOnHistoryAfterAFillAsync)
+    ,("maps a dropdown choice to its list index and back", MapsDropdownChoicesToIndices)
+    ,("hands the core multiline text with the line breaks it splits on", NormalizesMultilineFieldText)
     ,("refuses page content once the session is retired", RefusesPageContentAfterSessionSwapAsync)
     ,("picks the smallest text run under a content-edit click", PicksTheSmallestRunUnderTheClick)
     ,("matches a PDF font name to a local face", MatchesPdfFontsToLocalFaces)
@@ -1629,6 +1638,128 @@ static async Task RefusesForbiddenDocumentPropertiesAsync()
     Assert(!core.LastDocument!.CanUndo, "a refused edit must not enter history");
 }
 
+static List<PdfCoreFormField> SampleFormFields() =>
+[
+    new(0, 0, "name", new FormFieldKind.Text(Multiline: false, MaxLength: 20), new FormFieldValue.Text("")),
+    new(1, 1, "agree", new FormFieldKind.Checkbox(), new FormFieldValue.Checked(false)),
+    new(2, 1, "size", new FormFieldKind.Dropdown(["S", "M", "L"], Editable: false), new FormFieldValue.Choice(null)),
+];
+
+static async Task ListsFormFieldsAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.FormFieldsAsync(session.SessionId);
+
+    Assert(result.IsSuccess && result.Value!.Fields.Count == 3, "every field the core reports must reach the panel");
+    Assert(result.Value!.Fields[1] is { Name: "agree", PageIndex: 1, Kind: FormFieldKind.Checkbox }, "a field must keep its name, page and kind");
+    Assert(result.Value.FillAllowed, "an unrestricted document permits filling");
+}
+
+static async Task FillsAFormFieldAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.SetFormFieldValueAsync(session.SessionId, 0, new FormFieldValue.Text("Ada"));
+
+    Assert(result.IsSuccess && result.Value!.CanUndo, "a fill must join shared history");
+    Assert(core.FormFields[0].Value == new FormFieldValue.Text("Ada"), "the core must record the typed value");
+    Assert(core.RefreshPreviewCalls == 1, "pdfium paints field values, so the preview must be rebuilt to show it");
+}
+
+static async Task DoesNotRecordAnUnchangedFillAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.SetFormFieldValueAsync(session.SessionId, 1, new FormFieldValue.Checked(false));
+
+    Assert(result.IsSuccess && !core.LastDocument!.CanUndo, "leaving a field as it was must not add an undo step");
+    Assert(core.RefreshPreviewCalls == 0, "and must not pay for a preview rebuild");
+}
+
+static async Task RefusesAForbiddenFillAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    core.LastDocument!.EditingAllowed = false;
+
+    var state = (await facade.FormFieldsAsync(session.SessionId)).Value!;
+    var result = await facade.SetFormFieldValueAsync(session.SessionId, 0, new FormFieldValue.Text("Ada"));
+
+    Assert(!state.FillAllowed, "the panel must learn the refusal before the reader types");
+    Assert(!result.IsSuccess && result.Error!.Message == "This document does not permit filling in its form.", "the refusal must be user safe");
+    Assert(!core.LastDocument.CanUndo && core.RefreshPreviewCalls == 0, "a refused fill must not enter history or rebuild the preview");
+}
+
+static async Task FillsWhenOnlyContentEditingIsForbiddenAsync()
+{
+    // ISO 32000-1 table 22 bit 6 grants filling without bit 4: a shell that
+    // reused the content-editing answer would lock a fillable form.
+    var core = new FakeCore { FormFields = SampleFormFields(), ContentEditingPermitted = false };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.SetFormFieldValueAsync(session.SessionId, 2, new FormFieldValue.Choice("M"));
+
+    Assert(result.IsSuccess, "filling needs only the annotation/fill permission");
+    Assert(core.FormFields[2].Value == new FormFieldValue.Choice("M"), "the choice must be recorded");
+}
+
+static async Task RefusesAFillForAMissingFieldAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.SetFormFieldValueAsync(session.SessionId, 99, new FormFieldValue.Text("Ada"));
+
+    Assert(!result.IsSuccess && result.Error!.Message == "The document changed. Please try again.", "a stale field id must read as a changed document");
+    Assert(!core.LastDocument!.CanUndo, "and must not enter history");
+}
+
+static async Task RefreshesThePreviewOnHistoryAfterAFillAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    await facade.SetFormFieldValueAsync(session.SessionId, 1, new FormFieldValue.Checked(true));
+
+    await facade.UndoAsync(session.SessionId);
+
+    Assert(core.RefreshPreviewCalls == 2, "undoing a fill must drop the painted value from the preview");
+}
+
+static Task MapsDropdownChoicesToIndices()
+{
+    IReadOnlyList<string> options = ["S", "M", "L"];
+
+    Assert(FormFieldChoices.IndexFor(options, null) == 0, "no choice is the leading \"(none)\" entry");
+    Assert(FormFieldChoices.IndexFor(options, "M") == 2, "options sit one past their own index");
+    Assert(FormFieldChoices.IndexFor(options, "XL") == 0, "a value outside the list shows as no choice");
+    Assert(FormFieldChoices.ChoiceFor(options, 0) is null, "picking \"(none)\" clears the choice");
+    Assert(FormFieldChoices.ChoiceFor(options, 3) == "L", "picking an option chooses it");
+    Assert(FormFieldChoices.ChoiceFor(options, -1) is null && FormFieldChoices.ChoiceFor(options, 9) is null, "an out-of-range index chooses nothing");
+    return Task.CompletedTask;
+}
+
+static Task NormalizesMultilineFieldText()
+{
+    // WinUI's TextBox stores a typed break as "\r"; pdf-form wraps paragraphs
+    // on "\n" and nothing else.
+    Assert(FormFieldText.FromTextBox("one\rtwo") == "one\ntwo", "a TextBox break must reach the core as \\n");
+    Assert(FormFieldText.FromTextBox("one\r\ntwo") == "one\ntwo", "a pasted CRLF must become one break, not two");
+    Assert(FormFieldText.ToTextBox("one\ntwo") == "one\rtwo", "a stored break must show as a TextBox break");
+    Assert(FormFieldText.FromTextBox(FormFieldText.ToTextBox("a\nb\n")) == "a\nb\n", "a value must survive the round trip");
+    return Task.CompletedTask;
+}
+
 static async Task RefusesPageContentAfterSessionSwapAsync()
 {
     var core = new FakeCore();
@@ -2137,6 +2268,10 @@ sealed class FakeCore : IPdfCore
 
     public PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document) => DocumentInfo;
 
+    public List<PdfCoreFormField> FormFields { get; init; } = [];
+
+    public IReadOnlyList<PdfCoreFormField> ListFormFields(IPdfCoreDocument document) => [.. FormFields];
+
     public void RefreshPreview(IPdfCoreDocument document)
     {
         Interlocked.Increment(ref RefreshPreviewCalls);
@@ -2187,6 +2322,18 @@ sealed class FakeCore : IPdfCore
         {
             if (!fake.ContentEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
             DocumentInfo = metadata.After;
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.SetFieldValue fill)
+        {
+            // Bit 6 is the floor for filling, as in the core's `apply_edit`;
+            // content editing is deliberately not consulted.
+            if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form filling is not permitted");
+            var index = FormFields.FindIndex(field => field.Id == fill.FieldId);
+            if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
+            FormFields[index] = FormFields[index] with { Value = fill.Value };
             fake.Apply(edit);
             return;
         }
@@ -2318,6 +2465,7 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
             case PdfCoreEdit.ReplaceTextRun:
             case PdfCoreEdit.ReplaceTextRunWithInsertedFont:
             case PdfCoreEdit.SetDocumentInfo:
+            case PdfCoreEdit.SetFieldValue:
                 // Page content is not mirrored on the model — the queued
                 // command is the edit — so there is nothing to mutate here
                 // beyond the history the facade reads back.

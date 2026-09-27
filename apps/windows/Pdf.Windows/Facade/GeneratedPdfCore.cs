@@ -132,6 +132,43 @@ internal sealed class GeneratedPdfCore : IPdfCore
         }
     }
 
+    public IReadOnlyList<PdfCoreFormField> ListFormFields(IPdfCoreDocument document) =>
+        [.. ((GeneratedDocument)document).Handle.ListFormFields().Select(field => new PdfCoreFormField(
+            field.Id,
+            // A `PageId`, which the FFI mints as the page's index — the same
+            // reading every other page-keyed call on this boundary makes.
+            field.Page,
+            field.Name,
+            FieldKind(field.Kind),
+            FieldValue(field.Value)))];
+
+    private static FormFieldKind FieldKind(FfiFormFieldKind kind) => kind switch
+    {
+        FfiFormFieldKind.Text text => new FormFieldKind.Text(text.Multiline, text.MaxLen),
+        FfiFormFieldKind.Checkbox => new FormFieldKind.Checkbox(),
+        FfiFormFieldKind.RadioGroup radio => new FormFieldKind.RadioGroup([.. radio.Options.Select(option => option.ExportValue)]),
+        FfiFormFieldKind.Dropdown dropdown => new FormFieldKind.Dropdown(dropdown.Options, dropdown.Editable),
+        // The core already folds a kind it does not model into a read-only
+        // text field; a binding newer than this shell gets the same answer.
+        _ => new FormFieldKind.Text(Multiline: false, MaxLength: 0),
+    };
+
+    private static FormFieldValue FieldValue(FfiFieldValue value) => value switch
+    {
+        FfiFieldValue.Text text => new FormFieldValue.Text(text.TextValue),
+        FfiFieldValue.Checked check => new FormFieldValue.Checked(check.CheckedValue),
+        FfiFieldValue.Choice choice => new FormFieldValue.Choice(choice.Option),
+        _ => throw new InvalidOperationException("Unsupported form field value."),
+    };
+
+    private static FfiFieldValue FieldValue(FormFieldValue value) => value switch
+    {
+        FormFieldValue.Text text => new FfiFieldValue.Text(text.Value),
+        FormFieldValue.Checked check => new FfiFieldValue.Checked(check.Value),
+        FormFieldValue.Choice choice => new FfiFieldValue.Choice(choice.Option),
+        _ => throw new InvalidOperationException("Unsupported form field value."),
+    };
+
     public IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document)
     {
         try
@@ -316,6 +353,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
             new FfiEditCommand.ReplaceTextRunContent(ContentRun(value.Item), value.After),
         PdfCoreEdit.ReplaceTextRunWithInsertedFont value =>
             new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
+        PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         _ => throw new InvalidOperationException("Unsupported annotation edit."),
     };
 
@@ -355,6 +393,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
             FfiException.BitmapNotFound => PdfCoreError.BitmapNotFound,
             FfiException.PageIndexOutOfBounds => PdfCoreError.PageIndexOutOfBounds,
             FfiException.AnnotationNotFound => PdfCoreError.AnnotationNotFound,
+            FfiException.FormFieldNotFound => PdfCoreError.FormFieldNotFound,
             FfiException.InvalidImage => PdfCoreError.InvalidImage,
             FfiException.InvalidSaveRequest => PdfCoreError.InvalidSaveRequest,
             FfiException.SignaturesWouldBeInvalidated => PdfCoreError.SignaturesWouldBeInvalidated,

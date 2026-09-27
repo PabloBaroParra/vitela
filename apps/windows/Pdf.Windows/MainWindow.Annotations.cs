@@ -61,6 +61,7 @@ public sealed partial class MainWindow
     {
         await ApplyHistoryAsync(undo);
         await RefreshDocumentInfoAsync();
+        await RefreshFormFieldsAsync();
     }
 
     /// <summary>
@@ -420,6 +421,12 @@ public sealed partial class MainWindow
         {
             ForgetPendingContentText();
             InvalidateContentEditedPages();
+        }
+
+        // A filled field is painted by the PDF too, so the same holds for it.
+        if (_filledFieldPages.Count > 0)
+        {
+            InvalidateFilledFieldPages();
         }
     }
 

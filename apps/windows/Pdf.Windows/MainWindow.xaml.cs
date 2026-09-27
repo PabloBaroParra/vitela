@@ -571,9 +571,11 @@ public sealed partial class MainWindow : Window
         // The parsed page content and any open editor belong to the document
         // being replaced — its run ids mean nothing against the new bytes.
         ResetContentEditMode();
+        ResetFormFieldState();
         _session = session;
         RefreshSessionCommands();
         _ = RefreshDocumentInfoAsync();
+        _ = RefreshFormFieldsAsync();
         DocumentTitle.Text = _session.DisplayName;
         ClearSearchResults();
         // The status line describes the *previous* document's last action, so it
@@ -718,6 +720,7 @@ public sealed partial class MainWindow : Window
         RefreshSessionCommands();
         UpdateAnnotationControls(null);
         ApplyMetadataButton.IsEnabled = false;
+        FormFieldsScroller.IsEnabled = false;
         ProtectButton.IsEnabled = false;
         CompressButton.IsEnabled = false;
     }
@@ -741,5 +744,8 @@ public sealed partial class MainWindow : Window
         // one document it cannot handle is refused by the core with a reason.
         CompressButton.IsEnabled = !_isBusy && _session is not null;
         ApplyMetadataButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
+        // Only the busy half: whether a form may be filled is the fill
+        // permission's answer, which each row already carries.
+        FormFieldsScroller.IsEnabled = !_isBusy && _session is not null;
     }
 }
