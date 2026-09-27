@@ -54,6 +54,9 @@ pub(crate) fn begin_text_drag(viewer: &Viewer, page_index: usize, point: (f64, f
     // and it is claimed here, before any focus-out on the `Entry` is
     // guaranteed to have run.
     editor::commit(viewer);
+    if editor::keep_refused_editor(viewer) {
+        return false;
+    }
 
     let mut state = viewer.state.borrow_mut();
     let Some(session) = state.session.as_mut() else {

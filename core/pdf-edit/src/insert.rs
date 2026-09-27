@@ -24,7 +24,7 @@ use pdf_document::{ImageItem, TextRun};
 ///
 /// One of the standard 14, so no font program has to be embedded and the
 /// WinAnsi character set is available in full.
-const INSERTED_BASE_FONT: &str = "Helvetica";
+pub(crate) const INSERTED_BASE_FONT: &str = "Helvetica";
 
 /// An image XObject, plus the soft mask its alpha channel needs.
 pub struct ImageXObject {
@@ -272,22 +272,33 @@ fn append_to_content(
 /// against different metrics than it is later drawn with would report a box
 /// that does not match the glyphs.
 pub(crate) fn inserted_font_dictionary() -> Dictionary {
+    standard_font_dictionary(INSERTED_BASE_FONT)
+}
+
+/// A standard-14 font `base_font`, WinAnsi-encoded — the shape of every font
+/// resource this crate adds: the inserted font, and the re-encoded copy a
+/// replacement falls back to when the run's own encoding lacks a character
+/// (`crate::edit::replace_text_run`).
+pub(crate) fn standard_font_dictionary(base_font: &str) -> Dictionary {
     dictionary! {
         "Type" => "Font",
         "Subtype" => "Type1",
-        "BaseFont" => INSERTED_BASE_FONT,
+        "BaseFont" => base_font,
         "Encoding" => "WinAnsiEncoding",
     }
 }
 
-/// Returns a page font resource backed by the standard font used for inserted
-/// text, reusing a compatible one or choosing a collision-free name.
+/// Returns a page font resource backed by the standard font `base_font`
+/// (WinAnsi-encoded), reusing a compatible one — a resource already naming
+/// [`standard_font_dictionary`]`(base_font)` — or choosing the first free
+/// `FVitela{n}`.
 ///
 /// Takes the resolved dictionary rather than the object that owns it: the
 /// form-scoped caller is choosing a name for a copy that does not exist yet.
-pub(crate) fn inserted_font_resource_name_in(
+pub(crate) fn standard_font_resource_name_in(
     document: &Document,
     resources: &Dictionary,
+    base_font: &str,
 ) -> String {
     let fonts = resources
         .get(b"Font")
@@ -301,7 +312,7 @@ pub(crate) fn inserted_font_resource_name_in(
         };
         if crate::encoding::resolved_name(document, &font, b"Subtype").as_deref() == Some("Type1")
             && crate::encoding::resolved_name(document, &font, b"BaseFont").as_deref()
-                == Some(INSERTED_BASE_FONT)
+                == Some(base_font)
             && crate::encoding::resolved_name(document, &font, b"Encoding").as_deref()
                 == Some("WinAnsiEncoding")
         {
@@ -329,11 +340,23 @@ pub(crate) fn ensure_font_resource(
     owner: ObjectId,
     name: &str,
 ) -> Result<(), EditError> {
+    ensure_standard_font_resource(document, owner, name, INSERTED_BASE_FONT)
+}
+
+/// [`ensure_font_resource`] for any standard font — registers
+/// [`standard_font_dictionary`]`(base_font)` under `name` unless `owner`
+/// already has a font by that name.
+pub(crate) fn ensure_standard_font_resource(
+    document: &mut Document,
+    owner: ObjectId,
+    name: &str,
+    base_font: &str,
+) -> Result<(), EditError> {
     if font_resource(document, owner, name).is_some() {
         return Ok(());
     }
 
-    let font_id = document.add_object(inserted_font_dictionary());
+    let font_id = document.add_object(standard_font_dictionary(base_font));
 
     add_resource(document, owner, b"Font", name, Object::Reference(font_id))
 }
@@ -503,7 +526,7 @@ mod tests {
         let resources = owned_resources_snapshot(&document, page);
 
         assert_eq!(
-            inserted_font_resource_name_in(&document, &resources),
+            standard_font_resource_name_in(&document, &resources, INSERTED_BASE_FONT),
             "Existing"
         );
     }
@@ -524,7 +547,7 @@ mod tests {
         let resources = owned_resources_snapshot(&document, page);
 
         assert_eq!(
-            inserted_font_resource_name_in(&document, &resources),
+            standard_font_resource_name_in(&document, &resources, INSERTED_BASE_FONT),
             "FVitela2"
         );
     }

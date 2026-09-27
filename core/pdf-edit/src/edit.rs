@@ -42,6 +42,16 @@ use pdf_document::{ContentItemId, ImageItem, ImageSource, Rect, TextRun};
 /// when the run's font has no code for one of `after`'s characters, and with
 /// [`EditError::CompositeFontNotEditable`] for Type0/CID fonts.
 ///
+/// One gap is bridged rather than refused: a run in a standard-14 text font
+/// (see [`crate::encoding::winansi_capable_standard_font`]) whose encoding
+/// lacks a character WinAnsi has — a `ç` in a Helvetica declared with no
+/// `/Encoding` — is redrawn in a WinAnsi copy of **the same** font, switched
+/// to and back around the one show-text operation exactly as
+/// [`replace_text_run_with_inserted_font`] does. The typeface does not
+/// change; only the code table the operation is written in does. A character
+/// WinAnsi cannot show either is still an `EncodingGap`, named against the
+/// run's own font.
+///
 /// A `TJ` array collapses to a single string: its kerning described the old
 /// glyph sequence and means nothing for the new one.
 pub fn replace_text_run(
@@ -58,7 +68,27 @@ pub fn replace_text_run(
     // of the document is written — the copies `own_scope` takes included.
     let resources = scope_resources(document, page_object, &target.form_path);
     let font = scope_font(document, &resources, &target.run.resource_font_name)?;
-    let codes = font.encode(after)?;
+    let codes = match font.encode(after) {
+        Ok(codes) => codes,
+        Err(gap @ EditError::EncodingGap { .. }) => {
+            let Some(base_font) =
+                standard_fallback(document, &resources, &target.run.resource_font_name)
+            else {
+                return Err(gap);
+            };
+            return replace_in_standard_font(
+                document,
+                page_object,
+                target,
+                &stream,
+                &resources,
+                &base_font,
+                after,
+            )
+            .map_err(|error| owned_gap(error, &target.run.resource_font_name));
+        }
+        Err(error) => return Err(error),
+    };
 
     let replacement = if target.operator == "TJ" {
         let mut array = vec![b'['];
@@ -99,10 +129,67 @@ pub fn replace_text_run_with_inserted_font(
 
     let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
     let resources = scope_resources(document, page_object, &target.form_path);
-    let resource_font_name = crate::insert::inserted_font_resource_name_in(document, &resources);
+    replace_in_standard_font(
+        document,
+        page_object,
+        target,
+        &stream,
+        &resources,
+        crate::insert::INSERTED_BASE_FONT,
+        after,
+    )
+}
+
+/// The base font of the WinAnsi copy `resource_name` can fall back to, if
+/// it names a font that has one — see
+/// [`crate::encoding::winansi_capable_standard_font`].
+fn standard_fallback(
+    document: &Document,
+    resources: &Dictionary,
+    resource_name: &str,
+) -> Option<String> {
+    match resource_entry(document, resources, b"Font", resource_name)? {
+        Object::Dictionary(font) => crate::encoding::winansi_capable_standard_font(document, &font),
+        _ => None,
+    }
+}
+
+/// An `EncodingGap` from the fallback font, re-addressed to the run's own
+/// font: the substitute's resource name is an implementation detail no user
+/// has ever seen, while the character is still the one that cannot be shown.
+fn owned_gap(error: EditError, resource_font_name: &str) -> EditError {
+    match error {
+        EditError::EncodingGap { character, .. } => EditError::EncodingGap {
+            character,
+            resource_font_name: resource_font_name.to_string(),
+        },
+        other => other,
+    }
+}
+
+/// Rewrites `target`'s show-text operation to paint `after` in the standard
+/// font `base_font` (WinAnsi-encoded), bracketed by `Tf` operators that
+/// select it and then restore the run's own font at the same size.
+///
+/// Shared by the two substitutions: a composite run redrawn in the inserted
+/// font, and a standard-14 run redrawn in a re-encoded copy of itself.
+/// Everything happens on a clone that replaces `document` only once the
+/// splice has succeeded, so a failure registers no font and rewrites no
+/// stream.
+fn replace_in_standard_font(
+    document: &mut Document,
+    page_object: ObjectId,
+    target: &LocatedTextRun,
+    stream: &PageStream,
+    resources: &Dictionary,
+    base_font: &str,
+    after: &str,
+) -> Result<(), EditError> {
+    let resource_font_name =
+        crate::insert::standard_font_resource_name_in(document, resources, base_font);
     let font = resolve_font(
         document,
-        &crate::insert::inserted_font_dictionary(),
+        &crate::insert::standard_font_dictionary(base_font),
         &resource_font_name,
     )?;
     let codes = font.encode(after)?;
@@ -137,15 +224,20 @@ pub fn replace_text_run_with_inserted_font(
     );
 
     let mut working = document.clone();
-    let scope = own_scope(&mut working, page_object, &target.form_path, &stream)?;
+    let scope = own_scope(&mut working, page_object, &target.form_path, stream)?;
     // The name is the one already written into `replacement`, so the font is
     // registered under it rather than under whatever a second choice made
     // against the copy would have picked.
-    crate::insert::ensure_font_resource(&mut working, scope.owner, &resource_font_name)?;
+    crate::insert::ensure_standard_font_resource(
+        &mut working,
+        scope.owner,
+        &resource_font_name,
+        base_font,
+    )?;
     splice(
         &mut working,
         scope.stream_object,
-        &stream,
+        stream,
         target.operation_span.clone(),
         &replacement,
     )?;
@@ -211,7 +303,24 @@ pub fn text_run_bbox(
         Err(error) => return Err(error),
     };
 
-    let after = font.width_of(&font.encode(text)?);
+    // Measured the way `replace_text_run` will write it: a text the run's own
+    // encoding cannot show goes out in the WinAnsi copy of the same font.
+    let after = match font.encode(text) {
+        Ok(codes) => font.width_of(&codes),
+        Err(gap @ EditError::EncodingGap { .. }) => {
+            let Some(base_font) = standard_fallback(document, &resources, &run.resource_font_name)
+            else {
+                return Err(gap);
+            };
+            let fallback = resolve_font(
+                document,
+                &crate::insert::standard_font_dictionary(&base_font),
+                &run.resource_font_name,
+            )?;
+            fallback.width_of(&fallback.encode(text)?)
+        }
+        Err(error) => return Err(error),
+    };
     let before = font.width_of(&font.encode(&run.text)?);
     // A run that advances nothing gives no scale to work from — its box is
     // degenerate in the same way, so the size-from-height reading is the only
@@ -2058,6 +2167,163 @@ mod tests {
         let error = text_run_bbox(&document, page, &target, "日本語")
             .expect_err("Helvetica cannot encode this");
         assert!(matches!(error, EditError::EncodingGap { .. }));
+    }
+
+    // --- standard-14 re-encoding fallback --------------------------------
+
+    /// A standard-14 font declared with no `/Encoding`, the way many simple
+    /// generators write one — it reads as StandardEncoding, which has no
+    /// `ç`, no `ñ`, and no accented vowel at all.
+    fn bare_standard_font(base_font: &str) -> Dictionary {
+        dictionary! {
+            "Font" => dictionary! {
+                "F1" => dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => base_font,
+                },
+            },
+        }
+    }
+
+    fn page_font(document: &Document, page: ObjectId, name: &str) -> Dictionary {
+        match resource_entry(document, &resources_of(document, page), b"Font", name) {
+            Some(Object::Dictionary(font)) => font,
+            other => panic!("no font /{name} on the page: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_character_the_bare_encoding_lacks_is_written_in_a_winansi_copy_of_the_same_font() {
+        let (mut document, page) =
+            fixture::document_with_content(HELLO, bare_standard_font("Helvetica"));
+        let target = run(&document, 0);
+
+        replace_text_run(&mut document, page, &target, "Façade")
+            .expect("WinAnsi has a ç, so the same font can show it");
+
+        let content = content_of(&document);
+        assert_eq!(content.text_runs.len(), 1);
+        assert_eq!(content.text_runs[0].text, "Façade");
+        assert_eq!(content.text_runs[0].bbox.x, target.bbox.x);
+        assert_eq!(content.text_runs[0].bbox.y, target.bbox.y);
+
+        let substitute = &content.text_runs[0].resource_font_name;
+        assert_ne!(substitute, "F1");
+        let font = page_font(&document, page, substitute);
+        assert_eq!(
+            crate::encoding::resolved_name(&document, &font, b"BaseFont").as_deref(),
+            Some("Helvetica"),
+            "the typeface must not change"
+        );
+        assert_eq!(
+            crate::encoding::resolved_name(&document, &font, b"Encoding").as_deref(),
+            Some("WinAnsiEncoding")
+        );
+        assert!(
+            String::from_utf8_lossy(&stream_bytes(&document))
+                .ends_with(&format!("/{substitute} 12 Tf (Fa\\347ade) Tj /F1 12 Tf ET")),
+            "the run's own font must be restored right after it: {:?}",
+            String::from_utf8_lossy(&stream_bytes(&document))
+        );
+    }
+
+    #[test]
+    fn a_text_the_bare_encoding_can_show_keeps_the_run_in_its_own_font() {
+        let (mut document, page) =
+            fixture::document_with_content(HELLO, bare_standard_font("Helvetica"));
+        let target = run(&document, 0);
+
+        replace_text_run(&mut document, page, &target, "World").expect("plain ASCII");
+
+        assert_eq!(
+            stream_bytes(&document),
+            b"BT /F1 12 Tf 100 700 Td (World) Tj ET",
+            "no substitute font for a text that never needed one"
+        );
+    }
+
+    #[test]
+    fn the_copy_is_of_the_runs_own_typeface_not_the_inserted_one() {
+        let (mut document, page) =
+            fixture::document_with_content(HELLO, bare_standard_font("Times-Roman"));
+        let target = run(&document, 0);
+
+        replace_text_run(&mut document, page, &target, "Français").expect("WinAnsi");
+
+        let substitute = content_of(&document).text_runs[0]
+            .resource_font_name
+            .clone();
+        let font = page_font(&document, page, &substitute);
+        assert_eq!(
+            crate::encoding::resolved_name(&document, &font, b"BaseFont").as_deref(),
+            Some("Times-Roman")
+        );
+    }
+
+    #[test]
+    fn a_character_winansi_lacks_too_is_refused_against_the_runs_own_font() {
+        let (mut document, page) =
+            fixture::document_with_content(HELLO, bare_standard_font("Helvetica"));
+        let target = run(&document, 0);
+        let before = document.clone();
+
+        let error = replace_text_run(&mut document, page, &target, "ç日")
+            .expect_err("no encoding of Helvetica has 日");
+
+        assert!(
+            matches!(
+                &error,
+                EditError::EncodingGap { character: '日', resource_font_name } if resource_font_name == "F1"
+            ),
+            "the blocking character, named against the font the user sees: {error:?}"
+        );
+        assert_eq!(
+            document.objects, before.objects,
+            "nothing may have been written"
+        );
+    }
+
+    #[test]
+    fn fonts_without_a_safe_winansi_copy_still_refuse() {
+        let embedded = dictionary! {
+            "Font" => dictionary! {
+                "F1" => dictionary! {
+                    "Type" => "Font",
+                    "Subtype" => "Type1",
+                    "BaseFont" => "ABCDEF+Helvetica",
+                },
+            },
+        };
+        for resources in [bare_standard_font("Symbol"), embedded] {
+            let (mut document, page) = fixture::document_with_content(HELLO, resources);
+            let target = run(&document, 0);
+            let before = stream_bytes(&document);
+
+            let error = replace_text_run(&mut document, page, &target, "ç")
+                .expect_err("no WinAnsi copy of this font can be trusted to paint a ç");
+
+            assert!(matches!(
+                error,
+                EditError::EncodingGap {
+                    character: 'ç', ..
+                }
+            ));
+            assert_eq!(stream_bytes(&document), before);
+        }
+    }
+
+    #[test]
+    fn the_predicted_box_for_a_fallback_text_is_measured_not_refused() {
+        let (document, page) =
+            fixture::document_with_content(HELLO, bare_standard_font("Helvetica"));
+        let target = run(&document, 0);
+
+        let predicted = text_run_bbox(&document, page, &target, "Hello ç")
+            .expect("the replacement would succeed, so the box must too");
+
+        assert!(predicted.width > target.bbox.width);
+        assert_eq!(predicted.x, target.bbox.x);
     }
 
     // --- remove_text_run --------------------------------------------------

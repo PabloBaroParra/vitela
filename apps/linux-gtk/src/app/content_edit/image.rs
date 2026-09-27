@@ -103,6 +103,9 @@ pub(crate) fn begin_image_drag(
     // press time, before any focus-out on the editor's `Entry` is guaranteed
     // to have run.
     editor::commit(viewer);
+    if editor::keep_refused_editor(viewer) {
+        return false;
+    }
 
     let mut state = viewer.state.borrow_mut();
     let Some(session) = state.session.as_mut() else {

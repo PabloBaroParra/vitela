@@ -153,6 +153,30 @@ fn apply_standard_14_widths(
     widths
 }
 
+/// The base font of a standard-14 **text** font that can be drawn again under
+/// WinAnsiEncoding, or `None` for any other font.
+///
+/// Such a font carries no program of its own — every viewer supplies the
+/// glyphs — so a copy of it naming `/WinAnsiEncoding` paints the same
+/// typeface with the whole Latin-1 set within reach. That is what lets a
+/// replacement show a `ç` in a Helvetica the file declared with no
+/// `/Encoding` (StandardEncoding, which has none). Symbol and ZapfDingbats
+/// are excluded: their built-in encodings are the only ones their glyphs
+/// have names in, so WinAnsi would paint nothing sensible. An embedded font
+/// is excluded because its program may not contain the glyph at all.
+pub(crate) fn winansi_capable_standard_font(
+    document: &Document,
+    font_dict: &Dictionary,
+) -> Option<String> {
+    if font_kind(document, font_dict) != FontKind::Standard14
+        || resolved_name(document, font_dict, b"Subtype").as_deref() != Some("Type1")
+    {
+        return None;
+    }
+    let base_font = resolved_name(document, font_dict, b"BaseFont")?;
+    (base_font != "Symbol" && base_font != "ZapfDingbats").then_some(base_font)
+}
+
 fn font_kind(document: &Document, font_dict: &Dictionary) -> FontKind {
     if resolved_name(document, font_dict, b"Subtype").as_deref() == Some("Type0") {
         return FontKind::EmbeddedComposite;
