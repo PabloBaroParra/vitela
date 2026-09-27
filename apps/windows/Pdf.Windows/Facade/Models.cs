@@ -152,6 +152,17 @@ public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation>
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer);
 public sealed record SavedDocument(byte[] Bytes, ulong EditRevision);
 
+/// <summary>How hard a compression tries. Three, not a slider — see <c>pdf_ffi::compress</c>.</summary>
+public enum CompressionPreset { Lossless, Balanced, Small }
+
+/// <summary>
+/// What a compression produced. <see cref="BeforeBytes"/> is the size of an
+/// uncompressed save of the session, not of the file on disk.
+/// <see cref="Reduced"/> is <c>false</c> when the core handed the save's own
+/// bytes back because nothing smaller came out — a success, not a failure.
+/// </summary>
+public sealed record CompressionResult(byte[] Bytes, ulong BeforeBytes, ulong AfterBytes, ulong SavedBytes, bool Reduced, IReadOnlyList<string> Refusals);
+
 /// <summary>
 /// A failure the UI can show verbatim: <see cref="Message"/> never leaks
 /// diagnostics, and <see cref="CorrelationId"/> ties it back to the log.

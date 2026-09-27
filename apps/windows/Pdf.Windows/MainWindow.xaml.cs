@@ -719,6 +719,7 @@ public sealed partial class MainWindow : Window
         UpdateAnnotationControls(null);
         ApplyMetadataButton.IsEnabled = false;
         ProtectButton.IsEnabled = false;
+        CompressButton.IsEnabled = false;
     }
 
     /// <summary>
@@ -736,6 +737,9 @@ public sealed partial class MainWindow : Window
     {
         SaveButton.IsEnabled = !_isBusy && _session is not null;
         ProtectButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
+        // No permission gate of its own: compressing edits no content, and the
+        // one document it cannot handle is refused by the core with a reason.
+        CompressButton.IsEnabled = !_isBusy && _session is not null;
         ApplyMetadataButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
     }
 }

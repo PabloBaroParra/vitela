@@ -88,6 +88,13 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("protects with two distinct password roles", ProtectsWithTwoDistinctPasswordRolesAsync)
     ,("reopens protected bytes with both password roles", ReopensProtectedBytesWithBothPasswordRolesAsync)
     ,("refuses protection when content changes are forbidden", RefusesForbiddenProtectionAsync)
+    ,("compresses with the chosen preset and reports both sizes", CompressesWithTheChosenPresetAsync)
+    ,("refuses to silently break a signature when compressing", RefusesToSilentlyBreakASignatureWhenCompressingAsync)
+    ,("compresses a signed document once acknowledged", CompressesASignedDocumentOnceAcknowledgedAsync)
+    ,("reports why a document cannot be compressed", ReportsWhyADocumentCannotBeCompressedAsync)
+    ,("sizes compression results in powers of ten", SizesCompressionResultsInPowersOfTen)
+    ,("reports a compression's saving without rounding it up", ReportsACompressionSavingWithoutRoundingUp)
+    ,("says a compression with nothing to gain wrote nothing", SaysANoGainCompressionWroteNothing)
     ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
     ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
     ,("reads a page's editable text runs", ReadsPageContentForEditingAsync)
@@ -1281,6 +1288,94 @@ static async Task RefusesForbiddenProtectionAsync()
     Assert(core.LastProtectionPasswords is null, "a refused request must not reach the core");
 }
 
+static async Task CompressesWithTheChosenPresetAsync()
+{
+    var core = new FakeCore { CompressionOutput = new PdfCoreCompressedSave([7], 2_400_000, 840_000, 1_560_000, true, []) };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.CompressAsync(session.SessionId, CompressionPreset.Small);
+
+    Assert(result.IsSuccess, "an unsigned document must compress");
+    Assert(core.LastCompressPreset == PdfCoreCompressPreset.Small, "the chosen preset must reach the core unchanged");
+    var compressed = result.Value!;
+    Assert(compressed.Bytes.SequenceEqual(new byte[] { 7 }), "the compressed bytes must be the core's");
+    Assert(compressed.BeforeBytes == 2_400_000 && compressed.AfterBytes == 840_000 && compressed.SavedBytes == 1_560_000, "both sizes must be the core's measurement, not re-derived");
+    Assert(compressed.Reduced, "the outcome must be carried, not guessed from the sizes");
+}
+
+static async Task RefusesToSilentlyBreakASignatureWhenCompressingAsync()
+{
+    var core = new FakeCore { SignedDocument = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var asked = await facade.CompressionWillInvalidateSignaturesAsync(session.SessionId);
+    var result = await facade.CompressAsync(session.SessionId, CompressionPreset.Balanced);
+
+    Assert(asked.IsSuccess && asked.Value, "the compression's own signature question must answer true for a signed file");
+    Assert(!result.IsSuccess, "an unacknowledged compression of a signed file must be refused");
+    Assert(core.LastCompressAcknowledgedSignatures == false, "the facade must not acknowledge on the reader's behalf");
+}
+
+static async Task CompressesASignedDocumentOnceAcknowledgedAsync()
+{
+    var core = new FakeCore { SignedDocument = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var result = await facade.CompressAsync(session.SessionId, CompressionPreset.Lossless, signaturesAcknowledged: true);
+
+    Assert(result.IsSuccess, "an acknowledged compression must go through");
+    Assert(core.LastCompressAcknowledgedSignatures == true, "the acknowledgement must reach the core");
+}
+
+static async Task ReportsWhyADocumentCannotBeCompressedAsync()
+{
+    var core = new FakeCore { CompressionBlocker = "this document's password protection does not allow it to be rewritten, so it cannot be compressed" };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+
+    var refusal = await facade.CompressionRefusalAsync(session.SessionId);
+
+    Assert(refusal.IsSuccess, "asking the gate must not itself fail");
+    Assert(refusal.Value == "This document's password protection does not allow it to be rewritten, so it cannot be compressed.",
+        $"the core's own sentence must reach the reader, capitalised and stopped, got '{refusal.Value}'");
+}
+
+static Task SizesCompressionResultsInPowersOfTen()
+{
+    Assert(CompressionWording.HumanSize(2_400_000) == "2.4 MB", "megabytes");
+    Assert(CompressionWording.HumanSize(840_000) == "840 kB", "kilobytes");
+    Assert(CompressionWording.HumanSize(1_000) == "1 kB", "kilobytes start at their own boundary");
+    Assert(CompressionWording.HumanSize(1_000_000) == "1.0 MB", "megabytes start at their own boundary");
+    Assert(CompressionWording.HumanSize(999) == "999 bytes", "bytes");
+    Assert(CompressionWording.HumanSize(1) == "1 byte", "singular");
+    Assert(CompressionWording.HumanSize(0) == "0 bytes", "zero");
+    return Task.CompletedTask;
+}
+
+static Task ReportsACompressionSavingWithoutRoundingUp()
+{
+    // 49.7% smaller must read 49%, a number the file actually reached.
+    var result = new CompressionResult([1], 1_000, 503, 497, true, []);
+    Assert(CompressionWording.PercentSmaller(result) == 49, "the percentage must truncate, not round");
+    Assert(CompressionWording.PercentSmaller(new CompressionResult([], 0, 0, 0, false, [])) == 0, "an empty save must not divide by zero");
+    var written = CompressionWording.WrittenSummary(result, @"C:\out\small.pdf");
+    Assert(written == @"Compressed PDF written to C:\out\small.pdf (1 kB → 503 bytes, 49% smaller).", written);
+    return Task.CompletedTask;
+}
+
+static Task SaysANoGainCompressionWroteNothing()
+{
+    var result = new CompressionResult([1], 2_400_000, 2_400_000, 0, false, ["a reason the core gave"]);
+    var summary = CompressionWording.NoGainSummary(result);
+    Assert(summary.StartsWith("Nothing to gain: this document compresses to the same 2.4 MB"), summary);
+    Assert(summary.Contains("no file was written"), summary);
+    Assert(summary.EndsWith(" Not everything could be done: a reason the core gave."), "a refusal must reach the reader rather than vanish: " + summary);
+    return Task.CompletedTask;
+}
+
 static async Task ReopensProtectedBytesWithBothPasswordRolesAsync()
 {
     var core = new FakeCore();
@@ -2159,6 +2254,26 @@ sealed class FakeCore : IPdfCore
             throw new PdfCoreException(PdfCoreError.SignaturesWouldBeInvalidated, "signed document");
         }
         return [2];
+    }
+
+    /// <summary>What the fake's compression gate answers; <c>null</c> lets it run.</summary>
+    public string? CompressionBlocker;
+    public PdfCoreCompressedSave CompressionOutput = new([3], 10, 10, 0, false, []);
+    public PdfCoreCompressPreset? LastCompressPreset;
+    public bool? LastCompressAcknowledgedSignatures;
+
+    public string? CompressionRefusal(IPdfCoreDocument document) => CompressionBlocker;
+    public bool CompressedSaveWillInvalidateSignatures(IPdfCoreDocument document) => SignedDocument;
+
+    public PdfCoreCompressedSave SaveCompressedToBytes(IPdfCoreDocument document, PdfCoreCompressPreset preset, bool signaturesAcknowledged)
+    {
+        LastCompressPreset = preset;
+        LastCompressAcknowledgedSignatures = signaturesAcknowledged;
+        if (SignedDocument && !signaturesAcknowledged)
+        {
+            throw new PdfCoreException(PdfCoreError.SignaturesWouldBeInvalidated, "signed document");
+        }
+        return CompressionOutput;
     }
 }
 

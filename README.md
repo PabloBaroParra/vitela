@@ -151,7 +151,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Save | ✅ | ✅ | — | — | — |
 | Protect with a password | ✅ | ✅ | — | — | — |
 | Export to images | ✅ | — | — | — | — |
-| Compress to a smaller PDF | ✅ | — | — | — | — |
+| Compress to a smaller PDF | ✅ | ✅ | — | — | — |
 | Sign | ✅ | — | — | — | — |
 | Fillable forms | ✅ | — | — | — | — |
 

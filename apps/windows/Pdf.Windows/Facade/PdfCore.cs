@@ -156,7 +156,52 @@ internal interface IPdfCore
     byte[] SaveToBytes(IPdfCoreDocument document, bool signaturesAcknowledged);
 
     byte[] ProtectToBytes(IPdfCoreDocument document, string openPassword, string permissionsPassword, bool signaturesAcknowledged);
+
+    /// <summary>
+    /// Why <paramref name="document"/> cannot be compressed at all, in the
+    /// core's own words, or <c>null</c> when it can.
+    /// </summary>
+    /// <remarks>
+    /// Cheap — it reads the document's protection and saves nothing — so the
+    /// shell asks it before offering a preset rather than running a
+    /// compression that was never going to do anything.
+    /// </remarks>
+    string? CompressionRefusal(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Whether compressing <paramref name="document"/> breaks a signature it
+    /// already carries.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="WillInvalidateSignatures"/>: a compressed
+    /// save is a full rewrite even with nothing edited, so a signed, unedited
+    /// file answers <c>true</c> here and <c>false</c> there.
+    /// </remarks>
+    bool CompressedSaveWillInvalidateSignatures(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Saves <paramref name="document"/> and compresses the result as far as
+    /// <paramref name="preset"/> allows. Not an edit: no undo step, and the
+    /// pending edits are left exactly as they were.
+    /// </summary>
+    PdfCoreCompressedSave SaveCompressedToBytes(IPdfCoreDocument document, PdfCoreCompressPreset preset, bool signaturesAcknowledged);
 }
+
+/// <summary>Mirrors <c>FfiCompressPreset</c>; the numbers behind each stay in the core.</summary>
+internal enum PdfCoreCompressPreset { Lossless, Balanced, Small }
+
+/// <summary>
+/// A compressed save: the bytes and what was done to them, as one value so
+/// the bytes never travel without the report. <see cref="Refusals"/> are the
+/// core's own sentences.
+/// </summary>
+internal sealed record PdfCoreCompressedSave(
+    byte[] Bytes,
+    ulong BeforeBytes,
+    ulong AfterBytes,
+    ulong SavedBytes,
+    bool Reduced,
+    IReadOnlyList<string> Refusals);
 
 /// <summary>
 /// One page's characters, flattened for repeated caret/selection queries by

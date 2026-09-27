@@ -775,6 +775,121 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+    /// <summary>
+    /// Why this session cannot be compressed, as a sentence the reader can be
+    /// shown, or <c>null</c> when it can. There is no "compress anyway" for
+    /// this gate: a document whose protection survives the save comes out
+    /// encrypted, and encrypted bytes cannot be repacked.
+    /// </summary>
+    public async Task<OperationResult<string?>> CompressionRefusalAsync(string sessionId)
+    {
+        SessionEntry session;
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out session))
+            {
+                return OperationResult<string?>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "compress_refusal", sessionId, null));
+            }
+        }
+
+        try
+        {
+            var refusal = await Task.Run(() => _core.CompressionRefusal(session.Document)).ConfigureAwait(false);
+            return OperationResult<string?>.Success(refusal is null ? null : Sentence(refusal));
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<string?>.Failure(MapError(error, "compress_refusal", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<string?>.Failure(MapUnexpected(error, "compress_refusal", sessionId, null));
+        }
+    }
+
+    /// <summary>
+    /// The compression's own signature question — not
+    /// <see cref="WillInvalidateSignaturesAsync"/>, which asks about a
+    /// different save and answers <c>false</c> for a signed, unedited file.
+    /// </summary>
+    public async Task<OperationResult<bool>> CompressionWillInvalidateSignaturesAsync(string sessionId)
+    {
+        SessionEntry session;
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out session))
+            {
+                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "compress_signatures", sessionId, null));
+            }
+        }
+
+        try
+        {
+            return OperationResult<bool>.Success(await Task.Run(() => _core.CompressedSaveWillInvalidateSignatures(session.Document)).ConfigureAwait(false));
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<bool>.Failure(MapError(error, "compress_signatures", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<bool>.Failure(MapUnexpected(error, "compress_signatures", sessionId, null));
+        }
+    }
+
+    /// <summary>
+    /// Compresses the session into bytes and hands them back with the report.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="SaveToDestinationAsync"/>, this takes no destination:
+    /// whether there is a file worth writing is only known once it has run,
+    /// so the caller reads <see cref="CompressionResult.Reduced"/> first. Nor
+    /// does it touch <c>SavedRevision</c> — a smaller copy elsewhere is not
+    /// this session saved, and its pending edits stay pending.
+    /// </remarks>
+    public async Task<OperationResult<CompressionResult>> CompressAsync(string sessionId, CompressionPreset preset, bool signaturesAcknowledged = false)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SessionEntry session;
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<CompressionResult>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "compress", sessionId, null));
+                }
+            }
+
+            var corePreset = preset switch
+            {
+                CompressionPreset.Lossless => PdfCoreCompressPreset.Lossless,
+                CompressionPreset.Balanced => PdfCoreCompressPreset.Balanced,
+                CompressionPreset.Small => PdfCoreCompressPreset.Small,
+                _ => throw new ArgumentOutOfRangeException(nameof(preset)),
+            };
+            var saved = await Task.Run(() => _core.SaveCompressedToBytes(session.Document, corePreset, signaturesAcknowledged)).ConfigureAwait(false);
+            return OperationResult<CompressionResult>.Success(new CompressionResult(
+                saved.Bytes, saved.BeforeBytes, saved.AfterBytes, saved.SavedBytes, saved.Reduced, saved.Refusals));
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<CompressionResult>.Failure(MapError(error, "compress", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<CompressionResult>.Failure(MapUnexpected(error, "compress", sessionId, null));
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    /// <summary>The core's lower-case clause, capitalised and stopped.</summary>
+    private static string Sentence(string clause) =>
+        clause.Length == 0 ? clause : char.ToUpperInvariant(clause[0]) + clause[1..] + ".";
+
     public async Task<OperationResult<DocumentSession>> ReopenProtectedAsync(
         string sessionId,
         string displayName,
