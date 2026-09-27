@@ -23,5 +23,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\PdfFontMatch.cs" Link="Viewer\PdfFontMatch.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentEditPump.cs" Link="Viewer\ContentEditPump.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\CompressionWording.cs" Link="Viewer\CompressionWording.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\FormFieldChoices.cs" Link="Viewer\FormFieldChoices.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\FormFieldText.cs" Link="Viewer\FormFieldText.cs" />
   </ItemGroup>
 </Project>

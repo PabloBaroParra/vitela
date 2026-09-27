@@ -150,6 +150,42 @@ public sealed record AnnotationPoint(double X, double Y);
 public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points);
 public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo);
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer);
+
+/// <summary>
+/// What a form field can hold. Mirrors the core's four fillable kinds;
+/// pushbuttons, listboxes and signature fields never reach a shell.
+/// </summary>
+public abstract record FormFieldKind
+{
+    /// <summary><paramref name="MaxLength"/> is the field's <c>/MaxLen</c>, when it has one.</summary>
+    public sealed record Text(bool Multiline, uint? MaxLength) : FormFieldKind;
+    public sealed record Checkbox : FormFieldKind;
+    /// <summary>The export value of each button, in the order the file lists them.</summary>
+    public sealed record RadioGroup(IReadOnlyList<string> Options) : FormFieldKind;
+    /// <summary>An editable dropdown also accepts text that is not one of its options.</summary>
+    public sealed record Dropdown(IReadOnlyList<string> Options, bool Editable) : FormFieldKind;
+}
+
+/// <summary>
+/// What a field holds right now. Which variant fits is the field's
+/// <see cref="FormFieldKind"/>'s call, and the core checks it before recording.
+/// </summary>
+public abstract record FormFieldValue
+{
+    public sealed record Text(string Value) : FormFieldValue;
+    public sealed record Checked(bool Value) : FormFieldValue;
+    /// <summary><c>null</c> is nothing chosen — no radio on, no dropdown value.</summary>
+    public sealed record Choice(string? Option) : FormFieldValue;
+}
+
+public sealed record FormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value);
+
+/// <summary>
+/// The fill panel's snapshot. <paramref name="FillAllowed"/> is the document's
+/// own answer to "may a reader fill this form in" — narrower than content
+/// editing, and never derived from it.
+/// </summary>
+public sealed record FormFieldState(string SessionId, IReadOnlyList<FormField> Fields, bool FillAllowed);
 public sealed record SavedDocument(byte[] Bytes, ulong EditRevision);
 
 /// <summary>How hard a compression tries. Three, not a slider — see <c>pdf_ffi::compress</c>.</summary>

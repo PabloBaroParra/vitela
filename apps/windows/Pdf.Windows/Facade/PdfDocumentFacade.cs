@@ -365,6 +365,90 @@ public sealed class PdfDocumentFacade : IDisposable
     private static DocumentInfo ToDocumentInfo(PdfCoreDocumentInfo info) =>
         new(info.Title, info.Author, info.Subject, info.Keywords, info.Creator, info.Producer);
 
+    public Task<OperationResult<FormFieldState>> FormFieldsAsync(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(OperationResult<FormFieldState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "form_fields", sessionId, null)));
+            }
+
+            return Task.FromResult(OperationResult<FormFieldState>.Success(new FormFieldState(
+                session.Id,
+                [.. _core.ListFormFields(session.Document).Select(field => new FormField(field.Id, field.PageIndex, field.Name, field.Kind, field.Value))],
+                _core.AnnotationEditingAllowed(session.Document))));
+        }
+    }
+
+    /// <summary>
+    /// Fills <paramref name="fieldId"/> in with <paramref name="value"/>, then
+    /// rebuilds the preview so the page shows it.
+    /// </summary>
+    /// <remarks>
+    /// Gated on the annotation permission, not content editing: ISO 32000-1
+    /// table 22 bit 6 grants filling an existing field on its own, and the
+    /// core's <c>apply_edit</c> draws the line in the same place. Reusing
+    /// <see cref="SessionEntry.ContentEditingAllowed"/> would lock forms a
+    /// document explicitly lets the reader fill.
+    ///
+    /// The refresh is what shows the value: pdfium paints a field from its
+    /// <c>/AP</c>, which the core regenerates in the preview snapshot. The
+    /// shell draws no overlay of its own, so there is nothing to paint twice.
+    /// </remarks>
+    public async Task<OperationResult<AnnotationState>> SetFormFieldValueAsync(string sessionId, ulong fieldId, FormFieldValue value)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        SessionEntry session;
+        uint pageIndex;
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "form_fill", sessionId, null));
+                }
+
+                if (!_core.AnnotationEditingAllowed(session.Document))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit filling in its form.", PdfCoreError.UnsupportedOperation, "form_fill", sessionId, null));
+                }
+
+                try
+                {
+                    var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
+                    if (field is null)
+                    {
+                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, "form_fill", sessionId, null));
+                    }
+
+                    pageIndex = field.PageIndex;
+                    if (field.Value == value)
+                    {
+                        // Tabbing through a field without changing it must not
+                        // leave an undo step, or a rebuild, behind.
+                        return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                    }
+
+                    _core.ApplyEdit(session.Document, new PdfCoreEdit.SetFieldValue(fieldId, value));
+                    session.EditRevision++;
+                    session.HasRecordedPreviewEdit = true;
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, "form_fill", sessionId, null));
+                }
+            }
+
+            return await RefreshPreviewAsync(session, "form_fill", pageIndex).ConfigureAwait(false);
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
     internal async Task<OperationResult<AnnotationState>> EditAnnotationAsync(string sessionId, PdfCoreEdit edit)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
@@ -566,7 +650,7 @@ public sealed class PdfDocumentFacade : IDisposable
                 {
                     _core.ApplyEdit(session.Document, edit);
                     session.EditRevision++;
-                    session.HasRecordedContentEdit = true;
+                    session.HasRecordedPreviewEdit = true;
                 }
                 catch (PdfCoreException error)
                 {
@@ -960,7 +1044,7 @@ public sealed class PdfDocumentFacade : IDisposable
                     return OperationResult<AnnotationState>.Failure(MapError(error, operation, sessionId, null));
                 }
 
-                if (!session.HasRecordedContentEdit)
+                if (!session.HasRecordedPreviewEdit)
                 {
                     // Annotation-only history: the shell redraws its own
                     // overlays and the bitmap underneath never changed.
@@ -1312,7 +1396,7 @@ public sealed class PdfDocumentFacade : IDisposable
             // act on it (save a copy elsewhere, or keep the signed original),
             // and "could not be processed" would read like a bug in Vitela.
             PdfCoreError.SignaturesWouldBeInvalidated => "Saving would break this document's digital signature, so it was not saved.",
-            PdfCoreError.PageIndexOutOfBounds or PdfCoreError.AnnotationNotFound or PdfCoreError.BitmapNotFound => "The document changed. Please try again.",
+            PdfCoreError.PageIndexOutOfBounds or PdfCoreError.AnnotationNotFound or PdfCoreError.FormFieldNotFound or PdfCoreError.BitmapNotFound => "The document changed. Please try again.",
             _ => "The document could not be processed."
         };
         return CreateError(message, error.Category, operation, sessionId, pageIndex);
@@ -1361,16 +1445,18 @@ public sealed class PdfDocumentFacade : IDisposable
         public bool ContentEditingAllowed { get; }
 
         /// <summary>
-        /// Whether this session has ever recorded a page-content edit, and so
-        /// owes the render side a refresh after an undo or redo.
+        /// Whether this session has ever recorded an edit the PDF itself paints
+        /// — retyped page text, or a filled-in form field, whose value pdfium
+        /// draws from the widget's appearance — and so owes the render side a
+        /// refresh after an undo or redo.
         ///
-        /// Latched on rather than recounted: undoing the last content edit is
+        /// Latched on rather than recounted: undoing the last such edit is
         /// exactly the moment the preview must be rebuilt to drop it, so an
         /// "are any pending right now" answer would skip the one refresh that
         /// matters most. Annotation-only sessions never set it and never pay
         /// for a refresh they would only have to undo.
         /// </summary>
-        public bool HasRecordedContentEdit { get; set; }
+        public bool HasRecordedPreviewEdit { get; set; }
 
         /// <summary>
         /// Whether replacing this document would throw away annotation work.

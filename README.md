@@ -153,7 +153,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Export to images | ✅ | — | — | — | — |
 | Compress to a smaller PDF | ✅ | ✅ | — | — | — |
 | Sign | ✅ | — | — | — | — |
-| Fillable forms | ✅ | — | — | — | — |
+| Fillable forms | ✅ | 🚧 | — | — | — |
 
 Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
 Actions provides development-only evidence: for macOS it builds the shell, runs
@@ -174,7 +174,9 @@ Windows no longer omits editing: its first vertical closed in B10 (password
 prompt, annotations with undo/redo, save, print, shortcuts), and retyping a
 text run on the page itself — the Linux shell's content-edit mode, reached
 through the FFI instead of a direct crate link — is now wired up as well. The
-image half of that mode is still Linux-only.
+image half of that mode is still Linux-only. Forms are half-way there: the fields a
+document already has can be filled in from a side panel, but placing new ones
+is still Linux-only.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the

@@ -127,6 +127,14 @@
                         <Button x:Name="ApplyMetadataButton" Content="Apply properties" Click="ApplyMetadataButton_Click" />
                     </StackPanel>
                 </Expander>
+                <Expander x:Name="FormFieldsPanel" Header="Form fields" IsExpanded="False">
+                    <StackPanel Spacing="6" Padding="0,8,0,8">
+                        <TextBlock x:Name="FormFieldsStatus" TextWrapping="Wrap" />
+                        <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="FormFieldRows" Spacing="10" />
+                        </ScrollViewer>
+                    </StackPanel>
+                </Expander>
                 <TextBlock x:Name="SearchStatus" TextWrapping="Wrap" />
                 <ListView x:Name="SearchResultsList" SelectionChanged="SearchResultsList_SelectionChanged" />
             </StackPanel>
