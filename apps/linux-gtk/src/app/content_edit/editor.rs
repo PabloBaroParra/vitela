@@ -71,6 +71,9 @@ const INSERT_TEXT_HEIGHT_PT: f64 = 14.0;
 /// command being appended.
 pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
     commit(viewer);
+    if keep_refused_editor(viewer) {
+        return;
+    }
 
     if run.font_kind == FontKind::EmbeddedComposite {
         viewer.status.set_text(
@@ -186,6 +189,9 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
 /// colliding name would be a silent miscoding bug, not just a cosmetic one.
 pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
     commit(viewer);
+    if keep_refused_editor(viewer) {
+        return;
+    }
 
     let entry = {
         let mut state = viewer.state.borrow_mut();
@@ -299,6 +305,32 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
 /// This predates any of the rotation work and was simply never visible: with
 /// the default fit there is no horizontal scroll to lose. A page turned to
 /// landscape is the first thing that gives the canvas somewhere to jump from.
+/// Whether an editor is still open after [`commit`] — its text was refused
+/// (a character the run's font cannot encode, say) — in which case the box
+/// takes the cursor back and the caller must not start anything new.
+///
+/// Every caller that commits and then claims a click asks this. Opening a
+/// second editor over the refused one replaced `content_editor` while the
+/// first box stayed on the page with its focus-out handler still wired: the
+/// focus moving into the new box fired `commit` against the *new* editor,
+/// which tore it down mid-focus-change and sent GTK into an endless stream
+/// of `gtk_widget_get_parent` criticals until the process died. The refusal
+/// is already on the status line; the user fixes the text or presses Escape.
+pub(crate) fn keep_refused_editor(viewer: &Viewer) -> bool {
+    let entry = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .map(|editor| editor.entry.clone());
+    let Some(entry) = entry else {
+        return false;
+    };
+    focus_without_scrolling(&viewer.scroll, &entry);
+    true
+}
+
 fn focus_without_scrolling(scroll: &ScrolledWindow, entry: &Entry) {
     let (horizontal, vertical) = (scroll.hadjustment(), scroll.vadjustment());
     let (left, top) = (horizontal.value(), vertical.value());
@@ -1374,5 +1406,112 @@ mod tests {
 
             window.destroy();
         }
+    }
+
+    /// Clicking another run while the open box holds text its font refused
+    /// must keep that box, not stack a second editor over it.
+    ///
+    /// The reported crash: type a character the run's font cannot show (it
+    /// was a `ç` in a bare Helvetica, before `pdf_edit` learned to re-encode
+    /// one — `ő` has no code in any encoding Helvetica can take), press Enter
+    /// — refused, box stays — then click the next line. `open_editor` replaced `content_editor` with the orphaned first
+    /// box still wired, its focus-out closed the new one mid-focus-change,
+    /// and GTK looped on criticals until the process was killed. Built over a
+    /// real parsed page and a real slot rather than pdfium, which the GTK gate
+    /// does not have: none of this needs a raster.
+    #[gtk::test]
+    fn gtk_ui_a_refused_retype_keeps_its_box_when_another_run_is_clicked() {
+        use crate::app::state::{PageSlot, PageState, SaveBacking};
+        use crate::app::test_fixtures::model_session;
+        use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
+
+        let built = crate::app::ui_tests::built_ui();
+        built.viewer.view_stack.set_visible_child_name("editor");
+        built.window.present();
+
+        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        let runs = pdf_edit::read_page_content(&base, PageId(0))
+            .expect("the fixture page parses")
+            .text_runs;
+        let mut session = model_session(Document::with_pages(vec![Page::base(
+            PageId(0),
+            0,
+            PageSize::A4,
+            Orientation::Portrait,
+            Rotation::None,
+        )]));
+        session.save_backing = Some(SaveBacking {
+            base: pdf_manip::LopdfDocument::from_lopdf(base),
+            original_bytes: Vec::new(),
+            password: None,
+        });
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&Picture::new()));
+        built.viewer.pages.append(&overlay);
+        session.pages.push(PageSlot {
+            overlay: overlay.clone(),
+            picture: Picture::new(),
+            highlights: gtk::DrawingArea::new(),
+            characters: None,
+            characters_requested: false,
+            content: None,
+            width_pt: 595.0,
+            height_pt: 842.0,
+            rotation: PageRotation::None,
+            state: PageState::Idle,
+            target_dpi: 72,
+            budget: crate::app::layout::TileBudget {
+                factor: 1.0,
+                base_dpi: 72,
+            },
+            tiles: Default::default(),
+            tile_dpi: 0,
+            tile_generation: 0,
+            tile_failed_dpi: 0,
+        });
+        session.page_heights.push(842);
+        built.viewer.state.borrow_mut().session = Some(session);
+        pump();
+
+        let open_entry = |viewer: &Viewer| {
+            viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|session| session.content_editor.as_ref())
+                .map(|editor| (editor.run.text.clone(), editor.entry.clone()))
+        };
+
+        open_editor(&built.viewer, 0, runs[0].clone());
+        let (_, entry) = open_entry(&built.viewer).expect("the first click opens a box");
+        entry.set_text("Kőszeg");
+        entry.emit_activate();
+        // Read before the loop runs: with no pdfium in the gate, a queued
+        // render reports its own failure on the same status line.
+        assert!(
+            built.viewer.status.text().contains("cannot represent"),
+            "the fixture's font has to refuse the ő, or this test proves nothing: {:?}",
+            built.viewer.status.text()
+        );
+
+        open_editor(&built.viewer, 0, runs[1].clone());
+        pump();
+
+        let (run_text, still_open) =
+            open_entry(&built.viewer).expect("the refused box must stay open");
+        assert_eq!(run_text, runs[0].text, "a second editor was opened over it");
+        assert_eq!(still_open, entry);
+        assert_eq!(entry.text(), "Kőszeg", "the user's text must survive");
+        let mut frames = 0;
+        let mut child = overlay.first_child();
+        while let Some(widget) = child {
+            frames += usize::from(widget.is::<Fixed>());
+            child = widget.next_sibling();
+        }
+        assert_eq!(frames, 1, "exactly one editor box on the page");
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
     }
 }
