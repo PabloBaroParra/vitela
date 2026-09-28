@@ -365,7 +365,7 @@ pub(super) fn amended_command(
 /// re-resolves its target by text, font and box against that progressively
 /// edited state — so a move recorded *after* a replacement would have to
 /// carry the box the replaced text ended up occupying, and the shell can
-/// only estimate that box ([`super::model::pending_text_bbox`]), never read
+/// only estimate that box ([`pdf_edit::pending_text_bbox`]), never read
 /// it back. An estimate half a point out resolves against nothing and fails
 /// the entire save.
 ///

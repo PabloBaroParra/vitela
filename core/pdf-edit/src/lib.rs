@@ -14,6 +14,9 @@
 //!   it did not target untouched.
 //! - [`insert`] (T-155): appends genuinely new text or images as page
 //!   content, registering the resources they need.
+//! - [`pending`]: a page's content as the reader sees it — the parse with
+//!   every page-content edit still pending in the `EditLog` layered on top,
+//!   so a shell hit-tests what the refreshed preview paints.
 //! - [`error`]: `EditError`, the shared error type across this crate.
 //!
 //! This crate is deliberately isolated from the rest of the core (the same
@@ -43,18 +46,22 @@ pub mod encoding;
 pub mod error;
 pub mod insert;
 pub mod parse;
+pub mod pending;
 
 #[cfg(test)]
 mod fixture;
 
 pub use edit::{
-    image_source_bytes, move_image, move_text_run, remove_image, remove_text_run,
-    replace_image_source, replace_text_run, replace_text_run_with_inserted_font, resize_image,
-    text_run_bbox,
+    image_source_bytes, inserted_font_text_bbox, move_image, move_text_run, remove_image,
+    remove_text_run, replace_image_source, replace_text_run, replace_text_run_with_inserted_font,
+    resize_image, text_run_bbox,
 };
 pub use error::EditError;
 pub use insert::{insert_image, insert_text_run};
 pub use parse::{
     page_font_families, page_image_placements, page_object_font_families, page_object_id,
     read_page_content, read_page_object_content, ImagePlacement,
+};
+pub use pending::{
+    overlay_pending_content, pending_log_index, pending_text_bbox, PENDING_ITEM_ID_BASE,
 };

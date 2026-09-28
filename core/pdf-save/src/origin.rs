@@ -122,6 +122,40 @@ pub fn read_page_content_of(
     }
 }
 
+/// [`read_page_content_of`] as the reader sees the page: the parse, with every
+/// page-content edit still pending in `document`'s `EditLog` layered on top
+/// (`pdf_edit::overlay_pending_content`).
+///
+/// This is the read to hit-test with. The preview a shell draws already
+/// paints pending edits, so the parse alone describes a page nobody can see
+/// any more: a retyped run with its old text and its old box. Items that
+/// exist only because of a pending insertion carry a synthetic id
+/// (`pdf_edit::PENDING_ITEM_ID_BASE`); a retyped run keeps its real one.
+pub fn read_pending_page_content_of(
+    document: &Document,
+    page: PageId,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+) -> Result<PageContent, SaveError> {
+    match page_backing(document, page, base, sources)? {
+        PageBacking::Empty => Ok(PageContent::default()),
+        PageBacking::Object {
+            document: backing,
+            object,
+        } => {
+            let mut content = pdf_edit::read_page_object_content(backing.as_lopdf(), object, page)?;
+            pdf_edit::overlay_pending_content(
+                &mut content,
+                &document.pending_edits,
+                page,
+                backing.as_lopdf(),
+                object,
+            );
+            Ok(content)
+        }
+    }
+}
+
 /// The `/BaseFont` name of every font a page's resources declare, resolved
 /// through the page's origin — the [`crate::page_font_families`] an overlay
 /// should use once a session can hold imported pages.
