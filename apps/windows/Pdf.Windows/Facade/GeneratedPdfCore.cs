@@ -421,6 +421,8 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.AddTextField value => new FfiEditCommand.AddTextField(value.PageIndex, Rect(value.Rect),
             new FfiTextStyle(FfiFontFamily.Helvetica, 12, new FfiColor(0, 0, 0)), false, null),
+        PdfCoreEdit.AddCheckbox value => new FfiEditCommand.AddCheckbox(value.PageIndex, Rect(value.Rect),
+            new FfiTextStyle(FfiFontFamily.Helvetica, 12, new FfiColor(0, 0, 0))),
         PdfCoreEdit.InsertBlankPage value => new FfiEditCommand.InsertBlankPage(value.Index, new FfiPageSize.A4(), FfiOrientation.Portrait),
         PdfCoreEdit.RotatePage value => new FfiEditCommand.RotatePage(value.PageIndex, value.DeltaDegrees),
         PdfCoreEdit.RemovePage value => new FfiEditCommand.RemovePage(value.PageIndex),

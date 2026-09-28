@@ -365,6 +365,7 @@ internal abstract record PdfCoreEdit
     /// </summary>
     public sealed record SetFieldValue(ulong FieldId, FormFieldValue Value) : PdfCoreEdit;
     public sealed record AddTextField(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
+    public sealed record AddCheckbox(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
 
     /// <summary>
     /// Retypes an existing text run, keeping its font, size and position.

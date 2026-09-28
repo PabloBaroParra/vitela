@@ -47,7 +47,7 @@ public sealed partial class MainWindow
 
     private void ResetFormFieldState()
     {
-        StopPlacingTextField();
+        StopPlacingFormField();
         _filledFieldPages.Clear();
         _shownFieldValues.Clear();
         FormFieldRows.Children.Clear();
@@ -74,6 +74,7 @@ public sealed partial class MainWindow
     private void ShowFormFields(FormFieldState state)
     {
         PlaceTextFieldButton.IsEnabled = state.FillAllowed && _session?.ContentEditingAllowed == true;
+        PlaceCheckboxButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
         FormFieldRows.Children.Clear();
         _shownFieldValues.Clear();
         FormFieldsStatus.Text = state.Fields.Count == 0

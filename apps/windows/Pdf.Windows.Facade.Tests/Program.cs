@@ -139,6 +139,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("fills a form field and rebuilds the preview", FillsAFormFieldAsync)
     ,("places a text field and refreshes the form preview", PlacesATextFieldAsync)
     ,("requires both permissions to place a text field", RefusesForbiddenTextFieldPlacementAsync)
+    ,("places a checkbox and refreshes the form preview", PlacesACheckboxAsync)
+    ,("requires both permissions to place a checkbox", RefusesForbiddenCheckboxPlacementAsync)
     ,("does not record a fill that changes nothing", DoesNotRecordAnUnchangedFillAsync)
     ,("refuses a fill when the document forbids form filling", RefusesAForbiddenFillAsync)
     ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
@@ -2259,6 +2261,37 @@ static async Task RefusesForbiddenTextFieldPlacementAsync()
     }
 }
 
+static async Task PlacesACheckboxAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var rect = new PdfCoreRect(90, 400, 18, 18);
+
+    var result = await facade.AddCheckboxAsync(session.SessionId, 0, rect);
+
+    Assert(result.IsSuccess && result.Value!.CanUndo, "creation must be one undoable edit");
+    Assert(core.CheckboxEdits is [var field] && field.PageIndex == 0 && field.Rect == rect, "the checkbox geometry must reach the core");
+    Assert(core.FormFields is [{ Kind: FormFieldKind.Checkbox }] && core.RefreshPreviewCalls == 1, "the checkbox must appear in the form list and preview");
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undo must rebuild the preview after checkbox creation");
+}
+
+static async Task RefusesForbiddenCheckboxPlacementAsync()
+{
+    foreach (var forbidContent in new[] { false, true })
+    {
+        var core = new FakeCore { ContentEditingPermitted = !forbidContent };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+        if (!forbidContent) core.LastDocument!.EditingAllowed = false;
+
+        var result = await facade.AddCheckboxAsync(session.SessionId, 0, new PdfCoreRect(0, 0, 18, 18));
+        Assert(!result.IsSuccess && result.Error!.Message == "This document does not permit creating form fields.", "permission refusal must be explicit");
+        Assert(!core.LastDocument!.CanUndo && core.RefreshPreviewCalls == 0, "refused creation must not record an edit");
+    }
+}
+
 static async Task DoesNotRecordAnUnchangedFillAsync()
 {
     var core = new FakeCore { FormFields = SampleFormFields() };
@@ -2884,6 +2917,7 @@ sealed class FakeCore : IPdfCore
     /// <summary>The page edits the facade handed the core, newest last.</summary>
     public List<PdfCoreEdit> PageEdits { get; } = [];
     public List<PdfCoreEdit.AddTextField> TextFieldEdits { get; } = [];
+    public List<PdfCoreEdit.AddCheckbox> CheckboxEdits { get; } = [];
 
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
@@ -2952,6 +2986,16 @@ sealed class FakeCore : IPdfCore
                 throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form creation is not permitted");
             TextFieldEdits.Add(field);
             FormFields.Add(new PdfCoreFormField((ulong)FormFields.Count, field.PageIndex, "Text", new FormFieldKind.Text(false, null), new FormFieldValue.Text("")));
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.AddCheckbox checkbox)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form creation is not permitted");
+            CheckboxEdits.Add(checkbox);
+            FormFields.Add(new PdfCoreFormField((ulong)FormFields.Count, checkbox.PageIndex, "Checkbox", new FormFieldKind.Checkbox(), new FormFieldValue.Checked(false)));
             fake.Apply(edit);
             return;
         }

@@ -72,7 +72,7 @@ public sealed partial class MainWindow
         await SettleContentEditorForHistoryAsync();
         if (_session is null) return;
         ResetContentEditMode();
-        StopPlacingTextField();
+        StopPlacingFormField();
         _armedAnnotation = null;
         _selectedAnnotationId = null;
 

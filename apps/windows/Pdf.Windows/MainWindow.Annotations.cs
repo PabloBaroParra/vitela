@@ -157,7 +157,7 @@ public sealed partial class MainWindow
     private void Arm(AnnotationKind? kind)
     {
         if (_annotationState?.EditingAllowed != true) return;
-        StopPlacingTextField();
+        StopPlacingFormField();
         // One mode owns a page click at a time: arming a tool leaves content
         // editing, exactly as arming content editing disarms the tools.
         SetContentEditMode(false);
@@ -173,7 +173,7 @@ public sealed partial class MainWindow
         // not at the text underneath it. See `MainWindow.Selection.cs`.
         slot.Annotations.PointerPressed += (_, args) =>
         {
-            if (BeginTextFieldPlacement(pageIndex, args)) return;
+            if (BeginFormFieldPlacement(pageIndex, args)) return;
             // Content editing is asked first, and answers for the whole
             // gesture when armed: it is a mode, not a tool competing for the
             // same click. See `MainWindow.ContentEdit.cs`.
@@ -182,13 +182,13 @@ public sealed partial class MainWindow
         };
         slot.Annotations.PointerMoved += (_, args) =>
         {
-            if (_placingTextField) return;
+            if (_placingFormField is not null) return;
             if (_contentEditMode) return;
             if (!ContinueAnnotationPointer(slot, pageIndex, args)) ContinueTextSelection(slot, pageIndex, args);
         };
         slot.Annotations.PointerReleased += async (_, args) =>
         {
-            if (await EndTextFieldPlacementAsync(slot, pageIndex, args)) return;
+            if (await EndFormFieldPlacementAsync(slot, pageIndex, args)) return;
             if (_contentEditMode) return;
             if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
         };
