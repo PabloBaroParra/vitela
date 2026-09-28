@@ -65,6 +65,7 @@ mod extract;
 mod form;
 mod placement;
 mod selection;
+mod split;
 mod types;
 
 pub use bitmap::BitmapHandle;
@@ -93,6 +94,7 @@ pub use placement::{
     place_point, place_rect, point_to_pdf, FfiPagePlacement, FfiPageRotation, FfiPlacedRect,
 };
 pub use selection::FfiPageCharacters;
+pub use split::{plan_split, FfiSplitPart};
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,
     FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiOrientation, FfiPageContent,

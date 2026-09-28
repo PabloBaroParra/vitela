@@ -18,7 +18,7 @@ use rand::{rngs::OsRng, RngCore};
 
 use pdf_ffi::{
     extract_pages_to_pdf, extract_source_is_signed, open_from_bytes,
-    open_with_passwords_from_bytes, FfiError,
+    open_with_passwords_from_bytes, plan_split, FfiError,
 };
 
 /// A `label_prefix` page N` document, unencrypted, saved to bytes.
@@ -104,6 +104,38 @@ fn extracting_two_pages_writes_a_two_page_pdf_in_document_order() {
 
     let labels = page_labels_in_order(&extracted);
     assert_eq!(labels, vec!["sample page 0", "sample page 3"]);
+}
+
+#[test]
+fn split_plan_and_extraction_write_every_page_to_exactly_one_part() {
+    let handle = open_from_bytes(multi_page_pdf(5, "split"), None).expect("fixture opens");
+    let parts =
+        plan_split("2,4".into(), handle.page_count(), "split.pdf".into()).expect("valid cuts");
+
+    let actual: Vec<_> = parts
+        .into_iter()
+        .map(|part| {
+            let bytes = extract_pages_to_pdf(&handle, (part.first..=part.last).collect())
+                .expect("part extraction succeeds");
+            (part.file_name, page_labels_in_order(&bytes))
+        })
+        .collect();
+
+    assert_eq!(
+        actual,
+        vec![
+            (
+                "split-part1.pdf".into(),
+                vec!["split page 0".into(), "split page 1".into()]
+            ),
+            (
+                "split-part2.pdf".into(),
+                vec!["split page 2".into(), "split page 3".into()]
+            ),
+            ("split-part3.pdf".into(), vec!["split page 4".into()]),
+        ]
+    );
+    assert_eq!(handle.page_count(), 5, "the source remains unchanged");
 }
 
 #[test]

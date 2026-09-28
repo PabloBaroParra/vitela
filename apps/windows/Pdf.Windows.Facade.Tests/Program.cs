@@ -119,6 +119,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refuses an extraction once the session is retired", RefusesAnExtractionAfterSessionSwapAsync)
     ,("summarises an extraction in the singular and plural", SummarisesAnExtraction)
     ,("adds a signature note only when the source is signed", AddsASignatureNoteOnlyWhenTheSourceIsSigned)
+    ,("plans split files with core boundaries and source signature", PlansSplitPartsAsync)
+    ,("refuses a split when copying or rewriting is forbidden", RefusesForbiddenSplitAsync)
+    ,("refuses a split once the session is retired", RefusesSplitAfterSessionSwapAsync)
     ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
     ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
     ,("reads a page's editable text runs", ReadsPageContentForEditingAsync)
@@ -1708,6 +1711,42 @@ static Task AddsASignatureNoteOnlyWhenTheSourceIsSigned()
     return Task.CompletedTask;
 }
 
+static async Task PlansSplitPartsAsync()
+{
+    var core = new FakeCore { PageCount = 10, ExtractedSourceSigned = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanSplitPagesAsync(session.SessionId, "3,7");
+
+    Assert(plan.IsSuccess && plan.Value!.SourceIsSigned, "signature must be reported");
+    Assert(core.LastSplitRequest == ("3,7", 10u, "report.pdf"), "core must receive the typed cuts and name");
+    Assert(plan.Value!.Parts.SequenceEqual([new SplitPart(0, 2, "report-part1.pdf"), new SplitPart(3, 9, "report-part2.pdf")]), "core part boundaries must remain intact");
+}
+
+static async Task RefusesForbiddenSplitAsync()
+{
+    foreach (var core in new[] { new FakeCore { PageCount = 3, ExtractionPermitted = false }, new FakeCore { PageCount = 3, RewriteAllowed = false } })
+    {
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+        var plan = await facade.PlanSplitPagesAsync(session.SessionId, "1");
+        Assert(!plan.IsSuccess && core.LastSplitRequest is null, "no forbidden document may reach split planning");
+    }
+}
+
+static async Task RefusesSplitAfterSessionSwapAsync()
+{
+    var core = new FakeCore { PageCount = 4 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var first = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+
+    var plan = await facade.PlanSplitPagesAsync(first.SessionId, "2");
+
+    Assert(!plan.IsSuccess && core.LastSplitRequest is null, "a retired session must not plan files");
+}
+
 static Task SizesCompressionResultsInPowersOfTen()
 {
     Assert(CompressionWording.HumanSize(2_400_000) == "2.4 MB", "megabytes");
@@ -3003,6 +3042,14 @@ sealed class FakeCore : IPdfCore
     }
 
     public bool ExtractSourceIsSigned(IPdfCoreDocument document) => ExtractedSourceSigned;
+
+    public (string Cuts, uint Total, string Name)? LastSplitRequest;
+
+    public IReadOnlyList<SplitPart> PlanSplit(string cuts, uint totalPages, string documentName)
+    {
+        LastSplitRequest = (cuts, totalPages, documentName);
+        return [new SplitPart(0, 2, "report-part1.pdf"), new SplitPart(3, totalPages - 1, "report-part2.pdf")];
+    }
 }
 
 /// <summary>

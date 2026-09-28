@@ -66,7 +66,7 @@ pub use content::{has_content_edits, replay_content_edits, validate_content_comm
 pub use error::SaveError;
 pub use export::{
     document_file_stem, export_page_as_image, page_image_file_name, parse_page_selection,
-    split_part_file_name, ExportFormat, PageSelectionError,
+    resolve_split_cuts, split_part_file_name, split_parts, ExportFormat, PageSelectionError,
 };
 pub use forms::{ensure_acroform, write_form_fields};
 pub use imported_sources::ImportedSourceRegistry;

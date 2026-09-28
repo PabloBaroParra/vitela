@@ -53,6 +53,7 @@
             <Button x:Name="CompressButton" Content="Compress" Click="CompressButton_Click" />
             <Button x:Name="ExportImagesButton" Content="Export images" Click="ExportImagesButton_Click" ToolTipService.ToolTip="Save pages as PNG or JPEG files" />
             <Button x:Name="ExtractPagesButton" Content="Extract pages" Click="ExtractPagesButton_Click" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
+            <Button x:Name="SplitPagesButton" Content="Split PDF" Click="SplitPagesButton_Click" ToolTipService.ToolTip="Cut the document into several PDFs" />
             <ToggleButton x:Name="OrganizeButton" Content="Organize" Click="OrganizeButton_Click" ToolTipService.ToolTip="Move, rotate or delete pages" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />

@@ -267,6 +267,9 @@ internal interface IPdfCore
     /// beyond the page count.
     /// </summary>
     bool ExtractSourceIsSigned(IPdfCoreDocument document);
+
+    /// <summary>Shared split boundaries and safe file names from the Rust core.</summary>
+    IReadOnlyList<SplitPart> PlanSplit(string cuts, uint totalPages, string documentName);
 }
 
 /// <summary>Mirrors <c>FfiExportFormat</c>.</summary>

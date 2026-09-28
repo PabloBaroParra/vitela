@@ -768,6 +768,7 @@ public sealed partial class MainWindow : Window
         CompressButton.IsEnabled = !_isBusy && _session is not null;
         ExportImagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
         ExtractPagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
+        SplitPagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 1 };
         // Permission is the core's call, and it explains a refusal itself:
         // an encrypted document may allow turning a page but not moving one.
         OrganizeButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };

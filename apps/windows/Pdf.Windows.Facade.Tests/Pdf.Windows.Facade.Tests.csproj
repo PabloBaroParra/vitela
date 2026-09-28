@@ -16,6 +16,8 @@
     <Compile Include="..\Pdf.Windows\Facade\ImageExport.cs" Link="Facade\ImageExport.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ExtractPages.cs" Link="Facade\PdfDocumentFacade.ExtractPages.cs" />
     <Compile Include="..\Pdf.Windows\Facade\ExtractPages.cs" Link="Facade\ExtractPages.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.SplitPages.cs" Link="Facade\PdfDocumentFacade.SplitPages.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\SplitPages.cs" Link="Facade\SplitPages.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ImageExportWording.cs" Link="Viewer\ImageExportWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ExtractPagesWording.cs" Link="Viewer\ExtractPagesWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageZoom.cs" Link="Viewer\PageZoom.cs" />

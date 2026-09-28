@@ -72,6 +72,14 @@ produce a new page set either. A signed source is written anyway (extraction
 never blocks on a signature the reader is not being asked to break), but the
 status line says its signature no longer verifies.
 
+**Split PDF** cuts after selected pages (for example `3,7` produces three
+PDFs). The cut grammar, boundaries and file names come from the same Rust core
+used by Linux; each part is extracted from the open document without changing
+it. Parts are written through temporary files into a chosen folder. Existing
+files are preserved with a unique suffix, and a failure reports how many parts
+were completed. A signed source produces parts with signatures that no longer
+verify.
+
 A "Form fields" panel fills in the AcroForm fields a document already has —
 text, checkboxes, radio groups and dropdowns — gated on the fill permission
 (ISO 32000-1 bit 6) rather than content editing. Each fill rebuilds the

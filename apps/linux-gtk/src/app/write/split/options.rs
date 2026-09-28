@@ -1,10 +1,10 @@
-//! What the Split dialog is asking, as rules rather than widgets.
+//! The Split dialog's rules, delegated to the shared core where possible.
 //!
 //! The same cut [`extract::options`](super::super::extract) and
 //! `export::options` make, for the same reason: everything a person can get
-//! wrong is decided here, before a folder is chosen and long before a byte is
-//! written, and none of it takes a widget. Each rule is a plain function of
-//! its arguments and each has a test that reaches it directly.
+//! wrong is decided before a folder is chosen and long before a byte is
+//! written, and none of it takes a widget. Cut positions and boundaries live
+//! in `pdf_save`, so the Windows shell sees the same answers over UniFFI.
 //!
 //! The number grammar itself — `"3,7"` — is not here. It is
 //! `pdf_save::parse_page_selection`, the same grammar Export and Extract ask
@@ -29,19 +29,7 @@ use std::path::Path;
 /// silently dropping the cut would split into fewer files than the user asked
 /// for and give no sign of having done so.
 pub(super) fn resolve_cuts(typed: &str, total_pages: u32) -> Result<Vec<u32>, String> {
-    if total_pages < 2 {
-        return Err("A document of one page cannot be split.".to_owned());
-    }
-    if typed.trim().is_empty() {
-        return Err("Type where to cut, for example 3 to split after page 3.".to_owned());
-    }
-    let cuts = pdf_save::parse_page_selection(typed, total_pages).map_err(|e| e.to_string())?;
-    if cuts.contains(&(total_pages - 1)) {
-        return Err(format!(
-            "There is nothing after page {total_pages}, so the document cannot be split there."
-        ));
-    }
-    Ok(cuts)
+    pdf_save::resolve_split_cuts(typed, total_pages)
 }
 
 /// The page range each written file covers, as **inclusive** zero-based
@@ -56,14 +44,7 @@ pub(super) fn resolve_cuts(typed: &str, total_pages: u32) -> Result<Vec<u32>, St
 /// `cuts` must be ascending and deduplicated, which `parse_page_selection`
 /// guarantees.
 pub(super) fn parts(cuts: &[u32], total_pages: u32) -> Vec<(u32, u32)> {
-    let mut parts = Vec::with_capacity(cuts.len() + 1);
-    let mut first = 0;
-    for &cut in cuts {
-        parts.push((first, cut));
-        first = cut + 1;
-    }
-    parts.push((first, total_pages - 1));
-    parts
+    pdf_save::split_parts(cuts, total_pages)
 }
 
 /// What the status line says once every part is on disk.
