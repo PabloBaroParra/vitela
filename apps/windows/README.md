@@ -49,10 +49,15 @@ passwords, warns before invalidating an existing signature, writes through a
 temporary destination, and reopens the protected bytes with the new open
 password.
 
-**Export PNGs** writes each page of the open document to a separate PNG at
-150 DPI in a chosen folder. Existing files are preserved: name collisions
-receive a unique suffix. Export stops at the first failed page and reports
-how many pages were written; the open document remains editable.
+**Export images** writes pages of the open document to separate PNG or JPEG
+files in a chosen folder: all pages, the current page, or a typed range such
+as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names
+and the oversized-page check are the core's (`pdf-ffi`'s `export` module), so
+this shell and the GTK one agree on all three. Every choice is checked while
+the dialog is still open, and a document whose permissions forbid extraction
+is refused there too. Existing files are preserved: name collisions receive a
+unique suffix. Export stops at the first failed page and reports how many
+were written; the open document remains editable.
 
 A "Form fields" panel fills in the AcroForm fields a document already has —
 text, checkboxes, radio groups and dropdowns — gated on the fill permission

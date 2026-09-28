@@ -1,6 +1,6 @@
 namespace Pdf.Windows.Facade;
 
-public sealed class PdfDocumentFacade : IDisposable
+public sealed partial class PdfDocumentFacade : IDisposable
 {
     private readonly IPdfCore _core;
     private readonly IDiagnosticLogger _diagnostics;
@@ -1488,6 +1488,10 @@ public sealed class PdfDocumentFacade : IDisposable
             PdfCoreError.EncodingGap => error.ReaderFacingDetail is { Length: > 0 } character
                 ? $"This text's font cannot show \"{character}\". Try different characters."
                 : "This text's font cannot show one of those characters.",
+            // The core's own sentence about the range the reader typed.
+            PdfCoreError.InvalidPageSelection => error.ReaderFacingDetail is { Length: > 0 } sentence
+                ? sentence
+                : "Those pages could not be read. Type them like 1-3,7.",
             PdfCoreError.InvalidSaveRequest => "The requested action could not be completed.",
             // Named rather than folded into the generic message: the user can
             // act on it (save a copy elsewhere, or keep the signed original),

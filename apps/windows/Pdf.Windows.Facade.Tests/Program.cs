@@ -97,6 +97,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("sizes compression results in powers of ten", SizesCompressionResultsInPowersOfTen)
     ,("reports a compression's saving without rounding it up", ReportsACompressionSavingWithoutRoundingUp)
     ,("says a compression with nothing to gain wrote nothing", SaysANoGainCompressionWroteNothing)
+    ,("plans an image export of every page under the core's file names", PlansAnImageExportOfEveryPageAsync)
+    ,("plans an image export of the current page only", PlansAnImageExportOfTheCurrentPageAsync)
+    ,("keeps a stale current page inside the document", KeepsAStaleCurrentPageInsideTheDocumentAsync)
+    ,("reads a custom page range with the core's grammar", ReadsACustomPageRangeWithTheCoresGrammarAsync)
+    ,("shows the core's own sentence for a bad page range", ShowsTheCoresSentenceForABadPageRangeAsync)
+    ,("refuses an image export the document forbids", RefusesAForbiddenImageExportAsync)
+    ,("refuses a resolution outside what the dialog offers", RefusesAResolutionOutsideTheDialogAsync)
+    ,("names a page too large to export before writing anything", NamesAnOversizedPageBeforeWritingAsync)
+    ,("exports a page's encoded bytes in the chosen format", ExportsAPagesEncodedBytesAsync)
+    ,("refuses a page image once the session is retired", RefusesAPageImageAfterSessionSwapAsync)
+    ,("summarises an image export in the singular and plural", SummarisesAnImageExport)
     ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
     ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
     ,("reads a page's editable text runs", ReadsPageContentForEditingAsync)
@@ -1407,6 +1418,150 @@ static async Task ReportsWhyADocumentCannotBeCompressedAsync()
         $"the core's own sentence must reach the reader, capitalised and stopped, got '{refusal.Value}'");
 }
 
+static ImageExportRequest ExportRequest(
+    ImageExportPages pages = ImageExportPages.All,
+    string customRange = "",
+    uint currentPage = 0,
+    uint dpi = ImageExportLimits.DefaultDpi,
+    ImageExportFormat format = ImageExportFormat.Png) => new(pages, customRange, currentPage, dpi, format);
+
+static async Task PlansAnImageExportOfEveryPageAsync()
+{
+    var core = new FakeCore { PageCount = 3 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest(format: ImageExportFormat.Jpeg));
+
+    Assert(plan.IsSuccess, "an ordinary export must plan");
+    Assert(plan.Value!.Files.Select(file => file.PageIndex).SequenceEqual([0u, 1u, 2u]), "All must cover every page, in order");
+    // The fake's name is shaped so no shell-side format string could produce
+    // it: the file names must come from the core.
+    Assert(plan.Value.Files[1].FileName == "report.pdf|1|3|Jpeg", $"the core must name the files, got '{plan.Value.Files[1].FileName}'");
+    Assert(plan.Value.Format == ImageExportFormat.Jpeg && plan.Value.Dpi == ImageExportLimits.DefaultDpi, "the plan carries what was chosen");
+}
+
+static async Task PlansAnImageExportOfTheCurrentPageAsync()
+{
+    var core = new FakeCore { PageCount = 3 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest(ImageExportPages.Current, currentPage: 1));
+
+    Assert(plan.Value!.Files.Select(file => file.PageIndex).SequenceEqual([1u]), "Current must export the page being viewed and nothing else");
+}
+
+/// <summary>
+/// A page removal can leave the viewer's page one past the end until it
+/// catches up; exporting the last page beats exporting nothing.
+/// </summary>
+static async Task KeepsAStaleCurrentPageInsideTheDocumentAsync()
+{
+    var core = new FakeCore { PageCount = 3 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest(ImageExportPages.Current, currentPage: 9));
+
+    Assert(plan.Value!.Files.Select(file => file.PageIndex).SequenceEqual([2u]), "a stale current page must land on the last page");
+}
+
+static async Task ReadsACustomPageRangeWithTheCoresGrammarAsync()
+{
+    var core = new FakeCore { PageCount = 10, ParsedSelection = [0, 2, 6] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest(ImageExportPages.Custom, "1,3,7"));
+
+    Assert(core.LastSelection == ("1,3,7", 10u), "the typed range and the page count must reach the core as they are");
+    Assert(plan.Value!.Files.Select(file => file.PageIndex).SequenceEqual([0u, 2u, 6u]), "the core's pages must be the ones exported");
+}
+
+static async Task ShowsTheCoresSentenceForABadPageRangeAsync()
+{
+    var core = new FakeCore { PageCount = 10, SelectionRefusal = "The range 7-3 runs backwards; write it as 3-7." };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest(ImageExportPages.Custom, "7-3"));
+
+    Assert(!plan.IsSuccess, "a range the core refused must not plan");
+    Assert(plan.Error!.Message == "The range 7-3 runs backwards; write it as 3-7.", $"the core's sentence must reach the reader unchanged, got '{plan.Error.Message}'");
+}
+
+static async Task RefusesAForbiddenImageExportAsync()
+{
+    var core = new FakeCore { PageCount = 2, ExtractionPermitted = false };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest());
+
+    Assert(!plan.IsSuccess, "a document that withholds extraction must not plan an export");
+    Assert(plan.Error!.Message == "This document does not permit extracting its pages as images.", plan.Error.Message);
+    Assert(core.ExportedPages.IsEmpty, "nothing may be rendered");
+}
+
+static async Task RefusesAResolutionOutsideTheDialogAsync()
+{
+    var core = new FakeCore { PageCount = 1 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    foreach (var dpi in new[] { ImageExportLimits.MinDpi - 1, ImageExportLimits.MaxDpi + 1 })
+    {
+        var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest(dpi: dpi));
+        Assert(!plan.IsSuccess && plan.Error!.Message == "Choose a resolution between 72 and 400 DPI.", $"{dpi} DPI must be refused");
+    }
+}
+
+static async Task NamesAnOversizedPageBeforeWritingAsync()
+{
+    var core = new FakeCore { PageCount = 3, OversizedPage = 1 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanImageExportAsync(session.SessionId, ExportRequest(dpi: 400));
+
+    Assert(!plan.IsSuccess, "an export that would fail part-way must not start");
+    Assert(plan.Error!.Message == "Page 2 is too large to export at 400 DPI. Choose a lower resolution.", plan.Error.Message);
+    Assert(core.LastOversizeQuery is { } query && query.Pages.SequenceEqual([0u, 1u, 2u]) && query.Dpi == 400, "the core must be asked about exactly the planned pages at the chosen DPI");
+}
+
+static async Task ExportsAPagesEncodedBytesAsync()
+{
+    var core = new FakeCore { PageCount = 3 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var image = await facade.ExportPageImageAsync(session.SessionId, 2, 300, ImageExportFormat.Jpeg);
+
+    Assert(image.IsSuccess && image.Value!.SequenceEqual(new byte[] { 0xFF, 0xD8 }), "the core's encoded bytes must come back untouched");
+    Assert(core.ExportedPages.SequenceEqual([(2u, 300u, PdfCoreImageFormat.Jpeg)]), "page, DPI and format must reach the core");
+}
+
+static async Task RefusesAPageImageAfterSessionSwapAsync()
+{
+    var core = new FakeCore { PageCount = 1 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var first = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+
+    var image = await facade.ExportPageImageAsync(first.SessionId, 0, 150, ImageExportFormat.Png);
+
+    Assert(!image.IsSuccess && image.Error!.Message == "The document is no longer available.", "a replaced session must not export");
+    Assert(core.ExportedPages.IsEmpty, "nothing may be rendered for a replaced session");
+}
+
+static Task SummarisesAnImageExport()
+{
+    Assert(ImageExportWording.Summary(1, ImageExportFormat.Png, @"C:\out") == @"Exported 1 page as PNG to C:\out.", "singular");
+    Assert(ImageExportWording.Summary(12, ImageExportFormat.Jpeg, @"C:\out") == @"Exported 12 pages as JPEG to C:\out.", "plural");
+    return Task.CompletedTask;
+}
+
 static Task SizesCompressionResultsInPowersOfTen()
 {
     Assert(CompressionWording.HumanSize(2_400_000) == "2.4 MB", "megabytes");
@@ -2623,6 +2778,44 @@ sealed class FakeCore : IPdfCore
             throw new PdfCoreException(PdfCoreError.SignaturesWouldBeInvalidated, "signed document");
         }
         return CompressionOutput;
+    }
+
+    /// <summary>What <see cref="TextExtractionAllowed"/> answers — the document's <c>/P</c> bit 5.</summary>
+    public bool ExtractionPermitted { get; init; } = true;
+    /// <summary>The pages a custom range parses to; <c>null</c> reads every page.</summary>
+    public uint[]? ParsedSelection { get; init; }
+    /// <summary>When set, the core refuses any custom range with this sentence.</summary>
+    public string? SelectionRefusal { get; init; }
+    /// <summary>The page the core calls too large to raster; <c>null</c> when every page fits.</summary>
+    public uint? OversizedPage { get; init; }
+    public (string Input, uint TotalPages)? LastSelection;
+    public (IReadOnlyList<uint> Pages, uint Dpi)? LastOversizeQuery;
+    public System.Collections.Concurrent.ConcurrentQueue<(uint Page, uint Dpi, PdfCoreImageFormat Format)> ExportedPages { get; } = new();
+
+    public bool TextExtractionAllowed(IPdfCoreDocument document) => ExtractionPermitted;
+
+    public IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages)
+    {
+        LastSelection = (input, totalPages);
+        if (SelectionRefusal is { } sentence) throw new PdfCoreException(PdfCoreError.InvalidPageSelection, "InvalidPageSelection", sentence);
+        return ParsedSelection ?? [.. Enumerable.Range(0, (int)totalPages).Select(page => (uint)page)];
+    }
+
+    public string PageImageFileName(string documentName, uint pageIndex, uint totalPages, PdfCoreImageFormat format) =>
+        $"{documentName}|{pageIndex}|{totalPages}|{format}";
+
+    public uint? FirstPageTooLargeToExport(IPdfCoreDocument document, IReadOnlyList<uint> pages, uint dpi)
+    {
+        LastOversizeQuery = (pages, dpi);
+        return OversizedPage is { } page && pages.Contains(page) ? page : null;
+    }
+
+    public byte[] ExportPageImage(IPdfCoreDocument document, uint pageIndex, uint dpi, PdfCoreImageFormat format)
+    {
+        // The real core refuses before rendering, so the fake does too.
+        if (!ExtractionPermitted) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "extraction is not permitted");
+        ExportedPages.Enqueue((pageIndex, dpi, format));
+        return format == PdfCoreImageFormat.Jpeg ? [0xFF, 0xD8] : [0x89, 0x50];
     }
 }
 

@@ -305,6 +305,34 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public bool TextExtractionAllowed(IPdfCoreDocument document) =>
+        ((GeneratedDocument)document).Handle.TextExtractionAllowed();
+
+    public IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages)
+    {
+        try { return PdfFfiMethods.ParsePageSelection(input, totalPages); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public string PageImageFileName(string documentName, uint pageIndex, uint totalPages, PdfCoreImageFormat format) =>
+        PdfFfiMethods.PageImageFileName(documentName, pageIndex, totalPages, ImageFormat(format));
+
+    public uint? FirstPageTooLargeToExport(IPdfCoreDocument document, IReadOnlyList<uint> pages, uint dpi) =>
+        PdfFfiMethods.FirstPageTooLargeToExport(((GeneratedDocument)document).Handle, [.. pages], dpi);
+
+    public byte[] ExportPageImage(IPdfCoreDocument document, uint pageIndex, uint dpi, PdfCoreImageFormat format)
+    {
+        try { return PdfFfiMethods.ExportPageImage(((GeneratedDocument)document).Handle, pageIndex, dpi, ImageFormat(format)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    private static FfiExportFormat ImageFormat(PdfCoreImageFormat format) => format switch
+    {
+        PdfCoreImageFormat.Png => FfiExportFormat.Png,
+        PdfCoreImageFormat.Jpeg => FfiExportFormat.Jpeg,
+        _ => throw new ArgumentOutOfRangeException(nameof(format)),
+    };
+
     // The two modelled refusals cross the boundary without text, so their
     // wording is restated here verbatim from `pdf_compress::Refusal`'s Display
     // — the sentence the GTK shell shows — and `Other` carries the core's own.
@@ -402,14 +430,20 @@ internal sealed class GeneratedPdfCore : IPdfCore
             FfiException.SignaturesWouldBeInvalidated => PdfCoreError.SignaturesWouldBeInvalidated,
             FfiException.UnsupportedOperation => PdfCoreError.UnsupportedOperation,
             FfiException.EncodingGap => PdfCoreError.EncodingGap,
+            FfiException.InvalidPageSelection => PdfCoreError.InvalidPageSelection,
             FfiException.RenderFailed => PdfCoreError.RenderFailed,
             FfiException.Io => PdfCoreError.Io,
             _ => PdfCoreError.Internal
         };
-        // The character is the only detail that crosses: everything else in a
-        // typed failure is diagnostic, and the reader is the one who typed
-        // this one.
-        var readerFacingDetail = error is FfiException.EncodingGap gap ? gap.character : null;
+        // Only what the reader typed crosses — the character a font cannot
+        // show, or the sentence about a page range. Everything else in a typed
+        // failure is diagnostic.
+        var readerFacingDetail = error switch
+        {
+            FfiException.EncodingGap gap => gap.character,
+            FfiException.InvalidPageSelection selection => selection.detail,
+            _ => null,
+        };
         return new PdfCoreException(category, error.GetType().Name, readerFacingDetail);
     }
 
