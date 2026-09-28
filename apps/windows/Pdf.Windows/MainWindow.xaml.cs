@@ -767,6 +767,7 @@ public sealed partial class MainWindow : Window
         // one document it cannot handle is refused by the core with a reason.
         CompressButton.IsEnabled = !_isBusy && _session is not null;
         ExportImagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
+        ExtractPagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
         // Permission is the core's call, and it explains a refusal itself:
         // an encrypted document may allow turning a page but not moving one.
         OrganizeButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };

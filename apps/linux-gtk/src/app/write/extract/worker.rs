@@ -2,9 +2,10 @@
 //! the snapshot to the pages that were asked for, serializing what is left,
 //! and writing it.
 //!
-//! The pruning itself is [`super::super::prune`]'s, shared with
-//! [`split`](super::super::split) — the two chains differ in how many files
-//! they produce, never in what "keep these pages" means.
+//! The pruning itself is `pdf_document::prune`'s, shared with
+//! [`split`](super::super::split) and with `pdf-ffi`'s extract surface — the
+//! callers differ in how many files they produce, never in what "keep these
+//! pages" means.
 //!
 //! The same cut the rest of `write` makes — before a byte exists is
 //! [`super`]'s and [`super::dialog`]'s, after it is this file's.
@@ -30,7 +31,8 @@ use std::path::{Path, PathBuf};
 
 use gtk::{gio, glib};
 
-use super::super::prune::prune_to;
+use pdf_document::prune::prune_to;
+
 use super::super::worker::{atomic_write, save_worker_result, validate_written_bytes};
 use super::super::{imported_sources, EXTRACT};
 use super::options;
@@ -120,7 +122,7 @@ mod tests {
     /// The round trip, end to end: a real PDF in, a real PDF out, reopened
     /// and counted.
     ///
-    /// `write::prune`'s own tests pin the rules in isolation — which runs
+    /// `pdf_document::prune`'s own tests pin the rules in isolation — which runs
     /// are dropped, in what order, and that the log records them. None of
     /// that proves the rules add up to a file anyone can open, which is the
     /// only thing this feature is actually for. The failure this catches is the one the unit

@@ -11,8 +11,10 @@
 //! nothing like the fourth. That combination is what both *are* — new files
 //! built from the open document's pages, leaving the session the user is
 //! looking at exactly as it was. They differ only in how many files come out,
-//! which is why the pruning they both do lives once in [`prune`] and why a
-//! split asks for a folder where an extraction asks for a name.
+//! which is why the pruning they both do lives once in
+//! `pdf_document::prune` (moved out of this crate once `pdf-ffi`'s extract
+//! surface needed the same cut) and why a split asks for a folder where an
+//! extraction asks for a name.
 //!
 //! [`compress`] is the seventh, and the only one that reverses the order:
 //! it runs its writer *first* and asks for a destination afterwards, because
@@ -49,7 +51,6 @@ mod compress;
 mod extract;
 mod preview;
 mod protect;
-mod prune;
 mod save;
 mod sign;
 mod split;

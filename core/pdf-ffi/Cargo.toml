@@ -48,3 +48,4 @@ required-features = ["bindgen"]
 gen-fixtures = { path = "../../tests/fixtures/gen-fixtures" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 lopdf = "0.45"
+rand = "0.8.7"

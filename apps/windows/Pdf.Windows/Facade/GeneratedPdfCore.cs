@@ -344,6 +344,18 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public bool FullRewriteAllowed(IPdfCoreDocument document) =>
+        ((GeneratedDocument)document).Handle.FullRewriteAllowed();
+
+    public byte[] ExtractPagesToPdf(IPdfCoreDocument document, IReadOnlyList<uint> pages)
+    {
+        try { return PdfFfiMethods.ExtractPagesToPdf(((GeneratedDocument)document).Handle, [.. pages]); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public bool ExtractSourceIsSigned(IPdfCoreDocument document) =>
+        PdfFfiMethods.ExtractSourceIsSigned(((GeneratedDocument)document).Handle);
+
     private static FfiExportFormat ImageFormat(PdfCoreImageFormat format) => format switch
     {
         PdfCoreImageFormat.Png => FfiExportFormat.Png,

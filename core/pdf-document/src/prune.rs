@@ -1,18 +1,31 @@
 //! Cutting a document model down to a chosen set of pages.
 //!
-//! Shared by the two chains that build a **second** PDF out of a subset of
-//! the open document's pages — [`extract`](super::extract), which writes one
-//! file, and [`split`](super::split), which writes several. Both want exactly
-//! the same thing from a snapshot of the live model ("leave these pages and
-//! drop the rest"), and both must get it the same way, so the rule lives once
-//! here rather than twice in two workers that would drift.
+//! Shared by every chain that builds a **second** PDF out of a subset of an
+//! open document's pages — the Linux shell's `extract` (one file) and
+//! `split` (several files) write chains, and `pdf-ffi`'s extract surface for
+//! the Windows/other shells that cross the UniFFI boundary instead of
+//! linking the core crates directly. All of them want exactly the same thing
+//! from a snapshot of a live model ("leave these pages and drop the rest"),
+//! and all of them must get it the same way, so the rule lives once here
+//! rather than duplicated per shell.
 //!
-//! Nothing in this module touches the session. Every function takes a
-//! `Document` the caller already owns — in practice a **clone** of the
-//! session's model, so the removals recorded below cannot reach the undo
-//! history the user is still editing against.
+//! This started as a Linux-shell-only module
+//! (`apps/linux-gtk/src/app/write/prune.rs`) and moved into `pdf-document`
+//! once a second caller (the Windows FFI extract surface) needed the exact
+//! same cut. It depends on nothing but [`Command`] and [`Document`], both
+//! already owned by this crate, so `pdf-document` — the crate every shell and
+//! every other core crate already depends on — is its natural home; putting
+//! it in `pdf-manip` or `pdf-save` instead would have made the Linux shell
+//! (which uses `pdf-document` for its model but does not always need the
+//! I/O-performing manip/save backends in the same call site) pull in a
+//! heavier dependency just to prune a clone it already owns.
+//!
+//! Nothing in this module touches a session or does any I/O. Every function
+//! takes a `Document` the caller already owns — in practice a **clone** of
+//! the live model, so the removals recorded below cannot reach the undo
+//! history a user might still be editing against.
 
-use pdf_document::{Command, Document};
+use crate::{Command, Document};
 
 /// The runs of pages to drop so that only `keep` is left, as `(index, count)`
 /// pairs **in descending index order**.
@@ -26,7 +39,7 @@ use pdf_document::{Command, Document};
 /// guarantees it for the ranges a user types — which is what lets the
 /// membership test be a binary search rather than a scan per page. On a
 /// thousand-page document the difference is a million comparisons.
-pub(super) fn removal_runs(keep: &[u32], total: u32) -> Vec<(usize, usize)> {
+pub fn removal_runs(keep: &[u32], total: u32) -> Vec<(usize, usize)> {
     let mut runs: Vec<(usize, usize)> = Vec::new();
     let mut open: Option<(usize, usize)> = None;
     for index in 0..total as usize {
@@ -63,7 +76,7 @@ pub(super) fn removal_runs(keep: &[u32], total: u32) -> Vec<(usize, usize)> {
 /// The log this builds is thrown away with the clone it was built on — the
 /// live session's own undo history is never touched, because `document` here
 /// is always a snapshot taken under a borrow the caller has already released.
-pub(super) fn prune_to(document: &mut Document, keep: &[u32]) -> Result<(), String> {
+pub fn prune_to(document: &mut Document, keep: &[u32]) -> Result<(), String> {
     let total = document.pages.len() as u32;
     for (index, count) in removal_runs(keep, total) {
         let removal = Command::remove_pages(document, index, count)
@@ -77,10 +90,9 @@ pub(super) fn prune_to(document: &mut Document, keep: &[u32]) -> Result<(), Stri
 
 /// `EditLog::apply` against a document's own pending log.
 ///
-/// A local copy of `organize::command::apply_command` rather than a call to
-/// it: `organize` already depends on `write` (its Save button opens this
-/// module's chooser), so reaching back the other way would close a cycle
-/// between the two. Five lines is the cheaper of the two prices.
+/// A local copy of the Linux shell's `organize::command::apply_command`
+/// rather than a call to it: that function lives in a platform shell this
+/// crate must not depend on. Five lines is the cheaper of the two prices.
 fn apply(document: &mut Document, command: Command) -> bool {
     let mut log = std::mem::take(&mut document.pending_edits);
     let applied = log.apply(document, command);
@@ -90,7 +102,7 @@ fn apply(document: &mut Document, command: Command) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use pdf_document::{Command, Document, Orientation, Page, PageId, PageSize};
+    use crate::{Command, Document, Orientation, Page, PageId, PageSize};
 
     use super::{prune_to, removal_runs};
 
