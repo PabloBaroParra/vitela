@@ -211,15 +211,10 @@ public sealed partial class MainWindow
             return;
         }
 
-        var page = _session.Pages[(int)pageIndex];
-        var scale = slot.Scale;
         foreach (var run in content.TextRuns)
         {
-            var bounds = BoundsOf(run);
             var outline = new Rectangle
             {
-                Width = Math.Max(1, bounds.Width * scale),
-                Height = Math.Max(1, bounds.Height * scale),
                 StrokeThickness = 1,
                 Stroke = new SolidColorBrush(run.RequiresFontSubstitution
                     ? global::Windows.UI.Color.FromArgb(120, 170, 90, 220)
@@ -231,8 +226,7 @@ public sealed partial class MainWindow
                 outline.StrokeDashArray = [2, 2];
             }
 
-            Canvas.SetLeft(outline, bounds.X * scale);
-            Canvas.SetTop(outline, (page.HeightPt - bounds.Y - bounds.Height) * scale);
+            PlaceOverPage(outline, slot, (int)pageIndex, BoundsOf(run));
             slot.Content.Children.Add(outline);
         }
     }

@@ -177,15 +177,18 @@ impl DocumentState {
                         (upright, Rotation::None)
                     }
                 };
+                let rotation = page.rotation.into();
                 if is_sideways(page.rotation) == is_sideways(opened_rotation) {
                     FfiPageDimensions {
                         width_pt,
                         height_pt,
+                        rotation,
                     }
                 } else {
                     FfiPageDimensions {
                         width_pt: height_pt,
                         height_pt: width_pt,
+                        rotation,
                     }
                 }
             })

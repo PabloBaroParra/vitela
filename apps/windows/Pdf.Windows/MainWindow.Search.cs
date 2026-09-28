@@ -121,21 +121,16 @@ public sealed partial class MainWindow
         if (_searchHighlight is not (var pageIndex, var bounds)) return;
         if (_session is null || pageIndex >= _slots.Count || pageIndex >= _session.Pages.Count) return;
 
-        var page = _session.Pages[pageIndex];
         var target = _slots[pageIndex];
-        var scale = target.Scale;
         foreach (var boundsRect in bounds)
         {
             var rectangle = new Rectangle
             {
-                Width = Math.Max(1, boundsRect.WidthPt * scale),
-                Height = Math.Max(1, boundsRect.HeightPt * scale),
                 Fill = new SolidColorBrush(global::Windows.UI.Color.FromArgb(96, 255, 214, 10)),
                 Stroke = new SolidColorBrush(Microsoft.UI.Colors.DarkOrange),
                 StrokeThickness = 1,
             };
-            Canvas.SetLeft(rectangle, boundsRect.XPt * scale);
-            Canvas.SetTop(rectangle, (page.HeightPt - boundsRect.YPt - boundsRect.HeightPt) * scale);
+            PlaceOverPage(rectangle, target, pageIndex, new AnnotationRect(boundsRect.XPt, boundsRect.YPt, boundsRect.WidthPt, boundsRect.HeightPt));
             target.SearchHighlights.Children.Add(rectangle);
         }
     }

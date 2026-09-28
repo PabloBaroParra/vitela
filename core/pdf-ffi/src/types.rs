@@ -12,6 +12,7 @@ use pdf_document::{
 };
 
 use crate::form::{FfiFieldValue, FfiRadioOption, FfiTextStyle};
+use crate::placement::FfiPageRotation;
 
 /// Mirrors `pdf_document::PageSize`.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
@@ -61,19 +62,17 @@ impl From<FfiOrientation> for Orientation {
 /// One page's layout size in PDF points (`/Rotate`-aware — 90/270 swap the
 /// axes), read from the same bytes `render_page` draws so viewers can size
 /// placeholders that match the rendered output.
+///
+/// `rotation` is the turn that size already includes. The two travel
+/// together because neither is usable alone: a shell that knows only the
+/// size cannot tell an upright landscape page from a portrait one turned on
+/// its side, and those need different overlay transforms (see
+/// [`crate::placement`]).
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]
 pub struct FfiPageDimensions {
     pub width_pt: f64,
     pub height_pt: f64,
-}
-
-impl From<pdf_manip::PageDimensions> for FfiPageDimensions {
-    fn from(dimensions: pdf_manip::PageDimensions) -> Self {
-        FfiPageDimensions {
-            width_pt: dimensions.width_pt,
-            height_pt: dimensions.height_pt,
-        }
-    }
+    pub rotation: FfiPageRotation,
 }
 
 /// A page-space rectangle in PDF points with a bottom-left origin, suitable

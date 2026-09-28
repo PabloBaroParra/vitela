@@ -216,7 +216,9 @@ public sealed partial class MainWindow
             var imageBytes = await ReadClipboardBitmapAsPngAsync(content);
             var pageIndex = (uint)Math.Clamp(_firstVisiblePage, 0, session.Pages.Count - 1);
             var page = session.Pages[(int)pageIndex];
-            var centre = new AnnotationPoint(page.WidthPt / 2, page.HeightPt / 2);
+            // The middle of the page as drawn, taken back into page space: a
+            // quarter turn has swapped the width and height this reports.
+            var centre = _facade.PointToPdf(new PlacedPoint(page.WidthPt / 2, page.HeightPt / 2), PagePlacement.Of(page, 1));
             if (DefaultStampRect(imageBytes, centre) is not { } rect) return;
             await InsertStampFromImageBytesAsync(session.SessionId, pageIndex, rect, imageBytes);
         }

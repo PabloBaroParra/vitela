@@ -320,14 +320,11 @@ public sealed partial class MainWindow
             return;
         }
 
-        var page = _session.Pages[(int)pageIndex];
         var scale = slot.Scale;
         var bounds = BoundsOf(editor.Run);
         // A run's box is one em tall, so its height *is* the size the page
         // draws this text at. No fitting, no factor.
         var em = bounds.Height * scale;
-        var left = bounds.X * scale;
-        var top = (page.HeightPt - bounds.Y - bounds.Height) * scale;
 
         var probe = new TextBlock
         {
@@ -345,19 +342,19 @@ public sealed partial class MainWindow
         // whatever the replacement now runs over — which is what the saved
         // page covers too, since a longer run overprints its neighbour rather
         // than reflowing away from it.
+        // Both are sized upright and turned with the page: on a rotated page
+        // the run reads along the turn, and so must what replaces it.
         editor.Mask.Width = Math.Max(bounds.Width * scale, typedWidth);
         editor.Mask.Height = em;
-        Canvas.SetLeft(editor.Mask, left);
-        Canvas.SetTop(editor.Mask, top);
+        PlaceUpright(editor.Mask, slot, (int)pageIndex, bounds);
 
         editor.Box.Width = Math.Max(40, typedWidth + em);
         editor.Box.Height = lineHeight;
         editor.Box.FontSize = em;
-        Canvas.SetLeft(editor.Box, left);
         // Placed by its baseline, not by its top: the control's line box is
         // taller than the em it draws, and how much taller is the font's
         // business — so it is measured, not assumed.
-        Canvas.SetTop(editor.Box, top + (em * RunBaselineFromTop) - probe.BaselineOffset);
+        PlaceUpright(editor.Box, slot, (int)pageIndex, bounds, offsetY: (em * RunBaselineFromTop) - probe.BaselineOffset);
     }
 
     /// <summary>

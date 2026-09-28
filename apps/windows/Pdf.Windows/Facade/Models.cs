@@ -15,8 +15,51 @@ public sealed record DocumentSource(string DisplayName, byte[] Bytes);
 /// </param>
 public sealed record DocumentSession(string SessionId, string DisplayName, uint PageCount, uint PageIndex, DocumentSessionState State, IReadOnlyList<PageDimensions> Pages, bool ContentEditingAllowed);
 
-/// <summary>One page's layout size in PDF points (1/72 inch).</summary>
-public sealed record PageDimensions(double WidthPt, double HeightPt);
+/// <summary>
+/// One page's layout size in PDF points (1/72 inch), as it is drawn: a
+/// quarter <paramref name="Rotation"/> has already swapped the width and the
+/// height.
+/// </summary>
+/// <param name="Rotation">
+/// The turn that size includes. Everything <em>on</em> the page — text runs,
+/// search hits, annotations — stays in the page's unrotated space, so an
+/// overlay needs the turn as well as the size to land where the page drew it.
+/// </param>
+public sealed record PageDimensions(double WidthPt, double HeightPt, PageRotation Rotation);
+
+/// <summary>The clockwise quarter-turn a page is drawn with.</summary>
+public enum PageRotation
+{
+    None,
+    Clockwise90,
+    Clockwise180,
+    Clockwise270,
+}
+
+/// <summary>
+/// One page as it is drawn on screen: its size with the turn applied (what
+/// <see cref="PageDimensions"/> reports), the turn, and the display units per
+/// point it is shown at. Everything the PDF-to-screen transform needs.
+/// </summary>
+public sealed record PagePlacement(double WidthPt, double HeightPt, PageRotation Rotation, double Scale)
+{
+    public static PagePlacement Of(PageDimensions page, double scale) => new(page.WidthPt, page.HeightPt, page.Rotation, scale);
+
+    /// <summary>The turn in degrees clockwise — what a <c>RotateTransform</c> takes.</summary>
+    public double Degrees => Rotation switch
+    {
+        PageRotation.Clockwise90 => 90,
+        PageRotation.Clockwise180 => 180,
+        PageRotation.Clockwise270 => 270,
+        _ => 0,
+    };
+}
+
+/// <summary>A rect on the drawn page: top-left origin, y growing downwards, in display units.</summary>
+public sealed record PlacedRect(double Left, double Top, double Width, double Height);
+
+/// <summary>A point on the drawn page: top-left origin, y growing downwards, in display units.</summary>
+public sealed record PlacedPoint(double Left, double Top);
 
 /// <summary>
 /// A change to the document's pages. Every page number is the page's current

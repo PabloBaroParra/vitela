@@ -234,6 +234,24 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public PlacedRect PlaceRect(AnnotationRect rect, PagePlacement page)
+    {
+        var placed = PdfFfiMethods.PlaceRect(new FfiRect(rect.X, rect.Y, rect.Width, rect.Height), Placement(page));
+        return new PlacedRect(placed.Left, placed.Top, placed.Width, placed.Height);
+    }
+
+    public PlacedPoint PlacePoint(AnnotationPoint point, PagePlacement page)
+    {
+        var placed = PdfFfiMethods.PlacePoint(new FfiPoint(point.X, point.Y), Placement(page));
+        return new PlacedPoint(placed.X, placed.Y);
+    }
+
+    public AnnotationPoint PointToPdf(PlacedPoint point, PagePlacement page)
+    {
+        var pdf = PdfFfiMethods.PointToPdf(new FfiPoint(point.Left, point.Top), Placement(page));
+        return new AnnotationPoint(pdf.X, pdf.Y);
+    }
+
     public bool Undo(IPdfCoreDocument document) => PdfFfiMethods.Undo(((GeneratedDocument)document).Handle);
     public bool Redo(IPdfCoreDocument document) => PdfFfiMethods.Redo(((GeneratedDocument)document).Handle);
     public bool WillInvalidateSignatures(IPdfCoreDocument document)
@@ -408,6 +426,26 @@ internal sealed class GeneratedPdfCore : IPdfCore
         _ => FfiFontKind.EmbeddedComposite,
     };
 
+    private static FfiPagePlacement Placement(PagePlacement page) => new(page.WidthPt, page.HeightPt, Rotation(page.Rotation), page.Scale);
+
+    private static FfiPageRotation Rotation(PageRotation rotation) => rotation switch
+    {
+        PageRotation.None => FfiPageRotation.None,
+        PageRotation.Clockwise90 => FfiPageRotation.Clockwise90,
+        PageRotation.Clockwise180 => FfiPageRotation.Clockwise180,
+        PageRotation.Clockwise270 => FfiPageRotation.Clockwise270,
+        _ => throw new ArgumentOutOfRangeException(nameof(rotation)),
+    };
+
+    internal static PageRotation Rotation(FfiPageRotation rotation) => rotation switch
+    {
+        FfiPageRotation.None => PageRotation.None,
+        FfiPageRotation.Clockwise90 => PageRotation.Clockwise90,
+        FfiPageRotation.Clockwise180 => PageRotation.Clockwise180,
+        FfiPageRotation.Clockwise270 => PageRotation.Clockwise270,
+        _ => throw new ArgumentOutOfRangeException(nameof(rotation)),
+    };
+
     private static FfiRect Rect(PdfCoreRect rect) => new(rect.X, rect.Y, rect.Width, rect.Height);
     private static PdfCoreRect Rect(FfiRect rect) => new(rect.X, rect.Y, rect.Width, rect.Height);
     private static FfiColor Color(PdfCoreColor color) => new(color.R, color.G, color.B);
@@ -472,7 +510,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
         /// document's current order.
         /// </summary>
         public IReadOnlyList<PdfCorePageDimensions> PageDimensions =>
-            [.. Handle.PageDimensions().Select(page => new PdfCorePageDimensions(page.WidthPt, page.HeightPt))];
+            [.. Handle.PageDimensions().Select(page => new PdfCorePageDimensions(page.WidthPt, page.HeightPt, Rotation(page.Rotation)))];
 
         public void Dispose() => Handle.Dispose();
     }
