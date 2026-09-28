@@ -71,7 +71,10 @@ pub use export::{
 pub use forms::{ensure_acroform, write_form_fields};
 pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
-pub use origin::{page_backing, page_font_families_of, read_page_content_of, PageBacking};
+pub use origin::{
+    page_backing, page_font_families_of, read_page_content_of, read_pending_page_content_of,
+    PageBacking,
+};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{

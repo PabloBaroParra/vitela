@@ -245,6 +245,28 @@ fn replace_in_standard_font(
     Ok(())
 }
 
+/// The box `run` occupies showing `text` in the standard font inserted
+/// content is written in — a composed insertion, or a composite-font run
+/// [`replace_text_run_with_inserted_font`] rewrites in that font.
+///
+/// There is no known box to scale here, but no unknowns either: the font is
+/// the one insertion registers, and `run.bbox.height` is read *as* the font
+/// size, exactly as [`crate::insert_text_run`] reads it, so the advance
+/// converts to points directly.
+pub fn inserted_font_text_bbox(
+    document: &Document,
+    run: &TextRun,
+    text: &str,
+) -> Result<Rect, EditError> {
+    let font = resolve_font(
+        document,
+        &crate::insert::inserted_font_dictionary(),
+        &run.resource_font_name,
+    )?;
+    let width = font.width_of(&font.encode(text)?) * run.bbox.height;
+    Ok(Rect { width, ..run.bbox })
+}
+
 /// The box `run` would occupy if it showed `text` instead of `run.text`.
 ///
 /// Writes nothing and resolves nothing on the page beyond the run's font —
@@ -292,13 +314,7 @@ pub fn text_run_bbox(
         // been written yet, and once it has been, the first branch takes over
         // with the real resource.
         Err(EditError::FontResourceMissing { .. }) => {
-            let font = resolve_font(
-                document,
-                &crate::insert::inserted_font_dictionary(),
-                &run.resource_font_name,
-            )?;
-            let width = font.width_of(&font.encode(text)?) * run.bbox.height;
-            return Ok(Rect { width, ..run.bbox });
+            return inserted_font_text_bbox(document, run, text);
         }
         Err(error) => return Err(error),
     };

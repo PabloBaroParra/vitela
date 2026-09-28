@@ -890,10 +890,16 @@ impl DocumentHandle {
 
     /// Parses `page`'s content stream on demand and returns its text runs
     /// and images (T-158, Batch 21 decision 2 — never cached on the
-    /// document, unlike annotations). Reflects the last-opened/saved bytes;
-    /// re-read after `save_to_bytes` before building a second content edit
-    /// for the same page, since ids are only valid against the exact parse
-    /// they came from (decision 6).
+    /// document, unlike annotations), **as the reader sees them**: every
+    /// page-content edit still pending is layered on top of the parse
+    /// (`pdf_edit::overlay_pending_content`), because `refresh_preview`
+    /// already paints them. A retyped run comes back with its new text, the
+    /// box it now fills and its original id; an item that exists only
+    /// because of a pending insertion carries a synthetic id.
+    ///
+    /// Ids are only valid against the exact parse they came from (decision
+    /// 6): re-read after `save_to_bytes` before building another content
+    /// edit for the same page.
     pub fn read_page_content(&self, page: u32) -> Result<FfiPageContent, FfiError> {
         let state = self.lock();
         if !text_extraction_is_allowed(&state.document) {
@@ -906,7 +912,7 @@ impl DocumentHandle {
         // shell's for now), so an imported page is refused with a clear
         // message instead of silently reading whichever base page happens to
         // sit at that index.
-        let content: FfiPageContent = pdf_save::read_page_content_of(
+        let content: FfiPageContent = pdf_save::read_pending_page_content_of(
             &state.document,
             state.page_id(page)?,
             &state.base,
@@ -1461,8 +1467,17 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         }
     }
 
-    let core_command = state.build_core_command(command)?;
+    let mut core_command = state.build_core_command(command)?;
     if is_content {
+        let queued = pending_replacement_index(&state.document, &core_command);
+        if let Some(index) = queued {
+            // What a caller holds is the run as `read_page_content` reads it
+            // now — the queued retype already applied. The save replays
+            // against the untouched bytes, so the fold keeps the snapshot the
+            // queued command was built from and takes only the new text.
+            core_command =
+                with_queued_item(&state.document.pending_edits.entries()[index], core_command);
+        }
         // Validate before recording, never only at save time — see
         // `pdf_save::validate_content_command` for why a content command
         // recorded unchecked can only fail later, and take every other
@@ -1474,14 +1489,13 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
             &core_command,
         )?;
 
-        if let Some(index) = pending_replacement_index(&state.document, &core_command) {
+        if let Some(index) = queued {
             // Retyping the same run twice amends the queued command instead
             // of appending a second one. `EditLog::amend`'s own docs carry
             // the reasoning: a save replays content commands in order against
-            // a document it mutates as it goes, so a second command still
-            // describing the *pre-first-edit* run — all a caller can have,
-            // since `read_page_content` reads the untouched base — would
-            // resolve against nothing and take the whole save down.
+            // a document it mutates as it goes, so a second command against
+            // the same run would resolve against nothing and take the whole
+            // save down.
             state.document.pending_edits.amend(index, core_command);
             return Ok(());
         }
@@ -1517,6 +1531,32 @@ fn pending_replacement_index(document: &Document, command: &Command) -> Option<u
                 if queued_item.id == item.id && queued_item.page == item.page
         )
     })
+}
+
+/// `command` carrying `queued`'s run snapshot in place of its own.
+///
+/// Only called for a pair [`pending_replacement_index`] matched, so both are
+/// text replacements of the same run; `command` keeps its own variant and
+/// text.
+fn with_queued_item(queued: &Command, command: Command) -> Command {
+    let original = match queued {
+        Command::ReplaceTextRunContent { item, .. }
+        | Command::ReplaceTextRunWithInsertedFont { item, .. } => item.clone(),
+        _ => return command,
+    };
+    match command {
+        Command::ReplaceTextRunContent { after, .. } => Command::ReplaceTextRunContent {
+            item: original,
+            after,
+        },
+        Command::ReplaceTextRunWithInsertedFont { after, .. } => {
+            Command::ReplaceTextRunWithInsertedFont {
+                item: original,
+                after,
+            }
+        }
+        other => other,
+    }
 }
 
 /// Re-derives the render-side document from the pending edits, so
