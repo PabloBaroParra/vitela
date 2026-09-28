@@ -89,7 +89,9 @@ A "Form fields" panel fills in the AcroForm fields a document already has —
 text, checkboxes, radio groups and dropdowns — gated on the fill permission
 (ISO 32000-1 bit 6) rather than content editing. Each fill rebuilds the
 preview, so pdfium paints the value from the regenerated appearance; the shell
-draws no overlay of its own. Placing new fields is not wired up yet.
+draws no overlay of its own. The panel can also place a single-line text field
+by clicking a page. The core assigns its name and ID; placement is undoable
+and requires both annotation and content-edit permissions.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:

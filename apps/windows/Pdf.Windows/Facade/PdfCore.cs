@@ -364,6 +364,7 @@ internal abstract record PdfCoreEdit
     /// against the field's kind before recording it.
     /// </summary>
     public sealed record SetFieldValue(ulong FieldId, FormFieldValue Value) : PdfCoreEdit;
+    public sealed record AddTextField(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
 
     /// <summary>
     /// Retypes an existing text run, keeping its font, size and position.

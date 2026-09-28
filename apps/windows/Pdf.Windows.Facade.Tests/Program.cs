@@ -137,6 +137,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refuses document properties when content editing is forbidden", RefusesForbiddenDocumentPropertiesAsync)
     ,("lists the document's form fields with the fill permission", ListsFormFieldsAsync)
     ,("fills a form field and rebuilds the preview", FillsAFormFieldAsync)
+    ,("places a text field and refreshes the form preview", PlacesATextFieldAsync)
+    ,("requires both permissions to place a text field", RefusesForbiddenTextFieldPlacementAsync)
     ,("does not record a fill that changes nothing", DoesNotRecordAnUnchangedFillAsync)
     ,("refuses a fill when the document forbids form filling", RefusesAForbiddenFillAsync)
     ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
@@ -2226,6 +2228,37 @@ static async Task FillsAFormFieldAsync()
     Assert(core.RefreshPreviewCalls == 1, "pdfium paints field values, so the preview must be rebuilt to show it");
 }
 
+static async Task PlacesATextFieldAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var rect = new PdfCoreRect(90, 400, 144, 36);
+
+    var result = await facade.AddTextFieldAsync(session.SessionId, 0, rect);
+
+    Assert(result.IsSuccess && result.Value!.CanUndo, "creation must be one undoable edit");
+    Assert(core.TextFieldEdits is [var field] && field.PageIndex == 0 && field.Rect == rect, "the click geometry must reach the core");
+    Assert(core.FormFields.Count == 1 && core.RefreshPreviewCalls == 1, "the field must appear in the form list and the preview");
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undo must rebuild the preview after field creation");
+}
+
+static async Task RefusesForbiddenTextFieldPlacementAsync()
+{
+    foreach (var forbidContent in new[] { false, true })
+    {
+        var core = new FakeCore { ContentEditingPermitted = !forbidContent };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+        if (!forbidContent) core.LastDocument!.EditingAllowed = false;
+
+        var result = await facade.AddTextFieldAsync(session.SessionId, 0, new PdfCoreRect(0, 0, 144, 36));
+        Assert(!result.IsSuccess && result.Error!.Message == "This document does not permit creating form fields.", "permission refusal must be explicit");
+        Assert(!core.LastDocument!.CanUndo && core.RefreshPreviewCalls == 0, "refused creation must not record an edit");
+    }
+}
+
 static async Task DoesNotRecordAnUnchangedFillAsync()
 {
     var core = new FakeCore { FormFields = SampleFormFields() };
@@ -2850,6 +2883,7 @@ sealed class FakeCore : IPdfCore
     public List<PdfCoreEdit.ReplaceTextRunWithInsertedFont> SubstitutionEdits { get; } = [];
     /// <summary>The page edits the facade handed the core, newest last.</summary>
     public List<PdfCoreEdit> PageEdits { get; } = [];
+    public List<PdfCoreEdit.AddTextField> TextFieldEdits { get; } = [];
 
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
@@ -2908,6 +2942,16 @@ sealed class FakeCore : IPdfCore
             var index = FormFields.FindIndex(field => field.Id == fill.FieldId);
             if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
             FormFields[index] = FormFields[index] with { Value = fill.Value };
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.AddTextField field)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form creation is not permitted");
+            TextFieldEdits.Add(field);
+            FormFields.Add(new PdfCoreFormField((ulong)FormFields.Count, field.PageIndex, "Text", new FormFieldKind.Text(false, null), new FormFieldValue.Text("")));
             fake.Apply(edit);
             return;
         }
