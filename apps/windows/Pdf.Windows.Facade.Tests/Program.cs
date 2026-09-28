@@ -67,6 +67,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("releases the guard once the edits are saved", ReleasesTheGuardOnceEditsAreSavedAsync)
     ,("flags the refused open as a decision the reader can make", FlagsPendingEditDecisionAsync)
     ,("opens over pending edits once the reader chose to discard them", DiscardsPendingEditsOnRequestAsync)
+    ,("asks about pending edits before the password, then unlocks over a discard", UnlocksOverDiscardedPendingEditsAsync)
     ,("blocks creating a blank document with unsaved annotations", BlocksCreateBlankWithUnsavedAnnotationsAsync)
     ,("creates a blank document over pending edits once the reader chose to discard them", CreatesBlankDocumentOverPendingEditsOnRequestAsync)
     ,("keeps stamp previews scoped to their document session", KeepsStampPreviewsScopedToSession)
@@ -1181,6 +1182,34 @@ static async Task DiscardsPendingEditsOnRequestAsync()
     Assert(edits.IsSuccess && edits.Value!.Annotations.Count == 0, "the discarded work must not follow the reader into the new document");
 }
 
+/// <summary>
+/// Pins the order the shell's open path is built on: while edits are pending,
+/// the guard answers before the core sees the bytes, so an encrypted file only
+/// asks for its password on the retry — and that retry must take the password
+/// and the discard together. A wrong password must not cost the edits.
+/// </summary>
+static async Task UnlocksOverDiscardedPendingEditsAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore { RequiredPassword = "secret" }, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]), "secret")).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+
+    var refused = await facade.OpenAsync(new DocumentSource("locked.pdf", [2]));
+    Assert(refused.Error!.RequiresPendingEditDecision && !refused.Error.RequiresPassword, "pending edits must be asked about before the password");
+
+    var locked = await facade.OpenAsync(new DocumentSource("locked.pdf", [2]), discardPendingEdits: true);
+    Assert(locked.Error!.RequiresPassword, "past the guard, an encrypted file must ask for its password");
+
+    var wrong = await facade.OpenAsync(new DocumentSource("locked.pdf", [2]), "nope", discardPendingEdits: true);
+    Assert(wrong.Error!.RequiresPassword, "a wrong password must still be a password prompt");
+    var kept = await facade.AnnotationStateAsync(session.SessionId);
+    Assert(kept.IsSuccess && kept.Value!.Annotations.Count == 1, "a failed unlock must leave the pending edits in place");
+
+    var opened = await facade.OpenAsync(new DocumentSource("locked.pdf", [2]), "secret", discardPendingEdits: true);
+    Assert(opened.IsSuccess, "the password and the discard together must open the document");
+    Assert(opened.Value!.SessionId != session.SessionId, "the unlocked document must be a new session");
+}
+
 static async Task BlocksCreateBlankWithUnsavedAnnotationsAsync()
 {
     using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
@@ -2154,6 +2183,7 @@ sealed class FakeCore : IPdfCore
     public double PageWidthPt { get; init; } = 595;
     public double PageHeightPt { get; init; } = 842;
     public PdfCoreError? OpenError { get; init; }
+    public string? RequiredPassword { get; init; }
     public PdfCoreError? RenderError { get; init; }
     public bool BlockFirstRender { get; init; }
     public bool BlockFirstSearch { get; init; }
@@ -2178,6 +2208,11 @@ sealed class FakeCore : IPdfCore
         if (OpenError is { } error)
         {
             throw new PdfCoreException(error, "sensitive diagnostic");
+        }
+
+        if (RequiredPassword is { } required && password != required)
+        {
+            throw new PdfCoreException(password is null ? PdfCoreError.PasswordRequired : PdfCoreError.WrongPassword, "sensitive diagnostic");
         }
 
         return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt) { ContentEditingAllowed = ContentEditingPermitted };
