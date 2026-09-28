@@ -297,7 +297,7 @@ fn name_base(kind: &FormFieldKind) -> &'static str {
 /// allocating both its id and its `/T` name.
 pub(crate) fn add_field(
     document: &Document,
-    page: u32,
+    page: PageId,
     rect: FfiRect,
     style: FfiTextStyle,
     kind: FormFieldKind,
@@ -309,19 +309,19 @@ pub(crate) fn add_field(
 
     let field = match kind {
         FormFieldKind::Text { multiline, max_len } => {
-            pdf_form::text_field(id, PageId(page), name, rect, style, multiline, max_len)
+            pdf_form::text_field(id, page, name, rect, style, multiline, max_len)
         }
-        FormFieldKind::Checkbox => pdf_form::checkbox(id, PageId(page), name, rect, style),
+        FormFieldKind::Checkbox => pdf_form::checkbox(id, page, name, rect, style),
         FormFieldKind::RadioGroup { options } => {
-            pdf_form::radio_group(id, PageId(page), name, rect, style, options)
+            pdf_form::radio_group(id, page, name, rect, style, options)
         }
         FormFieldKind::Dropdown { options, editable } => {
-            pdf_form::dropdown(id, PageId(page), name, rect, style, options, editable)
+            pdf_form::dropdown(id, page, name, rect, style, options, editable)
         }
         // Unreachable: `kind` is built from an `FfiEditCommand` variant, and
         // there is one per modelled kind. Handled rather than `unreachable!`
         // because `FormFieldKind` is `#[non_exhaustive]` here.
-        _ => pdf_form::text_field(id, PageId(page), name, rect, style, false, None),
+        _ => pdf_form::text_field(id, page, name, rect, style, false, None),
     };
     Command::AddFormField(field)
 }
@@ -488,7 +488,7 @@ mod tests {
     /// through it so the id/name allocation is exercised against a document
     /// that really holds what came before.
     fn place(document: &mut Document, kind: FormFieldKind) -> FormFieldId {
-        let command = add_field(document, 0, rect(), style(), kind);
+        let command = add_field(document, PageId(0), rect(), style(), kind);
         let id = match &command {
             Command::AddFormField(field) => field.id,
             other => panic!("expected AddFormField, got {other:?}"),

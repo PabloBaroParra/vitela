@@ -73,7 +73,9 @@ SaveRequest { sessionId: opaque string, destination: DocumentDestination, intent
 OperationResult<T> { value?: T, error?: UserSafeError }
 ```
 
-`EditCommand` is limited to the currently exported FFI commands: page rotation/insertion/removal; highlight, underline, strikeout, shape, ink, text note; annotation removal. Coordinates are PDF points with a bottom-left origin. `RenderedPage.rgba` is RGBA8 row-major data; the facade releases binding bitmap references after materialization.
+`EditCommand` is limited to the currently exported FFI commands: page rotation/insertion/removal/move; highlight, underline, strikeout, shape, ink, text note; annotation removal. Coordinates are PDF points with a bottom-left origin.
+
+Every `page` crossing the FFI — in a command, an annotation, a form field, a content item, `read_page_content`, `insert_image_stamp` or `page_dimensions` — is the page's current **position**, the same number `render_page` takes. The core translates it to the page's stable identity at the boundary, so an annotation drawn on position 0 stays on that page when a later move sends it elsewhere, and `annotations()` then reports the page's new position. `page_dimensions` follows the current order too, including pending moves, insertions and quarter-turns. `RenderedPage.rgba` is RGBA8 row-major data; the facade releases binding bitmap references after materialization.
 
 ## Threading And Stale Results
 

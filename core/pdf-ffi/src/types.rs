@@ -593,6 +593,10 @@ impl From<FfiDocumentInfo> for DocumentInfo {
 /// this workspace supports as of Batch 7 — `move`/`resize`/`restyle` are
 /// deliberately absent (documented Batch 5 gap: not yet `EditLog` commands,
 /// see `pdf-annotate::ops` module docs).
+///
+/// Every `page`/`index` here is a **position** in the document's current
+/// page order, never a `PageId`: the boundary resolves it to the page that
+/// sits there when the command is built (`DocumentState::page_id`).
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum FfiEditCommand {
     RotatePage {
@@ -606,6 +610,16 @@ pub enum FfiEditCommand {
     },
     RemovePage {
         index: u32,
+    },
+    /// Moves `count` contiguous pages starting at position `from` so that
+    /// the first of them ends up at position `to`, keeping their internal
+    /// order — `pdf_document::Command::MovePages`, one undoable step. `to`
+    /// is where the block starts *after* the move, so undo is the same
+    /// command with `from` and `to` swapped.
+    MovePages {
+        from: u32,
+        count: u32,
+        to: u32,
     },
     AddHighlight {
         page: u32,

@@ -39,7 +39,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials,
-    PageId, Permissions, SecurityContext, SecurityHandler,
+    ImageItem, Orientation, PageId, PageOrigin, Permissions, Rotation, SecurityContext,
+    SecurityHandler, TextRun,
 };
 use pdf_manip::LopdfDocument;
 
@@ -47,10 +48,10 @@ use crate::error::FfiError;
 use crate::form::{self, FfiFormField};
 use crate::selection::FfiPageCharacters;
 use crate::types::{
-    FfiAnnotation, FfiAnnotationKind, FfiDocumentInfo, FfiEditCommand, FfiOrientation,
-    FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions,
-    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
-    GRANTED_PROTECTION_PERMISSIONS,
+    FfiAnnotation, FfiAnnotationKind, FfiContentImageItem, FfiContentTextRun, FfiDocumentInfo,
+    FfiEditCommand, FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPoint,
+    FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult,
+    FfiSignatureAcknowledgement, FfiTextRun, GRANTED_PROTECTION_PERMISSIONS,
 };
 use crate::BitmapHandle;
 
@@ -74,9 +75,123 @@ pub(crate) struct DocumentState {
     /// never logged, and dies with the handle.
     render_password: Option<String>,
     next_annotation_id: u64,
+    /// Each base page's rotation as the file was opened, indexed like
+    /// `base`'s pages. `base.page_dimensions()` already has that turn baked
+    /// in, so [`DocumentState::page_dimensions`] needs it to tell whether a
+    /// pending rotation has put a page on its side since.
+    opened_rotations: Vec<Rotation>,
 }
 
 impl DocumentState {
+    fn new(
+        document: Document,
+        base: pdf_manip::LopdfDocument,
+        original_bytes: Option<Vec<u8>>,
+        render_doc: Option<pdf_render::DocumentHandle>,
+        render_password: Option<String>,
+    ) -> Self {
+        // Read before any edit exists: at open every page is a base page
+        // sitting at its own base index, so position and base index agree.
+        let opened_rotations = document.pages.iter().map(|page| page.rotation).collect();
+        DocumentState {
+            document,
+            base,
+            original_bytes,
+            render_doc,
+            render_password,
+            next_annotation_id: 0,
+            opened_rotations,
+        }
+    }
+
+    /// The page at `position` — the only way a `page` crossing this boundary
+    /// becomes a `PageId`.
+    ///
+    /// Every shell addresses pages by where they are: it renders position
+    /// `n`, draws on position `n`, and `render_page` itself takes a position.
+    /// Reading that number as an id instead only works while the two
+    /// coincide, which they do on open (`populate_document` hands out
+    /// `PageId(0..n)`) and stop doing after the first move, removal or
+    /// insertion — after which an annotation lands on whichever page owns
+    /// that id, wherever it has gone.
+    fn page_id(&self, position: u32) -> Result<PageId, FfiError> {
+        self.document
+            .page_id_at(position as usize)
+            .ok_or(FfiError::PageIndexOutOfBounds { index: position })
+    }
+
+    /// Where the page `id` sits now — the outbound half of [`Self::page_id`].
+    /// `None` only for an id no page holds, which an annotation or field
+    /// cannot carry: removing a page removes what is anchored to it.
+    fn page_position(&self, id: PageId) -> Option<u32> {
+        self.document.render_index(id).map(|index| index as u32)
+    }
+
+    fn text_run(&self, item: FfiContentTextRun) -> Result<TextRun, FfiError> {
+        let page = self.page_id(item.page)?;
+        Ok(TextRun {
+            page,
+            ..item.into()
+        })
+    }
+
+    fn image_item(&self, item: FfiContentImageItem) -> Result<ImageItem, FfiError> {
+        let page = self.page_id(item.page)?;
+        Ok(ImageItem {
+            page,
+            ..item.into()
+        })
+    }
+
+    /// Every page's size in points, in the order the document has them
+    /// **now** — what a shell lays out once `refresh_preview` shows a
+    /// reorder, insertion or rotation.
+    ///
+    /// Built from the model rather than asked of pdfium so that an untouched
+    /// document reports exactly what it always has: a base page keeps the
+    /// size `base` gives it, and only swaps width and height when a pending
+    /// rotation has turned it a quarter from how it opened. A page with no
+    /// base counterpart is sized from its own recorded paper size.
+    fn page_dimensions(&self) -> Vec<FfiPageDimensions> {
+        let opened = self.base.page_dimensions();
+        self.document
+            .pages
+            .iter()
+            .map(|page| {
+                let base = match page.origin {
+                    PageOrigin::Base { page_index } => opened
+                        .get(page_index as usize)
+                        .zip(self.opened_rotations.get(page_index as usize)),
+                    _ => None,
+                };
+                let ((width_pt, height_pt), opened_rotation) = match base {
+                    Some((dimensions, rotation)) => {
+                        ((dimensions.width_pt, dimensions.height_pt), *rotation)
+                    }
+                    None => {
+                        let (width, height) = page.size.dimensions_pt();
+                        let upright = match page.orientation {
+                            Orientation::Portrait => (width, height),
+                            Orientation::Landscape => (height, width),
+                        };
+                        (upright, Rotation::None)
+                    }
+                };
+                if is_sideways(page.rotation) == is_sideways(opened_rotation) {
+                    FfiPageDimensions {
+                        width_pt,
+                        height_pt,
+                    }
+                } else {
+                    FfiPageDimensions {
+                        width_pt: height_pt,
+                        height_pt: width_pt,
+                    }
+                }
+            })
+            .collect()
+    }
+
     fn allocate_annotation_id(&mut self) -> AnnotationId {
         let id = AnnotationId(self.next_annotation_id);
         self.next_annotation_id += 1;
@@ -95,7 +210,7 @@ impl DocumentState {
                 page,
                 delta_degrees,
             } => Command::RotatePage {
-                page: PageId(page),
+                page: self.page_id(page)?,
                 delta_degrees,
             },
             FfiEditCommand::InsertBlankPage {
@@ -134,63 +249,62 @@ impl DocumentState {
                 Command::remove_page(&self.document, index as usize)
                     .ok_or(FfiError::PageIndexOutOfBounds { index })?
             }
+            FfiEditCommand::MovePages { from, count, to } => {
+                // The core refuses a bad range too, but only as `false`;
+                // checked here so the shell learns *which* position was out
+                // of range. A zero count or a move onto itself is left to
+                // the core's own refusal — neither names a bad position.
+                let len = self.document.pages.len() as u64;
+                if u64::from(from) + u64::from(count) > len {
+                    return Err(FfiError::PageIndexOutOfBounds { index: from });
+                }
+                if u64::from(to) + u64::from(count) > len {
+                    return Err(FfiError::PageIndexOutOfBounds { index: to });
+                }
+                Command::MovePages {
+                    from: from as usize,
+                    count: count as usize,
+                    to: to as usize,
+                }
+            }
             FfiEditCommand::AddHighlight { page, rect, color } => {
+                let page = self.page_id(page)?;
                 let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::highlight(
-                    id,
-                    PageId(page),
-                    rect.into(),
-                    color.into(),
-                ))
+                Command::AddAnnotation(pdf_annotate::highlight(id, page, rect.into(), color.into()))
             }
             FfiEditCommand::AddUnderline { page, rect, color } => {
+                let page = self.page_id(page)?;
                 let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::underline(
-                    id,
-                    PageId(page),
-                    rect.into(),
-                    color.into(),
-                ))
+                Command::AddAnnotation(pdf_annotate::underline(id, page, rect.into(), color.into()))
             }
             FfiEditCommand::AddStrikeout { page, rect, color } => {
+                let page = self.page_id(page)?;
                 let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::strikeout(
-                    id,
-                    PageId(page),
-                    rect.into(),
-                    color.into(),
-                ))
+                Command::AddAnnotation(pdf_annotate::strikeout(id, page, rect.into(), color.into()))
             }
             FfiEditCommand::AddShape { page, rect, color } => {
+                let page = self.page_id(page)?;
                 let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::shape(
-                    id,
-                    PageId(page),
-                    rect.into(),
-                    color.into(),
-                ))
+                Command::AddAnnotation(pdf_annotate::shape(id, page, rect.into(), color.into()))
             }
             FfiEditCommand::AddInk {
                 page,
                 points,
                 color,
             } => {
+                let page = self.page_id(page)?;
                 let id = self.allocate_annotation_id();
                 let points = points.into_iter().map(|p| (p.x, p.y)).collect();
-                Command::AddAnnotation(pdf_annotate::ink(id, PageId(page), points, color.into()))
+                Command::AddAnnotation(pdf_annotate::ink(id, page, points, color.into()))
             }
             FfiEditCommand::AddTextNote {
                 page,
                 rect,
                 contents,
             } => {
+                let page = self.page_id(page)?;
                 let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::text_note(
-                    id,
-                    PageId(page),
-                    rect.into(),
-                    contents,
-                ))
+                Command::AddAnnotation(pdf_annotate::text_note(id, page, rect.into(), contents))
             }
             FfiEditCommand::RemoveAnnotation { annotation_id } => {
                 let id = AnnotationId(annotation_id);
@@ -223,36 +337,36 @@ impl DocumentState {
             })?,
             FfiEditCommand::ReplaceTextRunContent { item, after } => {
                 Command::ReplaceTextRunContent {
-                    item: item.into(),
+                    item: self.text_run(item)?,
                     after,
                 }
             }
             FfiEditCommand::ReplaceTextRunWithInsertedFont { item, after } => {
                 Command::ReplaceTextRunWithInsertedFont {
-                    item: item.into(),
+                    item: self.text_run(item)?,
                     after,
                 }
             }
-            FfiEditCommand::InsertTextRun { item } => Command::InsertTextRun(item.into()),
-            FfiEditCommand::RemoveTextRun { item } => Command::RemoveTextRun(item.into()),
+            FfiEditCommand::InsertTextRun { item } => Command::InsertTextRun(self.text_run(item)?),
+            FfiEditCommand::RemoveTextRun { item } => Command::RemoveTextRun(self.text_run(item)?),
             FfiEditCommand::MoveTextRun { item, to } => Command::MoveTextRun {
-                item: item.into(),
+                item: self.text_run(item)?,
                 to: to.into(),
             },
             FfiEditCommand::InsertImage { item, source } => Command::InsertImage {
-                item: item.into(),
+                item: self.image_item(item)?,
                 source,
             },
             FfiEditCommand::RemoveImage { item, source } => Command::RemoveImage {
-                item: item.into(),
+                item: self.image_item(item)?,
                 source,
             },
             FfiEditCommand::MoveImage { item, to } => Command::MoveImage {
-                item: item.into(),
+                item: self.image_item(item)?,
                 to: to.into(),
             },
             FfiEditCommand::ResizeImage { item, to } => Command::ResizeImage {
-                item: item.into(),
+                item: self.image_item(item)?,
                 to: to.into(),
             },
             FfiEditCommand::ReplaceImageSource {
@@ -260,7 +374,7 @@ impl DocumentState {
                 before,
                 after,
             } => Command::ReplaceImageSource {
-                item: item.into(),
+                item: self.image_item(item)?,
                 before,
                 after,
             },
@@ -272,14 +386,14 @@ impl DocumentState {
                 max_len,
             } => form::add_field(
                 &self.document,
-                page,
+                self.page_id(page)?,
                 rect,
                 style,
                 pdf_document::FormFieldKind::Text { multiline, max_len },
             ),
             FfiEditCommand::AddCheckbox { page, rect, style } => form::add_field(
                 &self.document,
-                page,
+                self.page_id(page)?,
                 rect,
                 style,
                 pdf_document::FormFieldKind::Checkbox,
@@ -291,7 +405,7 @@ impl DocumentState {
                 options,
             } => form::add_field(
                 &self.document,
-                page,
+                self.page_id(page)?,
                 rect,
                 style,
                 pdf_document::FormFieldKind::RadioGroup {
@@ -306,7 +420,7 @@ impl DocumentState {
                 editable,
             } => form::add_field(
                 &self.document,
-                page,
+                self.page_id(page)?,
                 rect,
                 style,
                 pdf_document::FormFieldKind::Dropdown { options, editable },
@@ -511,8 +625,14 @@ fn is_document_assembly_command(command: &FfiEditCommand) -> bool {
 fn is_page_structure_command(command: &FfiEditCommand) -> bool {
     matches!(
         command,
-        FfiEditCommand::InsertBlankPage { .. } | FfiEditCommand::RemovePage { .. }
+        FfiEditCommand::InsertBlankPage { .. }
+            | FfiEditCommand::RemovePage { .. }
+            | FfiEditCommand::MovePages { .. }
     )
+}
+
+fn is_sideways(rotation: Rotation) -> bool {
+    matches!(rotation, Rotation::Clockwise90 | Rotation::Clockwise270)
 }
 
 fn is_annotation_command(command: &FfiEditCommand) -> bool {
@@ -521,6 +641,7 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
         FfiEditCommand::RotatePage { .. }
             | FfiEditCommand::InsertBlankPage { .. }
             | FfiEditCommand::RemovePage { .. }
+            | FfiEditCommand::MovePages { .. }
             | FfiEditCommand::ReplaceTextRunContent { .. }
             | FfiEditCommand::ReplaceTextRunWithInsertedFont { .. }
             | FfiEditCommand::InsertTextRun { .. }
@@ -596,12 +717,7 @@ impl DocumentHandle {
     /// so placeholder sizes always match the rendered output, even while
     /// unsaved edits are pending in the document model.
     pub fn page_dimensions(&self) -> Vec<FfiPageDimensions> {
-        self.lock()
-            .base
-            .page_dimensions()
-            .into_iter()
-            .map(Into::into)
-            .collect()
+        self.lock().page_dimensions()
     }
 
     /// Extracts the text runs for one 0-indexed page. Each run has one
@@ -683,11 +799,17 @@ impl DocumentHandle {
     /// Annotation snapshots in paint order. Querying is read-only and remains
     /// available when editing permission is withheld.
     pub fn annotations(&self) -> Vec<FfiAnnotation> {
-        self.lock()
+        let state = self.lock();
+        state
             .document
             .annotations
             .iter()
-            .map(ffi_annotation)
+            .filter_map(|annotation| {
+                Some(FfiAnnotation {
+                    page: state.page_position(annotation.page)?,
+                    ..ffi_annotation(annotation)
+                })
+            })
             .collect()
     }
 
@@ -705,11 +827,17 @@ impl DocumentHandle {
     /// Read-only, so like [`Self::annotations`] it stays available however
     /// restricted the document is.
     pub fn list_form_fields(&self) -> Vec<FfiFormField> {
-        self.lock()
+        let state = self.lock();
+        state
             .document
             .form_fields
             .iter()
-            .map(form::ffi_form_field)
+            .filter_map(|field| {
+                Some(FfiFormField {
+                    page: state.page_position(field.page)?,
+                    ..form::ffi_form_field(field)
+                })
+            })
             .collect()
     }
 
@@ -758,14 +886,28 @@ impl DocumentHandle {
         // shell's for now), so an imported page is refused with a clear
         // message instead of silently reading whichever base page happens to
         // sit at that index.
-        pdf_save::read_page_content_of(
+        let content: FfiPageContent = pdf_save::read_page_content_of(
             &state.document,
-            PageId(page),
+            state.page_id(page)?,
             &state.base,
             pdf_save::ImportedSources::none(),
-        )
-        .map(Into::into)
-        .map_err(Into::into)
+        )?
+        .into();
+        // The items carry the page they were read from; hand it back as the
+        // position it was asked by, so the shell can send them straight
+        // back into `apply_edit`, which reads it as one.
+        Ok(FfiPageContent {
+            text_runs: content
+                .text_runs
+                .into_iter()
+                .map(|run| FfiContentTextRun { page, ..run })
+                .collect(),
+            images: content
+                .images
+                .into_iter()
+                .map(|image| FfiContentImageItem { page, ..image })
+                .collect(),
+        })
     }
 
     /// The `/BaseFont` name of each font `page` declares, keyed by the
@@ -790,7 +932,7 @@ impl DocumentHandle {
         }
         pdf_save::page_font_families_of(
             &state.document,
-            PageId(page),
+            state.page_id(page)?,
             &state.base,
             pdf_save::ImportedSources::none(),
         )
@@ -870,10 +1012,18 @@ mod tests {
     const MODIFY_CONTENTS_BIT: u32 = 1 << 3;
 
     fn restricted_handle(permissions: u32) -> Arc<DocumentHandle> {
-        let base = pdf_manip::create_blank_document(
+        // One page, because the commands below place things on page 0 and
+        // a page position has to name a page that exists.
+        let base = pdf_manip::insert_blank_page(
+            &pdf_manip::create_blank_document(
+                pdf_document::PageSize::A4,
+                pdf_document::Orientation::Portrait,
+            ),
+            0,
             pdf_document::PageSize::A4,
             pdf_document::Orientation::Portrait,
-        );
+        )
+        .expect("one blank page");
         let mut document = pdf_save::document_from_lopdf(&base, None).expect("blank model");
         document.security = Some(SecurityContext {
             handler: SecurityHandler::Rc4_128,
@@ -881,15 +1031,10 @@ mod tests {
             credentials: EncryptionCredentials::default(),
             permissions: Permissions(permissions),
         });
-        DocumentHandle::new(DocumentState {
-            document,
-            base,
-            original_bytes: None,
-            // No pdfium needed: nothing below this line renders.
-            render_doc: None,
-            render_password: None,
-            next_annotation_id: 0,
-        })
+        DocumentHandle::new(DocumentState::new(
+            document, base, None, // No pdfium needed: nothing below this line renders.
+            None, None,
+        ))
     }
 
     fn a_checkbox() -> FfiEditCommand {
@@ -996,6 +1141,11 @@ mod tests {
                 orientation: FfiOrientation::Portrait,
             },
             FfiEditCommand::RemovePage { index: 0 },
+            FfiEditCommand::MovePages {
+                from: 0,
+                count: 1,
+                to: 1,
+            },
         ] {
             assert!(is_document_assembly_command(&command), "{command:?}");
             assert!(!is_annotation_command(&command), "{command:?}");
@@ -1051,14 +1201,13 @@ pub fn open_from_bytes(
         password.as_deref(),
     )?);
 
-    Ok(DocumentHandle::new(DocumentState {
+    Ok(DocumentHandle::new(DocumentState::new(
         document,
         base,
-        original_bytes: Some(bytes),
+        Some(bytes),
         render_doc,
-        render_password: password,
-        next_annotation_id: 0,
-    }))
+        password,
+    )))
 }
 
 /// Opens the encrypted PDF at `path` after verifying both its user and owner
@@ -1099,14 +1248,13 @@ pub fn open_with_passwords_from_bytes(
         Some(&owner_password),
     )?);
 
-    Ok(DocumentHandle::new(DocumentState {
+    Ok(DocumentHandle::new(DocumentState::new(
         document,
         base,
-        original_bytes: Some(bytes),
+        Some(bytes),
         render_doc,
-        render_password: Some(owner_password),
-        next_annotation_id: 0,
-    }))
+        Some(owner_password),
+    )))
 }
 
 /// Creates a new, blank PDF (zero pages) with the given default page size/
@@ -1132,14 +1280,9 @@ pub fn create_blank_document(
         Err(_) => None,
     };
 
-    Ok(DocumentHandle::new(DocumentState {
-        document,
-        base,
-        original_bytes: None,
-        render_doc,
-        render_password: None,
-        next_annotation_id: 0,
-    }))
+    Ok(DocumentHandle::new(DocumentState::new(
+        document, base, None, render_doc, None,
+    )))
 }
 
 /// Creates a new document that already holds one blank page of the given
@@ -1449,9 +1592,9 @@ pub fn insert_image_stamp(
             detail: "annotation editing is not permitted".to_string(),
         });
     }
+    let page = state.page_id(page_index)?;
     let id = state.allocate_annotation_id();
-    let annotation =
-        pdf_annotate::stamp_from_image_bytes(id, PageId(page_index), &image_bytes, rect.into())?;
+    let annotation = pdf_annotate::stamp_from_image_bytes(id, page, &image_bytes, rect.into())?;
     if !apply_command(&mut state.document, Command::AddAnnotation(annotation)) {
         return Err(FfiError::UnsupportedOperation {
             detail: "this edit command was rejected against the open document".to_string(),
