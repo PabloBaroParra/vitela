@@ -146,7 +146,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Edit page content | 🚧 | 🚧 | — | — | — |
 | Edit metadata | ✅ | ✅ | — | — | — |
 | Organize & assemble pages | ✅ | 🚧 | — | — | — |
-| Extract pages to a new PDF | ✅ | — | — | — | — |
+| Extract pages to a new PDF | ✅ | ✅ | — | — | — |
 | Split into several PDFs | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
 | Protect with a password | ✅ | ✅ | — | — | — |
@@ -175,7 +175,9 @@ prompt, annotations with undo/redo, save, print, shortcuts), and retyping a
 text run on the page itself — the Linux shell's content-edit mode, reached
 through the FFI instead of a direct crate link — is now wired up as well. The
 image half of that mode is still Linux-only. Windows exports pages as PNG or
-JPEG with the same page ranges and DPI range as Linux. Windows can
+JPEG with the same page ranges and DPI range as Linux, and extracts a chosen
+range of pages into a new PDF the same way, sharing the core's page-pruning
+cut (`pdf_document::prune`) rather than a second implementation. Windows can
 move, rotate and delete pages from a thumbnail grid; importing pages from
 other PDFs and the Documents view are still Linux-only. Forms are half-way there: the fields a
 document already has can be filled in from a side panel, but placing new ones

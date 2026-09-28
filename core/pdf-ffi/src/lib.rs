@@ -40,6 +40,9 @@
 //!   file naming and the raster ceiling a shell asks before it writes, and
 //!   the encoded page itself. All of it is `pdf-save`/`pdf-render`'s; this
 //!   module only carries it across.
+//! - [`extract`]: extracting a subset of pages into a new PDF — the FFI twin
+//!   of the Linux shell's `write::extract` chain, sharing its cut
+//!   (`pdf_document::prune::prune_to`) rather than reimplementing it.
 //!
 //! ## Why this crate builds the FFI surface from real APIs, not port traits
 //!
@@ -58,6 +61,7 @@ mod compress;
 mod document;
 mod error;
 mod export;
+mod extract;
 mod form;
 mod placement;
 mod selection;
@@ -80,6 +84,7 @@ pub use export::{
     export_page_image, first_page_too_large_to_export, page_image_file_name, parse_page_selection,
     FfiExportFormat,
 };
+pub use extract::{extract_pages_to_pdf, extract_source_is_signed};
 pub use form::{
     FfiFieldOrigin, FfiFieldValue, FfiFontFamily, FfiFormField, FfiFormFieldKind, FfiRadioOption,
     FfiTextStyle,

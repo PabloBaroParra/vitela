@@ -110,6 +110,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("exports a page's encoded bytes in the chosen format", ExportsAPagesEncodedBytesAsync)
     ,("refuses a page image once the session is retired", RefusesAPageImageAfterSessionSwapAsync)
     ,("summarises an image export in the singular and plural", SummarisesAnImageExport)
+    ,("plans an extraction with the core's parsed pages", PlansAnExtractionWithTheCoresParsedPagesAsync)
+    ,("refuses an empty page range before the core's grammar runs", RefusesAnEmptyExtractRangeAsync)
+    ,("shows the core's own sentence for a bad extract range", ShowsTheCoresSentenceForABadExtractRangeAsync)
+    ,("refuses an extraction the document forbids copying from", RefusesAnExtractionForbiddenByCopyingAsync)
+    ,("refuses an extraction that could not be fully rewritten", RefusesAnExtractionThatCannotBeRewrittenAsync)
+    ,("extracts pruned bytes for exactly the planned pages", ExtractsPrunedBytesForThePlannedPagesAsync)
+    ,("refuses an extraction once the session is retired", RefusesAnExtractionAfterSessionSwapAsync)
+    ,("summarises an extraction in the singular and plural", SummarisesAnExtraction)
+    ,("adds a signature note only when the source is signed", AddsASignatureNoteOnlyWhenTheSourceIsSigned)
     ,("loads a page's characters for caret and selection queries", LoadsPageCharactersAsync)
     ,("refuses page characters once the session is retired", RefusesPageCharactersAfterSessionSwapAsync)
     ,("reads a page's editable text runs", ReadsPageContentForEditingAsync)
@@ -1593,6 +1602,112 @@ static Task SummarisesAnImageExport()
     return Task.CompletedTask;
 }
 
+static async Task PlansAnExtractionWithTheCoresParsedPagesAsync()
+{
+    var core = new FakeCore { PageCount = 10, ParsedSelection = [0, 2, 6] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanExtractPagesAsync(session.SessionId, new ExtractPagesRequest("1,3,7"));
+
+    Assert(core.LastSelection == ("1,3,7", 10u), "the typed range and the page count must reach the core as they are");
+    Assert(plan.IsSuccess && plan.Value!.Pages.SequenceEqual([0u, 2u, 6u]), "the core's pages must be the ones planned");
+}
+
+static async Task RefusesAnEmptyExtractRangeAsync()
+{
+    var core = new FakeCore { PageCount = 5 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanExtractPagesAsync(session.SessionId, new ExtractPagesRequest("   "));
+
+    Assert(!plan.IsSuccess, "an untyped range must not plan");
+    Assert(plan.Error!.Message == "Type which pages to extract, for example 1-3,7.", plan.Error.Message);
+    Assert(core.LastSelection is null, "the core's grammar must not even be asked about an empty range");
+}
+
+static async Task ShowsTheCoresSentenceForABadExtractRangeAsync()
+{
+    var core = new FakeCore { PageCount = 10, SelectionRefusal = "The range 7-3 runs backwards; write it as 3-7." };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanExtractPagesAsync(session.SessionId, new ExtractPagesRequest("7-3"));
+
+    Assert(!plan.IsSuccess, "a range the core refused must not plan");
+    Assert(plan.Error!.Message == "The range 7-3 runs backwards; write it as 3-7.", $"the core's sentence must reach the reader unchanged, got '{plan.Error.Message}'");
+}
+
+static async Task RefusesAnExtractionForbiddenByCopyingAsync()
+{
+    var core = new FakeCore { PageCount = 3, ExtractionPermitted = false };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanExtractPagesAsync(session.SessionId, new ExtractPagesRequest("1"));
+
+    Assert(!plan.IsSuccess, "a document that withholds extraction must not plan one");
+    Assert(plan.Error!.Message == "This document does not permit extracting its pages.", plan.Error.Message);
+    Assert(core.LastSelection is null, "the grammar must not run once the permission gate has already refused");
+}
+
+static async Task RefusesAnExtractionThatCannotBeRewrittenAsync()
+{
+    var core = new FakeCore { PageCount = 3, RewriteAllowed = false };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var plan = await facade.PlanExtractPagesAsync(session.SessionId, new ExtractPagesRequest("1"));
+
+    Assert(!plan.IsSuccess, "a document that cannot be fully rewritten must not plan an extraction");
+    Assert(
+        plan.Error!.Message == "Extracting pages rewrites the whole file, which this document's encryption or available credentials do not allow.",
+        plan.Error.Message);
+}
+
+static async Task ExtractsPrunedBytesForThePlannedPagesAsync()
+{
+    var core = new FakeCore { PageCount = 5 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("report.pdf", [1]))).Value!;
+
+    var extracted = await facade.ExtractPagesAsync(session.SessionId, [0, 2, 4]);
+
+    Assert(extracted.IsSuccess && extracted.Value!.Length == 3, "the fake's stand-in bytes must be one per planned page");
+    Assert(core.LastExtractedPages!.SequenceEqual([0u, 2u, 4u]), "exactly the planned pages must reach the core");
+}
+
+static async Task RefusesAnExtractionAfterSessionSwapAsync()
+{
+    var core = new FakeCore { PageCount = 1 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var first = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+
+    var extracted = await facade.ExtractPagesAsync(first.SessionId, [0]);
+
+    Assert(!extracted.IsSuccess && extracted.Error!.Message == "The document is no longer available.", "a replaced session must not extract");
+    Assert(core.LastExtractedPages is null, "nothing may be pruned for a replaced session");
+}
+
+static Task SummarisesAnExtraction()
+{
+    Assert(ExtractPagesWording.Summary(1, @"C:\out\part.pdf", false) == @"Extracted 1 page to C:\out\part.pdf.", "singular");
+    Assert(ExtractPagesWording.Summary(3, @"C:\out\part.pdf", false) == @"Extracted 3 pages to C:\out\part.pdf.", "plural");
+    return Task.CompletedTask;
+}
+
+static Task AddsASignatureNoteOnlyWhenTheSourceIsSigned()
+{
+    var unsigned = ExtractPagesWording.Summary(2, @"C:\out\part.pdf", false);
+    var signed = ExtractPagesWording.Summary(2, @"C:\out\part.pdf", true);
+
+    Assert(!unsigned.Contains("no longer verifies"), "an unsigned source earns no signature note");
+    Assert(signed.StartsWith(@"Extracted 2 pages to C:\out\part.pdf.") && signed.Contains("no longer verifies"), signed);
+    return Task.CompletedTask;
+}
+
 static Task SizesCompressionResultsInPowersOfTen()
 {
     Assert(CompressionWording.HumanSize(2_400_000) == "2.4 MB", "megabytes");
@@ -2868,6 +2983,26 @@ sealed class FakeCore : IPdfCore
         ExportedPages.Enqueue((pageIndex, dpi, format));
         return format == PdfCoreImageFormat.Jpeg ? [0xFF, 0xD8] : [0x89, 0x50];
     }
+
+    /// <summary>What <see cref="FullRewriteAllowed"/> answers — the second extract gate.</summary>
+    public bool RewriteAllowed { get; init; } = true;
+    /// <summary>What <see cref="ExtractSourceIsSigned"/> answers.</summary>
+    public bool ExtractedSourceSigned { get; init; }
+    public IReadOnlyList<uint>? LastExtractedPages;
+
+    public bool FullRewriteAllowed(IPdfCoreDocument document) => RewriteAllowed;
+
+    public byte[] ExtractPagesToPdf(IPdfCoreDocument document, IReadOnlyList<uint> pages)
+    {
+        // The real core refuses before pruning, so the fake does too.
+        if (!ExtractionPermitted) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "extraction is not permitted");
+        if (!RewriteAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "document cannot be fully rewritten");
+        if (pages.Count == 0) throw new PdfCoreException(PdfCoreError.InvalidPageSelection, "InvalidPageSelection", "no pages were selected to extract");
+        LastExtractedPages = pages;
+        return [.. Enumerable.Repeat((byte)0x25, pages.Count)];
+    }
+
+    public bool ExtractSourceIsSigned(IPdfCoreDocument document) => ExtractedSourceSigned;
 }
 
 /// <summary>

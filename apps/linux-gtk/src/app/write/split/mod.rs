@@ -3,7 +3,7 @@
 //! The Organize screen's "Split" button lands here. It is the sixth write
 //! chain and the closest relative of [`extract`](super::extract): both build
 //! a second document out of the open one's pages through
-//! [`prune`](super::prune), both leave the session completely alone, and both
+//! `pdf_document::prune`, both leave the session completely alone, and both
 //! report by naming what landed where. They differ in exactly one thing —
 //! **how many files come out** — and that one difference is what makes this a
 //! module of its own rather than a flag on that one.

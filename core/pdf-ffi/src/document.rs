@@ -520,14 +520,51 @@ impl DocumentState {
         intent: FfiSaveIntent,
         signatures: FfiSignatureAcknowledgement,
     ) -> pdf_save::SaveInput<'_> {
+        self.save_input_for(&self.document, intent, signatures)
+    }
+
+    /// The same save description [`Self::save_input`] builds, but against a
+    /// `document` the caller supplies instead of `self.document` — what
+    /// [`crate::extract::extract_pages_to_pdf`] needs to save a **pruned
+    /// clone** without mutating the live handle. `base` and `original_bytes`
+    /// still come from `self`: the source bytes a save is computed against
+    /// never change just because the page set being saved does.
+    pub(crate) fn save_input_for<'a>(
+        &'a self,
+        document: &'a Document,
+        intent: FfiSaveIntent,
+        signatures: FfiSignatureAcknowledgement,
+    ) -> pdf_save::SaveInput<'a> {
         pdf_save::SaveInput {
-            document: &self.document,
+            document,
             base: &self.base,
             original_bytes: self.original_bytes.as_deref(),
             intent: intent.into(),
             signatures: signatures.into(),
             imported_sources: pdf_save::ImportedSources::none(),
         }
+    }
+
+    /// A read-only view of the live document model, for callers (like
+    /// [`crate::extract`]) that need to clone it before mutating the clone.
+    pub(crate) fn document(&self) -> &Document {
+        &self.document
+    }
+
+    /// Why `document` could not survive a full rewrite, or `None` when it
+    /// could — see [`full_rewrite_blocker`], the free function this
+    /// delegates to.
+    pub(crate) fn full_rewrite_blocker(&self) -> Option<pdf_save::RewriteBlocker> {
+        full_rewrite_blocker(&self.document)
+    }
+
+    /// Whether the file this handle was opened from carries a digital
+    /// signature — read straight off `base`, the same way
+    /// `pdf_manip::document_has_signatures` is asked everywhere else in this
+    /// workspace, because a signature is a property of the bytes as opened,
+    /// not of the pending edit model.
+    pub(crate) fn has_signatures(&self) -> bool {
+        pdf_manip::document_has_signatures(&self.base)
     }
 
     /// Records the explicit-strip audit event when `intent` asks for one —
@@ -859,6 +896,16 @@ impl DocumentHandle {
                 })
             })
             .collect()
+    }
+
+    /// Whether this document could survive a full rewrite — the second gate
+    /// [`crate::extract_pages_to_pdf`] applies, beyond `/P` bit 5: a new page
+    /// set can only be produced by a full rewrite, and an encrypted document
+    /// opened with only one of its two passwords can never be re-encrypted.
+    /// Asked up front so a shell can refuse before picking a destination,
+    /// the FFI twin of the Linux shell's `Viewer::full_rewrite_refusal`.
+    pub fn full_rewrite_allowed(&self) -> bool {
+        self.lock().full_rewrite_blocker().is_none()
     }
 
     /// Reports whether this document permits *creating or modifying* a form

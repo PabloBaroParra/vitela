@@ -26,12 +26,12 @@ use std::path::{Path, PathBuf};
 
 use gtk::{gio, glib};
 
-use super::super::prune::prune_to;
 use super::super::worker::{atomic_write, save_worker_result, validate_written_bytes};
 use super::super::{imported_sources, SPLIT};
 use super::options;
 use super::SplitRequest;
 use crate::app::state::Viewer;
+use pdf_document::prune::prune_to;
 
 /// Writes every part on a worker thread and reports the result.
 pub(super) fn spawn_split(viewer: &Viewer, request: SplitRequest, folder: PathBuf) {
@@ -67,8 +67,9 @@ pub(super) fn spawn_split(viewer: &Viewer, request: SplitRequest, folder: PathBu
 /// destructive — it records removals on the document's log — so a single
 /// model reused across parts would hand part two whatever part one left
 /// behind. The clone is the price of the shared
-/// [`prune_to`](super::super::prune) rather than a bespoke non-destructive
-/// page copier, and it is paid once per part on a worker thread.
+/// [`prune_to`](pdf_document::prune::prune_to) rather than a bespoke
+/// non-destructive page copier, and it is paid once per part on a worker
+/// thread.
 ///
 /// `SaveIntent::Default` and not a strip: a split of a protected document
 /// produces protected files. The permission that let it happen at all is `/P`
@@ -156,7 +157,7 @@ mod tests {
     /// The round trip, end to end: a real PDF in, two real PDFs out, both
     /// reopened and counted.
     ///
-    /// `write::prune`'s own tests pin the rules in isolation — which runs are
+    /// `pdf_document::prune`'s own tests pin the rules in isolation — which runs are
     /// dropped, in what order, and that the log records them — and
     /// `split::options`' tests pin the arithmetic of where the cuts fall.
     /// None of that proves the rules add up to files anyone can open, which is

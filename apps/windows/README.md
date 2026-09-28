@@ -59,6 +59,19 @@ is refused there too. Existing files are preserved: name collisions receive a
 unique suffix. Export stops at the first failed page and reports how many
 were written; the open document remains editable.
 
+**Extract pages** prunes a typed range of pages (the same `"1-3,7"` grammar as
+Export images) into a new, self-contained PDF, written through a temporary
+destination like Save. Nothing about the open document changes: the prune
+runs against a clone, sharing the core's cut (`pdf_document::prune::prune_to`)
+with the Linux shell's own Extract chain rather than reimplementing it. Two
+gates are checked before the destination picker even opens: the document's
+extraction permission (`/P` bit 5, the same bit Export images asks) and
+whether it can survive a full rewrite at all — an encrypted document opened
+with only one of its two passwords cannot be re-encrypted, so it cannot
+produce a new page set either. A signed source is written anyway (extraction
+never blocks on a signature the reader is not being asked to break), but the
+status line says its signature no longer verifies.
+
 A "Form fields" panel fills in the AcroForm fields a document already has —
 text, checkboxes, radio groups and dropdowns — gated on the fill permission
 (ISO 32000-1 bit 6) rather than content editing. Each fill rebuilds the

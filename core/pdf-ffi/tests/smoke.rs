@@ -765,6 +765,23 @@ fn export_page_image_is_denied_when_the_document_forbids_text_extraction() {
     ));
 }
 
+/// `extract_pages_to_pdf` is exercised in depth in `tests/extract.rs`; this
+/// pins it into the same `/P` bit 5 denial pattern every other extraction-
+/// shaped export in this file gets, so the surface reads as one gate rather
+/// than several that happen to agree.
+#[test]
+fn extract_pages_to_pdf_is_denied_when_the_document_forbids_text_extraction() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    assert!(!handle.text_extraction_allowed());
+    assert!(matches!(
+        pdf_ffi::extract_pages_to_pdf(&handle, vec![0]),
+        Err(FfiError::UnsupportedOperation { .. })
+    ));
+}
+
 #[test]
 fn read_page_content_finds_the_standard14_run_written_by_the_fixture() {
     let handle = open_single_line_fixture("Hello world");

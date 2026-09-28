@@ -242,6 +242,31 @@ internal interface IPdfCore
 
     /// <summary>One page rendered and encoded — the bytes of the file to write.</summary>
     byte[] ExportPageImage(IPdfCoreDocument document, uint pageIndex, uint dpi, PdfCoreImageFormat format);
+
+    /// <summary>
+    /// Whether <paramref name="document"/> could survive a full rewrite — the
+    /// second gate <see cref="ExtractPagesToPdf"/> applies, beyond
+    /// <see cref="TextExtractionAllowed"/>: a new page set can only come from a
+    /// full rewrite, and an encrypted document opened with only one of its two
+    /// passwords can never be re-encrypted. Asked up front so a shell can
+    /// refuse before offering the Extract dialog at all.
+    /// </summary>
+    bool FullRewriteAllowed(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Prunes a clone of <paramref name="document"/> down to
+    /// <paramref name="pages"/> (zero-based, ascending, deduplicated
+    /// positions) and returns the bytes of the resulting PDF. The live
+    /// document is not mutated.
+    /// </summary>
+    byte[] ExtractPagesToPdf(IPdfCoreDocument document, IReadOnlyList<uint> pages);
+
+    /// <summary>
+    /// Whether the document <paramref name="document"/> was opened from
+    /// carries a digital signature — the one fact an extraction summary needs
+    /// beyond the page count.
+    /// </summary>
+    bool ExtractSourceIsSigned(IPdfCoreDocument document);
 }
 
 /// <summary>Mirrors <c>FfiExportFormat</c>.</summary>
