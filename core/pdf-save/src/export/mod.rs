@@ -15,9 +15,11 @@
 
 pub mod naming;
 pub mod selection;
+pub mod split;
 
 pub use naming::{document_file_stem, page_image_file_name, split_part_file_name};
 pub use selection::{parse_page_selection, PageSelectionError};
+pub use split::{resolve_split_cuts, split_parts};
 
 use image::{DynamicImage, ImageFormat, RgbaImage};
 

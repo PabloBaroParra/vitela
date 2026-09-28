@@ -356,6 +356,13 @@ internal sealed class GeneratedPdfCore : IPdfCore
     public bool ExtractSourceIsSigned(IPdfCoreDocument document) =>
         PdfFfiMethods.ExtractSourceIsSigned(((GeneratedDocument)document).Handle);
 
+    public IReadOnlyList<SplitPart> PlanSplit(string cuts, uint totalPages, string documentName)
+    {
+        try { return [.. PdfFfiMethods.PlanSplit(cuts, totalPages, documentName)
+            .Select(part => new SplitPart(part.First, part.Last, part.FileName))]; }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     private static FfiExportFormat ImageFormat(PdfCoreImageFormat format) => format switch
     {
         PdfCoreImageFormat.Png => FfiExportFormat.Png,
