@@ -150,7 +150,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Split into several PDFs | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
 | Protect with a password | ✅ | ✅ | — | — | — |
-| Export to images | ✅ | 🚧 | — | — | — |
+| Export to images | ✅ | ✅ | — | — | — |
 | Compress to a smaller PDF | ✅ | ✅ | — | — | — |
 | Sign | ✅ | — | — | — | — |
 | Fillable forms | ✅ | 🚧 | — | — | — |
@@ -174,9 +174,8 @@ Windows no longer omits editing: its first vertical closed in B10 (password
 prompt, annotations with undo/redo, save, print, shortcuts), and retyping a
 text run on the page itself — the Linux shell's content-edit mode, reached
 through the FFI instead of a direct crate link — is now wired up as well. The
-image half of that mode is still Linux-only. Windows can export every page as a
-separate PNG at 150 DPI; Linux additionally supports JPEG, page ranges and DPI
-selection. Windows can
+image half of that mode is still Linux-only. Windows exports pages as PNG or
+JPEG with the same page ranges and DPI range as Linux. Windows can
 move, rotate and delete pages from a thumbnail grid; importing pages from
 other PDFs and the Documents view are still Linux-only. Forms are half-way there: the fields a
 document already has can be filled in from a side panel, but placing new ones

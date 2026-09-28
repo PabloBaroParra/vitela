@@ -90,6 +90,11 @@ pub enum FfiError {
         character: String,
         resource_font_name: String,
     },
+    /// A typed page selection (`"1-3,7"`) could not be read. `detail` is
+    /// `pdf_save::PageSelectionError`'s sentence, addressed to the person who
+    /// typed it — the one `detail` in this enum a shell shows as it is.
+    #[error("{detail}")]
+    InvalidPageSelection { detail: String },
     /// Rendering failed for a reason surfaced by the render backend.
     #[error("render failed: {detail}")]
     RenderFailed { detail: String },

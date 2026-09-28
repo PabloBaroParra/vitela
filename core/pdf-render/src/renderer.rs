@@ -305,6 +305,28 @@ fn ensure_raster_within_limits(width: i32, height: i32) -> Result<(), RenderErro
     Ok(())
 }
 
+/// The pixel size a whole page of `width_pt` x `height_pt` rasterizes to at
+/// `dpi` — the one sizing rule [`render_page_job`] applies.
+fn full_page_raster_size(width_pt: f32, height_pt: f32, dpi: u32) -> (i32, i32) {
+    let scale = dpi as f32 / 72.0;
+    (
+        (width_pt * scale).round().max(1.0) as i32,
+        (height_pt * scale).round().max(1.0) as i32,
+    )
+}
+
+/// Whether a whole page of `width_pt` x `height_pt` can be rendered at `dpi`
+/// without hitting the raster ceiling every render enforces.
+///
+/// Asked *before* a long job — an export of many pages — so a page that would
+/// be refused is named up front rather than after the pages before it have
+/// already been written. The same sizing and the same limits as the render
+/// itself, so the answer cannot drift from what the render would do.
+pub fn full_page_raster_fits(width_pt: f32, height_pt: f32, dpi: u32) -> bool {
+    let (width, height) = full_page_raster_size(width_pt, height_pt, dpi);
+    ensure_raster_within_limits(width, height).is_ok()
+}
+
 fn render_page_job(
     state: &mut PdfiumState,
     doc: DocHandle,
@@ -326,8 +348,8 @@ fn render_page_job(
 
     let config = match region {
         None => {
-            let target_width = (page.width().value * scale).round().max(1.0) as i32;
-            let target_height = (page.height().value * scale).round().max(1.0) as i32;
+            let (target_width, target_height) =
+                full_page_raster_size(page.width().value, page.height().value, dpi);
             ensure_raster_within_limits(target_width, target_height)?;
             PdfRenderConfig::new()
                 .set_target_width(target_width)
@@ -335,8 +357,8 @@ fn render_page_job(
                 .rotate(PdfPageRenderRotation::None, false)
         }
         Some(rect) => {
-            let full_width = (page.width().value * scale).round().max(1.0) as i32;
-            let full_height = (page.height().value * scale).round().max(1.0) as i32;
+            let (full_width, full_height) =
+                full_page_raster_size(page.width().value, page.height().value, dpi);
             ensure_raster_within_limits(full_width, full_height)?;
             let clip_left = (rect.left * scale).round() as i32;
             let clip_top = (rect.top * scale).round() as i32;
@@ -589,6 +611,20 @@ mod tests {
             ensure_raster_within_limits(600, 30_000_000),
             Err(RenderError::RenderFailed(_))
         ));
+    }
+
+    /// US Letter at 400 DPI is 3400x4400 (15 Mpx); at 600 it is 5100x6600
+    /// (33.7 Mpx), just over `MAX_RASTER_PIXELS`. A shell's export ceiling is
+    /// chosen against exactly this line.
+    #[test]
+    fn a_letter_page_fits_at_400_dpi_but_not_at_600() {
+        assert!(full_page_raster_fits(612.0, 792.0, 400));
+        assert!(!full_page_raster_fits(612.0, 792.0, 600));
+    }
+
+    #[test]
+    fn a_degenerate_page_does_not_fit_at_any_ordinary_dpi() {
+        assert!(!full_page_raster_fits(1.0, 50_000.0, 72));
     }
 
     #[test]

@@ -195,7 +195,44 @@ internal interface IPdfCore
     /// pending edits are left exactly as they were.
     /// </summary>
     PdfCoreCompressedSave SaveCompressedToBytes(IPdfCoreDocument document, PdfCoreCompressPreset preset, bool signaturesAcknowledged);
+
+    /// <summary>
+    /// Whether the document lets its text and graphics be extracted — the
+    /// <c>/P</c> bit a page image needs, the same one search and copy ask.
+    /// </summary>
+    bool TextExtractionAllowed(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Reads a one-based page range such as <c>"1-3,7"</c> into ascending,
+    /// deduplicated zero-based positions. Takes no document: the grammar is
+    /// the core's, shared with every shell, so <c>"7-3"</c> means the same
+    /// thing everywhere.
+    /// </summary>
+    /// <exception cref="PdfCoreException">
+    /// <see cref="PdfCoreError.InvalidPageSelection"/>, with the core's
+    /// sentence for the reader in <see cref="PdfCoreException.ReaderFacingDetail"/>.
+    /// </exception>
+    IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages);
+
+    /// <summary>
+    /// The file one exported page is written under — always a single path
+    /// component, whatever <paramref name="documentName"/> holds.
+    /// </summary>
+    string PageImageFileName(string documentName, uint pageIndex, uint totalPages, PdfCoreImageFormat format);
+
+    /// <summary>
+    /// The first of <paramref name="pages"/> too large to raster at
+    /// <paramref name="dpi"/>, or <c>null</c> when every one fits — asked
+    /// before an export writes its first file.
+    /// </summary>
+    uint? FirstPageTooLargeToExport(IPdfCoreDocument document, IReadOnlyList<uint> pages, uint dpi);
+
+    /// <summary>One page rendered and encoded — the bytes of the file to write.</summary>
+    byte[] ExportPageImage(IPdfCoreDocument document, uint pageIndex, uint dpi, PdfCoreImageFormat format);
 }
+
+/// <summary>Mirrors <c>FfiExportFormat</c>.</summary>
+internal enum PdfCoreImageFormat { Png, Jpeg }
 
 /// <summary>Mirrors <c>FfiCompressPreset</c>; the numbers behind each stay in the core.</summary>
 internal enum PdfCoreCompressPreset { Lossless, Balanced, Small }
@@ -354,6 +391,12 @@ internal enum PdfCoreError
     /// character.
     /// </summary>
     EncodingGap,
+    /// <summary>
+    /// A typed page range the core could not read. Like
+    /// <see cref="EncodingGap"/>, the reader can fix it, and the core's
+    /// sentence saying how travels in <see cref="PdfCoreException.ReaderFacingDetail"/>.
+    /// </summary>
+    InvalidPageSelection,
     RenderFailed,
     Io,
     UnsavedChanges,
@@ -373,10 +416,11 @@ internal sealed class PdfCoreException : Exception
     /// <summary>
     /// The one fragment of this failure that is safe — and useful — to put in
     /// front of the reader, or <c>null</c> when the category alone says
-    /// everything. Only <see cref="PdfCoreError.EncodingGap"/> fills it in,
-    /// with the character that could not be encoded: the reader typed it, and
-    /// naming it is the difference between "not supported" and "not that
-    /// character".
+    /// everything. <see cref="PdfCoreError.EncodingGap"/> fills it in with the
+    /// character that could not be encoded: the reader typed it, and naming it
+    /// is the difference between "not supported" and "not that character".
+    /// <see cref="PdfCoreError.InvalidPageSelection"/> fills it in with the
+    /// core's sentence about the range the reader typed.
     /// </summary>
     public string? ReaderFacingDetail { get; }
 }

@@ -750,6 +750,21 @@ fn read_page_content_is_denied_when_the_document_forbids_text_extraction() {
     );
 }
 
+/// A page image is extracted graphics: the same `/P` bit 5 that denies
+/// `text_runs` and `search` denies it, and the shell can ask that up front.
+#[test]
+fn export_page_image_is_denied_when_the_document_forbids_text_extraction() {
+    let bytes = restricted_single_line_pdf("Hello world", "user-no-copy", "owner-no-copy");
+    let handle = open_from_bytes(bytes, Some("user-no-copy".to_string()))
+        .expect("should open with the correct user password");
+
+    assert!(!handle.text_extraction_allowed());
+    assert!(matches!(
+        pdf_ffi::export_page_image(&handle, 0, 72, pdf_ffi::FfiExportFormat::Png),
+        Err(FfiError::UnsupportedOperation { .. })
+    ));
+}
+
 #[test]
 fn read_page_content_finds_the_standard14_run_written_by_the_fixture() {
     let handle = open_single_line_fixture("Hello world");

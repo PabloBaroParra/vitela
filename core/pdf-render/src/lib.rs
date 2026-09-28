@@ -31,7 +31,9 @@ pub use actor::CancellationHandle;
 pub use bitmap::{Bitmap, BitmapHandle, BitmapRegistry};
 pub use error::RenderError;
 pub use options::{Priority, Rect, RenderOptions, Tile};
-pub use renderer::{DocumentHandle, PdfiumActor, PdfiumRenderer, RenderHandle};
+pub use renderer::{
+    full_page_raster_fits, DocumentHandle, PdfiumActor, PdfiumRenderer, RenderHandle,
+};
 pub use selection::{
     caret_range, line_rects, place_point, place_rect, point_to_pdf, Caret, PageCharacters,
     PageGeometry, PagePlacement, PageRotation, PlacedRect,
