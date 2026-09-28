@@ -152,6 +152,7 @@
                     <StackPanel Spacing="6" Padding="0,8,0,8">
                         <TextBlock x:Name="FormFieldsStatus" TextWrapping="Wrap" />
                         <ToggleButton x:Name="PlaceTextFieldButton" Content="Place text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
+                        <ToggleButton x:Name="PlaceCheckboxButton" Content="Place checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
                         <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
                             <StackPanel x:Name="FormFieldRows" Spacing="10" />
                         </ScrollViewer>

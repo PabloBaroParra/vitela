@@ -73,7 +73,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        StopPlacingTextField();
+        StopPlacingFormField();
         _armedAnnotation = null;
         _selectedAnnotationId = null;
         UpdateAnnotationControls(_annotationState);

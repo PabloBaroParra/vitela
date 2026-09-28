@@ -5,74 +5,91 @@ using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
-/// <summary>Placing a text field on a page; the core owns its identity and undo step.</summary>
+/// <summary>Placing a form field on a page; the core owns its identity and undo step.</summary>
 public sealed partial class MainWindow
 {
-    private bool _placingTextField;
-    private bool _creatingTextField;
-    private int? _textFieldPressPage;
+    private enum FieldToPlace { Text, Checkbox }
 
-    private async void PlaceTextFieldButton_Click(object sender, RoutedEventArgs e)
+    private FieldToPlace? _placingFormField;
+    private bool _creatingFormField;
+    private int? _formFieldPressPage;
+    private uint _formPlacementGeneration;
+
+    private async void PlaceTextFieldButton_Click(object sender, RoutedEventArgs e) =>
+        await SetFormFieldPlacementAsync(FieldToPlace.Text, PlaceTextFieldButton.IsChecked == true);
+
+    private async void PlaceCheckboxButton_Click(object sender, RoutedEventArgs e) =>
+        await SetFormFieldPlacementAsync(FieldToPlace.Checkbox, PlaceCheckboxButton.IsChecked == true);
+
+    private async Task SetFormFieldPlacementAsync(FieldToPlace kind, bool requested)
     {
-        var requested = PlaceTextFieldButton.IsChecked == true;
-        _placingTextField = false;
-        _textFieldPressPage = null;
+        StopPlacingFormField();
         if (!requested) return;
+        var button = kind == FieldToPlace.Text ? PlaceTextFieldButton : PlaceCheckboxButton;
+        button.IsChecked = true;
+        var generation = _formPlacementGeneration;
         var sessionId = _session?.SessionId;
         if (sessionId is null)
         {
-            StopPlacingTextField();
+            StopPlacingFormField();
             return;
         }
         await SettleContentEditorForHistoryAsync();
-        if (_session?.SessionId != sessionId || PlaceTextFieldButton.IsChecked != true)
+        if (_session?.SessionId != sessionId || generation != _formPlacementGeneration || button.IsChecked != true)
         {
-            StopPlacingTextField();
+            if (generation == _formPlacementGeneration) StopPlacingFormField();
             return;
         }
         SetContentEditMode(false);
-        _placingTextField = true;
+        _placingFormField = kind;
         _armedAnnotation = null;
         FormFieldsPanel.IsExpanded = true;
-        FormFieldsStatus.Text = "Click a page to place a text field.";
+        FormFieldsStatus.Text = kind == FieldToPlace.Text
+            ? "Click a page to place a text field."
+            : "Click a page to place a checkbox.";
     }
 
-    private void StopPlacingTextField()
+    private void StopPlacingFormField()
     {
-        _placingTextField = false;
-        _textFieldPressPage = null;
+        _formPlacementGeneration++;
+        _placingFormField = null;
+        _formFieldPressPage = null;
         PlaceTextFieldButton.IsChecked = false;
+        PlaceCheckboxButton.IsChecked = false;
     }
 
-    private bool BeginTextFieldPlacement(int pageIndex, PointerRoutedEventArgs args)
+    private bool BeginFormFieldPlacement(int pageIndex, PointerRoutedEventArgs args)
     {
-        if (!_placingTextField) return false;
-        _textFieldPressPage = pageIndex;
+        if (_placingFormField is null) return false;
+        _formFieldPressPage = pageIndex;
         args.Handled = true;
         return true;
     }
 
-    private async Task<bool> EndTextFieldPlacementAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
+    private async Task<bool> EndFormFieldPlacementAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
-        if (!_placingTextField) return false;
-        if (_textFieldPressPage != pageIndex || _creatingTextField || _session is null) return true;
-        _textFieldPressPage = null;
+        if (_placingFormField is not { } kind) return false;
+        if (_formFieldPressPage != pageIndex || _creatingFormField || _session is null) return true;
+        _formFieldPressPage = null;
 
         var sessionId = _session.SessionId;
+        var generation = _formPlacementGeneration;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         var page = _session.Pages[pageIndex];
-        // A click positions the field; keep the default 144 x 36 pt box on
+        // A click positions the field; keep its default size on
         // even a small page instead of recording a rectangle outside it.
-        var width = Math.Min(144, page.WidthPt);
-        var height = Math.Min(36, page.HeightPt);
+        var width = Math.Min(kind == FieldToPlace.Text ? 144 : 18, page.WidthPt);
+        var height = Math.Min(kind == FieldToPlace.Text ? 36 : 18, page.HeightPt);
         if (width <= 0 || height <= 0) return true;
         var rect = new PdfCoreRect(Math.Clamp(point.X, 0, page.WidthPt - width),
             Math.Clamp(point.Y - height, 0, page.HeightPt - height), width, height);
 
-        _creatingTextField = true;
+        _creatingFormField = true;
         try
         {
-            var result = await _facade.AddTextFieldAsync(sessionId, (uint)pageIndex, rect);
+            var result = kind == FieldToPlace.Text
+                ? await _facade.AddTextFieldAsync(sessionId, (uint)pageIndex, rect)
+                : await _facade.AddCheckboxAsync(sessionId, (uint)pageIndex, rect);
             if (_session?.SessionId != sessionId) return true;
             if (!result.IsSuccess)
             {
@@ -86,12 +103,17 @@ public sealed partial class MainWindow
             InvalidatePageRender((uint)pageIndex);
             await RefreshFormFieldsAsync();
             if (_session?.SessionId != sessionId) return true;
-            FormFieldsStatus.Text = "Text field placed. Save to keep the change.";
-            StopPlacingTextField();
+            if (generation == _formPlacementGeneration)
+            {
+                FormFieldsStatus.Text = kind == FieldToPlace.Text
+                    ? "Text field placed. Save to keep the change."
+                    : "Checkbox placed. Save to keep the change.";
+                StopPlacingFormField();
+            }
         }
         finally
         {
-            _creatingTextField = false;
+            _creatingFormField = false;
         }
         return true;
     }

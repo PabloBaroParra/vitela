@@ -552,6 +552,13 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
     /// <summary>Places an undoable text field; creation requires both annotation and content permissions.</summary>
     internal async Task<OperationResult<AnnotationState>> AddTextFieldAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
+        => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddTextField(pageIndex, rect)).ConfigureAwait(false);
+
+    /// <summary>Places an undoable checkbox under the same creation permissions as a text field.</summary>
+    internal async Task<OperationResult<AnnotationState>> AddCheckboxAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
+        => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddCheckbox(pageIndex, rect)).ConfigureAwait(false);
+
+    private async Task<OperationResult<AnnotationState>> AddFormFieldAsync(string sessionId, uint pageIndex, PdfCoreEdit edit)
     {
         const string operation = "form_create";
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
@@ -577,7 +584,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
                 try
                 {
-                    _core.ApplyEdit(session.Document, new PdfCoreEdit.AddTextField(pageIndex, rect));
+                    _core.ApplyEdit(session.Document, edit);
                     session.EditRevision++;
                     session.HasRecordedPreviewEdit = true;
                 }
