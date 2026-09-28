@@ -723,6 +723,7 @@ public sealed partial class MainWindow : Window
         FormFieldsScroller.IsEnabled = false;
         ProtectButton.IsEnabled = false;
         CompressButton.IsEnabled = false;
+        ExportImagesButton.IsEnabled = false;
     }
 
     /// <summary>
@@ -743,6 +744,7 @@ public sealed partial class MainWindow : Window
         // No permission gate of its own: compressing edits no content, and the
         // one document it cannot handle is refused by the core with a reason.
         CompressButton.IsEnabled = !_isBusy && _session is not null;
+        ExportImagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
         ApplyMetadataButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
         // Only the busy half: whether a form may be filled is the fill
         // permission's answer, which each row already carries.

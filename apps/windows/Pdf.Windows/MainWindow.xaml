@@ -51,6 +51,7 @@
             </Button>
             <Button x:Name="ProtectButton" Content="Protect" Click="ProtectButton_Click" />
             <Button x:Name="CompressButton" Content="Compress" Click="CompressButton_Click" />
+            <Button x:Name="ExportImagesButton" Content="Export PNGs" Click="ExportImagesButton_Click" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
             <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>

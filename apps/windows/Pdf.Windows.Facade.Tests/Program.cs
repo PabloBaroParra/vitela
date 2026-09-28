@@ -16,6 +16,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("exposes page dimensions on the session", ExposesPageDimensionsAsync),
     ("renders any page independently of the current page index", RendersPagesIndependentlyOfCurrentIndexAsync),
     ("renders a print page independently of viewer renders", RendersPrintPageIndependentlyAsync),
+    ("renders every export page at the requested DPI without navigating", RendersExportPagesWithoutNavigatingAsync),
     ("discards a print page after a session swap", DiscardsPrintPageAfterSessionSwapAsync),
     ("discards stale search results", DiscardsStaleSearchResultAsync),
     ("navigates to a selected search result", NavigatesToSearchResultAsync),
@@ -296,6 +297,22 @@ static async Task RendersPrintPageIndependentlyAsync()
     Assert(printResult.Value!.PageIndex == 1, "print render should carry its own page index");
     Assert(core.RenderDpis.Any(dpi => dpi == 300), "print render should use print DPI");
     await viewerRender;
+}
+
+static async Task RendersExportPagesWithoutNavigatingAsync()
+{
+    var core = new FakeCore { PageCount = 3 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    for (uint index = 0; index < session.PageCount; index++)
+    {
+        var result = await facade.RenderPageForPrintAsync(session.SessionId, index, 150, false);
+        Assert(result.IsSuccess && result.Value!.PageIndex == index, "each export page must render independently");
+        Assert(result.Value!.Rgba.Length == result.Value.Stride * result.Value.Height, "PNG encoder needs packed pixel rows");
+    }
+    Assert(core.RenderDpis.SequenceEqual([150u, 150u, 150u]), "each page must render at export resolution");
+    var current = await facade.RenderCurrentPageAsync(session.SessionId, 96, false);
+    Assert(current.Value!.PageIndex == 0, "export must not change the viewer's current page");
 }
 
 static async Task DiscardsPrintPageAfterSessionSwapAsync()
