@@ -256,34 +256,29 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The one open path both entry points share: open, retry on password,
-    /// then either show the document or report the failure.
+    /// The one open path every entry point shares: open, settle any pending
+    /// edits, retry on password, then either show the document or report the
+    /// failure.
     /// </summary>
+    /// <remarks>
+    /// The pending-edit decision has to come before the password prompt,
+    /// because that is the order the facade refuses in: it checks the guard
+    /// before the core ever sees the bytes, so while edits are pending an
+    /// encrypted file can only answer "pending edits". Its password failure
+    /// shows up on the retry after Save or Discard — and when the order here
+    /// was the other way round, that retry fell straight through to
+    /// <see cref="ReportFailedOpen"/> without ever prompting.
+    /// </remarks>
     private async Task OpenDocumentAsync(string displayName, byte[] bytes)
     {
         SetBusy(true);
         var result = await _facade.OpenAsync(new DocumentSource(displayName, bytes));
         SetBusy(false);
 
-        // An encrypted document surfaces as a typed password failure rather
-        // than a dead-end error: prompt for the password and retry instead of
-        // stranding the user on the generic error state.
-        if (!result.IsSuccess && result.Error!.RequiresPassword)
-        {
-            var unlocked = await OpenWithPasswordAsync(displayName, bytes);
-            if (unlocked is null)
-            {
-                // The user dismissed the prompt; leave the current view as-is.
-                RestoreAnnotationControls();
-                return;
-            }
-
-            result = unlocked;
-        }
-
-        // Unsaved annotation work is not a dead end either: the guard exists to
-        // make losing it a decision rather than an accident, so ask, then act
-        // on the answer instead of leaving the reader to work it out.
+        // Unsaved annotation work is not a dead end: the guard exists to make
+        // losing it a decision rather than an accident, so ask, then act on
+        // the answer instead of leaving the reader to work it out.
+        var discardPendingEdits = false;
         if (!result.IsSuccess && result.Error!.RequiresPendingEditDecision)
         {
             switch (await AskPendingEditDecisionAsync())
@@ -300,9 +295,29 @@ public sealed partial class MainWindow : Window
                     result = await _facade.OpenAsync(new DocumentSource(displayName, bytes));
                     break;
                 case PendingEditDecision.Discard:
+                    discardPendingEdits = true;
                     result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), discardPendingEdits: true);
                     break;
             }
+        }
+
+        // An encrypted document surfaces as a typed password failure rather
+        // than a dead-end error: prompt for the password and retry instead of
+        // stranding the user on the generic error state. A Discard has to
+        // ride along on every attempt, or the guard would refuse each one.
+        if (!result.IsSuccess && result.Error!.RequiresPassword)
+        {
+            var unlocked = await OpenWithPasswordAsync(displayName, bytes, discardPendingEdits);
+            if (unlocked is null)
+            {
+                // The user dismissed the prompt; leave the current view as-is.
+                // Nothing was discarded yet — the facade only retires the old
+                // session once the new one opens — so the edits are still there.
+                RestoreAnnotationControls();
+                return;
+            }
+
+            result = unlocked;
         }
 
         if (!result.IsSuccess)
@@ -604,8 +619,10 @@ public sealed partial class MainWindow : Window
     /// succeeds, the user cancels, or a non-password failure occurs. Returns
     /// the successful (or terminally-failed) result, or null if the user
     /// dismissed the prompt without unlocking the document.
+    /// <paramref name="discardPendingEdits"/> carries the reader's earlier
+    /// Discard through to each attempt.
     /// </summary>
-    private async Task<OperationResult<DocumentSession>?> OpenWithPasswordAsync(string displayName, byte[] bytes)
+    private async Task<OperationResult<DocumentSession>?> OpenWithPasswordAsync(string displayName, byte[] bytes, bool discardPendingEdits)
     {
         var passwordBox = new PasswordBox { PlaceholderText = "Password", PasswordRevealMode = PasswordRevealMode.Peek };
         var errorText = new TextBlock
@@ -642,7 +659,7 @@ public sealed partial class MainWindow : Window
 
             var password = passwordBox.Password;
             SetBusy(true);
-            var result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), password);
+            var result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), password, discardPendingEdits);
             SetBusy(false);
 
             if (result.IsSuccess || !result.Error!.RequiresPassword)
