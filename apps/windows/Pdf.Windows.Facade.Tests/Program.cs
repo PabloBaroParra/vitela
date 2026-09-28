@@ -14,6 +14,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("defers document disposal until in-flight render completes", DefersDisposalUntilRenderCompletesAsync),
     ("packs padded renderer rows tightly", PacksPaddedRowsTightlyAsync),
     ("exposes page dimensions on the session", ExposesPageDimensionsAsync),
+    ("carries each page's rotation on the session", CarriesPageRotationOnTheSessionAsync),
+    ("asks the core where page geometry lands on a drawn page", AsksTheCoreWherePageGeometryLandsAsync),
     ("renders any page independently of the current page index", RendersPagesIndependentlyOfCurrentIndexAsync),
     ("renders a print page independently of viewer renders", RendersPrintPageIndependentlyAsync),
     ("renders every export page at the requested DPI without navigating", RendersExportPagesWithoutNavigatingAsync),
@@ -293,6 +295,35 @@ static async Task ExposesPageDimensionsAsync()
     var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
     Assert(session.Pages.Count == 2, "session should carry one dimension entry per page");
     Assert(session.Pages[1].WidthPt == 595 && session.Pages[1].HeightPt == 842, "dimensions should pass through in points");
+}
+
+static async Task CarriesPageRotationOnTheSessionAsync()
+{
+    var core = new FakeCore { PageCount = 1, PageWidthPt = 842, PageHeightPt = 595, PageRotation = PageRotation.Clockwise90 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    // The size alone cannot tell a landscape page from a portrait one turned
+    // on its side, and the overlays on the two go in different places.
+    Assert(session.Pages[0].Rotation == PageRotation.Clockwise90, "the page's turn must reach the shell with its size");
+}
+
+static Task AsksTheCoreWherePageGeometryLandsAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var page = new PagePlacement(842, 595, PageRotation.Clockwise270, 1.5);
+
+    var rect = facade.PlaceRect(new AnnotationRect(72, 100, 200, 20), page);
+    var point = facade.PlacePoint(new AnnotationPoint(72, 100), page);
+    var pdf = facade.PointToPdf(new PlacedPoint(10, 20), page);
+
+    // The per-turn arithmetic is the core's; the facade only carries it, so
+    // every answer here is the fake's and every argument reaches it as given.
+    Assert(core.PlacementRequests.SequenceEqual([page, page, page]), "the page placement must reach the core unchanged");
+    Assert(rect == new PlacedRect(1, 2, 3, 4), "the core's placed rect must be used as-is");
+    Assert(point == new PlacedPoint(72 + 1, 100 + 1), "the core's placed point must be used as-is");
+    Assert(pdf == new AnnotationPoint(10 - 1, 20 - 1), "the core's page-space point must be used as-is");
+    return Task.CompletedTask;
 }
 
 static async Task RendersPagesIndependentlyOfCurrentIndexAsync()
@@ -2476,6 +2507,8 @@ sealed class FakeCore : IPdfCore
     public uint PageCount { get; init; } = 1;
     public double PageWidthPt { get; init; } = 595;
     public double PageHeightPt { get; init; } = 842;
+    public PageRotation PageRotation { get; init; } = PageRotation.None;
+    public List<PagePlacement> PlacementRequests { get; } = [];
     public PdfCoreError? OpenError { get; init; }
     public string? RequiredPassword { get; init; }
     public PdfCoreError? RenderError { get; init; }
@@ -2509,7 +2542,7 @@ sealed class FakeCore : IPdfCore
             throw new PdfCoreException(password is null ? PdfCoreError.PasswordRequired : PdfCoreError.WrongPassword, "sensitive diagnostic");
         }
 
-        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt) { ContentEditingAllowed = ContentEditingPermitted };
+        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt, PageRotation) { ContentEditingAllowed = ContentEditingPermitted };
     }
 
     public (string Open, string Permissions)? LastOpenWithPasswords;
@@ -2517,7 +2550,7 @@ sealed class FakeCore : IPdfCore
     public IPdfCoreDocument OpenWithPasswordsFromBytes(byte[] bytes, string openPassword, string permissionsPassword)
     {
         LastOpenWithPasswords = (openPassword, permissionsPassword);
-        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt) { ContentEditingAllowed = ContentEditingPermitted };
+        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt, PageRotation) { ContentEditingAllowed = ContentEditingPermitted };
     }
 
     /// <summary>
@@ -2527,7 +2560,7 @@ sealed class FakeCore : IPdfCore
     /// the opened count would let a zero-page regression pass green — which is
     /// how T-063's "This document has no pages." shipped.
     /// </summary>
-    public IPdfCoreDocument CreateBlank() => LastDocument = new FakeDocument(1, PageWidthPt, PageHeightPt);
+    public IPdfCoreDocument CreateBlank() => LastDocument = new FakeDocument(1, PageWidthPt, PageHeightPt, PageRotation);
 
     public PdfCoreBitmap RenderPage(IPdfCoreDocument document, uint pageIndex, uint dpi, bool invertContentColors)
     {
@@ -2712,6 +2745,24 @@ sealed class FakeCore : IPdfCore
     /// a shape no shell-side constant would ever produce and records what it
     /// was asked.
     /// </summary>
+    public PlacedRect PlaceRect(AnnotationRect rect, PagePlacement page)
+    {
+        PlacementRequests.Add(page);
+        return new PlacedRect(1, 2, 3, 4);
+    }
+
+    public PlacedPoint PlacePoint(AnnotationPoint point, PagePlacement page)
+    {
+        PlacementRequests.Add(page);
+        return new PlacedPoint(point.X + 1, point.Y + 1);
+    }
+
+    public AnnotationPoint PointToPdf(PlacedPoint point, PagePlacement page)
+    {
+        PlacementRequests.Add(page);
+        return new AnnotationPoint(point.Left - 1, point.Top - 1);
+    }
+
     public PdfCoreRect StampPlacement(byte[] imageBytes, double anchorX, double anchorY)
     {
         if (StampPlacementError is { } error) throw new PdfCoreException(error, "invalid image");
@@ -2834,10 +2885,10 @@ sealed class FakePageCharacters : IPdfCorePageCharacters
     public void Dispose() => Disposed = true;
 }
 
-sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt = 842) : IPdfCoreDocument
+sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt = 842, PageRotation rotation = PageRotation.None) : IPdfCoreDocument
 {
     private readonly List<PdfCorePageDimensions> _pages =
-        [.. Enumerable.Range(0, (int)pageCount).Select(_ => new PdfCorePageDimensions(widthPt, heightPt))];
+        [.. Enumerable.Range(0, (int)pageCount).Select(_ => new PdfCorePageDimensions(widthPt, heightPt, rotation))];
     public uint PageCount => (uint)_pages.Count;
     /// <summary>Live, like the core's: a page edit changes what it reports.</summary>
     public IReadOnlyList<PdfCorePageDimensions> PageDimensions => [.. _pages];
@@ -2847,7 +2898,7 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
     public void Widths(params double[] widths)
     {
         _pages.Clear();
-        _pages.AddRange(widths.Select(width => new PdfCorePageDimensions(width, 842)));
+        _pages.AddRange(widths.Select(width => new PdfCorePageDimensions(width, 842, PageRotation.None)));
     }
     public bool Disposed { get; private set; }
     public bool EditingAllowed { get; set; } = true;
@@ -2877,7 +2928,10 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
                 break;
             case PdfCoreEdit.RotatePage rotate:
                 var turned = _pages[(int)rotate.PageIndex];
-                if (Math.Abs(rotate.DeltaDegrees) % 180 == 90) _pages[(int)rotate.PageIndex] = new(turned.HeightPt, turned.WidthPt);
+                var rotation = (PageRotation)((((int)turned.Rotation + rotate.DeltaDegrees / 90) % 4 + 4) % 4);
+                _pages[(int)rotate.PageIndex] = Math.Abs(rotate.DeltaDegrees) % 180 == 90
+                    ? new(turned.HeightPt, turned.WidthPt, rotation)
+                    : turned with { Rotation = rotation };
                 break;
             case PdfCoreEdit.RemovePage removePage:
                 _pages.RemoveAt((int)removePage.PageIndex);

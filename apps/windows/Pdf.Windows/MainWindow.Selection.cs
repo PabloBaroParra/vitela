@@ -163,19 +163,14 @@ public sealed partial class MainWindow
         if (_session is null || drag.PageIndex >= _slots.Count || drag.PageIndex >= _session.Pages.Count) return;
         if (ResolveCaretRange(drag) is not (var characters, var anchor, var focus)) return;
 
-        var page = _session.Pages[drag.PageIndex];
         var target = _slots[drag.PageIndex];
-        var scale = target.Scale;
         foreach (var rect in characters.RectsIn(anchor, focus))
         {
             var rectangle = new Rectangle
             {
-                Width = Math.Max(1, rect.WidthPt * scale),
-                Height = Math.Max(1, rect.HeightPt * scale),
                 Fill = new SolidColorBrush(global::Windows.UI.Color.FromArgb(90, 40, 120, 235)),
             };
-            Canvas.SetLeft(rectangle, rect.XPt * scale);
-            Canvas.SetTop(rectangle, (page.HeightPt - rect.YPt - rect.HeightPt) * scale);
+            PlaceOverPage(rectangle, target, drag.PageIndex, new AnnotationRect(rect.XPt, rect.YPt, rect.WidthPt, rect.HeightPt));
             target.Selection.Children.Add(rectangle);
         }
     }

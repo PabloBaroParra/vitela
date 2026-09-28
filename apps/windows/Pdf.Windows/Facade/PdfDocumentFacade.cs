@@ -598,6 +598,25 @@ public sealed partial class PdfDocumentFacade : IDisposable
     }
 
     /// <summary>
+    /// Where a page-space rect lands on the page as drawn — turn, flip and
+    /// zoom included. Every overlay the shell paints over a page goes through
+    /// here (or <see cref="PlacePoint"/>), so that a page carrying
+    /// <c>/Rotate</c> gets its overlays turned with it by the same code the
+    /// GTK shell uses, rather than by per-turn arithmetic copied into C#.
+    /// </summary>
+    /// <remarks>
+    /// No session and no error path: this is pure geometry over values the
+    /// shell already holds, the same shape as <see cref="StampPlacement"/>.
+    /// </remarks>
+    public PlacedRect PlaceRect(AnnotationRect rect, PagePlacement page) => _core.PlaceRect(rect, page);
+
+    /// <summary><see cref="PlaceRect"/> for a bare point — an ink vertex, a handle, an anchor.</summary>
+    public PlacedPoint PlacePoint(AnnotationPoint point, PagePlacement page) => _core.PlacePoint(point, page);
+
+    /// <summary>A pointer position on the drawn page, back into page space.</summary>
+    public AnnotationPoint PointToPdf(PlacedPoint point, PagePlacement page) => _core.PointToPdf(point, page);
+
+    /// <summary>
     /// Inserts a Stamp annotation — kept separate from <see cref="EditAnnotationAsync"/>
     /// because <c>insert_image_stamp</c> is its own FFI entrypoint (image bytes,
     /// not a <c>PdfCoreEdit</c> value), but otherwise follows the same
@@ -1621,7 +1640,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             Document.PageCount,
             PageIndex,
             Document.PageCount == 0 ? DocumentSessionState.Empty : DocumentSessionState.Ready,
-            [.. Document.PageDimensions.Select(page => new PageDimensions(page.WidthPt, page.HeightPt))],
+            [.. Document.PageDimensions.Select(page => new PageDimensions(page.WidthPt, page.HeightPt, page.Rotation))],
             ContentEditingAllowed);
 
         public AnnotationState AnnotationState(IPdfCore core) => new(

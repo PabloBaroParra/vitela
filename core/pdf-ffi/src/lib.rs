@@ -33,6 +33,9 @@
 //!   module rather than more of [`document`], because what it carries across
 //!   is a second crate's vocabulary (`pdf-compress`) and one save-time
 //!   decision, not another way to edit a page.
+//! - [`placement`]: where page-space geometry lands on a page as drawn —
+//!   the `/Rotate`-aware transform overlays need, carried from
+//!   `pdf_render::selection` for shells that cannot link it.
 //! - [`export`]: exporting pages as images — the page-selection grammar, the
 //!   file naming and the raster ceiling a shell asks before it writes, and
 //!   the encoded page itself. All of it is `pdf-save`/`pdf-render`'s; this
@@ -56,6 +59,7 @@ mod document;
 mod error;
 mod export;
 mod form;
+mod placement;
 mod selection;
 mod types;
 
@@ -79,6 +83,9 @@ pub use export::{
 pub use form::{
     FfiFieldOrigin, FfiFieldValue, FfiFontFamily, FfiFormField, FfiFormFieldKind, FfiRadioOption,
     FfiTextStyle,
+};
+pub use placement::{
+    place_point, place_rect, point_to_pdf, FfiPagePlacement, FfiPageRotation, FfiPlacedRect,
 };
 pub use selection::FfiPageCharacters;
 pub use types::{

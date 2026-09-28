@@ -12,7 +12,7 @@ internal interface IPdfCoreDocument : IDisposable
     IReadOnlyList<PdfCorePageDimensions> PageDimensions { get; }
 }
 
-internal sealed record PdfCorePageDimensions(double WidthPt, double HeightPt);
+internal sealed record PdfCorePageDimensions(double WidthPt, double HeightPt, PageRotation Rotation);
 
 internal interface IPdfCore
 {
@@ -133,6 +133,19 @@ internal interface IPdfCore
     /// policy has exactly one home, in <c>pdf_annotate::placement</c>.
     /// </summary>
     PdfCoreRect StampPlacement(byte[] imageBytes, double anchorX, double anchorY);
+
+    /// <summary>
+    /// Where a page-space rect (points, bottom-left origin, unrotated) lands
+    /// on the page as drawn. Pure geometry: the per-turn arithmetic lives in
+    /// <c>pdf_render::selection</c>, the same code the GTK shell calls.
+    /// </summary>
+    PlacedRect PlaceRect(AnnotationRect rect, PagePlacement page);
+
+    /// <summary><see cref="PlaceRect"/> for a bare point.</summary>
+    PlacedPoint PlacePoint(AnnotationPoint point, PagePlacement page);
+
+    /// <summary>The inverse of <see cref="PlacePoint"/>: a pointer position back into page space.</summary>
+    AnnotationPoint PointToPdf(PlacedPoint point, PagePlacement page);
 
     bool Undo(IPdfCoreDocument document);
 

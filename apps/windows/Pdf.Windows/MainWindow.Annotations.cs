@@ -510,7 +510,6 @@ public sealed partial class MainWindow
     }
 
     private static bool Contains(AnnotationRect rect, AnnotationPoint point) => point.X >= rect.X && point.X <= rect.X + rect.Width && point.Y >= rect.Y && point.Y <= rect.Y + rect.Height;
-    private AnnotationPoint ToPdf(PageSlot slot, int pageIndex, global::Windows.Foundation.Point point) => new(point.X / slot.Scale, _session!.Pages[pageIndex].HeightPt - point.Y / slot.Scale);
     private static PdfCoreRect NormalizedRect(AnnotationPoint origin, AnnotationPoint current, AnnotationKind kind)
     {
         var width = Math.Max(MinTracedPt, Math.Abs(current.X - origin.X));
@@ -619,9 +618,8 @@ public sealed partial class MainWindow
             {
                 var rect = NormalizedRect(toolDrag.Origin, toolDrag.Current, tool);
                 var isRule = tool is AnnotationKind.Underline or AnnotationKind.Strikeout;
-                var preview = new Rectangle { Width = rect.Width * slot.Scale, Height = Math.Max(2, rect.Height * slot.Scale), Stroke = isRule ? null : new SolidColorBrush(Colors.Goldenrod), Fill = isRule ? new SolidColorBrush(Colors.Goldenrod) : null, StrokeThickness = 2 };
-                Canvas.SetLeft(preview, rect.X * slot.Scale);
-                Canvas.SetTop(preview, (_session!.Pages[toolDrag.PageIndex].HeightPt - rect.Y - rect.Height) * slot.Scale);
+                var preview = new Rectangle { Stroke = isRule ? null : new SolidColorBrush(Colors.Goldenrod), Fill = isRule ? new SolidColorBrush(Colors.Goldenrod) : null, StrokeThickness = 2 };
+                PlaceOverPage(preview, slot, toolDrag.PageIndex, new AnnotationRect(rect.X, rect.Y, rect.Width, rect.Height), minSide: 2);
                 slot.Annotations.Children.Add(preview);
             }
         }
@@ -658,17 +656,17 @@ public sealed partial class MainWindow
             && _stampPreviews.IsCurrent(session.SessionId)
             && _stampPreviews.TryGet(annotation.Id, out var preview))
         {
+            // Sized upright and turned with the page: a saved stamp's
+            // appearance turns with the page, so its preview must too.
             var image = new Image { Source = preview, Width = rect.Width * slot.Scale, Height = rect.Height * slot.Scale, Stretch = Stretch.Fill };
-            Canvas.SetLeft(image, rect.X * slot.Scale);
-            Canvas.SetTop(image, (session.Pages[(int)pageIndex].HeightPt - rect.Y - rect.Height) * slot.Scale);
+            PlaceUpright(image, slot, (int)pageIndex, rect);
             slot.Annotations.Children.Add(image);
             return;
         }
         var isRule = annotation.Kind is AnnotationKind.Underline or AnnotationKind.Strikeout;
         var brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(220, color.R, color.G, color.B));
-        var shape = new Rectangle { Width = rect.Width * slot.Scale, Height = Math.Max(2, rect.Height * slot.Scale), Stroke = isRule ? null : brush, Fill = annotation.Kind == AnnotationKind.Highlight ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(100, color.R, color.G, color.B)) : isRule ? brush : null, StrokeThickness = selected ? 3 : 2 };
-        Canvas.SetLeft(shape, rect.X * slot.Scale);
-        Canvas.SetTop(shape, (_session!.Pages[(int)pageIndex].HeightPt - rect.Y - rect.Height) * slot.Scale);
+        var shape = new Rectangle { Stroke = isRule ? null : brush, Fill = annotation.Kind == AnnotationKind.Highlight ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(100, color.R, color.G, color.B)) : isRule ? brush : null, StrokeThickness = selected ? 3 : 2 };
+        PlaceOverPage(shape, slot, (int)pageIndex, rect, minSide: 2);
         slot.Annotations.Children.Add(shape);
     }
 
@@ -676,7 +674,6 @@ public sealed partial class MainWindow
     private void DrawInkStroke(PageSlot slot, uint pageIndex, IReadOnlyList<AnnotationPoint> points, AnnotationColor color, bool selected)
     {
         if (points.Count < 2) return;
-        var pageHeightPt = _session!.Pages[(int)pageIndex].HeightPt;
         var polyline = new Polyline
         {
             Stroke = new SolidColorBrush(global::Windows.UI.Color.FromArgb(220, color.R, color.G, color.B)),
@@ -687,7 +684,8 @@ public sealed partial class MainWindow
         };
         foreach (var point in points)
         {
-            polyline.Points.Add(new global::Windows.Foundation.Point(point.X * slot.Scale, (pageHeightPt - point.Y) * slot.Scale));
+            var placed = PlaceOnPage(slot, (int)pageIndex, point);
+            polyline.Points.Add(new global::Windows.Foundation.Point(placed.Left, placed.Top));
         }
         slot.Annotations.Children.Add(polyline);
     }
@@ -701,10 +699,10 @@ public sealed partial class MainWindow
     {
         foreach (var corner in AllCorners)
         {
-            var point = CornerPoint(rect, corner);
+            var point = PlaceOnPage(slot, (int)pageIndex, CornerPoint(rect, corner));
             var handle = new Rectangle { Width = HandleReachPx, Height = HandleReachPx, Fill = HandleBrush };
-            Canvas.SetLeft(handle, point.X * slot.Scale - HandleReachPx / 2);
-            Canvas.SetTop(handle, (_session!.Pages[(int)pageIndex].HeightPt - point.Y) * slot.Scale - HandleReachPx / 2);
+            Canvas.SetLeft(handle, point.Left - HandleReachPx / 2);
+            Canvas.SetTop(handle, point.Top - HandleReachPx / 2);
             slot.Annotations.Children.Add(handle);
         }
     }
