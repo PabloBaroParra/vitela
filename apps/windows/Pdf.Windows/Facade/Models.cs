@@ -18,6 +18,19 @@ public sealed record DocumentSession(string SessionId, string DisplayName, uint 
 /// <summary>One page's layout size in PDF points (1/72 inch).</summary>
 public sealed record PageDimensions(double WidthPt, double HeightPt);
 
+/// <summary>
+/// A change to the document's pages. Every page number is the page's current
+/// position — the one the viewer shows it at — never a stable identity.
+/// </summary>
+public abstract record PageEdit
+{
+    /// <summary>Turns a page clockwise by <paramref name="DeltaDegrees"/>; negative turns it back.</summary>
+    public sealed record Rotate(uint PageIndex, int DeltaDegrees) : PageEdit;
+    public sealed record Remove(uint PageIndex) : PageEdit;
+    /// <summary>Moves one page so that it ends up at position <paramref name="To"/>.</summary>
+    public sealed record Move(uint From, uint To) : PageEdit;
+}
+
 public enum DocumentSessionState
 {
     Empty,

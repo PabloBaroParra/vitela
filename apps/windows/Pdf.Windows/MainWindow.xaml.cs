@@ -563,6 +563,10 @@ public sealed partial class MainWindow : Window
     private void ShowOpenedDocument(DocumentSession session)
     {
         _stampPreviews.BeginSession(session.SessionId);
+        // The cards describe the document being replaced.
+        CloseOrganizeView();
+        _pagesEdited = false;
+        _viewerStale = false;
         _armedAnnotation = null;
         _selectedAnnotationId = null;
         _annotationState = null;
@@ -688,6 +692,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowEmpty(string message)
     {
+        CloseOrganizeView();
         EmptyStateMessage.Text = message;
         EmptyState.Visibility = Visibility.Visible;
         ErrorState.Visibility = Visibility.Collapsed;
@@ -698,6 +703,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowError(UserSafeError error)
     {
+        CloseOrganizeView();
         ErrorState.Text = $"{error.Message} Reference: {error.CorrelationId}";
         ErrorState.Visibility = Visibility.Visible;
         EmptyState.Visibility = Visibility.Collapsed;
@@ -744,6 +750,9 @@ public sealed partial class MainWindow : Window
         // one document it cannot handle is refused by the core with a reason.
         CompressButton.IsEnabled = !_isBusy && _session is not null;
         ExportImagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
+        // Permission is the core's call, and it explains a refusal itself:
+        // an encrypted document may allow turning a page but not moving one.
+        OrganizeButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
         ApplyMetadataButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
         // Only the busy half: whether a form may be filled is the fill
         // permission's answer, which each row already carries.

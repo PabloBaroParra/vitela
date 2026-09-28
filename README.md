@@ -145,7 +145,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Annotate | ✅ | ✅ | — | — | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
 | Edit metadata | ✅ | ✅ | — | — | — |
-| Organize & assemble pages | ✅ | — | — | — | — |
+| Organize & assemble pages | ✅ | 🚧 | — | — | — |
 | Extract pages to a new PDF | ✅ | — | — | — | — |
 | Split into several PDFs | ✅ | — | — | — | — |
 | Save | ✅ | ✅ | — | — | — |
@@ -176,7 +176,9 @@ text run on the page itself — the Linux shell's content-edit mode, reached
 through the FFI instead of a direct crate link — is now wired up as well. The
 image half of that mode is still Linux-only. Windows can export every page as a
 separate PNG at 150 DPI; Linux additionally supports JPEG, page ranges and DPI
-selection. Forms are half-way there: the fields a
+selection. Windows can
+move, rotate and delete pages from a thumbnail grid; importing pages from
+other PDFs and the Documents view are still Linux-only. Forms are half-way there: the fields a
 document already has can be filled in from a side panel, but placing new ones
 is still Linux-only.
 

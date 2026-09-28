@@ -354,6 +354,9 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.ReplaceTextRunWithInsertedFont value =>
             new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
+        PdfCoreEdit.RotatePage value => new FfiEditCommand.RotatePage(value.PageIndex, value.DeltaDegrees),
+        PdfCoreEdit.RemovePage value => new FfiEditCommand.RemovePage(value.PageIndex),
+        PdfCoreEdit.MovePages value => new FfiEditCommand.MovePages(value.From, value.Count, value.To),
         _ => throw new InvalidOperationException("Unsupported annotation edit."),
     };
 
@@ -424,14 +427,18 @@ internal sealed class GeneratedPdfCore : IPdfCore
         public GeneratedDocument(DocumentHandle handle)
         {
             Handle = handle;
-            // The handle's render-side bytes are fixed for its lifetime
-            // (render staleness model), so one FFI call covers all reads.
-            PageDimensions = [.. handle.PageDimensions().Select(page => new PdfCorePageDimensions(page.WidthPt, page.HeightPt))];
         }
 
         public DocumentHandle Handle { get; }
         public uint PageCount => Handle.PageCount();
-        public IReadOnlyList<PdfCorePageDimensions> PageDimensions { get; }
+
+        /// <summary>
+        /// Asked of the core on every read, not cached at open: a page edit
+        /// moves, removes or turns pages, and the core reports sizes in the
+        /// document's current order.
+        /// </summary>
+        public IReadOnlyList<PdfCorePageDimensions> PageDimensions =>
+            [.. Handle.PageDimensions().Select(page => new PdfCorePageDimensions(page.WidthPt, page.HeightPt))];
 
         public void Dispose() => Handle.Dispose();
     }

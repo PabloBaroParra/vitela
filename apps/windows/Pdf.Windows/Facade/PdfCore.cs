@@ -5,8 +5,9 @@ internal interface IPdfCoreDocument : IDisposable
     uint PageCount { get; }
 
     /// <summary>
-    /// Per-page layout size in PDF points, in page order, from the same
-    /// bytes rendering draws — placeholder sizes always match render output.
+    /// Per-page layout size in PDF points, in the document's current page
+    /// order — moves, removals and quarter-turns included, which is what the
+    /// preview draws once it has been refreshed.
     /// </summary>
     IReadOnlyList<PdfCorePageDimensions> PageDimensions { get; }
 }
@@ -271,6 +272,13 @@ internal abstract record PdfCoreEdit
     public sealed record Restyle(ulong AnnotationId, PdfCoreColor Color) : PdfCoreEdit;
 
     public sealed record SetDocumentInfo(PdfCoreDocumentInfo After) : PdfCoreEdit;
+
+    // Page structure. Every page number is a position in the document's
+    // current order — the core resolves it to the page sitting there.
+    public sealed record RotatePage(uint PageIndex, int DeltaDegrees) : PdfCoreEdit;
+    public sealed record RemovePage(uint PageIndex) : PdfCoreEdit;
+    /// <summary><paramref name="To"/> is where the block starts after the move.</summary>
+    public sealed record MovePages(uint From, uint Count, uint To) : PdfCoreEdit;
 
     /// <summary>
     /// Fills an existing field in. The core validates <paramref name="Value"/>

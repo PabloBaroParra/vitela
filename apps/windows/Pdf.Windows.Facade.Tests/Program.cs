@@ -135,6 +135,15 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("aims the core at the PDFium shipped beside the app", AimsTheCoreAtTheBundledPdfium)
     ,("leaves an operator's PDFium override alone", LeavesAnExistingPdfiumOverrideAlone)
     ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
+    ,("moves a page and hands back the new layout", MovesAPageAndHandsBackTheNewLayoutAsync)
+    ,("rotates a page by a quarter turn", RotatesAPageAsync)
+    ,("removes a page and keeps the current page in range", RemovesAPageAndKeepsTheCurrentPageInRangeAsync)
+    ,("refuses to remove a document's only page", RefusesToRemoveTheOnlyPageAsync)
+    ,("explains a document that forbids page changes", ExplainsADocumentThatForbidsPageChangesAsync)
+    ,("counts a page edit as unsaved work", CountsAPageEditAsUnsavedWorkAsync)
+    ,("refreshes the preview on history after a page edit", RefreshesThePreviewOnHistoryAfterAPageEditAsync)
+    ,("reports the current layout after history moves pages", ReportsTheCurrentLayoutAfterHistoryAsync)
+    ,("refuses page edits once the session is retired", RefusesPageEditsAfterSessionSwapAsync)
 };
 
 foreach (var test in tests)
@@ -1460,6 +1469,136 @@ static void Complete(PageRenderPlan plan)
     Assert(plan.CompleteWith(plan.TargetDpi), "the current-DPI render should settle");
 }
 
+static async Task<(FakeCore Core, PdfDocumentFacade Facade, DocumentSession Session)> OpenThreePagesAsync()
+{
+    var core = new FakeCore { PageCount = 3 };
+    var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("three.pdf", [1]))).Value!;
+    // Tell the pages apart by width: 100, 101, 102.
+    core.LastDocument!.Widths(100, 101, 102);
+    return (core, facade, session);
+}
+
+static IReadOnlyList<double> Widths(DocumentSession session) => [.. session.Pages.Select(page => page.WidthPt)];
+
+static async Task MovesAPageAndHandsBackTheNewLayoutAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.Move(0, 2));
+
+    Assert(result.IsSuccess, "moving a page should succeed");
+    Assert(core.PageEdits.Single() == new PdfCoreEdit.MovePages(0, 1, 2), "one page, from 0, landing at 2");
+    Assert(Widths(result.Value!).SequenceEqual([101, 102, 100]), "the session must describe the pages in their new order");
+    Assert(core.RefreshPreviewCalls == 1, "rendering reads the preview, so it must be rebuilt to show the new order");
+}
+
+static async Task RotatesAPageAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.Rotate(1, 90));
+
+    Assert(result.IsSuccess, "rotating a page should succeed");
+    Assert(core.PageEdits.Single() == new PdfCoreEdit.RotatePage(1, 90), "the turn should reach the core as given");
+    Assert(result.Value!.Pages[1].WidthPt == 842, "a quarter turn puts the page on its side");
+    Assert(core.RefreshPreviewCalls == 1, "a rotation is drawn by the PDF, so the preview must be rebuilt");
+}
+
+static async Task RemovesAPageAndKeepsTheCurrentPageInRangeAsync()
+{
+    var (_, facade, session) = await OpenThreePagesAsync();
+    using var __ = facade;
+    await facade.NavigateAsync(session.SessionId, 2);
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.Remove(2));
+
+    Assert(result.IsSuccess, "removing a page should succeed");
+    Assert(result.Value!.PageCount == 2, "the page is gone");
+    Assert(result.Value!.PageIndex == 1, "the current page cannot point past the end");
+    Assert(Widths(result.Value!).SequenceEqual([100, 101]), "the other pages keep their order");
+}
+
+static async Task RefusesToRemoveTheOnlyPageAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("one.pdf", [1]))).Value!;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.Remove(0));
+
+    Assert(!result.IsSuccess, "a document with no pages is not one the reader can do anything with");
+    Assert(result.Error!.Message == "A document needs at least one page.", "the refusal should say why");
+    Assert(core.PageEdits.Count == 0 && core.RefreshPreviewCalls == 0, "the core should not even be asked");
+}
+
+static async Task ExplainsADocumentThatForbidsPageChangesAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+    core.LastDocument!.PageEditingAllowed = false;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.Move(0, 1));
+
+    Assert(!result.IsSuccess, "a refused page edit must fail");
+    Assert(result.Error!.Message == "This document does not allow its pages to be rearranged, rotated or removed.",
+        "the generic 'not supported' says nothing the reader can act on");
+    Assert(core.RefreshPreviewCalls == 0, "nothing was recorded, so nothing needs re-rendering");
+}
+
+static async Task CountsAPageEditAsUnsavedWorkAsync()
+{
+    var (_, facade, session) = await OpenThreePagesAsync();
+    using var __ = facade;
+
+    await facade.EditPagesAsync(session.SessionId, new PageEdit.Move(0, 2));
+    var blocked = await facade.OpenAsync(new DocumentSource("other.pdf", [2]));
+
+    Assert(!blocked.IsSuccess && blocked.Error!.RequiresPendingEditDecision, "a reordered document has work to lose");
+}
+
+static async Task RefreshesThePreviewOnHistoryAfterAPageEditAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+
+    await facade.EditPagesAsync(session.SessionId, new PageEdit.Move(0, 2));
+    await facade.UndoAsync(session.SessionId);
+
+    Assert(core.RefreshPreviewCalls == 2, "undoing a move must put the pages back in the preview too");
+}
+
+static async Task ReportsTheCurrentLayoutAfterHistoryAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+    await facade.EditPagesAsync(session.SessionId, new PageEdit.Remove(0));
+    // What an undo does to the page model is the core's business; the fake
+    // stands in for it by growing the page back.
+    core.LastDocument!.Widths(100, 101, 102);
+
+    var result = await facade.SessionAsync(session.SessionId);
+
+    Assert(result.IsSuccess, "the current session should be readable");
+    Assert(result.Value!.PageCount == 3 && Widths(result.Value!).SequenceEqual([100, 101, 102]),
+        "the layout is read from the document now, not remembered from open");
+}
+
+static async Task RefusesPageEditsAfterSessionSwapAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.Rotate(0, 90));
+
+    Assert(!result.IsSuccess && result.Error!.Message == "The document is no longer available.",
+        "a page position means nothing against another document");
+    Assert(core.PageEdits.Count == 0, "the core should not be asked");
+}
+
 static void Assert(bool condition, string message)
 {
     if (!condition)
@@ -2302,6 +2441,8 @@ sealed class FakeCore : IPdfCore
     /// <summary>The content edits the facade handed the core, newest last.</summary>
     public List<PdfCoreEdit.ReplaceTextRun> ContentEdits { get; } = [];
     public List<PdfCoreEdit.ReplaceTextRunWithInsertedFont> SubstitutionEdits { get; } = [];
+    /// <summary>The page edits the facade handed the core, newest last.</summary>
+    public List<PdfCoreEdit> PageEdits { get; } = [];
 
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
@@ -2339,6 +2480,15 @@ sealed class FakeCore : IPdfCore
         {
             if (!fake.ContentEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
             DocumentInfo = metadata.After;
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.RotatePage or PdfCoreEdit.RemovePage or PdfCoreEdit.MovePages)
+        {
+            // The assembly permission, as in the core's `apply_edit`.
+            if (!fake.PageEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "this document does not permit inserting, removing or rotating its pages");
+            PageEdits.Add(edit);
             fake.Apply(edit);
             return;
         }
@@ -2458,9 +2608,19 @@ sealed class FakePageCharacters : IPdfCorePageCharacters
 
 sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt = 842) : IPdfCoreDocument
 {
-    public uint PageCount { get; } = pageCount;
-    public IReadOnlyList<PdfCorePageDimensions> PageDimensions { get; } =
+    private readonly List<PdfCorePageDimensions> _pages =
         [.. Enumerable.Range(0, (int)pageCount).Select(_ => new PdfCorePageDimensions(widthPt, heightPt))];
+    public uint PageCount => (uint)_pages.Count;
+    /// <summary>Live, like the core's: a page edit changes what it reports.</summary>
+    public IReadOnlyList<PdfCorePageDimensions> PageDimensions => [.. _pages];
+    public bool PageEditingAllowed { get; set; } = true;
+
+    /// <summary>Replaces the page model with one page per width, all 842pt tall.</summary>
+    public void Widths(params double[] widths)
+    {
+        _pages.Clear();
+        _pages.AddRange(widths.Select(width => new PdfCorePageDimensions(width, 842)));
+    }
     public bool Disposed { get; private set; }
     public bool EditingAllowed { get; set; } = true;
     public bool ContentEditingAllowed { get; set; } = true;
@@ -2486,6 +2646,18 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
                 // Page content is not mirrored on the model — the queued
                 // command is the edit — so there is nothing to mutate here
                 // beyond the history the facade reads back.
+                break;
+            case PdfCoreEdit.RotatePage rotate:
+                var turned = _pages[(int)rotate.PageIndex];
+                if (Math.Abs(rotate.DeltaDegrees) % 180 == 90) _pages[(int)rotate.PageIndex] = new(turned.HeightPt, turned.WidthPt);
+                break;
+            case PdfCoreEdit.RemovePage removePage:
+                _pages.RemoveAt((int)removePage.PageIndex);
+                break;
+            case PdfCoreEdit.MovePages move:
+                var block = _pages.GetRange((int)move.From, (int)move.Count);
+                _pages.RemoveRange((int)move.From, (int)move.Count);
+                _pages.InsertRange((int)move.To, block);
                 break;
             case PdfCoreEdit.Restyle restyle:
                 var index = Annotations.FindIndex(annotation => annotation.Id == restyle.AnnotationId);
