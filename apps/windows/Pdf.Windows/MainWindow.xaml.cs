@@ -717,13 +717,12 @@ public sealed partial class MainWindow : Window
         ZoomOutButton.IsEnabled = !isBusy;
         FitWidthButton.IsEnabled = !isBusy;
         FitPageButton.IsEnabled = !isBusy;
+        // Already folds in `_isBusy`: going in it disables every session
+        // command, coming out it restores them. Forcing them off after it
+        // left Protect, Compress, Export and metadata greyed out after their
+        // own first use, until another document was opened.
         RefreshSessionCommands();
         UpdateAnnotationControls(null);
-        ApplyMetadataButton.IsEnabled = false;
-        FormFieldsScroller.IsEnabled = false;
-        ProtectButton.IsEnabled = false;
-        CompressButton.IsEnabled = false;
-        ExportImagesButton.IsEnabled = false;
     }
 
     /// <summary>
