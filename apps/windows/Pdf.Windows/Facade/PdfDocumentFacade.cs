@@ -550,6 +550,55 @@ public sealed partial class PdfDocumentFacade : IDisposable
         }
     }
 
+    /// <summary>Places an undoable text field; creation requires both annotation and content permissions.</summary>
+    internal async Task<OperationResult<AnnotationState>> AddTextFieldAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
+    {
+        const string operation = "form_create";
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SessionEntry session;
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
+                }
+
+                if (pageIndex >= session.Document.PageCount)
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, operation, sessionId, pageIndex));
+                }
+
+                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit creating form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, pageIndex));
+                }
+
+                try
+                {
+                    _core.ApplyEdit(session.Document, new PdfCoreEdit.AddTextField(pageIndex, rect));
+                    session.EditRevision++;
+                    session.HasRecordedPreviewEdit = true;
+                }
+                catch (PdfCoreException error) when (error.Category == PdfCoreError.UnsupportedOperation)
+                {
+                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit creating form fields.", error.Category, operation, sessionId, pageIndex));
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, operation, sessionId, pageIndex));
+                }
+            }
+
+            return await RefreshPreviewAsync(session, operation, pageIndex).ConfigureAwait(false);
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
     internal async Task<OperationResult<AnnotationState>> EditAnnotationAsync(string sessionId, PdfCoreEdit edit)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);

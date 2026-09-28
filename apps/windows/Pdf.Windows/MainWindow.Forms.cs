@@ -8,7 +8,7 @@ using Windows.System;
 namespace Pdf.Windows;
 
 /// <summary>
-/// Form fields: filling in the AcroForm fields a document already has.
+/// Form fields: filling the AcroForm fields a document already has.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -47,6 +47,7 @@ public sealed partial class MainWindow
 
     private void ResetFormFieldState()
     {
+        StopPlacingTextField();
         _filledFieldPages.Clear();
         _shownFieldValues.Clear();
         FormFieldRows.Children.Clear();
@@ -72,6 +73,7 @@ public sealed partial class MainWindow
 
     private void ShowFormFields(FormFieldState state)
     {
+        PlaceTextFieldButton.IsEnabled = state.FillAllowed && _session?.ContentEditingAllowed == true;
         FormFieldRows.Children.Clear();
         _shownFieldValues.Clear();
         FormFieldsStatus.Text = state.Fields.Count == 0

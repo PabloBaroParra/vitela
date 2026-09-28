@@ -179,9 +179,9 @@ JPEG with the same page ranges and DPI range as Linux, and extracts a chosen
 range of pages into a new PDF the same way, sharing the core's page-pruning
 cut (`pdf_document::prune`) rather than a second implementation. Windows can
 move, rotate and delete pages from a thumbnail grid; importing pages from
-other PDFs and the Documents view are still Linux-only. Forms are half-way there: the fields a
-document already has can be filled in from a side panel, but placing new ones
-is still Linux-only.
+other PDFs and the Documents view are still Linux-only. Forms are half-way there:
+Windows can fill existing fields and place single-line text fields from the side
+panel, while the other field types and form styling are still Linux-only.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the
