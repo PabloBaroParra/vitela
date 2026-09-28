@@ -14,6 +14,7 @@ use std::sync::Arc;
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
 use lopdf::xref::XrefType;
 use lopdf::{EncryptionState, EncryptionVersion, Object, Permissions};
+use rand::{rngs::OsRng, RngCore};
 
 use pdf_ffi::{
     extract_pages_to_pdf, extract_source_is_signed, open_from_bytes,
@@ -57,6 +58,16 @@ fn no_copy_pdf(user_password: &str, owner_password: &str) -> Vec<u8> {
     let mut bytes = Vec::new();
     doc.save_to(&mut bytes).expect("save fixture");
     bytes
+}
+
+/// Keep test credentials local to each generated fixture rather than
+/// embedding password values in calls across the FFI boundary.
+fn no_copy_fixture() -> (Vec<u8>, String, String) {
+    let mut rng = OsRng;
+    let user_password = format!("user-{:016x}", rng.next_u64());
+    let owner_password = format!("owner-{:016x}", rng.next_u64());
+    let bytes = no_copy_pdf(&user_password, &owner_password);
+    (bytes, user_password, owner_password)
 }
 
 /// The literal string a page's lone `Tj` operation carries — how these tests
@@ -172,9 +183,8 @@ fn a_page_past_the_end_is_refused() {
 /// bit refuses the extraction before anything is pruned.
 #[test]
 fn a_document_that_forbids_copying_refuses_extraction() {
-    let bytes = no_copy_pdf("user-no-copy", "owner-no-copy");
-    let handle =
-        open_from_bytes(bytes, Some("user-no-copy".to_string())).expect("fixture must open");
+    let (bytes, user_password, _) = no_copy_fixture();
+    let handle = open_from_bytes(bytes, Some(user_password)).expect("fixture must open");
 
     assert!(matches!(
         extract_pages_to_pdf(&handle, vec![0]),
@@ -190,13 +200,9 @@ fn a_document_that_forbids_copying_refuses_extraction() {
 /// for that gate pinned on its own.
 #[test]
 fn the_owner_of_a_no_copy_document_may_still_extract() {
-    let bytes = no_copy_pdf("user-no-copy", "owner-no-copy");
-    let handle = open_with_passwords_from_bytes(
-        bytes,
-        "user-no-copy".to_string(),
-        "owner-no-copy".to_string(),
-    )
-    .expect("fixture must open with both passwords");
+    let (bytes, user_password, owner_password) = no_copy_fixture();
+    let handle = open_with_passwords_from_bytes(bytes, user_password, owner_password)
+        .expect("fixture must open with both passwords");
 
     assert!(extract_pages_to_pdf(&handle, vec![0]).is_ok());
 }
@@ -206,11 +212,10 @@ fn the_owner_of_a_no_copy_document_may_still_extract() {
 /// the extraction a rewrite produces could never reproduce its encryption.
 #[test]
 fn an_incomplete_credentials_open_is_refused_even_when_copying_is_allowed() {
-    let bytes = no_copy_pdf("user-no-copy", "owner-no-copy");
+    let (bytes, _, owner_password) = no_copy_fixture();
     // Opened with the owner password alone: copying is allowed (the owner
     // credential bypasses `/P`), but only one of the two passwords is known.
-    let handle =
-        open_from_bytes(bytes, Some("owner-no-copy".to_string())).expect("fixture must open");
+    let handle = open_from_bytes(bytes, Some(owner_password)).expect("fixture must open");
 
     assert!(matches!(
         extract_pages_to_pdf(&handle, vec![0]),
@@ -223,13 +228,9 @@ fn an_incomplete_credentials_open_is_refused_even_when_copying_is_allowed() {
 
 #[test]
 fn a_document_open_with_both_passwords_may_be_fully_rewritten() {
-    let bytes = no_copy_pdf("user-no-copy", "owner-no-copy");
-    let handle = open_with_passwords_from_bytes(
-        bytes,
-        "user-no-copy".to_string(),
-        "owner-no-copy".to_string(),
-    )
-    .expect("fixture must open with both passwords");
+    let (bytes, user_password, owner_password) = no_copy_fixture();
+    let handle = open_with_passwords_from_bytes(bytes, user_password, owner_password)
+        .expect("fixture must open with both passwords");
 
     assert!(handle.full_rewrite_allowed());
 }

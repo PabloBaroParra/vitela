@@ -1814,6 +1814,7 @@ dependencies = [
  "pdf-manip",
  "pdf-render",
  "pdf-save",
+ "rand 0.8.7",
  "thiserror",
  "uniffi",
 ]
@@ -2139,6 +2140,7 @@ version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
 dependencies = [
+ "libc",
  "rand_chacha",
  "rand_core 0.6.4",
 ]
