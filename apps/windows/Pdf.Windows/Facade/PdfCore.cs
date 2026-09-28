@@ -353,6 +353,7 @@ internal abstract record PdfCoreEdit
 
     // Page structure. Every page number is a position in the document's
     // current order — the core resolves it to the page sitting there.
+    public sealed record InsertBlankPage(uint Index) : PdfCoreEdit;
     public sealed record RotatePage(uint PageIndex, int DeltaDegrees) : PdfCoreEdit;
     public sealed record RemovePage(uint PageIndex) : PdfCoreEdit;
     /// <summary><paramref name="To"/> is where the block starts after the move.</summary>
