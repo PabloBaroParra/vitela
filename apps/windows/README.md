@@ -49,6 +49,11 @@ passwords, warns before invalidating an existing signature, writes through a
 temporary destination, and reopens the protected bytes with the new open
 password.
 
+**Export PNGs** writes each page of the open document to a separate PNG at
+150 DPI in a chosen folder. Existing files are preserved: name collisions
+receive a unique suffix. Export stops at the first failed page and reports
+how many pages were written; the open document remains editable.
+
 A "Form fields" panel fills in the AcroForm fields a document already has —
 text, checkboxes, radio groups and dropdowns — gated on the fill permission
 (ISO 32000-1 bit 6) rather than content editing. Each fill rebuilds the

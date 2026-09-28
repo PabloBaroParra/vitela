@@ -717,12 +717,12 @@ public sealed partial class MainWindow : Window
         ZoomOutButton.IsEnabled = !isBusy;
         FitWidthButton.IsEnabled = !isBusy;
         FitPageButton.IsEnabled = !isBusy;
+        // Already folds in `_isBusy`: going in it disables every session
+        // command, coming out it restores them. Forcing them off after it
+        // left Protect, Compress, Export and metadata greyed out after their
+        // own first use, until another document was opened.
         RefreshSessionCommands();
         UpdateAnnotationControls(null);
-        ApplyMetadataButton.IsEnabled = false;
-        FormFieldsScroller.IsEnabled = false;
-        ProtectButton.IsEnabled = false;
-        CompressButton.IsEnabled = false;
     }
 
     /// <summary>
@@ -743,6 +743,7 @@ public sealed partial class MainWindow : Window
         // No permission gate of its own: compressing edits no content, and the
         // one document it cannot handle is refused by the core with a reason.
         CompressButton.IsEnabled = !_isBusy && _session is not null;
+        ExportImagesButton.IsEnabled = !_isBusy && _session is { PageCount: > 0 };
         ApplyMetadataButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
         // Only the busy half: whether a form may be filled is the fill
         // permission's answer, which each row already carries.
