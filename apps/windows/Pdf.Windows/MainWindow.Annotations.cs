@@ -413,6 +413,15 @@ public sealed partial class MainWindow
         AnnotationStatus.Text = undo ? "Edit undone. Changes are pending save." : "Edit redone. Changes are pending save.";
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
+        // A step that moved, turned or restored a page changes the whole
+        // layout; the rebuild re-renders every page, so the per-page
+        // catch-up below has nothing left to add.
+        if (_pagesEdited)
+        {
+            await SyncPagesAfterHistoryAsync();
+            return;
+        }
+
         // A step that moved a page-content edit changes what the PDF itself
         // paints, and the facade has already rebuilt the preview for it. Only
         // the pages on screen are left to catch up — and only a session that
@@ -442,7 +451,8 @@ public sealed partial class MainWindow
 
     private void UpdateAnnotationControls(AnnotationState? state)
     {
-        var enabled = state?.EditingAllowed == true;
+        // Organizing hides the pages these tools draw on; only history stays live.
+        var enabled = state?.EditingAllowed == true && !_organizing;
         var selected = _selectedAnnotationId is { } id
             ? state?.Annotations.LastOrDefault(annotation => annotation.Id == id)
             : null;
@@ -450,7 +460,7 @@ public sealed partial class MainWindow
         // annotations and refuse content changes, or the reverse. It follows
         // `state` only for the part they share — a blanked toolbar means the
         // shell is busy or has no document, and nothing may be armed then.
-        ContentEditButton.IsEnabled = state is not null && _session?.ContentEditingAllowed == true;
+        ContentEditButton.IsEnabled = state is not null && _session?.ContentEditingAllowed == true && !_organizing;
         HighlightButton.IsEnabled = enabled;
         UnderlineButton.IsEnabled = enabled;
         StrikeoutButton.IsEnabled = enabled;

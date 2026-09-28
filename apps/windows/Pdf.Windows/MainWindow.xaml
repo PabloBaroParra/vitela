@@ -52,6 +52,7 @@
             <Button x:Name="ProtectButton" Content="Protect" Click="ProtectButton_Click" />
             <Button x:Name="CompressButton" Content="Compress" Click="CompressButton_Click" />
             <Button x:Name="ExportImagesButton" Content="Export PNGs" Click="ExportImagesButton_Click" />
+            <ToggleButton x:Name="OrganizeButton" Content="Organize" Click="OrganizeButton_Click" ToolTipService.ToolTip="Move, rotate or delete pages" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
             <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
@@ -115,6 +116,21 @@
                 SizeChanged="PageScroller_SizeChanged">
                 <StackPanel x:Name="PageStack" HorizontalAlignment="Center" />
             </ScrollViewer>
+            <!--
+                Stands in for PageScroller while organizing. SelectionMode=None:
+                a card is acted on through its own buttons or by dragging it,
+                and a selection would only be a second, unused state.
+            -->
+            <GridView
+                x:Name="OrganizeGrid"
+                Grid.Column="0"
+                Visibility="Collapsed"
+                SelectionMode="None"
+                CanDragItems="True"
+                CanReorderItems="True"
+                AllowDrop="True"
+                DragItemsStarting="OrganizeGrid_DragItemsStarting"
+                DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
             <StackPanel Grid.Column="1" Spacing="8">
                 <Expander x:Name="DocumentProperties" Header="Document properties" IsExpanded="False">
                     <StackPanel Spacing="6" Padding="0,8,0,8">

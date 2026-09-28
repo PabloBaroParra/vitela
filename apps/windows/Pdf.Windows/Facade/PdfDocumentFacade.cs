@@ -124,6 +124,103 @@ public sealed class PdfDocumentFacade : IDisposable
         }
     }
 
+    /// <summary>
+    /// The session as the document describes it now — its page count and
+    /// sizes included. The shell asks after an undo or redo, which can move,
+    /// remove or restore pages behind its back.
+    /// </summary>
+    public Task<OperationResult<DocumentSession>> SessionAsync(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+            {
+                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "session", sessionId, null)));
+            }
+
+            session.ClampPageIndex();
+            return Task.FromResult(OperationResult<DocumentSession>.Success(session.ToDto()));
+        }
+    }
+
+    /// <summary>
+    /// Rotates, removes or moves a page as one undoable step, rebuilds the
+    /// preview, and hands back the session with its new page layout.
+    /// </summary>
+    /// <remarks>
+    /// The preview rebuild is not optional: <see cref="RenderPageAsync"/> draws
+    /// position <c>n</c> of the preview, and until it is rebuilt that is still
+    /// the page that sat there before the edit.
+    ///
+    /// Removing the last page is refused here rather than left to the core,
+    /// which would accept it: a document with no pages leaves the reader
+    /// nothing to act on, not even a page to put back.
+    /// </remarks>
+    public async Task<OperationResult<DocumentSession>> EditPagesAsync(string sessionId, PageEdit edit)
+    {
+        const string operation = "page_edit";
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SessionEntry session;
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                }
+
+                if (edit is PageEdit.Remove && session.Document.PageCount <= 1)
+                {
+                    return OperationResult<DocumentSession>.Failure(CreateError("A document needs at least one page.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                }
+
+                try
+                {
+                    _core.ApplyEdit(session.Document, edit switch
+                    {
+                        PageEdit.Rotate rotate => new PdfCoreEdit.RotatePage(rotate.PageIndex, rotate.DeltaDegrees),
+                        PageEdit.Remove remove => new PdfCoreEdit.RemovePage(remove.PageIndex),
+                        PageEdit.Move move => new PdfCoreEdit.MovePages(move.From, 1, move.To),
+                        _ => throw new ArgumentOutOfRangeException(nameof(edit)),
+                    });
+                    session.EditRevision++;
+                    // The PDF draws the page order and turn itself, so every
+                    // later undo or redo owes the render side a rebuild too.
+                    session.HasRecordedPreviewEdit = true;
+                    session.ClampPageIndex();
+                }
+                catch (PdfCoreException error) when (error.Category == PdfCoreError.UnsupportedOperation)
+                {
+                    // Named: the generic "not supported" reads like a missing
+                    // feature, when it is the document's own permissions — or
+                    // an encryption that cannot survive the rewrite a
+                    // reordering forces — that said no.
+                    return OperationResult<DocumentSession>.Failure(CreateError("This document does not allow its pages to be rearranged, rotated or removed.", error.Category, operation, sessionId, null));
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<DocumentSession>.Failure(MapError(error, operation, sessionId, null));
+                }
+            }
+
+            var refreshed = await RefreshPreviewAsync(session, operation, null).ConfigureAwait(false);
+            if (!refreshed.IsSuccess)
+            {
+                return OperationResult<DocumentSession>.Failure(refreshed.Error!);
+            }
+
+            lock (_gate)
+            {
+                return OperationResult<DocumentSession>.Success(session.ToDto());
+            }
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
     public Task<RenderResult> RenderCurrentPageAsync(string sessionId, uint dpi, bool invertContentColors)
     {
         lock (_gate)
@@ -1502,6 +1599,16 @@ public sealed class PdfDocumentFacade : IDisposable
             }
 
             return state;
+        }
+
+        /// <summary>Keeps the current page on a page that still exists after a removal.</summary>
+        public void ClampPageIndex()
+        {
+            var count = Document.PageCount;
+            if (count > 0 && PageIndex >= count)
+            {
+                PageIndex = count - 1;
+            }
         }
 
         public DocumentSession ToDto() => new(
