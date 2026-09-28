@@ -423,6 +423,8 @@ internal sealed class GeneratedPdfCore : IPdfCore
             new FfiTextStyle(FfiFontFamily.Helvetica, 12, new FfiColor(0, 0, 0)), false, null),
         PdfCoreEdit.AddCheckbox value => new FfiEditCommand.AddCheckbox(value.PageIndex, Rect(value.Rect),
             new FfiTextStyle(FfiFontFamily.Helvetica, 12, new FfiColor(0, 0, 0))),
+        PdfCoreEdit.AddDropdown value => new FfiEditCommand.AddDropdown(value.PageIndex, Rect(value.Rect),
+            new FfiTextStyle(FfiFontFamily.Helvetica, 12, new FfiColor(0, 0, 0)), ["Option 1", "Option 2"], false),
         PdfCoreEdit.InsertBlankPage value => new FfiEditCommand.InsertBlankPage(value.Index, new FfiPageSize.A4(), FfiOrientation.Portrait),
         PdfCoreEdit.RotatePage value => new FfiEditCommand.RotatePage(value.PageIndex, value.DeltaDegrees),
         PdfCoreEdit.RemovePage value => new FfiEditCommand.RemovePage(value.PageIndex),

@@ -8,7 +8,7 @@ namespace Pdf.Windows;
 /// <summary>Placing a form field on a page; the core owns its identity and undo step.</summary>
 public sealed partial class MainWindow
 {
-    private enum FieldToPlace { Text, Checkbox }
+    private enum FieldToPlace { Text, Checkbox, Dropdown }
 
     private FieldToPlace? _placingFormField;
     private bool _creatingFormField;
@@ -21,11 +21,19 @@ public sealed partial class MainWindow
     private async void PlaceCheckboxButton_Click(object sender, RoutedEventArgs e) =>
         await SetFormFieldPlacementAsync(FieldToPlace.Checkbox, PlaceCheckboxButton.IsChecked == true);
 
+    private async void PlaceDropdownButton_Click(object sender, RoutedEventArgs e) =>
+        await SetFormFieldPlacementAsync(FieldToPlace.Dropdown, PlaceDropdownButton.IsChecked == true);
+
     private async Task SetFormFieldPlacementAsync(FieldToPlace kind, bool requested)
     {
         StopPlacingFormField();
         if (!requested) return;
-        var button = kind == FieldToPlace.Text ? PlaceTextFieldButton : PlaceCheckboxButton;
+        var button = kind switch
+        {
+            FieldToPlace.Text => PlaceTextFieldButton,
+            FieldToPlace.Checkbox => PlaceCheckboxButton,
+            _ => PlaceDropdownButton,
+        };
         button.IsChecked = true;
         var generation = _formPlacementGeneration;
         var sessionId = _session?.SessionId;
@@ -44,9 +52,12 @@ public sealed partial class MainWindow
         _placingFormField = kind;
         _armedAnnotation = null;
         FormFieldsPanel.IsExpanded = true;
-        FormFieldsStatus.Text = kind == FieldToPlace.Text
-            ? "Click a page to place a text field."
-            : "Click a page to place a checkbox.";
+        FormFieldsStatus.Text = kind switch
+        {
+            FieldToPlace.Text => "Click a page to place a text field.",
+            FieldToPlace.Checkbox => "Click a page to place a checkbox.",
+            _ => "Click a page to place a dropdown.",
+        };
     }
 
     private void StopPlacingFormField()
@@ -56,6 +67,7 @@ public sealed partial class MainWindow
         _formFieldPressPage = null;
         PlaceTextFieldButton.IsChecked = false;
         PlaceCheckboxButton.IsChecked = false;
+        PlaceDropdownButton.IsChecked = false;
     }
 
     private bool BeginFormFieldPlacement(int pageIndex, PointerRoutedEventArgs args)
@@ -78,8 +90,8 @@ public sealed partial class MainWindow
         var page = _session.Pages[pageIndex];
         // A click positions the field; keep its default size on
         // even a small page instead of recording a rectangle outside it.
-        var width = Math.Min(kind == FieldToPlace.Text ? 144 : 18, page.WidthPt);
-        var height = Math.Min(kind == FieldToPlace.Text ? 36 : 18, page.HeightPt);
+        var width = Math.Min(kind == FieldToPlace.Checkbox ? 18 : 144, page.WidthPt);
+        var height = Math.Min(kind == FieldToPlace.Checkbox ? 18 : 36, page.HeightPt);
         if (width <= 0 || height <= 0) return true;
         var rect = new PdfCoreRect(Math.Clamp(point.X, 0, page.WidthPt - width),
             Math.Clamp(point.Y - height, 0, page.HeightPt - height), width, height);
@@ -87,9 +99,12 @@ public sealed partial class MainWindow
         _creatingFormField = true;
         try
         {
-            var result = kind == FieldToPlace.Text
-                ? await _facade.AddTextFieldAsync(sessionId, (uint)pageIndex, rect)
-                : await _facade.AddCheckboxAsync(sessionId, (uint)pageIndex, rect);
+            var result = kind switch
+            {
+                FieldToPlace.Text => await _facade.AddTextFieldAsync(sessionId, (uint)pageIndex, rect),
+                FieldToPlace.Checkbox => await _facade.AddCheckboxAsync(sessionId, (uint)pageIndex, rect),
+                _ => await _facade.AddDropdownAsync(sessionId, (uint)pageIndex, rect),
+            };
             if (_session?.SessionId != sessionId) return true;
             if (!result.IsSuccess)
             {
@@ -105,9 +120,12 @@ public sealed partial class MainWindow
             if (_session?.SessionId != sessionId) return true;
             if (generation == _formPlacementGeneration)
             {
-                FormFieldsStatus.Text = kind == FieldToPlace.Text
-                    ? "Text field placed. Save to keep the change."
-                    : "Checkbox placed. Save to keep the change.";
+                FormFieldsStatus.Text = kind switch
+                {
+                    FieldToPlace.Text => "Text field placed. Save to keep the change.",
+                    FieldToPlace.Checkbox => "Checkbox placed. Save to keep the change.",
+                    _ => "Dropdown placed. Save to keep the change.",
+                };
                 StopPlacingFormField();
             }
         }

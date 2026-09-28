@@ -558,6 +558,10 @@ public sealed partial class PdfDocumentFacade : IDisposable
     internal async Task<OperationResult<AnnotationState>> AddCheckboxAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
         => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddCheckbox(pageIndex, rect)).ConfigureAwait(false);
 
+    /// <summary>Places an undoable dropdown with the core's form-creation permission gate.</summary>
+    internal async Task<OperationResult<AnnotationState>> AddDropdownAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
+        => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddDropdown(pageIndex, rect)).ConfigureAwait(false);
+
     private async Task<OperationResult<AnnotationState>> AddFormFieldAsync(string sessionId, uint pageIndex, PdfCoreEdit edit)
     {
         const string operation = "form_create";

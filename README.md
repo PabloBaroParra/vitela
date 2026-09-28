@@ -181,7 +181,7 @@ cut (`pdf_document::prune`) rather than a second implementation. Windows can
 move, rotate and delete pages from a thumbnail grid; importing pages from
 other PDFs and the Documents view are still Linux-only. Forms are half-way there:
 Windows can fill existing fields and place single-line text fields from the side
-panel, and place checkboxes, while radio groups, dropdowns and form styling
+panel, and place checkboxes and dropdowns, while radio groups and form styling
 are still Linux-only.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
