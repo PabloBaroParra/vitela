@@ -533,6 +533,15 @@ impl DocumentState {
     pub(crate) fn record_strip_consent(&mut self, intent: FfiSaveIntent) {
         record_strip_consent_if_requested(&mut self.document, intent);
     }
+
+    /// The pdfium side of this handle, for sibling modules that render.
+    pub(crate) fn render_doc(&self) -> Option<pdf_render::DocumentHandle> {
+        self.render_doc
+    }
+
+    pub(crate) fn text_extraction_allowed(&self) -> bool {
+        text_extraction_is_allowed(&self.document)
+    }
 }
 
 /// Applies `pdf-manip`'s permission rule to this handle's document.
@@ -817,6 +826,14 @@ impl DocumentHandle {
     /// security context.
     pub fn annotation_editing_allowed(&self) -> bool {
         annotation_editing_is_allowed(&self.lock().document)
+    }
+
+    /// Whether the document lets its text and graphics be extracted — `/P`
+    /// bit 5. The gate `text_runs`, `search` and
+    /// [`crate::export_page_image`] all apply, asked up front so a shell can
+    /// disable a command instead of letting it fail.
+    pub fn text_extraction_allowed(&self) -> bool {
+        self.lock().text_extraction_allowed()
     }
 
     /// Every AcroForm field the document holds, in `/Fields` write order —

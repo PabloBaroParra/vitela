@@ -33,6 +33,10 @@
 //!   module rather than more of [`document`], because what it carries across
 //!   is a second crate's vocabulary (`pdf-compress`) and one save-time
 //!   decision, not another way to edit a page.
+//! - [`export`]: exporting pages as images — the page-selection grammar, the
+//!   file naming and the raster ceiling a shell asks before it writes, and
+//!   the encoded page itself. All of it is `pdf-save`/`pdf-render`'s; this
+//!   module only carries it across.
 //!
 //! ## Why this crate builds the FFI surface from real APIs, not port traits
 //!
@@ -50,6 +54,7 @@ mod bitmap;
 mod compress;
 mod document;
 mod error;
+mod export;
 mod form;
 mod selection;
 mod types;
@@ -67,6 +72,10 @@ pub use document::{
     save_to_bytes, save_to_path, stamp_placement, undo, will_invalidate_signatures, DocumentHandle,
 };
 pub use error::FfiError;
+pub use export::{
+    export_page_image, first_page_too_large_to_export, page_image_file_name, parse_page_selection,
+    FfiExportFormat,
+};
 pub use form::{
     FfiFieldOrigin, FfiFieldValue, FfiFontFamily, FfiFormField, FfiFormFieldKind, FfiRadioOption,
     FfiTextStyle,
