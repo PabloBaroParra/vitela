@@ -67,6 +67,8 @@ public sealed record PlacedPoint(double Left, double Top);
 /// </summary>
 public abstract record PageEdit
 {
+    /// <summary>Inserts a portrait A4 page at a position, including after the last page.</summary>
+    public sealed record InsertBlank(uint Index) : PageEdit;
     /// <summary>Turns a page clockwise by <paramref name="DeltaDegrees"/>; negative turns it back.</summary>
     public sealed record Rotate(uint PageIndex, int DeltaDegrees) : PageEdit;
     public sealed record Remove(uint PageIndex) : PageEdit;

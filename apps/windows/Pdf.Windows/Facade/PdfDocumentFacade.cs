@@ -144,7 +144,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
     }
 
     /// <summary>
-    /// Rotates, removes or moves a page as one undoable step, rebuilds the
+    /// Inserts, rotates, removes or moves a page as one undoable step, rebuilds the
     /// preview, and hands back the session with its new page layout.
     /// </summary>
     /// <remarks>
@@ -179,6 +179,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 {
                     _core.ApplyEdit(session.Document, edit switch
                     {
+                        PageEdit.InsertBlank insert => new PdfCoreEdit.InsertBlankPage(insert.Index),
                         PageEdit.Rotate rotate => new PdfCoreEdit.RotatePage(rotate.PageIndex, rotate.DeltaDegrees),
                         PageEdit.Remove remove => new PdfCoreEdit.RemovePage(remove.PageIndex),
                         PageEdit.Move move => new PdfCoreEdit.MovePages(move.From, 1, move.To),
@@ -196,7 +197,10 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     // feature, when it is the document's own permissions — or
                     // an encryption that cannot survive the rewrite a
                     // reordering forces — that said no.
-                    return OperationResult<DocumentSession>.Failure(CreateError("This document does not allow its pages to be rearranged, rotated or removed.", error.Category, operation, sessionId, null));
+                    var message = edit is PageEdit.InsertBlank
+                        ? "This document does not allow adding a blank page."
+                        : "This document does not allow its pages to be rearranged, rotated or removed.";
+                    return OperationResult<DocumentSession>.Failure(CreateError(message, error.Category, operation, sessionId, null));
                 }
                 catch (PdfCoreException error)
                 {

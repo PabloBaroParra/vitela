@@ -419,6 +419,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.ReplaceTextRunWithInsertedFont value =>
             new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
+        PdfCoreEdit.InsertBlankPage value => new FfiEditCommand.InsertBlankPage(value.Index, new FfiPageSize.A4(), FfiOrientation.Portrait),
         PdfCoreEdit.RotatePage value => new FfiEditCommand.RotatePage(value.PageIndex, value.DeltaDegrees),
         PdfCoreEdit.RemovePage value => new FfiEditCommand.RemovePage(value.PageIndex),
         PdfCoreEdit.MovePages value => new FfiEditCommand.MovePages(value.From, value.Count, value.To),

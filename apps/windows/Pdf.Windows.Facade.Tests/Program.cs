@@ -162,6 +162,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("leaves an operator's PDFium override alone", LeavesAnExistingPdfiumOverrideAlone)
     ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
     ,("moves a page and hands back the new layout", MovesAPageAndHandsBackTheNewLayoutAsync)
+    ,("appends a blank page and records unsaved work", AppendsABlankPageAsync)
+    ,("refuses blank page insertion when page assembly is forbidden", RefusesBlankPageInsertionAsync)
     ,("rotates a page by a quarter turn", RotatesAPageAsync)
     ,("removes a page and keeps the current page in range", RemovesAPageAndKeepsTheCurrentPageInRangeAsync)
     ,("refuses to remove a document's only page", RefusesToRemoveTheOnlyPageAsync)
@@ -1863,6 +1865,34 @@ static async Task MovesAPageAndHandsBackTheNewLayoutAsync()
     Assert(core.RefreshPreviewCalls == 1, "rendering reads the preview, so it must be rebuilt to show the new order");
 }
 
+static async Task AppendsABlankPageAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.InsertBlank(session.PageCount));
+    var blocked = await facade.OpenAsync(new DocumentSource("other.pdf", [2]));
+
+    Assert(result.IsSuccess && result.Value!.PageCount == 4, "a blank page should be appended");
+    Assert(core.PageEdits.Single() == new PdfCoreEdit.InsertBlankPage(3), "the end position must reach the core");
+    Assert(Widths(result.Value!).SequenceEqual([100, 101, 102, 595]), "existing pages keep their order and the new page is A4");
+    Assert(core.RefreshPreviewCalls == 1, "the inserted page must be visible in the preview");
+    Assert(!blocked.IsSuccess && blocked.Error!.RequiresPendingEditDecision, "an inserted page is unsaved work");
+}
+
+static async Task RefusesBlankPageInsertionAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+    core.LastDocument!.PageEditingAllowed = false;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.InsertBlank(session.PageCount));
+
+    Assert(!result.IsSuccess && result.Error!.Message == "This document does not allow adding a blank page.",
+        "the refusal must explain the page assembly restriction");
+    Assert(core.RefreshPreviewCalls == 0 && core.PageEdits.Count == 0, "a refused insert must not change the preview");
+}
+
 static async Task RotatesAPageAsync()
 {
     var (core, facade, session) = await OpenThreePagesAsync();
@@ -2861,7 +2891,7 @@ sealed class FakeCore : IPdfCore
             return;
         }
 
-        if (edit is PdfCoreEdit.RotatePage or PdfCoreEdit.RemovePage or PdfCoreEdit.MovePages)
+        if (edit is PdfCoreEdit.InsertBlankPage or PdfCoreEdit.RotatePage or PdfCoreEdit.RemovePage or PdfCoreEdit.MovePages)
         {
             // The assembly permission, as in the core's `apply_edit`.
             if (!fake.PageEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "this document does not permit inserting, removing or rotating its pages");
@@ -3107,6 +3137,9 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
                 // Page content is not mirrored on the model — the queued
                 // command is the edit — so there is nothing to mutate here
                 // beyond the history the facade reads back.
+                break;
+            case PdfCoreEdit.InsertBlankPage insert:
+                _pages.Insert((int)insert.Index, new(595, 842, PageRotation.None));
                 break;
             case PdfCoreEdit.RotatePage rotate:
                 var turned = _pages[(int)rotate.PageIndex];

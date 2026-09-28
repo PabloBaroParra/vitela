@@ -9,8 +9,8 @@ namespace Pdf.Windows;
 
 /// <summary>
 /// Organize pages: a grid of thumbnails standing in for the viewer, where a
-/// page is dragged to a new position, turned a quarter, or removed. Each of
-/// those is one undoable edit through
+/// page is dragged to a new position, turned a quarter, removed, or a blank
+/// page is appended. Each is one undoable edit through
 /// <see cref="PdfDocumentFacade.EditPagesAsync"/>; the core owns what a move
 /// means, this partial owns only the cards.
 /// </summary>
@@ -80,7 +80,7 @@ public sealed partial class MainWindow
         OrganizeButton.IsChecked = true;
         OrganizeGrid.ItemsSource = _organizeCards;
         PageScroller.Visibility = Visibility.Collapsed;
-        OrganizeGrid.Visibility = Visibility.Visible;
+        OrganizePanel.Visibility = Visibility.Visible;
         AnnotationStatus.Text = "Drag a page to move it. Changes are one undo step each.";
         BuildOrganizeCards();
         UpdateAnnotationControls(_annotationState);
@@ -110,7 +110,7 @@ public sealed partial class MainWindow
         _organizing = false;
         _thumbnailGeneration++;
         OrganizeButton.IsChecked = false;
-        OrganizeGrid.Visibility = Visibility.Collapsed;
+        OrganizePanel.Visibility = Visibility.Collapsed;
         _organizeCards.Clear();
     }
 
@@ -169,6 +169,14 @@ public sealed partial class MainWindow
         }
 
         _ = RenderThumbnailsAsync(_thumbnailGeneration);
+    }
+
+    private async void InsertBlankPageButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_organizing || _session is null) return;
+        var index = _session.PageCount;
+        await EditPagesAsync(new PageEdit.InsertBlank(index), "Blank page added.", onSuccess: _ =>
+            _organizeCards.Add(CreateOrganizeCard((int)index)));
     }
 
     private Border CreateOrganizeCard(int index)
@@ -286,6 +294,7 @@ public sealed partial class MainWindow
 
         _organizeBusy = true;
         OrganizeGrid.IsEnabled = false;
+        InsertBlankPageButton.IsEnabled = false;
         // Before the edit, not after: the preview is rebuilt inside it, and a
         // thumbnail asked of the old layout could land once it has — on a
         // card that, after a drop, no longer sits where it was asked for.
@@ -293,6 +302,7 @@ public sealed partial class MainWindow
         var result = await _facade.EditPagesAsync(_session.SessionId, edit);
         _organizeBusy = false;
         OrganizeGrid.IsEnabled = true;
+        InsertBlankPageButton.IsEnabled = true;
         if (!_organizing) return;
 
         if (!result.IsSuccess)
