@@ -121,5 +121,9 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(state.title, text))
             }
         },
+        onOpenMetadata = viewModel::openMetadata,
+        onMetadataChange = viewModel::editMetadata,
+        onMetadataApply = viewModel::applyMetadata,
+        onMetadataDismiss = viewModel::dismissMetadata,
     )
 }

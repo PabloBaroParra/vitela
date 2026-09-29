@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.AnnotationEdit
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.DocumentInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -308,6 +309,74 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
             return
         }
         _state.value = current.copy(saveTarget = null, status = "Could not save to the original file. Use Save copy instead.")
+    }
+
+    /** Opens Document properties on the `/Info` dict as it would be saved now. */
+    fun openMetadata() {
+        val openDocument = document ?: return
+        viewModelScope.launch {
+            documentLane.withLock {
+                if (document !== openDocument) return@withLock
+                val allowed = withContext(Dispatchers.Default) { openDocument.metadataEditingAllowed() }
+                when (val result = withContext(Dispatchers.Default) { openDocument.documentInfo() }) {
+                    is PdfCoreResult.Success -> _state.value = _state.value.copy(
+                        metadataEditor = MetadataEditor(result.value, allowed, if (allowed) null else METADATA_READ_ONLY),
+                    )
+                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+                }
+            }
+        }
+    }
+
+    fun editMetadata(draft: DocumentInfo) {
+        val editor = _state.value.metadataEditor ?: return
+        if (editor.editingAllowed) _state.value = _state.value.copy(metadataEditor = editor.copy(draft = draft))
+    }
+
+    fun dismissMetadata() {
+        if (_state.value.metadataEditor != null) _state.value = _state.value.copy(metadataEditor = null)
+    }
+
+    /**
+     * Queues the draft as one undoable change. The current value is read again
+     * under the lane, not trusted from when the dialog opened: an undo may
+     * have landed in between.
+     */
+    fun applyMetadata() {
+        val openDocument = document ?: return
+        val editor = _state.value.metadataEditor?.takeIf { it.editingAllowed } ?: return
+        viewModelScope.launch {
+            documentLane.withLock {
+                if (document !== openDocument || _state.value.metadataEditor == null) return@withLock
+                val current = when (val read = withContext(Dispatchers.Default) { openDocument.documentInfo() }) {
+                    is PdfCoreResult.Success -> read.value
+                    is PdfCoreResult.Failure -> return@withLock refuseMetadata(read.error)
+                }
+                val after = metadataChange(current, editor.draft) ?: run {
+                    _state.value = _state.value.copy(metadataEditor = null)
+                    return@withLock
+                }
+                when (val result = withContext(Dispatchers.Default) { openDocument.setDocumentInfo(after) }) {
+                    is PdfCoreResult.Success -> {
+                        _state.value = _state.value.copy(
+                            metadataEditor = null,
+                            isDirty = true,
+                            revision = _state.value.revision + 1,
+                            status = "Document properties updated. Changes are pending save.",
+                        )
+                        // The change sits in the same edit log: Undo must light up.
+                        refreshAnnotations(openDocument)
+                    }
+                    is PdfCoreResult.Failure -> refuseMetadata(result.error)
+                }
+            }
+        }
+    }
+
+    /** Only the message changes: whatever was typed while the apply waited stays. */
+    private fun refuseMetadata(error: PdfCoreError) {
+        val editor = _state.value.metadataEditor ?: return
+        _state.value = _state.value.copy(metadataEditor = editor.copy(message = userMessage(error)))
     }
 
     fun setAnnotationTool(tool: AnnotationTool) {

@@ -15,12 +15,14 @@ import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.TextRect
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
 import dev.vitela.pdf.uniffi.FfiAnnotationKind
 import dev.vitela.pdf.uniffi.FfiColor
+import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
 import dev.vitela.pdf.uniffi.FfiPageCharacters
 import dev.vitela.pdf.uniffi.FfiPoint
@@ -114,6 +116,33 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    override fun documentInfo(): PdfCoreResult<DocumentInfo> = try {
+        PdfCoreResult.Success(handle.readDocumentInfo().toDocumentInfo())
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core does not gate `SetDocumentInfo` itself; this is the same
+    // permission the Windows shell asks before offering the properties.
+    override fun metadataEditingAllowed(): Boolean = handle.contentEditingAllowed()
+
+    override fun setDocumentInfo(info: DocumentInfo): PdfCoreResult<Unit> = try {
+        // Re-read so the file's creation/modification dates ride along: the
+        // command replaces the whole dict, and this shell never edits them.
+        val after = handle.readDocumentInfo().copy(
+            title = info.title,
+            author = info.author,
+            subject = info.subject,
+            keywords = info.keywords,
+            creator = info.creator,
+            producer = info.producer,
+        )
+        ffiApplyEdit(handle, FfiEditCommand.SetDocumentInfo(after))
+        PdfCoreResult.Success(Unit)
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
     override fun saveToBytes(): PdfCoreResult<ByteArray> = try {
         // Never acknowledged: this shell has no prompt yet that tells the user
         // a save breaks the file's signature, so the core refuses the save.
@@ -174,6 +203,7 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
     is AnnotationEdit.Remove -> FfiEditCommand.RemoveAnnotation(id.toULong())
 }
 
+private fun FfiDocumentInfo.toDocumentInfo() = DocumentInfo(title, author, subject, keywords, creator, producer)
 private fun FfiRect.toRect() = AnnotationRect(x, y, width, height)
 private fun AnnotationRect.toFfi() = FfiRect(x, y, width, height)
 private fun FfiColor.toColor() = AnnotationColor(r.toInt(), g.toInt(), b.toInt())

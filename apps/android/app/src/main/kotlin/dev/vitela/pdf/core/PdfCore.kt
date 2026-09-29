@@ -45,6 +45,13 @@ interface PdfDocument : AutoCloseable {
     /** Inserts an image-backed stamp using a placement returned by [stampPlacement]. */
     fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, rect: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Image stamps are unavailable in this PDF core."))
 
+    /** The `/Info` dict as it will be saved: the last queued change, else the file's own. */
+    fun documentInfo(): PdfCoreResult<DocumentInfo> = PdfCoreResult.Failure(PdfCoreError.Failed("Document properties are unavailable in this PDF core."))
+    /** Whether the document's security context lets its properties be changed. */
+    fun metadataEditingAllowed(): Boolean = false
+    /** Queues one undoable `/Info` change; persisted by the next [saveToBytes]. */
+    fun setDocumentInfo(info: DocumentInfo): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Document properties are unavailable in this PDF core."))
+
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
 }

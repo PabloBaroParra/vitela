@@ -66,6 +66,8 @@ data class ViewerState(
      * a target a write already failed on. Save copy works either way.
      */
     val saveTarget: String? = null,
+    /** The Document properties dialog, or null while it is closed. */
+    val metadataEditor: MetadataEditor? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )
