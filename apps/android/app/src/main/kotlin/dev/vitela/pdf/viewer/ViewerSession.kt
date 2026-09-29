@@ -41,3 +41,7 @@ internal fun userMessage(error: PdfCoreError): String = when (error) {
     PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> "This document requires a password."
     is PdfCoreError.Failed -> error.message
 }
+
+/** The open file's name without its `.pdf`, for a derived file's suggested name; "Document" when there is none. */
+internal fun documentStem(title: String): String =
+    title.trim().let { if (it.endsWith(".pdf", ignoreCase = true)) it.dropLast(4) else it }.ifBlank { "Document" }

@@ -90,6 +90,13 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
             viewModel.splitPages { fileName, bytes -> SafExport.writeFile(context.contentResolver, treeUri, fileName, "application/pdf", bytes) }
         }
     }
+    val saveCompressed = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri == null) {
+            viewModel.cancelCompress()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch { viewModel.writeCompressed { bytes -> SafDocuments.writeCopy(context.contentResolver, uri, bytes) } }
+    }
     ViewerScreen(
         state = state,
         onOpen = { openPdf.launch(arrayOf("application/pdf")) },
@@ -166,5 +173,10 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         // Same order as Export images: only accepted cuts ask for a folder.
         onPageSplitConfirm = { scope.launch { if (viewModel.planPageSplit()) chooseSplitFolder.launch(null) } },
         onPageSplitDismiss = viewModel::dismissPageSplit,
+        onOpenCompress = viewModel::openCompress,
+        onCompressSelect = viewModel::selectCompressPreset,
+        // The destination comes last: only a copy that came out smaller asks where to go.
+        onCompressConfirm = { scope.launch { viewModel.compress()?.let(saveCompressed::launch) } },
+        onCompressDismiss = viewModel::dismissCompress,
     )
 }

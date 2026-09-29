@@ -9,6 +9,8 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.SplitPart
+import dev.vitela.pdf.core.CompressPreset
+import dev.vitela.pdf.core.CompressedCopy
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationEdit
@@ -24,6 +26,9 @@ import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
 import dev.vitela.pdf.uniffi.FfiAnnotationKind
 import dev.vitela.pdf.uniffi.FfiColor
+import dev.vitela.pdf.uniffi.FfiCompressOutcome
+import dev.vitela.pdf.uniffi.FfiCompressPreset
+import dev.vitela.pdf.uniffi.FfiCompressRefusal
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
 import dev.vitela.pdf.uniffi.FfiExportFormat
@@ -53,6 +58,9 @@ import dev.vitela.pdf.uniffi.exportPageImage as ffiExportPageImage
 import dev.vitela.pdf.uniffi.extractPagesToPdf as ffiExtractPagesToPdf
 import dev.vitela.pdf.uniffi.extractSourceIsSigned as ffiExtractSourceIsSigned
 import dev.vitela.pdf.uniffi.planSplit as ffiPlanSplit
+import dev.vitela.pdf.uniffi.compressionRefusal as ffiCompressionRefusal
+import dev.vitela.pdf.uniffi.compressedSaveWillInvalidateSignatures as ffiCompressedSaveWillInvalidateSignatures
+import dev.vitela.pdf.uniffi.saveCompressedToBytes as ffiSaveCompressedToBytes
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -221,6 +229,33 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    override fun compressionRefusal(): String? =
+        ffiCompressionRefusal(handle, FfiSaveIntent.DEFAULT)?.toClause()
+
+    override fun compressedSaveWillInvalidateSignatures(): PdfCoreResult<Boolean> = try {
+        PdfCoreResult.Success(ffiCompressedSaveWillInvalidateSignatures(handle, FfiSaveIntent.DEFAULT))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun saveCompressed(preset: CompressPreset, signaturesAcknowledged: Boolean): PdfCoreResult<CompressedCopy> = try {
+        val acknowledgement = if (signaturesAcknowledged) FfiSignatureAcknowledgement.PROCEED_AND_INVALIDATE else FfiSignatureAcknowledgement.UNACKNOWLEDGED
+        val saved = ffiSaveCompressedToBytes(handle, FfiSaveIntent.DEFAULT, acknowledgement, preset.toFfi())
+        val report = saved.report
+        PdfCoreResult.Success(
+            CompressedCopy(
+                bytes = saved.bytes,
+                beforeBytes = report.beforeBytes.toLong(),
+                afterBytes = report.afterBytes.toLong(),
+                savedBytes = report.savedBytes.toLong(),
+                reduced = report.outcome == FfiCompressOutcome.REDUCED,
+                refusals = report.refusals.map { it.toClause() },
+            ),
+        )
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
     override fun saveToBytes(): PdfCoreResult<ByteArray> = try {
         // Never acknowledged: this shell has no prompt yet that tells the user
         // a save breaks the file's signature, so the core refuses the save.
@@ -284,6 +319,20 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
 private fun ImageExportFormat.toFfi(): FfiExportFormat = when (this) {
     ImageExportFormat.Png -> FfiExportFormat.PNG
     ImageExportFormat.Jpeg -> FfiExportFormat.JPEG
+}
+
+private fun CompressPreset.toFfi(): FfiCompressPreset = when (this) {
+    CompressPreset.Lossless -> FfiCompressPreset.LOSSLESS
+    CompressPreset.Balanced -> FfiCompressPreset.BALANCED
+    CompressPreset.Small -> FfiCompressPreset.SMALL
+}
+
+// The two modelled refusals cross without text, so their wording is restated
+// here from `pdf_compress::Refusal`'s Display — verbatim the Windows adapter's.
+private fun FfiCompressRefusal.toClause(): String = when (this) {
+    is FfiCompressRefusal.EncryptedDocumentNotRewritable -> "this document's password protection does not allow it to be rewritten, so it cannot be compressed"
+    is FfiCompressRefusal.SignaturesWouldBeInvalidated -> "compressing rewrites the file and would stop its signature from verifying"
+    is FfiCompressRefusal.Other -> detail
 }
 
 private fun FfiDocumentInfo.toDocumentInfo() = DocumentInfo(title, author, subject, keywords, creator, producer)

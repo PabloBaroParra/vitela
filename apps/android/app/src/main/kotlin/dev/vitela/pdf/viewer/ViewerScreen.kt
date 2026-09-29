@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.R
+import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.sample.SampleDocument
 
 /**
@@ -91,6 +92,10 @@ internal fun ViewerScreen(
     onPageSplitChange: (String) -> Unit,
     onPageSplitConfirm: () -> Unit,
     onPageSplitDismiss: () -> Unit,
+    onOpenCompress: () -> Unit,
+    onCompressSelect: (CompressPreset) -> Unit,
+    onCompressConfirm: () -> Unit,
+    onCompressDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -139,6 +144,7 @@ internal fun ViewerScreen(
             Button(onClick = onOpenImageExport, enabled = state.pageCount > 0 && !state.imageExportRunning) { Text("Export images") }
             Button(onClick = onOpenPageExtract, enabled = state.pageCount > 0) { Text("Extract pages") }
             Button(onClick = onOpenPageSplit, enabled = state.pageCount > 1 && !state.pageSplitRunning) { Text("Split") }
+            Button(onClick = onOpenCompress, enabled = state.pageCount > 0 && !state.compressRunning) { Text("Compress") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -249,6 +255,9 @@ internal fun ViewerScreen(
     }
     state.pageSplit?.let { editor ->
         PageSplitDialog(editor, state.pageCount, onChange = onPageSplitChange, onSplit = onPageSplitConfirm, onDismiss = onPageSplitDismiss)
+    }
+    state.compress?.let { editor ->
+        CompressDialog(editor, onSelect = onCompressSelect, onCompress = onCompressConfirm, onDismiss = onCompressDismiss)
     }
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(

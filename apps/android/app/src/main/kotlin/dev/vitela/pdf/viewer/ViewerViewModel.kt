@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
@@ -47,6 +48,7 @@ class ViewerViewModel(
     private val imageExporting = ImageExporting(session)
     private val pageExtracting = PageExtracting(session)
     private val pageSplitting = PageSplitting(session)
+    private val compressing = Compressing(session)
     private val saving = DocumentSaving(session) { sourceBytes }
 
     /**
@@ -224,6 +226,15 @@ class ViewerViewModel(
     suspend fun planPageSplit(): Boolean = pageSplitting.plan()
     fun cancelPageSplit() = pageSplitting.cancel()
     suspend fun splitPages(write: SplitPartWriter) = pageSplitting.split(write)
+
+    // Compress
+    fun openCompress() = compressing.open()
+    fun selectCompressPreset(preset: CompressPreset) = compressing.select(preset)
+    fun dismissCompress() = compressing.dismiss()
+    /** The name to suggest in the save picker once smaller bytes exist, or null when there is nothing to write. */
+    suspend fun compress(): String? = compressing.compress()
+    fun cancelCompress() = compressing.cancel()
+    suspend fun writeCompressed(write: CompressedPdfWriter) = compressing.write(write)
 
     // Annotations
     fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)

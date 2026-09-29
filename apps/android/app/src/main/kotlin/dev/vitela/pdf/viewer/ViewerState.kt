@@ -78,6 +78,10 @@ data class ViewerState(
     val pageSplit: PageSplitEditor? = null,
     /** True while a split is extracting and writing its parts, so a second one cannot start on top of it. */
     val pageSplitRunning: Boolean = false,
+    /** The Compress dialog, or null while it is closed. */
+    val compress: CompressEditor? = null,
+    /** True while a compression runs, so a second one cannot start on top of it. */
+    val compressRunning: Boolean = false,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )
