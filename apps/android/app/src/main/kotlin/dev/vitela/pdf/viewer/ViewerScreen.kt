@@ -87,6 +87,10 @@ internal fun ViewerScreen(
     onPageExtractChange: (String) -> Unit,
     onPageExtractConfirm: () -> Unit,
     onPageExtractDismiss: () -> Unit,
+    onOpenPageSplit: () -> Unit,
+    onPageSplitChange: (String) -> Unit,
+    onPageSplitConfirm: () -> Unit,
+    onPageSplitDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -134,6 +138,7 @@ internal fun ViewerScreen(
             Button(onClick = onOpenMetadata, enabled = state.pageCount > 0) { Text("Properties") }
             Button(onClick = onOpenImageExport, enabled = state.pageCount > 0 && !state.imageExportRunning) { Text("Export images") }
             Button(onClick = onOpenPageExtract, enabled = state.pageCount > 0) { Text("Extract pages") }
+            Button(onClick = onOpenPageSplit, enabled = state.pageCount > 1 && !state.pageSplitRunning) { Text("Split") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -241,6 +246,9 @@ internal fun ViewerScreen(
     }
     state.pageExtract?.let { editor ->
         PageExtractDialog(editor, onChange = onPageExtractChange, onExtract = onPageExtractConfirm, onDismiss = onPageExtractDismiss)
+    }
+    state.pageSplit?.let { editor ->
+        PageSplitDialog(editor, state.pageCount, onChange = onPageSplitChange, onSplit = onPageSplitConfirm, onDismiss = onPageSplitDismiss)
     }
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(

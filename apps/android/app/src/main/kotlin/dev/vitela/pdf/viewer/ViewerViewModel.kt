@@ -38,6 +38,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
     private val pageExtracting = PageExtracting(session)
+    private val pageSplitting = PageSplitting(session)
     private val saving = DocumentSaving(session) { sourceBytes }
 
     /**
@@ -206,6 +207,15 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     suspend fun planPageExtract(): String? = pageExtracting.plan()
     fun cancelPageExtract() = pageExtracting.cancel()
     suspend fun extractPages(write: ExtractedPdfWriter) = pageExtracting.extract(write)
+
+    // Split into several PDFs
+    fun openPageSplit() = pageSplitting.open()
+    fun editPageSplit(cuts: String) = pageSplitting.edit(cuts)
+    fun dismissPageSplit() = pageSplitting.dismiss()
+    /** True once the cuts are accepted and a folder should be asked for; false leaves the dialog open with the reason. */
+    suspend fun planPageSplit(): Boolean = pageSplitting.plan()
+    fun cancelPageSplit() = pageSplitting.cancel()
+    suspend fun splitPages(write: SplitPartWriter) = pageSplitting.split(write)
 
     // Annotations
     fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)

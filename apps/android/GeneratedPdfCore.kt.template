@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.core.SplitPart
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationEdit
@@ -51,6 +52,7 @@ import dev.vitela.pdf.uniffi.firstPageTooLargeToExport as ffiFirstPageTooLargeTo
 import dev.vitela.pdf.uniffi.exportPageImage as ffiExportPageImage
 import dev.vitela.pdf.uniffi.extractPagesToPdf as ffiExtractPagesToPdf
 import dev.vitela.pdf.uniffi.extractSourceIsSigned as ffiExtractSourceIsSigned
+import dev.vitela.pdf.uniffi.planSplit as ffiPlanSplit
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -203,6 +205,17 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // its detail is a lower-case clause, not a sentence of its own.
         PdfCoreResult.Failure(PdfCoreError.Failed("These pages could not be extracted: ${error.detail}."))
     } catch (error: FfiException.InvalidPageSelection) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(error.detail))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun planSplit(cuts: String, displayName: String): PdfCoreResult<List<SplitPart>> = try {
+        PdfCoreResult.Success(
+            ffiPlanSplit(cuts, pageCount.toUInt(), displayName).map { SplitPart(it.first.toInt(), it.last.toInt(), it.fileName) },
+        )
+    } catch (error: FfiException.InvalidPageSelection) {
+        // The core's own sentence: a blank field, a one-page file, a bad cut.
         PdfCoreResult.Failure(PdfCoreError.Failed(error.detail))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
