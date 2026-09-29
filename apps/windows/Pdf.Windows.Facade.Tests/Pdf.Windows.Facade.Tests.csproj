@@ -26,6 +26,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\ViewportTilePlan.cs" Link="Viewer\ViewportTilePlan.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\StampPreviewCache.cs" Link="Viewer\StampPreviewCache.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ImageStampInput.cs" Link="Viewer\ImageStampInput.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\AnnotationSelection.cs" Link="Viewer\AnnotationSelection.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FileDropRouting.cs" Link="Viewer\FileDropRouting.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentHitTest.cs" Link="Viewer\ContentHitTest.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PdfFontMatch.cs" Link="Viewer\PdfFontMatch.cs" />

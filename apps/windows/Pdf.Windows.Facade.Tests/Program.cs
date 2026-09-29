@@ -62,6 +62,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("discards a tile batch after the document session changes", DiscardsTileBatchAfterSessionSwapAsync)
     ,("records annotation edits in core history", RecordsAnnotationEditsInCoreHistoryAsync)
     ,("publishes restyled annotation colors", PublishesRestyledAnnotationColorAsync)
+    ,("steps backward through annotations without changing the document", StepsBackwardThroughAnnotations)
     ,("refuses annotation edits when permissions deny them", RefusesForbiddenAnnotationEditsAsync)
     ,("holds annotation edits until destination replacement completes", HoldsEditsUntilDestinationReplacementCompletesAsync)
     ,("blocks opening another document with unsaved annotations", BlocksOpenWithUnsavedAnnotationsAsync)
@@ -1064,6 +1065,22 @@ static Task KeepsStampPreviewsScopedToSession()
     Assert(previews.TryGet(7, out _), "the same session must retain its preview");
     Assert(previews.BeginSession("second"), "a replacement document must start a new cache");
     Assert(!previews.TryGet(7, out _), "a replacement document must clear the old previews");
+    return Task.CompletedTask;
+}
+
+static Task StepsBackwardThroughAnnotations()
+{
+    var first = new Annotation(1, 0, AnnotationKind.Shape, new AnnotationRect(0, 0, 10, 10), null, []);
+    var second = first with { Id = 2 };
+    var third = first with { Id = 3 };
+    Annotation[] annotations = [first, second, third];
+
+    Assert(AnnotationSelection.PreviousId(annotations, 3) == 2, "selection should step backward in document order");
+    Assert(AnnotationSelection.PreviousId(annotations, 1) == 3, "the first annotation should wrap to the last");
+    Assert(AnnotationSelection.PreviousId(annotations, 9) is null, "a deleted selection should not select another annotation");
+    Assert(AnnotationSelection.PreviousId(annotations, null) is null, "navigation needs a selected annotation");
+    Assert(AnnotationSelection.PreviousId([], 1) is null, "an empty document has no previous annotation");
+    Assert(annotations[0].Id == 1 && annotations[1].Id == 2, "navigation must not reorder the document");
     return Task.CompletedTask;
 }
 
