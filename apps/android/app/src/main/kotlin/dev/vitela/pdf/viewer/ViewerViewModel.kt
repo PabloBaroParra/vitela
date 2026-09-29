@@ -37,6 +37,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private val annotations = AnnotationEditing(session, selection)
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
+    private val pageExtracting = PageExtracting(session)
     private val saving = DocumentSaving(session) { sourceBytes }
 
     /**
@@ -196,6 +197,15 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     suspend fun planImageExport(): Boolean = imageExporting.plan()
     fun cancelImageExport() = imageExporting.cancel()
     suspend fun exportImages(write: ImageFileWriter) = imageExporting.export(write)
+
+    // Extract pages
+    fun openPageExtract() = pageExtracting.open()
+    fun editPageExtract(range: String) = pageExtracting.edit(range)
+    fun dismissPageExtract() = pageExtracting.dismiss()
+    /** The name to suggest in the save picker once the range is accepted, or null when it was refused. */
+    suspend fun planPageExtract(): String? = pageExtracting.plan()
+    fun cancelPageExtract() = pageExtracting.cancel()
+    suspend fun extractPages(write: ExtractedPdfWriter) = pageExtracting.extract(write)
 
     // Annotations
     fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)

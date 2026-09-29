@@ -74,6 +74,13 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
             viewModel.exportImages { fileName, mimeType, bytes -> SafExport.writeFile(context.contentResolver, treeUri, fileName, mimeType, bytes) }
         }
     }
+    val saveExtract = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri == null) {
+            viewModel.cancelPageExtract()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch { viewModel.extractPages { bytes -> SafDocuments.writeCopy(context.contentResolver, uri, bytes) } }
+    }
     ViewerScreen(
         state = state,
         onOpen = { openPdf.launch(arrayOf("application/pdf")) },
@@ -140,5 +147,10 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         // The choices are checked first; only a plan that will be accepted asks for a folder.
         onImageExportConfirm = { scope.launch { if (viewModel.planImageExport()) chooseExportFolder.launch(null) } },
         onImageExportDismiss = viewModel::dismissImageExport,
+        onOpenPageExtract = viewModel::openPageExtract,
+        onPageExtractChange = viewModel::editPageExtract,
+        // Same order as Export images: only an accepted range asks where to write.
+        onPageExtractConfirm = { scope.launch { viewModel.planPageExtract()?.let(saveExtract::launch) } },
+        onPageExtractDismiss = viewModel::dismissPageExtract,
     )
 }

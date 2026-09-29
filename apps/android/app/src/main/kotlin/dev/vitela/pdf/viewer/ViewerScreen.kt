@@ -83,6 +83,10 @@ internal fun ViewerScreen(
     onImageExportChange: (ImageExportDraft) -> Unit,
     onImageExportConfirm: () -> Unit,
     onImageExportDismiss: () -> Unit,
+    onOpenPageExtract: () -> Unit,
+    onPageExtractChange: (String) -> Unit,
+    onPageExtractConfirm: () -> Unit,
+    onPageExtractDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -129,6 +133,7 @@ internal fun ViewerScreen(
             Button(onClick = onSaveCopy, enabled = state.isDirty) { Text("Save copy") }
             Button(onClick = onOpenMetadata, enabled = state.pageCount > 0) { Text("Properties") }
             Button(onClick = onOpenImageExport, enabled = state.pageCount > 0 && !state.imageExportRunning) { Text("Export images") }
+            Button(onClick = onOpenPageExtract, enabled = state.pageCount > 0) { Text("Extract pages") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -233,6 +238,9 @@ internal fun ViewerScreen(
     }
     state.imageExport?.let { editor ->
         ImageExportDialog(editor, onChange = onImageExportChange, onExport = onImageExportConfirm, onDismiss = onImageExportDismiss)
+    }
+    state.pageExtract?.let { editor ->
+        PageExtractDialog(editor, onChange = onPageExtractChange, onExtract = onPageExtractConfirm, onDismiss = onPageExtractDismiss)
     }
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(

@@ -63,6 +63,15 @@ interface PdfDocument : AutoCloseable {
     /** One page rendered at [dpi] and encoded: the bytes of the file to write. */
     fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
 
+    /** Whether the document's `/P` bits let its pages leave for a new PDF — the extraction bit, not the assembly one. */
+    fun pageExtractionAllowed(): Boolean = false
+    /** Whether the document survives a full rewrite: false for an encrypted file opened with only one of its two passwords. */
+    fun fullRewriteAllowed(): Boolean = false
+    /** Whether the source carries a signature, which the extracted copy cannot keep valid. */
+    fun extractSourceIsSigned(): Boolean = false
+    /** The bytes of a new PDF holding only [pages] (ascending, zero-based); the open document is untouched. */
+    fun extractPages(pages: List<Int>): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Extracting pages is unavailable in this PDF core."))
+
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
 }
