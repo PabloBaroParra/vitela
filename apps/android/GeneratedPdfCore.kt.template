@@ -15,17 +15,19 @@ import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.TextRect
-import dev.vitela.pdf.core.TextRun
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
 import dev.vitela.pdf.uniffi.FfiAnnotationKind
 import dev.vitela.pdf.uniffi.FfiColor
 import dev.vitela.pdf.uniffi.FfiEditCommand
+import dev.vitela.pdf.uniffi.FfiPageCharacters
 import dev.vitela.pdf.uniffi.FfiPoint
 import dev.vitela.pdf.uniffi.FfiRect
 import dev.vitela.pdf.uniffi.FfiRenderOptions
 import dev.vitela.pdf.uniffi.FfiSaveIntent
+import dev.vitela.pdf.uniffi.FfiSignatureAcknowledgement
 // Aliased on purpose. Kotlin resolves a member before an import, so a bare
 // `openFromBytes(bytes, password)` inside this class's own override of the
 // same signature binds to the override and recurses instead of calling the
@@ -101,14 +103,21 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
-    override fun textRuns(pageIndex: Int): PdfCoreResult<List<TextRun>> = try {
-        PdfCoreResult.Success(handle.textRuns(pageIndex.toUInt()).map { TextRun(it.text, it.characterBounds.map { rect -> TextRect(rect.xPt, rect.yPt, rect.widthPt, rect.heightPt) }) })
+    override fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = try {
+        PdfCoreResult.Success(GeneratedPageCharacters(handle.pageCharacters(pageIndex.toUInt())))
+    } catch (error: FfiException.UnsupportedOperation) {
+        // The core's only refusal here is the document's /P bit forbidding
+        // text extraction; the generic "could not be processed" would read
+        // as a broken file.
+        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be selected or copied."))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
     override fun saveToBytes(): PdfCoreResult<ByteArray> = try {
-        PdfCoreResult.Success(ffiSaveToBytes(handle, FfiSaveIntent.DEFAULT))
+        // Never acknowledged: this shell has no prompt yet that tells the user
+        // a save breaks the file's signature, so the core refuses the save.
+        PdfCoreResult.Success(ffiSaveToBytes(handle, FfiSaveIntent.DEFAULT, FfiSignatureAcknowledgement.UNACKNOWLEDGED))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -125,6 +134,18 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
+}
+
+/** Carets cross as `u32`; the core clamps an out-of-range caret, so the casts cannot panic it. */
+private class GeneratedPageCharacters(private val characters: FfiPageCharacters) : PageCharacters {
+    override fun caretAt(point: AnnotationPoint): Int? = characters.caretAt(point.x.toFloat(), point.y.toFloat())?.toInt()
+
+    override fun textIn(anchor: Int, focus: Int): String = characters.textIn(anchor.toUInt(), focus.toUInt())
+
+    override fun rectsIn(anchor: Int, focus: Int): List<TextRect> =
+        characters.rectsIn(anchor.toUInt(), focus.toUInt()).map { TextRect(it.xPt, it.yPt, it.widthPt, it.heightPt) }
+
+    override fun close() = characters.close()
 }
 
 private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation = when (val value = kind) {
@@ -161,6 +182,7 @@ private fun AnnotationColor.toFfi() = FfiColor(red.toUByte(), green.toUByte(), b
 private fun Throwable.toPdfCoreError(): PdfCoreError = when (this) {
     is FfiException.PasswordRequired -> PdfCoreError.PasswordRequired
     is FfiException.WrongPassword -> PdfCoreError.WrongPassword
+    is FfiException.SignaturesWouldBeInvalidated -> PdfCoreError.Failed("Saving would invalidate this document's signature, so it was not saved.")
     is FfiException.RenderFailed -> PdfCoreError.Failed("PDFium is unavailable. This package must include externally supplied compatible PDFium libraries.")
     else -> PdfCoreError.Failed("The document could not be processed.")
 }

@@ -32,7 +32,7 @@ class AnnotationsTest {
 
     @Test
     fun textSelection_createsOneMarkupPerLineAndClearsSelection() {
-        val selection = TextSelection(2, listOf(TextRect(10.0, 20.0, 30.0, 8.0), TextRect(10.0, 8.0, 25.0, 8.0)))
+        val selection = TextSelection(2, listOf(TextRect(10.0, 20.0, 30.0, 8.0), TextRect(10.0, 8.0, 25.0, 8.0)), "two\nlines")
         val annotations = markupTextSelection(AnnotationTool.Underline, selection)
         assertEquals(2, annotations.size)
         assertTrue(annotations.all { it.kind == AnnotationKind.Underline && it.pageIndex == 2 })

@@ -5,7 +5,6 @@ import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
-import dev.vitela.pdf.core.TextRect
 
 internal val DEFAULT_ANNOTATION_COLOR = AnnotationColor(255, 220, 0)
 private const val MIN_RECT_PT = 4.0
@@ -21,7 +20,6 @@ enum class AnnotationTool(val kind: AnnotationKind) {
 
 enum class HandleCorner { BottomLeft, BottomRight, TopLeft, TopRight }
 sealed interface DragMode { data object Move : DragMode; data class Resize(val corner: HandleCorner) : DragMode }
-data class TextSelection(val pageIndex: Int, val rects: List<TextRect>)
 internal data class AnnotationControls(
     val canCreate: Boolean, val canMove: Boolean, val canResize: Boolean, val canRestyle: Boolean,
     val canGrow: Boolean, val canUndo: Boolean, val canRedo: Boolean,

@@ -70,6 +70,34 @@ reports the active level. Zoom changes page-slot geometry and starts sharp
 
 Pinch gestures and fit-page remain out of scope — see T-084.
 
+## Text selection
+
+In the Select tool, **long-press and drag** selects text; a tap clears it. A
+plain drag is still the page list's scroll: it passes touch slop before the
+long-press fires, which cancels the selection gesture. **Copy** puts the
+selected text on the clipboard. With text selected, choosing Highlight,
+Underline, or Strikeout marks the selected lines.
+
+The shell does no text geometry of its own. `PdfDocument.pageCharacters`
+wraps `pdf-ffi`'s `FfiPageCharacters`, so the caret under the finger, the
+line rects to paint, and the copied text all come from
+`pdf_render::selection`, the code the GTK and Windows shells also use.
+An earlier build intersected character boxes with the drag rectangle in Kotlin.
+That selected a box instead of following reading order, and it could not
+produce text to copy.
+
+The characters load off the main thread, so the finger is usually moving
+before they arrive. `TextSelectionDrag` stores the anchor and focus as points
+and turns them into carets only once the characters are attached. That way a
+move made during the load is not lost. The drag owns the native handle. It
+releases it when the finger lifts, when another drag starts, or when the
+document is replaced. If characters arrive after the drag has closed, they are
+released straight away.
+
+A selection covers one page. Long-press without dragging selects nothing,
+because the core has no word-boundary query yet. If the document's
+permissions forbid text extraction, the reader says so in the status line.
+
 ## Annotation editing and save copies
 
 When a document permits annotation editing, the reader exposes highlight,

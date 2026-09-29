@@ -8,8 +8,6 @@ data class AnnotationRect(val x: Double, val y: Double, val width: Double, val h
 
 data class TextRect(val x: Double, val y: Double, val width: Double, val height: Double)
 
-data class TextRun(val text: String, val characterBounds: List<TextRect>)
-
 enum class AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
 
 data class Annotation(

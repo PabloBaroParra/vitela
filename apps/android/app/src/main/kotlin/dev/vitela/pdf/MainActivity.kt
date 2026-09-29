@@ -1,5 +1,7 @@
 package dev.vitela.pdf
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
 import android.print.PrintManager
@@ -111,5 +113,13 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onAnnotationDelete = viewModel::deleteSelected,
         onAnnotationUndo = viewModel::undoAnnotations,
         onAnnotationRedo = viewModel::redoAnnotations,
+        onTextSelectionStart = viewModel::beginTextSelection,
+        onTextSelectionMove = viewModel::extendTextSelection,
+        onTextSelectionEnd = viewModel::endTextSelection,
+        onCopySelection = {
+            state.textSelection?.text?.let { text ->
+                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(state.title, text))
+            }
+        },
     )
 }
