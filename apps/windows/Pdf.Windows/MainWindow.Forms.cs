@@ -127,6 +127,20 @@ public sealed partial class MainWindow
                             await CommitFieldFontSizeAsync(state.SessionId, field, style, size.Value);
                     };
                     row.Children.Add(size);
+                    var picker = new ColorPicker
+                    {
+                        Color = global::Windows.UI.Color.FromArgb(255, style.Color.R, style.Color.G, style.Color.B),
+                        IsAlphaEnabled = false,
+                    };
+                    var flyout = new Flyout { Content = picker };
+                    flyout.Closed += async (_, _) =>
+                    {
+                        var chosen = picker.Color;
+                        var color = new AnnotationColor(chosen.R, chosen.G, chosen.B);
+                        if (color != style.Color)
+                            await CommitFieldColorAsync(state.SessionId, field, style, color);
+                    };
+                    row.Children.Add(new Button { Content = "Text color", Flyout = flyout });
                 }
             }
             row.Children.Add(value);
@@ -166,6 +180,13 @@ public sealed partial class MainWindow
         if (_session?.SessionId != sessionId) return;
         var result = await _facade.SetFormFieldFontAsync(sessionId, field.Id, style, font);
         await ShowFieldStyleResultAsync(sessionId, field, result, "Field font changed. Save to keep the change.");
+    }
+
+    private async Task CommitFieldColorAsync(string sessionId, FormField field, FormTextStyle style, AnnotationColor color)
+    {
+        if (_session?.SessionId != sessionId) return;
+        var result = await _facade.SetFormFieldColorAsync(sessionId, field.Id, style, color);
+        await ShowFieldStyleResultAsync(sessionId, field, result, "Field text color changed. Save to keep the change.");
     }
 
     private async Task ShowFieldStyleResultAsync(string sessionId, FormField field, OperationResult<AnnotationState> result, string message)

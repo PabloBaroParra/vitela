@@ -100,9 +100,9 @@ size, or drag to define a field's rectangle in either direction.
 Field names can be edited in the panel; renaming also requires both permissions,
 while documents that permit only filling keep their value controls available.
 Text fields and dropdowns can also have their font family (Helvetica, Times
-Roman or Courier) and size (1–72 pt) changed independently in the panel; their
-color is preserved. Styling is undoable and requires the same structural
-permissions as renaming.
+Roman or Courier), size (1–72 pt), and text color changed independently in the
+panel. Styling is undoable and requires the same structural permissions as
+renaming. The color picker records one edit when it closes.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:

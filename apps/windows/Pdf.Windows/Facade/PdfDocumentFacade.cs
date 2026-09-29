@@ -602,6 +602,10 @@ public sealed partial class PdfDocumentFacade : IDisposable
     public Task<OperationResult<AnnotationState>> SetFormFieldFontAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, FormFont font)
         => RestyleFormFieldAsync(sessionId, fieldId, expectedStyle, expectedStyle with { Font = font });
 
+    /// <summary>Updates one field's text color while preserving its font and size.</summary>
+    public Task<OperationResult<AnnotationState>> SetFormFieldColorAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, AnnotationColor color)
+        => RestyleFormFieldAsync(sessionId, fieldId, expectedStyle, expectedStyle with { Color = color });
+
     private async Task<OperationResult<AnnotationState>> RestyleFormFieldAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, FormTextStyle style)
     {
         const string operation = "form_restyle";
