@@ -2,70 +2,48 @@ package dev.vitela.pdf.viewer
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.vitela.pdf.core.AnnotationColor
+import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
-import dev.vitela.pdf.core.PdfDocument
-import dev.vitela.pdf.core.AnnotationEdit
-import dev.vitela.pdf.core.AnnotationPoint
-import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.core.SaveSnapshot
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/**
+ * Owns the document's lifecycle — open, replace, password retry, search —
+ * and is the one entry point the screen talks to. Each feature lives in its
+ * own class over the shared [ViewerSession]; the methods below them only
+ * forward, so the screen and the tests see a single ViewModel.
+ */
 class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
-    private val _state = MutableStateFlow(ViewerState(status = availabilityMessage(core), canOpen = core != null))
+    private val session = ViewerSession(viewModelScope, ViewerState(status = availabilityMessage(core), canOpen = core != null))
+    private val _state = session.state
     val state: StateFlow<ViewerState> = _state.asStateFlow()
     private var sourceBytes: ByteArray? = null
     /** The save target of [sourceBytes], kept beside it so a password retry opens with it. */
     private var sourceTarget: String? = null
-    private var document: PdfDocument? = null
     private var pendingReplacement: PendingReplacement? = null
-    private var stampBytes: ByteArray? = null
-    /** The drag-select in progress, or finished but still waiting for its page's characters. */
-    private var selectionDrag: TextSelectionDrag? = null
     private var nextDocumentId = 1L
-    /** Serializes mutation, save, and replacement snapshots for this ViewModel's lifecycle. */
-    private val documentLane = Mutex()
 
-    /**
-     * Pages with a render in flight, mapped to the [layoutGeneration] they
-     * were started for, so a scroll tick never queues the same page twice and
-     * a render left over from the previous layout cannot evict the entry
-     * belonging to its replacement.
-     */
-    private val inFlight = mutableMapOf<Int, Int>()
-
-    /**
-     * The window a finished render is still wanted for. A render that lands
-     * after the user scrolled past its page must be dropped, not cached —
-     * otherwise fast scrolling grows the resident set past [CACHE_PAGES].
-     */
-    private var cacheWindow: IntRange = IntRange.EMPTY
-
-    /** Slot width every cached bitmap was rasterized for. Zero until the reader is laid out. */
-    private var renderWidthPx = 0
-    private var renderZoomFactor = DEFAULT_ZOOM_FACTOR
-
-    /**
-     * Bumped whenever [renderWidthPx] changes. Fit-to-width ties a bitmap to
-     * the width it was rendered for, so a rotation invalidates the whole cache
-     * *and* every render already in flight; the generation is how a finished
-     * render knows it is answering a question nobody is asking any more.
-     */
-    private var layoutGeneration = 0
+    private val reader = ViewerReader(session)
+    private val selection = TextSelecting(session)
+    private val annotations = AnnotationEditing(session, selection)
+    private val metadata = MetadataEditing(session, annotations)
+    private val saving = DocumentSaving(session) { sourceBytes }
 
     /**
      * [saveTarget] is where **Save** may later write this document back to;
      * omit it for bytes with no writable origin, such as the packaged sample.
      */
     fun open(displayName: String, bytes: ByteArray, password: String? = null, saveTarget: String? = null) {
-        if (_state.value.isDirty && document != null) {
+        if (_state.value.isDirty && session.document != null) {
             pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget)
             _state.value = _state.value.copy(pendingReplacementTitle = displayName)
             return
@@ -90,10 +68,10 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         // Retain the selected bytes and the shell's opaque save target while
         // the session is active. Passwords are never retained after this call.
         viewModelScope.launch {
-            documentLane.withLock {
+            session.documentLane.withLock {
             // An edit may have acquired this lane after open() checked state.
             // Check again before replacing the document it just modified.
-            if (!discardUnsaved && _state.value.isDirty && document != null) {
+            if (!discardUnsaved && _state.value.isDirty && session.document != null) {
                 pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget)
                 _state.value = _state.value.copy(pendingReplacementTitle = displayName)
                 return@withLock
@@ -103,11 +81,10 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
             _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
             when (val result = withContext(Dispatchers.Default) { availableCore.openFromBytes(bytes, password) }) {
                 is PdfCoreResult.Success -> {
-                    document?.close()
-                    document = result.value
-                    closeSelectionDrag()
-                    inFlight.clear()
-                    cacheWindow = IntRange.EMPTY
+                    session.document?.close()
+                    session.document = result.value
+                    selection.closeDrag()
+                    reader.reset()
                     val pageCount = result.value.pageCount
                     // A fresh state, not a copy: the previous document's pages,
                     // search hits and password flags must not survive. canOpen
@@ -128,14 +105,8 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                         // previous document in place, and its target with it.
                         saveTarget = saveTarget,
                     )
-                    refreshAnnotations(result.value)
-                    // Drive the first window from here rather than waiting for
-                    // the reader: opening a second document while the list is
-                    // already parked at page 0 reports an unchanged position,
-                    // which the reader's distinctUntilChanged would swallow.
-                    if (pageCount > 0) {
-                        onReaderPositionChanged(ReaderPosition(0, 0, 0, renderWidthPx, _state.value.zoomFactor))
-                    }
+                    annotations.refresh(result.value)
+                    reader.showFirstWindow(pageCount)
                 }
                 is PdfCoreResult.Failure -> handleOpenFailure(result.error)
             }
@@ -170,56 +141,8 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         _state.value = _state.value.copy(status = "Could not read the selected PDF.")
     }
 
-    /**
-     * Called by the reader whenever what is on screen changes. This is the
-     * single driver of rendering: it decides what to rasterize, what to keep,
-     * and what to evict, exactly like the GTK shell's viewport tick.
-     */
-    fun onReaderPositionChanged(position: ReaderPosition) {
-        if (document == null) return
-        val pageCount = _state.value.pageCount
-        if (pageCount == 0) return
-        // Effects from the old composition may report once while a zoom
-        // recomposes. They must not restore its retired render parameters.
-        if (position.zoomFactor != _state.value.zoomFactor) return
-        if (position.viewportWidthPx > 0 && (position.viewportWidthPx != renderWidthPx || position.zoomFactor != renderZoomFactor)) {
-            // A rotation, resize, or zoom creates a new bitmap generation. The
-            // old cache remains only as a temporary, cache-window-bound bridge.
-            renderWidthPx = position.viewportWidthPx
-            renderZoomFactor = position.zoomFactor
-            layoutGeneration += 1
-            inFlight.clear()
-            _state.value = _state.value.withInvalidatedPageBitmaps(cacheWindow)
-        }
-        cacheWindow = pageWindow(position.first, position.last, pageCount, CACHE_PAGES)
-        _state.value = _state.value.copy(
-            pageIndex = boundedPageIndex(position.current, pageCount),
-            status = visibleRangeStatus(position.first, position.last, pageCount),
-        ).withRetainedPageBitmaps(cacheWindow)
-        // Nothing has been measured yet, so there is no width to fit to.
-        // The reader's first layout pass calls back with a real one.
-        if (renderWidthPx <= 0) return
-        for (pageIndex in renderOrder(position.first, position.last, pageCount)) {
-            if (pageIndex !in _state.value.pages) renderPage(pageIndex)
-        }
-    }
-
-    /** Consumed by the reader once it has scrolled, so the target fires once. */
-    fun consumeScrollTarget() {
-        if (_state.value.scrollTarget != null) _state.value = _state.value.copy(scrollTarget = null)
-    }
-
-    fun navigate(delta: Int) {
-        if (_state.value.pageCount == 0) return
-        _state.value = _state.value.copy(scrollTarget = boundedPageIndex(_state.value.pageIndex + delta, _state.value.pageCount))
-    }
-
-    fun zoomIn() = changeZoom(zoomIn(_state.value.zoomFactor))
-
-    fun zoomOut() = changeZoom(zoomOut(_state.value.zoomFactor))
-
     fun search(query: String) {
-        val openDocument = document ?: return
+        val openDocument = session.document ?: return
         viewModelScope.launch {
             _state.value = _state.value.copy(searchQuery = query, status = "Searching...")
             when (val result = withContext(Dispatchers.Default) { openDocument.search(query) }) {
@@ -244,437 +167,61 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         _state.value = _state.value.copy(searchIndex = index, scrollTarget = hit.pageIndex, status = "Match ${index + 1} of ${hits.size}.")
     }
 
-    /** Bytes for printing/sharing, recomputed to include every applied annotation edit. */
-    suspend fun printBytes(): ByteArray? {
-        return documentLane.withLock {
-            val openDocument = document ?: return@withLock sourceBytes
-            when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
-                is PdfCoreResult.Success -> result.value
-                is PdfCoreResult.Failure -> sourceBytes
-            }
-        }
-    }
+    // Reader
+    fun onReaderPositionChanged(position: ReaderPosition) = reader.onPositionChanged(position)
+    fun consumeScrollTarget() = reader.consumeScrollTarget()
+    fun navigate(delta: Int) = reader.navigate(delta)
+    fun zoomIn() = reader.zoomIn()
+    fun zoomOut() = reader.zoomOut()
 
-    suspend fun saveSnapshot(): dev.vitela.pdf.core.SaveSnapshot? = documentLane.withLock {
-        val openDocument = document ?: return@withLock null
-        when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
-            is PdfCoreResult.Success -> dev.vitela.pdf.core.SaveSnapshot(result.value, _state.value.documentId, _state.value.revision)
-            is PdfCoreResult.Failure -> {
-                _state.value = _state.value.copy(status = userMessage(result.error))
-                null
-            }
-        }
-    }
+    // Save and print
+    suspend fun printBytes(): ByteArray? = saving.printBytes()
+    suspend fun saveSnapshot(): SaveSnapshot? = saving.saveSnapshot()
+    fun confirmSaved(snapshot: SaveSnapshot) = saving.confirmSaved(snapshot)
+    fun reportSaveFailure() = saving.reportSaveFailure()
+    suspend fun inPlaceSave(): InPlaceSave? = saving.inPlaceSave()
+    fun reportInPlaceSaveFailure(save: InPlaceSave) = saving.reportInPlaceSaveFailure(save)
 
-    fun confirmSaved(snapshot: dev.vitela.pdf.core.SaveSnapshot) {
-        viewModelScope.launch {
-            documentLane.withLock {
-                if (_state.value.matches(snapshot)) {
-                    _state.value = _state.value.copy(isDirty = false, status = "Saved.")
-                }
-            }
-        }
-    }
+    // Document properties
+    fun openMetadata() = metadata.open()
+    fun editMetadata(draft: DocumentInfo) = metadata.edit(draft)
+    fun dismissMetadata() = metadata.dismiss()
+    fun applyMetadata() = metadata.apply()
 
-    fun reportSaveFailure() {
-        _state.value = _state.value.copy(status = "Could not save the PDF.")
-    }
+    // Annotations
+    fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)
+    fun selectAnnotation(pageIndex: Int, point: AnnotationPoint) = annotations.select(pageIndex, point)
+    fun handlePageGesture(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint>, handleReach: Double) =
+        annotations.handlePageGesture(pageIndex, origin, current, points, handleReach)
+    fun placeAnnotation(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint> = emptyList()) =
+        annotations.place(pageIndex, origin, current, points)
+    fun selectImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes)
+    fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) = annotations.moveSelected(origin, current)
+    fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) = annotations.resizeSelected(corner, point)
+    fun growSelected() = annotations.growSelected()
+    fun restyleSelected(color: AnnotationColor) = annotations.restyleSelected(color)
+    fun deleteSelected() = annotations.deleteSelected()
+    fun undoAnnotations() = annotations.undo()
+    fun redoAnnotations() = annotations.redo()
 
-    /** A snapshot for **Save**, or null when the open document has nowhere writable to go back to. */
-    suspend fun inPlaceSave(): InPlaceSave? {
-        // Checked again under the lane below; this only skips a pointless snapshot.
-        if (_state.value.saveTarget == null) return null
-        return documentLane.withLock {
-            val target = _state.value.saveTarget ?: return@withLock null
-            val openDocument = document ?: return@withLock null
-            when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
-                is PdfCoreResult.Success -> InPlaceSave(target, dev.vitela.pdf.core.SaveSnapshot(result.value, _state.value.documentId, _state.value.revision))
-                is PdfCoreResult.Failure -> {
-                    _state.value = _state.value.copy(status = userMessage(result.error))
-                    null
-                }
-            }
-        }
-    }
-
-    /**
-     * The write-back failed. The target is dropped so **Save** stops offering
-     * a write that will only fail again — but only if it still belongs to the
-     * open document; a late failure from a replaced one must not disarm this one.
-     */
-    fun reportInPlaceSaveFailure(save: InPlaceSave) {
-        val current = _state.value
-        if (current.documentId != save.snapshot.documentId || current.saveTarget != save.target) {
-            reportSaveFailure()
-            return
-        }
-        _state.value = current.copy(saveTarget = null, status = "Could not save to the original file. Use Save copy instead.")
-    }
-
-    /** Opens Document properties on the `/Info` dict as it would be saved now. */
-    fun openMetadata() {
-        val openDocument = document ?: return
-        viewModelScope.launch {
-            documentLane.withLock {
-                if (document !== openDocument) return@withLock
-                val allowed = withContext(Dispatchers.Default) { openDocument.metadataEditingAllowed() }
-                when (val result = withContext(Dispatchers.Default) { openDocument.documentInfo() }) {
-                    is PdfCoreResult.Success -> _state.value = _state.value.copy(
-                        metadataEditor = MetadataEditor(result.value, allowed, if (allowed) null else METADATA_READ_ONLY),
-                    )
-                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
-                }
-            }
-        }
-    }
-
-    fun editMetadata(draft: DocumentInfo) {
-        val editor = _state.value.metadataEditor ?: return
-        if (editor.editingAllowed) _state.value = _state.value.copy(metadataEditor = editor.copy(draft = draft))
-    }
-
-    fun dismissMetadata() {
-        if (_state.value.metadataEditor != null) _state.value = _state.value.copy(metadataEditor = null)
-    }
-
-    /**
-     * Queues the draft as one undoable change. The current value is read again
-     * under the lane, not trusted from when the dialog opened: an undo may
-     * have landed in between.
-     */
-    fun applyMetadata() {
-        val openDocument = document ?: return
-        val editor = _state.value.metadataEditor?.takeIf { it.editingAllowed } ?: return
-        viewModelScope.launch {
-            documentLane.withLock {
-                if (document !== openDocument || _state.value.metadataEditor == null) return@withLock
-                val current = when (val read = withContext(Dispatchers.Default) { openDocument.documentInfo() }) {
-                    is PdfCoreResult.Success -> read.value
-                    is PdfCoreResult.Failure -> return@withLock refuseMetadata(read.error)
-                }
-                val after = metadataChange(current, editor.draft) ?: run {
-                    _state.value = _state.value.copy(metadataEditor = null)
-                    return@withLock
-                }
-                when (val result = withContext(Dispatchers.Default) { openDocument.setDocumentInfo(after) }) {
-                    is PdfCoreResult.Success -> {
-                        _state.value = _state.value.copy(
-                            metadataEditor = null,
-                            isDirty = true,
-                            revision = _state.value.revision + 1,
-                            status = "Document properties updated. Changes are pending save.",
-                        )
-                        // The change sits in the same edit log: Undo must light up.
-                        refreshAnnotations(openDocument)
-                    }
-                    is PdfCoreResult.Failure -> refuseMetadata(result.error)
-                }
-            }
-        }
-    }
-
-    /** Only the message changes: whatever was typed while the apply waited stays. */
-    private fun refuseMetadata(error: PdfCoreError) {
-        val editor = _state.value.metadataEditor ?: return
-        _state.value = _state.value.copy(metadataEditor = editor.copy(message = userMessage(error)))
-    }
-
-    fun setAnnotationTool(tool: AnnotationTool) {
-        if (!_state.value.annotationEditingAllowed) return
-        val selection = _state.value.textSelection
-        if (selection != null && tool in setOf(AnnotationTool.Highlight, AnnotationTool.Underline, AnnotationTool.Strikeout)) {
-            applyAnnotationEdits(markupTextSelection(tool, selection).map(AnnotationEdit::Add))
-            closeSelectionDrag()
-            _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Pointer, textSelection = null)
-        } else {
-            _state.value = _state.value.copy(activeAnnotationTool = tool)
-        }
-    }
-
-    fun selectAnnotation(pageIndex: Int, point: AnnotationPoint) {
-        val selected = annotationAt(_state.value.annotations, pageIndex, point)
-        _state.value = _state.value.copy(selectedAnnotationId = selected?.id)
-    }
-
-    fun handlePageGesture(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint>, handleReach: Double) {
-        if (_state.value.activeAnnotationTool != AnnotationTool.Pointer) {
-            placeAnnotation(pageIndex, origin, current, points)
-            return
-        }
-        val selected = selectedAnnotation()?.takeIf { it.pageIndex == pageIndex }
-        when (val mode = selected?.let { dragModeAt(it, origin, handleReach) }) {
-            DragMode.Move -> moveSelected(origin, current)
-            is DragMode.Resize -> resizeSelected(mode.corner, current)
-            null -> {
-                val hit = annotationAt(_state.value.annotations, pageIndex, origin)
-                // Only a tap gets here: an unclaimed pointer drag is the list's
-                // scroll, and a drag-select starts from a long-press instead.
-                clearTextSelection()
-                if (hit != null) _state.value = _state.value.copy(selectedAnnotationId = hit.id)
-            }
-        }
-    }
-
-    fun placeAnnotation(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint> = emptyList()) {
-        val tool = _state.value.activeAnnotationTool
-        if (!_state.value.annotationEditingAllowed || tool == AnnotationTool.Pointer || (tool == AnnotationTool.Ink && points.size < 2)) return
-        if (tool == AnnotationTool.Stamp) {
-            val image = stampBytes ?: run {
-                _state.value = _state.value.copy(status = "Choose an image before placing a stamp.")
-                return
-            }
-            insertImageStamp(pageIndex, image, origin)
-        } else {
-            applyAnnotationEdit(AnnotationEdit.Add(placementAnnotation(tool, pageIndex, origin, current, points)))
-        }
-        _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Pointer)
-    }
-
-    fun selectImageStamp(bytes: ByteArray) {
-        if (!_state.value.annotationEditingAllowed) return
-        stampBytes = bytes
-        _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Stamp, status = "Tap a page to place the image stamp.")
-    }
-
-    fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) {
-        val selected = selectedAnnotation() ?: return
-        if (origin == current) return
-        applyAnnotationEdit(AnnotationEdit.Move(selected.id, current.x - origin.x, current.y - origin.y))
-    }
-
-    fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) {
-        val selected = selectedAnnotation() ?: return
-        val rect = selected.rect ?: return
-        applyAnnotationEdit(AnnotationEdit.Resize(selected.id, resizedRect(rect, corner, point)))
-    }
-
-    fun growSelected() {
-        val selected = selectedAnnotation() ?: return
-        selected.rect?.let { applyAnnotationEdit(AnnotationEdit.Resize(selected.id, grownRect(it))) }
-    }
-
-    fun restyleSelected(color: dev.vitela.pdf.core.AnnotationColor) {
-        selectedAnnotation()?.takeIf { it.supportsRestyle }?.let { applyAnnotationEdit(AnnotationEdit.Restyle(it.id, color)) }
-    }
-
-    fun deleteSelected() {
-        selectedAnnotation()?.let { annotation ->
-            applyAnnotationEdit(AnnotationEdit.Remove(annotation.id))
-            _state.value = _state.value.copy(selectedAnnotationId = null)
-        }
-    }
-
-    fun undoAnnotations() = applyHistory(undo = true)
-    fun redoAnnotations() = applyHistory(undo = false)
-
-    /**
-     * A long-press on [pageIndex] starts a drag-select anchored at [point].
-     * The page's characters load off the main thread; moves that arrive
-     * before they do are kept by the [TextSelectionDrag], not dropped.
-     */
-    fun beginTextSelection(pageIndex: Int, point: AnnotationPoint) {
-        val openDocument = document ?: return
-        val drag = TextSelectionDrag(pageIndex, point)
-        selectionDrag?.close()
-        selectionDrag = drag
-        _state.value = _state.value.copy(textSelection = null, selectedAnnotationId = null)
-        viewModelScope.launch {
-            when (val result = withContext(Dispatchers.Default) { openDocument.pageCharacters(pageIndex) }) {
-                is PdfCoreResult.Success -> {
-                    // A closed drag releases late characters itself.
-                    drag.attach(result.value)
-                    if (selectionDrag === drag) settleTextSelection(drag)
-                }
-                is PdfCoreResult.Failure -> if (selectionDrag === drag) {
-                    selectionDrag = null
-                    drag.close()
-                    _state.value = _state.value.copy(status = userMessage(result.error))
-                }
-            }
-        }
-    }
-
-    /**
-     * The finger moved during a drag-select. Resolved on the calling thread:
-     * a caret lookup is a scan of one page's characters in Rust, far cheaper
-     * than a coroutine hop per pointer event.
-     */
-    fun extendTextSelection(point: AnnotationPoint) {
-        val drag = selectionDrag ?: return
-        drag.extend(point)
-        if (drag.isLoaded) publishTextSelection(drag)
-    }
-
-    /** The finger lifted: the selection stays, and the page's characters are released. */
-    fun endTextSelection() {
-        val drag = selectionDrag ?: return
-        drag.finish()
-        if (drag.isLoaded) settleTextSelection(drag)
-    }
-
-    fun clearTextSelection() {
-        closeSelectionDrag()
-        if (_state.value.textSelection != null) _state.value = _state.value.copy(textSelection = null)
-    }
-
-    private fun settleTextSelection(drag: TextSelectionDrag) {
-        publishTextSelection(drag)
-        if (drag.isFinished) closeSelectionDrag()
-    }
-
-    private fun publishTextSelection(drag: TextSelectionDrag) {
-        _state.value = _state.value.copy(textSelection = drag.selection())
-    }
-
-    private fun closeSelectionDrag() {
-        selectionDrag?.close()
-        selectionDrag = null
-    }
-
-    private fun renderPage(pageIndex: Int) {
-        val openDocument = document ?: return
-        val generation = layoutGeneration
-        if (inFlight[pageIndex] == generation) return
-        inFlight[pageIndex] = generation
-        val dpi = renderDpi(_state.value.pageSizes.getOrNull(pageIndex), renderWidthPx, renderZoomFactor)
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.Default) { openDocument.renderPage(pageIndex, dpi) }
-            if (inFlight[pageIndex] == generation) inFlight.remove(pageIndex)
-            // A render outlives the document that started it when the user
-            // opens another file mid-scroll, and outlives its own layout when
-            // the device rotates. Either way the bitmap belongs to nobody.
-            if (document !== openDocument || !acceptsRenderCompletion(generation, layoutGeneration, pageIndex, cacheWindow)) return@launch
-            when (result) {
-                is PdfCoreResult.Success -> {
-                    val bitmap = result.value.toImageBitmap() ?: return@launch
-                    _state.value = _state.value.withReplacementPage(pageIndex, bitmap)
-                }
-                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
-            }
-        }
-    }
+    // Text selection
+    fun beginTextSelection(pageIndex: Int, point: AnnotationPoint) = selection.begin(pageIndex, point)
+    fun extendTextSelection(point: AnnotationPoint) = selection.extend(point)
+    fun endTextSelection() = selection.end()
+    fun clearTextSelection() = selection.clear()
 
     private fun handleOpenFailure(error: PdfCoreError) {
         _state.value = _state.value.copy(isLoading = false, needsPassword = error is PdfCoreError.PasswordRequired || error is PdfCoreError.WrongPassword, passwordMessage = if (error is PdfCoreError.WrongPassword) "The password is incorrect. Try again." else null, status = userMessage(error))
     }
 
-    private fun changeZoom(zoomFactor: Double) {
-        if (document == null || zoomFactor == _state.value.zoomFactor) return
-        // Page geometry changes immediately. Keep cache-window pages beneath the
-        // next generation until their sharp replacements arrive.
-        layoutGeneration += 1
-        inFlight.clear()
-        renderWidthPx = 0
-        _state.value = _state.value.copy(zoomFactor = zoomFactor).withInvalidatedPageBitmaps(cacheWindow)
-    }
-
-    private fun selectedAnnotation() = _state.value.selectedAnnotationId?.let { id -> _state.value.annotations.lastOrNull { it.id == id } }
-
-    private fun applyAnnotationEdit(edit: AnnotationEdit) = applyAnnotationEdits(listOf(edit))
-
-    private fun applyAnnotationEdits(edits: List<AnnotationEdit>) {
-        val openDocument = document ?: return
-        if (!_state.value.annotationEditingAllowed || edits.isEmpty()) return
-        viewModelScope.launch {
-            documentLane.withLock {
-                if (document !== openDocument) return@withLock
-                var applied = false
-                for (edit in edits) {
-                    when (val result = withContext(Dispatchers.Default) { openDocument.applyAnnotationEdit(edit) }) {
-                        is PdfCoreResult.Success -> applied = true
-                        is PdfCoreResult.Failure -> {
-                            if (applied) {
-                                _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
-                                refreshAnnotations(openDocument)
-                            }
-                            _state.value = _state.value.copy(status = userMessage(result.error))
-                            return@withLock
-                        }
-                    }
-                }
-                _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
-                refreshAnnotations(openDocument)
-            }
-        }
-    }
-
-    private fun applyHistory(undo: Boolean) {
-        val openDocument = document ?: return
-        viewModelScope.launch {
-            documentLane.withLock {
-                if (document !== openDocument) return@withLock
-                val result = withContext(Dispatchers.Default) { if (undo) openDocument.undoAnnotations() else openDocument.redoAnnotations() }
-                when (result) {
-                    is PdfCoreResult.Success -> if (result.value) {
-                        _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
-                        refreshAnnotations(openDocument)
-                    }
-                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
-                }
-            }
-        }
-    }
-
-    private suspend fun refreshAnnotations(openDocument: PdfDocument) {
-        when (val result = withContext(Dispatchers.Default) { openDocument.annotations() }) {
-            is PdfCoreResult.Success -> _state.value = _state.value.copy(
-                annotations = result.value.annotations,
-                annotationEditingAllowed = result.value.editingAllowed,
-                canUndoAnnotations = result.value.canUndo,
-                canRedoAnnotations = result.value.canRedo,
-                selectedAnnotationId = _state.value.selectedAnnotationId?.takeIf { id -> result.value.annotations.any { it.id == id } },
-            )
-            is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
-        }
-    }
-
-    private fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, anchor: AnnotationPoint) {
-        val openDocument = document ?: return
-        viewModelScope.launch {
-            documentLane.withLock {
-                if (document !== openDocument) return@withLock
-                when (val placement = withContext(Dispatchers.Default) { openDocument.stampPlacement(imageBytes, anchor) }) {
-                    is PdfCoreResult.Success -> when (val result = withContext(Dispatchers.Default) { openDocument.insertImageStamp(pageIndex, imageBytes, placement.value) }) {
-                        is PdfCoreResult.Success -> {
-                            _state.value = _state.value.copy(isDirty = true, revision = _state.value.revision + 1)
-                            refreshAnnotations(openDocument)
-                        }
-                        is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
-                    }
-                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(placement.error))
-                }
-            }
-        }
-    }
-
     override fun onCleared() {
-        closeSelectionDrag()
-        document?.close()
-        document = null
+        selection.closeDrag()
+        session.document?.close()
+        session.document = null
         super.onCleared()
     }
 
     private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?)
 }
 
-private fun ViewerState.withInvalidatedPageBitmaps(window: IntRange): ViewerState {
-    val bitmaps = invalidatePageBitmaps(PageBitmaps(pages, bridgePages), window)
-    return copy(pages = bitmaps.pages, bridgePages = bitmaps.bridges)
-}
-
-private fun ViewerState.withRetainedPageBitmaps(window: IntRange): ViewerState {
-    val bitmaps = retainPageBitmaps(PageBitmaps(pages, bridgePages), window)
-    return copy(pages = bitmaps.pages, bridgePages = bitmaps.bridges)
-}
-
-private fun ViewerState.withReplacementPage(pageIndex: Int, page: androidx.compose.ui.graphics.ImageBitmap): ViewerState {
-    val bitmaps = replacePageBitmap(PageBitmaps(pages, bridgePages), pageIndex, page)
-    return copy(pages = bitmaps.pages, bridgePages = bitmaps.bridges)
-}
-
 private fun availabilityMessage(core: PdfCore?): String = if (core == null) "Native PDF support is not packaged. Build with scripts/package-android.sh and externally supplied PDFium libraries." else "Select a PDF to begin."
-
-private fun userMessage(error: PdfCoreError): String = when (error) {
-    PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> "This document requires a password."
-    is PdfCoreError.Failed -> error.message
-}
