@@ -81,6 +81,19 @@ internal class ViewerReader(private val session: ViewerSession) {
     }
 
     /**
+     * The pages stayed where they were but look different — a filled field —
+     * so every bitmap is stale. Unlike [layoutChanged] each keeps standing in
+     * as a bridge until its redraw lands: the old picture is still the right
+     * page, just not its newest value. [redrive] is as for [layoutChanged].
+     */
+    fun pagesRedrawn(redrive: Boolean) {
+        layoutGeneration += 1
+        inFlight.clear()
+        state.value = state.value.withInvalidatedPageBitmaps(cacheWindow)
+        if (redrive) lastPosition?.let(::onPositionChanged)
+    }
+
+    /**
      * Drives the first window of a just-opened document rather than waiting
      * for the reader: opening a second document while the list is already
      * parked at page 0 reports an unchanged position, which the reader's

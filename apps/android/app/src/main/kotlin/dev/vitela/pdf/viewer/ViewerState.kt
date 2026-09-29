@@ -88,6 +88,8 @@ data class ViewerState(
     val protectRunning: Boolean = false,
     /** The Organize grid standing in for the reader, or null while the reader shows. */
     val organize: OrganizeState? = null,
+    /** The Form fields panel below the reader, or null while it is closed. */
+    val formFields: FormFieldsState? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )

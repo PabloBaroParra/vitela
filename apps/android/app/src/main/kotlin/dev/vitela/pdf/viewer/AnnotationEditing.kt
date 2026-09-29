@@ -13,8 +13,17 @@ import kotlinx.coroutines.withContext
  * The annotation toolbar and its gestures, plus undo/redo of the shared edit
  * log. A text selection is an input here: the markup tools turn it into
  * annotations, and a tap elsewhere clears it.
+ *
+ * [afterHistory] runs after every undo or redo that moved the log, with the
+ * document lane held, for the features that show something of the log other
+ * than annotations — the Form fields panel re-reads its values there.
  */
-internal class AnnotationEditing(private val session: ViewerSession, private val selection: TextSelecting, private val layout: PageLayout) {
+internal class AnnotationEditing(
+    private val session: ViewerSession,
+    private val selection: TextSelecting,
+    private val layout: PageLayout,
+    private val afterHistory: suspend (PdfDocument) -> Unit = {},
+) {
     private val state = session.state
     private var stampBytes: ByteArray? = null
 
@@ -163,9 +172,11 @@ internal class AnnotationEditing(private val session: ViewerSession, private val
                 when (result) {
                     is PdfCoreResult.Success -> if (result.value) {
                         state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
-                        // An undo may have restored a page a move or delete took away.
-                        if (layout.edited) layout.reread(openDocument)
+                        // An undo may have restored a page a move or delete took away,
+                        // or a value a fill replaced: either way the preview is stale.
+                        if (layout.edited) layout.reread(openDocument) else if (layout.redrawn) layout.redraw(openDocument)
                         refresh(openDocument)
+                        afterHistory(openDocument)
                     }
                     is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                 }

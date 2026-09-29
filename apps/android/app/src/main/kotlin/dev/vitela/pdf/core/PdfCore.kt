@@ -68,6 +68,18 @@ interface PdfDocument : AutoCloseable {
      * runs. Annotations are left out: the shell draws those itself.
      */
     fun refreshPreview(): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Previewing edits is unavailable in this PDF core."))
+    /** Every AcroForm field the document holds, in the file's own order. Read-only, so available however restricted the document is. */
+    fun formFields(): PdfCoreResult<List<FormField>> = PdfCoreResult.Failure(PdfCoreError.Failed("Form fields are unavailable in this PDF core."))
+    /**
+     * Whether the document lets its fields be filled in: `/P` bit 6, the
+     * annotation bit — weaker than the one that lets fields be created or changed.
+     */
+    fun formFillAllowed(): Boolean = false
+    /**
+     * Queues one undoable change to what field [fieldId] holds; persisted by
+     * the next [saveToBytes]. The page shows it only after [refreshPreview].
+     */
+    fun setFormFieldValue(fieldId: Long, value: FormFieldValue): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Form fields are unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */

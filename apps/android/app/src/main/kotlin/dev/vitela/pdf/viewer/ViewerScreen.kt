@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
@@ -100,6 +101,7 @@ internal fun ViewerScreen(
     onProtectConfirm: (openPassword: String, permissionsPassword: String) -> Unit,
     onProtectDismiss: () -> Unit,
     organize: OrganizeActions,
+    formFields: FormFieldActions,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -151,6 +153,8 @@ internal fun ViewerScreen(
             Button(onClick = onOpenCompress, enabled = state.pageCount > 0 && !state.compressRunning) { Text("Compress") }
             Button(onClick = onOpenProtect, enabled = state.pageCount > 0 && !state.protectRunning) { Text("Protect") }
             Button(onClick = organize.onToggle, enabled = state.pageCount > 0) { Text(if (state.organize != null) "Done" else "Organize") }
+            // Not over the grid: it hides the pages a fill redraws.
+            Button(onClick = formFields.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text("Form fields") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -225,6 +229,9 @@ internal fun ViewerScreen(
                     modifier = Modifier.align(Alignment.Center).size(96.dp),
                 )
             }
+        }
+        state.formFields?.let { panel ->
+            FormFieldsPanel(panel, state.documentId, formFields, modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp))
         }
         Text(state.status, style = MaterialTheme.typography.bodyMedium)
     }

@@ -23,6 +23,7 @@ import dev.vitela.pdf.document.SafDocuments
 import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
+import dev.vitela.pdf.viewer.FormFieldActions
 import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.ViewerViewModel
@@ -201,6 +202,12 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onRotate = viewModel::organizeRotate,
                 onDelete = viewModel::organizeDelete,
                 onThumbnail = viewModel::organizeThumbnail,
+            )
+        },
+        formFields = remember(viewModel) {
+            FormFieldActions(
+                onToggle = { if (viewModel.state.value.formFields == null) viewModel.openFormFields() else viewModel.closeFormFields() },
+                onFill = viewModel::fillFormField,
             )
         },
     )
