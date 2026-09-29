@@ -477,7 +477,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
             return Task.FromResult(OperationResult<FormFieldState>.Success(new FormFieldState(
                 session.Id,
-                [.. _core.ListFormFields(session.Document).Select(field => new FormField(field.Id, field.PageIndex, field.Name, field.Kind, field.Value, field.Style))],
+                [.. _core.ListFormFields(session.Document).Select(field => new FormField(field.Id, field.PageIndex, field.Name, field.Kind, field.Value, field.Style,
+                    field.Rect is { } rect ? new AnnotationRect(rect.X, rect.Y, rect.Width, rect.Height) : null))],
                 _core.AnnotationEditingAllowed(session.Document),
                 _core.AnnotationEditingAllowed(session.Document) && _core.ContentEditingAllowed(session.Document))));
         }
@@ -544,6 +545,49 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             return await RefreshPreviewAsync(session, "form_fill", pageIndex).ConfigureAwait(false);
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    /// <summary>Moves a field without changing its dimensions; refuses an out-of-date row.</summary>
+    public async Task<OperationResult<AnnotationState>> MoveFormFieldAsync(string sessionId, ulong fieldId, AnnotationRect expected, double x, double y)
+    {
+        const string operation = "form_move";
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SessionEntry session;
+            uint pageIndex;
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit moving form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                if (!double.IsFinite(x) || !double.IsFinite(y))
+                    return OperationResult<AnnotationState>.Failure(CreateError("Enter finite field coordinates.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+
+                try
+                {
+                    var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
+                    if (field?.Rect is not { } rect || new AnnotationRect(rect.X, rect.Y, rect.Width, rect.Height) != expected)
+                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
+                    if (rect.X == x && rect.Y == y) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                    pageIndex = field.PageIndex;
+                    _core.ApplyEdit(session.Document, new PdfCoreEdit.MoveFormField(fieldId, rect with { X = x, Y = y }));
+                    session.EditRevision++;
+                    session.HasRecordedPreviewEdit = true;
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, operation, sessionId, null));
+                }
+            }
+
+            return await RefreshPreviewAsync(session, operation, pageIndex).ConfigureAwait(false);
         }
         finally
         {

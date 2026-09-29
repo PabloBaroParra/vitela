@@ -142,7 +142,8 @@ internal sealed class GeneratedPdfCore : IPdfCore
             FieldKind(field.Kind),
             FieldValue(field.Value),
             new FormTextStyle(FormFontFromCore(field.Style.Font), field.Style.SizePt,
-                new AnnotationColor(field.Style.Color.R, field.Style.Color.G, field.Style.Color.B))))];
+                new AnnotationColor(field.Style.Color.R, field.Style.Color.G, field.Style.Color.B)),
+            new PdfCoreRect(field.Rect.X, field.Rect.Y, field.Rect.Width, field.Rect.Height)))];
 
     private static FormFont FormFontFromCore(FfiFontFamily font) => font switch
     {
@@ -438,6 +439,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
             new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
+        PdfCoreEdit.MoveFormField value => new FfiEditCommand.MoveFormField(value.FieldId, Rect(value.Rect)),
         PdfCoreEdit.RestyleFormField value => new FfiEditCommand.RestyleFormField(value.FieldId,
             new FfiTextStyle(FormFontToCore(value.Style.Font), value.Style.SizePt,
                 new FfiColor(value.Style.Color.R, value.Style.Color.G, value.Style.Color.B))),

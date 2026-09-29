@@ -155,6 +155,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refuses a fill when the document forbids form filling", RefusesAForbiddenFillAsync)
     ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
     ,("renames a field and refreshes its page", RenamesAFormFieldAsync)
+    ,("moves a field with structural permission and a current rect", MovesAFormFieldAsync)
     ,("restyles a field without losing its other style attributes", RestylesAFormFieldAsync)
     ,("refuses a stale or forbidden field rename", RefusesInvalidFormRenameAsync)
     ,("refuses a fill for a field that is no longer there", RefusesAFillForAMissingFieldAsync)
@@ -2519,6 +2520,31 @@ static async Task RenamesAFormFieldAsync()
     Assert(core.RefreshPreviewCalls == 2, "undoing a structural rename must refresh the preview");
 }
 
+static async Task MovesAFormFieldAsync()
+{
+    var rect = new PdfCoreRect(30, 40, 120, 24);
+    var core = new FakeCore { FormFields = [new PdfCoreFormField(7, 0, "name", new FormFieldKind.Text(false, null), new FormFieldValue.Text(""), Rect: rect)] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var original = new AnnotationRect(30, 40, 120, 24);
+
+    Assert((await facade.FormFieldsAsync(session.SessionId)).Value!.Fields[0].Rect == original, "the panel must receive the PDF-space rect");
+    var moved = await facade.MoveFormFieldAsync(session.SessionId, 7, original, 50, 70);
+    Assert(moved.IsSuccess && core.FormFields[0].Rect == rect with { X = 50, Y = 70 }, "move must preserve field dimensions");
+    Assert(core.RefreshPreviewCalls == 1, "move must refresh the page preview");
+    var unchanged = await facade.MoveFormFieldAsync(session.SessionId, 7, new AnnotationRect(50, 70, 120, 24), 50, 70);
+    Assert(unchanged.IsSuccess && core.RefreshPreviewCalls == 1, "unchanged coordinates must not record another edit");
+    var stale = await facade.MoveFormFieldAsync(session.SessionId, 7, original, 60, 80);
+    Assert(!stale.IsSuccess && core.FormFields[0].Rect == rect with { X = 50, Y = 70 }, "a stale row must not move the field");
+    var invalid = await facade.MoveFormFieldAsync(session.SessionId, 7, new AnnotationRect(50, 70, 120, 24), double.NaN, 80);
+    Assert(!invalid.IsSuccess && core.RefreshPreviewCalls == 1, "non-finite coordinates must be rejected");
+    var fillOnly = new FakeCore { ContentEditingPermitted = false, FormFields = [new PdfCoreFormField(7, 0, "name", new FormFieldKind.Text(false, null), new FormFieldValue.Text(""), Rect: rect)] };
+    using var restricted = new PdfDocumentFacade(fillOnly, new RecordingLogger());
+    var restrictedSession = (await restricted.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var forbidden = await restricted.MoveFormFieldAsync(restrictedSession.SessionId, 7, original, 60, 80);
+    Assert(!forbidden.IsSuccess && fillOnly.RefreshPreviewCalls == 0, "filling permission alone cannot move a field");
+}
+
 static async Task RestylesAFormFieldAsync()
 {
     var style = new FormTextStyle(FormFont.Courier, 12, new AnnotationColor(20, 30, 40));
@@ -3240,6 +3266,17 @@ sealed class FakeCore : IPdfCore
             var index = FormFields.FindIndex(field => field.Id == fill.FieldId);
             if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
             FormFields[index] = FormFields[index] with { Value = fill.Value };
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.MoveFormField moveField)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form moving is not permitted");
+            var index = FormFields.FindIndex(field => field.Id == moveField.FieldId);
+            if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
+            FormFields[index] = FormFields[index] with { Rect = moveField.Rect };
             fake.Apply(edit);
             return;
         }

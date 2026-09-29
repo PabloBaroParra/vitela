@@ -112,6 +112,9 @@ Text fields and dropdowns can also have their font family (Helvetica, Times
 Roman or Courier), size (1–72 pt), and text color changed independently in the
 panel. Styling is undoable and requires the same structural permissions as
 renaming. The color picker records one edit when it closes.
+Existing fields can also be moved by editing their X and Y coordinates in PDF
+points. Moving preserves the field's size and is undoable under the same
+structural permissions as renaming.
 
 **Previous annotation** steps backward through the document's annotations,
 wrapping from the first to the last. It lets you select an annotation hidden
