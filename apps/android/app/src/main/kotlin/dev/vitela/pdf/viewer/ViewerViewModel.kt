@@ -23,6 +23,8 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private val _state = MutableStateFlow(ViewerState(status = availabilityMessage(core), canOpen = core != null))
     val state: StateFlow<ViewerState> = _state.asStateFlow()
     private var sourceBytes: ByteArray? = null
+    /** The save target of [sourceBytes], kept beside it so a password retry opens with it. */
+    private var sourceTarget: String? = null
     private var document: PdfDocument? = null
     private var pendingReplacement: PendingReplacement? = null
     private var stampBytes: ByteArray? = null
@@ -57,20 +59,24 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
      */
     private var layoutGeneration = 0
 
-    fun open(displayName: String, bytes: ByteArray, password: String? = null) {
+    /**
+     * [saveTarget] is where **Save** may later write this document back to;
+     * omit it for bytes with no writable origin, such as the packaged sample.
+     */
+    fun open(displayName: String, bytes: ByteArray, password: String? = null, saveTarget: String? = null) {
         if (_state.value.isDirty && document != null) {
-            pendingReplacement = PendingReplacement(displayName, bytes, password)
+            pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget)
             _state.value = _state.value.copy(pendingReplacementTitle = displayName)
             return
         }
-        replaceDocument(displayName, bytes, password)
+        replaceDocument(displayName, bytes, password, saveTarget)
     }
 
     fun confirmReplacement() {
         val replacement = pendingReplacement ?: return
         pendingReplacement = null
         _state.value = _state.value.copy(pendingReplacementTitle = null)
-        replaceDocument(replacement.displayName, replacement.bytes, replacement.password, discardUnsaved = true)
+        replaceDocument(replacement.displayName, replacement.bytes, replacement.password, replacement.saveTarget, discardUnsaved = true)
     }
 
     fun cancelReplacement() {
@@ -78,20 +84,21 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         if (_state.value.pendingReplacementTitle != null) _state.value = _state.value.copy(pendingReplacementTitle = null)
     }
 
-    private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, discardUnsaved: Boolean = false) {
+    private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, saveTarget: String?, discardUnsaved: Boolean = false) {
         val availableCore = core ?: return
-        // Retain only the selected bytes while the session is active. SAF URIs
-        // are not paths and passwords are never retained after this call.
+        // Retain the selected bytes and the shell's opaque save target while
+        // the session is active. Passwords are never retained after this call.
         viewModelScope.launch {
             documentLane.withLock {
             // An edit may have acquired this lane after open() checked state.
             // Check again before replacing the document it just modified.
             if (!discardUnsaved && _state.value.isDirty && document != null) {
-                pendingReplacement = PendingReplacement(displayName, bytes, password)
+                pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget)
                 _state.value = _state.value.copy(pendingReplacementTitle = displayName)
                 return@withLock
             }
             sourceBytes = bytes
+            sourceTarget = saveTarget
             _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
             when (val result = withContext(Dispatchers.Default) { availableCore.openFromBytes(bytes, password) }) {
                 is PdfCoreResult.Success -> {
@@ -115,6 +122,9 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                         canPrint = pageCount > 0,
                         canOpen = true,
                         documentId = nextDocumentId++,
+                        // Published only on success: a failed open leaves the
+                        // previous document in place, and its target with it.
+                        saveTarget = saveTarget,
                     )
                     refreshAnnotations(result.value)
                     // Drive the first window from here rather than waiting for
@@ -133,7 +143,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
 
     fun retryPassword(password: String) {
         val bytes = sourceBytes ?: return
-        replaceDocument(_state.value.title, bytes, password)
+        replaceDocument(_state.value.title, bytes, password, sourceTarget)
     }
 
     /**
@@ -145,6 +155,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     fun cancelPassword() {
         if (!_state.value.needsPassword) return
         sourceBytes = null
+        sourceTarget = null
         _state.value = _state.value.copy(
             isLoading = false,
             needsPassword = false,
@@ -265,6 +276,37 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
 
     fun reportSaveFailure() {
         _state.value = _state.value.copy(status = "Could not save the PDF.")
+    }
+
+    /** A snapshot for **Save**, or null when the open document has nowhere writable to go back to. */
+    suspend fun inPlaceSave(): InPlaceSave? {
+        // Checked again under the lane below; this only skips a pointless snapshot.
+        if (_state.value.saveTarget == null) return null
+        return documentLane.withLock {
+            val target = _state.value.saveTarget ?: return@withLock null
+            val openDocument = document ?: return@withLock null
+            when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
+                is PdfCoreResult.Success -> InPlaceSave(target, dev.vitela.pdf.core.SaveSnapshot(result.value, _state.value.documentId, _state.value.revision))
+                is PdfCoreResult.Failure -> {
+                    _state.value = _state.value.copy(status = userMessage(result.error))
+                    null
+                }
+            }
+        }
+    }
+
+    /**
+     * The write-back failed. The target is dropped so **Save** stops offering
+     * a write that will only fail again — but only if it still belongs to the
+     * open document; a late failure from a replaced one must not disarm this one.
+     */
+    fun reportInPlaceSaveFailure(save: InPlaceSave) {
+        val current = _state.value
+        if (current.documentId != save.snapshot.documentId || current.saveTarget != save.target) {
+            reportSaveFailure()
+            return
+        }
+        _state.value = current.copy(saveTarget = null, status = "Could not save to the original file. Use Save copy instead.")
     }
 
     fun setAnnotationTool(tool: AnnotationTool) {
@@ -487,7 +529,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         super.onCleared()
     }
 
-    private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?)
+    private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?)
 }
 
 private fun TextRect.overlaps(selection: AnnotationRect): Boolean =

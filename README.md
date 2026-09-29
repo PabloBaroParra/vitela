@@ -148,7 +148,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Organize & assemble pages | ✅ | 🚧 | — | — | — |
 | Extract pages to a new PDF | ✅ | ✅ | — | — | — |
 | Split into several PDFs | ✅ | ✅ | — | — | — |
-| Save | ✅ | ✅ | — | — | — |
+| Save | ✅ | ✅ | — | 🚧 | — |
 | Protect with a password | ✅ | ✅ | — | — | — |
 | Export to images | ✅ | ✅ | — | — | — |
 | Compress to a smaller PDF | ✅ | ✅ | — | — | — |

@@ -59,6 +59,13 @@ data class ViewerState(
     /** Identifies the active document so an older save can never clear newer work. */
     val documentId: Long = 0,
     val revision: Long = 0,
+    /**
+     * Where **Save** writes back to: an opaque token the shell minted for the
+     * file it opened (a SAF URI string), or null when there is nothing
+     * writable to go back to — the packaged sample, a read-only provider, or
+     * a target a write already failed on. Save copy works either way.
+     */
+    val saveTarget: String? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )
@@ -93,6 +100,13 @@ internal fun nextSearchIndex(current: Int, count: Int, delta: Int): Int {
 /** A write can clear dirty state only when it still represents this document revision. */
 internal fun ViewerState.matches(snapshot: SaveSnapshot): Boolean =
     documentId == snapshot.documentId && revision == snapshot.revision
+
+/**
+ * A snapshot bound to the target it must be written to. Taken as one value
+ * under the document lane, so a replacement that lands between the tap and
+ * the write can never send one document's bytes into another's file.
+ */
+data class InPlaceSave(val target: String, val snapshot: SaveSnapshot)
 
 internal const val MIN_ZOOM_FACTOR = 0.10
 internal const val MAX_ZOOM_FACTOR = 8.0

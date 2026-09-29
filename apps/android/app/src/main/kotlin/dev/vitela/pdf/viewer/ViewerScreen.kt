@@ -58,6 +58,7 @@ internal fun ViewerScreen(
     onPasswordCancel: () -> Unit,
     onPrint: () -> Unit,
     onSave: () -> Unit,
+    onSaveCopy: () -> Unit,
     onChooseStamp: () -> Unit,
     onReplacementConfirmed: () -> Unit,
     onReplacementCancelled: () -> Unit,
@@ -112,7 +113,8 @@ internal fun ViewerScreen(
                 }
             }
             Button(onClick = onPrint, enabled = state.canPrint) { Text("Print") }
-            Button(onClick = onSave, enabled = state.isDirty) { Text("Save copy") }
+            Button(onClick = onSave, enabled = state.isDirty && state.saveTarget != null) { Text("Save") }
+            Button(onClick = onSaveCopy, enabled = state.isDirty) { Text("Save copy") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }

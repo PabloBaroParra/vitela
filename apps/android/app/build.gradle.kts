@@ -73,4 +73,7 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    // Dispatchers.setMain: viewModelScope runs on Main, which a JVM unit test
+    // does not have, so ViewModel flows that open a document need it.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }
