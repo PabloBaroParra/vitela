@@ -124,7 +124,10 @@
                 and a selection would only be a second, unused state.
             -->
             <Grid x:Name="OrganizePanel" Grid.Column="0" RowDefinitions="Auto,*" Visibility="Collapsed" RowSpacing="8">
-                <Button x:Name="InsertBlankPageButton" Content="Add blank A4 page" Click="InsertBlankPageButton_Click" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="InsertBlankPageButton" Content="Add blank A4 page" Click="InsertBlankPageButton_Click" />
+                    <Button x:Name="InsertLandscapePageButton" Content="Add landscape A4 page" Click="InsertLandscapePageButton_Click" />
+                </StackPanel>
                 <GridView
                     x:Name="OrganizeGrid"
                     Grid.Row="1"

@@ -67,13 +67,19 @@ public sealed record PlacedPoint(double Left, double Top);
 /// </summary>
 public abstract record PageEdit
 {
-    /// <summary>Inserts a portrait A4 page at a position, including after the last page.</summary>
-    public sealed record InsertBlank(uint Index) : PageEdit;
+    /// <summary>Inserts an A4 page at a position, including after the last page.</summary>
+    public sealed record InsertBlank(uint Index, PageOrientation Orientation = PageOrientation.Portrait) : PageEdit;
     /// <summary>Turns a page clockwise by <paramref name="DeltaDegrees"/>; negative turns it back.</summary>
     public sealed record Rotate(uint PageIndex, int DeltaDegrees) : PageEdit;
     public sealed record Remove(uint PageIndex) : PageEdit;
     /// <summary>Moves one page so that it ends up at position <paramref name="To"/>.</summary>
     public sealed record Move(uint From, uint To) : PageEdit;
+}
+
+public enum PageOrientation
+{
+    Portrait,
+    Landscape,
 }
 
 public enum DocumentSessionState

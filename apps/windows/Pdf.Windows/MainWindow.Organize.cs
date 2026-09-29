@@ -175,12 +175,18 @@ public sealed partial class MainWindow
     private async void InsertBlankPageButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_organizing || _session is null) return;
-        await InsertBlankPageAsync(_session.PageCount);
+        await InsertBlankPageAsync(_session.PageCount, PageOrientation.Portrait);
     }
 
-    private async Task InsertBlankPageAsync(uint index)
+    private async void InsertLandscapePageButton_Click(object sender, RoutedEventArgs e)
     {
-        await EditPagesAsync(new PageEdit.InsertBlank(index), "Blank page added.", onSuccess: _ =>
+        if (!_organizing || _session is null) return;
+        await InsertBlankPageAsync(_session.PageCount, PageOrientation.Landscape);
+    }
+
+    private async Task InsertBlankPageAsync(uint index, PageOrientation orientation)
+    {
+        await EditPagesAsync(new PageEdit.InsertBlank(index, orientation), "Blank page added.", onSuccess: _ =>
         {
             _organizeCards.Insert((int)index, CreateOrganizeCard((int)index));
             RenumberOrganizeCards();
@@ -201,6 +207,12 @@ public sealed partial class MainWindow
         var rotateLeft = CardButton("", "Rotate left", mirrored: true);
         var rotateRight = CardButton("", "Rotate right", mirrored: false);
         var insertBefore = CardButton("", "Insert blank page before", mirrored: false);
+        var insertMenu = new MenuFlyout();
+        var insertPortrait = new MenuFlyoutItem { Text = "Portrait A4" };
+        var insertLandscape = new MenuFlyoutItem { Text = "Landscape A4" };
+        insertMenu.Items.Add(insertPortrait);
+        insertMenu.Items.Add(insertLandscape);
+        insertBefore.Flyout = insertMenu;
         var delete = CardButton("", "Delete page", mirrored: false);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, HorizontalAlignment = HorizontalAlignment.Right };
         actions.Children.Add(insertBefore);
@@ -218,11 +230,13 @@ public sealed partial class MainWindow
 
         var card = new Border { Padding = new Thickness(8), Child = body };
         card.Tag = new OrganizeCard(thumbnail, number);
-        insertBefore.Click += async (_, _) =>
+        async Task InsertBeforeAsync(PageOrientation orientation)
         {
             var position = _organizeCards.IndexOf(card);
-            if (position >= 0) await InsertBlankPageAsync((uint)position);
-        };
+            if (position >= 0) await InsertBlankPageAsync((uint)position, orientation);
+        }
+        insertPortrait.Click += async (_, _) => await InsertBeforeAsync(PageOrientation.Portrait);
+        insertLandscape.Click += async (_, _) => await InsertBeforeAsync(PageOrientation.Landscape);
         rotateLeft.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Rotate(index, -90), "Page rotated.");
         rotateRight.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Rotate(index, 90), "Page rotated.");
         delete.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Remove(index), "Page deleted.");
@@ -310,6 +324,7 @@ public sealed partial class MainWindow
         _organizeBusy = true;
         OrganizeGrid.IsEnabled = false;
         InsertBlankPageButton.IsEnabled = false;
+        InsertLandscapePageButton.IsEnabled = false;
         // Before the edit, not after: the preview is rebuilt inside it, and a
         // thumbnail asked of the old layout could land once it has — on a
         // card that, after a drop, no longer sits where it was asked for.
@@ -318,6 +333,7 @@ public sealed partial class MainWindow
         _organizeBusy = false;
         OrganizeGrid.IsEnabled = true;
         InsertBlankPageButton.IsEnabled = true;
+        InsertLandscapePageButton.IsEnabled = true;
         if (!_organizing) return;
 
         if (!result.IsSuccess)

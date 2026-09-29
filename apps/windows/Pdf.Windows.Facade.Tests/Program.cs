@@ -177,6 +177,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("moves a page and hands back the new layout", MovesAPageAndHandsBackTheNewLayoutAsync)
     ,("appends a blank page and records unsaved work", AppendsABlankPageAsync)
     ,("inserts a blank page before a chosen page", InsertsABlankPageBeforeAChosenPageAsync)
+    ,("inserts a landscape A4 page", InsertsALandscapeBlankPageAsync)
     ,("refuses blank page insertion when page assembly is forbidden", RefusesBlankPageInsertionAsync)
     ,("rotates a page by a quarter turn", RotatesAPageAsync)
     ,("removes a page and keeps the current page in range", RemovesAPageAndKeepsTheCurrentPageInRangeAsync)
@@ -1907,6 +1908,21 @@ static async Task InsertsABlankPageBeforeAChosenPageAsync()
     Assert(core.RefreshPreviewCalls == 1, "the preview must reflect the inserted page");
 }
 
+static async Task InsertsALandscapeBlankPageAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.InsertBlank(1, PageOrientation.Landscape));
+
+    Assert(result.IsSuccess && result.Value!.PageCount == 4, "a landscape page should be inserted");
+    Assert(core.PageEdits.Single() == new PdfCoreEdit.InsertBlankPage(1, PageOrientation.Landscape),
+        "the orientation and position must reach the core together");
+    Assert(Widths(result.Value!).SequenceEqual([100, 842, 101, 102]), "the new A4 page should be wider than it is tall");
+    Assert(result.Value!.Pages[1].HeightPt == 595, "the inserted page should have landscape A4 dimensions");
+    Assert(core.RefreshPreviewCalls == 1, "the preview must include the landscape page");
+}
+
 static async Task RefusesBlankPageInsertionAsync()
 {
     var (core, facade, session) = await OpenThreePagesAsync();
@@ -3414,7 +3430,8 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
                 // beyond the history the facade reads back.
                 break;
             case PdfCoreEdit.InsertBlankPage insert:
-                _pages.Insert((int)insert.Index, new(595, 842, PageRotation.None));
+                _pages.Insert((int)insert.Index, insert.Orientation == PageOrientation.Landscape
+                    ? new(842, 595, PageRotation.None) : new(595, 842, PageRotation.None));
                 break;
             case PdfCoreEdit.RotatePage rotate:
                 var turned = _pages[(int)rotate.PageIndex];
