@@ -2511,6 +2511,17 @@ static async Task RestylesAFormFieldAsync()
     Assert(!staleFont.IsSuccess && core.RefreshPreviewCalls == 2, "a stale font selection must not overwrite a newer style");
     var invalidFont = await facade.SetFormFieldFontAsync(session.SessionId, 7, style with { SizePt = 16, Font = FormFont.TimesRoman }, (FormFont)99);
     Assert(!invalidFont.IsSuccess && core.RefreshPreviewCalls == 2, "unknown fonts must not reach the core");
+    var fontStyle = style with { SizePt = 16, Font = FormFont.TimesRoman };
+    var color = new AnnotationColor(120, 80, 200);
+    var changedColor = await facade.SetFormFieldColorAsync(session.SessionId, 7, fontStyle, color);
+    Assert(changedColor.IsSuccess && core.FormFields[0].Style == fontStyle with { Color = color },
+        "changing color must preserve the font and size");
+    Assert(core.RefreshPreviewCalls == 3 && (await facade.FormFieldsAsync(session.SessionId)).Value!.Fields[0].Style?.Color == color,
+        "the preview and panel must see the new color");
+    var sameColor = await facade.SetFormFieldColorAsync(session.SessionId, 7, fontStyle with { Color = color }, color);
+    Assert(sameColor.IsSuccess && core.RefreshPreviewCalls == 3, "closing the picker without changing color must not create an edit");
+    var staleColor = await facade.SetFormFieldColorAsync(session.SessionId, 7, fontStyle, new AnnotationColor(0, 0, 0));
+    Assert(!staleColor.IsSuccess && core.RefreshPreviewCalls == 3, "a stale color selection must not overwrite a newer style");
     core.LastDocument!.EditingAllowed = false;
     var forbidden = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style with { SizePt = 16 }, 18);
     Assert(!forbidden.IsSuccess, "styling requires annotation permission");
@@ -2519,10 +2530,12 @@ static async Task RestylesAFormFieldAsync()
     forbidden = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style with { SizePt = 16 }, 18);
     Assert(!forbidden.IsSuccess, "fill-only permissions must not allow styling");
     forbidden = await facade.SetFormFieldFontAsync(session.SessionId, 7, style with { SizePt = 16, Font = FormFont.TimesRoman }, FormFont.Helvetica);
-    Assert(!forbidden.IsSuccess && core.RefreshPreviewCalls == 2, "fill-only permissions must not allow font changes");
+    Assert(!forbidden.IsSuccess && core.RefreshPreviewCalls == 3, "fill-only permissions must not allow font changes");
+    forbidden = await facade.SetFormFieldColorAsync(session.SessionId, 7, fontStyle with { Color = color }, style.Color);
+    Assert(!forbidden.IsSuccess && core.RefreshPreviewCalls == 3, "fill-only permissions must not allow color changes");
     core.LastDocument.ContentEditingAllowed = true;
     await facade.UndoAsync(session.SessionId);
-    Assert(core.RefreshPreviewCalls == 3, "undoing a style change must refresh the preview");
+    Assert(core.RefreshPreviewCalls == 4, "undoing a color change must refresh the preview");
 }
 
 static async Task RefusesInvalidFormRenameAsync()
