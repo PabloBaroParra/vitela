@@ -55,6 +55,8 @@ page. All matches are highlighted; the selected match has a stronger accent.
 The status shows the selected match number and the submitted query, even if the
 search box is edited afterward.
 Press Enter in the search box to run the same search as **Find**.
+The search box indicates that matching is case-sensitive; while a query runs,
+the status names it, and an unsuccessful search reports which query found no matches.
 
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
