@@ -51,7 +51,8 @@ password.
 
 Search selects the first result automatically. **Previous match** and **Next
 match** move through the results with wraparound, scrolling to the selected
-page and highlighting the matching text.
+page and highlighting the matching text. Press Enter in the search box to run
+the same search as **Find**.
 
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such

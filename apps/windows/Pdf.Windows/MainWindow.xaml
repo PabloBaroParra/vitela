@@ -70,7 +70,7 @@
                 Redo
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
-            <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" />
+            <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" KeyDown="SearchBox_KeyDown" />
             <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
             <TextBlock x:Name="PrintStatus" VerticalAlignment="Center" TextWrapping="Wrap" />
         </StackPanel>
