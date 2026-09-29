@@ -152,6 +152,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refuses a fill when the document forbids form filling", RefusesAForbiddenFillAsync)
     ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
     ,("renames a field and refreshes its page", RenamesAFormFieldAsync)
+    ,("restyles a field without losing its other style attributes", RestylesAFormFieldAsync)
     ,("refuses a stale or forbidden field rename", RefusesInvalidFormRenameAsync)
     ,("refuses a fill for a field that is no longer there", RefusesAFillForAMissingFieldAsync)
     ,("refreshes the preview on history after a fill", RefreshesThePreviewOnHistoryAfterAFillAsync)
@@ -2481,6 +2482,36 @@ static async Task RenamesAFormFieldAsync()
     Assert(core.RefreshPreviewCalls == 2, "undoing a structural rename must refresh the preview");
 }
 
+static async Task RestylesAFormFieldAsync()
+{
+    var style = new FormTextStyle(FormFont.Courier, 12, new AnnotationColor(20, 30, 40));
+    var core = new FakeCore { FormFields = [new PdfCoreFormField(7, 0, "name", new FormFieldKind.Text(false, null), new FormFieldValue.Text("Ada"), style)] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style, 16);
+    Assert(result.IsSuccess && result.Value!.CanUndo, "restyling must join shared history");
+    Assert(core.FormFields[0].Style == style with { SizePt = 16 } && core.RefreshPreviewCalls == 1,
+        "the size must reach the core without replacing the font or color, and refresh the preview");
+    Assert((await facade.FormFieldsAsync(session.SessionId)).Value!.Fields[0].Style?.SizePt == 16, "the panel must see the updated size");
+    var unchanged = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style with { SizePt = 16 }, 16);
+    Assert(unchanged.IsSuccess && core.RefreshPreviewCalls == 1, "an unchanged size must not create a second edit");
+    var stale = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style, 18);
+    Assert(!stale.IsSuccess && core.RefreshPreviewCalls == 1, "a stale row must not overwrite a more recent style");
+    var invalid = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style with { SizePt = 16 }, double.NaN);
+    Assert(!invalid.IsSuccess && core.RefreshPreviewCalls == 1, "non-finite font sizes must not enter the edit log");
+    core.LastDocument!.EditingAllowed = false;
+    var forbidden = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style with { SizePt = 16 }, 18);
+    Assert(!forbidden.IsSuccess, "styling requires annotation permission");
+    core.LastDocument.EditingAllowed = true;
+    core.LastDocument!.ContentEditingAllowed = false;
+    forbidden = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style with { SizePt = 16 }, 18);
+    Assert(!forbidden.IsSuccess, "fill-only permissions must not allow styling");
+    core.LastDocument.ContentEditingAllowed = true;
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undoing a style change must refresh the preview");
+}
+
 static async Task RefusesInvalidFormRenameAsync()
 {
     var core = new FakeCore { FormFields = SampleFormFields() };
@@ -3157,6 +3188,17 @@ sealed class FakeCore : IPdfCore
             var index = FormFields.FindIndex(field => field.Id == rename.FieldId);
             if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
             FormFields[index] = FormFields[index] with { Name = rename.Name };
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.RestyleFormField restyle)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form styling is not permitted");
+            var index = FormFields.FindIndex(field => field.Id == restyle.FieldId);
+            if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
+            FormFields[index] = FormFields[index] with { Style = restyle.Style };
             fake.Apply(edit);
             return;
         }

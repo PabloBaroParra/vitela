@@ -365,6 +365,7 @@ internal abstract record PdfCoreEdit
     /// </summary>
     public sealed record SetFieldValue(ulong FieldId, FormFieldValue Value) : PdfCoreEdit;
     public sealed record RenameFormField(ulong FieldId, string Name) : PdfCoreEdit;
+    public sealed record RestyleFormField(ulong FieldId, FormTextStyle Style) : PdfCoreEdit;
     public sealed record AddTextField(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record AddCheckbox(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record AddRadioGroup(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
@@ -380,7 +381,7 @@ internal abstract record PdfCoreEdit
     public sealed record ReplaceTextRunWithInsertedFont(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
 }
 
-internal sealed record PdfCoreFormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value);
+internal sealed record PdfCoreFormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value, FormTextStyle? Style = null);
 
 internal sealed record PdfCoreDocumentInfo(
     string? Title,

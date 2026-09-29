@@ -100,6 +100,23 @@ public sealed partial class MainWindow
                     await CommitFieldNameAsync(state.SessionId, field, name.Text);
                 };
                 row.Children.Add(name);
+                if (field.Style is { } style && field.Kind is FormFieldKind.Text or FormFieldKind.Dropdown)
+                {
+                    var size = new NumberBox
+                    {
+                        Header = "Font size (pt)",
+                        Value = style.SizePt,
+                        SmallChange = 1,
+                        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
+                    };
+                    size.LostFocus += async (_, _) =>
+                    {
+                        if (!double.IsFinite(size.Value)) size.Value = style.SizePt;
+                        else if (size.Value != style.SizePt)
+                            await CommitFieldFontSizeAsync(state.SessionId, field, style, size.Value);
+                    };
+                    row.Children.Add(size);
+                }
             }
             row.Children.Add(value);
             FormFieldRows.Children.Add(row);
@@ -124,6 +141,26 @@ public sealed partial class MainWindow
         InvalidatePageRender(field.PageIndex);
         await RefreshFormFieldsAsync();
         FormFieldsStatus.Text = "Field renamed. Save to keep the change.";
+    }
+
+    private async Task CommitFieldFontSizeAsync(string sessionId, FormField field, FormTextStyle style, double sizePt)
+    {
+        if (_session?.SessionId != sessionId) return;
+        var result = await _facade.SetFormFieldFontSizeAsync(sessionId, field.Id, style, sizePt);
+        if (_session?.SessionId != sessionId) return;
+        if (!result.IsSuccess)
+        {
+            await RefreshFormFieldsAsync();
+            FormFieldsStatus.Text = result.Error!.Message;
+            return;
+        }
+
+        _annotationState = result.Value;
+        UpdateAnnotationControls(_annotationState);
+        _filledFieldPages.Add(field.PageIndex);
+        InvalidatePageRender(field.PageIndex);
+        await RefreshFormFieldsAsync();
+        FormFieldsStatus.Text = "Field font size changed. Save to keep the change.";
     }
 
     private FrameworkElement FormFieldRow(string sessionId, FormField field) => field.Kind switch

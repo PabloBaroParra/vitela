@@ -477,7 +477,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
             return Task.FromResult(OperationResult<FormFieldState>.Success(new FormFieldState(
                 session.Id,
-                [.. _core.ListFormFields(session.Document).Select(field => new FormField(field.Id, field.PageIndex, field.Name, field.Kind, field.Value))],
+                [.. _core.ListFormFields(session.Document).Select(field => new FormField(field.Id, field.PageIndex, field.Name, field.Kind, field.Value, field.Style))],
                 _core.AnnotationEditingAllowed(session.Document),
                 _core.AnnotationEditingAllowed(session.Document) && _core.ContentEditingAllowed(session.Document))));
         }
@@ -577,6 +577,49 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     if (field.Name == name) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                     pageIndex = field.PageIndex;
                     _core.ApplyEdit(session.Document, new PdfCoreEdit.RenameFormField(fieldId, name));
+                    session.EditRevision++;
+                    session.HasRecordedPreviewEdit = true;
+                }
+                catch (PdfCoreException error)
+                {
+                    return OperationResult<AnnotationState>.Failure(MapError(error, operation, sessionId, null));
+                }
+            }
+
+            return await RefreshPreviewAsync(session, operation, pageIndex).ConfigureAwait(false);
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    /// <summary>Updates one field's font size while preserving its font and color.</summary>
+    public async Task<OperationResult<AnnotationState>> SetFormFieldFontSizeAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, double sizePt)
+    {
+        const string operation = "form_restyle";
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SessionEntry session;
+            uint pageIndex;
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit styling form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                if (!double.IsFinite(sizePt) || sizePt < 1 || sizePt > 72)
+                    return OperationResult<AnnotationState>.Failure(CreateError("Enter a font size between 1 and 72 pt.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+
+                try
+                {
+                    var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
+                    if (field?.Style is null || field.Style != expectedStyle)
+                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
+                    if (field.Style.SizePt == sizePt) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                    pageIndex = field.PageIndex;
+                    _core.ApplyEdit(session.Document, new PdfCoreEdit.RestyleFormField(fieldId, field.Style with { SizePt = sizePt }));
                     session.EditRevision++;
                     session.HasRecordedPreviewEdit = true;
                 }
