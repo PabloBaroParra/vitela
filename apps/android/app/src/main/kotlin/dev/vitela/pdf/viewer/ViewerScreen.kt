@@ -75,6 +75,10 @@ internal fun ViewerScreen(
     onTextSelectionMove: (dev.vitela.pdf.core.AnnotationPoint) -> Unit,
     onTextSelectionEnd: () -> Unit,
     onCopySelection: () -> Unit,
+    onOpenMetadata: () -> Unit,
+    onMetadataChange: (dev.vitela.pdf.core.DocumentInfo) -> Unit,
+    onMetadataApply: () -> Unit,
+    onMetadataDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -119,6 +123,7 @@ internal fun ViewerScreen(
             Button(onClick = onPrint, enabled = state.canPrint) { Text("Print") }
             Button(onClick = onSave, enabled = state.isDirty && state.saveTarget != null) { Text("Save") }
             Button(onClick = onSaveCopy, enabled = state.isDirty) { Text("Save copy") }
+            Button(onClick = onOpenMetadata, enabled = state.pageCount > 0) { Text("Properties") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -218,11 +223,14 @@ internal fun ViewerScreen(
             dismissButton = { TextButton(onClick = cancel) { Text("Cancel") } },
         )
     }
+    state.metadataEditor?.let { editor ->
+        MetadataDialog(editor, onChange = onMetadataChange, onApply = onMetadataApply, onDismiss = onMetadataDismiss)
+    }
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(
             onDismissRequest = onReplacementCancelled,
             title = { Text("Discard unsaved changes?") },
-            text = { Text("Open $title and discard the current unsaved annotation changes?") },
+            text = { Text("Open $title and discard the current unsaved changes?") },
             confirmButton = { Button(onClick = onReplacementConfirmed) { Text("Discard and open") } },
             dismissButton = { TextButton(onClick = onReplacementCancelled) { Text("Keep editing") } },
         )

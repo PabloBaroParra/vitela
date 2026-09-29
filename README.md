@@ -144,7 +144,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | ✅ | ✅ | — | — | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
-| Edit metadata | ✅ | ✅ | — | — | — |
+| Edit metadata | ✅ | ✅ | — | 🚧 | — |
 | Organize & assemble pages | ✅ | 🚧 | — | — | — |
 | Extract pages to a new PDF | ✅ | ✅ | — | — | — |
 | Split into several PDFs | ✅ | ✅ | — | — | — |

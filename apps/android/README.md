@@ -138,6 +138,20 @@ the byte-identical file the Windows and Linux shells package (see
 [`assets/README.md`](../../assets/README.md)). It still needs PDFium to render,
 exactly like a picked file.
 
+## Document properties
+
+**Properties** opens the six text keys of the PDF's `/Info` dictionary (title,
+author, subject, keywords, creator, producer). **Apply** queues one undoable
+change in the same edit log as the annotations, so Undo reverts it and Save
+persists it. An emptied field removes its key rather than writing an empty
+string, and an apply that changes nothing queues nothing. The creation and
+modification dates are not editable; the adapter carries the file's own values
+through every write.
+
+The core does not gate `SetDocumentInfo` itself, so the adapter asks
+`content_editing_allowed` — the same permission the Windows shell asks. A
+document that withholds it opens the dialog read-only with the reason.
+
 ## Native prerequisite
 
 PDFium is an external runtime prerequisite. This repository does **not** vendor,
