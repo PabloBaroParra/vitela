@@ -90,10 +90,11 @@ text, checkboxes, radio groups and dropdowns — gated on the fill permission
 (ISO 32000-1 bit 6) rather than content editing. Each fill rebuilds the
 preview, so pdfium paints the value from the regenerated appearance; the shell
 draws no overlay of its own. The panel can also place single-line text fields,
-checkboxes, two-option radio groups and non-editable dropdowns by clicking a
-page. New radio groups and dropdowns start with "Option 1" and "Option 2",
-as on Linux. The core assigns each field's name and ID; placement is undoable
-and requires both annotation and content-edit permissions.
+checkboxes, two-option radio groups and non-editable dropdowns on a page.
+New radio groups and dropdowns start with "Option 1" and "Option 2", as on
+Linux. The core assigns each field's name and ID; placement is undoable and
+requires both annotation and content-edit permissions. Click to use the default
+size, or drag to define a field's rectangle in either direction.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:

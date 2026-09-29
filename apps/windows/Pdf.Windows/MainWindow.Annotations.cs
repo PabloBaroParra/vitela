@@ -173,7 +173,7 @@ public sealed partial class MainWindow
         // not at the text underneath it. See `MainWindow.Selection.cs`.
         slot.Annotations.PointerPressed += (_, args) =>
         {
-            if (BeginFormFieldPlacement(pageIndex, args)) return;
+            if (BeginFormFieldPlacement(slot, pageIndex, args)) return;
             // Content editing is asked first, and answers for the whole
             // gesture when armed: it is a mode, not a tool competing for the
             // same click. See `MainWindow.ContentEdit.cs`.
@@ -191,6 +191,10 @@ public sealed partial class MainWindow
             if (await EndFormFieldPlacementAsync(slot, pageIndex, args)) return;
             if (_contentEditMode) return;
             if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
+        };
+        slot.Annotations.PointerCaptureLost += (_, _) =>
+        {
+            if (_formFieldPress?.PageIndex == pageIndex) _formFieldPress = null;
         };
         ConnectFileDrop(slot, pageIndex);
     }
