@@ -18,6 +18,8 @@ import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.ContentFontKind
+import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
@@ -33,10 +35,12 @@ import dev.vitela.pdf.uniffi.FfiColor
 import dev.vitela.pdf.uniffi.FfiCompressOutcome
 import dev.vitela.pdf.uniffi.FfiCompressPreset
 import dev.vitela.pdf.uniffi.FfiCompressRefusal
+import dev.vitela.pdf.uniffi.FfiContentTextRun
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
 import dev.vitela.pdf.uniffi.FfiExportFormat
 import dev.vitela.pdf.uniffi.FfiFieldValue
+import dev.vitela.pdf.uniffi.FfiFontKind
 import dev.vitela.pdf.uniffi.FfiFormField
 import dev.vitela.pdf.uniffi.FfiFormFieldKind
 import dev.vitela.pdf.uniffi.FfiOrientation
@@ -193,6 +197,40 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // Either the /P bit or `pdf_form` refusing the value for the field's
         // kind; the core's own sentence is a developer's, not a reader's.
         val sentence = if (handle.annotationEditingAllowed()) "That value does not fit this field." else "This document does not permit filling in its form."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun contentEditingAllowed(): Boolean = handle.contentEditingAllowed()
+
+    override fun pageTextRuns(pageIndex: Int): PdfCoreResult<List<ContentTextRun>> = try {
+        PdfCoreResult.Success(handle.readPageContent(pageIndex.toUInt()).textRuns.map { it.toTextRun() })
+    } catch (error: FfiException.UnsupportedOperation) {
+        // The only refusal here is the /P bit forbidding text extraction.
+        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be read."))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // A composite (CID) font cannot be re-encoded, so its run is retyped in the
+    // core's inserted-text font; the viewer says so before the reader types.
+    override fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> = try {
+        val item = run.toFfi()
+        ffiApplyEdit(
+            handle,
+            if (run.fontKind == ContentFontKind.EmbeddedComposite) FfiEditCommand.ReplaceTextRunWithInsertedFont(item, text)
+            else FfiEditCommand.ReplaceTextRunContent(item, text),
+        )
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.EncodingGap) {
+        // Named, with the character in it: the one failure the reader can
+        // clear themselves, by typing something else. The Windows wording.
+        PdfCoreResult.Failure(PdfCoreError.Failed("This text's font cannot show \"${error.character}\". Try different characters."))
+    } catch (error: FfiException.UnsupportedOperation) {
+        // The /P bit, or `pdf_edit` declining this run or its stream encoding;
+        // the core's own sentence is a developer's, not a reader's.
+        val sentence = if (handle.contentEditingAllowed()) "This text cannot be edited." else "This document does not permit content changes."
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -426,6 +464,23 @@ private fun PageEdit.toFfi(): FfiEditCommand = when (this) {
     is PageEdit.Rotate -> FfiEditCommand.RotatePage(pageIndex.toUInt(), deltaDegrees)
     is PageEdit.Remove -> FfiEditCommand.RemovePage(pageIndex.toUInt())
     is PageEdit.InsertBlank -> FfiEditCommand.InsertBlankPage(index.toUInt(), FfiPageSize.A4, if (landscape) FfiOrientation.LANDSCAPE else FfiOrientation.PORTRAIT)
+}
+
+private fun FfiContentTextRun.toTextRun() = ContentTextRun(id.toLong(), page.toInt(), bbox.toRect(), resourceFontName, fontKind.toFontKind(), text)
+
+// Rebuilt field for field: the core matches a retype against the parse it came from.
+private fun ContentTextRun.toFfi() = FfiContentTextRun(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), resourceFontName, fontKind.toFfi(), text)
+
+private fun FfiFontKind.toFontKind(): ContentFontKind = when (this) {
+    FfiFontKind.STANDARD14 -> ContentFontKind.Standard14
+    FfiFontKind.EMBEDDED_SIMPLE -> ContentFontKind.EmbeddedSimple
+    FfiFontKind.EMBEDDED_COMPOSITE -> ContentFontKind.EmbeddedComposite
+}
+
+private fun ContentFontKind.toFfi(): FfiFontKind = when (this) {
+    ContentFontKind.Standard14 -> FfiFontKind.STANDARD14
+    ContentFontKind.EmbeddedSimple -> FfiFontKind.EMBEDDED_SIMPLE
+    ContentFontKind.EmbeddedComposite -> FfiFontKind.EMBEDDED_COMPOSITE
 }
 
 private fun ImageExportFormat.toFfi(): FfiExportFormat = when (this) {

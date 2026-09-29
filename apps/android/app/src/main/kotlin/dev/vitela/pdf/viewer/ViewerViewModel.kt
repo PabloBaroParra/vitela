@@ -46,9 +46,13 @@ class ViewerViewModel(
     private val reader = ViewerReader(session)
     private val selection = TextSelecting(session)
     private val pageLayout = PageLayout(session, reader, selection)
-    // The lambda reads formFilling when an undo runs, long after both exist.
-    private val annotations: AnnotationEditing = AnnotationEditing(session, selection, pageLayout) { formFilling.reread(it) }
+    // The lambda reads its features when an undo runs, long after they all exist.
+    private val annotations: AnnotationEditing = AnnotationEditing(session, selection, pageLayout) {
+        formFilling.reread(it)
+        contentEditing.reread(it)
+    }
     private val formFilling: FormFilling = FormFilling(session, annotations, pageLayout)
+    private val contentEditing: ContentEditing = ContentEditing(session, annotations, pageLayout, selection)
     private val organizing = PageOrganizing(session, annotations, pageLayout, selection)
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
@@ -291,8 +295,22 @@ class ViewerViewModel(
     /** Fills a field in; [documentId] is the document the row was built for, so a late commit cannot reach another. */
     fun fillFormField(documentId: Long, fieldId: Long, value: FormFieldValue) = formFilling.fill(documentId, fieldId, value)
 
+    // Edit text
+    fun openContentEdit() = contentEditing.open()
+    fun closeContentEdit() = contentEditing.close()
+    /** The reader laid out page [pageIndex] while the mode is armed. */
+    fun contentPageShown(pageIndex: Int) = contentEditing.pageShown(pageIndex)
+    fun tapContent(pageIndex: Int, point: AnnotationPoint, reach: Double) = contentEditing.tap(pageIndex, point, reach)
+    /** Retypes the open editor's run; [documentId] is the document the dialog was built for. */
+    fun retypeTextRun(documentId: Long, text: String) = contentEditing.retype(documentId, text)
+    fun dismissTextRunEditor() = contentEditing.dismissEditor()
+
     // Annotations
-    fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)
+    /** One mode claims a page tap at a time: choosing a tool leaves Edit text. */
+    fun setAnnotationTool(tool: AnnotationTool) {
+        contentEditing.close()
+        annotations.setTool(tool)
+    }
     fun selectAnnotation(pageIndex: Int, point: AnnotationPoint) = annotations.select(pageIndex, point)
     fun handlePageGesture(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint>, handleReach: Double) =
         annotations.handlePageGesture(pageIndex, origin, current, points, handleReach)

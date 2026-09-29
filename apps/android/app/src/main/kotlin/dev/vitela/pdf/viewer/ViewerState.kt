@@ -90,6 +90,8 @@ data class ViewerState(
     val organize: OrganizeState? = null,
     /** The Form fields panel below the reader, or null while it is closed. */
     val formFields: FormFieldsState? = null,
+    /** Edit text mode, or null while page taps belong to the annotation tools. */
+    val contentEdit: ContentEditState? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )
