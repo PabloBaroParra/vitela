@@ -179,7 +179,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 {
                     _core.ApplyEdit(session.Document, edit switch
                     {
-                        PageEdit.InsertBlank insert => new PdfCoreEdit.InsertBlankPage(insert.Index),
+                        PageEdit.InsertBlank insert => new PdfCoreEdit.InsertBlankPage(insert.Index, insert.Orientation),
                         PageEdit.Rotate rotate => new PdfCoreEdit.RotatePage(rotate.PageIndex, rotate.DeltaDegrees),
                         PageEdit.Remove remove => new PdfCoreEdit.RemovePage(remove.PageIndex),
                         PageEdit.Move move => new PdfCoreEdit.MovePages(move.From, 1, move.To),
