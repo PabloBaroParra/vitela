@@ -47,6 +47,7 @@ import dev.vitela.pdf.uniffi.FfiSignatureAcknowledgement
 import dev.vitela.pdf.uniffi.openFromBytes as ffiOpenFromBytes
 import dev.vitela.pdf.uniffi.renderPage as ffiRenderPage
 import dev.vitela.pdf.uniffi.redo as ffiRedo
+import dev.vitela.pdf.uniffi.refreshPreview as ffiRefreshPreview
 import dev.vitela.pdf.uniffi.undo as ffiUndo
 import dev.vitela.pdf.uniffi.applyEdit as ffiApplyEdit
 import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
@@ -132,6 +133,13 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its pages to be rearranged, rotated or removed."))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun refreshPreview(): PdfCoreResult<Unit> = try {
+        ffiRefreshPreview(handle)
+        PdfCoreResult.Success(Unit)
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("The page could not be redrawn with your changes. They are still pending save."))
     }
 
     override fun undoAnnotations(): PdfCoreResult<Boolean> = try {
