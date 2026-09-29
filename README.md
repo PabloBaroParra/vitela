@@ -142,7 +142,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
-| Annotate | ✅ | ✅ | — | — | — |
+| Annotate | ✅ | ✅ | — | 🚧 | — |
 | Edit page content | 🚧 | 🚧 | — | — | — |
 | Edit metadata | ✅ | ✅ | — | 🚧 | — |
 | Organize & assemble pages | ✅ | 🚧 | — | 🚧 | — |
@@ -153,7 +153,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Export to images | ✅ | ✅ | — | 🚧 | — |
 | Compress to a smaller PDF | ✅ | ✅ | — | 🚧 | — |
 | Sign | ✅ | — | — | — | — |
-| Fillable forms | ✅ | 🚧 | — | — | — |
+| Fillable forms | ✅ | 🚧 | — | 🚧 | — |
 
 Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
 Actions provides development-only evidence: for macOS it builds the shell, runs

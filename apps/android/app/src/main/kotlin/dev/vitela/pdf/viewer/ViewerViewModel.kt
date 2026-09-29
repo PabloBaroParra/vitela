@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
@@ -45,7 +46,9 @@ class ViewerViewModel(
     private val reader = ViewerReader(session)
     private val selection = TextSelecting(session)
     private val pageLayout = PageLayout(session, reader, selection)
-    private val annotations = AnnotationEditing(session, selection, pageLayout)
+    // The lambda reads formFilling when an undo runs, long after both exist.
+    private val annotations: AnnotationEditing = AnnotationEditing(session, selection, pageLayout) { formFilling.reread(it) }
+    private val formFilling: FormFilling = FormFilling(session, annotations, pageLayout)
     private val organizing = PageOrganizing(session, annotations, pageLayout, selection)
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
@@ -280,6 +283,12 @@ class ViewerViewModel(
     fun organizeDelete(index: Int) = organizing.delete(index)
     /** The grid scrolled the card at [index] into view without a picture. */
     fun organizeThumbnail(index: Int) = organizing.requestThumbnail(index)
+
+    // Form fields
+    fun openFormFields() = formFilling.open()
+    fun closeFormFields() = formFilling.close()
+    /** Fills a field in; [documentId] is the document the row was built for, so a late commit cannot reach another. */
+    fun fillFormField(documentId: Long, fieldId: Long, value: FormFieldValue) = formFilling.fill(documentId, fieldId, value)
 
     // Annotations
     fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)

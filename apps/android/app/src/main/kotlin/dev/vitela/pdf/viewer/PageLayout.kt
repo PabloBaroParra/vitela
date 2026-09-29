@@ -12,6 +12,9 @@ import kotlinx.coroutines.withContext
  * search hits and the text selection all described the old layout, so they go.
  * Annotations are re-read by the caller — the core reports them at their
  * pages' new positions.
+ *
+ * An edit that changes how a page looks without moving it needs less: the
+ * preview rebuilt and the pages redrawn ([redraw]), everything else kept.
  */
 internal class PageLayout(
     private val session: ViewerSession,
@@ -32,6 +35,40 @@ internal class PageLayout(
 
     fun markEdited() {
         editedDocumentId = state.value.documentId
+    }
+
+    /** The document whose page *appearance* this session has edited — a filled field — latched like [edited]. */
+    private var redrawnDocumentId = -1L
+
+    /**
+     * Whether the open document ever changed how a page looks without moving
+     * it. From then on an undo or redo may change a page's pixels, so each one
+     * rebuilds the preview ([redraw]); before that nothing else does.
+     */
+    val redrawn: Boolean get() = redrawnDocumentId == state.value.documentId
+
+    fun markRedrawn() {
+        redrawnDocumentId = state.value.documentId
+    }
+
+    /**
+     * Rebuilds the preview and redraws every page from it, keeping the layout,
+     * the search hits and the selections: nothing moved. Called with the
+     * document lane held. Returns false, with the reason in the status, when
+     * the preview could not be rebuilt.
+     */
+    suspend fun redraw(document: PdfDocument): Boolean {
+        reader.retireRenders()
+        val refreshed = withContext(session.compute) { document.refreshPreview() }
+        state.value.organize?.let {
+            state.value = state.value.copy(organize = it.copy(thumbnails = emptyMap(), version = it.version + 1))
+        }
+        reader.pagesRedrawn(redrive = state.value.organize == null)
+        if (refreshed is PdfCoreResult.Failure) {
+            state.value = state.value.copy(status = userMessage(refreshed.error))
+            return false
+        }
+        return true
     }
 
     /**

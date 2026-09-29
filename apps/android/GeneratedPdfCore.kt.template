@@ -19,6 +19,9 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.core.FormField
+import dev.vitela.pdf.core.FormFieldKind
+import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageCharacters
@@ -33,6 +36,9 @@ import dev.vitela.pdf.uniffi.FfiCompressRefusal
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
 import dev.vitela.pdf.uniffi.FfiExportFormat
+import dev.vitela.pdf.uniffi.FfiFieldValue
+import dev.vitela.pdf.uniffi.FfiFormField
+import dev.vitela.pdf.uniffi.FfiFormFieldKind
 import dev.vitela.pdf.uniffi.FfiPageCharacters
 import dev.vitela.pdf.uniffi.FfiPoint
 import dev.vitela.pdf.uniffi.FfiRect
@@ -161,6 +167,31 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // text extraction; the generic "could not be processed" would read
         // as a broken file.
         PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be selected or copied."))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun formFields(): PdfCoreResult<List<FormField>> = try {
+        PdfCoreResult.Success(handle.listFormFields().map { it.toFormField() })
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // Bit 6, the annotation bit: filling a field in is the weaker permission,
+    // not the one that lets fields be created or changed (see the FFI's
+    // `form_field_editing_allowed`). The Windows shell asks the same.
+    override fun formFillAllowed(): Boolean = handle.annotationEditingAllowed()
+
+    override fun setFormFieldValue(fieldId: Long, value: FormFieldValue): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.SetFieldValue(fieldId.toULong(), value.toFfi()))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.FormFieldNotFound) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("The document changed. Please try again."))
+    } catch (error: FfiException.UnsupportedOperation) {
+        // Either the /P bit or `pdf_form` refusing the value for the field's
+        // kind; the core's own sentence is a developer's, not a reader's.
+        val sentence = if (handle.annotationEditingAllowed()) "That value does not fit this field." else "This document does not permit filling in its form."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -367,6 +398,27 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
 }
 
 // A move is one page: the block form the core takes is Windows' `MovePages(from, 1, to)`.
+private fun FfiFormField.toFormField() = FormField(id.toLong(), page.toInt(), name, kind.toFormFieldKind(), value.toFormFieldValue())
+
+private fun FfiFormFieldKind.toFormFieldKind(): FormFieldKind = when (this) {
+    is FfiFormFieldKind.Text -> FormFieldKind.Text(multiline, maxLen?.let { minOf(it, Int.MAX_VALUE.toUInt()).toInt() })
+    is FfiFormFieldKind.Checkbox -> FormFieldKind.Checkbox
+    is FfiFormFieldKind.RadioGroup -> FormFieldKind.RadioGroup(options.map { it.exportValue })
+    is FfiFormFieldKind.Dropdown -> FormFieldKind.Dropdown(options, editable)
+}
+
+private fun FfiFieldValue.toFormFieldValue(): FormFieldValue = when (this) {
+    is FfiFieldValue.Text -> FormFieldValue.Text(text)
+    is FfiFieldValue.Checked -> FormFieldValue.Checked(checked)
+    is FfiFieldValue.Choice -> FormFieldValue.Choice(option)
+}
+
+private fun FormFieldValue.toFfi(): FfiFieldValue = when (this) {
+    is FormFieldValue.Text -> FfiFieldValue.Text(text)
+    is FormFieldValue.Checked -> FfiFieldValue.Checked(checked)
+    is FormFieldValue.Choice -> FfiFieldValue.Choice(option)
+}
+
 private fun PageEdit.toFfi(): FfiEditCommand = when (this) {
     is PageEdit.Move -> FfiEditCommand.MovePages(from.toUInt(), 1u, to.toUInt())
     is PageEdit.Rotate -> FfiEditCommand.RotatePage(pageIndex.toUInt(), deltaDegrees)

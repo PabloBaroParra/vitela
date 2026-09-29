@@ -24,8 +24,9 @@ internal class PageOrganizing(
     private val inFlight = mutableSetOf<Pair<Int, Int>>()
 
     /**
-     * Swaps the reader for the grid. An armed tool, a selected annotation and a
-     * text selection all point at the reader the grid is about to hide.
+     * Swaps the reader for the grid. An armed tool, a selected annotation, a
+     * text selection and the Form fields panel all point at the reader the
+     * grid is about to hide.
      */
     fun open() {
         if (session.document == null || state.value.pageCount == 0 || state.value.organize != null) return
@@ -33,6 +34,7 @@ internal class PageOrganizing(
         inFlight.clear()
         state.value = state.value.copy(
             organize = OrganizeState(),
+            formFields = null,
             selectedAnnotationId = null,
             activeAnnotationTool = AnnotationTool.Pointer,
             status = "Move, turn or delete pages. Each change is one undo step.",
