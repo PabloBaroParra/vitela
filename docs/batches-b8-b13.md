@@ -1278,6 +1278,11 @@ Windows/C#). Paralelo con B9 y B10.
       **(2026-07-30 — la matemática de selección ya está resuelta y testeada en
       `pdf_render::selection`; falta exponerla por `pdf-ffi` y escribir la mitad Compose.
       NO reimplementar el hit-test acá.)**
+      **(2026-09-29 — hecho: long-press + arrastre en Compose sobre `FfiPageCharacters`
+      (caret/rects/texto del core), botón Copy al portapapeles; se borró la selección por
+      intersección de rectángulos que el shell había reimplementado en Kotlin. Pendiente:
+      selección de palabra con long-press sin arrastre (el core no expone límites de palabra)
+      y selección que cruce páginas.)**
 - [ ] T-087 Toolbar táctil wired a pdf-annotate (7 tipos incl. image stamp). [ui-android, AnnoCreate, AnnoEditDelete]
 - [ ] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
       el placement_rect. [FirmaDibujada]

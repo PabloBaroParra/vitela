@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.background
@@ -37,9 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.PageSize
@@ -66,6 +69,7 @@ internal fun PageList(
     onPositionChanged: (ReaderPosition) -> Unit,
     onScrollTargetConsumed: () -> Unit,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
+    textSelection: TextSelectionGestures,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -122,6 +126,7 @@ internal fun PageList(
                         size = state.pageSizes.getOrNull(index),
                         state = state,
                         onAnnotationGesture = onAnnotationGesture,
+                        textSelection = textSelection,
                     )
                 }
             }
@@ -137,7 +142,9 @@ private fun PageSlot(
     size: PageSize?,
     state: ViewerState,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
+    textSelection: TextSelectionGestures,
 ) {
+    val haptics = LocalHapticFeedback.current
     var origin by remember { mutableStateOf<AnnotationPoint?>(null) }
     var current by remember { mutableStateOf<AnnotationPoint?>(null) }
     var stroke by remember { mutableStateOf(emptyList<AnnotationPoint>()) }
@@ -180,10 +187,35 @@ private fun PageSlot(
                     .fillMaxSize()
                     .onSizeChanged { pageWidthPx = it.width }
                     .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId) {
-                        detectTapGestures { offset ->
+                        detectTapGestures(
+                            // In pointer mode a long-press belongs to text
+                            // selection below. Declaring it here is what stops
+                            // the finger lifting from also counting as a tap,
+                            // which would clear the selection it just made.
+                            onLongPress = if (state.activeAnnotationTool == AnnotationTool.Pointer) ({ }) else null,
+                        ) { offset ->
                             val tap = point(offset)
                             onAnnotationGesture(pageIndex, tap, tap, emptyList(), handleReachPoints(HANDLE_REACH_DP, density, scale))
                         }
+                    }
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool) {
+                        // Long-press, then drag: the Android text-selection
+                        // gesture. A plain drag stays the list's scroll — it
+                        // moves past touch slop before the long-press fires,
+                        // which cancels this detector.
+                        if (state.activeAnnotationTool != AnnotationTool.Pointer) return@pointerInput
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { offset ->
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                textSelection.onStart(pageIndex, point(offset))
+                            },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                textSelection.onMove(point(change.position))
+                            },
+                            onDragEnd = textSelection.onEnd,
+                            onDragCancel = textSelection.onEnd,
+                        )
                     }
                     .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId) {
                         val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
@@ -289,3 +321,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationShape
     }
     if (annotation.kind == dev.vitela.pdf.core.AnnotationKind.Ink && annotation.points.size > 1) annotation.points.zipWithNext().forEach { (a, b) -> drawLine(color, Offset(a.x.toFloat() * screenScale, (pageHeightPt - a.y).toFloat() * screenScale), Offset(b.x.toFloat() * screenScale, (pageHeightPt - b.y).toFloat() * screenScale), if (selected) 3f else 2f) }
 }
+
+/** The reader's long-press drag-select callbacks, in PDF-space points. */
+internal class TextSelectionGestures(
+    val onStart: (pageIndex: Int, point: AnnotationPoint) -> Unit,
+    val onMove: (AnnotationPoint) -> Unit,
+    val onEnd: () -> Unit,
+)

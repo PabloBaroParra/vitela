@@ -8,8 +8,6 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.AnnotationEdit
 import dev.vitela.pdf.core.AnnotationPoint
-import dev.vitela.pdf.core.AnnotationRect
-import dev.vitela.pdf.core.TextRect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,6 +26,8 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private var document: PdfDocument? = null
     private var pendingReplacement: PendingReplacement? = null
     private var stampBytes: ByteArray? = null
+    /** The drag-select in progress, or finished but still waiting for its page's characters. */
+    private var selectionDrag: TextSelectionDrag? = null
     private var nextDocumentId = 1L
     /** Serializes mutation, save, and replacement snapshots for this ViewModel's lifecycle. */
     private val documentLane = Mutex()
@@ -104,6 +104,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                 is PdfCoreResult.Success -> {
                     document?.close()
                     document = result.value
+                    closeSelectionDrag()
                     inFlight.clear()
                     cacheWindow = IntRange.EMPTY
                     val pageCount = result.value.pageCount
@@ -314,6 +315,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         val selection = _state.value.textSelection
         if (selection != null && tool in setOf(AnnotationTool.Highlight, AnnotationTool.Underline, AnnotationTool.Strikeout)) {
             applyAnnotationEdits(markupTextSelection(tool, selection).map(AnnotationEdit::Add))
+            closeSelectionDrag()
             _state.value = _state.value.copy(activeAnnotationTool = AnnotationTool.Pointer, textSelection = null)
         } else {
             _state.value = _state.value.copy(activeAnnotationTool = tool)
@@ -336,7 +338,10 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
             is DragMode.Resize -> resizeSelected(mode.corner, current)
             null -> {
                 val hit = annotationAt(_state.value.annotations, pageIndex, origin)
-                if (hit != null) _state.value = _state.value.copy(selectedAnnotationId = hit.id, textSelection = null) else selectText(pageIndex, origin, current)
+                // Only a tap gets here: an unclaimed pointer drag is the list's
+                // scroll, and a drag-select starts from a long-press instead.
+                clearTextSelection()
+                if (hit != null) _state.value = _state.value.copy(selectedAnnotationId = hit.id)
             }
         }
     }
@@ -393,18 +398,68 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     fun undoAnnotations() = applyHistory(undo = true)
     fun redoAnnotations() = applyHistory(undo = false)
 
-    fun selectText(pageIndex: Int, start: AnnotationPoint, end: AnnotationPoint) {
+    /**
+     * A long-press on [pageIndex] starts a drag-select anchored at [point].
+     * The page's characters load off the main thread; moves that arrive
+     * before they do are kept by the [TextSelectionDrag], not dropped.
+     */
+    fun beginTextSelection(pageIndex: Int, point: AnnotationPoint) {
         val openDocument = document ?: return
+        val drag = TextSelectionDrag(pageIndex, point)
+        selectionDrag?.close()
+        selectionDrag = drag
+        _state.value = _state.value.copy(textSelection = null, selectedAnnotationId = null)
         viewModelScope.launch {
-            when (val result = withContext(Dispatchers.Default) { openDocument.textRuns(pageIndex) }) {
+            when (val result = withContext(Dispatchers.Default) { openDocument.pageCharacters(pageIndex) }) {
                 is PdfCoreResult.Success -> {
-                    val selection = AnnotationRect(minOf(start.x, end.x), minOf(start.y, end.y), kotlin.math.abs(end.x - start.x), kotlin.math.abs(end.y - start.y))
-                    val lines = result.value.flatMap { it.characterBounds }.filter { it.overlaps(selection) }.mergeLines()
-                    _state.value = _state.value.copy(textSelection = TextSelection(pageIndex, lines).takeIf { it.rects.isNotEmpty() })
+                    // A closed drag releases late characters itself.
+                    drag.attach(result.value)
+                    if (selectionDrag === drag) settleTextSelection(drag)
                 }
-                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
+                is PdfCoreResult.Failure -> if (selectionDrag === drag) {
+                    selectionDrag = null
+                    drag.close()
+                    _state.value = _state.value.copy(status = userMessage(result.error))
+                }
             }
         }
+    }
+
+    /**
+     * The finger moved during a drag-select. Resolved on the calling thread:
+     * a caret lookup is a scan of one page's characters in Rust, far cheaper
+     * than a coroutine hop per pointer event.
+     */
+    fun extendTextSelection(point: AnnotationPoint) {
+        val drag = selectionDrag ?: return
+        drag.extend(point)
+        if (drag.isLoaded) publishTextSelection(drag)
+    }
+
+    /** The finger lifted: the selection stays, and the page's characters are released. */
+    fun endTextSelection() {
+        val drag = selectionDrag ?: return
+        drag.finish()
+        if (drag.isLoaded) settleTextSelection(drag)
+    }
+
+    fun clearTextSelection() {
+        closeSelectionDrag()
+        if (_state.value.textSelection != null) _state.value = _state.value.copy(textSelection = null)
+    }
+
+    private fun settleTextSelection(drag: TextSelectionDrag) {
+        publishTextSelection(drag)
+        if (drag.isFinished) closeSelectionDrag()
+    }
+
+    private fun publishTextSelection(drag: TextSelectionDrag) {
+        _state.value = _state.value.copy(textSelection = drag.selection())
+    }
+
+    private fun closeSelectionDrag() {
+        selectionDrag?.close()
+        selectionDrag = null
     }
 
     private fun renderPage(pageIndex: Int) {
@@ -524,20 +579,13 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     }
 
     override fun onCleared() {
+        closeSelectionDrag()
         document?.close()
         document = null
         super.onCleared()
     }
 
     private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?)
-}
-
-private fun TextRect.overlaps(selection: AnnotationRect): Boolean =
-    x + width >= selection.x && x <= selection.x + selection.width && y + height >= selection.y && y <= selection.y + selection.height
-
-private fun List<TextRect>.mergeLines(): List<TextRect> = groupBy { kotlin.math.round(it.y * 10) / 10 }.values.map { line ->
-    val left = line.minOf { it.x }; val right = line.maxOf { it.x + it.width }
-    TextRect(left, line.minOf { it.y }, right - left, line.maxOf { it.y + it.height } - line.minOf { it.y })
 }
 
 private fun ViewerState.withInvalidatedPageBitmaps(window: IntRange): ViewerState {

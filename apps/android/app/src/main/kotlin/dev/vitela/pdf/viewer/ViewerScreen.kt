@@ -71,6 +71,10 @@ internal fun ViewerScreen(
     onAnnotationDelete: () -> Unit,
     onAnnotationUndo: () -> Unit,
     onAnnotationRedo: () -> Unit,
+    onTextSelectionStart: (Int, dev.vitela.pdf.core.AnnotationPoint) -> Unit,
+    onTextSelectionMove: (dev.vitela.pdf.core.AnnotationPoint) -> Unit,
+    onTextSelectionEnd: () -> Unit,
+    onCopySelection: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -142,6 +146,7 @@ internal fun ViewerScreen(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {
+            TextButton(onClick = onCopySelection, enabled = state.textSelection != null) { Text("Copy") }
             TextButton(onClick = onAnnotationGrow, enabled = annotationControls.canGrow) { Text("Grow") }
             TextButton(onClick = onAnnotationDelete, enabled = selected != null && state.annotationEditingAllowed) { Text("Delete") }
             TextButton(onClick = { onAnnotationColor(dev.vitela.pdf.core.AnnotationColor(220, 40, 40)) }, enabled = annotationControls.canRestyle) { Text("Red") }
@@ -169,6 +174,9 @@ internal fun ViewerScreen(
                 onPositionChanged = onPositionChanged,
                 onScrollTargetConsumed = onScrollTargetConsumed,
                 onAnnotationGesture = onAnnotationGesture,
+                textSelection = remember(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd) {
+                    TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd)
+                },
                 modifier = Modifier.fillMaxSize(),
             )
             // Mirrors the WinUI empty state and the GTK4 shell's overlay mark:
