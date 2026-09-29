@@ -1,7 +1,6 @@
 package dev.vitela.pdf
 
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import android.print.PrintManager
 import androidx.activity.ComponentActivity
@@ -17,6 +16,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.vitela.pdf.core.PdfCoreProvider
+import dev.vitela.pdf.document.SafDocuments
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.viewer.ViewerScreen
@@ -42,11 +42,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val snapshot = viewModel.saveSnapshot() ?: return@launch
-            val written = withContext(Dispatchers.IO) {
-                runCatching {
-                    context.contentResolver.openOutputStream(uri)?.use { output -> output.write(snapshot.bytes) } ?: error("No output stream")
-                }.isSuccess
-            }
+            val written = withContext(Dispatchers.IO) { SafDocuments.writeCopy(context.contentResolver, uri, snapshot.bytes) }
             if (written) viewModel.confirmSaved(snapshot) else viewModel.reportSaveFailure()
         }
     }
@@ -62,16 +58,8 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
     val openPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            val bytes = withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-            }
-            if (bytes == null) {
-                viewModel.reportReadFailure()
-                return@launch
-            }
-            runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "Document.pdf"
-            viewModel.open(name, bytes)
+            val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, uri) }
+            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget)
         }
     }
     ViewerScreen(
@@ -103,7 +91,14 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 }
             }
         },
-        onSave = { savePdf.launch(state.title.ifBlank { "Document.pdf" }) },
+        onSave = {
+            scope.launch {
+                val save = viewModel.inPlaceSave() ?: return@launch
+                val written = withContext(Dispatchers.IO) { SafDocuments.writeBack(context.contentResolver, save.target, save.snapshot.bytes) }
+                if (written) viewModel.confirmSaved(save.snapshot) else viewModel.reportInPlaceSaveFailure(save)
+            }
+        },
+        onSaveCopy = { savePdf.launch(state.title.ifBlank { "Document.pdf" }) },
         onChooseStamp = { chooseStamp.launch("image/*") },
         onReplacementConfirmed = viewModel::confirmReplacement,
         onReplacementCancelled = viewModel::cancelReplacement,

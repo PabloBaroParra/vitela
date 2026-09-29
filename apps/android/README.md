@@ -81,11 +81,27 @@ list. Image stamps are picked through SAF and use the core's placement policy,
 so Android does not invent its own aspect-ratio or anchor rules.
 
 All annotation mutations, undo/redo, byte snapshots, and document replacement
-are serialized by `ViewerViewModel`. **Save copy** writes a complete annotated
-snapshot through SAF's create-document flow. The dirty state is cleared only if
-that write reports success for the same document revision; an older save cannot
+are serialized by `ViewerViewModel`. **Save** writes a complete annotated
+snapshot back over the file that was opened; **Save copy** writes one through
+SAF's create-document flow instead. The dirty state is cleared only if the
+write reports success for the same document revision; an older save cannot
 clear edits made while it was being written. Opening another document while the
 current one is dirty requires confirmation before replacement.
+
+**Save** is offered only when the provider advertises
+`FLAG_SUPPORTS_WRITE` and the persistable write grant was taken. The packaged
+sample has no writable origin, so it only offers Save copy. The target is
+captured together with the snapshot under the document lane, so a replacement
+cannot redirect one document's bytes into another's file. If a provider still
+refuses the write, Save is disabled for that document and Save copy remains.
+Writes use mode `"wt"`: some providers do not truncate on `"w"`, which would
+leave the old file's tail behind a shorter save. SAF offers no atomic rename,
+so an interrupted write-back can leave the original incomplete — the same
+trade-off as any in-place save through a content provider.
+
+SAF code (reading, permission grants, writes) lives in
+`document/SafDocuments.kt`; the ViewModel only sees bytes and an opaque
+save-target string.
 
 **Open sample** loads the shared sample document instead of going through the
 picker. The file is not stored in this module: `app/build.gradle.kts` adds the
