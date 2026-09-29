@@ -49,6 +49,8 @@ import dev.vitela.pdf.uniffi.parsePageSelection as ffiParsePageSelection
 import dev.vitela.pdf.uniffi.pageImageFileName as ffiPageImageFileName
 import dev.vitela.pdf.uniffi.firstPageTooLargeToExport as ffiFirstPageTooLargeToExport
 import dev.vitela.pdf.uniffi.exportPageImage as ffiExportPageImage
+import dev.vitela.pdf.uniffi.extractPagesToPdf as ffiExtractPagesToPdf
+import dev.vitela.pdf.uniffi.extractSourceIsSigned as ffiExtractSourceIsSigned
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -183,6 +185,25 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // PDFium already drew this document's pages, so a render failure here
         // is the raster ceiling at this DPI, not a missing library.
         PdfCoreResult.Failure(PdfCoreError.Failed("It could not be rendered at $dpi DPI. Choose a lower resolution."))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The extraction bit, like image export: pages leave, nothing is modified.
+    override fun pageExtractionAllowed(): Boolean = handle.textExtractionAllowed()
+
+    override fun fullRewriteAllowed(): Boolean = handle.fullRewriteAllowed()
+
+    override fun extractSourceIsSigned(): Boolean = ffiExtractSourceIsSigned(handle)
+
+    override fun extractPages(pages: List<Int>): PdfCoreResult<ByteArray> = try {
+        PdfCoreResult.Success(ffiExtractPagesToPdf(handle, pages.map { it.toUInt() }))
+    } catch (error: FfiException.UnsupportedOperation) {
+        // Both gates are asked in the plan, so this is the prune itself refusing;
+        // its detail is a lower-case clause, not a sentence of its own.
+        PdfCoreResult.Failure(PdfCoreError.Failed("These pages could not be extracted: ${error.detail}."))
+    } catch (error: FfiException.InvalidPageSelection) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(error.detail))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }

@@ -72,6 +72,8 @@ data class ViewerState(
     val imageExport: ImageExportEditor? = null,
     /** True while an export is rendering and writing pages, so a second one cannot start on top of it. */
     val imageExportRunning: Boolean = false,
+    /** The Extract pages dialog, or null while it is closed. */
+    val pageExtract: PageExtractEditor? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )
