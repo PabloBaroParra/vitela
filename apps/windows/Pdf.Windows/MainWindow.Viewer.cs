@@ -127,7 +127,7 @@ public sealed partial class MainWindow
         // PDF points on every paint, so without this the previous zoom's
         // geometry stays on screen until some unrelated edit repaints it.
         RedrawAnnotations();
-        RedrawSearchHighlight();
+        RedrawSearchHighlights();
         RedrawSelection();
     }
 

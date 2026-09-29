@@ -17,6 +17,8 @@ public sealed partial class MainWindow
 {
     private uint _searchGeneration;
     private string? _searchQuery;
+    private readonly Dictionary<uint, List<SearchHit>> _searchHitsByPage = [];
+    private SearchHit? _paintedHit;
 
     /// <summary>
     /// Ctrl+F moves focus to the search box rather than running a search —
@@ -75,12 +77,19 @@ public sealed partial class MainWindow
         _searchQuery = search.Hits.Count == 0 ? null : query;
         foreach (var hit in search.Hits)
         {
+            if (!_searchHitsByPage.TryGetValue(hit.PageIndex, out var pageHits))
+            {
+                pageHits = [];
+                _searchHitsByPage.Add(hit.PageIndex, pageHits);
+            }
+            pageHits.Add(hit);
             SearchResultsList.Items.Add(new ListViewItem
             {
                 Content = $"Page {hit.PageIndex + 1}: {hit.Text}",
                 Tag = hit,
             });
         }
+        RedrawSearchHighlights();
         UpdateMatchButtons();
         if (search.Hits.Count > 0) SearchResultsList.SelectedIndex = 0;
     }
@@ -122,59 +131,64 @@ public sealed partial class MainWindow
         _session = navigation.Value!;
         var pageIndex = checked((int)hit.PageIndex);
         PageScroller.ChangeView(null, _spans[pageIndex].Top, null, disableAnimation: false);
-        ShowSearchHighlight(pageIndex, hit.CharacterBounds);
+        var previousPage = _paintedHit?.PageIndex;
+        _paintedHit = hit;
+        if (previousPage is { } oldPage && oldPage != hit.PageIndex) RedrawSearchHighlights((int)oldPage);
+        RedrawSearchHighlights(pageIndex);
         if (_searchQuery is not null)
         {
             SearchStatus.Text = SearchSelection.Status(_searchQuery, SearchResultsList.SelectedIndex, SearchResultsList.Items.Count);
         }
     }
 
-    /// <summary>
-    /// The hit currently painted, kept so a zoom can repaint it. The geometry
-    /// is in PDF points and the paint multiplies by <c>slot.Scale</c>, so a
-    /// highlight drawn once and left alone would keep the scale it was drawn
-    /// at — the same defect the annotation overlay had.
-    /// </summary>
-    private (int PageIndex, IReadOnlyList<SearchRect> Bounds)? _searchHighlight;
-
     private void ClearSearchResults()
     {
         _searchGeneration++;
         _searchQuery = null;
+        _paintedHit = null;
+        _searchHitsByPage.Clear();
         SearchResultsList.Items.Clear();
         UpdateMatchButtons();
         SearchStatus.Text = "";
-        _searchHighlight = null;
         foreach (var slot in _slots)
         {
             slot.SearchHighlights.Children.Clear();
         }
     }
 
-    private void ShowSearchHighlight(int pageIndex, IReadOnlyList<SearchRect> bounds)
+    /// <summary>Repaint PDF-space hits at the current zoom; only the pages whose accent changed need repainting on navigation.</summary>
+    private void RedrawSearchHighlights(int? pageIndex = null)
     {
-        _searchHighlight = (pageIndex, bounds);
-        RedrawSearchHighlight();
+        var start = pageIndex ?? 0;
+        var end = pageIndex is null ? _slots.Count : start + 1;
+        for (var index = start; index < end; index++)
+        {
+            var target = _slots[index];
+            target.SearchHighlights.Children.Clear();
+            if (_session is null || index >= _session.Pages.Count || !_searchHitsByPage.TryGetValue((uint)index, out var hits)) continue;
+
+            // Paint the selected match last so it remains distinct even when
+            // two results have overlapping character bounds.
+            foreach (var hit in hits)
+            {
+                if (!ReferenceEquals(hit, _paintedHit)) PaintSearchHit(target, index, hit, selected: false);
+            }
+            if (_paintedHit is { } selected && selected.PageIndex == (uint)index)
+            {
+                PaintSearchHit(target, index, selected, selected: true);
+            }
+        }
     }
 
-    private void RedrawSearchHighlight()
+    private void PaintSearchHit(PageSlot target, int pageIndex, SearchHit hit, bool selected)
     {
-        foreach (var slot in _slots)
-        {
-            slot.SearchHighlights.Children.Clear();
-        }
-
-        if (_searchHighlight is not (var pageIndex, var bounds)) return;
-        if (_session is null || pageIndex >= _slots.Count || pageIndex >= _session.Pages.Count) return;
-
-        var target = _slots[pageIndex];
-        foreach (var boundsRect in bounds)
+        foreach (var boundsRect in hit.CharacterBounds)
         {
             var rectangle = new Rectangle
             {
-                Fill = new SolidColorBrush(global::Windows.UI.Color.FromArgb(96, 255, 214, 10)),
-                Stroke = new SolidColorBrush(Microsoft.UI.Colors.DarkOrange),
-                StrokeThickness = 1,
+                Fill = new SolidColorBrush(selected
+                    ? global::Windows.UI.Color.FromArgb(153, 242, 140, 26)
+                    : global::Windows.UI.Color.FromArgb(102, 242, 204, 51)),
             };
             PlaceOverPage(rectangle, target, pageIndex, new AnnotationRect(boundsRect.XPt, boundsRect.YPt, boundsRect.WidthPt, boundsRect.HeightPt));
             target.SearchHighlights.Children.Add(rectangle);
