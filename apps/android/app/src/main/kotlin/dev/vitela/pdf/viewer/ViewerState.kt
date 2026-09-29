@@ -82,6 +82,10 @@ data class ViewerState(
     val compress: CompressEditor? = null,
     /** True while a compression runs, so a second one cannot start on top of it. */
     val compressRunning: Boolean = false,
+    /** The Protect dialog, or null while it is closed. */
+    val protect: ProtectEditor? = null,
+    /** True while a protection runs, so a second one cannot start on top of it. */
+    val protectRunning: Boolean = false,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )

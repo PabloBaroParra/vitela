@@ -8,6 +8,9 @@ import android.provider.DocumentsContract
 /** A picked PDF: its bytes, and where **Save** may write it back to (null when it may not). */
 class OpenedDocument(val displayName: String, val bytes: ByteArray, val saveTarget: String?)
 
+/** A document made with `CreateDocument` that the app will reopen: its name, and its save target. */
+class CreatedDocument(val displayName: String, val saveTarget: String?)
+
 /**
  * Storage Access Framework I/O for the shell. The ViewModel only ever sees
  * bytes and an opaque save-target string; everything that knows a SAF [Uri]
@@ -17,9 +20,17 @@ object SafDocuments {
     /** Reads a document picked with `OpenDocument`, or null if it could not be read. */
     fun open(resolver: ContentResolver, uri: Uri): OpenedDocument? {
         val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return null
-        val name = uri.lastPathSegment?.substringAfterLast('/') ?: "Document.pdf"
-        return OpenedDocument(name, bytes, persistAccess(resolver, uri))
+        return OpenedDocument(displayName(uri), bytes, persistAccess(resolver, uri))
     }
+
+    private fun displayName(uri: Uri): String = uri.lastPathSegment?.substringAfterLast('/') ?: "Document.pdf"
+
+    /**
+     * Describes a URI picked with `CreateDocument` as a document the app is
+     * about to reopen, keeping access so **Save** can write back to it.
+     */
+    fun created(resolver: ContentResolver, uri: Uri): CreatedDocument =
+        CreatedDocument(displayName(uri), persistAccess(resolver, uri))
 
     /** Writes [bytes] to a URI the user picked with `CreateDocument`. */
     fun writeCopy(resolver: ContentResolver, uri: Uri, bytes: ByteArray): Boolean = write(resolver, uri, bytes)

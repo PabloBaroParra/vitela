@@ -61,6 +61,9 @@ import dev.vitela.pdf.uniffi.planSplit as ffiPlanSplit
 import dev.vitela.pdf.uniffi.compressionRefusal as ffiCompressionRefusal
 import dev.vitela.pdf.uniffi.compressedSaveWillInvalidateSignatures as ffiCompressedSaveWillInvalidateSignatures
 import dev.vitela.pdf.uniffi.saveCompressedToBytes as ffiSaveCompressedToBytes
+import dev.vitela.pdf.uniffi.openWithPasswordsFromBytes as ffiOpenWithPasswordsFromBytes
+import dev.vitela.pdf.uniffi.protectToBytes as ffiProtectToBytes
+import dev.vitela.pdf.uniffi.protectionWillInvalidateSignatures as ffiProtectionWillInvalidateSignatures
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -69,6 +72,12 @@ class GeneratedPdfCoreFactory : PdfCoreFactory {
 private class GeneratedPdfCore : PdfCore {
     override fun openFromBytes(bytes: ByteArray, password: String?): PdfCoreResult<PdfDocument> = try {
         PdfCoreResult.Success(GeneratedPdfDocument(ffiOpenFromBytes(bytes, password)))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun openWithPasswords(bytes: ByteArray, openPassword: String, permissionsPassword: String): PdfCoreResult<PdfDocument> = try {
+        PdfCoreResult.Success(GeneratedPdfDocument(ffiOpenWithPasswordsFromBytes(bytes, openPassword, permissionsPassword)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -252,6 +261,25 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
                 refusals = report.refusals.map { it.toClause() },
             ),
         )
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The same bit Windows gates Protect on: changing a file's protection is a content change.
+    override fun protectionChangeAllowed(): Boolean = handle.contentEditingAllowed()
+
+    override fun protectionWillInvalidateSignatures(): PdfCoreResult<Boolean> = try {
+        PdfCoreResult.Success(ffiProtectionWillInvalidateSignatures(handle))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun protect(openPassword: String, permissionsPassword: String, signaturesAcknowledged: Boolean): PdfCoreResult<ByteArray> = try {
+        val acknowledgement = if (signaturesAcknowledged) FfiSignatureAcknowledgement.PROCEED_AND_INVALIDATE else FfiSignatureAcknowledgement.UNACKNOWLEDGED
+        PdfCoreResult.Success(ffiProtectToBytes(handle, openPassword, permissionsPassword, acknowledgement))
+    } catch (error: FfiException.InvalidSaveRequest) {
+        // The core's own clause (a missing password, or two that match) as a sentence.
+        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercaseChar() }}."))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }

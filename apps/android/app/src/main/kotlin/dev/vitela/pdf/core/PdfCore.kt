@@ -100,12 +100,30 @@ interface PdfDocument : AutoCloseable {
      */
     fun saveCompressed(preset: CompressPreset, signaturesAcknowledged: Boolean): PdfCoreResult<CompressedCopy> = PdfCoreResult.Failure(PdfCoreError.Failed("Compression is unavailable in this PDF core."))
 
+    /** Whether the document's security context lets its password protection be changed. */
+    fun protectionChangeAllowed(): Boolean = false
+    /** Whether applying new password protection breaks a signature the file carries. */
+    fun protectionWillInvalidateSignatures(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Password protection is unavailable in this PDF core."))
+    /**
+     * The session saved with new AES-128 protection under both passwords, which
+     * must differ. Not an edit: the open document's own security is untouched.
+     * [signaturesAcknowledged] is the user's yes to [protectionWillInvalidateSignatures].
+     */
+    fun protect(openPassword: String, permissionsPassword: String, signaturesAcknowledged: Boolean): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Password protection is unavailable in this PDF core."))
+
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
 }
 
 interface PdfCore {
     fun openFromBytes(bytes: ByteArray, password: String?): PdfCoreResult<PdfDocument>
+    /**
+     * Opens an encrypted PDF after verifying both of its passwords — what a
+     * freshly protected file needs to stay fully editable, since one password
+     * alone cannot re-apply both roles on its next rewrite.
+     */
+    fun openWithPasswords(bytes: ByteArray, openPassword: String, permissionsPassword: String): PdfCoreResult<PdfDocument> =
+        PdfCoreResult.Failure(PdfCoreError.Failed("Opening with both passwords is unavailable in this PDF core."))
 }
 
 /** Implemented by generated packaging sources when native bindings are present. */

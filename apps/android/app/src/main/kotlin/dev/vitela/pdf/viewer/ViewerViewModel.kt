@@ -9,6 +9,7 @@ import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SaveSnapshot
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,7 @@ class ViewerViewModel(
     private val pageExtracting = PageExtracting(session)
     private val pageSplitting = PageSplitting(session)
     private val compressing = Compressing(session)
+    private val protecting = Protecting(session, ::reopenProtected)
     private val saving = DocumentSaving(session) { sourceBytes }
 
     /**
@@ -93,36 +95,58 @@ class ViewerViewModel(
             sourceTarget = saveTarget
             _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
             when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, password) }) {
-                is PdfCoreResult.Success -> {
-                    session.document?.close()
-                    session.document = result.value
-                    selection.closeDrag()
-                    reader.reset()
-                    val pageCount = result.value.pageCount
-                    // A fresh state, not a copy: the previous document's pages,
-                    // search hits and password flags must not survive. canOpen
-                    // is true by construction — reaching here proves the core
-                    // is present.
-                    _state.value = ViewerState(
-                        title = displayName,
-                        pageCount = pageCount,
-                        pageSizes = withContext(session.compute) { result.value.pageSizes },
-                        // Scroll back to the top: the list may still be parked
-                        // deep inside the document that was just replaced.
-                        scrollTarget = if (pageCount > 0) 0 else null,
-                        status = visibleRangeStatus(0, 0, pageCount),
-                        canPrint = pageCount > 0,
-                        canOpen = true,
-                        documentId = nextDocumentId++,
-                        // Published only on success: a failed open leaves the
-                        // previous document in place, and its target with it.
-                        saveTarget = saveTarget,
-                    )
-                    annotations.refresh(result.value)
-                    reader.showFirstWindow(pageCount)
-                }
+                is PdfCoreResult.Success -> install(displayName, result.value, saveTarget)
                 is PdfCoreResult.Failure -> handleOpenFailure(result.error)
             }
+            }
+        }
+    }
+
+    /** Makes [document] the open one. Called with the document lane held. */
+    private suspend fun install(displayName: String, document: PdfDocument, saveTarget: String?) {
+        session.document?.close()
+        session.document = document
+        selection.closeDrag()
+        reader.reset()
+        val pageCount = document.pageCount
+        // A fresh state, not a copy: the previous document's pages,
+        // search hits and password flags must not survive. canOpen
+        // is true by construction — reaching here proves the core
+        // is present.
+        _state.value = ViewerState(
+            title = displayName,
+            pageCount = pageCount,
+            pageSizes = withContext(session.compute) { document.pageSizes },
+            // Scroll back to the top: the list may still be parked
+            // deep inside the document that was just replaced.
+            scrollTarget = if (pageCount > 0) 0 else null,
+            status = visibleRangeStatus(0, 0, pageCount),
+            canPrint = pageCount > 0,
+            canOpen = true,
+            documentId = nextDocumentId++,
+            // Published only on success: a failed open leaves the
+            // previous document in place, and its target with it.
+            saveTarget = saveTarget,
+        )
+        annotations.refresh(document)
+        reader.showFirstWindow(pageCount)
+    }
+
+    /**
+     * Protect's reopen: the file just written, opened under both passwords.
+     * No dirty check — the protected bytes carry every pending edit — and the
+     * passwords are not retained: [sourceBytes] only ever feeds a retry with
+     * the single password the prompt asks for.
+     */
+    private suspend fun reopenProtected(displayName: String, bytes: ByteArray, openPassword: String, permissionsPassword: String, saveTarget: String?): PdfCoreError? {
+        val availableCore = core ?: return PdfCoreError.Failed("Native PDF support is not packaged.")
+        return when (val result = withContext(session.compute) { availableCore.openWithPasswords(bytes, openPassword, permissionsPassword) }) {
+            is PdfCoreResult.Failure -> result.error
+            is PdfCoreResult.Success -> {
+                sourceBytes = bytes
+                sourceTarget = saveTarget
+                install(displayName, result.value, saveTarget)
+                null
             }
         }
     }
@@ -235,6 +259,14 @@ class ViewerViewModel(
     suspend fun compress(): String? = compressing.compress()
     fun cancelCompress() = compressing.cancel()
     suspend fun writeCompressed(write: CompressedPdfWriter) = compressing.write(write)
+
+    // Protect with a password
+    fun openProtect() = protecting.open()
+    fun dismissProtect() = protecting.dismiss()
+    /** The name to suggest in the save picker once the passwords are accepted, or null when the dialog stays open. */
+    fun confirmProtect(openPassword: String, permissionsPassword: String): String? = protecting.confirm(openPassword, permissionsPassword)
+    fun cancelProtect() = protecting.cancel()
+    suspend fun writeProtected(displayName: String, saveTarget: String?, write: ProtectedPdfWriter) = protecting.write(displayName, saveTarget, write)
 
     // Annotations
     fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)
