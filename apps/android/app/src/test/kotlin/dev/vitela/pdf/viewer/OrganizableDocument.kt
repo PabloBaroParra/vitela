@@ -14,8 +14,16 @@ import dev.vitela.pdf.core.SearchHit
  * A document whose pages are identified by their width (100 + the id the page
  * was born with), so a test can read the current order straight from
  * [pageSizes]. Every edit is undoable, like the core's.
+ *
+ * Rendering draws the *preview*, like the core's `render_page`: a snapshot of
+ * the pages taken at open and again only by [refreshPreview]. [drawn] records
+ * which page id each render actually showed.
  */
-internal class OrganizableDocument(pageCount: Int = 4, private val refusal: PdfCoreError? = null) : PdfDocument {
+internal class OrganizableDocument(
+    pageCount: Int = 4,
+    private val refusal: PdfCoreError? = null,
+    private val previewFailure: PdfCoreError? = null,
+) : PdfDocument {
     private class Page(val id: Int, var turned: Boolean = false)
 
     private var pages = MutableList(pageCount) { Page(it) }
@@ -23,6 +31,10 @@ internal class OrganizableDocument(pageCount: Int = 4, private val refusal: PdfC
     private val redoable = ArrayDeque<Pair<() -> Unit, () -> Unit>>()
     val edits = mutableListOf<PageEdit>()
     val rendered = mutableListOf<Pair<Int, Int>>()
+    val drawn = mutableListOf<Int>()
+    private var preview = pages.map { it.id }
+    var previewRefreshes = 0
+        private set
     var pageSizeReads = 0
         private set
 
@@ -35,8 +47,16 @@ internal class OrganizableDocument(pageCount: Int = 4, private val refusal: PdfC
 
     override fun renderPage(pageIndex: Int, dpi: Int): PdfCoreResult<RenderedPage> {
         rendered += pageIndex to dpi
+        drawn += preview[pageIndex]
         // Not a valid bitmap: the conversion is Android's, and returns null on it.
         return PdfCoreResult.Success(RenderedPage(0, 0, 0, ByteArray(0)))
+    }
+
+    override fun refreshPreview(): PdfCoreResult<Unit> {
+        previewRefreshes++
+        previewFailure?.let { return PdfCoreResult.Failure(it) }
+        preview = pages.map { it.id }
+        return PdfCoreResult.Success(Unit)
     }
 
     override fun search(query: String) = PdfCoreResult.Success(listOf(SearchHit(1, "x")))

@@ -46,6 +46,16 @@ internal class ViewerReader(private val session: ViewerSession) {
     }
 
     /**
+     * Makes every render in flight answer a question nobody is asking, without
+     * touching what is on screen yet. For the moment before the document swaps
+     * the preview those renders read; [layoutChanged] follows once it has.
+     */
+    fun retireRenders() {
+        layoutGeneration += 1
+        inFlight.clear()
+    }
+
+    /**
      * The pages themselves changed (moved, turned or removed), so every cached
      * bitmap and every render in flight shows a page that is no longer there.
      * Unlike a zoom there is no bridge to keep: an old picture under a new page

@@ -65,6 +65,60 @@ class ViewerViewModelOrganizeTest {
     }
 
     @Test
+    fun aMovedPageIsDrawnAtItsNewPosition() = runTest {
+        val document = OrganizableDocument(pageCount = 4)
+        val viewModel = openedWith(document)
+        viewModel.openOrganize()
+        viewModel.organizeMove(index = 0, delta = 1)
+        advanceUntilIdle()
+        viewModel.organizeThumbnail(0)
+        viewModel.organizeThumbnail(1)
+        advanceUntilIdle()
+
+        assertEquals("rendering reads the preview, so it must be rebuilt to show the new order", listOf(1, 0), document.drawn)
+    }
+
+    @Test
+    fun undoingAPageEditPutsThePagesBackInThePreview() = runTest {
+        val document = OrganizableDocument(pageCount = 4)
+        val viewModel = openedWith(document)
+        viewModel.openOrganize()
+        viewModel.organizeDelete(0)
+        advanceUntilIdle()
+        viewModel.undoAnnotations()
+        advanceUntilIdle()
+        viewModel.organizeThumbnail(0)
+        advanceUntilIdle()
+
+        assertEquals(listOf(0), document.drawn)
+    }
+
+    @Test
+    fun aRefusedEditLeavesThePreviewAlone() = runTest {
+        val document = OrganizableDocument(refusal = PdfCoreError.Failed("no"))
+        val viewModel = openedWith(document)
+        val refreshes = document.previewRefreshes
+        viewModel.openOrganize()
+        viewModel.organizeMove(0, 1)
+        advanceUntilIdle()
+
+        assertEquals(refreshes, document.previewRefreshes)
+    }
+
+    @Test
+    fun aPreviewThatCannotBeRebuiltSaysSoInsteadOfClaimingTheMove() = runTest {
+        val failure = "The page could not be redrawn with your changes. They are still pending save."
+        val viewModel = openedWith(OrganizableDocument(previewFailure = PdfCoreError.Failed(failure)))
+        viewModel.openOrganize()
+        viewModel.organizeMove(0, 1)
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(failure, state.status)
+        assertTrue("the edit itself was queued", state.isDirty)
+    }
+
+    @Test
     fun anEditMakesTheDocumentDirtyAndLightsUpUndo() = runTest {
         val viewModel = openedWith(OrganizableDocument())
         val before = viewModel.state.value

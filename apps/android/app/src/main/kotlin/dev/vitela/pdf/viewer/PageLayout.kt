@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PageEdit
+import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import kotlinx.coroutines.withContext
 
@@ -34,11 +35,20 @@ internal class PageLayout(
     }
 
     /**
-     * Re-reads the page count and sizes. [edit] says how an open grid's
-     * thumbnails travel; without it (an undo or redo) they are all dropped.
-     * Called with the document lane held.
+     * Rebuilds the preview, then re-reads the page count and sizes. [edit] says
+     * how an open grid's thumbnails travel; without it (an undo or redo) they
+     * are all dropped. Called with the document lane held.
+     *
+     * The preview comes first because rendering reads it, not the live model:
+     * without the rebuild every position would still draw the page that sat
+     * there when the file was opened. Returns false, with the reason in the
+     * status, when the preview could not be rebuilt.
      */
-    suspend fun reread(document: PdfDocument, edit: PageEdit? = null) {
+    suspend fun reread(document: PdfDocument, edit: PageEdit? = null): Boolean {
+        // A reader render does not take the lane, and the rebuild closes the
+        // preview it may be reading: whatever it brings back is not wanted.
+        reader.retireRenders()
+        val refreshed = withContext(session.compute) { document.refreshPreview() }
         val (count, sizes) = withContext(session.compute) { document.pageCount to document.pageSizes }
         selection.clear()
         val current = state.value
@@ -56,5 +66,10 @@ internal class PageLayout(
             },
         )
         reader.layoutChanged(redrive = current.organize == null)
+        if (refreshed is PdfCoreResult.Failure) {
+            state.value = state.value.copy(status = userMessage(refreshed.error))
+            return false
+        }
+        return true
     }
 }

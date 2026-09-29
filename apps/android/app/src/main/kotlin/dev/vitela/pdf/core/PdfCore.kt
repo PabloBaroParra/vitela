@@ -61,6 +61,13 @@ interface PdfDocument : AutoCloseable {
      * comes back as the sentence to show.
      */
     fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Organizing pages is unavailable in this PDF core."))
+    /**
+     * Rebuilds what [renderPage] draws from the pending edits. Rendering reads
+     * a preview taken at open, not the live model, so an edit the page itself
+     * shows — a moved, turned or removed page — stays invisible until this
+     * runs. Annotations are left out: the shell draws those itself.
+     */
+    fun refreshPreview(): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Previewing edits is unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */
