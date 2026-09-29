@@ -145,6 +145,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("requires both permissions to place a radio group", RefusesForbiddenRadioGroupPlacementAsync)
     ,("places a dropdown and refreshes the form preview", PlacesADropdownAsync)
     ,("requires both permissions to place a dropdown", RefusesForbiddenDropdownPlacementAsync)
+    ,("places a form field by tracing in either direction", TracesFormPlacementInEitherDirection)
+    ,("uses click dimensions for a tiny form gesture", UsesClickDimensionsForTinyFormGesture)
+    ,("clamps form placement to unrotated rotated-page bounds", ClampsFormPlacementOnRotatedPages)
     ,("does not record a fill that changes nothing", DoesNotRecordAnUnchangedFillAsync)
     ,("refuses a fill when the document forbids form filling", RefusesAForbiddenFillAsync)
     ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
@@ -2012,6 +2015,32 @@ static void Assert(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static Task TracesFormPlacementInEitherDirection()
+{
+    var page = new PageDimensions(600, 800, PageRotation.None);
+    var forward = FormPlacementRect.Resolve(new AnnotationPoint(100, 400), new AnnotationPoint(300, 450), page, 144, 36);
+    var reverse = FormPlacementRect.Resolve(new AnnotationPoint(300, 450), new AnnotationPoint(100, 400), page, 144, 36);
+    Assert(forward == new PdfCoreRect(100, 400, 200, 50) && reverse == forward,
+        "a drag must preserve the traced geometry regardless of direction");
+    return Task.CompletedTask;
+}
+
+static Task UsesClickDimensionsForTinyFormGesture()
+{
+    var page = new PageDimensions(600, 800, PageRotation.None);
+    var rect = FormPlacementRect.Resolve(new AnnotationPoint(590, 10), new AnnotationPoint(593, 12), page, 18, 18);
+    Assert(rect == new PdfCoreRect(582, 0, 18, 18), "a tiny motion should place a full checkbox inside the page");
+    return Task.CompletedTask;
+}
+
+static Task ClampsFormPlacementOnRotatedPages()
+{
+    var page = new PageDimensions(800, 600, PageRotation.Clockwise90);
+    var rect = FormPlacementRect.Resolve(new AnnotationPoint(590, 780), new AnnotationPoint(650, 850), page, 144, 36);
+    Assert(rect == new PdfCoreRect(590, 780, 10, 20), "PDF coordinates must use the unrotated 600x800 bounds");
+    return Task.CompletedTask;
 }
 
 static void AssertClose(double actual, double expected, string message)

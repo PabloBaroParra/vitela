@@ -12,7 +12,7 @@ public sealed partial class MainWindow
 
     private FieldToPlace? _placingFormField;
     private bool _creatingFormField;
-    private int? _formFieldPressPage;
+    private (int PageIndex, AnnotationPoint Origin)? _formFieldPress;
     private uint _formPlacementGeneration;
 
     private async void PlaceTextFieldButton_Click(object sender, RoutedEventArgs e) =>
@@ -58,10 +58,10 @@ public sealed partial class MainWindow
         FormFieldsPanel.IsExpanded = true;
         FormFieldsStatus.Text = kind switch
         {
-            FieldToPlace.Text => "Click a page to place a text field.",
-            FieldToPlace.Checkbox => "Click a page to place a checkbox.",
-            FieldToPlace.RadioGroup => "Click a page to place a radio group.",
-            _ => "Click a page to place a dropdown.",
+            FieldToPlace.Text => "Click or drag on a page to place a text field.",
+            FieldToPlace.Checkbox => "Click or drag on a page to place a checkbox.",
+            FieldToPlace.RadioGroup => "Click or drag on a page to place a radio group.",
+            _ => "Click or drag on a page to place a dropdown.",
         };
     }
 
@@ -69,17 +69,18 @@ public sealed partial class MainWindow
     {
         _formPlacementGeneration++;
         _placingFormField = null;
-        _formFieldPressPage = null;
+        _formFieldPress = null;
         PlaceTextFieldButton.IsChecked = false;
         PlaceCheckboxButton.IsChecked = false;
         PlaceRadioGroupButton.IsChecked = false;
         PlaceDropdownButton.IsChecked = false;
     }
 
-    private bool BeginFormFieldPlacement(int pageIndex, PointerRoutedEventArgs args)
+    private bool BeginFormFieldPlacement(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
         if (_placingFormField is null) return false;
-        _formFieldPressPage = pageIndex;
+        _formFieldPress = (pageIndex, ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position));
+        slot.Annotations.CapturePointer(args.Pointer);
         args.Handled = true;
         return true;
     }
@@ -87,25 +88,24 @@ public sealed partial class MainWindow
     private async Task<bool> EndFormFieldPlacementAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
         if (_placingFormField is not { } kind) return false;
-        if (_formFieldPressPage != pageIndex || _creatingFormField || _session is null) return true;
-        _formFieldPressPage = null;
+        if (_formFieldPress is not { PageIndex: var pressPage, Origin: var origin } ||
+            pressPage != pageIndex || _creatingFormField || _session is null) return true;
+        _formFieldPress = null;
+        slot.Annotations.ReleasePointerCapture(args.Pointer);
 
         var sessionId = _session.SessionId;
         var generation = _formPlacementGeneration;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         var page = _session.Pages[pageIndex];
-        // A click positions the field; keep its default size on
-        // even a small page instead of recording a rectangle outside it.
-        var width = Math.Min(kind == FieldToPlace.Checkbox ? 18 : 144, page.WidthPt);
-        var height = Math.Min(kind switch
+        var width = kind == FieldToPlace.Checkbox ? 18 : 144;
+        var height = kind switch
         {
             FieldToPlace.Checkbox => 18,
             FieldToPlace.RadioGroup => 48,
             _ => 36,
-        }, page.HeightPt);
-        if (width <= 0 || height <= 0) return true;
-        var rect = new PdfCoreRect(Math.Clamp(point.X, 0, page.WidthPt - width),
-            Math.Clamp(point.Y - height, 0, page.HeightPt - height), width, height);
+        };
+        var rect = FormPlacementRect.Resolve(origin, point, page, width, height);
+        if (rect.Width <= 0 || rect.Height <= 0) return true;
 
         _creatingFormField = true;
         try
