@@ -143,7 +143,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
 | Annotate | ✅ | ✅ | — | 🚧 | — |
-| Edit page content | 🚧 | 🚧 | — | — | — |
+| Edit page content | 🚧 | 🚧 | — | 🚧 | — |
 | Edit metadata | ✅ | ✅ | — | 🚧 | — |
 | Organize & assemble pages | ✅ | 🚧 | — | 🚧 | — |
 | Extract pages to a new PDF | ✅ | ✅ | — | 🚧 | — |
