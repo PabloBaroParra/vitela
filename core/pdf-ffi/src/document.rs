@@ -415,6 +415,18 @@ impl DocumentState {
                     options: options.into_iter().map(Into::into).collect(),
                 },
             ),
+            FfiEditCommand::AddDefaultRadioGroup { page, rect, style } => {
+                let rect = pdf_document::Rect::from(rect);
+                form::add_field(
+                    &self.document,
+                    self.page_id(page)?,
+                    rect.into(),
+                    style,
+                    pdf_document::FormFieldKind::RadioGroup {
+                        options: pdf_form::default_radio_options(rect),
+                    },
+                )
+            }
             FfiEditCommand::AddDropdown {
                 page,
                 rect,

@@ -558,6 +558,10 @@ public sealed partial class PdfDocumentFacade : IDisposable
     internal async Task<OperationResult<AnnotationState>> AddCheckboxAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
         => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddCheckbox(pageIndex, rect)).ConfigureAwait(false);
 
+    /// <summary>Places an undoable two-option radio group using the core's shared layout.</summary>
+    internal async Task<OperationResult<AnnotationState>> AddRadioGroupAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
+        => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddRadioGroup(pageIndex, rect)).ConfigureAwait(false);
+
     /// <summary>Places an undoable dropdown with the core's form-creation permission gate.</summary>
     internal async Task<OperationResult<AnnotationState>> AddDropdownAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
         => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddDropdown(pageIndex, rect)).ConfigureAwait(false);

@@ -59,7 +59,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-package-${{ hashFiles('**/Cargo.lock') }}
+          # Only the root lockfile determines this workspace's dependencies.
+          # A recursive glob re-runs during cache post-job after sudo smoke
+          # verification and can fail traversing root-owned package artifacts.
+          key: ${{ runner.os }}-cargo-package-${{ hashFiles('Cargo.lock') }}
       # Same package list scripts/bootstrap-linux-package.sh installs for a
       # local run: libgtk-4-dev for the -sys crates' pkg-config build,
       # dpkg-dev/file/binutils for package-linux.sh's own tool checks, and

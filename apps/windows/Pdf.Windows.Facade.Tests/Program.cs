@@ -141,6 +141,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("requires both permissions to place a text field", RefusesForbiddenTextFieldPlacementAsync)
     ,("places a checkbox and refreshes the form preview", PlacesACheckboxAsync)
     ,("requires both permissions to place a checkbox", RefusesForbiddenCheckboxPlacementAsync)
+    ,("places a radio group with the shared default options", PlacesARadioGroupAsync)
+    ,("requires both permissions to place a radio group", RefusesForbiddenRadioGroupPlacementAsync)
     ,("places a dropdown and refreshes the form preview", PlacesADropdownAsync)
     ,("requires both permissions to place a dropdown", RefusesForbiddenDropdownPlacementAsync)
     ,("does not record a fill that changes nothing", DoesNotRecordAnUnchangedFillAsync)
@@ -2294,6 +2296,38 @@ static async Task RefusesForbiddenCheckboxPlacementAsync()
     }
 }
 
+static async Task PlacesARadioGroupAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var rect = new PdfCoreRect(90, 400, 144, 48);
+
+    var result = await facade.AddRadioGroupAsync(session.SessionId, 0, rect);
+
+    Assert(result.IsSuccess && result.Value!.CanUndo, "creation must be one undoable edit");
+    Assert(core.RadioGroupEdits is [var field] && field.PageIndex == 0 && field.Rect == rect, "the radio group geometry must reach the core");
+    Assert(core.FormFields is [{ Kind: FormFieldKind.RadioGroup { Options: ["Option 1", "Option 2"] } }] && core.RefreshPreviewCalls == 1,
+        "the new radio group must be visible for filling and in the preview");
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undo must rebuild the preview after radio group creation");
+}
+
+static async Task RefusesForbiddenRadioGroupPlacementAsync()
+{
+    foreach (var forbidContent in new[] { false, true })
+    {
+        var core = new FakeCore { ContentEditingPermitted = !forbidContent };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+        if (!forbidContent) core.LastDocument!.EditingAllowed = false;
+
+        var result = await facade.AddRadioGroupAsync(session.SessionId, 0, new PdfCoreRect(0, 0, 144, 48));
+        Assert(!result.IsSuccess && result.Error!.Message == "This document does not permit creating form fields.", "permission refusal must be explicit");
+        Assert(!core.LastDocument!.CanUndo && core.RefreshPreviewCalls == 0, "refused creation must not record an edit");
+    }
+}
+
 static async Task PlacesADropdownAsync()
 {
     var core = new FakeCore();
@@ -2952,6 +2986,7 @@ sealed class FakeCore : IPdfCore
     public List<PdfCoreEdit> PageEdits { get; } = [];
     public List<PdfCoreEdit.AddTextField> TextFieldEdits { get; } = [];
     public List<PdfCoreEdit.AddCheckbox> CheckboxEdits { get; } = [];
+    public List<PdfCoreEdit.AddRadioGroup> RadioGroupEdits { get; } = [];
     public List<PdfCoreEdit.AddDropdown> DropdownEdits { get; } = [];
 
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
@@ -3031,6 +3066,17 @@ sealed class FakeCore : IPdfCore
                 throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form creation is not permitted");
             CheckboxEdits.Add(checkbox);
             FormFields.Add(new PdfCoreFormField((ulong)FormFields.Count, checkbox.PageIndex, "Checkbox", new FormFieldKind.Checkbox(), new FormFieldValue.Checked(false)));
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.AddRadioGroup radio)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form creation is not permitted");
+            RadioGroupEdits.Add(radio);
+            FormFields.Add(new PdfCoreFormField((ulong)FormFields.Count, radio.PageIndex, "RadioGroup",
+                new FormFieldKind.RadioGroup(["Option 1", "Option 2"]), new FormFieldValue.Choice(null)));
             fake.Apply(edit);
             return;
         }

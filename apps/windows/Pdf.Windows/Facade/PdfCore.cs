@@ -366,6 +366,7 @@ internal abstract record PdfCoreEdit
     public sealed record SetFieldValue(ulong FieldId, FormFieldValue Value) : PdfCoreEdit;
     public sealed record AddTextField(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record AddCheckbox(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
+    public sealed record AddRadioGroup(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record AddDropdown(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
 
     /// <summary>

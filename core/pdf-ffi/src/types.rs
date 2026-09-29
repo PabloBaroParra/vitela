@@ -741,6 +741,12 @@ pub enum FfiEditCommand {
         style: FfiTextStyle,
         options: Vec<FfiRadioOption>,
     },
+    /// Places a group with the core's two default options and shared layout.
+    AddDefaultRadioGroup {
+        page: u32,
+        rect: FfiRect,
+        style: FfiTextStyle,
+    },
     AddDropdown {
         page: u32,
         rect: FfiRect,

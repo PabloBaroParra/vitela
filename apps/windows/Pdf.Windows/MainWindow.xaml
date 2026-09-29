@@ -153,6 +153,7 @@
                         <TextBlock x:Name="FormFieldsStatus" TextWrapping="Wrap" />
                         <ToggleButton x:Name="PlaceTextFieldButton" Content="Place text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
                         <ToggleButton x:Name="PlaceCheckboxButton" Content="Place checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
+                        <ToggleButton x:Name="PlaceRadioGroupButton" Content="Place radio group" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
                         <ToggleButton x:Name="PlaceDropdownButton" Content="Place dropdown" Click="PlaceDropdownButton_Click" IsEnabled="False" />
                         <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
                             <StackPanel x:Name="FormFieldRows" Spacing="10" />

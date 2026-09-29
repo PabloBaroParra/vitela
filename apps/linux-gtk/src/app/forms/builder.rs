@@ -5,7 +5,7 @@
 //! apart — mirrors `annotations::builder`.
 
 use pdf_document::{
-    Color, FontFamily, FormField, FormFieldId, FormFieldSet, PageId, RadioOption, Rect, TextStyle,
+    Color, FontFamily, FormField, FormFieldId, FormFieldSet, PageId, Rect, TextStyle,
 };
 
 use crate::app::state::{FieldKind, FormPlacement};
@@ -44,7 +44,7 @@ fn field_at(
             name,
             rect,
             DEFAULT_STYLE,
-            default_radio_options(rect),
+            pdf_form::default_radio_options(rect),
         ),
         FieldKind::Dropdown => pdf_form::dropdown(
             id,
@@ -69,35 +69,6 @@ pub(super) fn field_for_placement(
     placement: &FormPlacement,
 ) -> FormField {
     field_at(fields, placement.kind, id, page, committed_rect(placement))
-}
-
-/// Two stacked bands filling `rect`, the group's default layout: nothing in
-/// T-141 asks the user to place radio buttons individually, so a freshly
-/// placed group needs *some* starting geometry for its two options rather
-/// than an empty one no reader could render — the user resizes the whole
-/// field afterward like any other.
-fn default_radio_options(rect: Rect) -> Vec<RadioOption> {
-    let half_height = rect.height / 2.0;
-    vec![
-        RadioOption {
-            export_value: "Option 1".to_string(),
-            rect: Rect {
-                x: rect.x,
-                y: rect.y + half_height,
-                width: rect.width,
-                height: half_height,
-            },
-        },
-        RadioOption {
-            export_value: "Option 2".to_string(),
-            rect: Rect {
-                x: rect.x,
-                y: rect.y,
-                width: rect.width,
-                height: half_height,
-            },
-        },
-    ]
 }
 
 fn default_dropdown_options() -> Vec<String> {
