@@ -140,7 +140,25 @@ internal sealed class GeneratedPdfCore : IPdfCore
             field.Page,
             field.Name,
             FieldKind(field.Kind),
-            FieldValue(field.Value)))];
+            FieldValue(field.Value),
+            new FormTextStyle(FormFontFromCore(field.Style.Font), field.Style.SizePt,
+                new AnnotationColor(field.Style.Color.R, field.Style.Color.G, field.Style.Color.B))))];
+
+    private static FormFont FormFontFromCore(FfiFontFamily font) => font switch
+    {
+        FfiFontFamily.Helvetica => FormFont.Helvetica,
+        FfiFontFamily.TimesRoman => FormFont.TimesRoman,
+        FfiFontFamily.Courier => FormFont.Courier,
+        _ => throw new InvalidOperationException("Unsupported form font."),
+    };
+
+    private static FfiFontFamily FormFontToCore(FormFont font) => font switch
+    {
+        FormFont.Helvetica => FfiFontFamily.Helvetica,
+        FormFont.TimesRoman => FfiFontFamily.TimesRoman,
+        FormFont.Courier => FfiFontFamily.Courier,
+        _ => throw new ArgumentOutOfRangeException(nameof(font)),
+    };
 
     private static FormFieldKind FieldKind(FfiFormFieldKind kind) => kind switch
     {
@@ -420,6 +438,9 @@ internal sealed class GeneratedPdfCore : IPdfCore
             new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
+        PdfCoreEdit.RestyleFormField value => new FfiEditCommand.RestyleFormField(value.FieldId,
+            new FfiTextStyle(FormFontToCore(value.Style.Font), value.Style.SizePt,
+                new FfiColor(value.Style.Color.R, value.Style.Color.G, value.Style.Color.B))),
         PdfCoreEdit.AddTextField value => new FfiEditCommand.AddTextField(value.PageIndex, Rect(value.Rect),
             new FfiTextStyle(FfiFontFamily.Helvetica, 12, new FfiColor(0, 0, 0)), false, null),
         PdfCoreEdit.AddCheckbox value => new FfiEditCommand.AddCheckbox(value.PageIndex, Rect(value.Rect),

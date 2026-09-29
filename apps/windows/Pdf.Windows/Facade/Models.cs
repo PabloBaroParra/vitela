@@ -242,7 +242,9 @@ public abstract record FormFieldValue
     public sealed record Choice(string? Option) : FormFieldValue;
 }
 
-public sealed record FormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value);
+public enum FormFont { Helvetica, TimesRoman, Courier }
+public sealed record FormTextStyle(FormFont Font, double SizePt, AnnotationColor Color);
+public sealed record FormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value, FormTextStyle? Style = null);
 
 /// <summary>
 /// The fill panel's snapshot. <paramref name="FillAllowed"/> is the document's
