@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
  * forward, so the screen and the tests see a single ViewModel.
  */
 class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
-    private val session = ViewerSession(viewModelScope, ViewerState(status = availabilityMessage(core), canOpen = core != null))
+    private val session = ViewerSession({ viewModelScope }, ViewerState(status = availabilityMessage(core), canOpen = core != null))
     private val _state = session.state
     val state: StateFlow<ViewerState> = _state.asStateFlow()
     private var sourceBytes: ByteArray? = null

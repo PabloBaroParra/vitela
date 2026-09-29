@@ -12,7 +12,14 @@ import kotlinx.coroutines.sync.Mutex
  * [ViewerViewModel]; each feature holds the same instance, so there is one
  * state and one document no matter which feature last touched them.
  */
-internal class ViewerSession(val scope: CoroutineScope, initial: ViewerState) {
+internal class ViewerSession(private val scopeProvider: () -> CoroutineScope, initial: ViewerState) {
+    /**
+     * Resolved on each launch, never at construction: reading `viewModelScope`
+     * initializes `Dispatchers.Main`, and a ViewModel built without a core
+     * (or in a JVM test before `setMain`) must not do that just by existing.
+     */
+    val scope: CoroutineScope get() = scopeProvider()
+
     val state = MutableStateFlow(initial)
     var document: PdfDocument? = null
 
