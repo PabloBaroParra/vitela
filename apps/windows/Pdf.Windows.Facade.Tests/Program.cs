@@ -22,6 +22,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("discards a print page after a session swap", DiscardsPrintPageAfterSessionSwapAsync),
     ("discards stale search results", DiscardsStaleSearchResultAsync),
     ("navigates to a selected search result", NavigatesToSearchResultAsync),
+    ("steps through search hits and wraps at either end", StepsThroughSearchHits),
     ("resolves 100% zoom to 96 DPI and 4/3 DIPs per point", ResolvesHundredPercentZoom),
     ("accounts for display scale when resolving render DPI", AccountsForDisplayScaleWhenResolvingRenderDpi),
     ("fits a page to the viewport width", FitsPageToViewportWidth),
@@ -195,6 +196,17 @@ foreach (var test in tests)
 {
     await test.Run();
     Console.WriteLine($"PASS {test.Name}");
+}
+
+static Task StepsThroughSearchHits()
+{
+    Assert(SearchSelection.StepIndex(-1, 0, 1) == -1, "an empty search has no selection");
+    Assert(SearchSelection.StepIndex(-1, 3, 1) == 0, "next starts at the first hit");
+    Assert(SearchSelection.StepIndex(-1, 3, -1) == 2, "previous starts at the last hit");
+    Assert(SearchSelection.StepIndex(0, 3, -1) == 2, "previous wraps to the last hit");
+    Assert(SearchSelection.StepIndex(2, 3, 1) == 0, "next wraps to the first hit");
+    Assert(SearchSelection.StepIndex(1, 3, 1) == 2, "next moves to the adjacent hit");
+    return Task.CompletedTask;
 }
 
 static async Task MapsTypedPasswordFailureAsync()

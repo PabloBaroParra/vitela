@@ -49,6 +49,10 @@ passwords, warns before invalidating an existing signature, writes through a
 temporary destination, and reopens the protected bytes with the new open
 password.
 
+Search selects the first result automatically. **Previous match** and **Next
+match** move through the results with wraparound, scrolling to the selected
+page and highlighting the matching text.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names

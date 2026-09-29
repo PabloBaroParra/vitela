@@ -736,6 +736,7 @@ public sealed partial class MainWindow : Window
         OpenSampleButton.IsEnabled = !isBusy;
         PrintButton.IsEnabled = !isBusy;
         SearchButton.IsEnabled = !isBusy;
+        UpdateMatchButtons();
         ZoomInButton.IsEnabled = !isBusy;
         ZoomOutButton.IsEnabled = !isBusy;
         FitWidthButton.IsEnabled = !isBusy;

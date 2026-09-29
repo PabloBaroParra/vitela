@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -13,6 +14,8 @@ namespace Pdf.Windows;
 /// </summary>
 public sealed partial class MainWindow
 {
+    private uint _searchGeneration;
+
     /// <summary>
     /// Ctrl+F moves focus to the search box rather than running a search —
     /// there is nothing to search for yet, and this is the same "get me to
@@ -40,13 +43,15 @@ public sealed partial class MainWindow
             return;
         }
 
+        var sessionId = _session.SessionId;
+        var generation = _searchGeneration;
         SearchButton.IsEnabled = false;
-        var result = await _facade.SearchAsync(_session.SessionId, query);
-        SearchButton.IsEnabled = true;
-        if (result.IsDiscarded)
+        var result = await _facade.SearchAsync(sessionId, query);
+        if (generation != _searchGeneration || _session?.SessionId != sessionId || result.IsDiscarded)
         {
             return;
         }
+        SearchButton.IsEnabled = !_isBusy;
 
         if (!result.IsSuccess)
         {
@@ -64,16 +69,38 @@ public sealed partial class MainWindow
                 Tag = hit,
             });
         }
+        UpdateMatchButtons();
+        if (search.Hits.Count > 0) SearchResultsList.SelectedIndex = 0;
+    }
+
+    private void PreviousMatchButton_Click(object sender, RoutedEventArgs e) => StepMatch(-1);
+
+    private void NextMatchButton_Click(object sender, RoutedEventArgs e) => StepMatch(1);
+
+    private void StepMatch(int delta)
+    {
+        if (_session is null || _isBusy) return;
+        SearchResultsList.SelectedIndex = SearchSelection.StepIndex(SearchResultsList.SelectedIndex, SearchResultsList.Items.Count, delta);
+    }
+
+    private void UpdateMatchButtons()
+    {
+        var enabled = !_isBusy && _session is not null && SearchResultsList.Items.Count > 0;
+        PreviousMatchButton.IsEnabled = enabled;
+        NextMatchButton.IsEnabled = enabled;
     }
 
     private async void SearchResultsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_session is null || SearchResultsList.SelectedItem is not ListViewItem { Tag: SearchHit hit })
+        if (_session is null || SearchResultsList.SelectedItem is not ListViewItem { Tag: SearchHit hit } selected)
         {
             return;
         }
 
-        var navigation = await _facade.NavigateToSearchResultAsync(_session.SessionId, hit);
+        var sessionId = _session.SessionId;
+        var generation = _searchGeneration;
+        var navigation = await _facade.NavigateToSearchResultAsync(sessionId, hit);
+        if (_session?.SessionId != sessionId || generation != _searchGeneration || !ReferenceEquals(SearchResultsList.SelectedItem, selected)) return;
         if (!navigation.IsSuccess)
         {
             ShowError(navigation.Error!);
@@ -96,7 +123,9 @@ public sealed partial class MainWindow
 
     private void ClearSearchResults()
     {
+        _searchGeneration++;
         SearchResultsList.Items.Clear();
+        UpdateMatchButtons();
         SearchStatus.Text = "";
         _searchHighlight = null;
         foreach (var slot in _slots)
