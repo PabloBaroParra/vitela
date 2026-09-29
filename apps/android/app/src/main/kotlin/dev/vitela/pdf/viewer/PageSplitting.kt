@@ -1,7 +1,6 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PdfCoreResult
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -31,7 +30,7 @@ internal class PageSplitting(private val session: ViewerSession) {
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                val refusal = withContext(Dispatchers.Default) { pageSplitRefusal(openDocument) }
+                val refusal = withContext(session.compute) { pageSplitRefusal(openDocument) }
                 state.value = state.value.copy(pageSplit = PageSplitEditor("", refusal == null, refusal))
             }
         }
@@ -56,7 +55,7 @@ internal class PageSplitting(private val session: ViewerSession) {
         return session.documentLane.withLock {
             if (session.document !== openDocument || state.value.pageSplit == null) return@withLock false
             val title = state.value.title
-            when (val result = withContext(Dispatchers.Default) { planPageSplit(openDocument, title, editor.cuts) }) {
+            when (val result = withContext(session.compute) { planPageSplit(openDocument, title, editor.cuts) }) {
                 is PdfCoreResult.Success -> {
                     pending = PendingSplit(result.value, state.value.documentId)
                     state.value = state.value.copy(pageSplit = null)
@@ -97,14 +96,14 @@ internal class PageSplitting(private val session: ViewerSession) {
                 val extracted = session.documentLane.withLock {
                     val openDocument = session.document
                     if (openDocument == null || state.value.documentId != split.documentId) return@withLock null
-                    withContext(Dispatchers.Default) { openDocument.extractPages((part.first..part.last).toList()) }
+                    withContext(session.compute) { openDocument.extractPages((part.first..part.last).toList()) }
                 }
                 val bytes = when (extracted) {
                     null -> return finish("The document changed. Split stopped after $written written.")
                     is PdfCoreResult.Failure -> return finish("Split stopped after $written written: ${userMessage(extracted.error)}")
                     is PdfCoreResult.Success -> extracted.value
                 }
-                if (!withContext(Dispatchers.IO) { write(part.fileName, bytes) }) {
+                if (!withContext(session.io) { write(part.fileName, bytes) }) {
                     return finish("Split stopped after $written written: could not write ${part.fileName}.")
                 }
                 written++
