@@ -36,6 +36,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     private val selection = TextSelecting(session)
     private val annotations = AnnotationEditing(session, selection)
     private val metadata = MetadataEditing(session, annotations)
+    private val imageExporting = ImageExporting(session)
     private val saving = DocumentSaving(session) { sourceBytes }
 
     /**
@@ -187,6 +188,14 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
     fun editMetadata(draft: DocumentInfo) = metadata.edit(draft)
     fun dismissMetadata() = metadata.dismiss()
     fun applyMetadata() = metadata.apply()
+
+    // Export images
+    fun openImageExport() = imageExporting.open()
+    fun editImageExport(draft: ImageExportDraft) = imageExporting.edit(draft)
+    fun dismissImageExport() = imageExporting.dismiss()
+    suspend fun planImageExport(): Boolean = imageExporting.plan()
+    fun cancelImageExport() = imageExporting.cancel()
+    suspend fun exportImages(write: ImageFileWriter) = imageExporting.export(write)
 
     // Annotations
     fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)

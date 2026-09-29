@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.vitela.pdf.core.PdfCoreProvider
 import dev.vitela.pdf.document.SafDocuments
+import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.viewer.ViewerScreen
@@ -62,6 +63,15 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         scope.launch {
             val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, uri) }
             if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget)
+        }
+    }
+    val chooseExportFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        if (treeUri == null) {
+            viewModel.cancelImageExport()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            viewModel.exportImages { fileName, mimeType, bytes -> SafExport.writeFile(context.contentResolver, treeUri, fileName, mimeType, bytes) }
         }
     }
     ViewerScreen(
@@ -125,5 +135,10 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onMetadataChange = viewModel::editMetadata,
         onMetadataApply = viewModel::applyMetadata,
         onMetadataDismiss = viewModel::dismissMetadata,
+        onOpenImageExport = viewModel::openImageExport,
+        onImageExportChange = viewModel::editImageExport,
+        // The choices are checked first; only a plan that will be accepted asks for a folder.
+        onImageExportConfirm = { scope.launch { if (viewModel.planImageExport()) chooseExportFolder.launch(null) } },
+        onImageExportDismiss = viewModel::dismissImageExport,
     )
 }
