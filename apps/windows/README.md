@@ -99,9 +99,10 @@ requires both annotation and content-edit permissions. Click to use the default
 size, or drag to define a field's rectangle in either direction.
 Field names can be edited in the panel; renaming also requires both permissions,
 while documents that permit only filling keep their value controls available.
-Text fields and dropdowns can also have their font size changed (1–72 pt) in
-the panel; the field's font family and color are preserved. Styling is undoable
-and requires the same structural permissions as renaming.
+Text fields and dropdowns can also have their font family (Helvetica, Times
+Roman or Courier) and size (1–72 pt) changed independently in the panel; their
+color is preserved. Styling is undoable and requires the same structural
+permissions as renaming.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:

@@ -102,6 +102,17 @@ public sealed partial class MainWindow
                 row.Children.Add(name);
                 if (field.Style is { } style && field.Kind is FormFieldKind.Text or FormFieldKind.Dropdown)
                 {
+                    var font = new ComboBox { Header = "Font family", HorizontalAlignment = HorizontalAlignment.Stretch };
+                    font.Items.Add("Helvetica");
+                    font.Items.Add("Times Roman");
+                    font.Items.Add("Courier");
+                    font.SelectedIndex = (int)style.Font;
+                    font.SelectionChanged += async (_, _) =>
+                    {
+                        if (font.SelectedIndex >= 0 && font.SelectedIndex != (int)style.Font)
+                            await CommitFieldFontAsync(state.SessionId, field, style, (FormFont)font.SelectedIndex);
+                    };
+                    row.Children.Add(font);
                     var size = new NumberBox
                     {
                         Header = "Font size (pt)",
@@ -147,6 +158,18 @@ public sealed partial class MainWindow
     {
         if (_session?.SessionId != sessionId) return;
         var result = await _facade.SetFormFieldFontSizeAsync(sessionId, field.Id, style, sizePt);
+        await ShowFieldStyleResultAsync(sessionId, field, result, "Field font size changed. Save to keep the change.");
+    }
+
+    private async Task CommitFieldFontAsync(string sessionId, FormField field, FormTextStyle style, FormFont font)
+    {
+        if (_session?.SessionId != sessionId) return;
+        var result = await _facade.SetFormFieldFontAsync(sessionId, field.Id, style, font);
+        await ShowFieldStyleResultAsync(sessionId, field, result, "Field font changed. Save to keep the change.");
+    }
+
+    private async Task ShowFieldStyleResultAsync(string sessionId, FormField field, OperationResult<AnnotationState> result, string message)
+    {
         if (_session?.SessionId != sessionId) return;
         if (!result.IsSuccess)
         {
@@ -160,7 +183,7 @@ public sealed partial class MainWindow
         _filledFieldPages.Add(field.PageIndex);
         InvalidatePageRender(field.PageIndex);
         await RefreshFormFieldsAsync();
-        FormFieldsStatus.Text = "Field font size changed. Save to keep the change.";
+        FormFieldsStatus.Text = message;
     }
 
     private FrameworkElement FormFieldRow(string sessionId, FormField field) => field.Kind switch
