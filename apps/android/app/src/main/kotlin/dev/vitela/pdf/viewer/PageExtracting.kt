@@ -1,7 +1,6 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PdfCoreResult
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -31,7 +30,7 @@ internal class PageExtracting(private val session: ViewerSession) {
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                val refusal = withContext(Dispatchers.Default) { pageExtractRefusal(openDocument) }
+                val refusal = withContext(session.compute) { pageExtractRefusal(openDocument) }
                 state.value = state.value.copy(pageExtract = PageExtractEditor("", refusal == null, refusal))
             }
         }
@@ -56,7 +55,7 @@ internal class PageExtracting(private val session: ViewerSession) {
         val editor = state.value.pageExtract?.takeIf { it.extractAllowed } ?: return null
         return session.documentLane.withLock {
             if (session.document !== openDocument || state.value.pageExtract == null) return@withLock null
-            when (val result = withContext(Dispatchers.Default) { planPageExtract(openDocument, editor.range) }) {
+            when (val result = withContext(session.compute) { planPageExtract(openDocument, editor.range) }) {
                 is PdfCoreResult.Success -> {
                     pending = PendingExtract(result.value, state.value.documentId)
                     state.value = state.value.copy(pageExtract = null)
@@ -88,14 +87,14 @@ internal class PageExtracting(private val session: ViewerSession) {
         val result = session.documentLane.withLock {
             val openDocument = session.document
             if (openDocument == null || state.value.documentId != extract.documentId) return@withLock null
-            withContext(Dispatchers.Default) { openDocument.extractPages(plan.pages) }
+            withContext(session.compute) { openDocument.extractPages(plan.pages) }
         }
         val bytes = when (result) {
             null -> return report("The document changed. Extract cancelled.")
             is PdfCoreResult.Failure -> return report(userMessage(result.error))
             is PdfCoreResult.Success -> result.value
         }
-        if (!withContext(Dispatchers.IO) { write(bytes) }) return report("Could not write the extracted PDF.")
+        if (!withContext(session.io) { write(bytes) }) return report("Could not write the extracted PDF.")
         report(pageExtractSummary(count, plan.sourceIsSigned))
     }
 

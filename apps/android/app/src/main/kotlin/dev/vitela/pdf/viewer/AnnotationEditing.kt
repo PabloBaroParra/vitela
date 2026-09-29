@@ -5,7 +5,6 @@ import dev.vitela.pdf.core.AnnotationEdit
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -113,7 +112,7 @@ internal class AnnotationEditing(private val session: ViewerSession, private val
      * light up after any queued edit.
      */
     suspend fun refresh(openDocument: PdfDocument) {
-        when (val result = withContext(Dispatchers.Default) { openDocument.annotations() }) {
+        when (val result = withContext(session.compute) { openDocument.annotations() }) {
             is PdfCoreResult.Success -> state.value = state.value.copy(
                 annotations = result.value.annotations,
                 annotationEditingAllowed = result.value.editingAllowed,
@@ -137,7 +136,7 @@ internal class AnnotationEditing(private val session: ViewerSession, private val
                 if (session.document !== openDocument) return@withLock
                 var applied = false
                 for (edit in edits) {
-                    when (val result = withContext(Dispatchers.Default) { openDocument.applyAnnotationEdit(edit) }) {
+                    when (val result = withContext(session.compute) { openDocument.applyAnnotationEdit(edit) }) {
                         is PdfCoreResult.Success -> applied = true
                         is PdfCoreResult.Failure -> {
                             if (applied) {
@@ -160,7 +159,7 @@ internal class AnnotationEditing(private val session: ViewerSession, private val
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                val result = withContext(Dispatchers.Default) { if (undo) openDocument.undoAnnotations() else openDocument.redoAnnotations() }
+                val result = withContext(session.compute) { if (undo) openDocument.undoAnnotations() else openDocument.redoAnnotations() }
                 when (result) {
                     is PdfCoreResult.Success -> if (result.value) {
                         state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
@@ -177,8 +176,8 @@ internal class AnnotationEditing(private val session: ViewerSession, private val
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                when (val placement = withContext(Dispatchers.Default) { openDocument.stampPlacement(imageBytes, anchor) }) {
-                    is PdfCoreResult.Success -> when (val result = withContext(Dispatchers.Default) { openDocument.insertImageStamp(pageIndex, imageBytes, placement.value) }) {
+                when (val placement = withContext(session.compute) { openDocument.stampPlacement(imageBytes, anchor) }) {
+                    is PdfCoreResult.Success -> when (val result = withContext(session.compute) { openDocument.insertImageStamp(pageIndex, imageBytes, placement.value) }) {
                         is PdfCoreResult.Success -> {
                             state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
                             refresh(openDocument)

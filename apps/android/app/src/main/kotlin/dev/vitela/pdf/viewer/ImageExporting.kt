@@ -1,7 +1,6 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PdfCoreResult
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -30,7 +29,7 @@ internal class ImageExporting(private val session: ViewerSession) {
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                val allowed = withContext(Dispatchers.Default) { openDocument.imageExportAllowed() }
+                val allowed = withContext(session.compute) { openDocument.imageExportAllowed() }
                 state.value = state.value.copy(
                     imageExport = ImageExportEditor(ImageExportDraft(), allowed, if (allowed) null else IMAGE_EXPORT_NOT_ALLOWED),
                 )
@@ -58,7 +57,7 @@ internal class ImageExporting(private val session: ViewerSession) {
             if (session.document !== openDocument || state.value.imageExport == null) return@withLock false
             val current = state.value.pageIndex
             val title = state.value.title
-            when (val result = withContext(Dispatchers.Default) { planImageExport(openDocument, title, current, editor.draft) }) {
+            when (val result = withContext(session.compute) { planImageExport(openDocument, title, current, editor.draft) }) {
                 is PdfCoreResult.Success -> {
                     pending = PendingExport(result.value, state.value.documentId)
                     state.value = state.value.copy(imageExport = null)
@@ -100,7 +99,7 @@ internal class ImageExporting(private val session: ViewerSession) {
                 val rendered = session.documentLane.withLock {
                     val openDocument = session.document
                     if (openDocument == null || state.value.documentId != export.documentId) return@withLock null
-                    withContext(Dispatchers.Default) { openDocument.exportPageImage(file.pageIndex, plan.dpi, plan.format) }
+                    withContext(session.compute) { openDocument.exportPageImage(file.pageIndex, plan.dpi, plan.format) }
                 }
                 val image = when (rendered) {
                     null -> return finish("The document changed. Export cancelled.")
@@ -108,7 +107,7 @@ internal class ImageExporting(private val session: ViewerSession) {
                         return finish("Page ${file.pageIndex + 1} could not be exported: ${userMessage(rendered.error)} $written written.")
                     is PdfCoreResult.Success -> rendered.value
                 }
-                if (!withContext(Dispatchers.IO) { write(file.fileName, plan.format.mimeType, image) }) {
+                if (!withContext(session.io) { write(file.fileName, plan.format.mimeType, image) }) {
                     return finish("Could not write ${file.fileName}. $written written.")
                 }
                 written++

@@ -1,7 +1,6 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PdfCoreResult
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -119,7 +118,7 @@ internal class ViewerReader(private val session: ViewerSession) {
         inFlight[pageIndex] = generation
         val dpi = renderDpi(state.value.pageSizes.getOrNull(pageIndex), renderWidthPx, renderZoomFactor)
         session.scope.launch {
-            val result = withContext(Dispatchers.Default) { openDocument.renderPage(pageIndex, dpi) }
+            val result = withContext(session.compute) { openDocument.renderPage(pageIndex, dpi) }
             if (inFlight[pageIndex] == generation) inFlight.remove(pageIndex)
             // A render outlives the document that started it when the user
             // opens another file mid-scroll, and outlives its own layout when

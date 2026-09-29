@@ -3,7 +3,6 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -21,8 +20,8 @@ internal class MetadataEditing(private val session: ViewerSession, private val a
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                val allowed = withContext(Dispatchers.Default) { openDocument.metadataEditingAllowed() }
-                when (val result = withContext(Dispatchers.Default) { openDocument.documentInfo() }) {
+                val allowed = withContext(session.compute) { openDocument.metadataEditingAllowed() }
+                when (val result = withContext(session.compute) { openDocument.documentInfo() }) {
                     is PdfCoreResult.Success -> state.value = state.value.copy(
                         metadataEditor = MetadataEditor(result.value, allowed, if (allowed) null else METADATA_READ_ONLY),
                     )
@@ -52,7 +51,7 @@ internal class MetadataEditing(private val session: ViewerSession, private val a
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument || state.value.metadataEditor == null) return@withLock
-                val current = when (val read = withContext(Dispatchers.Default) { openDocument.documentInfo() }) {
+                val current = when (val read = withContext(session.compute) { openDocument.documentInfo() }) {
                     is PdfCoreResult.Success -> read.value
                     is PdfCoreResult.Failure -> return@withLock refuse(read.error)
                 }
@@ -60,7 +59,7 @@ internal class MetadataEditing(private val session: ViewerSession, private val a
                     state.value = state.value.copy(metadataEditor = null)
                     return@withLock
                 }
-                when (val result = withContext(Dispatchers.Default) { openDocument.setDocumentInfo(after) }) {
+                when (val result = withContext(session.compute) { openDocument.setDocumentInfo(after) }) {
                     is PdfCoreResult.Success -> {
                         state.value = state.value.copy(
                             metadataEditor = null,

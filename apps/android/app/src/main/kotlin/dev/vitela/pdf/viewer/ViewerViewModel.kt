@@ -9,6 +9,7 @@ import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.SaveSnapshot
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,9 +22,16 @@ import kotlinx.coroutines.withContext
  * and is the one entry point the screen talks to. Each feature lives in its
  * own class over the shared [ViewerSession]; the methods below them only
  * forward, so the screen and the tests see a single ViewModel.
+ *
+ * [compute] runs the core's work and [io] the shell's file writes; the
+ * defaults are the production ones, and tests pass their own scheduler.
  */
-class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
-    private val session = ViewerSession({ viewModelScope }, ViewerState(status = availabilityMessage(core), canOpen = core != null))
+class ViewerViewModel(
+    private val core: PdfCore?,
+    compute: CoroutineDispatcher = Dispatchers.Default,
+    io: CoroutineDispatcher = Dispatchers.IO,
+) : ViewModel() {
+    private val session = ViewerSession({ viewModelScope }, ViewerState(status = availabilityMessage(core), canOpen = core != null), compute, io)
     private val _state = session.state
     val state: StateFlow<ViewerState> = _state.asStateFlow()
     private var sourceBytes: ByteArray? = null
@@ -82,7 +90,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
             sourceBytes = bytes
             sourceTarget = saveTarget
             _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
-            when (val result = withContext(Dispatchers.Default) { availableCore.openFromBytes(bytes, password) }) {
+            when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, password) }) {
                 is PdfCoreResult.Success -> {
                     session.document?.close()
                     session.document = result.value
@@ -96,7 +104,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
                     _state.value = ViewerState(
                         title = displayName,
                         pageCount = pageCount,
-                        pageSizes = withContext(Dispatchers.Default) { result.value.pageSizes },
+                        pageSizes = withContext(session.compute) { result.value.pageSizes },
                         // Scroll back to the top: the list may still be parked
                         // deep inside the document that was just replaced.
                         scrollTarget = if (pageCount > 0) 0 else null,
@@ -148,7 +156,7 @@ class ViewerViewModel(private val core: PdfCore?) : ViewModel() {
         val openDocument = session.document ?: return
         viewModelScope.launch {
             _state.value = _state.value.copy(searchQuery = query, status = "Searching...")
-            when (val result = withContext(Dispatchers.Default) { openDocument.search(query) }) {
+            when (val result = withContext(session.compute) { openDocument.search(query) }) {
                 is PdfCoreResult.Success -> {
                     val hit = result.value.firstOrNull()
                     _state.value = _state.value.copy(
