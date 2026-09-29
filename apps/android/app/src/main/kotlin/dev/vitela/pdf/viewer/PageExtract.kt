@@ -47,10 +47,7 @@ internal fun planPageExtract(document: PdfDocument, range: String): PdfCoreResul
 private fun refusal(message: String) = PdfCoreResult.Failure(PdfCoreError.Failed(message))
 
 /** The name the save picker suggests: the open file's stem marked as an extract, as on Windows. */
-internal fun extractFileName(title: String): String {
-    val stem = title.trim().let { if (it.endsWith(".pdf", ignoreCase = true)) it.dropLast(4) else it }
-    return "${stem.ifBlank { "Document" }}-extract.pdf"
-}
+internal fun extractFileName(title: String): String = "${documentStem(title)}-extract.pdf"
 
 /**
  * The Windows summary without its destination: a SAF document has no path to

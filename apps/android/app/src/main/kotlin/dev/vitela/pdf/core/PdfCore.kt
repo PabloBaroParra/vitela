@@ -82,6 +82,24 @@ interface PdfDocument : AutoCloseable {
      */
     fun planSplit(cuts: String, displayName: String): PdfCoreResult<List<SplitPart>> = PdfCoreResult.Failure(PdfCoreError.Failed("Splitting is unavailable in this PDF core."))
 
+    /**
+     * Why this document cannot be compressed at all, as the core's lower-case
+     * clause, or null when it can. Cheap: it reads the protection, it saves nothing.
+     */
+    fun compressionRefusal(): String? = "compression is unavailable in this PDF core"
+    /**
+     * Whether a compressed save breaks a signature the file carries. Not the
+     * ordinary save's question: compressing rewrites a signed file even when
+     * nothing was edited.
+     */
+    fun compressedSaveWillInvalidateSignatures(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Compression is unavailable in this PDF core."))
+    /**
+     * Saves the session and compresses the result. Not an edit: no undo step,
+     * pending edits untouched. [signaturesAcknowledged] is the user's yes to
+     * [compressedSaveWillInvalidateSignatures]; without it a signed file is refused.
+     */
+    fun saveCompressed(preset: CompressPreset, signaturesAcknowledged: Boolean): PdfCoreResult<CompressedCopy> = PdfCoreResult.Failure(PdfCoreError.Failed("Compression is unavailable in this PDF core."))
+
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
 }
