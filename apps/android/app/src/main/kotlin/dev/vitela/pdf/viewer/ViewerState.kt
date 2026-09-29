@@ -68,6 +68,10 @@ data class ViewerState(
     val saveTarget: String? = null,
     /** The Document properties dialog, or null while it is closed. */
     val metadataEditor: MetadataEditor? = null,
+    /** The Export images dialog, or null while it is closed. */
+    val imageExport: ImageExportEditor? = null,
+    /** True while an export is rendering and writing pages, so a second one cannot start on top of it. */
+    val imageExportRunning: Boolean = false,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )

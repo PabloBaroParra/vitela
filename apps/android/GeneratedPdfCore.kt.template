@@ -16,6 +16,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.TextRect
 import dev.vitela.pdf.uniffi.DocumentHandle
@@ -24,6 +25,7 @@ import dev.vitela.pdf.uniffi.FfiAnnotationKind
 import dev.vitela.pdf.uniffi.FfiColor
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
+import dev.vitela.pdf.uniffi.FfiExportFormat
 import dev.vitela.pdf.uniffi.FfiPageCharacters
 import dev.vitela.pdf.uniffi.FfiPoint
 import dev.vitela.pdf.uniffi.FfiRect
@@ -43,6 +45,10 @@ import dev.vitela.pdf.uniffi.applyEdit as ffiApplyEdit
 import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
 import dev.vitela.pdf.uniffi.insertImageStamp as ffiInsertImageStamp
+import dev.vitela.pdf.uniffi.parsePageSelection as ffiParsePageSelection
+import dev.vitela.pdf.uniffi.pageImageFileName as ffiPageImageFileName
+import dev.vitela.pdf.uniffi.firstPageTooLargeToExport as ffiFirstPageTooLargeToExport
+import dev.vitela.pdf.uniffi.exportPageImage as ffiExportPageImage
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -143,6 +149,44 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    // The same /P bit text extraction asks (extract): a page image is exactly
+    // that, and nothing is modified, so the modify bit is not the question.
+    override fun imageExportAllowed(): Boolean = handle.textExtractionAllowed()
+
+    // Aliased FFI calls throughout: the member and the binding share a name.
+    override fun parsePageSelection(input: String): PdfCoreResult<List<Int>> = try {
+        PdfCoreResult.Success(ffiParsePageSelection(input, pageCount.toUInt()).map { it.toInt() })
+    } catch (error: FfiException.InvalidPageSelection) {
+        // The core's own sentence, written for the person who typed the range.
+        PdfCoreResult.Failure(PdfCoreError.Failed(error.detail))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun pageImageFileName(displayName: String, pageIndex: Int, format: ImageExportFormat): PdfCoreResult<String> = try {
+        PdfCoreResult.Success(ffiPageImageFileName(displayName, pageIndex.toUInt(), pageCount.toUInt(), format.toFfi()))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun firstPageTooLargeToExport(pages: List<Int>, dpi: Int): PdfCoreResult<Int?> = try {
+        PdfCoreResult.Success(ffiFirstPageTooLargeToExport(handle, pages.map { it.toUInt() }, dpi.toUInt())?.toInt())
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> = try {
+        PdfCoreResult.Success(ffiExportPageImage(handle, pageIndex.toUInt(), dpi.toUInt(), format.toFfi()))
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not permit extracting its pages as images."))
+    } catch (error: FfiException.RenderFailed) {
+        // PDFium already drew this document's pages, so a render failure here
+        // is the raster ceiling at this DPI, not a missing library.
+        PdfCoreResult.Failure(PdfCoreError.Failed("It could not be rendered at $dpi DPI. Choose a lower resolution."))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
     override fun saveToBytes(): PdfCoreResult<ByteArray> = try {
         // Never acknowledged: this shell has no prompt yet that tells the user
         // a save breaks the file's signature, so the core refuses the save.
@@ -201,6 +245,11 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
     is AnnotationEdit.Resize -> FfiEditCommand.ResizeAnnotation(id.toULong(), rect.toFfi())
     is AnnotationEdit.Restyle -> FfiEditCommand.RestyleAnnotation(id.toULong(), color.toFfi())
     is AnnotationEdit.Remove -> FfiEditCommand.RemoveAnnotation(id.toULong())
+}
+
+private fun ImageExportFormat.toFfi(): FfiExportFormat = when (this) {
+    ImageExportFormat.Png -> FfiExportFormat.PNG
+    ImageExportFormat.Jpeg -> FfiExportFormat.JPEG
 }
 
 private fun FfiDocumentInfo.toDocumentInfo() = DocumentInfo(title, author, subject, keywords, creator, producer)

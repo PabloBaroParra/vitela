@@ -52,6 +52,17 @@ interface PdfDocument : AutoCloseable {
     /** Queues one undoable `/Info` change; persisted by the next [saveToBytes]. */
     fun setDocumentInfo(info: DocumentInfo): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Document properties are unavailable in this PDF core."))
 
+    /** Whether the document's `/P` bits let its pages leave as images (the extraction bit). */
+    fun imageExportAllowed(): Boolean = false
+    /** Reads a one-based selection such as `"1-3,7"` into ascending zero-based pages; the failure is the core's sentence for the typist. */
+    fun parsePageSelection(input: String): PdfCoreResult<List<Int>> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+    /** The file name page [pageIndex] is exported under, named after [displayName]; always one path component. */
+    fun pageImageFileName(displayName: String, pageIndex: Int, format: ImageExportFormat): PdfCoreResult<String> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+    /** The first of [pages] whose whole-page raster at [dpi] is over the render ceiling, or null when all fit. */
+    fun firstPageTooLargeToExport(pages: List<Int>, dpi: Int): PdfCoreResult<Int?> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+    /** One page rendered at [dpi] and encoded: the bytes of the file to write. */
+    fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
 }

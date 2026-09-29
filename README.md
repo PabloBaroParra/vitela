@@ -150,7 +150,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Split into several PDFs | ✅ | ✅ | — | — | — |
 | Save | ✅ | ✅ | — | 🚧 | — |
 | Protect with a password | ✅ | ✅ | — | — | — |
-| Export to images | ✅ | ✅ | — | — | — |
+| Export to images | ✅ | ✅ | — | 🚧 | — |
 | Compress to a smaller PDF | ✅ | ✅ | — | — | — |
 | Sign | ✅ | — | — | — | — |
 | Fillable forms | ✅ | 🚧 | — | — | — |

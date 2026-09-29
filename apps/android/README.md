@@ -152,6 +152,30 @@ The core does not gate `SetDocumentInfo` itself, so the adapter asks
 `content_editing_allowed` — the same permission the Windows shell asks. A
 document that withholds it opens the dialog read-only with the reason.
 
+## Export images
+
+**Export images** writes pages as PNG or JPEG files into a folder. The dialog
+asks for the pages (all, the current one, or a typed range such as `1-3,7`),
+the format, and a resolution of 72-400 DPI (150 by default). Every choice is
+checked while the dialog is still open, so a bad range or an oversized page is
+corrected where it was typed; only then does the shell ask for a folder
+(`OpenDocumentTree`).
+
+Every rule is the core's, not Kotlin's: the range grammar
+(`parse_page_selection`), the file names (`page_image_file_name`), the raster
+ceiling (`first_page_too_large_to_export`) and the encoding
+(`export_page_image`). The ceiling is why the dialog stops at 400 DPI: US
+Letter at 600 DPI is over the core's 32 Mpx limit, so a higher notch would
+be a control that lies. The same permission as text extraction (`/P` bit 5,
+`text_extraction_allowed`) gates the feature: a document that withholds it
+opens the dialog refused with the reason.
+
+The export stops at the first failure and reports how many files were written.
+A file whose write failed is deleted rather than left truncated. Name
+collisions are the provider's to resolve — it renames the new document instead
+of overwriting an earlier export. Each page takes the document lane on its own,
+so editing is not frozen for the length of a long export.
+
 ## Native prerequisite
 
 PDFium is an external runtime prerequisite. This repository does **not** vendor,
