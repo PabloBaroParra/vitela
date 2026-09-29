@@ -54,6 +54,18 @@ public sealed partial class MainWindow
     private void NoteButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.TextNote);
     private void StampButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Stamp);
     private void PointerButton_Click(object sender, RoutedEventArgs e) => Arm(null);
+    private void PreviousAnnotationButton_Click(object sender, RoutedEventArgs e)
+    {
+        var previous = _annotationState is { } state
+            ? AnnotationSelection.PreviousId(state.Annotations, _selectedAnnotationId)
+            : null;
+        if (previous is not { } id) return;
+
+        _selectedAnnotationId = id;
+        AnnotationStatus.Text = $"Selected annotation {id}.";
+        UpdateAnnotationControls(_annotationState);
+        RedrawAnnotations();
+    }
     private async void UndoButton_Click(object sender, RoutedEventArgs e) => await ApplyHistoryAndMetadataAsync(undo: true);
     private async void RedoButton_Click(object sender, RoutedEventArgs e) => await ApplyHistoryAndMetadataAsync(undo: false);
 
@@ -477,6 +489,7 @@ public sealed partial class MainWindow
         NoteButton.IsEnabled = enabled;
         StampButton.IsEnabled = enabled;
         PointerButton.IsEnabled = enabled;
+        PreviousAnnotationButton.IsEnabled = state is not null && !_organizing && selected is not null;
         UndoButton.IsEnabled = state?.CanUndo == true;
         RedoButton.IsEnabled = state?.CanRedo == true;
         DeleteAnnotationButton.IsEnabled = enabled && selected is not null;
