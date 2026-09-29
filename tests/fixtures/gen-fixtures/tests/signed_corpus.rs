@@ -36,14 +36,19 @@ const SHA_256_WITH_RSA_ENCRYPTION: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
 const ECDSA_WITH_SHA_256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.2");
 
+/// Bumped on every call: parallel test threads can read the same
+/// `SystemTime` on Windows, so pid + nanos alone is not unique.
+static TEMP_DIR_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn unique_temp_dir(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "gen-fixtures-signed-test-{tag}-{}-{}",
+        "gen-fixtures-signed-test-{tag}-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        TEMP_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ))
 }
 

@@ -28,14 +28,19 @@ use pdf_save::{
     document_from_lopdf, save_document, SaveInput, SaveIntent, SignatureAcknowledgement,
 };
 
+/// Bumped on every call: parallel test threads can read the same
+/// `SystemTime` on Windows, so pid + nanos alone is not unique.
+static TEMP_DIR_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn temp_pdf_path(label: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
-        "pdf-save-forms-{label}-{}-{}",
+        "pdf-save-forms-{label}-{}-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        TEMP_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     std::fs::create_dir_all(&dir).unwrap();
     dir.join("doc.pdf")
