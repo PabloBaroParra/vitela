@@ -96,6 +96,8 @@ New radio groups and dropdowns start with "Option 1" and "Option 2", as on
 Linux. The core assigns each field's name and ID; placement is undoable and
 requires both annotation and content-edit permissions. Click to use the default
 size, or drag to define a field's rectangle in either direction.
+Field names can be edited in the panel; renaming also requires both permissions,
+while documents that permit only filling keep their value controls available.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:

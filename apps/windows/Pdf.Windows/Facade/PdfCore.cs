@@ -364,6 +364,7 @@ internal abstract record PdfCoreEdit
     /// against the field's kind before recording it.
     /// </summary>
     public sealed record SetFieldValue(ulong FieldId, FormFieldValue Value) : PdfCoreEdit;
+    public sealed record RenameFormField(ulong FieldId, string Name) : PdfCoreEdit;
     public sealed record AddTextField(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record AddCheckbox(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record AddRadioGroup(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;

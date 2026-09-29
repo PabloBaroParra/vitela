@@ -243,7 +243,7 @@ public sealed record FormField(ulong Id, uint PageIndex, string Name, FormFieldK
 /// own answer to "may a reader fill this form in" — narrower than content
 /// editing, and never derived from it.
 /// </summary>
-public sealed record FormFieldState(string SessionId, IReadOnlyList<FormField> Fields, bool FillAllowed);
+public sealed record FormFieldState(string SessionId, IReadOnlyList<FormField> Fields, bool FillAllowed, bool RenameAllowed);
 public sealed record SavedDocument(byte[] Bytes, ulong EditRevision);
 
 /// <summary>How hard a compression tries. Three, not a slider — see <c>pdf_ffi::compress</c>.</summary>
