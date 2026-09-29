@@ -182,8 +182,8 @@ move, rotate and delete pages from a thumbnail grid; importing pages from
 other PDFs and the Documents view are still Linux-only. Windows can fill and
 rename existing fields, and place text fields, checkboxes, radio groups and
 dropdowns by clicking or dragging on a page; font family and size can be
-changed in Windows, while field color and moving or resizing existing fields
-are still Linux-only.
+changed in Windows, as can text color and an existing field's X/Y position.
+Resizing existing fields is still Linux-only.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the
