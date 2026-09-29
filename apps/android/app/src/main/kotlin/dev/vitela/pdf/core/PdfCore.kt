@@ -10,6 +10,18 @@ data class PageSize(val widthPt: Double, val heightPt: Double)
 /** One file a split creates: zero-based pages [first] to [last], inclusive, written as [fileName]. */
 data class SplitPart(val first: Int, val last: Int, val fileName: String)
 
+/**
+ * One undoable change to the page layout. Every index is a zero-based position
+ * in the document's *current* order, never a page identity.
+ */
+sealed interface PageEdit {
+    /** Takes the page at [from] and puts it at [to]: the position it holds afterwards, as the core reads a move's target. */
+    data class Move(val from: Int, val to: Int) : PageEdit
+    /** Turns the page at [pageIndex] by [deltaDegrees] (a quarter-turn: 90 or -90). */
+    data class Rotate(val pageIndex: Int, val deltaDegrees: Int) : PageEdit
+    data class Remove(val pageIndex: Int) : PageEdit
+}
+
 /** A bytes snapshot paired with the document revision it represents. */
 data class SaveSnapshot(val bytes: ByteArray, val documentId: Long, val revision: Long)
 
@@ -31,7 +43,8 @@ interface PdfDocument : AutoCloseable {
      * Every page's media box, in document order. The continuous reader needs
      * these up front: a page's placeholder has to be laid out at the right
      * height *before* it is rasterized, or the list resizes under the user's
-     * thumb every time a render lands.
+     * thumb every time a render lands. Read again after every [applyPageEdit]:
+     * a move reorders them and a quarter-turn swaps a page's two sides.
      */
     val pageSizes: List<PageSize>
 
@@ -41,6 +54,13 @@ interface PdfDocument : AutoCloseable {
     fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
     fun undoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
     fun redoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
+    /**
+     * Queues one undoable change to the page layout, persisted by the next
+     * [saveToBytes]. The core owns the permission question (the assembly bit,
+     * and whether the file survives the rewrite a reorder forces); a refusal
+     * comes back as the sentence to show.
+     */
+    fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Organizing pages is unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */

@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -22,6 +23,7 @@ import dev.vitela.pdf.document.SafDocuments
 import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
+import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.ViewerViewModel
 import kotlinx.coroutines.Dispatchers
@@ -192,5 +194,14 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         // Passwords first, then where to write; the protected file is reopened once written.
         onProtectConfirm = { openPassword, permissionsPassword -> viewModel.confirmProtect(openPassword, permissionsPassword)?.let(saveProtected::launch) },
         onProtectDismiss = viewModel::dismissProtect,
+        organize = remember(viewModel) {
+            OrganizeActions(
+                onToggle = { if (viewModel.state.value.organize == null) viewModel.openOrganize() else viewModel.closeOrganize() },
+                onMove = viewModel::organizeMove,
+                onRotate = viewModel::organizeRotate,
+                onDelete = viewModel::organizeDelete,
+                onThumbnail = viewModel::organizeThumbnail,
+            )
+        },
     )
 }

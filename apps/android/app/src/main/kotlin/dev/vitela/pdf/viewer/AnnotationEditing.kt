@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
  * log. A text selection is an input here: the markup tools turn it into
  * annotations, and a tap elsewhere clears it.
  */
-internal class AnnotationEditing(private val session: ViewerSession, private val selection: TextSelecting) {
+internal class AnnotationEditing(private val session: ViewerSession, private val selection: TextSelecting, private val layout: PageLayout) {
     private val state = session.state
     private var stampBytes: ByteArray? = null
 
@@ -163,6 +163,8 @@ internal class AnnotationEditing(private val session: ViewerSession, private val
                 when (result) {
                     is PdfCoreResult.Success -> if (result.value) {
                         state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+                        // An undo may have restored a page a move or delete took away.
+                        if (layout.edited) layout.reread(openDocument)
                         refresh(openDocument)
                     }
                     is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))

@@ -20,6 +20,7 @@ import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.ImageExportFormat
+import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.TextRect
 import dev.vitela.pdf.uniffi.DocumentHandle
@@ -86,11 +87,11 @@ private class GeneratedPdfCore : PdfCore {
 private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocument {
     override val pageCount: Int get() = handle.pageCount().toInt()
 
-    // Read once and cached: the reader asks for these on every layout pass and
-    // each call crosses the FFI boundary and locks the document.
-    override val pageSizes: List<PageSize> by lazy {
-        handle.pageDimensions().map { PageSize(it.widthPt, it.heightPt) }
-    }
+    // Not cached: a page edit reorders these and a quarter-turn swaps a page's
+    // sides, and the core answers from the live page model. The viewer reads
+    // them once per open and once per page edit, not per layout pass.
+    override val pageSizes: List<PageSize>
+        get() = handle.pageDimensions().map { PageSize(it.widthPt, it.heightPt) }
 
     override fun close() = handle.close()
 
@@ -116,6 +117,19 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     override fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> = try {
         ffiApplyEdit(handle, edit.toFfi())
         PdfCoreResult.Success(Unit)
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // No shell-side permission question, like the Windows shell: the core checks
+    // the assembly bit (and whether the file survives the full rewrite a reorder
+    // forces) and refuses with `UnsupportedOperation`. Named here because the
+    // generic "not supported" would read as a missing feature.
+    override fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, edit.toFfi())
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its pages to be rearranged, rotated or removed."))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -342,6 +356,13 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
     is AnnotationEdit.Resize -> FfiEditCommand.ResizeAnnotation(id.toULong(), rect.toFfi())
     is AnnotationEdit.Restyle -> FfiEditCommand.RestyleAnnotation(id.toULong(), color.toFfi())
     is AnnotationEdit.Remove -> FfiEditCommand.RemoveAnnotation(id.toULong())
+}
+
+// A move is one page: the block form the core takes is Windows' `MovePages(from, 1, to)`.
+private fun PageEdit.toFfi(): FfiEditCommand = when (this) {
+    is PageEdit.Move -> FfiEditCommand.MovePages(from.toUInt(), 1u, to.toUInt())
+    is PageEdit.Rotate -> FfiEditCommand.RotatePage(pageIndex.toUInt(), deltaDegrees)
+    is PageEdit.Remove -> FfiEditCommand.RemovePage(pageIndex.toUInt())
 }
 
 private fun ImageExportFormat.toFfi(): FfiExportFormat = when (this) {
