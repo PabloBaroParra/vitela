@@ -10,7 +10,7 @@ namespace Pdf.Windows;
 /// <summary>
 /// Organize pages: a grid of thumbnails standing in for the viewer, where a
 /// page is dragged to a new position, turned a quarter, removed, or a blank
-/// page is appended. Each is one undoable edit through
+/// page is inserted. Each is one undoable edit through
 /// <see cref="PdfDocumentFacade.EditPagesAsync"/>; the core owns what a move
 /// means, this partial owns only the cards.
 /// </summary>
@@ -175,9 +175,16 @@ public sealed partial class MainWindow
     private async void InsertBlankPageButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_organizing || _session is null) return;
-        var index = _session.PageCount;
+        await InsertBlankPageAsync(_session.PageCount);
+    }
+
+    private async Task InsertBlankPageAsync(uint index)
+    {
         await EditPagesAsync(new PageEdit.InsertBlank(index), "Blank page added.", onSuccess: _ =>
-            _organizeCards.Add(CreateOrganizeCard((int)index)));
+        {
+            _organizeCards.Insert((int)index, CreateOrganizeCard((int)index));
+            RenumberOrganizeCards();
+        });
     }
 
     private Border CreateOrganizeCard(int index)
@@ -193,8 +200,10 @@ public sealed partial class MainWindow
 
         var rotateLeft = CardButton("", "Rotate left", mirrored: true);
         var rotateRight = CardButton("", "Rotate right", mirrored: false);
+        var insertBefore = CardButton("", "Insert blank page before", mirrored: false);
         var delete = CardButton("", "Delete page", mirrored: false);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, HorizontalAlignment = HorizontalAlignment.Right };
+        actions.Children.Add(insertBefore);
         actions.Children.Add(rotateLeft);
         actions.Children.Add(rotateRight);
         actions.Children.Add(delete);
@@ -209,6 +218,11 @@ public sealed partial class MainWindow
 
         var card = new Border { Padding = new Thickness(8), Child = body };
         card.Tag = new OrganizeCard(thumbnail, number);
+        insertBefore.Click += async (_, _) =>
+        {
+            var position = _organizeCards.IndexOf(card);
+            if (position >= 0) await InsertBlankPageAsync((uint)position);
+        };
         rotateLeft.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Rotate(index, -90), "Page rotated.");
         rotateRight.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Rotate(index, 90), "Page rotated.");
         delete.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Remove(index), "Page deleted.");

@@ -174,6 +174,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
     ,("moves a page and hands back the new layout", MovesAPageAndHandsBackTheNewLayoutAsync)
     ,("appends a blank page and records unsaved work", AppendsABlankPageAsync)
+    ,("inserts a blank page before a chosen page", InsertsABlankPageBeforeAChosenPageAsync)
     ,("refuses blank page insertion when page assembly is forbidden", RefusesBlankPageInsertionAsync)
     ,("rotates a page by a quarter turn", RotatesAPageAsync)
     ,("removes a page and keeps the current page in range", RemovesAPageAndKeepsTheCurrentPageInRangeAsync)
@@ -1889,6 +1890,19 @@ static async Task AppendsABlankPageAsync()
     Assert(Widths(result.Value!).SequenceEqual([100, 101, 102, 595]), "existing pages keep their order and the new page is A4");
     Assert(core.RefreshPreviewCalls == 1, "the inserted page must be visible in the preview");
     Assert(!blocked.IsSuccess && blocked.Error!.RequiresPendingEditDecision, "an inserted page is unsaved work");
+}
+
+static async Task InsertsABlankPageBeforeAChosenPageAsync()
+{
+    var (core, facade, session) = await OpenThreePagesAsync();
+    using var _ = facade;
+
+    var result = await facade.EditPagesAsync(session.SessionId, new PageEdit.InsertBlank(1));
+
+    Assert(result.IsSuccess && result.Value!.PageCount == 4, "a blank page should be inserted before page two");
+    Assert(core.PageEdits.Single() == new PdfCoreEdit.InsertBlankPage(1), "the chosen insertion position must reach the core");
+    Assert(Widths(result.Value!).SequenceEqual([100, 595, 101, 102]), "the inserted page must precede the chosen page without reordering the others");
+    Assert(core.RefreshPreviewCalls == 1, "the preview must reflect the inserted page");
 }
 
 static async Task RefusesBlankPageInsertionAsync()

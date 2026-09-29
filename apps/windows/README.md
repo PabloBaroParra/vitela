@@ -80,10 +80,11 @@ files are preserved with a unique suffix, and a failure reports how many parts
 were completed. A signed source produces parts with signatures that no longer
 verify.
 
-In **Organize**, **Add blank A4 page** appends a portrait page as one undoable
-edit. The Rust core assigns its page ID and checks page-assembly permissions;
-the preview is rebuilt and the new thumbnail loads asynchronously. Save the
-document to keep the added page.
+In **Organize**, **Add blank A4 page** appends a portrait page; each page card
+can also insert one immediately before itself. Both are one undoable edit. The
+Rust core assigns its page ID and checks page-assembly permissions; the preview
+is rebuilt and the new thumbnail loads asynchronously. Save the document to
+keep the added page.
 
 A "Form fields" panel fills in the AcroForm fields a document already has —
 text, checkboxes, radio groups and dropdowns — gated on the fill permission
