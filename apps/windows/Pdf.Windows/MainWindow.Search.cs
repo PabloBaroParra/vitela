@@ -59,6 +59,7 @@ public sealed partial class MainWindow
         var sessionId = _session.SessionId;
         var generation = _searchGeneration;
         SearchButton.IsEnabled = false;
+        SearchStatus.Text = $"Searching for \"{query}\"...";
         var result = await _facade.SearchAsync(sessionId, query);
         if (generation != _searchGeneration || _session?.SessionId != sessionId || result.IsDiscarded)
         {
@@ -73,7 +74,7 @@ public sealed partial class MainWindow
         }
 
         var search = result.Value!;
-        SearchStatus.Text = search.Hits.Count == 0 ? "No matches." : $"{search.Hits.Count} match(es).";
+        SearchStatus.Text = search.Hits.Count == 0 ? $"No matches for \"{query}\"." : $"{search.Hits.Count} match(es).";
         _searchQuery = search.Hits.Count == 0 ? null : query;
         foreach (var hit in search.Hits)
         {
