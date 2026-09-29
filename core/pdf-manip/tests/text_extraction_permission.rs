@@ -32,18 +32,23 @@ fn corpus_path(name: &str) -> PathBuf {
         .join(name)
 }
 
+/// Bumped on every call: parallel test threads can read the same
+/// `SystemTime` on Windows, so pid + nanos alone is not unique.
+static TEMP_DIR_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// A scratch directory that removes itself when the test ends.
 struct TempDir(PathBuf);
 
 impl TempDir {
     fn new(tag: &str) -> Self {
         let dir = std::env::temp_dir().join(format!(
-            "pdf-manip-{tag}-{}-{}",
+            "pdf-manip-{tag}-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            TEMP_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).unwrap();
         TempDir(dir)
