@@ -446,6 +446,7 @@ pub(crate) fn is_structural_form_command(command: &FfiEditCommand) -> bool {
         FfiEditCommand::AddTextField { .. }
             | FfiEditCommand::AddCheckbox { .. }
             | FfiEditCommand::AddRadioGroup { .. }
+            | FfiEditCommand::AddDefaultRadioGroup { .. }
             | FfiEditCommand::AddDropdown { .. }
             | FfiEditCommand::RemoveFormField { .. }
             | FfiEditCommand::MoveFormField { .. }

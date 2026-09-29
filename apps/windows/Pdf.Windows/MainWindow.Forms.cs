@@ -75,6 +75,7 @@ public sealed partial class MainWindow
     {
         PlaceTextFieldButton.IsEnabled = state.FillAllowed && _session?.ContentEditingAllowed == true;
         PlaceCheckboxButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
+        PlaceRadioGroupButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
         PlaceDropdownButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
         FormFieldRows.Children.Clear();
         _shownFieldValues.Clear();

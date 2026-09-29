@@ -76,6 +76,32 @@ pub fn radio_group(
     }
 }
 
+/// Two vertically stacked options for a newly placed radio group. Both shells
+/// use this layout so the option rectangles remain inside the field rectangle.
+pub fn default_radio_options(rect: Rect) -> Vec<RadioOption> {
+    let half_height = rect.height / 2.0;
+    vec![
+        RadioOption {
+            export_value: "Option 1".to_string(),
+            rect: Rect {
+                x: rect.x,
+                y: rect.y + half_height,
+                width: rect.width,
+                height: half_height,
+            },
+        },
+        RadioOption {
+            export_value: "Option 2".to_string(),
+            rect: Rect {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: half_height,
+            },
+        },
+    ]
+}
+
 /// Builds a `Dropdown` field over `options`, with no value chosen, at
 /// `origin: New`.
 pub fn dropdown(

@@ -25,7 +25,7 @@ pub use appearance::{
     build_field_appearance, FieldAppearance, RadioButtonAppearance, CHECKBOX_ON_STATE,
     ZAPF_DINGBATS_RESOURCE,
 };
-pub use builders::{checkbox, dropdown, radio_group, text_field};
+pub use builders::{checkbox, default_radio_options, dropdown, radio_group, text_field};
 pub use da::{base_font_name, format_button_da, format_da, parse_da, resource_name};
 pub use error::FormError;
 pub use ops::{move_field, rename_field, resize_field, restyle_field, set_value};

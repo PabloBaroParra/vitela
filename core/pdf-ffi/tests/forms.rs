@@ -198,6 +198,34 @@ fn each_field_kind_places_a_field_the_panel_can_read_back() {
     assert_eq!(names.len(), 4);
 }
 
+#[test]
+fn default_radio_group_uses_shared_option_geometry_and_is_undoable() {
+    let handle = a_blank_page();
+    let rect = a_field_rect();
+    apply_edit(
+        &handle,
+        FfiEditCommand::AddDefaultRadioGroup {
+            page: 0,
+            rect,
+            style: a_text_style(),
+        },
+    )
+    .unwrap();
+
+    let fields = handle.list_form_fields();
+    let FfiFormFieldKind::RadioGroup { options } = &fields[0].kind else {
+        panic!("expected radio group");
+    };
+    assert_eq!(options[0].export_value, "Option 1");
+    assert_eq!(options[1].export_value, "Option 2");
+    assert_eq!(options[0].rect.y, rect.y + rect.height / 2.0);
+    assert_eq!(options[1].rect.y, rect.y);
+    assert_eq!(options[0].rect.height, rect.height / 2.0);
+    assert_eq!(options[1].rect.height, rect.height / 2.0);
+    assert!(undo(&handle));
+    assert!(handle.list_form_fields().is_empty());
+}
+
 /// The reason `next_form_field_id` cannot start at zero the way
 /// `next_annotation_id` does: `document_from_lopdf` populates the field set
 /// at open, so an opened document already holds ids this boundary never
