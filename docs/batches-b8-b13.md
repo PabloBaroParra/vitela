@@ -1301,6 +1301,11 @@ Windows/C#). Paralelo con B9 y B10.
       puros, sin PDFium); falta build del .apk, cross-compile por ABI y firma. OJO: el CI
       pinea Gradle 8.11.1 mientras el wrapper commiteado pide 9.5.0 y el proyecto usa AGP
       9.3.1 — hay que unificar antes de ampliar el workflow)**
+      **(2026-09-29 — el pin de Gradle ya no existe: android.yml no pasa `gradle-version` y
+      corre `./gradlew`, así que el wrapper (9.5.0) es la única fuente de verdad. Además el
+      job ahora genera los bindings Kotlin de UniFFI desde un build host de pdf-ffi y compila
+      `GeneratedPdfCore.kt.template` contra ellos, sin PDFium ni libs nativas. Sigue faltando
+      build del .apk, cross-compile por ABI y firma)**
 
 ### Criterios de aceptación (spec delta)
 - Acceso a archivos EXCLUSIVAMENTE vía Storage Access Framework: el core recibe
