@@ -65,6 +65,8 @@ internal fun organizeRefusal(pageCount: Int, edit: PageEdit): String? = when (ed
         pageCount <= 1 -> ORGANIZE_LAST_PAGE
         else -> null
     }
+    // pageCount itself is a valid position: after the last page.
+    is PageEdit.InsertBlank -> if (edit.index !in 0..pageCount) ORGANIZE_NO_SUCH_PAGE else null
 }
 
 /**
@@ -84,6 +86,8 @@ internal fun <T> remapAfterEdit(byPage: Map<Int, T>, edit: PageEdit): Map<Int, T
     // stale upright page stand in for the turned one while it renders.
     is PageEdit.Rotate -> byPage - edit.pageIndex
     is PageEdit.Remove -> (byPage - edit.pageIndex).mapKeys { (position, _) -> if (position > edit.pageIndex) position - 1 else position }
+    // The blank card starts without a picture; every page from its position on steps back one.
+    is PageEdit.InsertBlank -> byPage.mapKeys { (position, _) -> if (position >= edit.index) position + 1 else position }
 }
 
 private fun positionAfterMove(position: Int, from: Int, to: Int): Int = when {
@@ -98,6 +102,7 @@ internal fun organizeStatus(edit: PageEdit): String {
         is PageEdit.Move -> "Page moved."
         is PageEdit.Rotate -> "Page rotated."
         is PageEdit.Remove -> "Page deleted."
+        is PageEdit.InsertBlank -> "Blank page added."
     }
     return "$done Changes are pending save."
 }

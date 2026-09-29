@@ -201,6 +201,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onMove = viewModel::organizeMove,
                 onRotate = viewModel::organizeRotate,
                 onDelete = viewModel::organizeDelete,
+                onInsertBlank = viewModel::organizeInsertBlank,
                 onThumbnail = viewModel::organizeThumbnail,
             )
         },

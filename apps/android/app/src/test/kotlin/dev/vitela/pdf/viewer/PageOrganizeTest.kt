@@ -43,6 +43,25 @@ class PageOrganizeTest {
     }
 
     @Test
+    fun insertingABlankPageShiftsEveryCardFromThatPositionOn() {
+        // The blank card has no picture yet; the pages it pushed back keep theirs.
+        assertEquals(mapOf(0 to "a", 2 to "b", 3 to "c", 4 to "d"), remapAfterEdit(cards, PageEdit.InsertBlank(1)))
+    }
+
+    @Test
+    fun appendingABlankPageMovesNoCard() {
+        assertEquals(cards, remapAfterEdit(cards, PageEdit.InsertBlank(4, landscape = true)))
+    }
+
+    @Test
+    fun aBlankPageGoesBeforeAnyPageOrAfterTheLast() {
+        assertNull(organizeRefusal(pageCount = 3, edit = PageEdit.InsertBlank(0)))
+        assertNull(organizeRefusal(pageCount = 3, edit = PageEdit.InsertBlank(3)))
+        assertEquals(ORGANIZE_NO_SUCH_PAGE, organizeRefusal(pageCount = 3, edit = PageEdit.InsertBlank(4)))
+        assertEquals(ORGANIZE_NO_SUCH_PAGE, organizeRefusal(pageCount = 3, edit = PageEdit.InsertBlank(-1)))
+    }
+
+    @Test
     fun aNeighbourMoveTargetsTheAdjacentPosition() {
         // "to" is where the page sits afterwards, so one step later from 1 is 2.
         assertEquals(PageEdit.Move(1, 2), neighbourMove(index = 1, delta = 1, pageCount = 4))
@@ -90,6 +109,7 @@ class PageOrganizeTest {
         assertEquals("Page moved. Changes are pending save.", organizeStatus(PageEdit.Move(0, 1)))
         assertEquals("Page rotated. Changes are pending save.", organizeStatus(PageEdit.Rotate(0, 90)))
         assertEquals("Page deleted. Changes are pending save.", organizeStatus(PageEdit.Remove(0)))
+        assertEquals("Blank page added. Changes are pending save.", organizeStatus(PageEdit.InsertBlank(0)))
     }
 
     @Test

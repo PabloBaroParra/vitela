@@ -17,11 +17,17 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +42,7 @@ internal class OrganizeActions(
     val onMove: (index: Int, delta: Int) -> Unit,
     val onRotate: (index: Int, delta: Int) -> Unit,
     val onDelete: (index: Int) -> Unit,
+    val onInsertBlank: (index: Int, landscape: Boolean) -> Unit,
     val onThumbnail: (index: Int) -> Unit,
 )
 
@@ -43,7 +50,8 @@ internal class OrganizeActions(
  * Organize pages: one card per page, standing in for the reader. A page moves a
  * step at a time with the arrow buttons rather than by dragging: a drag inside
  * a scrolling grid competes with the scroll itself, and each button is a
- * labelled target a screen reader can reach.
+ * labelled target a screen reader can reach. A blank page goes in before any
+ * card, or after the last one from the trailing "add" card.
  */
 @Composable
 internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: OrganizeActions, modifier: Modifier = Modifier) {
@@ -56,6 +64,16 @@ internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: 
     ) {
         items((0 until state.pageCount).toList(), key = { it }) { index ->
             OrganizeCard(index, state.pageCount, state.pageSizes.getOrNull(index)?.aspectRatio() ?: DEFAULT_PAGE_ASPECT_RATIO, organize, actions)
+        }
+        // Keyed apart from the page positions, which are plain ints.
+        item(key = "append") {
+            Column(
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surface).padding(6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                InsertBlankButton(state.pageCount, "Add a blank page at the end", !organize.busy, actions.onInsertBlank)
+                Text("Add page", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }
@@ -93,6 +111,20 @@ private fun OrganizeCard(index: Int, pageCount: Int, aspectRatio: Float, organiz
         Row(verticalAlignment = Alignment.CenterVertically) {
             CardButton("◀", "Move page $number earlier", idle && index > 0) { actions.onMove(index, -1) }
             CardButton("▶", "Move page $number later", idle && index < pageCount - 1) { actions.onMove(index, 1) }
+            InsertBlankButton(index, "Insert a blank page before page $number", idle, actions.onInsertBlank)
+        }
+    }
+}
+
+/** "+" with a choice of A4 portrait or landscape, both Windows' offer; the page goes in at [index]. */
+@Composable
+private fun InsertBlankButton(index: Int, description: String, enabled: Boolean, onInsert: (index: Int, landscape: Boolean) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        CardButton("+", description, enabled) { expanded = true }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("Portrait A4") }, onClick = { expanded = false; onInsert(index, false) })
+            DropdownMenuItem(text = { Text("Landscape A4") }, onClick = { expanded = false; onInsert(index, true) })
         }
     }
 }

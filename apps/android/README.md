@@ -181,7 +181,9 @@ so editing is not frozen for the length of a long export.
 **Organize** swaps the reader for a grid of page thumbnails
 ([`viewer/OrganizeGrid.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/OrganizeGrid.kt)).
 Each card moves its page one step earlier or later, turns it a quarter, or
-deletes it; every change is one undoable entry in the shared edit log, so the
+deletes it, and a "+" inserts a blank A4 page (portrait or landscape) before
+it; a trailing "Add page" card appends one. Every change is one undoable entry
+in the shared edit log, so the
 reader's Undo and Redo keep working, and the document becomes dirty like any
 other edit. Pages move by buttons rather than by dragging: a drag inside a
 scrolling grid competes with the scroll, and each button is a labelled target.
