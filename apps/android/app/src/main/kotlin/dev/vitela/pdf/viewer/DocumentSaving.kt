@@ -2,7 +2,6 @@ package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.SaveSnapshot
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -19,7 +18,7 @@ internal class DocumentSaving(private val session: ViewerSession, private val so
     suspend fun printBytes(): ByteArray? {
         return session.documentLane.withLock {
             val openDocument = session.document ?: return@withLock sourceBytes()
-            when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
+            when (val result = withContext(session.compute) { openDocument.saveToBytes() }) {
                 is PdfCoreResult.Success -> result.value
                 is PdfCoreResult.Failure -> sourceBytes()
             }
@@ -28,7 +27,7 @@ internal class DocumentSaving(private val session: ViewerSession, private val so
 
     suspend fun saveSnapshot(): SaveSnapshot? = session.documentLane.withLock {
         val openDocument = session.document ?: return@withLock null
-        when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
+        when (val result = withContext(session.compute) { openDocument.saveToBytes() }) {
             is PdfCoreResult.Success -> SaveSnapshot(result.value, state.value.documentId, state.value.revision)
             is PdfCoreResult.Failure -> {
                 state.value = state.value.copy(status = userMessage(result.error))
@@ -58,7 +57,7 @@ internal class DocumentSaving(private val session: ViewerSession, private val so
         return session.documentLane.withLock {
             val target = state.value.saveTarget ?: return@withLock null
             val openDocument = session.document ?: return@withLock null
-            when (val result = withContext(Dispatchers.Default) { openDocument.saveToBytes() }) {
+            when (val result = withContext(session.compute) { openDocument.saveToBytes() }) {
                 is PdfCoreResult.Success -> InPlaceSave(target, SaveSnapshot(result.value, state.value.documentId, state.value.revision))
                 is PdfCoreResult.Failure -> {
                     state.value = state.value.copy(status = userMessage(result.error))

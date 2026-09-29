@@ -8,29 +8,19 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 /** Document properties: read the `/Info` dict, queue one undoable change per apply. */
-@OptIn(ExperimentalCoroutinesApi::class)
 class ViewerViewModelMetadataTest {
-    @Before
-    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-
-    @After
-    fun tearDown() = Dispatchers.resetMain()
+    @get:Rule
+    val dispatchers = ViewerDispatcherRule()
 
     @Test
     fun openingThePropertiesLoadsTheCurrentInfo() = runTest {
@@ -126,7 +116,7 @@ class ViewerViewModelMetadataTest {
     }
 
     private suspend fun openedWith(document: MetadataDocument): ViewerViewModel {
-        val viewModel = ViewerViewModel(SingleDocumentCore(document))
+        val viewModel = dispatchers.viewModel(SingleDocumentCore(document))
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.documentId != 0L && !it.isLoading }
         return viewModel

@@ -3,29 +3,19 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 /** Extract pages: a range, then a plan, then one new PDF through the shell's writer. */
-@OptIn(ExperimentalCoroutinesApi::class)
 class ViewerViewModelPageExtractTest {
-    @Before
-    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-
-    @After
-    fun tearDown() = Dispatchers.resetMain()
+    @get:Rule
+    val dispatchers = ViewerDispatcherRule()
 
     @Test
     fun openingTheDialogStartsWithAnEmptyRange() = runTest {
@@ -175,7 +165,7 @@ class ViewerViewModelPageExtractTest {
     @Test
     fun aPlanDoesNotSurviveTheDocumentItWasMadeFor() = runTest {
         val first = ExtractDocument()
-        val viewModel = ViewerViewModel(ExtractQueueCore(first, ExtractDocument()))
+        val viewModel = dispatchers.viewModel(ExtractQueueCore(first, ExtractDocument()))
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.documentId == 1L && !it.isLoading }
         viewModel.openPageExtract()
@@ -204,7 +194,7 @@ class ViewerViewModelPageExtractTest {
     }
 
     private suspend fun openedWith(document: PdfDocument): ViewerViewModel {
-        val viewModel = ViewerViewModel(ExtractQueueCore(document))
+        val viewModel = dispatchers.viewModel(ExtractQueueCore(document))
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.documentId != 0L && !it.isLoading }
         return viewModel

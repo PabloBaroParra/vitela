@@ -2,7 +2,6 @@ package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreResult
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -25,7 +24,7 @@ internal class TextSelecting(private val session: ViewerSession) {
         selectionDrag = drag
         state.value = state.value.copy(textSelection = null, selectedAnnotationId = null)
         session.scope.launch {
-            when (val result = withContext(Dispatchers.Default) { openDocument.pageCharacters(pageIndex) }) {
+            when (val result = withContext(session.compute) { openDocument.pageCharacters(pageIndex) }) {
                 is PdfCoreResult.Success -> {
                     // A closed drag releases late characters itself.
                     drag.attach(result.value)

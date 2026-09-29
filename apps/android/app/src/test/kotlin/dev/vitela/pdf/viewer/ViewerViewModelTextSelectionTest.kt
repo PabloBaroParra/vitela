@@ -14,31 +14,21 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.TextRect
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 /**
  * T-086: long-press and drag selects text in reading order, with every caret,
  * rect and character supplied by the core's `PageCharacters`.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 class ViewerViewModelTextSelectionTest {
-    @Before
-    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-
-    @After
-    fun tearDown() = Dispatchers.resetMain()
+    @get:Rule
+    val dispatchers = ViewerDispatcherRule()
 
     @Test
     fun aDragPublishesTheCoresRectsAndText() = runTest {
@@ -139,7 +129,7 @@ class ViewerViewModelTextSelectionTest {
     }
 
     private suspend fun opened(document: SelectableDocument): ViewerViewModel {
-        val viewModel = ViewerViewModel(object : PdfCore {
+        val viewModel = dispatchers.viewModel(object : PdfCore {
             override fun openFromBytes(bytes: ByteArray, password: String?): PdfCoreResult<PdfDocument> =
                 PdfCoreResult.Success(if (bytes.contentEquals(byteArrayOf(1))) document else SelectableDocument())
         })

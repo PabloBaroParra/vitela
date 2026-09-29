@@ -4,29 +4,19 @@ import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 /** Export images: choices, then a plan, then one file per page through the shell's writer. */
-@OptIn(ExperimentalCoroutinesApi::class)
 class ViewerViewModelImageExportTest {
-    @Before
-    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-
-    @After
-    fun tearDown() = Dispatchers.resetMain()
+    @get:Rule
+    val dispatchers = ViewerDispatcherRule()
 
     @Test
     fun openingTheDialogOffersPngAllPagesAt150Dpi() = runTest {
@@ -162,7 +152,7 @@ class ViewerViewModelImageExportTest {
 
     @Test
     fun aPlanDoesNotSurviveTheDocumentItWasMadeFor() = runTest {
-        val viewModel = ViewerViewModel(QueueCore(PlanDocument(pageCount = 2), PlanDocument(pageCount = 2)))
+        val viewModel = dispatchers.viewModel(QueueCore(PlanDocument(pageCount = 2), PlanDocument(pageCount = 2)))
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.documentId == 1L && !it.isLoading }
         viewModel.openImageExport()
@@ -189,7 +179,7 @@ class ViewerViewModelImageExportTest {
     }
 
     private suspend fun openedWith(document: PdfDocument): ViewerViewModel {
-        val viewModel = ViewerViewModel(QueueCore(document))
+        val viewModel = dispatchers.viewModel(QueueCore(document))
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.documentId != 0L && !it.isLoading }
         return viewModel
