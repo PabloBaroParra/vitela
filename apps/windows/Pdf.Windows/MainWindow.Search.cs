@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
+using Windows.System;
 
 namespace Pdf.Windows;
 
@@ -28,7 +29,16 @@ public sealed partial class MainWindow
         SearchBox.Focus(FocusState.Programmatic);
     }
 
-    private async void SearchButton_Click(object sender, RoutedEventArgs e)
+    private async void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Enter) return;
+        e.Handled = true;
+        if (SearchButton.IsEnabled) await RunSearchAsync();
+    }
+
+    private async void SearchButton_Click(object sender, RoutedEventArgs e) => await RunSearchAsync();
+
+    private async Task RunSearchAsync()
     {
         if (_session is null)
         {
