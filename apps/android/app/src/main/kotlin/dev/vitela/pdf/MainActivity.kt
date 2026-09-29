@@ -97,6 +97,16 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         }
         scope.launch { viewModel.writeCompressed { bytes -> SafDocuments.writeCopy(context.contentResolver, uri, bytes) } }
     }
+    val saveProtected = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri == null) {
+            viewModel.cancelProtect()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            val created = withContext(Dispatchers.IO) { SafDocuments.created(context.contentResolver, uri) }
+            viewModel.writeProtected(created.displayName, created.saveTarget) { bytes -> SafDocuments.writeCopy(context.contentResolver, uri, bytes) }
+        }
+    }
     ViewerScreen(
         state = state,
         onOpen = { openPdf.launch(arrayOf("application/pdf")) },
@@ -178,5 +188,9 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         // The destination comes last: only a copy that came out smaller asks where to go.
         onCompressConfirm = { scope.launch { viewModel.compress()?.let(saveCompressed::launch) } },
         onCompressDismiss = viewModel::dismissCompress,
+        onOpenProtect = viewModel::openProtect,
+        // Passwords first, then where to write; the protected file is reopened once written.
+        onProtectConfirm = { openPassword, permissionsPassword -> viewModel.confirmProtect(openPassword, permissionsPassword)?.let(saveProtected::launch) },
+        onProtectDismiss = viewModel::dismissProtect,
     )
 }

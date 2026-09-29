@@ -96,6 +96,9 @@ internal fun ViewerScreen(
     onCompressSelect: (CompressPreset) -> Unit,
     onCompressConfirm: () -> Unit,
     onCompressDismiss: () -> Unit,
+    onOpenProtect: () -> Unit,
+    onProtectConfirm: (openPassword: String, permissionsPassword: String) -> Unit,
+    onProtectDismiss: () -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -145,6 +148,7 @@ internal fun ViewerScreen(
             Button(onClick = onOpenPageExtract, enabled = state.pageCount > 0) { Text("Extract pages") }
             Button(onClick = onOpenPageSplit, enabled = state.pageCount > 1 && !state.pageSplitRunning) { Text("Split") }
             Button(onClick = onOpenCompress, enabled = state.pageCount > 0 && !state.compressRunning) { Text("Compress") }
+            Button(onClick = onOpenProtect, enabled = state.pageCount > 0 && !state.protectRunning) { Text("Protect") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -258,6 +262,9 @@ internal fun ViewerScreen(
     }
     state.compress?.let { editor ->
         CompressDialog(editor, onSelect = onCompressSelect, onCompress = onCompressConfirm, onDismiss = onCompressDismiss)
+    }
+    state.protect?.let { editor ->
+        ProtectDialog(editor, onProtect = onProtectConfirm, onDismiss = onProtectDismiss)
     }
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(
