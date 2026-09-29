@@ -23,6 +23,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("discards stale search results", DiscardsStaleSearchResultAsync),
     ("navigates to a selected search result", NavigatesToSearchResultAsync),
     ("steps through search hits and wraps at either end", StepsThroughSearchHits),
+    ("reports the selected search hit with the submitted query", ReportsSelectedSearchHit),
     ("resolves 100% zoom to 96 DPI and 4/3 DIPs per point", ResolvesHundredPercentZoom),
     ("accounts for display scale when resolving render DPI", AccountsForDisplayScaleWhenResolvingRenderDpi),
     ("fits a page to the viewport width", FitsPageToViewportWidth),
@@ -206,6 +207,13 @@ static Task StepsThroughSearchHits()
     Assert(SearchSelection.StepIndex(0, 3, -1) == 2, "previous wraps to the last hit");
     Assert(SearchSelection.StepIndex(2, 3, 1) == 0, "next wraps to the first hit");
     Assert(SearchSelection.StepIndex(1, 3, 1) == 2, "next moves to the adjacent hit");
+    return Task.CompletedTask;
+}
+
+static Task ReportsSelectedSearchHit()
+{
+    Assert(SearchSelection.Status("needle", 0, 3) == "Match 1 of 3 for \"needle\".", "the first hit is numbered from one");
+    Assert(SearchSelection.Status("needle", SearchSelection.StepIndex(0, 3, -1), 3) == "Match 3 of 3 for \"needle\".", "wrapped navigation reports the selected hit");
     return Task.CompletedTask;
 }
 

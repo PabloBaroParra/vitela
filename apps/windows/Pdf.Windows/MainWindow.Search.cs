@@ -16,6 +16,7 @@ namespace Pdf.Windows;
 public sealed partial class MainWindow
 {
     private uint _searchGeneration;
+    private string? _searchQuery;
 
     /// <summary>
     /// Ctrl+F moves focus to the search box rather than running a search —
@@ -71,6 +72,7 @@ public sealed partial class MainWindow
 
         var search = result.Value!;
         SearchStatus.Text = search.Hits.Count == 0 ? "No matches." : $"{search.Hits.Count} match(es).";
+        _searchQuery = search.Hits.Count == 0 ? null : query;
         foreach (var hit in search.Hits)
         {
             SearchResultsList.Items.Add(new ListViewItem
@@ -121,6 +123,10 @@ public sealed partial class MainWindow
         var pageIndex = checked((int)hit.PageIndex);
         PageScroller.ChangeView(null, _spans[pageIndex].Top, null, disableAnimation: false);
         ShowSearchHighlight(pageIndex, hit.CharacterBounds);
+        if (_searchQuery is not null)
+        {
+            SearchStatus.Text = SearchSelection.Status(_searchQuery, SearchResultsList.SelectedIndex, SearchResultsList.Items.Count);
+        }
     }
 
     /// <summary>
@@ -134,6 +140,7 @@ public sealed partial class MainWindow
     private void ClearSearchResults()
     {
         _searchGeneration++;
+        _searchQuery = null;
         SearchResultsList.Items.Clear();
         UpdateMatchButtons();
         SearchStatus.Text = "";
