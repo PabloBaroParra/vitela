@@ -7,6 +7,9 @@ data class SearchHit(val pageIndex: Int, val text: String, val characterBounds: 
 /** A page's media box, in PDF points. */
 data class PageSize(val widthPt: Double, val heightPt: Double)
 
+/** One file a split creates: zero-based pages [first] to [last], inclusive, written as [fileName]. */
+data class SplitPart(val first: Int, val last: Int, val fileName: String)
+
 /** A bytes snapshot paired with the document revision it represents. */
 data class SaveSnapshot(val bytes: ByteArray, val documentId: Long, val revision: Long)
 
@@ -71,6 +74,13 @@ interface PdfDocument : AutoCloseable {
     fun extractSourceIsSigned(): Boolean = false
     /** The bytes of a new PDF holding only [pages] (ascending, zero-based); the open document is untouched. */
     fun extractPages(pages: List<Int>): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Extracting pages is unavailable in this PDF core."))
+
+    /**
+     * The parts that cutting after each typed page (one-based, `"3,7"`) makes,
+     * named after [displayName]. The failure is the core's sentence, including
+     * a blank field and a one-page document.
+     */
+    fun planSplit(cuts: String, displayName: String): PdfCoreResult<List<SplitPart>> = PdfCoreResult.Failure(PdfCoreError.Failed("Splitting is unavailable in this PDF core."))
 
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))

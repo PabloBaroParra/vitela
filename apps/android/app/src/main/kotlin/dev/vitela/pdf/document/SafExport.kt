@@ -5,17 +5,17 @@ import android.net.Uri
 import android.provider.DocumentsContract
 
 /**
- * Storage Access Framework I/O for exported page images. [treeUri] is the
- * folder the user picked with `OpenDocumentTree`; nothing above this layer
- * knows a [Uri].
+ * Storage Access Framework I/O for files written into a picked folder —
+ * exported page images and the parts of a split. [treeUri] is the folder the
+ * user picked with `OpenDocumentTree`; nothing above this layer knows a [Uri].
  */
 object SafExport {
     /**
      * Creates [fileName] in the picked folder and writes [bytes] into it,
      * returning false when it could not. A file this call started but could
-     * not finish is deleted, so a failed export leaves no truncated image
+     * not finish is deleted, so a failed write leaves no truncated file
      * behind. Name collisions are the provider's to resolve — it renames the
-     * new document instead of overwriting an earlier export.
+     * new document instead of overwriting an earlier export or split.
      */
     fun writeFile(resolver: ContentResolver, treeUri: Uri, fileName: String, mimeType: String, bytes: ByteArray): Boolean {
         val created = runCatching {

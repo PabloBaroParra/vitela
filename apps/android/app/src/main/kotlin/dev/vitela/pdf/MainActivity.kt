@@ -81,6 +81,15 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         }
         scope.launch { viewModel.extractPages { bytes -> SafDocuments.writeCopy(context.contentResolver, uri, bytes) } }
     }
+    val chooseSplitFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+        if (treeUri == null) {
+            viewModel.cancelPageSplit()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            viewModel.splitPages { fileName, bytes -> SafExport.writeFile(context.contentResolver, treeUri, fileName, "application/pdf", bytes) }
+        }
+    }
     ViewerScreen(
         state = state,
         onOpen = { openPdf.launch(arrayOf("application/pdf")) },
@@ -152,5 +161,10 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         // Same order as Export images: only an accepted range asks where to write.
         onPageExtractConfirm = { scope.launch { viewModel.planPageExtract()?.let(saveExtract::launch) } },
         onPageExtractDismiss = viewModel::dismissPageExtract,
+        onOpenPageSplit = viewModel::openPageSplit,
+        onPageSplitChange = viewModel::editPageSplit,
+        // Same order as Export images: only accepted cuts ask for a folder.
+        onPageSplitConfirm = { scope.launch { if (viewModel.planPageSplit()) chooseSplitFolder.launch(null) } },
+        onPageSplitDismiss = viewModel::dismissPageSplit,
     )
 }

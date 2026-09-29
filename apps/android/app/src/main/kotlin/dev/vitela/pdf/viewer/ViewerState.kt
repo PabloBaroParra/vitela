@@ -74,6 +74,10 @@ data class ViewerState(
     val imageExportRunning: Boolean = false,
     /** The Extract pages dialog, or null while it is closed. */
     val pageExtract: PageExtractEditor? = null,
+    /** The Split dialog, or null while it is closed. */
+    val pageSplit: PageSplitEditor? = null,
+    /** True while a split is extracting and writing its parts, so a second one cannot start on top of it. */
+    val pageSplitRunning: Boolean = false,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )
