@@ -35,10 +35,39 @@ internal class ViewerReader(private val session: ViewerSession) {
      */
     private var layoutGeneration = 0
 
+    /** The last position the list reported, so a layout change can drive the same window again. */
+    private var lastPosition: ReaderPosition? = null
+
     /** A new document replaced the old one: nothing in flight or cached is wanted any more. */
     fun reset() {
         inFlight.clear()
         cacheWindow = IntRange.EMPTY
+        lastPosition = null
+    }
+
+    /**
+     * The pages themselves changed (moved, turned or removed), so every cached
+     * bitmap and every render in flight shows a page that is no longer there.
+     * Unlike a zoom there is no bridge to keep: an old picture under a new page
+     * would be the wrong page. [redrive] asks the window the list last reported
+     * to render again; it is off while the grid hides the list, which drives the
+     * window itself when it returns.
+     */
+    fun layoutChanged(redrive: Boolean) {
+        layoutGeneration += 1
+        inFlight.clear()
+        state.value = state.value.copy(pages = emptyMap(), bridgePages = emptyMap())
+        val position = lastPosition ?: return
+        val last = (state.value.pageCount - 1).coerceAtLeast(0)
+        if (redrive && state.value.pageCount > 0) {
+            onPositionChanged(
+                position.copy(
+                    first = position.first.coerceAtMost(last),
+                    last = position.last.coerceAtMost(last),
+                    current = position.current.coerceAtMost(last),
+                ),
+            )
+        }
     }
 
     /**
@@ -65,6 +94,7 @@ internal class ViewerReader(private val session: ViewerSession) {
         // Effects from the old composition may report once while a zoom
         // recomposes. They must not restore its retired render parameters.
         if (position.zoomFactor != state.value.zoomFactor) return
+        lastPosition = position
         if (position.viewportWidthPx > 0 && (position.viewportWidthPx != renderWidthPx || position.zoomFactor != renderZoomFactor)) {
             // A rotation, resize, or zoom creates a new bitmap generation. The
             // old cache remains only as a temporary, cache-window-bound bridge.

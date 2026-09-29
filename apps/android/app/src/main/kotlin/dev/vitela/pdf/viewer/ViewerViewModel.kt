@@ -44,7 +44,9 @@ class ViewerViewModel(
 
     private val reader = ViewerReader(session)
     private val selection = TextSelecting(session)
-    private val annotations = AnnotationEditing(session, selection)
+    private val pageLayout = PageLayout(session, reader, selection)
+    private val annotations = AnnotationEditing(session, selection, pageLayout)
+    private val organizing = PageOrganizing(session, annotations, pageLayout, selection)
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
     private val pageExtracting = PageExtracting(session)
@@ -267,6 +269,17 @@ class ViewerViewModel(
     fun confirmProtect(openPassword: String, permissionsPassword: String): String? = protecting.confirm(openPassword, permissionsPassword)
     fun cancelProtect() = protecting.cancel()
     suspend fun writeProtected(displayName: String, saveTarget: String?, write: ProtectedPdfWriter) = protecting.write(displayName, saveTarget, write)
+
+    // Organize pages
+    fun openOrganize() = organizing.open()
+    fun closeOrganize() = organizing.close()
+    /** Moves the page at [index] one step toward the front ([delta] -1) or back (+1). */
+    fun organizeMove(index: Int, delta: Int) = organizing.move(index, delta)
+    /** Turns the page at [index] a quarter: [delta] is 90 or -90. */
+    fun organizeRotate(index: Int, delta: Int) = organizing.rotate(index, delta)
+    fun organizeDelete(index: Int) = organizing.delete(index)
+    /** The grid scrolled the card at [index] into view without a picture. */
+    fun organizeThumbnail(index: Int) = organizing.requestThumbnail(index)
 
     // Annotations
     fun setAnnotationTool(tool: AnnotationTool) = annotations.setTool(tool)

@@ -86,6 +86,8 @@ data class ViewerState(
     val protect: ProtectEditor? = null,
     /** True while a protection runs, so a second one cannot start on top of it. */
     val protectRunning: Boolean = false,
+    /** The Organize grid standing in for the reader, or null while the reader shows. */
+    val organize: OrganizeState? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )

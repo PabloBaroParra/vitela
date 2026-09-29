@@ -176,6 +176,28 @@ collisions are the provider's to resolve — it renames the new document instead
 of overwriting an earlier export. Each page takes the document lane on its own,
 so editing is not frozen for the length of a long export.
 
+## Organize pages
+
+**Organize** swaps the reader for a grid of page thumbnails
+([`viewer/OrganizeGrid.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/OrganizeGrid.kt)).
+Each card moves its page one step earlier or later, turns it a quarter, or
+deletes it; every change is one undoable entry in the shared edit log, so the
+reader's Undo and Redo keep working, and the document becomes dirty like any
+other edit. Pages move by buttons rather than by dragging: a drag inside a
+scrolling grid competes with the scroll, and each button is a labelled target.
+
+The core owns whether the document allows it (the assembly permission bit, and
+whether the file survives the full rewrite a reorder forces); a refusal comes
+back as the sentence to show, as on Windows. The one refusal the shell makes
+itself is deleting the last page.
+
+After an edit everything the shell keeps by page position is re-read
+(`viewer/PageLayout.kt`): page count and sizes, rendered bitmaps, search hits,
+text selection and annotations. Undo and redo re-read the layout too, but only
+once the session has edited its pages. A thumbnail is a small render taken on
+demand as its card scrolls into view; a moved page keeps its picture and only a
+turned one is rendered again.
+
 ## Native prerequisite
 
 PDFium is an external runtime prerequisite. This repository does **not** vendor,

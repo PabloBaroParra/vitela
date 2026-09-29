@@ -99,6 +99,7 @@ internal fun ViewerScreen(
     onOpenProtect: () -> Unit,
     onProtectConfirm: (openPassword: String, permissionsPassword: String) -> Unit,
     onProtectDismiss: () -> Unit,
+    organize: OrganizeActions,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -149,6 +150,7 @@ internal fun ViewerScreen(
             Button(onClick = onOpenPageSplit, enabled = state.pageCount > 1 && !state.pageSplitRunning) { Text("Split") }
             Button(onClick = onOpenCompress, enabled = state.pageCount > 0 && !state.compressRunning) { Text("Compress") }
             Button(onClick = onOpenProtect, enabled = state.pageCount > 0 && !state.protectRunning) { Text("Protect") }
+            Button(onClick = organize.onToggle, enabled = state.pageCount > 0) { Text(if (state.organize != null) "Done" else "Organize") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -157,6 +159,7 @@ internal fun ViewerScreen(
         }
         val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
         val annotationControls = annotationControls(state.annotationEditingAllowed, selected, state.canUndoAnnotations, state.canRedoAnnotations)
+            .let { if (state.organize != null) it.whileOrganizing() else it }
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -181,8 +184,8 @@ internal fun ViewerScreen(
             TextButton(onClick = onAnnotationDelete, enabled = selected != null && state.annotationEditingAllowed) { Text("Delete") }
             TextButton(onClick = { onAnnotationColor(dev.vitela.pdf.core.AnnotationColor(220, 40, 40)) }, enabled = annotationControls.canRestyle) { Text("Red") }
             TextButton(onClick = { onAnnotationColor(DEFAULT_ANNOTATION_COLOR) }, enabled = annotationControls.canRestyle) { Text("Gold") }
-            TextButton(onClick = onAnnotationUndo, enabled = annotationControls.canUndo) { Text("Undo") }
-            TextButton(onClick = onAnnotationRedo, enabled = annotationControls.canRedo) { Text("Redo") }
+            TextButton(onClick = onAnnotationUndo, enabled = annotationControls.canUndo || state.canUndoAnnotations) { Text("Undo") }
+            TextButton(onClick = onAnnotationRedo, enabled = annotationControls.canRedo || state.canRedoAnnotations) { Text("Redo") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onZoomOut, enabled = state.pageCount > 0 && state.zoomFactor > MIN_ZOOM_FACTOR) { Text("Zoom out") }
@@ -199,7 +202,10 @@ internal fun ViewerScreen(
         }
         if (state.isLoading) CircularProgressIndicator(modifier = Modifier.size(28.dp))
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-            PageList(
+            val organizeState = state.organize
+            if (organizeState != null) {
+                OrganizeGrid(state, organizeState, organize, modifier = Modifier.fillMaxSize())
+            } else PageList(
                 state = state,
                 onPositionChanged = onPositionChanged,
                 onScrollTargetConsumed = onScrollTargetConsumed,
