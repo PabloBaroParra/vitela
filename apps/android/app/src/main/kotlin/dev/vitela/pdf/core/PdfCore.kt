@@ -20,6 +20,8 @@ sealed interface PageEdit {
     /** Turns the page at [pageIndex] by [deltaDegrees] (a quarter-turn: 90 or -90). */
     data class Rotate(val pageIndex: Int, val deltaDegrees: Int) : PageEdit
     data class Remove(val pageIndex: Int) : PageEdit
+    /** Adds a blank A4 page at [index], before the page there; the page count appends it. */
+    data class InsertBlank(val index: Int, val landscape: Boolean = false) : PageEdit
 }
 
 /** A bytes snapshot paired with the document revision it represents. */

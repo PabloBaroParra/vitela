@@ -163,6 +163,61 @@ class ViewerViewModelOrganizeTest {
     }
 
     @Test
+    fun aBlankPageIsInsertedBeforeTheChosenOne() = runTest {
+        val document = OrganizableDocument(pageCount = 3)
+        val viewModel = openedWith(document)
+        viewModel.openOrganize()
+        viewModel.organizeInsertBlank(index = 1, landscape = false)
+        advanceUntilIdle()
+
+        assertEquals(listOf<PageEdit>(PageEdit.InsertBlank(1, landscape = false)), document.edits)
+        val state = viewModel.state.value
+        assertEquals(4, state.pageCount)
+        assertEquals(listOf(0, 3, 1, 2), state.pageSizes.map { it.widthPt.toInt() - 100 })
+        assertEquals("Blank page added. Changes are pending save.", state.status)
+        assertTrue(state.isDirty)
+        assertTrue(state.canUndoAnnotations)
+    }
+
+    @Test
+    fun aLandscapeBlankPageCanBeAppended() = runTest {
+        val document = OrganizableDocument(pageCount = 2)
+        val viewModel = openedWith(document)
+        viewModel.openOrganize()
+        viewModel.organizeInsertBlank(index = 2, landscape = true)
+        advanceUntilIdle()
+
+        assertEquals(listOf<PageEdit>(PageEdit.InsertBlank(2, landscape = true)), document.edits)
+        assertEquals(PageSize(200.0, 102.0), viewModel.state.value.pageSizes.last())
+    }
+
+    @Test
+    fun undoingABlankPageTakesItOutAgain() = runTest {
+        val document = OrganizableDocument(pageCount = 2)
+        val viewModel = openedWith(document)
+        val original = viewModel.state.value.pageSizes
+        viewModel.openOrganize()
+        viewModel.organizeInsertBlank(index = 0, landscape = false)
+        advanceUntilIdle()
+        viewModel.undoAnnotations()
+        advanceUntilIdle()
+
+        assertEquals(original, viewModel.state.value.pageSizes)
+    }
+
+    @Test
+    fun aBlankPageNeverReachesTheCoreFromOutsideTheGrid() = runTest {
+        val document = OrganizableDocument(pageCount = 2)
+        val viewModel = openedWith(document)
+        viewModel.organizeInsertBlank(index = 0, landscape = false)
+        viewModel.openOrganize()
+        viewModel.organizeInsertBlank(index = 3, landscape = false)
+        advanceUntilIdle()
+
+        assertEquals(emptyList<PageEdit>(), document.edits)
+    }
+
+    @Test
     fun theLastPageIsNeverDeletedAndTheCoreIsNotAsked() = runTest {
         val document = OrganizableDocument(pageCount = 1)
         val viewModel = openedWith(document)

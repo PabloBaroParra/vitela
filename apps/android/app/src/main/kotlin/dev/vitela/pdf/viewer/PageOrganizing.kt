@@ -8,7 +8,7 @@ import kotlinx.coroutines.withContext
 
 /**
  * Organize pages: a grid of thumbnails where a page is moved a step, turned a
- * quarter, or deleted. Each is one undoable entry in the shared edit log, so
+ * quarter, or deleted, and a blank page is added. Each is one undoable entry in the shared edit log, so
  * Undo and Redo keep working from the reader chrome; the core owns what an
  * edit means and whether the document allows it, this owns only the cards.
  */
@@ -37,7 +37,7 @@ internal class PageOrganizing(
             formFields = null,
             selectedAnnotationId = null,
             activeAnnotationTool = AnnotationTool.Pointer,
-            status = "Move, turn or delete pages. Each change is one undo step.",
+            status = "Move, turn, delete or add pages. Each change is one undo step.",
         )
     }
 
@@ -55,6 +55,8 @@ internal class PageOrganizing(
     fun rotate(index: Int, delta: Int) = apply(PageEdit.Rotate(index, delta))
 
     fun delete(index: Int) = apply(PageEdit.Remove(index))
+
+    fun insertBlank(index: Int, landscape: Boolean) = apply(PageEdit.InsertBlank(index, landscape))
 
     private fun apply(edit: PageEdit) {
         val openDocument = session.document ?: return

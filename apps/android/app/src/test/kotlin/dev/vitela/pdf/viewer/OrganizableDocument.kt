@@ -27,6 +27,9 @@ internal class OrganizableDocument(
     private class Page(val id: Int, var turned: Boolean = false)
 
     private var pages = MutableList(pageCount) { Page(it) }
+
+    /** A blank page is born with the next id, so it too reads back by its width; landscape is a turned one. */
+    private var nextId = pageCount
     private val undoable = ArrayDeque<Pair<() -> Unit, () -> Unit>>()
     private val redoable = ArrayDeque<Pair<() -> Unit, () -> Unit>>()
     val edits = mutableListOf<PageEdit>()
@@ -71,6 +74,7 @@ internal class OrganizableDocument(
             is PageEdit.Move -> before.toMutableList().also { it.add(edit.to, it.removeAt(edit.from)) }
             is PageEdit.Remove -> before.toMutableList().also { it.removeAt(edit.pageIndex) }
             is PageEdit.Rotate -> before.toMutableList().also { it[edit.pageIndex].turned = !it[edit.pageIndex].turned }
+            is PageEdit.InsertBlank -> before.toMutableList().also { it.add(edit.index, Page(nextId++, turned = edit.landscape)) }
         }
         pages = after.toMutableList()
         val undo = { pages = before.toMutableList(); if (edit is PageEdit.Rotate) before[edit.pageIndex].turned = !before[edit.pageIndex].turned }

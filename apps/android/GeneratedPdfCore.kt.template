@@ -39,7 +39,9 @@ import dev.vitela.pdf.uniffi.FfiExportFormat
 import dev.vitela.pdf.uniffi.FfiFieldValue
 import dev.vitela.pdf.uniffi.FfiFormField
 import dev.vitela.pdf.uniffi.FfiFormFieldKind
+import dev.vitela.pdf.uniffi.FfiOrientation
 import dev.vitela.pdf.uniffi.FfiPageCharacters
+import dev.vitela.pdf.uniffi.FfiPageSize
 import dev.vitela.pdf.uniffi.FfiPoint
 import dev.vitela.pdf.uniffi.FfiRect
 import dev.vitela.pdf.uniffi.FfiRenderOptions
@@ -423,6 +425,7 @@ private fun PageEdit.toFfi(): FfiEditCommand = when (this) {
     is PageEdit.Move -> FfiEditCommand.MovePages(from.toUInt(), 1u, to.toUInt())
     is PageEdit.Rotate -> FfiEditCommand.RotatePage(pageIndex.toUInt(), deltaDegrees)
     is PageEdit.Remove -> FfiEditCommand.RemovePage(pageIndex.toUInt())
+    is PageEdit.InsertBlank -> FfiEditCommand.InsertBlankPage(index.toUInt(), FfiPageSize.A4, if (landscape) FfiOrientation.LANDSCAPE else FfiOrientation.PORTRAIT)
 }
 
 private fun ImageExportFormat.toFfi(): FfiExportFormat = when (this) {

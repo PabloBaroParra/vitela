@@ -281,6 +281,7 @@ class ViewerViewModel(
     /** Turns the page at [index] a quarter: [delta] is 90 or -90. */
     fun organizeRotate(index: Int, delta: Int) = organizing.rotate(index, delta)
     fun organizeDelete(index: Int) = organizing.delete(index)
+    fun organizeInsertBlank(index: Int, landscape: Boolean) = organizing.insertBlank(index, landscape)
     /** The grid scrolled the card at [index] into view without a picture. */
     fun organizeThumbnail(index: Int) = organizing.requestThumbnail(index)
 
