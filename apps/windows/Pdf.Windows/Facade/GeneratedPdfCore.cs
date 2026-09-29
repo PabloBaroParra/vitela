@@ -419,6 +419,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.ReplaceTextRunWithInsertedFont value =>
             new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
+        PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
         PdfCoreEdit.AddTextField value => new FfiEditCommand.AddTextField(value.PageIndex, Rect(value.Rect),
             new FfiTextStyle(FfiFontFamily.Helvetica, 12, new FfiColor(0, 0, 0)), false, null),
         PdfCoreEdit.AddCheckbox value => new FfiEditCommand.AddCheckbox(value.PageIndex, Rect(value.Rect),

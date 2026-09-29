@@ -86,10 +86,44 @@ public sealed partial class MainWindow
         foreach (var field in state.Fields)
         {
             _shownFieldValues[field.Id] = field.Value;
-            var row = FormFieldRow(state.SessionId, field);
-            if (!state.FillAllowed) DisableRow(row);
+            var value = FormFieldRow(state.SessionId, field);
+            if (!state.FillAllowed) DisableRow(value);
+            var row = new StackPanel { Spacing = 4 };
+            if (state.RenameAllowed)
+            {
+                var name = new TextBox { Header = "Field name", Text = field.Name };
+                var submitted = false;
+                name.LostFocus += async (_, _) =>
+                {
+                    if (submitted || name.Text == field.Name) return;
+                    submitted = true;
+                    await CommitFieldNameAsync(state.SessionId, field, name.Text);
+                };
+                row.Children.Add(name);
+            }
+            row.Children.Add(value);
             FormFieldRows.Children.Add(row);
         }
+    }
+
+    private async Task CommitFieldNameAsync(string sessionId, FormField field, string name)
+    {
+        if (_session?.SessionId != sessionId || name == field.Name) return;
+        var result = await _facade.RenameFormFieldAsync(sessionId, field.Id, field.Name, name);
+        if (_session?.SessionId != sessionId) return;
+        if (!result.IsSuccess)
+        {
+            await RefreshFormFieldsAsync();
+            FormFieldsStatus.Text = result.Error!.Message;
+            return;
+        }
+
+        _annotationState = result.Value;
+        UpdateAnnotationControls(_annotationState);
+        _filledFieldPages.Add(field.PageIndex);
+        InvalidatePageRender(field.PageIndex);
+        await RefreshFormFieldsAsync();
+        FormFieldsStatus.Text = "Field renamed. Save to keep the change.";
     }
 
     private FrameworkElement FormFieldRow(string sessionId, FormField field) => field.Kind switch

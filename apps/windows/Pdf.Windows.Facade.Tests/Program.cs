@@ -151,6 +151,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("does not record a fill that changes nothing", DoesNotRecordAnUnchangedFillAsync)
     ,("refuses a fill when the document forbids form filling", RefusesAForbiddenFillAsync)
     ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
+    ,("renames a field and refreshes its page", RenamesAFormFieldAsync)
+    ,("refuses a stale or forbidden field rename", RefusesInvalidFormRenameAsync)
     ,("refuses a fill for a field that is no longer there", RefusesAFillForAMissingFieldAsync)
     ,("refreshes the preview on history after a fill", RefreshesThePreviewOnHistoryAfterAFillAsync)
     ,("maps a dropdown choice to its list index and back", MapsDropdownChoicesToIndices)
@@ -2262,6 +2264,7 @@ static async Task ListsFormFieldsAsync()
     Assert(result.IsSuccess && result.Value!.Fields.Count == 3, "every field the core reports must reach the panel");
     Assert(result.Value!.Fields[1] is { Name: "agree", PageIndex: 1, Kind: FormFieldKind.Checkbox }, "a field must keep its name, page and kind");
     Assert(result.Value.FillAllowed, "an unrestricted document permits filling");
+    Assert(result.Value.RenameAllowed, "an unrestricted document permits renaming");
 }
 
 static async Task FillsAFormFieldAsync()
@@ -2442,6 +2445,44 @@ static async Task FillsWhenOnlyContentEditingIsForbiddenAsync()
 
     Assert(result.IsSuccess, "filling needs only the annotation/fill permission");
     Assert(core.FormFields[2].Value == new FormFieldValue.Choice("M"), "the choice must be recorded");
+    Assert(!(await facade.FormFieldsAsync(session.SessionId)).Value!.RenameAllowed, "fill-only permission must not expose renaming");
+}
+
+static async Task RenamesAFormFieldAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.RenameFormFieldAsync(session.SessionId, 1, "agree", "accepted");
+
+    Assert(result.IsSuccess && result.Value!.CanUndo, "a rename must join shared history");
+    Assert(core.FormFields[1].Name == "accepted" && core.RefreshPreviewCalls == 1, "the name must reach the core and preview");
+    Assert((await facade.FormFieldsAsync(session.SessionId)).Value!.Fields[1].Name == "accepted", "the panel must see the new name");
+    var unchanged = await facade.RenameFormFieldAsync(session.SessionId, 1, "accepted", "accepted");
+    Assert(unchanged.IsSuccess && core.RefreshPreviewCalls == 1, "leaving a name unchanged must not rebuild the preview");
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undoing a structural rename must refresh the preview");
+}
+
+static async Task RefusesInvalidFormRenameAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var stale = await facade.RenameFormFieldAsync(session.SessionId, 1, "old name", "accepted");
+    Assert(!stale.IsSuccess && !core.LastDocument!.CanUndo, "a row with a stale name must not overwrite another edit");
+    var missing = await facade.RenameFormFieldAsync(session.SessionId, 99, "missing", "accepted");
+    Assert(!missing.IsSuccess, "a missing field must be refused");
+    var document = core.LastDocument!;
+    document.EditingAllowed = false;
+    var forbidden = await facade.RenameFormFieldAsync(session.SessionId, 1, "agree", "accepted");
+    Assert(!forbidden.IsSuccess && core.RefreshPreviewCalls == 0, "renaming requires the annotation permission");
+    document.EditingAllowed = true;
+    document.ContentEditingAllowed = false;
+    forbidden = await facade.RenameFormFieldAsync(session.SessionId, 1, "agree", "accepted");
+    Assert(!forbidden.IsSuccess && core.FormFields[1].Name == "agree", "renaming also requires content editing");
 }
 
 static async Task RefusesAFillForAMissingFieldAsync()
@@ -3089,6 +3130,17 @@ sealed class FakeCore : IPdfCore
             var index = FormFields.FindIndex(field => field.Id == fill.FieldId);
             if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
             FormFields[index] = FormFields[index] with { Value = fill.Value };
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.RenameFormField rename)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form renaming is not permitted");
+            var index = FormFields.FindIndex(field => field.Id == rename.FieldId);
+            if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
+            FormFields[index] = FormFields[index] with { Name = rename.Name };
             fake.Apply(edit);
             return;
         }
