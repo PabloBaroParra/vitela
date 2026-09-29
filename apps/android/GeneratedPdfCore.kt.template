@@ -26,6 +26,7 @@ import dev.vitela.pdf.uniffi.FfiPoint
 import dev.vitela.pdf.uniffi.FfiRect
 import dev.vitela.pdf.uniffi.FfiRenderOptions
 import dev.vitela.pdf.uniffi.FfiSaveIntent
+import dev.vitela.pdf.uniffi.FfiSignatureAcknowledgement
 // Aliased on purpose. Kotlin resolves a member before an import, so a bare
 // `openFromBytes(bytes, password)` inside this class's own override of the
 // same signature binds to the override and recurses instead of calling the
@@ -108,7 +109,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     override fun saveToBytes(): PdfCoreResult<ByteArray> = try {
-        PdfCoreResult.Success(ffiSaveToBytes(handle, FfiSaveIntent.DEFAULT))
+        // Never acknowledged: this shell has no prompt yet that tells the user
+        // a save breaks the file's signature, so the core refuses the save.
+        PdfCoreResult.Success(ffiSaveToBytes(handle, FfiSaveIntent.DEFAULT, FfiSignatureAcknowledgement.UNACKNOWLEDGED))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -161,6 +164,7 @@ private fun AnnotationColor.toFfi() = FfiColor(red.toUByte(), green.toUByte(), b
 private fun Throwable.toPdfCoreError(): PdfCoreError = when (this) {
     is FfiException.PasswordRequired -> PdfCoreError.PasswordRequired
     is FfiException.WrongPassword -> PdfCoreError.WrongPassword
+    is FfiException.SignaturesWouldBeInvalidated -> PdfCoreError.Failed("Saving would invalidate this document's signature, so it was not saved.")
     is FfiException.RenderFailed -> PdfCoreError.Failed("PDFium is unavailable. This package must include externally supplied compatible PDFium libraries.")
     else -> PdfCoreError.Failed("The document could not be processed.")
 }
