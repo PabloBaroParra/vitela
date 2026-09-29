@@ -81,11 +81,7 @@ jobs:
         # runs through ./gradlew, so the wrapper is the single source of truth.
         # Pinning a version here once duplicated it, and the copy drifted:
         # CI provisioned Gradle 8.11.1 while AGP required >= 9.5.0.
-        #
-        # T-093 in docs/batches-b8-b13.md still records that CI-pin versus
-        # wrapper discrepancy (8.11.1 vs 9.5.0) as open. It is a known
-        # discrepancy between that note and this file: the pin is gone, and
-        # the note should be updated when T-093 is next touched.
+        # (T-093 in docs/batches-b8-b13.md records that drift and its fix.)
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Compile the adapter and run focused Android unit tests
         # testDebugUnitTest depends on compileDebugKotlin, which now includes
