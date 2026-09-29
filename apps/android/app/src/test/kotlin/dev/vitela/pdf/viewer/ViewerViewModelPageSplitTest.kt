@@ -3,29 +3,19 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 /** Split: cuts, then a plan, then one new PDF per part through the shell's writer. */
-@OptIn(ExperimentalCoroutinesApi::class)
 class ViewerViewModelPageSplitTest {
-    @Before
-    fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
-
-    @After
-    fun tearDown() = Dispatchers.resetMain()
+    @get:Rule
+    val dispatchers = ViewerDispatcherRule()
 
     @Test
     fun openingTheDialogStartsWithNoCuts() = runTest {
@@ -189,7 +179,7 @@ class ViewerViewModelPageSplitTest {
     @Test
     fun aPlanDoesNotSurviveTheDocumentItWasMadeFor() = runTest {
         val first = SplitDocument()
-        val viewModel = ViewerViewModel(SplitQueueCore(first, SplitDocument()))
+        val viewModel = dispatchers.viewModel(SplitQueueCore(first, SplitDocument()))
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.documentId == 1L && !it.isLoading }
         viewModel.openPageSplit()
@@ -218,7 +208,7 @@ class ViewerViewModelPageSplitTest {
     }
 
     private suspend fun openedWith(document: PdfDocument): ViewerViewModel {
-        val viewModel = ViewerViewModel(SplitQueueCore(document))
+        val viewModel = dispatchers.viewModel(SplitQueueCore(document))
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.documentId != 0L && !it.isLoading }
         return viewModel
