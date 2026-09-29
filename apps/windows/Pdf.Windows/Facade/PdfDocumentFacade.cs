@@ -595,7 +595,14 @@ public sealed partial class PdfDocumentFacade : IDisposable
     }
 
     /// <summary>Updates one field's font size while preserving its font and color.</summary>
-    public async Task<OperationResult<AnnotationState>> SetFormFieldFontSizeAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, double sizePt)
+    public Task<OperationResult<AnnotationState>> SetFormFieldFontSizeAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, double sizePt)
+        => RestyleFormFieldAsync(sessionId, fieldId, expectedStyle, expectedStyle with { SizePt = sizePt });
+
+    /// <summary>Updates one field's font family while preserving its size and color.</summary>
+    public Task<OperationResult<AnnotationState>> SetFormFieldFontAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, FormFont font)
+        => RestyleFormFieldAsync(sessionId, fieldId, expectedStyle, expectedStyle with { Font = font });
+
+    private async Task<OperationResult<AnnotationState>> RestyleFormFieldAsync(string sessionId, ulong fieldId, FormTextStyle expectedStyle, FormTextStyle style)
     {
         const string operation = "form_restyle";
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
@@ -609,17 +616,19 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit styling form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
-                if (!double.IsFinite(sizePt) || sizePt < 1 || sizePt > 72)
+                if (!double.IsFinite(style.SizePt) || style.SizePt < 1 || style.SizePt > 72)
                     return OperationResult<AnnotationState>.Failure(CreateError("Enter a font size between 1 and 72 pt.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                if (!Enum.IsDefined(style.Font))
+                    return OperationResult<AnnotationState>.Failure(CreateError("Choose a supported font.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
 
                 try
                 {
                     var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
                     if (field?.Style is null || field.Style != expectedStyle)
                         return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
-                    if (field.Style.SizePt == sizePt) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
+                    if (field.Style == style) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                     pageIndex = field.PageIndex;
-                    _core.ApplyEdit(session.Document, new PdfCoreEdit.RestyleFormField(fieldId, field.Style with { SizePt = sizePt }));
+                    _core.ApplyEdit(session.Document, new PdfCoreEdit.RestyleFormField(fieldId, style));
                     session.EditRevision++;
                     session.HasRecordedPreviewEdit = true;
                 }
