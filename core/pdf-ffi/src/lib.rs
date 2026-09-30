@@ -40,6 +40,9 @@
 //!   file naming and the raster ceiling a shell asks before it writes, and
 //!   the encoded page itself. All of it is `pdf-save`/`pdf-render`'s; this
 //!   module only carries it across.
+//! - [`sign`]: signing the open document with a `.pfx`/`.p12` file — the
+//!   unlocked certificate as an opaque object, the gate, and the signed
+//!   bytes. `pdf-sign`'s vocabulary, carried across like [`compress`]'s.
 //! - [`extract`]: extracting a subset of pages into a new PDF — the FFI twin
 //!   of the Linux shell's `write::extract` chain, sharing its cut
 //!   (`pdf_document::prune::prune_to`) rather than reimplementing it.
@@ -66,6 +69,7 @@ mod form;
 mod import;
 mod placement;
 mod selection;
+mod sign;
 mod split;
 mod types;
 
@@ -96,6 +100,10 @@ pub use placement::{
     place_point, place_rect, point_to_pdf, FfiPagePlacement, FfiPageRotation, FfiPlacedRect,
 };
 pub use selection::FfiPageCharacters;
+pub use sign::{
+    open_signing_certificate, sign_to_bytes, signing_refusal, FfiSigningIdentity,
+    SigningCertificate,
+};
 pub use split::{plan_split, FfiSplitPart};
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,

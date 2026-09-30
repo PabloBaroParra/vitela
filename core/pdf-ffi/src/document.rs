@@ -651,6 +651,35 @@ impl DocumentState {
         pdf_manip::document_has_signatures(&self.base)
     }
 
+    /// The file as opened, for callers that read its structure rather than
+    /// the pending edit model — [`crate::sign`] naming a new signature field
+    /// past the ones the file already carries.
+    pub(crate) fn base(&self) -> &LopdfDocument {
+        &self.base
+    }
+
+    /// The bytes a signature is computed over, and the password that opens
+    /// them.
+    ///
+    /// The file as opened while no edit is applied — so a signature the file
+    /// already carries is left byte-for-byte intact under the new revision.
+    /// Otherwise the session as the next save would write it: a shell that
+    /// saves without reopening keeps its edits applied on this handle, and
+    /// the file the user saved is that serialization, not `original_bytes`.
+    /// A save that would break an existing signature is refused rather than
+    /// signed over.
+    pub(crate) fn signing_input(&self) -> Result<(Vec<u8>, Option<String>), FfiError> {
+        let bytes = match &self.original_bytes {
+            Some(bytes) if !self.document.pending_edits.can_undo() => bytes.clone(),
+            _ => self.with_save_input(
+                FfiSaveIntent::Default,
+                FfiSignatureAcknowledgement::Unacknowledged,
+                pdf_save::save_document,
+            )?,
+        };
+        Ok((bytes, self.render_password.clone()))
+    }
+
     /// Records the explicit-strip audit event when `intent` asks for one —
     /// see [`record_strip_consent_if_requested`], which this exists to reach
     /// from the sibling modules that cannot see this struct's fields.

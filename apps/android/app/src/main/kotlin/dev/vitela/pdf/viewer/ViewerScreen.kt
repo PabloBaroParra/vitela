@@ -100,6 +100,7 @@ internal fun ViewerScreen(
     onOpenProtect: () -> Unit,
     onProtectConfirm: (openPassword: String, permissionsPassword: String) -> Unit,
     onProtectDismiss: () -> Unit,
+    sign: SignActions,
     organize: OrganizeActions,
     formFields: FormFieldActions,
     contentEdit: ContentEditActions,
@@ -153,6 +154,7 @@ internal fun ViewerScreen(
             Button(onClick = onOpenPageSplit, enabled = state.pageCount > 1 && !state.pageSplitRunning) { Text("Split") }
             Button(onClick = onOpenCompress, enabled = state.pageCount > 0 && !state.compressRunning) { Text("Compress") }
             Button(onClick = onOpenProtect, enabled = state.pageCount > 0 && !state.protectRunning) { Text("Protect") }
+            Button(onClick = sign.onOpen, enabled = state.pageCount > 0 && !state.signRunning) { Text("Sign") }
             Button(onClick = organize.onToggle, enabled = state.pageCount > 0) { Text(if (state.organize != null) "Done" else "Organize") }
             // Not over the grid: it hides the pages a fill redraws.
             Button(onClick = formFields.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text("Form fields") }
@@ -291,6 +293,7 @@ internal fun ViewerScreen(
     state.protect?.let { editor ->
         ProtectDialog(editor, onProtect = onProtectConfirm, onDismiss = onProtectDismiss)
     }
+    state.sign?.let { editor -> SignDialog(editor, sign) }
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(
             onDismissRequest = onReplacementCancelled,

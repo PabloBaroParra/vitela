@@ -23,10 +23,12 @@ import dev.vitela.pdf.document.SafDocuments
 import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
+import dev.vitela.pdf.viewer.CERTIFICATE_MIME_TYPES
 import dev.vitela.pdf.viewer.ContentEditActions
 import dev.vitela.pdf.viewer.FormFieldActions
 import dev.vitela.pdf.viewer.ImportSource
 import dev.vitela.pdf.viewer.OrganizeActions
+import dev.vitela.pdf.viewer.SignActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.ViewerViewModel
 import kotlinx.coroutines.Dispatchers
@@ -121,6 +123,23 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
             viewModel.writeProtected(created.displayName, created.saveTarget) { bytes -> SafDocuments.writeCopy(context.contentResolver, uri, bytes) }
         }
     }
+    val chooseCertificate = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val read = withContext(Dispatchers.IO) { SafDocuments.read(context.contentResolver, uri) }
+            if (read == null) viewModel.reportReadFailure() else viewModel.chooseSigningCertificate(read.displayName, read.bytes)
+        }
+    }
+    val saveSigned = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        if (uri == null) {
+            viewModel.cancelSign()
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            val created = withContext(Dispatchers.IO) { SafDocuments.created(context.contentResolver, uri) }
+            viewModel.writeSigned(created.displayName, created.saveTarget) { bytes -> SafDocuments.writeCopy(context.contentResolver, uri, bytes) }
+        }
+    }
     ViewerScreen(
         state = state,
         onOpen = { openPdf.launch(arrayOf("application/pdf")) },
@@ -206,6 +225,17 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         // Passwords first, then where to write; the protected file is reopened once written.
         onProtectConfirm = { openPassword, permissionsPassword -> viewModel.confirmProtect(openPassword, permissionsPassword)?.let(saveProtected::launch) },
         onProtectDismiss = viewModel::dismissProtect,
+        sign = remember(viewModel) {
+            SignActions(
+                onOpen = viewModel::openSign,
+                onChooseCertificate = { chooseCertificate.launch(CERTIFICATE_MIME_TYPES) },
+                onUnlock = viewModel::unlockSigningCertificate,
+                onSelectIdentity = viewModel::selectSigningIdentity,
+                // Who signs first, then where to write; the signed file is reopened once written.
+                onSign = { viewModel.confirmSign()?.let(saveSigned::launch) },
+                onDismiss = viewModel::dismissSign,
+            )
+        },
         organize = remember(viewModel) {
             OrganizeActions(
                 onToggle = { if (viewModel.state.value.organize == null) viewModel.openOrganize() else viewModel.closeOrganize() },

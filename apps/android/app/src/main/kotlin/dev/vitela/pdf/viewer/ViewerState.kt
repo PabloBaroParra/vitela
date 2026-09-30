@@ -86,6 +86,10 @@ data class ViewerState(
     val protect: ProtectEditor? = null,
     /** True while a protection runs, so a second one cannot start on top of it. */
     val protectRunning: Boolean = false,
+    /** The Sign dialog, or null while it is closed. */
+    val sign: SignEditor? = null,
+    /** True while a signature is computed and written, so a second one cannot start on top of it. */
+    val signRunning: Boolean = false,
     /** The Organize grid standing in for the reader, or null while the reader shows. */
     val organize: OrganizeState? = null,
     /** The Form fields panel below the reader, or null while it is closed. */
