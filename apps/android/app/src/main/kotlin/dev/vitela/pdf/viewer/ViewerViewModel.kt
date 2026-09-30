@@ -12,6 +12,7 @@ import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SaveSnapshot
+import dev.vitela.pdf.core.SigningCertificate
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -62,6 +63,7 @@ class ViewerViewModel(
     private val pageSplitting = PageSplitting(session)
     private val compressing = Compressing(session)
     private val protecting = Protecting(session, ::reopenProtected)
+    private val signing = Signing(session, { bytes, password -> openSigningCertificate(bytes, password) }, ::reopenSigned)
     private val saving = DocumentSaving(session) { sourceBytes }
 
     /**
@@ -158,6 +160,34 @@ class ViewerViewModel(
                 sourceTarget = saveTarget
                 install(displayName, result.value, saveTarget)
                 null
+            }
+        }
+    }
+
+    private fun openSigningCertificate(bytes: ByteArray, password: String): PdfCoreResult<SigningCertificate> =
+        core?.openSigningCertificate(bytes, password) ?: PdfCoreResult.Failure(PdfCoreError.Failed("Native PDF support is not packaged."))
+
+    /**
+     * Sign's reopen: the file just written. No dirty check — signing refused
+     * unsaved changes. An encrypted file comes back asking for its password,
+     * which is never retained here: the prompt retries against these bytes.
+     */
+    private suspend fun reopenSigned(displayName: String, bytes: ByteArray, saveTarget: String?): PdfCoreError? {
+        val availableCore = core ?: return PdfCoreError.Failed("Native PDF support is not packaged.")
+        return when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, null) }) {
+            is PdfCoreResult.Success -> {
+                sourceBytes = bytes
+                sourceTarget = saveTarget
+                install(displayName, result.value, saveTarget)
+                null
+            }
+            is PdfCoreResult.Failure -> {
+                if (result.error is PdfCoreError.PasswordRequired) {
+                    sourceBytes = bytes
+                    sourceTarget = saveTarget
+                    _state.value = _state.value.copy(title = displayName, needsPassword = true, passwordMessage = null)
+                }
+                result.error
             }
         }
     }
@@ -278,6 +308,17 @@ class ViewerViewModel(
     fun confirmProtect(openPassword: String, permissionsPassword: String): String? = protecting.confirm(openPassword, permissionsPassword)
     fun cancelProtect() = protecting.cancel()
     suspend fun writeProtected(displayName: String, saveTarget: String?, write: ProtectedPdfWriter) = protecting.write(displayName, saveTarget, write)
+
+    // Sign
+    fun openSign() = signing.open()
+    fun chooseSigningCertificate(name: String, bytes: ByteArray) = signing.chooseCertificate(name, bytes)
+    fun unlockSigningCertificate(password: String) = signing.unlock(password)
+    fun selectSigningIdentity(id: String) = signing.selectIdentity(id)
+    fun dismissSign() = signing.dismiss()
+    /** The name to suggest in the save picker once an identity is accepted, or null when there is nothing to sign with. */
+    fun confirmSign(): String? = signing.confirm()
+    fun cancelSign() = signing.cancel()
+    suspend fun writeSigned(displayName: String, saveTarget: String?, write: SignedPdfWriter) = signing.write(displayName, saveTarget, write)
 
     // Organize pages
     fun openOrganize() = organizing.open()

@@ -99,7 +99,7 @@ fn other(error: impl ToString) -> io::Error {
 
 /// Builds a PKCS#12 container holding one rcgen self-signed identity for
 /// `algorithm`, protected with [`FIXTURE_PFX_PASSWORD`].
-fn self_signed_pfx(algorithm: SignedAlgorithm, common_name: &str) -> io::Result<Vec<u8>> {
+pub fn self_signed_pfx(algorithm: SignedAlgorithm, common_name: &str) -> io::Result<Vec<u8>> {
     let key_pair = match algorithm {
         SignedAlgorithm::Rsa2048Sha256 => {
             let key = RsaPrivateKey::new(&mut OsRng, 2048).map_err(other)?;

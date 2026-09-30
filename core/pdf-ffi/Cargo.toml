@@ -33,6 +33,12 @@ pdf-edit = { path = "../pdf-edit" }
 # owns when a compression runs; this crate only has to carry the vocabulary
 # across the boundary, which means naming the types that vocabulary is in.
 pdf-compress = { path = "../pdf-compress" }
+# Signing with a `.pfx`/`.p12` file: `pdf-sign` owns the signature, the PFX
+# adapter holds the private key in-process. Both are pure Rust, so every
+# target the shells build for can sign; the card/token and NSS adapters stay
+# Linux-only, in the GTK shell.
+pdf-sign = { path = "../pdf-sign" }
+pdf-sign-pfx = { path = "../pdf-sign-pfx" }
 
 [features]
 # Enables the `uniffi-bindgen` CLI binary below (T-042). Off by default so

@@ -207,6 +207,18 @@ interface PdfDocument : AutoCloseable {
      */
     fun protect(openPassword: String, permissionsPassword: String, signaturesAcknowledged: Boolean): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Password protection is unavailable in this PDF core."))
 
+    /**
+     * Why this document cannot be signed, as the core's lower-case clause, or
+     * null when it can. Cheap: it reads the protection, it signs nothing.
+     */
+    fun signingRefusal(): String? = "signing is unavailable in this PDF core"
+    /**
+     * The document signed as [identityId] from [certificate]: the file as
+     * opened when nothing is applied, the session as it would save otherwise.
+     * Not an edit: the open document is untouched.
+     */
+    fun sign(certificate: SigningCertificate, identityId: String): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Signing is unavailable in this PDF core."))
+
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
 }
@@ -220,6 +232,13 @@ interface PdfCore {
      */
     fun openWithPasswords(bytes: ByteArray, openPassword: String, permissionsPassword: String): PdfCoreResult<PdfDocument> =
         PdfCoreResult.Failure(PdfCoreError.Failed("Opening with both passwords is unavailable in this PDF core."))
+    /**
+     * Unlocks the `.pfx`/`.p12` file in [bytes]. A wrong password and a file
+     * that is not PKCS#12 fail alike, as [PdfCoreError.WrongPassword]: the
+     * format cannot tell them apart.
+     */
+    fun openSigningCertificate(bytes: ByteArray, password: String): PdfCoreResult<SigningCertificate> =
+        PdfCoreResult.Failure(PdfCoreError.Failed("Signing is unavailable in this PDF core."))
 }
 
 /** Implemented by generated packaging sources when native bindings are present. */
