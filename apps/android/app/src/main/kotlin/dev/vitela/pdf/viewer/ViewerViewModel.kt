@@ -53,6 +53,7 @@ class ViewerViewModel(
     }
     private val formFilling: FormFilling = FormFilling(session, annotations, pageLayout)
     private val contentEditing: ContentEditing = ContentEditing(session, annotations, pageLayout, selection)
+    private val formAuthoring: FormAuthoring = FormAuthoring(session, annotations, pageLayout, formFilling, selection)
     private val organizing = PageOrganizing(session, annotations, pageLayout, selection)
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
@@ -294,9 +295,15 @@ class ViewerViewModel(
     fun closeFormFields() = formFilling.close()
     /** Fills a field in; [documentId] is the document the row was built for, so a late commit cannot reach another. */
     fun fillFormField(documentId: Long, fieldId: Long, value: FormFieldValue) = formFilling.fill(documentId, fieldId, value)
+    /** Arms what the next page tap does to the form — place a field, or move one — or disarms with null. */
+    fun armFormField(tap: FormFieldTap?) = formAuthoring.arm(tap)
+    fun tapFormField(pageIndex: Int, point: AnnotationPoint) = formAuthoring.tap(pageIndex, point)
 
     // Edit text
-    fun openContentEdit() = contentEditing.open()
+    fun openContentEdit() {
+        formAuthoring.disarm()
+        contentEditing.open()
+    }
     fun closeContentEdit() = contentEditing.close()
     /** The reader laid out page [pageIndex] while the mode is armed. */
     fun contentPageShown(pageIndex: Int) = contentEditing.pageShown(pageIndex)
@@ -306,9 +313,10 @@ class ViewerViewModel(
     fun dismissTextRunEditor() = contentEditing.dismissEditor()
 
     // Annotations
-    /** One mode claims a page tap at a time: choosing a tool leaves Edit text. */
+    /** One mode claims a page tap at a time: choosing a tool leaves Edit text and disarms the form. */
     fun setAnnotationTool(tool: AnnotationTool) {
         contentEditing.close()
+        formAuthoring.disarm()
         annotations.setTool(tool)
     }
     fun selectAnnotation(pageIndex: Int, point: AnnotationPoint) = annotations.select(pageIndex, point)

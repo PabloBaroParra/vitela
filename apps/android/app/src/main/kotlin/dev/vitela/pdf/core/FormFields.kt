@@ -1,8 +1,9 @@
 package dev.vitela.pdf.core
 
 /**
- * One AcroForm field the document already has, as the fill panel sees it.
- * [pageIndex] is the page's zero-based position in the current order.
+ * One AcroForm field of the document, as the Form fields panel sees it.
+ * [pageIndex] is the page's zero-based position in the current order; [rect]
+ * is where the widget sits on it, in PDF points.
  */
 data class FormField(
     val id: Long,
@@ -10,7 +11,11 @@ data class FormField(
     val name: String,
     val kind: FormFieldKind,
     val value: FormFieldValue,
+    val rect: AnnotationRect,
 )
+
+/** A field the panel can place. The core names it and gives it its first options and style. */
+enum class NewFormField { Text, Checkbox, RadioGroup, Dropdown }
 
 /** What a field can hold. Pushbuttons, listboxes and signatures never reach the shell. */
 sealed interface FormFieldKind {

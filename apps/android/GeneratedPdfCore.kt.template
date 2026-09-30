@@ -22,6 +22,7 @@ import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.FormField
+import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.ImageExportFormat
@@ -41,6 +42,7 @@ import dev.vitela.pdf.uniffi.FfiEditCommand
 import dev.vitela.pdf.uniffi.FfiExportFormat
 import dev.vitela.pdf.uniffi.FfiFieldValue
 import dev.vitela.pdf.uniffi.FfiFontKind
+import dev.vitela.pdf.uniffi.FfiFontFamily
 import dev.vitela.pdf.uniffi.FfiFormField
 import dev.vitela.pdf.uniffi.FfiFormFieldKind
 import dev.vitela.pdf.uniffi.FfiOrientation
@@ -48,6 +50,7 @@ import dev.vitela.pdf.uniffi.FfiPageCharacters
 import dev.vitela.pdf.uniffi.FfiPageSize
 import dev.vitela.pdf.uniffi.FfiPoint
 import dev.vitela.pdf.uniffi.FfiRect
+import dev.vitela.pdf.uniffi.FfiTextStyle
 import dev.vitela.pdf.uniffi.FfiRenderOptions
 import dev.vitela.pdf.uniffi.FfiSaveIntent
 import dev.vitela.pdf.uniffi.FfiSignatureAcknowledgement
@@ -198,6 +201,44 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // kind; the core's own sentence is a developer's, not a reader's.
         val sentence = if (handle.annotationEditingAllowed()) "That value does not fit this field." else "This document does not permit filling in its form."
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // Asked as one question: composing it from the annotation and content
+    // answers would also refuse a file whose encryption cannot survive a full
+    // rewrite, which a field edit never needs (see the FFI's doc).
+    override fun formAuthoringAllowed(): Boolean = handle.formFieldEditingAllowed()
+
+    override fun addFormField(pageIndex: Int, kind: NewFormField, rect: AnnotationRect): PdfCoreResult<Unit> =
+        authorField("This document does not permit creating form fields.", "This field cannot be placed there.") {
+            val page = pageIndex.toUInt()
+            val at = rect.toFfi()
+            when (kind) {
+                NewFormField.Text -> FfiEditCommand.AddTextField(page, at, NEW_FIELD_STYLE, false, null)
+                NewFormField.Checkbox -> FfiEditCommand.AddCheckbox(page, at, NEW_FIELD_STYLE)
+                // The core's two default options and its shared layout, as on Windows.
+                NewFormField.RadioGroup -> FfiEditCommand.AddDefaultRadioGroup(page, at, NEW_FIELD_STYLE)
+                NewFormField.Dropdown -> FfiEditCommand.AddDropdown(page, at, NEW_FIELD_STYLE, listOf("Option 1", "Option 2"), false)
+            }
+        }
+
+    override fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> =
+        authorField("This document does not permit moving form fields.", "This field cannot be moved there.") {
+            FfiEditCommand.MoveFormField(fieldId.toULong(), to.toFfi())
+        }
+
+    private fun authorField(forbidden: String, refused: String, command: () -> FfiEditCommand): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, command())
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.FormFieldNotFound) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("The document changed. Please try again."))
+    } catch (error: FfiException.PageIndexOutOfBounds) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("The document changed. Please try again."))
+    } catch (error: FfiException.UnsupportedOperation) {
+        // Either the /P bits or `pdf_form` refusing the rect; the core's own
+        // sentence is a developer's, not a reader's.
+        PdfCoreResult.Failure(PdfCoreError.Failed(if (handle.formFieldEditingAllowed()) refused else forbidden))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -438,7 +479,10 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
 }
 
 // A move is one page: the block form the core takes is Windows' `MovePages(from, 1, to)`.
-private fun FfiFormField.toFormField() = FormField(id.toLong(), page.toInt(), name, kind.toFormFieldKind(), value.toFormFieldValue())
+private fun FfiFormField.toFormField() = FormField(id.toLong(), page.toInt(), name, kind.toFormFieldKind(), value.toFormFieldValue(), rect.toRect())
+
+// A new field's first style: the Windows shell's Helvetica 12 pt black.
+private val NEW_FIELD_STYLE = FfiTextStyle(FfiFontFamily.HELVETICA, 12.0, FfiColor(0u, 0u, 0u))
 
 private fun FfiFormFieldKind.toFormFieldKind(): FormFieldKind = when (this) {
     is FfiFormFieldKind.Text -> FormFieldKind.Text(multiline, maxLen?.let { minOf(it, Int.MAX_VALUE.toUInt()).toInt() })

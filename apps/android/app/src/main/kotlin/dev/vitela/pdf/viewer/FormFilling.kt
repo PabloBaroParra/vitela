@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Form fields: filling in the AcroForm fields a document already has. Each
+ * Form fields: the panel, and filling in the document's AcroForm fields. Each
  * fill is one undoable entry in the shared edit log, so Undo and Redo keep
  * working from the reader chrome.
  *
@@ -77,19 +77,26 @@ internal class FormFilling(
 
     /**
      * Re-reads the fields into an open panel: at open, after a refused fill,
-     * and after an undo or redo, neither of which says which field it moved.
-     * Called with the document lane held.
+     * after a field is placed or moved, and after an undo or redo, neither of
+     * which says which field it moved. An armed tap survives while its field
+     * does. Called with the document lane held.
      */
     suspend fun reread(document: PdfDocument) {
         if (state.value.formFields == null) return
-        val (result, allowed) = withContext(session.compute) { document.formFields() to document.formFillAllowed() }
+        val (result, allowed, authoring) = withContext(session.compute) {
+            Triple(document.formFields(), document.formFillAllowed(), document.formAuthoringAllowed())
+        }
         // Closed, or replaced by another document's, while the core answered.
-        if (state.value.formFields == null || session.document !== document) return
+        val panel = state.value.formFields ?: return
+        if (session.document !== document) return
         when (result) {
-            is PdfCoreResult.Success -> state.value = state.value.copy(formFields = FormFieldsState(result.value, allowed, loaded = true))
+            is PdfCoreResult.Success -> {
+                val armed = panel.armed?.takeIf { authoring && (it !is FormFieldTap.Move || result.value.any { field -> field.id == it.fieldId }) }
+                state.value = state.value.copy(formFields = FormFieldsState(result.value, allowed, authoring, armed, loaded = true))
+            }
             // Not loaded: "no form fields" would be a claim the core never made.
             is PdfCoreResult.Failure -> state.value = state.value.copy(
-                formFields = FormFieldsState(fillAllowed = allowed),
+                formFields = FormFieldsState(fillAllowed = allowed, authoringAllowed = authoring),
                 status = userMessage(result.error),
             )
         }

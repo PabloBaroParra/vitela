@@ -210,6 +210,8 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
             FormFieldActions(
                 onToggle = { if (viewModel.state.value.formFields == null) viewModel.openFormFields() else viewModel.closeFormFields() },
                 onFill = viewModel::fillFormField,
+                onArm = viewModel::armFormField,
+                onPageTap = viewModel::tapFormField,
             )
         },
         contentEdit = remember(viewModel) {
