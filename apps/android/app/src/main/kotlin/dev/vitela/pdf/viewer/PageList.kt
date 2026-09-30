@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -70,6 +71,7 @@ internal fun PageList(
     onScrollTargetConsumed: () -> Unit,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
+    contentEdit: ContentEditActions,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -127,6 +129,7 @@ internal fun PageList(
                         state = state,
                         onAnnotationGesture = onAnnotationGesture,
                         textSelection = textSelection,
+                        contentEdit = contentEdit,
                     )
                 }
             }
@@ -143,6 +146,7 @@ private fun PageSlot(
     state: ViewerState,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
+    contentEdit: ContentEditActions,
 ) {
     val haptics = LocalHapticFeedback.current
     var origin by remember { mutableStateOf<AnnotationPoint?>(null) }
@@ -151,6 +155,9 @@ private fun PageSlot(
     var pageWidthPx by remember { mutableStateOf(0) }
         val density = LocalDensity.current.density.toDouble()
         val pageIndex = pageNumber - 1
+        // Edit text claims every tap on the page, and nothing else: no drag-select, no annotation drag.
+        val contentMode = state.contentEdit != null
+        LaunchedEffect(pageIndex, contentMode) { if (contentMode) contentEdit.onPageShown(pageIndex) }
         Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -186,24 +193,25 @@ private fun PageSlot(
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { pageWidthPx = it.width }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId) {
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, contentMode) {
                         detectTapGestures(
                             // In pointer mode a long-press belongs to text
                             // selection below. Declaring it here is what stops
                             // the finger lifting from also counting as a tap,
                             // which would clear the selection it just made.
-                            onLongPress = if (state.activeAnnotationTool == AnnotationTool.Pointer) ({ }) else null,
+                            onLongPress = if (state.activeAnnotationTool == AnnotationTool.Pointer && !contentMode) ({ }) else null,
                         ) { offset ->
                             val tap = point(offset)
-                            onAnnotationGesture(pageIndex, tap, tap, emptyList(), handleReachPoints(HANDLE_REACH_DP, density, scale))
+                            val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
+                            if (contentMode) contentEdit.onTap(pageIndex, tap, reach) else onAnnotationGesture(pageIndex, tap, tap, emptyList(), reach)
                         }
                     }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool) {
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, contentMode) {
                         // Long-press, then drag: the Android text-selection
                         // gesture. A plain drag stays the list's scroll — it
                         // moves past touch slop before the long-press fires,
                         // which cancels this detector.
-                        if (state.activeAnnotationTool != AnnotationTool.Pointer) return@pointerInput
+                        if (state.activeAnnotationTool != AnnotationTool.Pointer || contentMode) return@pointerInput
                         detectDragGesturesAfterLongPress(
                             onDragStart = { offset ->
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -217,7 +225,8 @@ private fun PageSlot(
                             onDragCancel = textSelection.onEnd,
                         )
                     }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId) {
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, contentMode) {
+                        if (contentMode) return@pointerInput
                         val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -250,6 +259,17 @@ private fun PageSlot(
                         }
                     },
             ) {
+                // Solid where the run keeps its font, dashed where a retype swaps in a standard one:
+                // otherwise nothing tells the two apart before the reader has typed.
+                state.contentEdit?.runs?.get(pageIndex)?.forEach { run ->
+                    val bounds = run.bounds
+                    drawRect(
+                        if (run.substitutesFont) Color(0x99AA5ADC) else Color(0x992878EB),
+                        Offset(bounds.x.toFloat() * screenScale, (size.heightPt - bounds.y - bounds.height).toFloat() * screenScale),
+                        androidx.compose.ui.geometry.Size(bounds.width.toFloat() * screenScale, bounds.height.toFloat() * screenScale),
+                        style = Stroke(2f, pathEffect = if (run.substitutesFont) PathEffect.dashPathEffect(floatArrayOf(6f, 4f)) else null),
+                    )
+                }
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->
                     drawRect(
                         Color(0x553373E6),

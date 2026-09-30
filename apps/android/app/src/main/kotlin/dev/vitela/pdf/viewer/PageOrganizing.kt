@@ -35,6 +35,7 @@ internal class PageOrganizing(
         state.value = state.value.copy(
             organize = OrganizeState(),
             formFields = null,
+            contentEdit = null,
             selectedAnnotationId = null,
             activeAnnotationTool = AnnotationTool.Pointer,
             status = "Move, turn, delete or add pages. Each change is one undo step.",

@@ -200,6 +200,31 @@ once the session has edited its pages. A thumbnail is a small render taken on
 demand as its card scrolls into view; a moved page keeps its picture and only a
 turned one is rendered again.
 
+## Edit text
+
+**Edit text** arms a mode in which a tap on a line of text the page itself
+paints opens it in a dialog for retyping
+([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
+The run keeps its position and its font; **Retype** queues one undoable entry
+in the shared edit log. While armed, the mode claims every page tap — an armed
+annotation tool and a text selection are dropped, and choosing a tool leaves
+the mode. It is not offered over the Organize grid.
+
+Each page's runs come from the core's `read_page_content` as the page is
+shown, and are outlined: solid where the font is kept, dashed where it is a
+composite (CID) font the core cannot re-encode, whose retype uses a standard
+font instead (`ReplaceTextRunWithInsertedFont`) — the dialog says so before
+anything is typed. The core reports pending retypes in that read, so a retyped
+run keeps its id and shows its new text, and retyping it again amends the
+queued command rather than stacking another.
+
+Only the renderer can paint the new words, so a retype rebuilds the preview
+and the page redraws, like a form fill; undo and redo redraw and re-read the
+runs. The gate is `content_editing_allowed`, as on Windows. A character the
+run's font cannot show is refused by name and the dialog stays open with what
+was typed. Unlike the Windows shell, which writes as the reader types, a
+retype is committed once, from the dialog.
+
 ## Native prerequisite
 
 PDFium is an external runtime prerequisite. This repository does **not** vendor,

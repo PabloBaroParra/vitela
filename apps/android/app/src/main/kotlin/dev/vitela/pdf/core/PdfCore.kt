@@ -82,6 +82,17 @@ interface PdfDocument : AutoCloseable {
      * the next [saveToBytes]. The page shows it only after [refreshPreview].
      */
     fun setFormFieldValue(fieldId: Long, value: FormFieldValue): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Form fields are unavailable in this PDF core."))
+    /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
+    fun contentEditingAllowed(): Boolean = false
+    /** The text runs page [pageIndex] paints, pending retypes included; refused when the document forbids text extraction. */
+    fun pageTextRuns(pageIndex: Int): PdfCoreResult<List<ContentTextRun>> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable change to what [run] says, keeping its position; a
+     * composite-font run is retyped in a standard font instead. A second retype
+     * of the same run amends the queued one. The page shows it only after
+     * [refreshPreview]; the failure names a character the font cannot show.
+     */
+    fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */

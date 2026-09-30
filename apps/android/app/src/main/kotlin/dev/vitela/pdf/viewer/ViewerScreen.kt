@@ -102,6 +102,7 @@ internal fun ViewerScreen(
     onProtectDismiss: () -> Unit,
     organize: OrganizeActions,
     formFields: FormFieldActions,
+    contentEdit: ContentEditActions,
 ) {
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -155,6 +156,8 @@ internal fun ViewerScreen(
             Button(onClick = organize.onToggle, enabled = state.pageCount > 0) { Text(if (state.organize != null) "Done" else "Organize") }
             // Not over the grid: it hides the pages a fill redraws.
             Button(onClick = formFields.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text("Form fields") }
+            // Same reason: the grid hides the pages a retype redraws.
+            Button(onClick = contentEdit.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text(if (state.contentEdit != null) "Done editing" else "Edit text") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -217,6 +220,7 @@ internal fun ViewerScreen(
                 textSelection = remember(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd) {
                     TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd)
                 },
+                contentEdit = contentEdit,
                 modifier = Modifier.fillMaxSize(),
             )
             // Mirrors the WinUI empty state and the GTK4 shell's overlay mark:
@@ -260,6 +264,9 @@ internal fun ViewerScreen(
             confirmButton = { Button(onClick = { onPassword(password); password = "" }) { Text("Open") } },
             dismissButton = { TextButton(onClick = cancel) { Text("Cancel") } },
         )
+    }
+    state.contentEdit?.editor?.let { editor ->
+        TextRunEditorDialog(editor, state.documentId, contentEdit)
     }
     state.metadataEditor?.let { editor ->
         MetadataDialog(editor, onChange = onMetadataChange, onApply = onMetadataApply, onDismiss = onMetadataDismiss)

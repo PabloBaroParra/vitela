@@ -37,7 +37,7 @@ internal class PageLayout(
         editedDocumentId = state.value.documentId
     }
 
-    /** The document whose page *appearance* this session has edited — a filled field — latched like [edited]. */
+    /** The document whose page *appearance* this session has edited — a filled field, a retyped run — latched like [edited]. */
     private var redrawnDocumentId = -1L
 
     /**
