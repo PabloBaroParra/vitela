@@ -58,6 +58,13 @@ Press Enter in the search box to run the same search as **Find**.
 The search box indicates that matching is case-sensitive; while a query runs,
 the status names it, and an unsuccessful search reports which query found no matches.
 
+**Resize image** lists the content images on the page at the top of the viewport.
+Choose an image and enter its width and height in PDF points; its origin stays
+fixed. Resource images and inline images use the same Rust resize command.
+Dimensions must be finite and positive. The edit requires content-edit permission
+and a document that can be fully rewritten; it refreshes the preview and supports
+undo/redo. Save to keep the change. Reopen the dialog after any intervening edit.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names

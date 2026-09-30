@@ -3,6 +3,9 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("resizes resource and inline images through preview and history", ResizesContentImagesAsync),
+    ("rejects invalid, stale and forbidden image resizing", RefusesInvalidImageResizingAsync),
+    ("keeps a resized image undoable after preview failure", KeepsImageResizeAfterPreviewFailureAsync),
     ("maps typed password failures without diagnostics", MapsTypedPasswordFailureAsync),
     ("flags password failures as recoverable, others not", FlagsPasswordFailuresAsRecoverableAsync),
     ("maps selected-file read failures to user-safe results", MapsReadFailureAsync),
@@ -2696,6 +2699,62 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
 }
 
+static async Task ResizesContentImagesAsync()
+{
+    foreach (var resource in new string?[] { "Im1", null })
+    {
+        var source = new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), resource);
+        var core = new FakeCore { PageImages = [source] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+        var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+        var unchanged = await facade.ResizeImageAsync(session.SessionId, image, 100, 50);
+        Assert(unchanged.IsSuccess && core.ImageEdits.Count == 0, "unchanged dimensions must not enter history");
+        var resized = await facade.ResizeImageAsync(session.SessionId, image, 200, 75);
+        Assert(resized.IsSuccess && resized.Value!.CanUndo && core.RefreshPreviewCalls == 1, "resizing must refresh the preview and enter history");
+        Assert(core.ImageEdits[0].Item == source && core.ImageEdits[0].Rect == new PdfCoreRect(20, 30, 200, 75), "the original identity and resource/inline source must survive; the origin must stay fixed");
+        await facade.UndoAsync(session.SessionId);
+        await facade.RedoAsync(session.SessionId);
+        Assert(core.RefreshPreviewCalls == 3, "undo and redo must rebuild the painted PDF");
+    }
+}
+
+static async Task RefusesInvalidImageResizingAsync()
+{
+    var core = new FakeCore { PageImages = [new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), "Im1")] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    foreach (var (width, height) in new[] { (0d, 50d), (-1d, 50d), (double.NaN, 50d), (100d, double.PositiveInfinity) })
+        Assert(!(await facade.ResizeImageAsync(session.SessionId, image, width, height)).IsSuccess, "invalid dimensions must be refused");
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.ResizeImageAsync(session.SessionId, image, 200, 75)).IsSuccess, "content permission must be checked at submission");
+    Assert(!(await facade.PageImagesAsync(session.SessionId, 0)).IsSuccess, "forbidden content must not be offered");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.ResizeImageAsync(session.SessionId, image, 200, 75)).IsSuccess, "an unwritable content edit must be refused");
+    core.LastDocument.FullRewriteAllowed = true;
+    Assert(core.ImageEdits.Count == 0 && core.RefreshPreviewCalls == 0, "refusals must not record or refresh");
+    await facade.ResizeImageAsync(session.SessionId, image, 200, 75);
+    Assert(!(await facade.ResizeImageAsync(session.SessionId, image, 300, 80)).IsSuccess, "a snapshot preceding an edit must be refused");
+    await facade.UndoAsync(session.SessionId);
+    Assert(!(await facade.ResizeImageAsync(session.SessionId, image, 300, 80)).IsSuccess, "undo must not revive an old snapshot");
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.ResizeImageAsync(other.SessionId, image, 300, 80)).IsSuccess, "another session must not accept the same image id");
+    Assert(!(await facade.ResizeImageAsync(session.SessionId, image, 300, 80)).IsSuccess, "a retired session must be refused");
+    Assert(core.ImageEdits.Count == 1, "stale snapshots must never record another edit");
+}
+
+static async Task KeepsImageResizeAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { PageImages = [new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), null)], RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    var result = await facade.ResizeImageAsync(session.SessionId, image, 200, 75);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.ImageEdits.Count == 1, "a preview failure must report failure while retaining the undoable edit");
+}
+
 static async Task RefusesAFillForAMissingFieldAsync()
 {
     var core = new FakeCore { FormFields = SampleFormFields() };
@@ -3245,11 +3304,13 @@ sealed class FakeCore : IPdfCore
 
     public System.Collections.Concurrent.ConcurrentQueue<uint> PageContentReads { get; } = new();
     public int RefreshPreviewCalls;
+    public IReadOnlyList<PdfCoreContentImage> PageImages { get; init; } = [];
+    public List<PdfCoreEdit.ResizeImage> ImageEdits { get; } = [];
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
         PageContentReads.Enqueue(pageIndex);
-        return new PdfCorePageContent([.. PageTextRuns.Select(run => run with { PageIndex = pageIndex })], []);
+        return new PdfCorePageContent([.. PageTextRuns.Select(run => run with { PageIndex = pageIndex })], PageImages);
     }
 
     /// <summary>What <see cref="PageFontFamilies"/> reports, keyed by resource name.</summary>
@@ -3290,6 +3351,13 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.ResizeImage resizeImage)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            ImageEdits.Add(resizeImage);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.ReplaceTextRun replacement)
         {
             // The real core refuses the whole command before recording it, so

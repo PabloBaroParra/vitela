@@ -481,6 +481,7 @@ public sealed partial class MainWindow
         // `state` only for the part they share — a blanked toolbar means the
         // shell is busy or has no document, and nothing may be armed then.
         ContentEditButton.IsEnabled = state is not null && _session?.ContentEditingAllowed == true && !_organizing;
+        ResizeImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         HighlightButton.IsEnabled = enabled;
         UnderlineButton.IsEnabled = enabled;
         StrikeoutButton.IsEnabled = enabled;
