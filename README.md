@@ -174,7 +174,7 @@ Windows no longer omits editing: its first vertical closed in B10 (password
 prompt, annotations with undo/redo, save, print, shortcuts), and retyping a
 text run on the page itself — the Linux shell's content-edit mode, reached
 through the FFI instead of a direct crate link — is now wired up as well. The
-image tools are still broader on Linux; Windows can resize existing content
+image tools are still broader on Linux; Windows can move and resize existing content
 images through a dialog on the visible page. Windows exports pages as PNG or
 JPEG with the same page ranges and DPI range as Linux, and extracts a chosen
 range of pages into a new PDF the same way, sharing the core's page-pruning
