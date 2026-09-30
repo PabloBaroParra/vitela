@@ -27,8 +27,8 @@ data class ContentTextRun(
  * and reports the box it now fills. [resourceName] is its `/XObject` name, or null
  * for an inline image; [bounds] are in PDF points.
  *
- * Handed back unchanged to [PdfDocument.resizeImage] and
- * [PdfDocument.moveImage], like a [ContentTextRun].
+ * Handed back unchanged to [PdfDocument.resizeImage],
+ * [PdfDocument.moveImage] and [PdfDocument.removeImage], like a [ContentTextRun].
  */
 data class ContentImage(
     val id: Long,

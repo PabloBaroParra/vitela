@@ -12,8 +12,8 @@ import kotlinx.coroutines.withContext
 /**
  * Edit content: retyping a line of text the page itself paints, keeping its
  * position and — unless it is a composite font — its font; resizing an image
- * it paints, keeping its top-left corner; and moving one, keeping its size.
- * Each is one undoable entry in the shared edit log.
+ * it paints, keeping its top-left corner; moving one, keeping its size; and
+ * deleting one. Each is one undoable entry in the shared edit log.
  *
  * Nothing is drawn in place of the words or the picture: only the renderer can
  * paint them, so an edit rebuilds the preview and the page re-renders showing
@@ -217,6 +217,38 @@ internal class ContentEditing(
                         if (now.resizer?.image != image) return@withLock
                         state.value = state.value.copy(contentEdit = now.copy(resizer = resizer.copy(width = width, height = height, error = userMessage(result.error))))
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Deletes the open dialog's image, for the document [documentId] the
+     * dialog was built for. The dialog is spent before the core answers, like
+     * an armed move: a second tap on Delete finds nothing open. A refusal is
+     * reported in the status line — there is nothing typed to keep.
+     */
+    fun delete(documentId: Long) {
+        val openDocument = session.document ?: return
+        if (documentId != state.value.documentId) return
+        val mode = state.value.contentEdit ?: return
+        val image = mode.resizer?.image ?: return
+        state.value = state.value.copy(contentEdit = mode.copy(resizer = null))
+        session.scope.launch {
+            session.documentLane.withLock {
+                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
+                when (val result = withContext(session.compute) { openDocument.removeImage(image) }) {
+                    is PdfCoreResult.Success -> {
+                        layout.markRedrawn()
+                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+                        // The delete sits in the shared log: Undo must light up.
+                        annotations.refresh(openDocument)
+                        val redrawn = layout.redraw(openDocument)
+                        // The core no longer reports the image, so its outline goes too.
+                        read(openDocument, image.pageIndex)
+                        if (redrawn) state.value = state.value.copy(status = IMAGE_DELETED)
+                    }
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                 }
             }
         }

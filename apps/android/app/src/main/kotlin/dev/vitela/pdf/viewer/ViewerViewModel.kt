@@ -319,6 +319,8 @@ class ViewerViewModel(
     /** Swaps the resize dialog for an armed move of its image; [documentId] is the document the dialog was built for. */
     fun armImageMove(documentId: Long) = contentEditing.armMove(documentId)
     fun cancelImageMove() = contentEditing.cancelMove()
+    /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
+    fun deleteImage(documentId: Long) = contentEditing.delete(documentId)
 
     // Annotations
     /** One mode claims a page tap at a time: choosing a tool leaves Edit text and disarms the form. */

@@ -9,9 +9,10 @@ import kotlin.math.max
 
 /**
  * Edit content mode: a tap on a line of text the page itself paints opens it
- * for retyping, a tap on an image it paints opens it for resizing or moving. [runs] and
- * [images] hold each page's content as last read — only pages that were shown
- * or tapped — so the outlines describe what the page now shows.
+ * for retyping, a tap on an image it paints opens it for resizing, moving or
+ * deleting. [runs] and [images] hold each page's content as last read — only
+ * pages that were shown or tapped — so the outlines describe what the page
+ * now shows.
  */
 data class ContentEditState(
     val runs: Map<Int, List<ContentTextRun>> = emptyMap(),
@@ -57,9 +58,9 @@ sealed interface ContentTarget {
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap text to retype it, or an image to resize or move it."
+internal const val CONTENT_EDIT_ARMED = "Tap text to retype it, or an image to resize, move or delete it."
 internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype it, or an image to resize or move it."
+internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype it, or an image to resize, move or delete it."
 internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
 internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
 internal const val IMAGE_RESIZED = "Image resized. Save to keep the change."
@@ -67,6 +68,7 @@ internal const val IMAGE_SIZE_INVALID = "Image dimensions must be finite and gre
 internal const val IMAGE_MOVED = "Image moved. Save to keep the change."
 internal const val IMAGE_POSITION_UNCHANGED = "Image position unchanged."
 internal const val IMAGE_MOVE_CANCELLED = "Move cancelled."
+internal const val IMAGE_DELETED = "Image deleted. Save to keep the change."
 
 /** What an armed move asks for; the image stays on its own page. */
 internal fun imageMovePrompt(pageIndex: Int) = "Tap page ${pageIndex + 1} where the image's top-left corner should go."
