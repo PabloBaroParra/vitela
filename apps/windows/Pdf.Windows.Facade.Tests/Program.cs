@@ -4,6 +4,9 @@ using Pdf.Windows.Viewer;
 var tests = new (string Name, Func<Task> Run)[]
 {
     ("deletes text without font substitution through preview and history", DeletesContentTextAsync),
+    ("moves text preserving its source and shared history", MovesContentTextAsync),
+    ("rejects invalid and stale text movement", RefusesInvalidTextMovementAsync),
+    ("keeps text movement undoable after preview failure", KeepsTextMovementAfterPreviewFailureAsync),
     ("rejects stale and forbidden text deletion", RefusesInvalidTextDeletionAsync),
     ("keeps text deletion undoable after preview failure", KeepsTextDeletionAfterPreviewFailureAsync),
     ("deletes resource and inline images through preview and history", DeletesContentImagesAsync),
@@ -2716,7 +2719,7 @@ static async Task DeletesContentTextAsync()
         var core = new FakeCore { PageTextRuns = [source] };
         using var facade = new PdfDocumentFacade(core, new RecordingLogger());
         var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
-        var run = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+        var run = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
         var deleted = await facade.RemoveTextRunAsync(session.SessionId, run);
         Assert(deleted.IsSuccess && deleted.Value!.CanUndo && core.RefreshPreviewCalls == 1, "deletion must refresh and enter history");
         Assert(core.TextRemovals.Single().Item == source && core.SubstitutionEdits.Count == 0, "deletion must preserve the original run without substituting its font");
@@ -2727,16 +2730,76 @@ static async Task DeletesContentTextAsync()
     }
 }
 
+static async Task MovesContentTextAsync()
+{
+    foreach (var kind in Enum.GetValues<PdfCoreFontKind>())
+    {
+        var source = new PdfCoreContentTextRun(7, 0, new PdfCoreRect(100, 700, 120, 12), "F1", kind, "Hello world");
+        var core = new FakeCore { PageTextRuns = [source] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+        var run = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
+        Assert((await facade.MoveTextRunAsync(session.SessionId, run, 100, 700)).IsSuccess
+            && core.TextMoves.Count == 0 && core.RefreshPreviewCalls == 0, "unchanged coordinates must not enter history");
+        var moved = await facade.MoveTextRunAsync(session.SessionId, run, -20, 0);
+        Assert(moved.IsSuccess && moved.Value!.CanUndo && core.RefreshPreviewCalls == 1, "moving must record and refresh");
+        Assert(core.TextMoves.Single().Item == source && core.TextMoves.Single().To == source.Bbox with { X = -20, Y = 0 }
+            && core.SubstitutionEdits.Count == 0, "moving must preserve text, font, dimensions and source identity");
+        Assert(!(await facade.MoveTextRunAsync(session.SessionId, run, 10, 20)).IsSuccess, "a used target must become stale");
+        Assert((await facade.UndoAsync(session.SessionId)).Value!.CanRedo, "movement must be undoable");
+        Assert(!(await facade.MoveTextRunAsync(session.SessionId, run, 10, 20)).IsSuccess, "undo must not revive a target");
+        Assert((await facade.RedoAsync(session.SessionId)).Value!.CanUndo && core.RefreshPreviewCalls == 3, "redo must refresh");
+    }
+}
+
+static async Task RefusesInvalidTextMovementAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    var run = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
+    foreach (var value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+    {
+        Assert(!(await facade.MoveTextRunAsync(session.SessionId, run, value, 0)).IsSuccess, "nonfinite X must be refused");
+        Assert(!(await facade.MoveTextRunAsync(session.SessionId, run, 0, value)).IsSuccess, "nonfinite Y must be refused");
+    }
+    var inline = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns[0];
+    Assert(!(await facade.MoveTextRunAsync(session.SessionId, inline, 0, 0)).IsSuccess, "unbound editor targets must be refused");
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.MoveTextRunAsync(session.SessionId, run, 0, 0)).IsSuccess, "submission must recheck permissions");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.MoveTextRunAsync(session.SessionId, run, 0, 0)).IsSuccess, "unwritable documents must be refused");
+    core.LastDocument.FullRewriteAllowed = true;
+    await facade.ReplaceTextRunAsync(session.SessionId, inline, "Changed");
+    Assert(!(await facade.MoveTextRunAsync(session.SessionId, run, 0, 0)).IsSuccess, "retyping must invalidate movement targets");
+    var fresh = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.MoveTextRunAsync(other.SessionId, fresh, 0, 0)).IsSuccess, "another session must reject the target");
+    Assert(!(await facade.MoveTextRunAsync(session.SessionId, fresh, 0, 0)).IsSuccess, "retired sessions must reject movement");
+    Assert(core.TextMoves.Count == 0, "refusals must not record movement");
+}
+
+static async Task KeepsTextMovementAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    var run = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
+    var result = await facade.MoveTextRunAsync(session.SessionId, run, 10, 20);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.TextMoves.Count == 1, "preview failure must retain undoable movement");
+}
+
 static async Task RefusesInvalidTextDeletionAsync()
 {
     var core = new FakeCore();
     using var facade = new PdfDocumentFacade(core, new RecordingLogger());
     var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
-    var run = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+    var run = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
     var inlineRun = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns[0];
     Assert(!(await facade.RemoveTextRunAsync(session.SessionId, inlineRun)).IsSuccess, "an inline-editor run is not a revision-bound deletion target");
     core.LastDocument!.ContentEditingAllowed = false;
-    Assert(!(await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).IsSuccess, "reading deletion targets must check permission");
+    Assert(!(await facade.PageTextEditTargetsAsync(session.SessionId, 0)).IsSuccess, "reading deletion targets must check permission");
     Assert(!(await facade.RemoveTextRunAsync(session.SessionId, run)).IsSuccess, "submission must check permission again");
     core.LastDocument.ContentEditingAllowed = true;
     core.LastDocument.FullRewriteAllowed = false;
@@ -2745,7 +2808,7 @@ static async Task RefusesInvalidTextDeletionAsync()
     Assert(core.TextRemovals.Count == 0 && core.RefreshPreviewCalls == 0, "refusals must not record or refresh");
     await facade.ReplaceTextRunAsync(session.SessionId, inlineRun, "Updated text");
     Assert(!(await facade.RemoveTextRunAsync(session.SessionId, run)).IsSuccess, "intervening retyping must invalidate the deletion target");
-    var fresh = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+    var fresh = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
     var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
     Assert(!(await facade.RemoveTextRunAsync(other.SessionId, fresh)).IsSuccess, "another session must not accept the same run id");
     Assert(!(await facade.RemoveTextRunAsync(session.SessionId, fresh)).IsSuccess, "a retired session must be refused");
@@ -2757,7 +2820,7 @@ static async Task KeepsTextDeletionAfterPreviewFailureAsync()
     var core = new FakeCore { RefreshPreviewThrows = true };
     using var facade = new PdfDocumentFacade(core, new RecordingLogger());
     var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
-    var run = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+    var run = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
     var result = await facade.RemoveTextRunAsync(session.SessionId, run);
     Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.TextRemovals.Count == 1, "preview failure must retain the undoable deletion");
 }
@@ -3483,6 +3546,7 @@ sealed class FakeCore : IPdfCore
     public List<PdfCoreEdit.MoveImage> ImageMoves { get; } = [];
     public List<PdfCoreEdit.RemoveImage> ImageRemovals { get; } = [];
     public List<PdfCoreEdit.RemoveTextRun> TextRemovals { get; } = [];
+    public List<PdfCoreEdit.MoveTextRun> TextMoves { get; } = [];
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
@@ -3528,6 +3592,13 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.MoveTextRun moveText)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            TextMoves.Add(moveText);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.RemoveTextRun removeText)
         {
             if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");

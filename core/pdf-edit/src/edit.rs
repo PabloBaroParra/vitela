@@ -380,7 +380,7 @@ pub fn remove_text_run(
     splice(document, destination, &stream, span, &replacement)
 }
 
-/// Copies only the targeted stream occurrence before deletion. `/Contents`
+/// Copies only the targeted stream occurrence before editing. `/Contents`
 /// streams can be shared by pages, or repeated within one page's array.
 fn own_page_stream(
     document: &mut Document,
@@ -516,8 +516,12 @@ pub fn move_text_run(
     }
 
     let span = target.operation_span.clone();
-    let scope = own_scope(document, page_object, &target.form_path, &stream)?;
-    splice(document, scope.stream_object, &stream, span, &replacement)
+    let destination = if target.form_path.is_empty() {
+        own_page_stream(document, page_object, target.stream_index, stream.object_id)?
+    } else {
+        own_scope(document, page_object, &target.form_path, &stream)?.stream_object
+    };
+    splice(document, destination, &stream, span, &replacement)
 }
 
 /// `a b c d e f Tm `, trailing space included so operands never run together.
@@ -1518,6 +1522,78 @@ mod tests {
     use pdf_document::{ContentItemId, PageContent, PageId};
 
     const HELLO: &[u8] = b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET";
+
+    #[test]
+    fn moving_text_from_shared_contents_preserves_the_other_page() {
+        for array in [false, true] {
+            let (mut document, page) = text_document(HELLO);
+            let contents = document
+                .get_dictionary(page)
+                .unwrap()
+                .get(b"Contents")
+                .unwrap()
+                .clone();
+            let shared_id = contents.as_reference().unwrap();
+            if array {
+                document
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("Contents", vec![contents]);
+            }
+            let sibling = document.get_dictionary(page).unwrap().clone();
+            let parent = sibling.get(b"Parent").unwrap().as_reference().unwrap();
+            let sibling_id = document.add_object(sibling);
+            document
+                .get_dictionary_mut(parent)
+                .unwrap()
+                .set("Kids", vec![page.into(), sibling_id.into()]);
+            document.get_dictionary_mut(parent).unwrap().set("Count", 2);
+            let original_stream = document.get_object(shared_id).unwrap().clone();
+            let target = run(&document, 0);
+            let to = Rect {
+                x: 40.0,
+                y: 500.0,
+                ..target.bbox
+            };
+
+            move_text_run(&mut document, page, &target, to).unwrap();
+
+            assert!((run(&document, 0).bbox.x - to.x).abs() < 1e-6);
+            assert!((run(&document, 0).bbox.y - to.y).abs() < 1e-6);
+            let sibling_run = &read_page_content(&document, PageId(1)).unwrap().text_runs[0];
+            assert_eq!(sibling_run.bbox, target.bbox);
+            assert_eq!(sibling_run.text, target.text);
+            assert_eq!(document.get_object(shared_id).unwrap(), &original_stream);
+        }
+    }
+
+    #[test]
+    fn moving_text_from_a_repeated_stream_edits_only_one_occurrence() {
+        let (mut document, page) = text_document(HELLO);
+        let contents = document
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap()
+            .clone();
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Contents", vec![contents.clone(), contents]);
+        let untouched = run(&document, 0);
+        let target = run(&document, 1);
+        let to = Rect {
+            x: 40.0,
+            y: 500.0,
+            ..target.bbox
+        };
+
+        move_text_run(&mut document, page, &target, to).unwrap();
+
+        assert_eq!(run(&document, 0), untouched);
+        assert!((run(&document, 1).bbox.x - to.x).abs() < 1e-6);
+        assert!((run(&document, 1).bbox.y - to.y).abs() < 1e-6);
+    }
 
     #[test]
     fn removing_text_from_shared_contents_preserves_the_other_page() {
