@@ -125,4 +125,30 @@ class ContentEditTest {
     fun aMovedImageMayHangOffThePage() {
         assertEquals(AnnotationRect(-5.0, -25.0, 30.0, 30.0), movedImageRect(AnnotationRect(10.0, 20.0, 30.0, 30.0), AnnotationPoint(-5.0, 5.0)))
     }
+
+    @Test
+    fun aNewLineHangsBelowTheTapAtItsSize() {
+        // The core reads the left edge, the bottom edge and the height — the font size.
+        assertEquals(AnnotationRect(50.0, 160.0, 20.0, 20.0), insertedTextRect(AnnotationPoint(50.0, 180.0), 20.0))
+    }
+
+    @Test
+    fun aNewLineIsBetweenOneAndSeventyTwoPoints() {
+        val at = AnnotationPoint(50.0, 180.0)
+
+        assertEquals(1.0, insertedTextRect(at, 1.0)?.height)
+        assertEquals(72.0, insertedTextRect(at, 72.0)?.height)
+        assertNull(insertedTextRect(at, 0.5))
+        assertNull(insertedTextRect(at, 72.5))
+        assertNull(insertedTextRect(at, Double.NaN))
+    }
+
+    @Test
+    fun onlyOneNonBlankLineIsInsertable() {
+        assertTrue(insertableText("Hello"))
+        assertFalse(insertableText(""))
+        assertFalse(insertableText("   "))
+        assertFalse(insertableText("two\nlines"))
+        assertFalse(insertableText("two\rlines"))
+    }
 }

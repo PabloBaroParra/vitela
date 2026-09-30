@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.ContentFontKind
@@ -17,7 +18,9 @@ import dev.vitela.pdf.core.SearchHit
  * A two-page document whose pages paint text runs: "Hello" and "World" on
  * page 0 — the second in a composite font the core substitutes — and
  * "Page two" on page 1. Page 0 also paints one image, clear of both runs.
- * Every retype, text delete, resize, move and image delete is undoable, like the core's.
+ * Every retype, text delete, insert, resize, move and image delete is
+ * undoable, like the core's. An inserted image is placed the way the core
+ * places one: 40 by 20 points, its top-left corner on the anchor.
  *
  * Like the core, a re-read reports a retyped run under its original id with
  * the text it now shows — a resized or moved image with the box it now fills — and
@@ -49,6 +52,11 @@ internal class RetypableDocument(
     val moves = mutableListOf<Pair<ContentImage, AnnotationRect>>()
     /** Each delete the core accepted: the image as the shell sent it. */
     val deletes = mutableListOf<ContentImage>()
+    /** Each text insert the core accepted: the page, the text and the box sent. */
+    val inserts = mutableListOf<Triple<Int, String, AnnotationRect>>()
+    /** Each image insert the core accepted: the page, the bytes and the box sent. */
+    val imageInserts = mutableListOf<Triple<Int, ByteArray, AnnotationRect>>()
+    private var nextId = 100L
     val drawn = mutableListOf<Pair<Int, List<String>>>()
     val reads = mutableListOf<Int>()
     private var preview = runs
@@ -109,6 +117,25 @@ internal class RetypableDocument(
         refusal?.let { return PdfCoreResult.Failure(it) }
         deletes += image
         record { images = images.filter { it.id != image.id } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun insertTextRun(pageIndex: Int, text: String, bounds: AnnotationRect): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        inserts += Triple(pageIndex, text, bounds)
+        val run = ContentTextRun(nextId++, pageIndex, bounds, "FIns", ContentFontKind.Standard14, text)
+        record { runs = runs + run }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun stampPlacement(imageBytes: ByteArray, anchor: AnnotationPoint): PdfCoreResult<AnnotationRect> =
+        PdfCoreResult.Success(AnnotationRect(anchor.x, anchor.y - 20.0, 40.0, 20.0))
+
+    override fun insertImage(pageIndex: Int, imageBytes: ByteArray, bounds: AnnotationRect): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        imageInserts += Triple(pageIndex, imageBytes, bounds)
+        val image = ContentImage(nextId++, pageIndex, bounds, "ImIns")
+        record { images = images + image }
         return PdfCoreResult.Success(Unit)
     }
 

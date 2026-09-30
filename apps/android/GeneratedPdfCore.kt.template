@@ -1,5 +1,6 @@
 package dev.vitela.pdf.generated
 
+import java.util.UUID
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreFactory
@@ -365,6 +366,41 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    // A new line gets a Helvetica resource of its own. The core reuses a font
+    // already registered under the name it is given, so the name must be one
+    // the page does not declare — checked against every declared font, used
+    // or not — and random, so two queued inserts, invisible to that check,
+    // cannot share one either. The Windows shell's scheme.
+    override fun insertTextRun(pageIndex: Int, text: String, bounds: AnnotationRect): PdfCoreResult<Unit> = try {
+        val declared = handle.pageFontFamilies(pageIndex.toUInt())
+        var fontName: String
+        do { fontName = "VitelaText" + UUID.randomUUID().toString().replace("-", "") } while (fontName in declared)
+        ffiApplyEdit(handle, FfiEditCommand.InsertTextRun(FfiContentTextRun(0u, pageIndex.toUInt(), bounds.toFfi(), fontName, FfiFontKind.STANDARD14, text)))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.EncodingGap) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("Helvetica cannot show \"${error.character}\". Try different characters."))
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This text cannot be added here." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core refuses an XObject name the page already has rather than
+    // overwrite it; a random one also keeps queued inserts apart.
+    override fun insertImage(pageIndex: Int, imageBytes: ByteArray, bounds: AnnotationRect): PdfCoreResult<Unit> = try {
+        val name = "VitelaImage" + UUID.randomUUID().toString().replace("-", "")
+        ffiApplyEdit(handle, FfiEditCommand.InsertImage(FfiContentImageItem(0u, pageIndex.toUInt(), bounds.toFfi(), name), imageBytes))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.InvalidImage) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(NOT_AN_IMAGE))
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This image cannot be added here." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
     override fun documentInfo(): PdfCoreResult<DocumentInfo> = try {
         PdfCoreResult.Success(handle.readDocumentInfo().toDocumentInfo())
     } catch (error: Throwable) {
@@ -530,6 +566,8 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
 
     override fun stampPlacement(imageBytes: ByteArray, anchor: AnnotationPoint): PdfCoreResult<AnnotationRect> = try {
         PdfCoreResult.Success(ffiStampPlacement(imageBytes, anchor.x, anchor.y).toRect())
+    } catch (error: FfiException.InvalidImage) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(NOT_AN_IMAGE))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -657,6 +695,9 @@ private fun FfiRect.toRect() = AnnotationRect(x, y, width, height)
 private fun AnnotationRect.toFfi() = FfiRect(x, y, width, height)
 private fun FfiColor.toColor() = AnnotationColor(r.toInt(), g.toInt(), b.toInt())
 private fun AnnotationColor.toFfi() = FfiColor(red.toUByte(), green.toUByte(), blue.toUByte())
+
+/** Only PNG and JPEG decode; the picker cannot be narrowed to them on every device. */
+private const val NOT_AN_IMAGE = "This file is not a PNG or JPEG image."
 
 private fun Throwable.toPdfCoreError(): PdfCoreError = when (this) {
     is FfiException.PasswordRequired -> PdfCoreError.PasswordRequired

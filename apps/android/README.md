@@ -306,6 +306,30 @@ file as last saved (`validate_content_command`), so it refuses one on an image
 with a pending move or resize — "This image cannot be deleted."; save first.
 Replacing images is still Linux-only.
 
+**Add text** and **Add image** next to Done editing arm the next page tap for
+something new, painted as page content rather than as an annotation
+([`viewer/ContentInserting.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentInserting.kt)).
+The tap names the new item's top-left corner, as a moved image's — the Windows
+shell types coordinates instead, but a finger already points at the page. It
+claims the tap even over existing text, is spent by it, and **Cancel insert**
+disarms it; arming one drops an armed move or an open dialog. For text the tap
+opens a dialog for one line and its size, 1–72 pt, 14 by default; blank text,
+a size out of range, or a character Helvetica cannot show keeps the dialog open
+with what was typed. **Insert** queues `InsertTextRun` in a Helvetica resource
+of its own — a random name the page does not declare, since the core reuses a
+font already registered under the name it is given — and the core measures the
+line's width itself. For an image, **Add image** first picks a file through
+SAF; the tap then places it at the size the core's stamp placement policy
+gives it (`stamp_placement`, aspect ratio kept) and queues `InsertImage` under
+a random XObject name. A file that is not PNG or JPEG is refused by the
+placement, before anything is queued.
+
+Each insert is one undoable entry: it redraws the page and re-reads it, so the
+new line or image is outlined like any other. The gate is the same
+`content_editing_allowed`. The core checks every content edit against the file
+as last saved, where an inserted item does not exist yet, so retyping, moving,
+resizing or deleting one before a save is refused; save first, or Undo it.
+
 ## Native prerequisite
 
 PDFium is an external runtime prerequisite. This repository does **not** vendor,

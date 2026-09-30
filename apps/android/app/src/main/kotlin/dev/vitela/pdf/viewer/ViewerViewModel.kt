@@ -370,6 +370,14 @@ class ViewerViewModel(
     fun cancelImageMove() = contentEditing.images.cancelMove()
     /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
     fun deleteImage(documentId: Long) = contentEditing.images.delete(documentId)
+    /** Arms the next page tap to place a new line of text. */
+    fun armTextInsert() = contentEditing.inserts.armText()
+    /** Arms the next page tap to place the chosen image [bytes]. */
+    fun armImageInsert(bytes: ByteArray) = contentEditing.inserts.armImage(bytes)
+    fun cancelInsert() = contentEditing.inserts.cancel()
+    /** Inserts the open dialog's line as typed; [documentId] is the document the dialog was built for. */
+    fun insertText(documentId: Long, text: String, size: String) = contentEditing.inserts.insertText(documentId, text, size)
+    fun dismissTextInserter() = contentEditing.inserts.dismissInserter()
 
     // Annotations
     /** One mode claims a page tap at a time: choosing a tool leaves Edit text and disarms the form. */

@@ -161,6 +161,11 @@ internal fun ViewerScreen(
             // Same reason: the grid hides the pages a retype or an image edit redraws.
             Button(onClick = contentEdit.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text(if (state.contentEdit != null) "Done editing" else "Edit content") }
             if (state.contentEdit?.movingImage != null) TextButton(onClick = contentEdit.onCancelMove) { Text("Cancel move") }
+            if (state.contentEdit != null) {
+                TextButton(onClick = contentEdit.onAddText) { Text("Add text") }
+                TextButton(onClick = contentEdit.onAddImage) { Text("Add image") }
+            }
+            if (state.contentEdit?.adding != null) TextButton(onClick = contentEdit.onCancelInsert) { Text("Cancel insert") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
@@ -274,6 +279,9 @@ internal fun ViewerScreen(
     }
     state.contentEdit?.resizer?.let { resizer ->
         ImageResizerDialog(resizer, state.documentId, contentEdit)
+    }
+    state.contentEdit?.inserter?.let { inserter ->
+        TextInserterDialog(inserter, state.documentId, contentEdit)
     }
     state.metadataEditor?.let { editor ->
         MetadataDialog(editor, onChange = onMetadataChange, onApply = onMetadataApply, onDismiss = onMetadataDismiss)

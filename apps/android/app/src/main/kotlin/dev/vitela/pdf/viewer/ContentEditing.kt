@@ -26,8 +26,8 @@ import kotlinx.coroutines.withContext
  * amends the queued command instead of stacking another.
  *
  * This class owns the mode — arming it, reading pages, routing a tap and
- * landing an accepted edit. The edits themselves live in [TextRunEditing]
- * and [ImageEditing].
+ * landing an accepted edit. The edits themselves live in [TextRunEditing],
+ * [ImageEditing] and [ContentInserting].
  */
 internal class ContentEditing(
     private val session: ViewerSession,
@@ -45,6 +45,9 @@ internal class ContentEditing(
 
     /** Resizing, moving and deleting images. */
     val images = ImageEditing(session, this)
+
+    /** Adding new text and images. */
+    val inserts = ContentInserting(session, this)
 
     /**
      * Arms the mode. Not over the Organize grid, which hides the pages a
@@ -96,13 +99,14 @@ internal class ContentEditing(
     }
 
     /**
-     * A tap at [point] on page [pageIndex]: opens the run or image it meant,
-     * reading the page first if it has not been. [reach] is how far off an
+     * A tap at [point] on page [pageIndex]: places an armed insert or move,
+     * else opens the run or image it meant, reading the page first if it has not been. [reach] is how far off an
      * item, in points, a tap may land and still mean it.
      */
     fun tap(pageIndex: Int, point: AnnotationPoint, reach: Double) {
         val openDocument = session.document ?: return
         val armed = state.value.contentEdit ?: return
+        armed.adding?.let { addition -> return inserts.place(openDocument, addition, pageIndex, point) }
         armed.movingImage?.let { image -> return images.move(openDocument, image, pageIndex, point) }
         session.scope.launch {
             session.documentLane.withLock {
@@ -146,6 +150,7 @@ internal class ContentEditing(
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
         // An armed move holds the image as it was; it may no longer be there.
+        // An armed insert and its dialog hold only a spot on a page, which survives.
         state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, movingImage = null))
         for (pageIndex in mode.runs.keys) read(document, pageIndex)
     }
