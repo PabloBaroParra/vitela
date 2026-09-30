@@ -86,6 +86,15 @@ any intervening edit. Save first if the run already has a pending edit, and save
 to keep the deletion. This is content editing,
 not secure redaction.
 
+**Move text** lists text runs on the visible page and moves the chosen run to
+X/Y coordinates in PDF points (X increases rightward, Y upward). Its text, font
+and size remain intact, and other runs stay in place. Coordinates must be finite;
+zero and negative values are allowed. The edit refreshes the preview and supports
+undo/redo under the same permission and full-rewrite checks as Delete text.
+Reopen the dialog after any intervening edit. Save first if the run already has
+a pending edit, including retyping or moving, and save to keep the new position.
+The core refuses runs painted by the double-quote spacing operator.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names
