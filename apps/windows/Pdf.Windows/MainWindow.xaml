@@ -91,6 +91,7 @@
             <Button x:Name="DeleteImageButton" Content="Delete image" Click="DeleteImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Delete a content image on the visible page" />
             <Button x:Name="DeleteTextButton" Content="Delete text" Click="DeleteTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Delete a text run on the visible page" />
             <Button x:Name="MoveTextButton" Content="Move text" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a text run on the visible page" />
+            <Button x:Name="InsertTextButton" Content="Insert text" Click="InsertTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Add new text to the visible page" />
             <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="Shift the selected annotation">Nudge</Button>
             <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
             <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color">Color

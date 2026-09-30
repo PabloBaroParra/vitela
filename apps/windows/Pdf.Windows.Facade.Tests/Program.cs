@@ -209,6 +209,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("refreshes the preview on history after a page edit", RefreshesThePreviewOnHistoryAfterAPageEditAsync)
     ,("reports the current layout after history moves pages", ReportsTheCurrentLayoutAfterHistoryAsync)
     ,("refuses page edits once the session is retired", RefusesPageEditsAfterSessionSwapAsync)
+    ,("inserts page text with its own font and undoable preview", InsertsContentTextAsync)
+    ,("refuses invalid, stale or forbidden text insertion", RefusesInvalidTextInsertionAsync)
+    ,("keeps text insertion undoable when preview fails", KeepsTextInsertionAfterPreviewFailureAsync)
 };
 
 foreach (var test in tests)
@@ -2711,6 +2714,68 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
 }
 
+static async Task InsertsContentTextAsync()
+{
+    var core = new FakeCore { FontFamilies = new Dictionary<string, string> { ["F1"] = "Courier", ["VitelaText1"] = "Times-Roman" } };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    var target = (await facade.PrepareTextInsertionAsync(session.SessionId, 0)).Value!;
+    var inserted = await facade.InsertTextRunAsync(session.SessionId, target, "New text", -20, 0, 14);
+    Assert(inserted.IsSuccess && inserted.Value!.CanUndo && core.RefreshPreviewCalls == 1, "insertion must record and refresh");
+    var item = core.TextInsertions.Single().Item;
+    Assert(item.Text == "New text" && item.PageIndex == 0 && item.Bbox == new PdfCoreRect(-20, 0, 200, 14), "text and PDF-space geometry must reach the core");
+    Assert(!core.FontFamilies.ContainsKey(item.ResourceFontName), "existing resources, including unused fonts, must not be reused");
+    Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, "Duplicate", 0, 0, 14)).IsSuccess, "a submitted dialog must become stale");
+    var next = (await facade.PrepareTextInsertionAsync(session.SessionId, 0)).Value!;
+    Assert((await facade.InsertTextRunAsync(session.SessionId, next, "Second", 0, 0, 72)).IsSuccess, "multiple pending insertions must work");
+    Assert(core.TextInsertions.Select(edit => edit.Item.ResourceFontName).Distinct().Count() == 2, "pending insertions need independent fonts");
+    Assert((await facade.UndoAsync(session.SessionId)).Value!.CanRedo, "insertion must be undoable");
+    Assert(!(await facade.InsertTextRunAsync(session.SessionId, next, "Stale", 0, 0, 14)).IsSuccess, "undo must not revive a dialog");
+    Assert((await facade.RedoAsync(session.SessionId)).Value!.CanUndo && core.RefreshPreviewCalls == 4, "redo must refresh");
+}
+
+static async Task RefusesInvalidTextInsertionAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    Assert(!(await facade.PrepareTextInsertionAsync(session.SessionId, session.PageCount)).IsSuccess, "missing pages must be refused");
+    var target = (await facade.PrepareTextInsertionAsync(session.SessionId, 0)).Value!;
+    foreach (var text in new[] { "", " ", "a\nb", "a\rb" })
+        Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, text, 0, 0, 14)).IsSuccess, "empty or multiline text must not record");
+    foreach (var value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+    {
+        Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, "Text", value, 0, 14)).IsSuccess, "nonfinite X must be refused");
+        Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, "Text", 0, value, 14)).IsSuccess, "nonfinite Y must be refused");
+    }
+    foreach (var size in new[] { double.NaN, double.PositiveInfinity, 0, -1, 0.5, 73 })
+        Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, "Text", 0, 0, size)).IsSuccess, "invalid size must be refused");
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.PrepareTextInsertionAsync(session.SessionId, 0)).IsSuccess, "preparation must check permissions");
+    Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, "Text", 0, 0, 14)).IsSuccess, "submission must recheck permissions");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, "Text", 0, 0, 14)).IsSuccess, "a full rewrite must be possible");
+    core.LastDocument.FullRewriteAllowed = true;
+    await facade.ReplaceTextRunAsync(session.SessionId, (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns[0], "Changed");
+    Assert(!(await facade.InsertTextRunAsync(session.SessionId, target, "Text", 0, 0, 14)).IsSuccess, "intervening edits must invalidate the target");
+    var fresh = (await facade.PrepareTextInsertionAsync(session.SessionId, 0)).Value!;
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.InsertTextRunAsync(other.SessionId, fresh, "Text", 0, 0, 14)).IsSuccess, "cross-session targets must be refused");
+    Assert(!(await facade.InsertTextRunAsync(session.SessionId, fresh, "Text", 0, 0, 14)).IsSuccess, "retired sessions must be refused");
+    Assert(core.TextInsertions.Count == 0, "refusals must not record insertions");
+}
+
+static async Task KeepsTextInsertionAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    var target = (await facade.PrepareTextInsertionAsync(session.SessionId, 0)).Value!;
+    var result = await facade.InsertTextRunAsync(session.SessionId, target, "Text", 0, 0, 14);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.TextInsertions.Count == 1, "a preview failure must retain undoable insertion");
+}
+
 static async Task DeletesContentTextAsync()
 {
     foreach (var kind in Enum.GetValues<PdfCoreFontKind>())
@@ -3547,6 +3612,7 @@ sealed class FakeCore : IPdfCore
     public List<PdfCoreEdit.RemoveImage> ImageRemovals { get; } = [];
     public List<PdfCoreEdit.RemoveTextRun> TextRemovals { get; } = [];
     public List<PdfCoreEdit.MoveTextRun> TextMoves { get; } = [];
+    public List<PdfCoreEdit.InsertTextRun> TextInsertions { get; } = [];
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
@@ -3592,6 +3658,13 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.InsertTextRun insertText)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            TextInsertions.Add(insertText);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.MoveTextRun moveText)
         {
             if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");

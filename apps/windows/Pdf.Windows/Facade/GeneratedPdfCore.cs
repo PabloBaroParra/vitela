@@ -440,6 +440,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
             new FfiEditCommand.ReplaceTextRunWithInsertedFont(ContentRun(value.Item), value.After),
         PdfCoreEdit.RemoveTextRun value => new FfiEditCommand.RemoveTextRun(ContentRun(value.Item)),
         PdfCoreEdit.MoveTextRun value => new FfiEditCommand.MoveTextRun(ContentRun(value.Item), Rect(value.To)),
+        PdfCoreEdit.InsertTextRun value => new FfiEditCommand.InsertTextRun(ContentRun(value.Item)),
         PdfCoreEdit.ResizeImage value => new FfiEditCommand.ResizeImage(
             new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
             Rect(value.Rect)),

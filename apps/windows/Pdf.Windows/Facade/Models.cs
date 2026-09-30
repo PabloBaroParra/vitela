@@ -209,6 +209,16 @@ public sealed class ContentTextRun
 /// </remarks>
 public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns);
 
+/// <summary>A page bound to the document revision at which the insertion dialog opened.</summary>
+public sealed class TextInsertionTarget
+{
+    internal TextInsertionTarget(string sessionId, ulong revision, uint pageIndex)
+        => (SessionId, Revision, PageIndex) = (sessionId, revision, pageIndex);
+    internal string SessionId { get; }
+    internal ulong Revision { get; }
+    public uint PageIndex { get; }
+}
+
 /// <summary>An image snapshot bound to the session and revision that parsed it.</summary>
 public sealed class ContentImage
 {
