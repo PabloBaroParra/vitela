@@ -440,6 +440,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
         PdfCoreEdit.MoveFormField value => new FfiEditCommand.MoveFormField(value.FieldId, Rect(value.Rect)),
+        PdfCoreEdit.ResizeFormField value => new FfiEditCommand.ResizeFormField(value.FieldId, Rect(value.Rect)),
         PdfCoreEdit.RestyleFormField value => new FfiEditCommand.RestyleFormField(value.FieldId,
             new FfiTextStyle(FormFontToCore(value.Style.Font), value.Style.SizePt,
                 new FfiColor(value.Style.Color.R, value.Style.Color.G, value.Style.Color.B))),

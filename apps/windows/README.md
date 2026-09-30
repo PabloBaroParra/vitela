@@ -115,6 +115,9 @@ renaming. The color picker records one edit when it closes.
 Existing fields can also be moved by editing their X and Y coordinates in PDF
 points. Moving preserves the field's size and is undoable under the same
 structural permissions as renaming.
+Their width and height can be edited in PDF points without moving their origin.
+Resizing requires finite, positive dimensions and the same structural permissions;
+it is undoable and refreshes the page preview.
 
 **Previous annotation** steps backward through the document's annotations,
 wrapping from the first to the last. It lets you select an annotation hidden

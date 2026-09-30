@@ -117,6 +117,21 @@ public sealed partial class MainWindow
                     position.Children.Add(x);
                     position.Children.Add(y);
                     row.Children.Add(position);
+                    var dimensions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                    var width = new NumberBox { Header = "Width (pt)", Value = rect.Width, Width = 110 };
+                    var height = new NumberBox { Header = "Height (pt)", Value = rect.Height, Width = 110 };
+                    var sizeSubmitted = false;
+                    async Task commitSize()
+                    {
+                        if (sizeSubmitted || (width.Value == rect.Width && height.Value == rect.Height)) return;
+                        sizeSubmitted = true;
+                        await CommitFieldSizeAsync(state.SessionId, field, rect, width.Value, height.Value);
+                    }
+                    width.LostFocus += async (_, _) => await commitSize();
+                    height.LostFocus += async (_, _) => await commitSize();
+                    dimensions.Children.Add(width);
+                    dimensions.Children.Add(height);
+                    row.Children.Add(dimensions);
                 }
                 if (field.Style is { } style && field.Kind is FormFieldKind.Text or FormFieldKind.Dropdown)
                 {
@@ -191,6 +206,13 @@ public sealed partial class MainWindow
         if (_session?.SessionId != sessionId || (x.Value == rect.X && y.Value == rect.Y)) return;
         var result = await _facade.MoveFormFieldAsync(sessionId, field.Id, rect, x.Value, y.Value);
         await ShowFieldStyleResultAsync(sessionId, field, result, "Field moved. Save to keep the change.");
+    }
+
+    private async Task CommitFieldSizeAsync(string sessionId, FormField field, AnnotationRect rect, double width, double height)
+    {
+        if (_session?.SessionId != sessionId) return;
+        var result = await _facade.ResizeFormFieldAsync(sessionId, field.Id, rect, width, height);
+        await ShowFieldStyleResultAsync(sessionId, field, result, "Field resized. Save to keep the change.");
     }
 
     private async Task CommitFieldFontSizeAsync(string sessionId, FormField field, FormTextStyle style, double sizePt)
