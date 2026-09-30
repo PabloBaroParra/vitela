@@ -156,6 +156,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("fills a form even when content editing is forbidden", FillsWhenOnlyContentEditingIsForbiddenAsync)
     ,("renames a field and refreshes its page", RenamesAFormFieldAsync)
     ,("moves a field with structural permission and a current rect", MovesAFormFieldAsync)
+    ,("resizes a field with valid dimensions and structural permission", ResizesAFormFieldAsync)
     ,("restyles a field without losing its other style attributes", RestylesAFormFieldAsync)
     ,("refuses a stale or forbidden field rename", RefusesInvalidFormRenameAsync)
     ,("refuses a fill for a field that is no longer there", RefusesAFillForAMissingFieldAsync)
@@ -2545,6 +2546,48 @@ static async Task MovesAFormFieldAsync()
     Assert(!forbidden.IsSuccess && fillOnly.RefreshPreviewCalls == 0, "filling permission alone cannot move a field");
 }
 
+static async Task ResizesAFormFieldAsync()
+{
+    var rect = new PdfCoreRect(30, 40, 120, 24);
+    var field = new PdfCoreFormField(7, 0, "name", new FormFieldKind.Text(false, null), new FormFieldValue.Text("Ada"), Rect: rect);
+    var core = new FakeCore { FormFields = [field] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var original = new AnnotationRect(30, 40, 120, 24);
+    var resized = new AnnotationRect(30, 40, 180, 36);
+
+    var result = await facade.ResizeFormFieldAsync(session.SessionId, 7, original, 180, 36);
+    Assert(result.IsSuccess && result.Value!.CanUndo, "resizing must join shared history");
+    Assert(core.FormFields[0] == field with { Rect = rect with { Width = 180, Height = 36 } }, "resize must preserve origin and field definition");
+    Assert(core.RefreshPreviewCalls == 1 && (await facade.FormFieldsAsync(session.SessionId)).Value!.Fields[0].Rect == resized,
+        "the preview and panel must receive the resized field");
+    var unchanged = await facade.ResizeFormFieldAsync(session.SessionId, 7, resized, 180, 36);
+    Assert(unchanged.IsSuccess && core.RefreshPreviewCalls == 1, "unchanged dimensions must not record another edit");
+    var stale = await facade.ResizeFormFieldAsync(session.SessionId, 7, original, 200, 40);
+    Assert(!stale.IsSuccess, "a stale row must not overwrite a newer rectangle");
+    foreach (var (width, height) in new[] { (double.NaN, 36.0), (180.0, double.PositiveInfinity), (0.0, 36.0), (180.0, -1.0) })
+    {
+        var invalid = await facade.ResizeFormFieldAsync(session.SessionId, 7, resized, width, height);
+        Assert(!invalid.IsSuccess, "non-finite or non-positive dimensions must be rejected");
+    }
+    var missing = await facade.ResizeFormFieldAsync(session.SessionId, 99, resized, 200, 40);
+    Assert(!missing.IsSuccess && core.RefreshPreviewCalls == 1, "refused edits must not refresh the preview");
+    Assert(core.FormFields[0].Rect == rect with { Width = 180, Height = 36 }, "refused edits must preserve the field");
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undoing a structural resize must refresh the preview");
+
+    foreach (var annotationAllowed in new[] { true, false })
+    {
+        var restrictedCore = new FakeCore { ContentEditingPermitted = !annotationAllowed, FormFields = [field] };
+        using var restricted = new PdfDocumentFacade(restrictedCore, new RecordingLogger());
+        var restrictedSession = (await restricted.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+        restrictedCore.LastDocument!.EditingAllowed = annotationAllowed;
+        var forbidden = await restricted.ResizeFormFieldAsync(restrictedSession.SessionId, 7, original, 180, 36);
+        Assert(!forbidden.IsSuccess && restrictedCore.FormFields[0] == field && restrictedCore.RefreshPreviewCalls == 0,
+            "both structural permissions are required to resize a field");
+    }
+}
+
 static async Task RestylesAFormFieldAsync()
 {
     var style = new FormTextStyle(FormFont.Courier, 12, new AnnotationColor(20, 30, 40));
@@ -3277,6 +3320,17 @@ sealed class FakeCore : IPdfCore
             var index = FormFields.FindIndex(field => field.Id == moveField.FieldId);
             if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
             FormFields[index] = FormFields[index] with { Rect = moveField.Rect };
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.ResizeFormField resizeField)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form resizing is not permitted");
+            var index = FormFields.FindIndex(field => field.Id == resizeField.FieldId);
+            if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
+            FormFields[index] = FormFields[index] with { Rect = resizeField.Rect };
             fake.Apply(edit);
             return;
         }

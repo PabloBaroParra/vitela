@@ -366,6 +366,7 @@ internal abstract record PdfCoreEdit
     public sealed record SetFieldValue(ulong FieldId, FormFieldValue Value) : PdfCoreEdit;
     public sealed record RenameFormField(ulong FieldId, string Name) : PdfCoreEdit;
     public sealed record MoveFormField(ulong FieldId, PdfCoreRect Rect) : PdfCoreEdit;
+    public sealed record ResizeFormField(ulong FieldId, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record RestyleFormField(ulong FieldId, FormTextStyle Style) : PdfCoreEdit;
     public sealed record AddTextField(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record AddCheckbox(uint PageIndex, PdfCoreRect Rect) : PdfCoreEdit;
