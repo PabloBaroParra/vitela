@@ -316,6 +316,9 @@ class ViewerViewModel(
     /** Resizes the open resizer's image to the typed size, in points; [documentId] is the document the dialog was built for. */
     fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.resize(documentId, width, height)
     fun dismissImageResizer() = contentEditing.dismissResizer()
+    /** Swaps the resize dialog for an armed move of its image; [documentId] is the document the dialog was built for. */
+    fun armImageMove(documentId: Long) = contentEditing.armMove(documentId)
+    fun cancelImageMove() = contentEditing.cancelMove()
 
     // Annotations
     /** One mode claims a page tap at a time: choosing a tool leaves Edit text and disarms the form. */

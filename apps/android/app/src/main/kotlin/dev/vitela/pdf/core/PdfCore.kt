@@ -113,6 +113,11 @@ interface PdfDocument : AutoCloseable {
      * is stretched to it. The page shows it only after [refreshPreview].
      */
     fun resizeImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable move of [image] to [to], the same size somewhere
+     * else on its page. The page shows it only after [refreshPreview].
+     */
+    fun moveImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */

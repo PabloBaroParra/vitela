@@ -33,6 +33,9 @@ internal class ContentEditActions(
     /** documentId, width, height as typed, in points: the document is the one the dialog was built for. */
     val onResize: (Long, String, String) -> Unit,
     val onDismissResizer: () -> Unit,
+    /** documentId: swaps the resize dialog for a move armed on the next page tap. */
+    val onMove: (Long) -> Unit,
+    val onCancelMove: () -> Unit,
 )
 
 /**
@@ -66,7 +69,8 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
 /**
  * The resize dialog: the image's width and height in points, ready to change.
  * Its top-left corner stays put. Keyed on the resizer, so a refusal reopens
- * with what was typed, like the retype dialog.
+ * with what was typed, like the retype dialog. Move leaves it for a page tap
+ * that places the image, the way a form field is moved.
  */
 @Composable
 internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions: ContentEditActions) {
@@ -77,7 +81,7 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
         title = { Text("Resize image") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The image keeps its top-left corner and is stretched to the size you enter.", style = MaterialTheme.typography.bodySmall)
+                Text("The image keeps its top-left corner and is stretched to the size you enter. Move places it where you tap next, keeping its size.", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
                     PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
@@ -86,7 +90,12 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
             }
         },
         confirmButton = { Button(onClick = { actions.onResize(documentId, width, height) }) { Text("Resize") } },
-        dismissButton = { TextButton(onClick = actions.onDismissResizer) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { actions.onMove(documentId) }) { Text("Move") }
+                TextButton(onClick = actions.onDismissResizer) { Text("Cancel") }
+            }
+        },
     )
 }
 

@@ -156,8 +156,9 @@ internal fun ViewerScreen(
             Button(onClick = organize.onToggle, enabled = state.pageCount > 0) { Text(if (state.organize != null) "Done" else "Organize") }
             // Not over the grid: it hides the pages a fill redraws.
             Button(onClick = formFields.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text("Form fields") }
-            // Same reason: the grid hides the pages a retype or resize redraws.
+            // Same reason: the grid hides the pages a retype, resize or move redraws.
             Button(onClick = contentEdit.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text(if (state.contentEdit != null) "Done editing" else "Edit content") }
+            if (state.contentEdit?.movingImage != null) TextButton(onClick = contentEdit.onCancelMove) { Text("Cancel move") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
