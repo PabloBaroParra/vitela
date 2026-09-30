@@ -1098,6 +1098,52 @@ impl DocumentHandle {
         })
     }
 
+    /// Reads the original image as PNG/JPEG for an undoable source replacement.
+    /// Refuses pending edits and encodings that cannot round-trip without loss.
+    pub fn image_source_bytes(&self, item: FfiContentImageItem) -> Result<Vec<u8>, FfiError> {
+        let state = self.lock();
+        if !content_editing_is_allowed(&state.document)
+            || !text_extraction_is_allowed(&state.document)
+        {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "image replacement is not permitted".to_string(),
+            });
+        }
+        let item = state.image_item(item)?;
+        if state
+            .document
+            .pending_edits
+            .entries()
+            .iter()
+            .any(|command| {
+                let target = match command {
+                    Command::InsertImage { item, .. }
+                    | Command::RemoveImage { item, .. }
+                    | Command::MoveImage { item, .. }
+                    | Command::ResizeImage { item, .. }
+                    | Command::ReplaceImageSource { item, .. } => item,
+                    _ => return false,
+                };
+                target.page == item.page && target.id == item.id
+            })
+        {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "save before replacing an image with a pending edit".to_string(),
+            });
+        }
+        state.with_imported_sources(|sources| {
+            match pdf_save::page_backing(&state.document, item.page, &state.base, sources)? {
+                pdf_save::origin::PageBacking::Object { document, object } => {
+                    pdf_edit::image_source_bytes(document.as_lopdf(), object, &item)
+                        .map_err(FfiError::from)
+                }
+                pdf_save::origin::PageBacking::Empty => Err(FfiError::UnsupportedOperation {
+                    detail: "the page has no original image".to_string(),
+                }),
+            }
+        })
+    }
+
     /// The `/BaseFont` name of each font `page` declares, keyed by the
     /// resource name its text runs report.
     ///
