@@ -310,6 +310,17 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    // Removing keeps the XObject, so the command carries no source bytes; the core's inverse puts the paint back.
+    override fun removeImage(image: ContentImage): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.RemoveImage(image.toFfi(), null))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This image cannot be deleted." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
     override fun documentInfo(): PdfCoreResult<DocumentInfo> = try {
         PdfCoreResult.Success(handle.readDocumentInfo().toDocumentInfo())
     } catch (error: Throwable) {

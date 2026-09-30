@@ -226,6 +226,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onDismissResizer = viewModel::dismissImageResizer,
                 onMove = viewModel::armImageMove,
                 onCancelMove = viewModel::cancelImageMove,
+                onDelete = viewModel::deleteImage,
             )
         },
     )

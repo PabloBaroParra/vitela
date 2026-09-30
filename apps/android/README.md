@@ -240,7 +240,7 @@ field lands in the wrong place. That is a known gap.
 
 **Edit content** arms a mode in which a tap on a line of text the page itself
 paints opens it in a dialog for retyping, and a tap on an image it paints opens
-it for resizing or moving
+it for resizing, moving or deleting
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
 The run keeps its position and its font; **Retype** queues one undoable entry
 in the shared edit log. While armed, the mode claims every page tap — an armed
@@ -263,10 +263,11 @@ was typed. Unlike the Windows shell, which writes as the reader types, a
 retype is committed once, from the dialog.
 
 The same read reports the page's images — resource and inline alike — with
-pending resizes and moves applied, and each is outlined in green. A tap lands on text
+pending resizes and moves applied, and each is outlined in green; a pending
+delete drops it from the read. A tap lands on text
 first where the finger is on it (a caption over a photo), then on an image it
 is inside, and only then on the nearest text or image within reach. The
-**Resize image** dialog takes a width and a height in points; the image keeps
+**Edit image** dialog takes a width and a height in points; the image keeps
 its top-left corner, as a resized form field does, and is stretched to the new
 box (`ResizeImage`). Unlike a field it is not kept on the page, since an image
 may already hang off it. A size that is not a finite, positive number, or a
@@ -284,7 +285,16 @@ line. **Cancel move** next to Done editing disarms it, and an undo or redo
 disarms it too, since the image it held may have moved back. A move is one
 undoable entry and redraws the page like a resize. The core may refuse a second
 geometry edit on the same image while the first is pending; save first.
-Replacing and deleting images are still Linux-only.
+
+**Delete** in that dialog takes the image off its page (`RemoveImage`, resource
+and inline alike) at once, with no second question: it is one undoable entry,
+and Undo puts it back. The dialog closes before the core answers, so a double
+tap queues one delete; a refusal is reported in the status line. The delete
+redraws the page and re-reads it, so the outline goes with the image; the gate
+is the same `content_editing_allowed`. The core checks a delete against the
+file as last saved (`validate_content_command`), so it refuses one on an image
+with a pending move or resize — "This image cannot be deleted."; save first.
+Replacing images is still Linux-only.
 
 ## Native prerequisite
 
