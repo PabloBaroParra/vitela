@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
@@ -10,9 +11,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * Edit content: retyping a line of text the page itself paints, keeping its
- * position and — unless it is a composite font — its font; and resizing an
- * image it paints, keeping its top-left corner. Each is one undoable entry in
- * the shared edit log.
+ * position and — unless it is a composite font — its font; resizing an image
+ * it paints, keeping its top-left corner; and moving one, keeping its size.
+ * Each is one undoable entry in the shared edit log.
  *
  * Nothing is drawn in place of the words or the picture: only the renderer can
  * paint them, so an edit rebuilds the preview and the page re-renders showing
@@ -91,7 +92,8 @@ internal class ContentEditing(
      */
     fun tap(pageIndex: Int, point: AnnotationPoint, reach: Double) {
         val openDocument = session.document ?: return
-        if (state.value.contentEdit == null) return
+        val armed = state.value.contentEdit ?: return
+        armed.movingImage?.let { image -> return move(openDocument, image, pageIndex, point) }
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
@@ -117,6 +119,22 @@ internal class ContentEditing(
     fun dismissResizer() {
         val mode = state.value.contentEdit ?: return
         if (mode.resizer != null) state.value = state.value.copy(contentEdit = mode.copy(resizer = null))
+    }
+
+    /**
+     * Swaps the open resizer for an armed move of its image, for the document
+     * [documentId] the dialog was built for: the next page tap places it.
+     */
+    fun armMove(documentId: Long) {
+        if (documentId != state.value.documentId) return
+        val mode = state.value.contentEdit ?: return
+        val image = mode.resizer?.image ?: return
+        state.value = state.value.copy(contentEdit = mode.copy(resizer = null, movingImage = image), status = imageMovePrompt(image.pageIndex))
+    }
+
+    fun cancelMove() {
+        val mode = state.value.contentEdit ?: return
+        if (mode.movingImage != null) state.value = state.value.copy(contentEdit = mode.copy(movingImage = null), status = IMAGE_MOVE_CANCELLED)
     }
 
     /**
@@ -205,12 +223,52 @@ internal class ContentEditing(
     }
 
     /**
+     * Moves [image] so its top-left corner lands on the tap at [point]. A tap
+     * on another page moves nothing — `MoveImage` carries a box, not a page —
+     * and leaves the move armed. Spent before the core answers, like a form
+     * field's move: one tap, one edit, so a second tap before the answer
+     * finds nothing armed.
+     */
+    private fun move(openDocument: PdfDocument, image: ContentImage, pageIndex: Int, point: AnnotationPoint) {
+        if (pageIndex != image.pageIndex) {
+            state.value = state.value.copy(status = imageMovePrompt(image.pageIndex))
+            return
+        }
+        val mode = state.value.contentEdit ?: return
+        val to = movedImageRect(image.bounds, point)
+        state.value = state.value.copy(
+            contentEdit = mode.copy(movingImage = null),
+            status = if (to == image.bounds) IMAGE_POSITION_UNCHANGED else state.value.status,
+        )
+        if (to == image.bounds) return
+        session.scope.launch {
+            session.documentLane.withLock {
+                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
+                when (val result = withContext(session.compute) { openDocument.moveImage(image, to) }) {
+                    is PdfCoreResult.Success -> {
+                        layout.markRedrawn()
+                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+                        // The move sits in the shared log: Undo must light up.
+                        annotations.refresh(openDocument)
+                        val redrawn = layout.redraw(openDocument)
+                        // The outline follows the core's word for where the image now is.
+                        read(openDocument, image.pageIndex)
+                        if (redrawn) state.value = state.value.copy(status = IMAGE_MOVED)
+                    }
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
+                }
+            }
+        }
+    }
+
+    /**
      * Re-reads every page already read, after an undo or redo — neither says
      * which item it changed. Called with the document lane held.
      */
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
-        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null))
+        // An armed move holds the image as it was; it may no longer be there.
+        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, movingImage = null))
         for (pageIndex in mode.runs.keys) read(document, pageIndex)
     }
 

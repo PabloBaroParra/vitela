@@ -23,11 +23,12 @@ data class ContentTextRun(
 
 /**
  * One image a page's own content stream paints, as the core parsed it with
- * every pending edit layered on top: a resized image keeps its [id] and
- * reports the box it now fills. [resourceName] is its `/XObject` name, or null
+ * every pending edit layered on top: a resized or moved image keeps its [id]
+ * and reports the box it now fills. [resourceName] is its `/XObject` name, or null
  * for an inline image; [bounds] are in PDF points.
  *
- * Handed back unchanged to [PdfDocument.resizeImage], like a [ContentTextRun].
+ * Handed back unchanged to [PdfDocument.resizeImage] and
+ * [PdfDocument.moveImage], like a [ContentTextRun].
  */
 data class ContentImage(
     val id: Long,

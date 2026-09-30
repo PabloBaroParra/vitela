@@ -9,7 +9,7 @@ import kotlin.math.max
 
 /**
  * Edit content mode: a tap on a line of text the page itself paints opens it
- * for retyping, a tap on an image it paints opens it for resizing. [runs] and
+ * for retyping, a tap on an image it paints opens it for resizing or moving. [runs] and
  * [images] hold each page's content as last read — only pages that were shown
  * or tapped — so the outlines describe what the page now shows.
  */
@@ -20,6 +20,11 @@ data class ContentEditState(
     val editor: TextRunEditor? = null,
     /** The image being resized, or null while no resizer is open. Never open with [editor]. */
     val resizer: ImageResizer? = null,
+    /**
+     * The image the next page tap moves, armed from the resize dialog's Move;
+     * null while no move is armed. Never armed with a dialog open.
+     */
+    val movingImage: ContentImage? = null,
 )
 
 /**
@@ -52,13 +57,19 @@ sealed interface ContentTarget {
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap text to retype it, or an image to resize it."
+internal const val CONTENT_EDIT_ARMED = "Tap text to retype it, or an image to resize or move it."
 internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype it, or an image to resize it."
+internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype it, or an image to resize or move it."
 internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
 internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
 internal const val IMAGE_RESIZED = "Image resized. Save to keep the change."
 internal const val IMAGE_SIZE_INVALID = "Image dimensions must be finite and greater than zero."
+internal const val IMAGE_MOVED = "Image moved. Save to keep the change."
+internal const val IMAGE_POSITION_UNCHANGED = "Image position unchanged."
+internal const val IMAGE_MOVE_CANCELLED = "Move cancelled."
+
+/** What an armed move asks for; the image stays on its own page. */
+internal fun imageMovePrompt(pageIndex: Int) = "Tap page ${pageIndex + 1} where the image's top-left corner should go."
 internal const val FONT_SUBSTITUTED = "This text's font cannot be kept. What you type will use a standard font."
 
 /**
@@ -108,6 +119,14 @@ internal fun resizedImageRect(bounds: AnnotationRect, width: Double, height: Dou
     if (!width.isFinite() || !height.isFinite() || width <= 0.0 || height <= 0.0) return null
     return AnnotationRect(bounds.x, bounds.y + bounds.height - height, width, height)
 }
+
+/**
+ * Where a tap at [tap] moves an image now at [bounds]: its top-left corner to
+ * the tap, its size kept — the corner a form field's move lands on too.
+ * Like a resize, not kept on the page: the corner tapped is the corner sent.
+ */
+internal fun movedImageRect(bounds: AnnotationRect, tap: AnnotationPoint): AnnotationRect =
+    AnnotationRect(tap.x, tap.y - bounds.height, bounds.width, bounds.height)
 
 private fun distance(rect: AnnotationRect, point: AnnotationPoint): Double {
     val dx = max(max(rect.x - point.x, point.x - (rect.x + rect.width)), 0.0)

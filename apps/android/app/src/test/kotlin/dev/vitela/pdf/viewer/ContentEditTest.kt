@@ -115,4 +115,14 @@ class ContentEditTest {
         assertNull(resizedImageRect(bounds, Double.NaN, 10.0))
         assertNull(resizedImageRect(bounds, 10.0, Double.POSITIVE_INFINITY))
     }
+
+    @Test
+    fun aMovedImagePutsItsTopLeftCornerAtTheTapKeepingItsSize() {
+        assertEquals(AnnotationRect(50.0, 150.0, 30.0, 30.0), movedImageRect(AnnotationRect(10.0, 20.0, 30.0, 30.0), AnnotationPoint(50.0, 180.0)))
+    }
+
+    @Test
+    fun aMovedImageMayHangOffThePage() {
+        assertEquals(AnnotationRect(-5.0, -25.0, 30.0, 30.0), movedImageRect(AnnotationRect(10.0, 20.0, 30.0, 30.0), AnnotationPoint(-5.0, 5.0)))
+    }
 }

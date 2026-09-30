@@ -270,13 +270,15 @@ private fun PageSlot(
                     },
             ) {
                 // Images first, so a caption's outline sits on top of the photo it is printed over.
+                // The one an armed move will place is drawn heavier, so the reader sees what the next tap moves.
                 state.contentEdit?.images?.get(pageIndex)?.forEach { image ->
                     val bounds = image.bounds
+                    val moving = state.contentEdit.movingImage?.id == image.id
                     drawRect(
-                        Color(0x9920A060),
+                        if (moving) Color(0xFF20A060) else Color(0x9920A060),
                         Offset(bounds.x.toFloat() * screenScale, (size.heightPt - bounds.y - bounds.height).toFloat() * screenScale),
                         androidx.compose.ui.geometry.Size(bounds.width.toFloat() * screenScale, bounds.height.toFloat() * screenScale),
-                        style = Stroke(2f),
+                        style = Stroke(if (moving) 5f else 2f),
                     )
                 }
                 // Solid where the run keeps its font, dashed where a retype swaps in a standard one:

@@ -240,7 +240,7 @@ field lands in the wrong place. That is a known gap.
 
 **Edit content** arms a mode in which a tap on a line of text the page itself
 paints opens it in a dialog for retyping, and a tap on an image it paints opens
-it for resizing
+it for resizing or moving
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
 The run keeps its position and its font; **Retype** queues one undoable entry
 in the shared edit log. While armed, the mode claims every page tap — an armed
@@ -263,7 +263,7 @@ was typed. Unlike the Windows shell, which writes as the reader types, a
 retype is committed once, from the dialog.
 
 The same read reports the page's images — resource and inline alike — with
-pending resizes applied, and each is outlined in green. A tap lands on text
+pending resizes and moves applied, and each is outlined in green. A tap lands on text
 first where the finger is on it (a caption over a photo), then on an image it
 is inside, and only then on the nearest text or image within reach. The
 **Resize image** dialog takes a width and a height in points; the image keeps
@@ -272,8 +272,19 @@ box (`ResizeImage`). Unlike a field it is not kept on the page, since an image
 may already hang off it. A size that is not a finite, positive number, or a
 refusal from the core, keeps the dialog open with what was typed. A resize is
 one undoable entry, redraws the page and re-reads the outline; the gate is the
-same `content_editing_allowed`. Moving, replacing and deleting images are still
-Linux-only.
+same `content_editing_allowed`.
+
+**Move** in that dialog closes it and arms the next page tap, the way a form
+field is moved: the image's outline thickens, and the tap puts its top-left
+corner there at the same size (`MoveImage`). The image stays on its own page —
+a tap on another page moves nothing and keeps the move armed — and, like a
+resize, it is not kept on the page. The tap spends the move before the core
+answers, so a double tap queues one edit; a refusal is reported in the status
+line. **Cancel move** next to Done editing disarms it, and an undo or redo
+disarms it too, since the image it held may have moved back. A move is one
+undoable entry and redraws the page like a resize. The core may refuse a second
+geometry edit on the same image while the first is pending; save first.
+Replacing and deleting images are still Linux-only.
 
 ## Native prerequisite
 

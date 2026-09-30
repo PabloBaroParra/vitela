@@ -299,6 +299,17 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    // Same rewrite as a resize, told apart by intent in the undo log; the viewer keeps the size.
+    override fun moveImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.MoveImage(image.toFfi(), to.toFfi()))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This image cannot be moved." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
     override fun documentInfo(): PdfCoreResult<DocumentInfo> = try {
         PdfCoreResult.Success(handle.readDocumentInfo().toDocumentInfo())
     } catch (error: Throwable) {
