@@ -95,6 +95,15 @@ Reopen the dialog after any intervening edit. Save first if the run already has
 a pending edit, including retyping or moving, and save to keep the new position.
 The core refuses runs painted by the double-quote spacing operator.
 
+**Insert text** adds a nonempty single line of Helvetica text to the visible
+page as real page content, not an annotation. Enter X/Y in PDF points relative
+to the unrotated page's bottom-left and a size from 1–72 pt (14 by default).
+Zero and negative coordinates are allowed. Each insertion uses a fresh font
+resource so existing fonts and other pending insertions are preserved. Characters
+outside the font's WinAnsi encoding are refused by the core. Insertion refreshes
+the preview and supports undo/redo; it requires content-edit permission and a
+full rewrite. Reopen the dialog after any intervening edit, and save to keep it.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names
