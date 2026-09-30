@@ -232,6 +232,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
 
     public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.AnnotationEditingAllowed();
     public bool ContentEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.ContentEditingAllowed();
+    public bool FormFieldEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.FormFieldEditingAllowed();
     public bool CanUndo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanUndo();
     public bool CanRedo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanRedo();
 

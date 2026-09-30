@@ -73,7 +73,7 @@ public sealed partial class MainWindow
 
     private void ShowFormFields(FormFieldState state)
     {
-        PlaceTextFieldButton.IsEnabled = state.FillAllowed && _session?.ContentEditingAllowed == true;
+        PlaceTextFieldButton.IsEnabled = state.StructureAllowed;
         PlaceCheckboxButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
         PlaceRadioGroupButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
         PlaceDropdownButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
@@ -89,7 +89,7 @@ public sealed partial class MainWindow
             var value = FormFieldRow(state.SessionId, field);
             if (!state.FillAllowed) DisableRow(value);
             var row = new StackPanel { Spacing = 4 };
-            if (state.RenameAllowed)
+            if (state.StructureAllowed)
             {
                 var name = new TextBox { Header = "Field name", Text = field.Name };
                 var submitted = false;

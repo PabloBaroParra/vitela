@@ -480,7 +480,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 [.. _core.ListFormFields(session.Document).Select(field => new FormField(field.Id, field.PageIndex, field.Name, field.Kind, field.Value, field.Style,
                     field.Rect is { } rect ? new AnnotationRect(rect.X, rect.Y, rect.Width, rect.Height) : null))],
                 _core.AnnotationEditingAllowed(session.Document),
-                _core.AnnotationEditingAllowed(session.Document) && _core.ContentEditingAllowed(session.Document))));
+                _core.FormFieldEditingAllowed(session.Document))));
         }
     }
 
@@ -565,7 +565,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                     return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
-                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                if (!_core.FormFieldEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit moving form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!double.IsFinite(x) || !double.IsFinite(y))
                     return OperationResult<AnnotationState>.Failure(CreateError("Enter finite field coordinates.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
@@ -608,7 +608,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                     return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
-                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                if (!_core.FormFieldEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit resizing form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
                     return OperationResult<AnnotationState>.Failure(CreateError("Enter finite, positive field dimensions.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
@@ -652,7 +652,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 if (!TryGetCurrentSession(sessionId, out session))
                     return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
 
-                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                if (!_core.FormFieldEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit renaming form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
 
                 try
@@ -705,7 +705,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                     return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
-                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                if (!_core.FormFieldEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit styling form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!double.IsFinite(style.SizePt) || style.SizePt < 1 || style.SizePt > 72)
                     return OperationResult<AnnotationState>.Failure(CreateError("Enter a font size between 1 and 72 pt.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
@@ -737,7 +737,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         }
     }
 
-    /// <summary>Places an undoable text field; creation requires both annotation and content permissions.</summary>
+    /// <summary>Places an undoable text field; creation requires the core's form-field editing permission.</summary>
     internal async Task<OperationResult<AnnotationState>> AddTextFieldAsync(string sessionId, uint pageIndex, PdfCoreRect rect)
         => await AddFormFieldAsync(sessionId, pageIndex, new PdfCoreEdit.AddTextField(pageIndex, rect)).ConfigureAwait(false);
 
@@ -772,7 +772,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, operation, sessionId, pageIndex));
                 }
 
-                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                if (!_core.FormFieldEditingAllowed(session.Document))
                 {
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit creating form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, pageIndex));
                 }

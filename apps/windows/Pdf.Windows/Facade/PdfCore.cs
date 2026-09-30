@@ -110,6 +110,19 @@ internal interface IPdfCore
     /// </summary>
     bool ContentEditingAllowed(IPdfCoreDocument document);
 
+    /// <summary>
+    /// Whether this document permits creating or restructuring a form field —
+    /// placing, moving, renaming or restyling one. Filling an existing field
+    /// is the weaker <see cref="AnnotationEditingAllowed"/>.
+    /// </summary>
+    /// <remarks>
+    /// Never compose this from <see cref="AnnotationEditingAllowed"/> and
+    /// <see cref="ContentEditingAllowed"/>: the latter also refuses a
+    /// document whose encryption cannot survive a full rewrite, which a form
+    /// edit never needs.
+    /// </remarks>
+    bool FormFieldEditingAllowed(IPdfCoreDocument document);
+
     bool CanUndo(IPdfCoreDocument document);
 
     bool CanRedo(IPdfCoreDocument document);
