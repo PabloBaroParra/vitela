@@ -200,6 +200,34 @@ once the session has edited its pages. A thumbnail is a small render taken on
 demand as its card scrolls into view; a moved page keeps its picture and only a
 turned one is rendered again.
 
+## Form fields
+
+**Form fields** opens a panel below the reader
+([`viewer/FormFieldsPanel.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/FormFieldsPanel.kt))
+with one row per AcroForm field. A row fills its field in, and each fill is one
+undoable entry in the shared edit log. Filling needs the annotation permission
+(`/P` bit 6).
+
+When the document also lets fields be created (`form_field_editing_allowed`),
+the panel adds a row of chips (Text field, Checkbox, Radio group, Dropdown)
+and a **Move** button on every field. Picking a chip or Move arms the next page
+tap, and that tap is the edit. A chip places a new field at the Windows shell's
+click size, hanging below and to the right of the tap. Move puts the field's
+top-left corner at the tap and keeps its size. A move stays on the field's own
+page, because the core's move takes a rectangle and no page. Both keep the
+field whole on the page. It is a tap, never a drag, because on a phone a drag
+is the reader's scroll. The core names each new field and picks its style and
+first options. While a tap is armed it claims every page tap: Edit text, an
+armed annotation tool and a text selection are dropped.
+
+Nothing is drawn over the page. Only the renderer paints a field, so every
+edit rebuilds the preview and the page redraws. The permission is asked as the
+core's own question, not composed from the annotation and content answers:
+that composition would also refuse a file whose encryption cannot survive a
+full rewrite, and a field edit never needs one. As with every page tap on this
+shell, the tap is read in the page's unrotated space, so on a turned page a
+field lands in the wrong place. That is a known gap.
+
 ## Edit text
 
 **Edit text** arms a mode in which a tap on a line of text the page itself

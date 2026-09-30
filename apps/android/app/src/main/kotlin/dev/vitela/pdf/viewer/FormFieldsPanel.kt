@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
@@ -14,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -32,15 +35,21 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
+import dev.vitela.pdf.core.NewFormField
 
 /** What the Form fields panel can ask of the ViewModel; one value so the screen's parameter list stays short. */
 internal class FormFieldActions(
     val onToggle: () -> Unit,
     /** documentId, fieldId, value: the document is the one the row was built for. */
     val onFill: (Long, Long, FormFieldValue) -> Unit,
+    /** Arms what the next page tap does, or disarms with null. */
+    val onArm: (FormFieldTap?) -> Unit,
+    /** pageIndex, point: a page tap while a placement or a move is armed. */
+    val onPageTap: (Int, AnnotationPoint) -> Unit,
 )
 
 /**
@@ -50,6 +59,9 @@ internal class FormFieldActions(
  *
  * A text row commits on Done and when it loses focus, never per keystroke: one
  * fill is one undo step and one preview rebuild.
+ *
+ * When the document lets fields be created, a row of chips arms a placement and
+ * each field's Move arms a move; the page tap that follows is the edit.
  */
 @Composable
 internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: FormFieldActions, modifier: Modifier = Modifier) {
@@ -63,11 +75,36 @@ internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: 
             TextButton(onClick = { focusManager.clearFocus(); actions.onToggle() }) { Text("Close") }
         }
         formFieldsNotice(panel)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        if (panel.authoringAllowed) PlaceFieldChips(panel.armed, actions.onArm)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // Keyed by document too: a row's remembered draft must not survive into another file's field of the same id.
             items(panel.fields, key = { "$documentId:${it.id}" }) { field ->
-                FormFieldRow(field, panel.fillAllowed, fill)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.weight(1f)) { FormFieldRow(field, panel.fillAllowed, fill) }
+                    if (panel.authoringAllowed) {
+                        val move = FormFieldTap.Move(field.id, field.pageIndex)
+                        val moving = panel.armed == move
+                        TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) "Cancel" else "Move") }
+                    }
+                }
             }
+        }
+    }
+}
+
+/** One chip per kind of field; the armed one shows selected, and choosing it again disarms. */
+@Composable
+private fun PlaceFieldChips(armed: FormFieldTap?, onArm: (FormFieldTap?) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+        listOf(
+            NewFormField.Text to "Text field",
+            NewFormField.Checkbox to "Checkbox",
+            NewFormField.RadioGroup to "Radio group",
+            NewFormField.Dropdown to "Dropdown",
+        ).forEach { (kind, label) ->
+            val place = FormFieldTap.Place(kind)
+            val selected = armed == place
+            FilterChip(selected = selected, onClick = { onArm(if (selected) null else place) }, label = { Text(label) })
         }
     }
 }

@@ -72,6 +72,7 @@ internal fun PageList(
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
     contentEdit: ContentEditActions,
+    onFormFieldTap: (Int, AnnotationPoint) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -130,6 +131,7 @@ internal fun PageList(
                         onAnnotationGesture = onAnnotationGesture,
                         textSelection = textSelection,
                         contentEdit = contentEdit,
+                        onFormFieldTap = onFormFieldTap,
                     )
                 }
             }
@@ -147,6 +149,7 @@ private fun PageSlot(
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
     contentEdit: ContentEditActions,
+    onFormFieldTap: (Int, AnnotationPoint) -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
     var origin by remember { mutableStateOf<AnnotationPoint?>(null) }
@@ -157,6 +160,9 @@ private fun PageSlot(
         val pageIndex = pageNumber - 1
         // Edit text claims every tap on the page, and nothing else: no drag-select, no annotation drag.
         val contentMode = state.contentEdit != null
+        // So does a field placement or move the Form fields panel armed.
+        val formMode = state.formFields?.armed != null
+        val tapMode = contentMode || formMode
         LaunchedEffect(pageIndex, contentMode) { if (contentMode) contentEdit.onPageShown(pageIndex) }
         Box(
         modifier = Modifier
@@ -193,25 +199,29 @@ private fun PageSlot(
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { pageWidthPx = it.width }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, contentMode) {
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, contentMode, formMode) {
                         detectTapGestures(
                             // In pointer mode a long-press belongs to text
                             // selection below. Declaring it here is what stops
                             // the finger lifting from also counting as a tap,
                             // which would clear the selection it just made.
-                            onLongPress = if (state.activeAnnotationTool == AnnotationTool.Pointer && !contentMode) ({ }) else null,
+                            onLongPress = if (state.activeAnnotationTool == AnnotationTool.Pointer && !tapMode) ({ }) else null,
                         ) { offset ->
                             val tap = point(offset)
                             val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
-                            if (contentMode) contentEdit.onTap(pageIndex, tap, reach) else onAnnotationGesture(pageIndex, tap, tap, emptyList(), reach)
+                            when {
+                                formMode -> onFormFieldTap(pageIndex, tap)
+                                contentMode -> contentEdit.onTap(pageIndex, tap, reach)
+                                else -> onAnnotationGesture(pageIndex, tap, tap, emptyList(), reach)
+                            }
                         }
                     }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, contentMode) {
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, tapMode) {
                         // Long-press, then drag: the Android text-selection
                         // gesture. A plain drag stays the list's scroll — it
                         // moves past touch slop before the long-press fires,
                         // which cancels this detector.
-                        if (state.activeAnnotationTool != AnnotationTool.Pointer || contentMode) return@pointerInput
+                        if (state.activeAnnotationTool != AnnotationTool.Pointer || tapMode) return@pointerInput
                         detectDragGesturesAfterLongPress(
                             onDragStart = { offset ->
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -225,8 +235,8 @@ private fun PageSlot(
                             onDragCancel = textSelection.onEnd,
                         )
                     }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, contentMode) {
-                        if (contentMode) return@pointerInput
+                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, tapMode) {
+                        if (tapMode) return@pointerInput
                         val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)

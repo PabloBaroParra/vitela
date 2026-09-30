@@ -221,6 +221,7 @@ internal fun ViewerScreen(
                     TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd)
                 },
                 contentEdit = contentEdit,
+                onFormFieldTap = formFields.onPageTap,
                 modifier = Modifier.fillMaxSize(),
             )
             // Mirrors the WinUI empty state and the GTK4 shell's overlay mark:

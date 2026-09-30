@@ -1,12 +1,16 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
+import dev.vitela.pdf.core.NewFormField
+import dev.vitela.pdf.core.PageSize
 
 /**
- * The open Form fields panel: one row per field the document already has,
- * built from the core's list and never from the page.
+ * The open Form fields panel: one row per field of the document, built from
+ * the core's list and never from the page.
  *
  * [fields] carries each value as the panel last showed or committed it, so a
  * row left untouched — or committed twice, on Done and again on losing
@@ -15,23 +19,77 @@ import dev.vitela.pdf.core.FormFieldValue
 data class FormFieldsState(
     val fields: List<FormField> = emptyList(),
     val fillAllowed: Boolean = false,
+    /** Whether fields may be placed and moved: the stronger permission, not [fillAllowed]. */
+    val authoringAllowed: Boolean = false,
+    /** What the next page tap does, or null while page taps belong to the reader. */
+    val armed: FormFieldTap? = null,
     /** False until the core's list arrives, so an empty form is not announced before it is known to be empty. */
     val loaded: Boolean = false,
 )
+
+/** A page tap the panel has armed: placing a new field, or moving one of its rows' fields. */
+sealed interface FormFieldTap {
+    data class Place(val kind: NewFormField) : FormFieldTap
+    /** [pageIndex] is the field's page: a move keeps a field on it. */
+    data class Move(val fieldId: Long, val pageIndex: Int) : FormFieldTap
+}
 
 // Wording is the Windows shell's.
 internal const val FORM_NO_CHOICE = "(none)"
 internal const val FORM_FILLED = "Field filled in. Save to keep the change."
 internal const val FORM_NO_FIELDS = "This document has no form fields."
+internal const val FORM_NO_FIELDS_ADD = "This document has no form fields yet. Add one below."
 internal const val FORM_FILL_FORBIDDEN = "This document does not permit filling in its form."
+internal const val FIELD_MOVED = "Field moved. Save to keep the change."
+
+private val NewFormField.label: String get() = when (this) {
+    NewFormField.Text -> "text field"
+    NewFormField.Checkbox -> "checkbox"
+    NewFormField.RadioGroup -> "radio group"
+    NewFormField.Dropdown -> "dropdown"
+}
+
+internal fun fieldPlacementPrompt(kind: NewFormField) = "Tap a page to place a ${kind.label}."
+internal fun fieldPlacedStatus(kind: NewFormField) = "${kind.label.replaceFirstChar(Char::uppercase)} placed. Save to keep the change."
+internal fun fieldWrongPage(field: FormField) = "Tap page ${field.pageIndex + 1} to move ${field.name}."
 
 /** The line the panel shows above its rows, or null when the rows speak for themselves. */
-internal fun formFieldsNotice(panel: FormFieldsState): String? = when {
-    !panel.loaded -> null
-    panel.fields.isEmpty() -> FORM_NO_FIELDS
-    !panel.fillAllowed -> FORM_FILL_FORBIDDEN
-    else -> null
+internal fun formFieldsNotice(panel: FormFieldsState): String? = when (val armed = panel.armed) {
+    is FormFieldTap.Place -> fieldPlacementPrompt(armed.kind)
+    is FormFieldTap.Move -> panel.fields.firstOrNull { it.id == armed.fieldId }?.let { "Tap page ${it.pageIndex + 1} where ${it.name} should go." }
+    null -> when {
+        !panel.loaded -> null
+        panel.fields.isEmpty() -> if (panel.authoringAllowed) FORM_NO_FIELDS_ADD else FORM_NO_FIELDS
+        !panel.fillAllowed -> FORM_FILL_FORBIDDEN
+        else -> null
+    }
 }
+
+/**
+ * Where a tap at [tap] places a new field of [kind] on a page of [page] size:
+ * the Windows shell's click size, hanging below and right of the tap — PDF
+ * space grows upward — and kept whole on the page. A tap, never a drag: on a
+ * phone a drag is the reader's scroll.
+ */
+internal fun placedFieldRect(kind: NewFormField, tap: AnnotationPoint, page: PageSize): AnnotationRect {
+    val (width, height) = when (kind) {
+        NewFormField.Checkbox -> 18.0 to 18.0
+        NewFormField.RadioGroup -> 144.0 to 48.0
+        NewFormField.Text, NewFormField.Dropdown -> 144.0 to 36.0
+    }
+    return cornerAt(tap, minOf(width, page.widthPt), minOf(height, page.heightPt), page)
+}
+
+/** Where a tap at [tap] moves a field now at [rect]: its top-left corner to the tap, its size kept, still on the page. */
+internal fun movedFieldRect(rect: AnnotationRect, tap: AnnotationPoint, page: PageSize): AnnotationRect =
+    cornerAt(tap, rect.width, rect.height, page)
+
+private fun cornerAt(tap: AnnotationPoint, width: Double, height: Double, page: PageSize) = AnnotationRect(
+    tap.x.coerceIn(0.0, (page.widthPt - width).coerceAtLeast(0.0)),
+    (tap.y - height).coerceIn(0.0, (page.heightPt - height).coerceAtLeast(0.0)),
+    width,
+    height,
+)
 
 /**
  * What a dropdown shows for [choice]. A value outside [options] — possible in
