@@ -196,16 +196,32 @@ public sealed class ContentTextRun
 /// One page's editable content, parsed on demand.
 /// </summary>
 /// <remarks>
-/// Text runs only for now. The core also reports the page's images, and the
-/// image half of content editing (select/move/resize/replace) is the next
-/// slice; exposing an <c>Images</c> list before anything can act on it would
-/// be a contract nothing honours.
+/// Text runs for the inline editor. Image tools read a separate, revision-bound
+/// snapshot through <see cref="PdfDocumentFacade.PageImagesAsync"/>.
 ///
 /// The runs are valid against the bytes the document was opened from. They
 /// survive a preview refresh, which leaves those bytes alone, but a save and
 /// reopen invalidates every id — re-read the page after one.
 /// </remarks>
 public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns);
+
+/// <summary>An image snapshot bound to the session and revision that parsed it.</summary>
+public sealed class ContentImage
+{
+    internal ContentImage(PdfCoreContentImage source, string sessionId, ulong revision)
+    {
+        Source = source;
+        SessionId = sessionId;
+        Revision = revision;
+    }
+
+    internal PdfCoreContentImage Source { get; }
+    internal string SessionId { get; }
+    internal ulong Revision { get; }
+    public ulong Id => Source.Id;
+    public uint PageIndex => Source.PageIndex;
+    public AnnotationRect Bounds => new(Source.Bbox.X, Source.Bbox.Y, Source.Bbox.Width, Source.Bbox.Height);
+}
 
 public enum AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
 public sealed record AnnotationRect(double X, double Y, double Width, double Height);
