@@ -16,6 +16,7 @@
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextGeometry.cs" Link="Facade\PdfDocumentFacade.TextGeometry.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextInsertion.cs" Link="Facade\PdfDocumentFacade.TextInsertion.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ImageInsertion.cs" Link="Facade\PdfDocumentFacade.ImageInsertion.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ImageReplacement.cs" Link="Facade\PdfDocumentFacade.ImageReplacement.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ImageExport.cs" Link="Facade\PdfDocumentFacade.ImageExport.cs" />
     <Compile Include="..\Pdf.Windows\Facade\ImageExport.cs" Link="Facade\ImageExport.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ExtractPages.cs" Link="Facade\PdfDocumentFacade.ExtractPages.cs" />

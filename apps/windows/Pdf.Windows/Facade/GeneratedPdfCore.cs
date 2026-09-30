@@ -215,6 +215,13 @@ internal sealed class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public byte[] ImageSourceBytes(IPdfCoreDocument document, PdfCoreContentImage image)
+    {
+        try { return ((GeneratedDocument)document).Handle.ImageSourceBytes(new FfiContentImageItem(
+            image.Id, image.PageIndex, Rect(image.Bbox), image.ResourceXObjectName)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     public IReadOnlyDictionary<string, string> PageFontFamilies(IPdfCoreDocument document, uint pageIndex)
     {
         try
@@ -453,6 +460,9 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.RemoveImage value => new FfiEditCommand.RemoveImage(
             new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
             null),
+        PdfCoreEdit.ReplaceImageSource value => new FfiEditCommand.ReplaceImageSource(
+            new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
+            value.Before, value.After),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
         PdfCoreEdit.MoveFormField value => new FfiEditCommand.MoveFormField(value.FieldId, Rect(value.Rect)),

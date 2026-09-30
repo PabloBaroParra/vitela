@@ -78,6 +78,15 @@ command, with preview refresh and undo/redo. Deletion requires content-edit
 permission and a full rewrite. Save first if the image already has a pending edit;
 reopen the dialog after any intervening edit. Save to keep the deletion.
 
+**Replace image** lists content images on the visible page, then asks for a PNG
+or JPEG. The chosen image keeps its position and dimensions; a different aspect
+ratio stretches to that rectangle. Original bytes are recovered through Rust
+before the picker opens and again at submission, including on imported pages.
+Encodings that cannot round-trip without loss are refused so undo can restore
+the source. Save first if the image has a pending edit. Replacement requires
+content-edit permission and a full rewrite, refreshes the preview and supports
+undo/redo. Reopen after intervening edits, and save to keep the replacement.
+
 **Delete text** lists the text runs on the visible page, with their text and PDF
 coordinates. Choose a run and confirm deletion; the PDF preview refreshes and
 undo/redo restores or reapplies it. Deleting does not substitute composite fonts.
