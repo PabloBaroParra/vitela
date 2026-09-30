@@ -104,6 +104,14 @@ outside the font's WinAnsi encoding are refused by the core. Insertion refreshes
 the preview and supports undo/redo; it requires content-edit permission and a
 full rewrite. Reopen the dialog after any intervening edit, and save to keep it.
 
+**Insert image** adds a PNG or JPEG to the visible page as real content, not a
+stamp annotation. Enter its top-left X/Y in PDF points relative to the unrotated
+page's bottom-left (X increases rightward, Y upward). The shared core preserves
+its proportions with a longest side of 144 pt, as on Linux. Coordinates must be
+finite; zero and negative values are allowed. Insertion refreshes the preview
+and supports undo/redo; it requires content-edit permission and a full rewrite.
+Reopen the dialog after any intervening edit, and save to keep the image.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names

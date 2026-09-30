@@ -89,6 +89,7 @@
             <Button x:Name="ResizeImageButton" Content="Resize image" Click="ResizeImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Resize a content image on the visible page" />
             <Button x:Name="MoveImageButton" Content="Move image" Click="MoveImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a content image on the visible page" />
             <Button x:Name="DeleteImageButton" Content="Delete image" Click="DeleteImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Delete a content image on the visible page" />
+            <Button x:Name="InsertImageButton" Content="Insert image" Click="InsertImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Add a content image to the visible page" />
             <Button x:Name="DeleteTextButton" Content="Delete text" Click="DeleteTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Delete a text run on the visible page" />
             <Button x:Name="MoveTextButton" Content="Move text" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a text run on the visible page" />
             <Button x:Name="InsertTextButton" Content="Insert text" Click="InsertTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Add new text to the visible page" />
