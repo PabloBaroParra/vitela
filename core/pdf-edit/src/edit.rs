@@ -672,7 +672,19 @@ fn replace_inline_image_source(
 
     // Copying the path is the last thing that can fail before anything is
     // added, so the refusals above still leave the document as it was.
-    let scope = own_scope(document, page_object, &form_path, &stream)?;
+    let scope = if form_path.is_empty() {
+        Scope {
+            owner: page_object,
+            stream_object: own_page_stream(
+                document,
+                page_object,
+                target.stream_index,
+                stream.object_id,
+            )?,
+        }
+    } else {
+        own_scope(document, page_object, &form_path, &stream)?
+    };
 
     let mut image = replacement.image;
     if let Some(smask) = replacement.smask {
@@ -3003,6 +3015,80 @@ mod tests {
             xobject.dict.get(b"Width").expect("width"),
             &Object::Integer(8)
         );
+    }
+
+    #[test]
+    fn replacing_inline_source_from_shared_contents_preserves_the_other_page() {
+        for array in [false, true] {
+            let (mut document, page) = image_document(INLINE_TRAP);
+            let contents = document
+                .get_dictionary(page)
+                .unwrap()
+                .get(b"Contents")
+                .unwrap()
+                .clone();
+            let shared = contents.as_reference().unwrap();
+            if array {
+                document
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("Contents", vec![contents]);
+            }
+            let sibling = document.get_dictionary(page).unwrap().clone();
+            let parent = sibling.get(b"Parent").unwrap().as_reference().unwrap();
+            let sibling_id = document.add_object(sibling);
+            document
+                .get_dictionary_mut(parent)
+                .unwrap()
+                .set("Kids", vec![page.into(), sibling_id.into()]);
+            document.get_dictionary_mut(parent).unwrap().set("Count", 2);
+            let original_stream = document.get_object(shared).unwrap().clone();
+            let target = image_of(&document, 0);
+            let original = image_source_bytes(&document, sibling_id, &target).unwrap();
+
+            replace_image_source(&mut document, page, &target, &png_bytes(8, 4, false)).unwrap();
+
+            assert!(matches!(
+                image_of(&document, 0).source,
+                ImageSource::Resource(_)
+            ));
+            let sibling_image = read_page_content(&document, PageId(1))
+                .unwrap()
+                .images
+                .remove(0);
+            assert_eq!(sibling_image.bbox, target.bbox);
+            assert_eq!(sibling_image.source, ImageSource::Inline);
+            assert_eq!(
+                image_source_bytes(&document, sibling_id, &sibling_image).unwrap(),
+                original
+            );
+            assert_eq!(document.get_object(shared).unwrap(), &original_stream);
+        }
+    }
+
+    #[test]
+    fn replacing_inline_source_from_a_repeated_stream_edits_only_one_occurrence() {
+        let (mut document, page) = image_document(INLINE_TRAP);
+        let contents = document
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap()
+            .clone();
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Contents", vec![contents.clone(), contents]);
+        let untouched = image_of(&document, 0);
+        let target = image_of(&document, 1);
+
+        replace_image_source(&mut document, page, &target, &png_bytes(8, 4, false)).unwrap();
+
+        assert_eq!(image_of(&document, 0), untouched);
+        assert!(matches!(
+            image_of(&document, 1).source,
+            ImageSource::Resource(_)
+        ));
     }
 
     /// The minted name never lands on one the scope already resolves —
