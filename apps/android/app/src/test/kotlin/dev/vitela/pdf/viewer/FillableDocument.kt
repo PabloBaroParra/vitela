@@ -1,9 +1,11 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
+import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
@@ -18,19 +20,27 @@ import dev.vitela.pdf.core.SearchHit
  * Rendering draws the *preview*, like the core's `render_page`: the field
  * values as they stood at open and again only after [refreshPreview].
  * [drawn] records, per render, the page and the values it showed.
+ *
+ * A placed field joins the list under the next id, and a placement or a move
+ * is undoable like a fill; [authoringAllowed] is the stronger permission those
+ * two need, [authoringRefusal] the core refusing one anyway.
  */
 internal class FillableDocument(
     private val fillAllowed: Boolean = true,
     private val refusal: PdfCoreError? = null,
+    private val authoringAllowed: Boolean = true,
+    private val authoringRefusal: PdfCoreError? = null,
 ) : PdfDocument {
     private var fields = listOf(
-        FormField(1, 0, "Name", FormFieldKind.Text(multiline = false, maxLength = 20), FormFieldValue.Text("Ada")),
-        FormField(2, 0, "Agree", FormFieldKind.Checkbox, FormFieldValue.Checked(false)),
-        FormField(3, 1, "Country", FormFieldKind.Dropdown(listOf("AR", "UY"), editable = false), FormFieldValue.Choice(null)),
+        FormField(1, 0, "Name", FormFieldKind.Text(multiline = false, maxLength = 20), FormFieldValue.Text("Ada"), AnnotationRect(10.0, 150.0, 60.0, 20.0)),
+        FormField(2, 0, "Agree", FormFieldKind.Checkbox, FormFieldValue.Checked(false), AnnotationRect(10.0, 120.0, 12.0, 12.0)),
+        FormField(3, 1, "Country", FormFieldKind.Dropdown(listOf("AR", "UY"), editable = false), FormFieldValue.Choice(null), AnnotationRect(10.0, 150.0, 60.0, 20.0)),
     )
     private val undoable = ArrayDeque<Pair<List<FormField>, List<FormField>>>()
     private val redoable = ArrayDeque<Pair<List<FormField>, List<FormField>>>()
     val fills = mutableListOf<Pair<Long, FormFieldValue>>()
+    val placements = mutableListOf<Triple<Int, NewFormField, AnnotationRect>>()
+    val moves = mutableListOf<Pair<Long, AnnotationRect>>()
     val drawn = mutableListOf<Pair<Int, Map<Long, FormFieldValue>>>()
     private var preview = values()
     var previewRefreshes = 0
@@ -66,6 +76,35 @@ internal class FillableDocument(
         undoable.addLast(before to fields)
         redoable.clear()
         return PdfCoreResult.Success(Unit)
+    }
+
+    override fun formAuthoringAllowed(): Boolean = authoringAllowed
+
+    override fun addFormField(pageIndex: Int, kind: NewFormField, rect: AnnotationRect): PdfCoreResult<Unit> {
+        authoringRefusal?.let { return PdfCoreResult.Failure(it) }
+        placements += Triple(pageIndex, kind, rect)
+        val id = fields.maxOf { it.id } + 1
+        val (fieldKind, value) = when (kind) {
+            NewFormField.Text -> FormFieldKind.Text(multiline = false, maxLength = null) to FormFieldValue.Text("")
+            NewFormField.Checkbox -> FormFieldKind.Checkbox to FormFieldValue.Checked(false)
+            NewFormField.RadioGroup -> FormFieldKind.RadioGroup(listOf("Option 1", "Option 2")) to FormFieldValue.Choice(null)
+            NewFormField.Dropdown -> FormFieldKind.Dropdown(listOf("Option 1", "Option 2"), editable = false) to FormFieldValue.Choice(null)
+        }
+        record(fields + FormField(id, pageIndex, "${kind.name}$id", fieldKind, value, rect))
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> {
+        authoringRefusal?.let { return PdfCoreResult.Failure(it) }
+        moves += fieldId to to
+        record(fields.map { if (it.id == fieldId) it.copy(rect = to) else it })
+        return PdfCoreResult.Success(Unit)
+    }
+
+    private fun record(after: List<FormField>) {
+        undoable.addLast(fields to after)
+        redoable.clear()
+        fields = after
     }
 
     override fun undoAnnotations(): PdfCoreResult<Boolean> {

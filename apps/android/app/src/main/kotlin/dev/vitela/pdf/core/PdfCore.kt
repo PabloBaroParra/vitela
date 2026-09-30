@@ -82,6 +82,19 @@ interface PdfDocument : AutoCloseable {
      * the next [saveToBytes]. The page shows it only after [refreshPreview].
      */
     fun setFormFieldValue(fieldId: Long, value: FormFieldValue): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Form fields are unavailable in this PDF core."))
+    /**
+     * Whether the document lets fields be created or changed: the stronger form
+     * permission, asked of the core as one question rather than composed here
+     * from the annotation and content answers.
+     */
+    fun formAuthoringAllowed(): Boolean = false
+    /**
+     * Queues one undoable new field of [kind] at [rect] on page [pageIndex]; the
+     * core picks its id and a unique name. The page shows it only after [refreshPreview].
+     */
+    fun addFormField(pageIndex: Int, kind: NewFormField, rect: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Creating form fields is unavailable in this PDF core."))
+    /** Queues one undoable move of field [fieldId] to [to], on the page it is on. */
+    fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Moving form fields is unavailable in this PDF core."))
     /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
     fun contentEditingAllowed(): Boolean = false
     /** The text runs page [pageIndex] paints, pending retypes included; refused when the document forbids text extraction. */
