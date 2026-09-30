@@ -9,8 +9,8 @@ enum class ContentFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
  * reports the text it now shows. [pageIndex] is the page's zero-based position
  * in the current order; [bounds] are in PDF points.
  *
- * Handed back unchanged to [PdfDocument.retypeTextRun]: the core matches the
- * edit against exactly this parse.
+ * Handed back unchanged to [PdfDocument.retypeTextRun] and
+ * [PdfDocument.removeTextRun]: the core matches the edit against exactly this parse.
  */
 data class ContentTextRun(
     val id: Long,

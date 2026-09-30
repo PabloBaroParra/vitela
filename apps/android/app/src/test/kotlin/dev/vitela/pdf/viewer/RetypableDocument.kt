@@ -17,7 +17,7 @@ import dev.vitela.pdf.core.SearchHit
  * A two-page document whose pages paint text runs: "Hello" and "World" on
  * page 0 — the second in a composite font the core substitutes — and
  * "Page two" on page 1. Page 0 also paints one image, clear of both runs.
- * Every retype, resize, move and delete is undoable, like the core's.
+ * Every retype, text delete, resize, move and image delete is undoable, like the core's.
  *
  * Like the core, a re-read reports a retyped run under its original id with
  * the text it now shows — a resized or moved image with the box it now fills — and
@@ -41,6 +41,8 @@ internal class RetypableDocument(
     private val redoable = ArrayDeque<Pair<Content, Content>>()
     /** Each retype the core accepted: the run as the shell sent it, and the new text. */
     val retypes = mutableListOf<Pair<ContentTextRun, String>>()
+    /** Each text delete the core accepted: the run as the shell sent it. */
+    val textDeletes = mutableListOf<ContentTextRun>()
     /** Each resize the core accepted: the image as the shell sent it, and the box it now fills. */
     val resizes = mutableListOf<Pair<ContentImage, AnnotationRect>>()
     /** Each move the core accepted: the image as the shell sent it, and the box it now fills. */
@@ -79,6 +81,13 @@ internal class RetypableDocument(
         refusal?.let { return PdfCoreResult.Failure(it) }
         retypes += run to text
         record { runs = runs.map { if (it.id == run.id) it.copy(text = text) else it } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun removeTextRun(run: ContentTextRun): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        textDeletes += run
+        record { runs = runs.filter { it.id != run.id } }
         return PdfCoreResult.Success(Unit)
     }
 

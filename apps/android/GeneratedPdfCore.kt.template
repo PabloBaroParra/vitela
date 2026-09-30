@@ -286,6 +286,17 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    // No font is touched, so a composite-font run needs no substitute to be deleted.
+    override fun removeTextRun(run: ContentTextRun): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.RemoveTextRun(run.toFfi()))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This text cannot be deleted." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
     // The core stretches the image to `to`; the viewer picks the box, keeping its top-left corner.
     override fun resizeImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = try {
         ffiApplyEdit(handle, FfiEditCommand.ResizeImage(image.toFfi(), to.toFfi()))
