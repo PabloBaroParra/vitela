@@ -311,18 +311,18 @@ class ViewerViewModel(
     fun contentPageShown(pageIndex: Int) = contentEditing.pageShown(pageIndex)
     fun tapContent(pageIndex: Int, point: AnnotationPoint, reach: Double) = contentEditing.tap(pageIndex, point, reach)
     /** Retypes the open editor's run; [documentId] is the document the dialog was built for. */
-    fun retypeTextRun(documentId: Long, text: String) = contentEditing.retype(documentId, text)
+    fun retypeTextRun(documentId: Long, text: String) = contentEditing.text.retype(documentId, text)
     /** Deletes the open dialog's run; [documentId] is the document the dialog was built for. */
-    fun deleteTextRun(documentId: Long) = contentEditing.deleteText(documentId)
-    fun dismissTextRunEditor() = contentEditing.dismissEditor()
+    fun deleteTextRun(documentId: Long) = contentEditing.text.deleteText(documentId)
+    fun dismissTextRunEditor() = contentEditing.text.dismissEditor()
     /** Resizes the open resizer's image to the typed size, in points; [documentId] is the document the dialog was built for. */
-    fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.resize(documentId, width, height)
-    fun dismissImageResizer() = contentEditing.dismissResizer()
+    fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.images.resize(documentId, width, height)
+    fun dismissImageResizer() = contentEditing.images.dismissResizer()
     /** Swaps the resize dialog for an armed move of its image; [documentId] is the document the dialog was built for. */
-    fun armImageMove(documentId: Long) = contentEditing.armMove(documentId)
-    fun cancelImageMove() = contentEditing.cancelMove()
+    fun armImageMove(documentId: Long) = contentEditing.images.armMove(documentId)
+    fun cancelImageMove() = contentEditing.images.cancelMove()
     /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
-    fun deleteImage(documentId: Long) = contentEditing.delete(documentId)
+    fun deleteImage(documentId: Long) = contentEditing.images.delete(documentId)
 
     // Annotations
     /** One mode claims a page tap at a time: choosing a tool leaves Edit text and disarms the form. */

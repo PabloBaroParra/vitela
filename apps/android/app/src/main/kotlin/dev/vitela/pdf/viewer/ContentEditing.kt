@@ -1,7 +1,6 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationPoint
-import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
@@ -25,6 +24,10 @@ import kotlinx.coroutines.withContext
  * committed from a dialog: one tap, one edit. A second retype of the same run
  * sends the run as the core now reports it — same id, new text — and the core
  * amends the queued command instead of stacking another.
+ *
+ * This class owns the mode — arming it, reading pages, routing a tap and
+ * landing an accepted edit. The edits themselves live in [TextRunEditing]
+ * and [ImageEditing].
  */
 internal class ContentEditing(
     private val session: ViewerSession,
@@ -36,6 +39,12 @@ internal class ContentEditing(
 
     /** Pages whose content is being read, so a page shown twice in a row is read once. */
     private val reading = mutableSetOf<Int>()
+
+    /** Retyping and deleting text runs. */
+    val text = TextRunEditing(session, this)
+
+    /** Resizing, moving and deleting images. */
+    val images = ImageEditing(session, this)
 
     /**
      * Arms the mode. Not over the Organize grid, which hides the pages a
@@ -94,7 +103,7 @@ internal class ContentEditing(
     fun tap(pageIndex: Int, point: AnnotationPoint, reach: Double) {
         val openDocument = session.document ?: return
         val armed = state.value.contentEdit ?: return
-        armed.movingImage?.let { image -> return move(openDocument, image, pageIndex, point) }
+        armed.movingImage?.let { image -> return images.move(openDocument, image, pageIndex, point) }
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
@@ -112,218 +121,22 @@ internal class ContentEditing(
         }
     }
 
-    fun dismissEditor() {
-        val mode = state.value.contentEdit ?: return
-        if (mode.editor != null) state.value = state.value.copy(contentEdit = mode.copy(editor = null))
-    }
-
-    fun dismissResizer() {
-        val mode = state.value.contentEdit ?: return
-        if (mode.resizer != null) state.value = state.value.copy(contentEdit = mode.copy(resizer = null))
-    }
-
     /**
-     * Swaps the open resizer for an armed move of its image, for the document
-     * [documentId] the dialog was built for: the next page tap places it.
+     * Lands an edit the core accepted on page [pageIndex]: the page re-renders,
+     * Undo lights up — the edit sits in the shared log — and the page is read
+     * again, so its outlines follow the core's word for what it now paints.
+     * [spend] closes the dialog the edit came from, before Undo is refreshed;
+     * [status] is shown once the page has redrawn. Called with the document
+     * lane held.
      */
-    fun armMove(documentId: Long) {
-        if (documentId != state.value.documentId) return
-        val mode = state.value.contentEdit ?: return
-        val image = mode.resizer?.image ?: return
-        state.value = state.value.copy(contentEdit = mode.copy(resizer = null, movingImage = image), status = imageMovePrompt(image.pageIndex))
-    }
-
-    fun cancelMove() {
-        val mode = state.value.contentEdit ?: return
-        if (mode.movingImage != null) state.value = state.value.copy(contentEdit = mode.copy(movingImage = null), status = IMAGE_MOVE_CANCELLED)
-    }
-
-    /**
-     * Retypes the open editor's run as [text], for the document [documentId]
-     * the dialog was built for: a dialog confirmed after another document
-     * replaced it holds a run that means nothing against the new file.
-     */
-    fun retype(documentId: Long, text: String) {
-        val openDocument = session.document ?: return
-        if (documentId != state.value.documentId) return
-        val editor = state.value.contentEdit?.editor ?: return
-        if (text == editor.run.text) {
-            dismissEditor()
-            return
-        }
-        session.scope.launch {
-            session.documentLane.withLock {
-                if (session.document !== openDocument) return@withLock
-                when (val result = withContext(session.compute) { openDocument.retypeTextRun(editor.run, text) }) {
-                    is PdfCoreResult.Success -> {
-                        layout.markRedrawn()
-                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
-                        dismissEditor()
-                        // The retype sits in the shared log: Undo must light up.
-                        annotations.refresh(openDocument)
-                        val redrawn = layout.redraw(openDocument)
-                        // The run is wider or narrower now; the outline follows the core's word for it.
-                        read(openDocument, editor.run.pageIndex)
-                        if (redrawn) state.value = state.value.copy(status = TEXT_UPDATED)
-                    }
-                    is PdfCoreResult.Failure -> {
-                        val mode = state.value.contentEdit ?: return@withLock
-                        if (mode.editor?.run != editor.run) return@withLock
-                        state.value = state.value.copy(contentEdit = mode.copy(editor = editor.copy(text = text, error = userMessage(result.error))))
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Deletes the open editor's run, for the document [documentId] the dialog
-     * was built for. Spent before the core answers, like an image delete: a
-     * second tap on Delete finds nothing open, and a refusal is reported in
-     * the status line.
-     */
-    fun deleteText(documentId: Long) {
-        val openDocument = session.document ?: return
-        if (documentId != state.value.documentId) return
-        val mode = state.value.contentEdit ?: return
-        val run = mode.editor?.run ?: return
-        state.value = state.value.copy(contentEdit = mode.copy(editor = null))
-        session.scope.launch {
-            session.documentLane.withLock {
-                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
-                when (val result = withContext(session.compute) { openDocument.removeTextRun(run) }) {
-                    is PdfCoreResult.Success -> {
-                        layout.markRedrawn()
-                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
-                        // The delete sits in the shared log: Undo must light up.
-                        annotations.refresh(openDocument)
-                        val redrawn = layout.redraw(openDocument)
-                        // The core no longer reports the run, so its outline goes too.
-                        read(openDocument, run.pageIndex)
-                        if (redrawn) state.value = state.value.copy(status = TEXT_DELETED)
-                    }
-                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
-                }
-            }
-        }
-    }
-
-    /**
-     * Resizes the open resizer's image to [width] by [height] points, as typed,
-     * for the document [documentId] the dialog was built for. A size that is
-     * not a finite, positive number keeps the dialog open with what was typed.
-     */
-    fun resize(documentId: Long, width: String, height: String) {
-        val openDocument = session.document ?: return
-        if (documentId != state.value.documentId) return
-        val mode = state.value.contentEdit ?: return
-        val resizer = mode.resizer ?: return
-        val image = resizer.image
-        val to = resizedImageRect(image.bounds, typedPoints(width), typedPoints(height))
-        if (to == null) {
-            state.value = state.value.copy(contentEdit = mode.copy(resizer = resizer.copy(width = width, height = height, error = IMAGE_SIZE_INVALID)))
-            return
-        }
-        if (to == image.bounds) {
-            dismissResizer()
-            return
-        }
-        session.scope.launch {
-            session.documentLane.withLock {
-                // Only the dialog this came from, still open: a second tap on
-                // Resize before the core answered the first finds it answered.
-                if (session.document !== openDocument || state.value.contentEdit?.resizer !== resizer) return@withLock
-                when (val result = withContext(session.compute) { openDocument.resizeImage(image, to) }) {
-                    is PdfCoreResult.Success -> {
-                        layout.markRedrawn()
-                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
-                        dismissResizer()
-                        // The resize sits in the shared log: Undo must light up.
-                        annotations.refresh(openDocument)
-                        val redrawn = layout.redraw(openDocument)
-                        // The outline follows the core's word for the box the image now fills.
-                        read(openDocument, image.pageIndex)
-                        if (redrawn) state.value = state.value.copy(status = IMAGE_RESIZED)
-                    }
-                    is PdfCoreResult.Failure -> {
-                        val now = state.value.contentEdit ?: return@withLock
-                        if (now.resizer?.image != image) return@withLock
-                        state.value = state.value.copy(contentEdit = now.copy(resizer = resizer.copy(width = width, height = height, error = userMessage(result.error))))
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Deletes the open dialog's image, for the document [documentId] the
-     * dialog was built for. The dialog is spent before the core answers, like
-     * an armed move: a second tap on Delete finds nothing open. A refusal is
-     * reported in the status line — there is nothing typed to keep.
-     */
-    fun delete(documentId: Long) {
-        val openDocument = session.document ?: return
-        if (documentId != state.value.documentId) return
-        val mode = state.value.contentEdit ?: return
-        val image = mode.resizer?.image ?: return
-        state.value = state.value.copy(contentEdit = mode.copy(resizer = null))
-        session.scope.launch {
-            session.documentLane.withLock {
-                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
-                when (val result = withContext(session.compute) { openDocument.removeImage(image) }) {
-                    is PdfCoreResult.Success -> {
-                        layout.markRedrawn()
-                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
-                        // The delete sits in the shared log: Undo must light up.
-                        annotations.refresh(openDocument)
-                        val redrawn = layout.redraw(openDocument)
-                        // The core no longer reports the image, so its outline goes too.
-                        read(openDocument, image.pageIndex)
-                        if (redrawn) state.value = state.value.copy(status = IMAGE_DELETED)
-                    }
-                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
-                }
-            }
-        }
-    }
-
-    /**
-     * Moves [image] so its top-left corner lands on the tap at [point]. A tap
-     * on another page moves nothing — `MoveImage` carries a box, not a page —
-     * and leaves the move armed. Spent before the core answers, like a form
-     * field's move: one tap, one edit, so a second tap before the answer
-     * finds nothing armed.
-     */
-    private fun move(openDocument: PdfDocument, image: ContentImage, pageIndex: Int, point: AnnotationPoint) {
-        if (pageIndex != image.pageIndex) {
-            state.value = state.value.copy(status = imageMovePrompt(image.pageIndex))
-            return
-        }
-        val mode = state.value.contentEdit ?: return
-        val to = movedImageRect(image.bounds, point)
-        state.value = state.value.copy(
-            contentEdit = mode.copy(movingImage = null),
-            status = if (to == image.bounds) IMAGE_POSITION_UNCHANGED else state.value.status,
-        )
-        if (to == image.bounds) return
-        session.scope.launch {
-            session.documentLane.withLock {
-                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
-                when (val result = withContext(session.compute) { openDocument.moveImage(image, to) }) {
-                    is PdfCoreResult.Success -> {
-                        layout.markRedrawn()
-                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
-                        // The move sits in the shared log: Undo must light up.
-                        annotations.refresh(openDocument)
-                        val redrawn = layout.redraw(openDocument)
-                        // The outline follows the core's word for where the image now is.
-                        read(openDocument, image.pageIndex)
-                        if (redrawn) state.value = state.value.copy(status = IMAGE_MOVED)
-                    }
-                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
-                }
-            }
-        }
+    suspend fun landed(document: PdfDocument, pageIndex: Int, status: String, spend: () -> Unit = {}) {
+        layout.markRedrawn()
+        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+        spend()
+        annotations.refresh(document)
+        val redrawn = layout.redraw(document)
+        read(document, pageIndex)
+        if (redrawn) state.value = state.value.copy(status = status)
     }
 
     /**
