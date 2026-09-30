@@ -217,7 +217,7 @@ top-left corner at the tap and keeps its size. A move stays on the field's own
 page, because the core's move takes a rectangle and no page. Both keep the
 field whole on the page. It is a tap, never a drag, because on a phone a drag
 is the reader's scroll. The core names each new field and picks its style and
-first options. While a tap is armed it claims every page tap: Edit text, an
+first options. While a tap is armed it claims every page tap: Edit content, an
 armed annotation tool and a text selection are dropped.
 
 Under the same permission each field also shows its width and height in PDF
@@ -236,10 +236,11 @@ full rewrite, and a field edit never needs one. As with every page tap on this
 shell, the tap is read in the page's unrotated space, so on a turned page a
 field lands in the wrong place. That is a known gap.
 
-## Edit text
+## Edit content
 
-**Edit text** arms a mode in which a tap on a line of text the page itself
-paints opens it in a dialog for retyping
+**Edit content** arms a mode in which a tap on a line of text the page itself
+paints opens it in a dialog for retyping, and a tap on an image it paints opens
+it for resizing
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
 The run keeps its position and its font; **Retype** queues one undoable entry
 in the shared edit log. While armed, the mode claims every page tap — an armed
@@ -260,6 +261,19 @@ runs. The gate is `content_editing_allowed`, as on Windows. A character the
 run's font cannot show is refused by name and the dialog stays open with what
 was typed. Unlike the Windows shell, which writes as the reader types, a
 retype is committed once, from the dialog.
+
+The same read reports the page's images — resource and inline alike — with
+pending resizes applied, and each is outlined in green. A tap lands on text
+first where the finger is on it (a caption over a photo), then on an image it
+is inside, and only then on the nearest text or image within reach. The
+**Resize image** dialog takes a width and a height in points; the image keeps
+its top-left corner, as a resized form field does, and is stretched to the new
+box (`ResizeImage`). Unlike a field it is not kept on the page, since an image
+may already hang off it. A size that is not a finite, positive number, or a
+refusal from the core, keeps the dialog open with what was typed. A resize is
+one undoable entry, redraws the page and re-reads the outline; the gate is the
+same `content_editing_allowed`. Moving, replacing and deleting images are still
+Linux-only.
 
 ## Native prerequisite
 

@@ -3,7 +3,9 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.ContentFontKind
+import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentTextRun
+import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
@@ -14,12 +16,14 @@ import dev.vitela.pdf.core.SearchHit
 /**
  * A two-page document whose pages paint text runs: "Hello" and "World" on
  * page 0 — the second in a composite font the core substitutes — and
- * "Page two" on page 1. Every retype is undoable, like the core's.
+ * "Page two" on page 1. Page 0 also paints one image, clear of both runs.
+ * Every retype and resize is undoable, like the core's.
  *
  * Like the core, a re-read reports a retyped run under its original id with
- * the text it now shows, and rendering draws the *preview*: the runs as they
- * stood at open and again only after [refreshPreview]. [drawn] records, per
- * render, the page and the texts it showed.
+ * the text it now shows — a resized image with the box it now fills — and
+ * rendering draws the *preview*: the runs as they stood at open and again only
+ * after [refreshPreview]. [drawn] records, per render, the page and the texts
+ * it showed.
  */
 internal class RetypableDocument(
     private val editingAllowed: Boolean = true,
@@ -30,10 +34,15 @@ internal class RetypableDocument(
         ContentTextRun(11, 0, AnnotationRect(10.0, 120.0, 40.0, 12.0), "F2", ContentFontKind.EmbeddedComposite, "World"),
         ContentTextRun(20, 1, AnnotationRect(10.0, 150.0, 60.0, 12.0), "F1", ContentFontKind.Standard14, "Page two"),
     )
-    private val undoable = ArrayDeque<Pair<List<ContentTextRun>, List<ContentTextRun>>>()
-    private val redoable = ArrayDeque<Pair<List<ContentTextRun>, List<ContentTextRun>>>()
+    private var images = listOf(
+        ContentImage(30, 0, AnnotationRect(10.0, 20.0, 30.0, 30.0), "Im1"),
+    )
+    private val undoable = ArrayDeque<Pair<Content, Content>>()
+    private val redoable = ArrayDeque<Pair<Content, Content>>()
     /** Each retype the core accepted: the run as the shell sent it, and the new text. */
     val retypes = mutableListOf<Pair<ContentTextRun, String>>()
+    /** Each resize the core accepted: the image as the shell sent it, and the box it now fills. */
+    val resizes = mutableListOf<Pair<ContentImage, AnnotationRect>>()
     val drawn = mutableListOf<Pair<Int, List<String>>>()
     val reads = mutableListOf<Int>()
     private var preview = runs
@@ -57,34 +66,52 @@ internal class RetypableDocument(
 
     override fun contentEditingAllowed(): Boolean = editingAllowed
 
-    override fun pageTextRuns(pageIndex: Int): PdfCoreResult<List<ContentTextRun>> {
+    override fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> {
         reads += pageIndex
-        return PdfCoreResult.Success(runs.filter { it.pageIndex == pageIndex })
+        return PdfCoreResult.Success(PageContent(runs.filter { it.pageIndex == pageIndex }, images.filter { it.pageIndex == pageIndex }))
     }
 
     override fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> {
         refusal?.let { return PdfCoreResult.Failure(it) }
         retypes += run to text
-        val before = runs
-        runs = runs.map { if (it.id == run.id) it.copy(text = text) else it }
-        undoable.addLast(before to runs)
-        redoable.clear()
+        record { runs = runs.map { if (it.id == run.id) it.copy(text = text) else it } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun resizeImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        resizes += image to to
+        record { images = images.map { if (it.id == image.id) it.copy(bounds = to) else it } }
         return PdfCoreResult.Success(Unit)
     }
 
     override fun undoAnnotations(): PdfCoreResult<Boolean> {
         val step = undoable.removeLastOrNull() ?: return PdfCoreResult.Success(false)
-        runs = step.first
+        restore(step.first)
         redoable.addLast(step)
         return PdfCoreResult.Success(true)
     }
 
     override fun redoAnnotations(): PdfCoreResult<Boolean> {
         val step = redoable.removeLastOrNull() ?: return PdfCoreResult.Success(false)
-        runs = step.second
+        restore(step.second)
         undoable.addLast(step)
         return PdfCoreResult.Success(true)
     }
+
+    private fun record(edit: () -> Unit) {
+        val before = Content(runs, images)
+        edit()
+        undoable.addLast(before to Content(runs, images))
+        redoable.clear()
+    }
+
+    private fun restore(content: Content) {
+        runs = content.runs
+        images = content.images
+    }
+
+    private data class Content(val runs: List<ContentTextRun>, val images: List<ContentImage>)
 
     override fun close() = Unit
 }

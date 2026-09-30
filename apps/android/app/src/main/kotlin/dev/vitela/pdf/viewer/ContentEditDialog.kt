@@ -2,6 +2,8 @@ package dev.vitela.pdf.viewer
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -13,10 +15,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.AnnotationPoint
 
-/** What Edit text asks of the ViewModel, bundled like [FormFieldActions]. */
+/** What Edit content asks of the ViewModel, bundled like [FormFieldActions]. */
 internal class ContentEditActions(
     val onToggle: () -> Unit,
     /** The reader laid out a page while the mode is armed. */
@@ -26,6 +30,9 @@ internal class ContentEditActions(
     /** documentId, text: the document is the one the dialog was built for. */
     val onRetype: (Long, String) -> Unit,
     val onDismiss: () -> Unit,
+    /** documentId, width, height as typed, in points: the document is the one the dialog was built for. */
+    val onResize: (Long, String, String) -> Unit,
+    val onDismissResizer: () -> Unit,
 )
 
 /**
@@ -53,5 +60,45 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
         },
         confirmButton = { Button(onClick = { actions.onRetype(documentId, text) }) { Text("Retype") } },
         dismissButton = { TextButton(onClick = actions.onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * The resize dialog: the image's width and height in points, ready to change.
+ * Its top-left corner stays put. Keyed on the resizer, so a refusal reopens
+ * with what was typed, like the retype dialog.
+ */
+@Composable
+internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions: ContentEditActions) {
+    var width by remember(resizer) { mutableStateOf(resizer.width) }
+    var height by remember(resizer) { mutableStateOf(resizer.height) }
+    AlertDialog(
+        onDismissRequest = actions.onDismissResizer,
+        title = { Text("Resize image") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("The image keeps its top-left corner and is stretched to the size you enter.", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
+                    PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
+                }
+                resizer.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { Button(onClick = { actions.onResize(documentId, width, height) }) { Text("Resize") } },
+        dismissButton = { TextButton(onClick = actions.onDismissResizer) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun PointsField(label: String, value: String, onValueChange: (String) -> Unit, isError: Boolean, modifier: Modifier) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        isError = isError,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = modifier,
     )
 }

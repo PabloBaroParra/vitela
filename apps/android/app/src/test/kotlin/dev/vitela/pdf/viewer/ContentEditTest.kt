@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentFontKind
+import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentTextRun
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -55,5 +56,63 @@ class ContentEditTest {
         assertFalse(run(1, 0.0, 0.0, 1.0, 1.0, ContentFontKind.Standard14).substitutesFont)
         assertFalse(run(1, 0.0, 0.0, 1.0, 1.0, ContentFontKind.EmbeddedSimple).substitutesFont)
         assertTrue(run(1, 0.0, 0.0, 1.0, 1.0, ContentFontKind.EmbeddedComposite).substitutesFont)
+    }
+
+    private fun image(id: Long, x: Double, y: Double, width: Double, height: Double) =
+        ContentImage(id, 0, AnnotationRect(x, y, width, height), "Im$id")
+
+    @Test
+    fun textOverAnImageIsWhatATapOnItMeans() {
+        // A caption printed over a photo: the photo is still reachable around it.
+        val runs = listOf(run(1, 20.0, 40.0, 40.0, 12.0))
+        val images = listOf(image(9, 0.0, 0.0, 100.0, 100.0))
+
+        assertEquals(ContentTarget.Run(runs[0]), contentAt(runs, images, AnnotationPoint(30.0, 45.0), reach = 5.0))
+        assertEquals(ContentTarget.Image(images[0]), contentAt(runs, images, AnnotationPoint(80.0, 80.0), reach = 5.0))
+    }
+
+    @Test
+    fun aTapInsideAnImageBeatsTextMerelyWithinReach() {
+        val runs = listOf(run(1, 10.0, 100.0, 50.0, 12.0))
+        val images = listOf(image(9, 10.0, 60.0, 50.0, 38.0))
+
+        // 3pt below the run, inside the image.
+        assertEquals(ContentTarget.Image(images[0]), contentAt(runs, images, AnnotationPoint(30.0, 97.0), reach = 5.0))
+    }
+
+    @Test
+    fun overlappingImagesYieldTheSmallest() {
+        val images = listOf(image(8, 0.0, 0.0, 200.0, 200.0), image(9, 20.0, 20.0, 40.0, 40.0))
+
+        assertEquals(ContentTarget.Image(images[1]), contentAt(emptyList(), images, AnnotationPoint(30.0, 30.0), reach = 0.0))
+    }
+
+    @Test
+    fun anImageIsFoundWithinReachWhenNoTextIs() {
+        val images = listOf(image(9, 10.0, 10.0, 20.0, 20.0))
+
+        assertEquals(ContentTarget.Image(images[0]), contentAt(emptyList(), images, AnnotationPoint(33.0, 20.0), reach = 5.0))
+        assertNull(contentAt(emptyList(), images, AnnotationPoint(33.0, 20.0), reach = 0.0))
+    }
+
+    @Test
+    fun aResizedImageKeepsItsTopLeftCorner() {
+        assertEquals(AnnotationRect(10.0, 35.0, 60.0, 15.0), resizedImageRect(AnnotationRect(10.0, 20.0, 30.0, 30.0), 60.0, 15.0))
+    }
+
+    @Test
+    fun aResizedImageMayOutgrowThePage() {
+        // Unlike a form field, an image may already hang off the page; the size typed is the size sent.
+        assertEquals(AnnotationRect(10.0, -950.0, 2000.0, 1000.0), resizedImageRect(AnnotationRect(10.0, 20.0, 30.0, 30.0), 2000.0, 1000.0))
+    }
+
+    @Test
+    fun onlyAFinitePositiveSizeResizesAnImage() {
+        val bounds = AnnotationRect(10.0, 20.0, 30.0, 30.0)
+
+        assertNull(resizedImageRect(bounds, 0.0, 10.0))
+        assertNull(resizedImageRect(bounds, 10.0, -1.0))
+        assertNull(resizedImageRect(bounds, Double.NaN, 10.0))
+        assertNull(resizedImageRect(bounds, 10.0, Double.POSITIVE_INFINITY))
     }
 }

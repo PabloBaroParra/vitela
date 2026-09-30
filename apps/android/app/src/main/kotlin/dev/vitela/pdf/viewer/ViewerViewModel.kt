@@ -301,7 +301,7 @@ class ViewerViewModel(
     /** Resizes a field in points, keeping its top-left corner; [documentId] is the document the row was built for. */
     fun resizeFormField(documentId: Long, fieldId: Long, width: Double, height: Double) = formAuthoring.resize(documentId, fieldId, width, height)
 
-    // Edit text
+    // Edit content
     fun openContentEdit() {
         formAuthoring.disarm()
         contentEditing.open()
@@ -313,6 +313,9 @@ class ViewerViewModel(
     /** Retypes the open editor's run; [documentId] is the document the dialog was built for. */
     fun retypeTextRun(documentId: Long, text: String) = contentEditing.retype(documentId, text)
     fun dismissTextRunEditor() = contentEditing.dismissEditor()
+    /** Resizes the open resizer's image to the typed size, in points; [documentId] is the document the dialog was built for. */
+    fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.resize(documentId, width, height)
+    fun dismissImageResizer() = contentEditing.dismissResizer()
 
     // Annotations
     /** One mode claims a page tap at a time: choosing a tool leaves Edit text and disarms the form. */
