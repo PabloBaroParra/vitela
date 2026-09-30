@@ -2669,7 +2669,7 @@ static async Task RefusesInvalidFormRenameAsync()
 /// The document the core's <c>form_field_editing_allowed</c> exists for: both
 /// <c>/P</c> bits granted, but encrypted so a full rewrite is refused — and
 /// with it content editing. A form edit never rewrites the file, so none of
-/// the four structural gates may borrow that refusal.
+/// the structural gates may borrow that refusal.
 /// </summary>
 static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
 {
@@ -2686,6 +2686,8 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert((await facade.FormFieldsAsync(session.SessionId)).Value!.StructureAllowed, "the panel must offer structural edits");
     var moved = await facade.MoveFormFieldAsync(session.SessionId, 7, new AnnotationRect(30, 40, 120, 24), 50, 70);
     Assert(moved.IsSuccess, "moving must not borrow the full-rewrite refusal");
+    var resized = await facade.ResizeFormFieldAsync(session.SessionId, 7, new AnnotationRect(50, 70, 120, 24), 180, 36);
+    Assert(resized.IsSuccess, "resizing must not borrow the full-rewrite refusal");
     var renamed = await facade.RenameFormFieldAsync(session.SessionId, 7, "name", "full_name");
     Assert(renamed.IsSuccess, "renaming must not borrow the full-rewrite refusal");
     var restyled = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style, 16);

@@ -608,7 +608,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                     return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
-                if (!_core.AnnotationEditingAllowed(session.Document) || !_core.ContentEditingAllowed(session.Document))
+                if (!_core.FormFieldEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit resizing form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
                     return OperationResult<AnnotationState>.Failure(CreateError("Enter finite, positive field dimensions.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
