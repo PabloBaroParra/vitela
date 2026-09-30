@@ -203,6 +203,91 @@ class ViewerViewModelFormAuthoringTest {
         assertNull(viewModel.state.value.formFields!!.armed)
     }
 
+    @Test
+    fun aNewSizeResizesTheFieldKeepingItsTopLeftCorner() = runTest {
+        val document = FillableDocument()
+        val viewModel = openedWithPanel(document)
+        val refreshes = document.previewRefreshes
+        viewModel.resizeFormField(viewModel.state.value.documentId, 1, 80.0, 30.0)
+        advanceUntilIdle()
+
+        val rect = AnnotationRect(10.0, 140.0, 80.0, 30.0)
+        assertEquals(listOf(1L to rect), document.resizes)
+        assertTrue("a resize is not a move", document.moves.isEmpty())
+        val state = viewModel.state.value
+        assertEquals(FIELD_RESIZED, state.status)
+        assertEquals(rect, state.formFields!!.fields.first { it.id == 1L }.rect)
+        assertTrue(state.isDirty)
+        assertTrue(state.canUndoAnnotations)
+        assertTrue("only the renderer paints a field, so the preview must be rebuilt", document.previewRefreshes > refreshes)
+    }
+
+    @Test
+    fun theSameSizeAgainIsNoEdit() = runTest {
+        val document = FillableDocument()
+        val viewModel = openedWithPanel(document)
+        viewModel.resizeFormField(viewModel.state.value.documentId, 1, 60.0, 20.0)
+        advanceUntilIdle()
+
+        assertTrue(document.resizes.isEmpty())
+        assertFalse(viewModel.state.value.isDirty)
+    }
+
+    @Test
+    fun aSizeThatIsNotAPositiveNumberIsRefusedBeforeTheCore() = runTest {
+        val document = FillableDocument()
+        val viewModel = openedWithPanel(document)
+        viewModel.resizeFormField(viewModel.state.value.documentId, 1, Double.NaN, 30.0)
+        advanceUntilIdle()
+
+        assertTrue(document.resizes.isEmpty())
+        assertEquals(FIELD_SIZE_INVALID, viewModel.state.value.status)
+    }
+
+    @Test
+    fun aDocumentThatForbidsChangingFieldsIsNotResized() = runTest {
+        val document = FillableDocument(authoringAllowed = false)
+        val viewModel = openedWithPanel(document)
+        viewModel.resizeFormField(viewModel.state.value.documentId, 1, 80.0, 30.0)
+        advanceUntilIdle()
+
+        assertTrue(document.resizes.isEmpty())
+    }
+
+    @Test
+    fun aResizeFromARowOfAnotherDocumentIsDropped() = runTest {
+        val document = FillableDocument()
+        val viewModel = openedWithPanel(document)
+        viewModel.resizeFormField(viewModel.state.value.documentId + 1, 1, 80.0, 30.0)
+        advanceUntilIdle()
+
+        assertTrue(document.resizes.isEmpty())
+    }
+
+    @Test
+    fun aRefusedResizeSaysWhyAndLeavesTheDocumentClean() = runTest {
+        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed("This document does not permit resizing form fields."))
+        val viewModel = openedWithPanel(document)
+        viewModel.resizeFormField(viewModel.state.value.documentId, 1, 80.0, 30.0)
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals("This document does not permit resizing form fields.", state.status)
+        assertFalse(state.isDirty)
+        assertEquals(AnnotationRect(10.0, 150.0, 60.0, 20.0), state.formFields!!.fields.first { it.id == 1L }.rect)
+    }
+
+    @Test
+    fun undoingAResizePutsTheOldSizeBack() = runTest {
+        val viewModel = openedWithPanel(FillableDocument())
+        viewModel.resizeFormField(viewModel.state.value.documentId, 1, 80.0, 30.0)
+        advanceUntilIdle()
+        viewModel.undoAnnotations()
+        advanceUntilIdle()
+
+        assertEquals(AnnotationRect(10.0, 150.0, 60.0, 20.0), viewModel.state.value.formFields!!.fields.first { it.id == 1L }.rect)
+    }
+
     private suspend fun TestScope.openedWithPanel(document: PdfDocument): ViewerViewModel {
         val viewModel = dispatchers.viewModel(OrganizeQueueCore(document))
         viewModel.open("a.pdf", byteArrayOf(1))

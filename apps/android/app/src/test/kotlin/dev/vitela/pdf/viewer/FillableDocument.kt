@@ -21,8 +21,8 @@ import dev.vitela.pdf.core.SearchHit
  * values as they stood at open and again only after [refreshPreview].
  * [drawn] records, per render, the page and the values it showed.
  *
- * A placed field joins the list under the next id, and a placement or a move
- * is undoable like a fill; [authoringAllowed] is the stronger permission those
+ * A placed field joins the list under the next id, and a placement, a move or
+ * a resize is undoable like a fill; [authoringAllowed] is the stronger permission those
  * two need, [authoringRefusal] the core refusing one anyway.
  */
 internal class FillableDocument(
@@ -41,6 +41,7 @@ internal class FillableDocument(
     val fills = mutableListOf<Pair<Long, FormFieldValue>>()
     val placements = mutableListOf<Triple<Int, NewFormField, AnnotationRect>>()
     val moves = mutableListOf<Pair<Long, AnnotationRect>>()
+    val resizes = mutableListOf<Pair<Long, AnnotationRect>>()
     val drawn = mutableListOf<Pair<Int, Map<Long, FormFieldValue>>>()
     private var preview = values()
     var previewRefreshes = 0
@@ -97,6 +98,13 @@ internal class FillableDocument(
     override fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> {
         authoringRefusal?.let { return PdfCoreResult.Failure(it) }
         moves += fieldId to to
+        record(fields.map { if (it.id == fieldId) it.copy(rect = to) else it })
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> {
+        authoringRefusal?.let { return PdfCoreResult.Failure(it) }
+        resizes += fieldId to to
         record(fields.map { if (it.id == fieldId) it.copy(rect = to) else it })
         return PdfCoreResult.Success(Unit)
     }

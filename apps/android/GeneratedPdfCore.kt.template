@@ -228,6 +228,11 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
             FfiEditCommand.MoveFormField(fieldId.toULong(), to.toFfi())
         }
 
+    override fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> =
+        authorField("This document does not permit resizing form fields.", "This field cannot be that size.") {
+            FfiEditCommand.ResizeFormField(fieldId.toULong(), to.toFfi())
+        }
+
     private fun authorField(forbidden: String, refused: String, command: () -> FfiEditCommand): PdfCoreResult<Unit> = try {
         ffiApplyEdit(handle, command())
         PdfCoreResult.Success(Unit)

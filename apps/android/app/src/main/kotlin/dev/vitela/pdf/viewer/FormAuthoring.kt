@@ -8,8 +8,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Form fields: placing new fields and moving existing ones, each one undoable
- * entry in the shared edit log. The panel arms a page tap; the tap is the edit.
+ * Form fields: placing new fields, moving and resizing existing ones, each one
+ * undoable entry in the shared edit log. The panel arms a page tap for a place
+ * or a move, and the tap is the edit; a size is typed into the field's row.
  *
  * A tap, never a drag: on a phone a drag is the reader's scroll, so a field is
  * placed at the Windows shell's click size and a move keeps the field's size.
@@ -77,6 +78,23 @@ internal class FormAuthoring(
                 commit(openDocument, FIELD_MOVED) { moveFormField(field.id, to) }
             }
         }
+    }
+
+    /**
+     * Resizes field [fieldId] to [width] by [height] points, for the document
+     * [documentId] its row was built for — a row can still commit on losing
+     * focus after another file replaced it, and its field id means nothing there.
+     */
+    fun resize(documentId: Long, fieldId: Long, width: Double, height: Double) {
+        val openDocument = session.document ?: return
+        val panel = state.value.formFields ?: return
+        if (documentId != state.value.documentId || !panel.authoringAllowed) return
+        val field = panel.fields.firstOrNull { it.id == fieldId } ?: return
+        val page = state.value.pageSizes.getOrNull(field.pageIndex) ?: return
+        val to = resizedFieldRect(field.rect, width, height, page)
+            ?: return run { state.value = state.value.copy(status = FIELD_SIZE_INVALID) }
+        if (to == field.rect) return
+        commit(openDocument, FIELD_RESIZED) { resizeFormField(field.id, to) }
     }
 
     /**

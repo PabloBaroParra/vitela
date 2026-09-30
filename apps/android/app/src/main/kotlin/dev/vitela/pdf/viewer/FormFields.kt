@@ -41,6 +41,8 @@ internal const val FORM_NO_FIELDS = "This document has no form fields."
 internal const val FORM_NO_FIELDS_ADD = "This document has no form fields yet. Add one below."
 internal const val FORM_FILL_FORBIDDEN = "This document does not permit filling in its form."
 internal const val FIELD_MOVED = "Field moved. Save to keep the change."
+internal const val FIELD_RESIZED = "Field resized. Save to keep the change."
+internal const val FIELD_SIZE_INVALID = "Enter finite, positive field dimensions."
 
 private val NewFormField.label: String get() = when (this) {
     NewFormField.Text -> "text field"
@@ -83,6 +85,24 @@ internal fun placedFieldRect(kind: NewFormField, tap: AnnotationPoint, page: Pag
 /** Where a tap at [tap] moves a field now at [rect]: its top-left corner to the tap, its size kept, still on the page. */
 internal fun movedFieldRect(rect: AnnotationRect, tap: AnnotationPoint, page: PageSize): AnnotationRect =
     cornerAt(tap, rect.width, rect.height, page)
+
+/**
+ * A field now at [rect] at [width] by [height] points, or null for a size that
+ * is not a finite, positive number. Its top-left corner stays put — the corner
+ * a move lands on, and where the reader's eye is — so it grows down and right,
+ * and it is kept whole on the page.
+ */
+internal fun resizedFieldRect(rect: AnnotationRect, width: Double, height: Double, page: PageSize): AnnotationRect? {
+    if (!width.isFinite() || !height.isFinite() || width <= 0.0 || height <= 0.0) return null
+    return cornerAt(AnnotationPoint(rect.x, rect.y + rect.height), minOf(width, page.widthPt), minOf(height, page.heightPt), page)
+}
+
+/** A size in points as the row shows it: at most two decimals, none when whole. */
+internal fun pointsText(points: Double): String =
+    java.math.BigDecimal.valueOf(points).setScale(2, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+
+/** What the reader typed, as points; NaN for anything that is not a number, so the edit is refused and says why. A comma is a decimal point. */
+internal fun typedPoints(text: String): Double = text.trim().replace(',', '.').toDoubleOrNull() ?: Double.NaN
 
 private fun cornerAt(tap: AnnotationPoint, width: Double, height: Double, page: PageSize) = AnnotationRect(
     tap.x.coerceIn(0.0, (page.widthPt - width).coerceAtLeast(0.0)),

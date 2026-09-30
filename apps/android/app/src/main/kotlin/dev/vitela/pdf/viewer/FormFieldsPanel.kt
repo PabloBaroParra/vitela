@@ -34,8 +34,10 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
@@ -50,6 +52,8 @@ internal class FormFieldActions(
     val onArm: (FormFieldTap?) -> Unit,
     /** pageIndex, point: a page tap while a placement or a move is armed. */
     val onPageTap: (Int, AnnotationPoint) -> Unit,
+    /** documentId, fieldId, width, height in points; NaN for a size that was not a number. */
+    val onResize: (Long, Long, Double, Double) -> Unit,
 )
 
 /**
@@ -61,7 +65,8 @@ internal class FormFieldActions(
  * fill is one undo step and one preview rebuild.
  *
  * When the document lets fields be created, a row of chips arms a placement and
- * each field's Move arms a move; the page tap that follows is the edit.
+ * each field's Move arms a move; the page tap that follows is the edit. Each
+ * field's size is typed under it, and commits like a text row.
  */
 @Composable
 internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: FormFieldActions, modifier: Modifier = Modifier) {
@@ -79,17 +84,63 @@ internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             // Keyed by document too: a row's remembered draft must not survive into another file's field of the same id.
             items(panel.fields, key = { "$documentId:${it.id}" }) { field ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.weight(1f)) { FormFieldRow(field, panel.fillAllowed, fill) }
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.weight(1f)) { FormFieldRow(field, panel.fillAllowed, fill) }
+                        if (panel.authoringAllowed) {
+                            val move = FormFieldTap.Move(field.id, field.pageIndex)
+                            val moving = panel.armed == move
+                            TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) "Cancel" else "Move") }
+                        }
+                    }
                     if (panel.authoringAllowed) {
-                        val move = FormFieldTap.Move(field.id, field.pageIndex)
-                        val moving = panel.armed == move
-                        TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) "Cancel" else "Move") }
+                        FieldSizeRow(field.rect) { width, height -> actions.onResize(documentId, field.id, width, height) }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * A field's width and height in points. Both commit together when focus
+ * leaves the pair, so typing a width is not two edits; a size the field
+ * already has costs nothing. Done lets focus go rather than committing itself:
+ * one way to commit, so Done and the focus loss after it cannot queue the same
+ * resize twice before the core has answered the first.
+ */
+@Composable
+private fun FieldSizeRow(rect: AnnotationRect, resize: (Double, Double) -> Unit) {
+    // Re-seeded when the core's rect changes under the row: an undo, a move, a clamp to the page.
+    var width by remember(rect) { mutableStateOf(pointsText(rect.width)) }
+    var height by remember(rect) { mutableStateOf(pointsText(rect.height)) }
+    val commit = { resize(typedPoints(width), typedPoints(height)) }
+    var focused by remember { mutableStateOf(false) }
+    // Focus is watched on the pair, so moving from Width to Height is not a commit.
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.onFocusChanged {
+            if (focused && !it.hasFocus) commit()
+            focused = it.hasFocus
+        },
+    ) {
+        SizeBox("Width (pt)", width, { width = it }, Modifier.weight(1f))
+        SizeBox("Height (pt)", height, { height = it }, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SizeBox(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier) {
+    val focusManager = LocalFocusManager.current
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+        modifier = modifier,
+    )
 }
 
 /** One chip per kind of field; the armed one shows selected, and choosing it again disarms. */
