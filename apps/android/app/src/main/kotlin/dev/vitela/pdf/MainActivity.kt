@@ -212,6 +212,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onFill = viewModel::fillFormField,
                 onArm = viewModel::armFormField,
                 onPageTap = viewModel::tapFormField,
+                onResize = viewModel::resizeFormField,
             )
         },
         contentEdit = remember(viewModel) {

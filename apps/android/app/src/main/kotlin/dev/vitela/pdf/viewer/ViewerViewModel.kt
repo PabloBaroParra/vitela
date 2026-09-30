@@ -298,6 +298,8 @@ class ViewerViewModel(
     /** Arms what the next page tap does to the form — place a field, or move one — or disarms with null. */
     fun armFormField(tap: FormFieldTap?) = formAuthoring.arm(tap)
     fun tapFormField(pageIndex: Int, point: AnnotationPoint) = formAuthoring.tap(pageIndex, point)
+    /** Resizes a field in points, keeping its top-left corner; [documentId] is the document the row was built for. */
+    fun resizeFormField(documentId: Long, fieldId: Long, width: Double, height: Double) = formAuthoring.resize(documentId, fieldId, width, height)
 
     // Edit text
     fun openContentEdit() {

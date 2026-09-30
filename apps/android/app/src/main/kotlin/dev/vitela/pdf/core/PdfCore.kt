@@ -95,6 +95,8 @@ interface PdfDocument : AutoCloseable {
     fun addFormField(pageIndex: Int, kind: NewFormField, rect: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Creating form fields is unavailable in this PDF core."))
     /** Queues one undoable move of field [fieldId] to [to], on the page it is on. */
     fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Moving form fields is unavailable in this PDF core."))
+    /** Queues one undoable resize of field [fieldId] to [to], on the page it is on; the same rect as a move, a different intent. */
+    fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Resizing form fields is unavailable in this PDF core."))
     /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
     fun contentEditingAllowed(): Boolean = false
     /** The text runs page [pageIndex] paints, pending retypes included; refused when the document forbids text extraction. */

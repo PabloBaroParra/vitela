@@ -220,6 +220,14 @@ is the reader's scroll. The core names each new field and picks its style and
 first options. While a tap is armed it claims every page tap: Edit text, an
 armed annotation tool and a text selection are dropped.
 
+Under the same permission each field also shows its width and height in PDF
+points. Both commit together when focus leaves the pair (Done lets it go), so
+typing a width and then a height is one edit. A resize keeps the field's top-left
+corner, the corner a move lands on, so the field grows down and to the right.
+It is clamped whole onto the page, and a size that is not a finite, positive
+number is refused before it reaches the core. Windows keeps the bottom-left
+origin instead; both send the core the same resize command.
+
 Nothing is drawn over the page. Only the renderer paints a field, so every
 edit rebuilds the preview and the page redraws. The permission is asked as the
 core's own question, not composed from the annotation and content answers:

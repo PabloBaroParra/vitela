@@ -9,6 +9,7 @@ import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.PageSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FormFieldsTest {
@@ -105,5 +106,42 @@ class FormFieldsTest {
     @Test
     fun anEmptyFormThatAcceptsNewFieldsSaysHowToAddOne() {
         assertEquals(FORM_NO_FIELDS_ADD, formFieldsNotice(FormFieldsState(loaded = true, fillAllowed = true, authoringAllowed = true)))
+    }
+
+    @Test
+    fun aResizedFieldKeepsItsTopLeftCorner() {
+        val rect = AnnotationRect(10.0, 20.0, 144.0, 36.0)
+        assertEquals(AnnotationRect(10.0, 6.0, 200.0, 50.0), resizedFieldRect(rect, 200.0, 50.0, letter))
+    }
+
+    @Test
+    fun aResizedFieldStaysWholeOnThePage() {
+        val rect = AnnotationRect(500.0, 700.0, 100.0, 50.0)
+        assertEquals(AnnotationRect(412.0, 700.0, 200.0, 50.0), resizedFieldRect(rect, 200.0, 50.0, letter))
+        assertEquals(AnnotationRect(0.0, 0.0, 612.0, 792.0), resizedFieldRect(rect, 1000.0, 1000.0, letter))
+    }
+
+    @Test
+    fun aSizeThatIsNotAPositiveNumberResizesNothing() {
+        val rect = AnnotationRect(10.0, 20.0, 144.0, 36.0)
+        listOf(0.0, -1.0, Double.NaN, Double.POSITIVE_INFINITY).forEach {
+            assertNull(resizedFieldRect(rect, it, 36.0, letter))
+            assertNull(resizedFieldRect(rect, 144.0, it, letter))
+        }
+    }
+
+    @Test
+    fun aSizeShowsAsFewDigitsAsItNeeds() {
+        assertEquals("144", pointsText(144.0))
+        assertEquals("12.5", pointsText(12.5))
+        assertEquals("12.35", pointsText(12.3456))
+    }
+
+    @Test
+    fun whatIsTypedIsReadAsPointsOrAsNothing() {
+        assertEquals(12.5, typedPoints(" 12.5 "), 0.0)
+        assertEquals(12.5, typedPoints("12,5"), 0.0)
+        assertTrue(typedPoints("").isNaN())
+        assertTrue(typedPoints("wide").isNaN())
     }
 }
