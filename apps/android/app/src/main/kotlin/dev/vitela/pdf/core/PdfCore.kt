@@ -137,9 +137,23 @@ interface PdfDocument : AutoCloseable {
      * what an undo needs to put it back. The page shows it only after [refreshPreview].
      */
     fun removeImage(image: ContentImage): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable new line of [text] on page [pageIndex], in a
+     * standard font of its own. [bounds]' height is the font size and its
+     * bottom edge the line's; the core measures the width itself. The page
+     * shows it only after [refreshPreview]; the failure names a character the
+     * font cannot show.
+     */
+    fun insertTextRun(pageIndex: Int, text: String, bounds: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable new image on page [pageIndex], painted as page
+     * content filling [bounds] — place it with [stampPlacement]. The page
+     * shows it only after [refreshPreview].
+     */
+    fun insertImage(pageIndex: Int, imageBytes: ByteArray, bounds: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
-    /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */
+    /** Core-owned, aspect-ratio-preserving placement policy for an image stamp or an inserted image; [anchor] is its top-left corner. */
     fun stampPlacement(imageBytes: ByteArray, anchor: AnnotationPoint): PdfCoreResult<AnnotationRect> = PdfCoreResult.Failure(PdfCoreError.Failed("Image stamps are unavailable in this PDF core."))
     /** Inserts an image-backed stamp using a placement returned by [stampPlacement]. */
     fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, rect: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Image stamps are unavailable in this PDF core."))

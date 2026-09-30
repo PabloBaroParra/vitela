@@ -10,7 +10,8 @@ import kotlin.math.max
 /**
  * Edit content mode: a tap on a line of text the page itself paints opens it
  * for retyping or deleting, a tap on an image it paints opens it for
- * resizing, moving or deleting. [runs] and [images] hold each page's content
+ * resizing, moving or deleting, and Add text or Add image claims the next tap
+ * for something new. [runs] and [images] hold each page's content
  * as last read — only pages that were shown or tapped — so the outlines
  * describe what the page now shows.
  */
@@ -26,6 +27,40 @@ data class ContentEditState(
      * null while no move is armed. Never armed with a dialog open.
      */
     val movingImage: ContentImage? = null,
+    /**
+     * What the next page tap adds, armed from Add text or Add image; null
+     * while nothing is armed. Never armed with [movingImage] or a dialog open.
+     */
+    val adding: ContentAddition? = null,
+    /** The new line being typed, or null while no insert dialog is open. */
+    val inserter: TextInserter? = null,
+)
+
+/** What an armed tap adds to the page, its top-left corner on the tap. */
+sealed interface ContentAddition {
+    /** A new line of text, typed in a dialog the tap opens. */
+    data object Text : ContentAddition
+
+    /**
+     * The image [bytes] the reader chose, sized by the core. Not a data
+     * class: two choices of the same file are two choices, and array
+     * equality would compare contents.
+     */
+    class Image(val bytes: ByteArray) : ContentAddition
+}
+
+/**
+ * The insert dialog, for a line whose top-left corner is [at] on page
+ * [pageIndex]. [text] and [size] start empty and at the default size and,
+ * after a refusal, are what the reader typed — kept with the [error], like
+ * [TextRunEditor.text].
+ */
+data class TextInserter(
+    val pageIndex: Int,
+    val at: AnnotationPoint,
+    val text: String = "",
+    val size: String = pointsText(DEFAULT_INSERTED_TEXT_SIZE),
+    val error: String? = null,
 )
 
 /**
@@ -70,6 +105,16 @@ internal const val IMAGE_MOVED = "Image moved. Save to keep the change."
 internal const val IMAGE_POSITION_UNCHANGED = "Image position unchanged."
 internal const val IMAGE_MOVE_CANCELLED = "Move cancelled."
 internal const val IMAGE_DELETED = "Image deleted. Save to keep the change."
+internal const val TEXT_INSERT_PROMPT = "Tap the page where the new text's top-left corner should go."
+internal const val IMAGE_INSERT_PROMPT = "Tap the page where the image's top-left corner should go."
+internal const val INSERT_CANCELLED = "Insert cancelled."
+internal const val TEXT_INSERTED = "Text inserted. Save to keep the change."
+internal const val TEXT_INSERT_EMPTY = "Enter a nonempty single line of text."
+internal const val TEXT_SIZE_INVALID = "Text size must be between 1 and 72 pt."
+internal const val IMAGE_INSERTED = "Image inserted. Save to keep the change."
+
+/** The size a new line starts at, in points; the Windows shell's default. */
+internal const val DEFAULT_INSERTED_TEXT_SIZE = 14.0
 
 /** What an armed move asks for; the image stays on its own page. */
 internal fun imageMovePrompt(pageIndex: Int) = "Tap page ${pageIndex + 1} where the image's top-left corner should go."
@@ -130,6 +175,20 @@ internal fun resizedImageRect(bounds: AnnotationRect, width: Double, height: Dou
  */
 internal fun movedImageRect(bounds: AnnotationRect, tap: AnnotationPoint): AnnotationRect =
     AnnotationRect(tap.x, tap.y - bounds.height, bounds.width, bounds.height)
+
+/**
+ * The box a new line of [size] points gets when its top-left corner is at
+ * [at], or null for a size outside 1–72 pt, the Windows shell's range. The
+ * core reads only its left edge, bottom edge and height — the font size — and
+ * measures the width from the text itself, so the width sent is nominal.
+ */
+internal fun insertedTextRect(at: AnnotationPoint, size: Double): AnnotationRect? {
+    if (!size.isFinite() || size < 1.0 || size > 72.0) return null
+    return AnnotationRect(at.x, at.y - size, size, size)
+}
+
+/** A line the core can insert: not blank, and one line. */
+internal fun insertableText(text: String): Boolean = text.isNotBlank() && '\n' !in text && '\r' !in text
 
 private fun distance(rect: AnnotationRect, point: AnnotationPoint): Double {
     val dx = max(max(rect.x - point.x, point.x - (rect.x + rect.width)), 0.0)

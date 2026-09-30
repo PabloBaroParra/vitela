@@ -65,6 +65,15 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
             if (bytes == null) viewModel.reportReadFailure() else viewModel.selectImageStamp(bytes)
         }
     }
+    val chooseContentImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null) viewModel.reportReadFailure() else viewModel.armImageInsert(bytes)
+        }
+    }
     val openPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -272,6 +281,12 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onMove = viewModel::armImageMove,
                 onCancelMove = viewModel::cancelImageMove,
                 onDelete = viewModel::deleteImage,
+                onAddText = viewModel::armTextInsert,
+                // The core decodes PNG and JPEG; anything else is refused when placed.
+                onAddImage = { chooseContentImage.launch("image/*") },
+                onCancelInsert = viewModel::cancelInsert,
+                onInsertText = viewModel::insertText,
+                onDismissInserter = viewModel::dismissTextInserter,
             )
         },
     )

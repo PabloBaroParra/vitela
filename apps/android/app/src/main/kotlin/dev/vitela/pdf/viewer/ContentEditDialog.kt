@@ -40,6 +40,14 @@ internal class ContentEditActions(
     val onCancelMove: () -> Unit,
     /** documentId: deletes the dialog's image; the document is the one the dialog was built for. */
     val onDelete: (Long) -> Unit,
+    /** Arms the next page tap to place a new line of text. */
+    val onAddText: () -> Unit,
+    /** Opens the image picker; the chosen image arms the next page tap. */
+    val onAddImage: () -> Unit,
+    val onCancelInsert: () -> Unit,
+    /** documentId, text, size as typed, in points: the document is the one the dialog was built for. */
+    val onInsertText: (Long, String, String) -> Unit,
+    val onDismissInserter: () -> Unit,
 )
 
 /**
@@ -109,6 +117,37 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
                 TextButton(onClick = actions.onDismissResizer) { Text("Cancel") }
             }
         },
+    )
+}
+
+/**
+ * The insert dialog: a new line and its size, for the spot tapped. Keyed on
+ * the inserter, so a refusal reopens with what was typed, like the retype
+ * dialog.
+ */
+@Composable
+internal fun TextInserterDialog(inserter: TextInserter, documentId: Long, actions: ContentEditActions) {
+    var text by remember(inserter) { mutableStateOf(inserter.text) }
+    var size by remember(inserter) { mutableStateOf(inserter.size) }
+    AlertDialog(
+        onDismissRequest = actions.onDismissInserter,
+        title = { Text("Add text — page ${inserter.pageIndex + 1}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Adds one line of Helvetica text as page content, its top-left corner where you tapped. Some characters cannot be shown in this font.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text("Text") },
+                    singleLine = true,
+                    isError = inserter.error != null,
+                )
+                PointsField("Size (pt)", size, { size = it }, inserter.error != null, Modifier)
+                inserter.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { Button(onClick = { actions.onInsertText(documentId, text, size) }) { Text("Insert") } },
+        dismissButton = { TextButton(onClick = actions.onDismissInserter) { Text("Cancel") } },
     )
 }
 
