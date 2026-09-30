@@ -444,6 +444,9 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.MoveImage value => new FfiEditCommand.MoveImage(
             new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
             Rect(value.Rect)),
+        PdfCoreEdit.RemoveImage value => new FfiEditCommand.RemoveImage(
+            new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
+            null),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
         PdfCoreEdit.MoveFormField value => new FfiEditCommand.MoveFormField(value.FieldId, Rect(value.Rect)),

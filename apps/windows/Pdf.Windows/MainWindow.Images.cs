@@ -6,16 +6,21 @@ namespace Pdf.Windows;
 
 public sealed partial class MainWindow
 {
-    private bool _editingImageGeometry;
+    private enum ImageAction { Resize, Move, Delete }
+    private bool _editingImage;
 
-    private async void ResizeImageButton_Click(object sender, RoutedEventArgs e) => await EditImageGeometryAsync(move: false);
+    private async void ResizeImageButton_Click(object sender, RoutedEventArgs e) => await EditImageAsync(ImageAction.Resize);
 
-    private async void MoveImageButton_Click(object sender, RoutedEventArgs e) => await EditImageGeometryAsync(move: true);
+    private async void MoveImageButton_Click(object sender, RoutedEventArgs e) => await EditImageAsync(ImageAction.Move);
 
-    private async Task EditImageGeometryAsync(bool move)
+    private async void DeleteImageButton_Click(object sender, RoutedEventArgs e) => await EditImageAsync(ImageAction.Delete);
+
+    private async Task EditImageAsync(ImageAction action)
     {
-        if (_session is null || _organizing || _isBusy || _editingImageGeometry) return;
-        _editingImageGeometry = true;
+        if (_session is null || _organizing || _isBusy || _editingImage) return;
+        _editingImage = true;
+        var move = action == ImageAction.Move;
+        var remove = action == ImageAction.Delete;
         var sessionId = _session.SessionId;
         try
         {
@@ -42,11 +47,15 @@ public sealed partial class MainWindow
             var second = new NumberBox { Header = move ? "Y (pt)" : "Height (pt)" };
             var panel = new StackPanel { Spacing = 8 };
             panel.Children.Add(choice);
-            panel.Children.Add(first);
-            panel.Children.Add(second);
+            if (!remove)
+            {
+                panel.Children.Add(first);
+                panel.Children.Add(second);
+            }
             panel.Children.Add(new TextBlock
             {
-                Text = (move ? "Coordinates use PDF space: X increases rightward and Y upward. The image keeps its size."
+                Text = remove ? "Delete the selected image from this page. You can undo this change. Save first if this image already has a pending edit."
+                    : (move ? "Coordinates use PDF space: X increases rightward and Y upward. The image keeps its size."
                     : "The image stays at its current origin. Width and height are independent.")
                     + " Save before making another geometry edit to the same image.",
                 TextWrapping = TextWrapping.Wrap,
@@ -54,15 +63,15 @@ public sealed partial class MainWindow
             var dialog = new ContentDialog
             {
                 XamlRoot = PageScroller.XamlRoot,
-                Title = $"{(move ? "Move" : "Resize")} image — page {pageIndex + 1}",
+                Title = $"{(remove ? "Delete" : move ? "Move" : "Resize")} image — page {pageIndex + 1}",
                 Content = panel,
-                PrimaryButtonText = move ? "Move" : "Resize",
+                PrimaryButtonText = remove ? "Delete" : move ? "Move" : "Resize",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
             };
             void validate() => dialog.IsPrimaryButtonEnabled =
-                choice.SelectedIndex >= 0 && double.IsFinite(first.Value) && double.IsFinite(second.Value)
-                && (move || (first.Value > 0 && second.Value > 0));
+                choice.SelectedIndex >= 0 && (remove || (double.IsFinite(first.Value) && double.IsFinite(second.Value)
+                && (move || (first.Value > 0 && second.Value > 0))));
             choice.SelectionChanged += (_, _) =>
             {
                 if (choice.SelectedIndex < 0)
@@ -81,14 +90,14 @@ public sealed partial class MainWindow
             if (await dialog.ShowAsync() != ContentDialogResult.Primary || _session?.SessionId != sessionId) return;
 
             var selected = images.Value[choice.SelectedIndex];
-            var result = move
+            var result = remove ? await _facade.RemoveImageAsync(sessionId, selected) : move
                 ? await _facade.MoveImageAsync(sessionId, selected, first.Value, second.Value)
                 : await _facade.ResizeImageAsync(sessionId, selected, first.Value, second.Value);
             if (_session?.SessionId != sessionId) return;
             var unchanged = move
                 ? selected.Bounds.X == first.Value && selected.Bounds.Y == second.Value
                 : selected.Bounds.Width == first.Value && selected.Bounds.Height == second.Value;
-            if (result.IsSuccess && unchanged)
+            if (!remove && result.IsSuccess && unchanged)
             {
                 AnnotationStatus.Text = move ? "Image position unchanged." : "Image dimensions unchanged.";
                 return;
@@ -108,11 +117,12 @@ public sealed partial class MainWindow
             }
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = move ? "Image moved. Save to keep the change." : "Image resized. Save to keep the change.";
+            AnnotationStatus.Text = remove ? "Image deleted. Save to keep the change."
+                : move ? "Image moved. Save to keep the change." : "Image resized. Save to keep the change.";
         }
         finally
         {
-            _editingImageGeometry = false;
+            _editingImage = false;
         }
     }
 }

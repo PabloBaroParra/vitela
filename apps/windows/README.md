@@ -72,6 +72,12 @@ Moving uses the same permission, preview, undo/redo and snapshot checks as resiz
 The core refuses a second geometry edit on the same image while the first is
 pending. Save first, then reopen the dialog; rereading alone does not clear it.
 
+**Delete image** lists the content images on the visible page and removes the
+chosen image after confirmation. Resource and inline images use the same Rust
+command, with preview refresh and undo/redo. Deletion requires content-edit
+permission and a full rewrite. Save first if the image already has a pending edit;
+reopen the dialog after any intervening edit. Save to keep the deletion.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names
