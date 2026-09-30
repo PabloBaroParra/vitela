@@ -3,6 +3,9 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("moves resource and inline images without resizing", MovesContentImagesAsync),
+    ("rejects invalid, stale and forbidden image movement", RefusesInvalidImageMovementAsync),
+    ("keeps a moved image undoable after preview failure", KeepsImageMoveAfterPreviewFailureAsync),
     ("resizes resource and inline images through preview and history", ResizesContentImagesAsync),
     ("rejects invalid, stale and forbidden image resizing", RefusesInvalidImageResizingAsync),
     ("keeps a resized image undoable after preview failure", KeepsImageResizeAfterPreviewFailureAsync),
@@ -2699,6 +2702,64 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
 }
 
+static async Task MovesContentImagesAsync()
+{
+    foreach (var resource in new string?[] { "Im1", null })
+    {
+        var source = new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), resource);
+        var core = new FakeCore { PageImages = [source] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+        var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+        var unchanged = await facade.MoveImageAsync(session.SessionId, image, 20, 30);
+        Assert(unchanged.IsSuccess && core.ImageMoves.Count == 0, "unchanged position must not enter history");
+        var moved = await facade.MoveImageAsync(session.SessionId, image, 0, -10);
+        Assert(moved.IsSuccess && moved.Value!.CanUndo && core.RefreshPreviewCalls == 1, "moving must accept zero/negative coordinates, refresh and enter history");
+        Assert(core.ImageMoves[0].Item == source && core.ImageMoves[0].Rect == new PdfCoreRect(0, -10, 100, 50), "moving must preserve size, identity and resource/inline source");
+        await facade.UndoAsync(session.SessionId);
+        await facade.RedoAsync(session.SessionId);
+        Assert(core.RefreshPreviewCalls == 3, "undo and redo must rebuild the painted PDF");
+    }
+}
+
+static async Task RefusesInvalidImageMovementAsync()
+{
+    var core = new FakeCore { PageImages = [new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), "Im1")] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    foreach (var (x, y) in new[] { (double.NaN, 30d), (20d, double.PositiveInfinity), (double.NegativeInfinity, 30d) })
+        Assert(!(await facade.MoveImageAsync(session.SessionId, image, x, y)).IsSuccess, "non-finite coordinates must be refused");
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.MoveImageAsync(session.SessionId, image, 40, 60)).IsSuccess, "content permission must be checked at submission");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.MoveImageAsync(session.SessionId, image, 40, 60)).IsSuccess, "an unwritable content edit must be refused");
+    core.LastDocument.FullRewriteAllowed = true;
+    Assert(core.ImageMoves.Count == 0 && core.RefreshPreviewCalls == 0, "refusals must not record or refresh");
+    await facade.ResizeImageAsync(session.SessionId, image, 200, 75);
+    Assert(!(await facade.MoveImageAsync(session.SessionId, image, 40, 60)).IsSuccess, "a snapshot preceding a resize must be refused");
+    await facade.UndoAsync(session.SessionId);
+    Assert(!(await facade.MoveImageAsync(session.SessionId, image, 40, 60)).IsSuccess, "undo must not revive an old snapshot");
+    var fresh = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    Assert((await facade.MoveImageAsync(session.SessionId, fresh, 40, 60)).IsSuccess, "re-reading must allow movement after undo");
+    Assert(!(await facade.ResizeImageAsync(session.SessionId, fresh, 200, 75)).IsSuccess, "movement must invalidate resize snapshots too");
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.MoveImageAsync(other.SessionId, fresh, 40, 60)).IsSuccess, "another session must not accept the same image id");
+    Assert(!(await facade.MoveImageAsync(session.SessionId, fresh, 40, 60)).IsSuccess, "a retired session must be refused");
+    Assert(core.ImageMoves.Count == 1, "stale snapshots must never record another move");
+}
+
+static async Task KeepsImageMoveAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { PageImages = [new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), null)], RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    var result = await facade.MoveImageAsync(session.SessionId, image, 40, 60);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.ImageMoves.Count == 1, "a preview failure must retain the undoable move");
+}
+
 static async Task ResizesContentImagesAsync()
 {
     foreach (var resource in new string?[] { "Im1", null })
@@ -3306,6 +3367,7 @@ sealed class FakeCore : IPdfCore
     public int RefreshPreviewCalls;
     public IReadOnlyList<PdfCoreContentImage> PageImages { get; init; } = [];
     public List<PdfCoreEdit.ResizeImage> ImageEdits { get; } = [];
+    public List<PdfCoreEdit.MoveImage> ImageMoves { get; } = [];
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
@@ -3351,6 +3413,13 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.MoveImage moveImage)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            ImageMoves.Add(moveImage);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.ResizeImage resizeImage)
         {
             if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");

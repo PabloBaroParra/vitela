@@ -6,12 +6,16 @@ namespace Pdf.Windows;
 
 public sealed partial class MainWindow
 {
-    private bool _resizingImage;
+    private bool _editingImageGeometry;
 
-    private async void ResizeImageButton_Click(object sender, RoutedEventArgs e)
+    private async void ResizeImageButton_Click(object sender, RoutedEventArgs e) => await EditImageGeometryAsync(move: false);
+
+    private async void MoveImageButton_Click(object sender, RoutedEventArgs e) => await EditImageGeometryAsync(move: true);
+
+    private async Task EditImageGeometryAsync(bool move)
     {
-        if (_session is null || _organizing || _isBusy || _resizingImage) return;
-        _resizingImage = true;
+        if (_session is null || _organizing || _isBusy || _editingImageGeometry) return;
+        _editingImageGeometry = true;
         var sessionId = _session.SessionId;
         try
         {
@@ -34,24 +38,31 @@ public sealed partial class MainWindow
             var choice = new ComboBox { Header = "Image", HorizontalAlignment = HorizontalAlignment.Stretch };
             foreach (var image in images.Value)
                 choice.Items.Add($"Image {choice.Items.Count + 1}: X {image.Bounds.X:0.##}, Y {image.Bounds.Y:0.##} pt");
-            var width = new NumberBox { Header = "Width (pt)" };
-            var height = new NumberBox { Header = "Height (pt)" };
+            var first = new NumberBox { Header = move ? "X (pt)" : "Width (pt)" };
+            var second = new NumberBox { Header = move ? "Y (pt)" : "Height (pt)" };
             var panel = new StackPanel { Spacing = 8 };
             panel.Children.Add(choice);
-            panel.Children.Add(width);
-            panel.Children.Add(height);
-            panel.Children.Add(new TextBlock { Text = "The image stays at its current origin. Width and height are independent.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(first);
+            panel.Children.Add(second);
+            panel.Children.Add(new TextBlock
+            {
+                Text = (move ? "Coordinates use PDF space: X increases rightward and Y upward. The image keeps its size."
+                    : "The image stays at its current origin. Width and height are independent.")
+                    + " Save before making another geometry edit to the same image.",
+                TextWrapping = TextWrapping.Wrap,
+            });
             var dialog = new ContentDialog
             {
                 XamlRoot = PageScroller.XamlRoot,
-                Title = $"Resize image — page {pageIndex + 1}",
+                Title = $"{(move ? "Move" : "Resize")} image — page {pageIndex + 1}",
                 Content = panel,
-                PrimaryButtonText = "Resize",
+                PrimaryButtonText = move ? "Move" : "Resize",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
             };
             void validate() => dialog.IsPrimaryButtonEnabled =
-                choice.SelectedIndex >= 0 && double.IsFinite(width.Value) && width.Value > 0 && double.IsFinite(height.Value) && height.Value > 0;
+                choice.SelectedIndex >= 0 && double.IsFinite(first.Value) && double.IsFinite(second.Value)
+                && (move || (first.Value > 0 && second.Value > 0));
             choice.SelectionChanged += (_, _) =>
             {
                 if (choice.SelectedIndex < 0)
@@ -60,21 +71,26 @@ public sealed partial class MainWindow
                     return;
                 }
                 var image = images.Value[choice.SelectedIndex];
-                width.Value = image.Bounds.Width;
-                height.Value = image.Bounds.Height;
+                first.Value = move ? image.Bounds.X : image.Bounds.Width;
+                second.Value = move ? image.Bounds.Y : image.Bounds.Height;
                 validate();
             };
-            width.ValueChanged += (_, _) => validate();
-            height.ValueChanged += (_, _) => validate();
+            first.ValueChanged += (_, _) => validate();
+            second.ValueChanged += (_, _) => validate();
             choice.SelectedIndex = 0;
             if (await dialog.ShowAsync() != ContentDialogResult.Primary || _session?.SessionId != sessionId) return;
 
             var selected = images.Value[choice.SelectedIndex];
-            var result = await _facade.ResizeImageAsync(sessionId, selected, width.Value, height.Value);
+            var result = move
+                ? await _facade.MoveImageAsync(sessionId, selected, first.Value, second.Value)
+                : await _facade.ResizeImageAsync(sessionId, selected, first.Value, second.Value);
             if (_session?.SessionId != sessionId) return;
-            if (result.IsSuccess && selected.Bounds.Width == width.Value && selected.Bounds.Height == height.Value)
+            var unchanged = move
+                ? selected.Bounds.X == first.Value && selected.Bounds.Y == second.Value
+                : selected.Bounds.Width == first.Value && selected.Bounds.Height == second.Value;
+            if (result.IsSuccess && unchanged)
             {
-                AnnotationStatus.Text = "Image dimensions unchanged.";
+                AnnotationStatus.Text = move ? "Image position unchanged." : "Image dimensions unchanged.";
                 return;
             }
             // An edit remains undoable even if rebuilding its preview failed.
@@ -92,11 +108,11 @@ public sealed partial class MainWindow
             }
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = "Image resized. Save to keep the change.";
+            AnnotationStatus.Text = move ? "Image moved. Save to keep the change." : "Image resized. Save to keep the change.";
         }
         finally
         {
-            _resizingImage = false;
+            _editingImageGeometry = false;
         }
     }
 }

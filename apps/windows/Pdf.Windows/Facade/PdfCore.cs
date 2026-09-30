@@ -395,6 +395,7 @@ internal abstract record PdfCoreEdit
     public sealed record ReplaceTextRun(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
     public sealed record ReplaceTextRunWithInsertedFont(PdfCoreContentTextRun Item, string After) : PdfCoreEdit;
     public sealed record ResizeImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
+    public sealed record MoveImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
 }
 
 internal sealed record PdfCoreFormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value, FormTextStyle? Style = null, PdfCoreRect? Rect = null);

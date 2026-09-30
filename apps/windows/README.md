@@ -65,6 +65,13 @@ Dimensions must be finite and positive. The edit requires content-edit permissio
 and a document that can be fully rewritten; it refreshes the preview and supports
 undo/redo. Save to keep the change. Reopen the dialog after any intervening edit.
 
+**Move image** uses the same image list on the visible page. Enter X and Y in
+PDF points (X increases rightward, Y upward) to move the image without changing
+its dimensions. Coordinates must be finite; zero and negative values are allowed.
+Moving uses the same permission, preview, undo/redo and snapshot checks as resizing.
+The core refuses a second geometry edit on the same image while the first is
+pending. Save first, then reopen the dialog; rereading alone does not clear it.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names
