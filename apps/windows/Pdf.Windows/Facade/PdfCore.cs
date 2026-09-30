@@ -79,6 +79,8 @@ internal interface IPdfCore
     /// </remarks>
     PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex);
 
+    byte[] ImageSourceBytes(IPdfCoreDocument document, PdfCoreContentImage image);
+
     /// <summary>
     /// The <c>/BaseFont</c> name of each font a page declares, keyed by the
     /// resource name its text runs report. Empty when the page names none.
@@ -400,6 +402,7 @@ internal abstract record PdfCoreEdit
     public sealed record InsertImage(PdfCoreContentImage Item, byte[] Source) : PdfCoreEdit;
     public sealed record ResizeImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record MoveImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
+    public sealed record ReplaceImageSource(PdfCoreContentImage Item, byte[] Before, byte[] After) : PdfCoreEdit;
     public sealed record RemoveImage(PdfCoreContentImage Item) : PdfCoreEdit;
 }
 

@@ -3,6 +3,9 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("replaces resource and inline image sources with history", ReplacesContentImagesAsync),
+    ("refuses stale forbidden and unrecoverable image replacement", RefusesImageReplacementAsync),
+    ("retains image replacement after preview failure", KeepsImageReplacementAfterPreviewFailureAsync),
     ("inserts image content with shared placement and history", InsertsContentImageAsync),
     ("refuses invalid stale and forbidden image insertion", RefusesInvalidImageInsertionAsync),
     ("keeps image insertion undoable after preview failure", KeepsImageInsertionAfterPreviewFailureAsync),
@@ -2739,6 +2742,68 @@ static async Task InsertsContentImageAsync()
     Assert((await facade.RedoAsync(session.SessionId)).Value!.CanUndo && core.RefreshPreviewCalls == 4, "redo must refresh");
 }
 
+static async Task ReplacesContentImagesAsync()
+{
+    foreach (var name in new string?[] { "Im1", null })
+    {
+        var source = new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), name);
+        var core = new FakeCore { PageImages = [source] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+        var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+        Assert((await facade.PrepareImageReplacementAsync(session.SessionId, image)).IsSuccess && !core.LastDocument!.CanUndo, "preparation must leave history untouched");
+        byte[] bytes = [4, 5, 6];
+        var result = await facade.ReplaceContentImageAsync(session.SessionId, image, bytes);
+        bytes[0] = 9;
+        var edit = core.ImageReplacements.Single();
+        Assert(result.IsSuccess && result.Value!.CanUndo && core.RefreshPreviewCalls == 1, "replacement must record and refresh");
+        Assert(edit.Item == source && edit.Before.SequenceEqual(new byte[] { 1, 2, 3 }) && edit.After.SequenceEqual(new byte[] { 4, 5, 6 }), "source identity, geometry, undo bytes and owned replacement must be retained");
+        Assert(!(await facade.ReplaceContentImageAsync(session.SessionId, image, [7])).IsSuccess, "submission must invalidate its snapshot");
+        Assert((await facade.UndoAsync(session.SessionId)).Value!.CanRedo, "replacement must be undoable");
+        Assert(!(await facade.PrepareImageReplacementAsync(session.SessionId, image)).IsSuccess, "undo must not revive snapshots");
+        Assert((await facade.RedoAsync(session.SessionId)).Value!.CanUndo && core.RefreshPreviewCalls == 3, "redo must refresh");
+    }
+}
+
+static async Task RefusesImageReplacementAsync()
+{
+    var core = new FakeCore { PageImages = [new(8, 0, new(20, 30, 100, 50), "Im1")] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    core.ImageSourceError = PdfCoreError.UnsupportedOperation;
+    Assert(!(await facade.PrepareImageReplacementAsync(session.SessionId, image)).IsSuccess, "unrecoverable sources must refuse before the picker");
+    Assert(!(await facade.ReplaceContentImageAsync(session.SessionId, image, [4])).IsSuccess, "readback must be checked again on submission");
+    core.ImageSourceError = null;
+    core.ImageReplacementError = PdfCoreError.InvalidImage;
+    Assert(!(await facade.ReplaceContentImageAsync(session.SessionId, image, [])).IsSuccess, "invalid replacement must never enter history");
+    core.ImageReplacementError = null;
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.PrepareImageReplacementAsync(session.SessionId, image)).IsSuccess, "preparation must check permissions");
+    Assert(!(await facade.ReplaceContentImageAsync(session.SessionId, image, [4])).IsSuccess, "submission must check permissions");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.ReplaceContentImageAsync(session.SessionId, image, [4])).IsSuccess, "unwritable edits must refuse");
+    core.LastDocument.FullRewriteAllowed = true;
+    await facade.MoveImageAsync(session.SessionId, image, 40, 60);
+    Assert(!(await facade.PrepareImageReplacementAsync(session.SessionId, image)).IsSuccess, "intervening edits invalidate selection");
+    var fresh = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.ReplaceContentImageAsync(other.SessionId, fresh, [4])).IsSuccess, "cross-session selection must refuse");
+    Assert(!(await facade.ReplaceContentImageAsync(session.SessionId, fresh, [4])).IsSuccess, "retired sessions must refuse");
+    Assert(core.ImageReplacements.Count == 0, "refusals must not record replacements");
+}
+
+static async Task KeepsImageReplacementAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { PageImages = [new(8, 0, new(20, 30, 100, 50), null)], RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    var result = await facade.ReplaceContentImageAsync(session.SessionId, image, [4]);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.ImageReplacements.Count == 1, "preview failure must retain the undoable replacement");
+}
+
 static async Task RefusesInvalidImageInsertionAsync()
 {
     var core = new FakeCore();
@@ -3673,6 +3738,15 @@ sealed class FakeCore : IPdfCore
     public System.Collections.Concurrent.ConcurrentQueue<uint> PageContentReads { get; } = new();
     public int RefreshPreviewCalls;
     public IReadOnlyList<PdfCoreContentImage> PageImages { get; init; } = [];
+    public List<PdfCoreEdit.ReplaceImageSource> ImageReplacements { get; } = [];
+    public PdfCoreError? ImageSourceError { get; set; }
+    public PdfCoreError? ImageReplacementError { get; set; }
+
+    public byte[] ImageSourceBytes(IPdfCoreDocument document, PdfCoreContentImage image)
+    {
+        if (ImageSourceError is { } error) throw new PdfCoreException(error, "image readback refused");
+        return [1, 2, 3];
+    }
     public List<PdfCoreEdit.ResizeImage> ImageEdits { get; } = [];
     public List<PdfCoreEdit.MoveImage> ImageMoves { get; } = [];
     public List<PdfCoreEdit.RemoveImage> ImageRemovals { get; } = [];
@@ -3725,6 +3799,14 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.ReplaceImageSource replacementImage)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            if (ImageReplacementError is { } error) throw new PdfCoreException(error, "replacement refused");
+            ImageReplacements.Add(replacementImage);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.InsertImage insertImage)
         {
             if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
