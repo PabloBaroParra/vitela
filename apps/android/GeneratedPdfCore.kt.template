@@ -27,6 +27,7 @@ import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.ImageExportFormat
+import dev.vitela.pdf.core.ImportReport
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.PageContent
@@ -84,6 +85,7 @@ import dev.vitela.pdf.uniffi.saveCompressedToBytes as ffiSaveCompressedToBytes
 import dev.vitela.pdf.uniffi.openWithPasswordsFromBytes as ffiOpenWithPasswordsFromBytes
 import dev.vitela.pdf.uniffi.protectToBytes as ffiProtectToBytes
 import dev.vitela.pdf.uniffi.protectionWillInvalidateSignatures as ffiProtectionWillInvalidateSignatures
+import dev.vitela.pdf.uniffi.importPdf as ffiImportPdf
 
 class GeneratedPdfCoreFactory : PdfCoreFactory {
     override fun create(): PdfCore = GeneratedPdfCore()
@@ -149,6 +151,18 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
         PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its pages to be rearranged, rotated or removed."))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core asks every gate — the document's content and assembly bits, the
+    // rewrite a new page forces, the source's copy bit and what it carries — and
+    // names what refused in `detail`, a lower-case clause.
+    override fun importPdf(bytes: ByteArray, password: String?, index: Int): PdfCoreResult<ImportReport> = try {
+        val report = ffiImportPdf(handle, bytes, password, index.toUInt())
+        PdfCoreResult.Success(ImportReport(report.pageCount.toInt(), report.warnings))
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercase() }.trimEnd('.')}."))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }

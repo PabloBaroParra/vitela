@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.ImportReport
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfCore
@@ -84,6 +85,25 @@ internal class OrganizableDocument(
         return PdfCoreResult.Success(Unit)
     }
 
+    /** Every import asked of the core: the position it was asked at, and the password it came with. */
+    val imports = mutableListOf<Pair<Int, String?>>()
+
+    /** Reads a [fakePdf]: its pages go in as new ids, one undo step for the whole file. */
+    override fun importPdf(bytes: ByteArray, password: String?, index: Int): PdfCoreResult<ImportReport> {
+        imports += index to password
+        when (bytes[0]) {
+            FAKE_LOCKED -> if (password != FAKE_PASSWORD) return PdfCoreResult.Failure(if (password == null) PdfCoreError.PasswordRequired else PdfCoreError.WrongPassword)
+            FAKE_REFUSED -> return PdfCoreResult.Failure(PdfCoreError.Failed("The PDF does not permit copying its pages."))
+        }
+        val before = pages.toList()
+        val after = before.toMutableList().also { list -> list.addAll(index, List(bytes[1].toInt()) { Page(nextId++) }) }
+        pages = after
+        undoable.addLast(({ pages = before.toMutableList() }) to ({ pages = after.toMutableList() }))
+        redoable.clear()
+        val warnings = if (bytes[0] == FAKE_WARNS) listOf("a form field was renamed") else emptyList()
+        return PdfCoreResult.Success(ImportReport(bytes[1].toInt(), warnings))
+    }
+
     /** An edit that is not a page edit, so undo has something to undo. */
     fun stackAnAnnotationUndo() {
         undoable.addLast(({ }) to ({ }))
@@ -105,6 +125,15 @@ internal class OrganizableDocument(
 
     override fun close() = Unit
 }
+
+internal const val FAKE_PLAIN: Byte = 0
+internal const val FAKE_LOCKED: Byte = 1
+internal const val FAKE_REFUSED: Byte = 2
+internal const val FAKE_WARNS: Byte = 3
+internal const val FAKE_PASSWORD = "fixture-secret"
+
+/** The bytes [OrganizableDocument.importPdf] reads as a PDF of [pages] pages of [kind]. */
+internal fun fakePdf(pages: Int, kind: Byte = FAKE_PLAIN) = byteArrayOf(kind, pages.toByte())
 
 internal class OrganizeQueueCore(vararg documents: PdfDocument) : PdfCore {
     private val queue = ArrayDeque(documents.toList())

@@ -55,6 +55,7 @@ class ViewerViewModel(
     private val contentEditing: ContentEditing = ContentEditing(session, annotations, pageLayout, selection)
     private val formAuthoring: FormAuthoring = FormAuthoring(session, annotations, pageLayout, formFilling, selection)
     private val organizing = PageOrganizing(session, annotations, pageLayout, selection)
+    private val importing = PageImporting(session, annotations, pageLayout)
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
     private val pageExtracting = PageExtracting(session)
@@ -289,6 +290,11 @@ class ViewerViewModel(
     fun organizeInsertBlank(index: Int, landscape: Boolean) = organizing.insertBlank(index, landscape)
     /** The grid scrolled the card at [index] into view without a picture. */
     fun organizeThumbnail(index: Int) = organizing.requestThumbnail(index)
+
+    fun importPdfs(sources: List<ImportSource>) = importing.start(sources)
+    fun retryImportPassword(password: String) = importing.retryWithPassword(password)
+    fun cancelImportPassword() = importing.cancelPassword()
+    fun dismissImportWarnings() = importing.dismissWarnings()
 
     // Form fields
     fun openFormFields() = formFilling.open()

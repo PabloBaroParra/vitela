@@ -25,6 +25,7 @@ import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.viewer.ContentEditActions
 import dev.vitela.pdf.viewer.FormFieldActions
+import dev.vitela.pdf.viewer.ImportSource
 import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.ViewerViewModel
@@ -67,6 +68,15 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         scope.launch {
             val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, uri) }
             if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget)
+        }
+    }
+    val addPdfs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val read = withContext(Dispatchers.IO) { uris.map { SafDocuments.read(context.contentResolver, it) } }
+            // All or nothing: adding the readable half of a pick would leave the user to work out which half.
+            if (read.any { it == null }) viewModel.reportReadFailure()
+            else viewModel.importPdfs(read.filterNotNull().map { ImportSource(it.displayName, it.bytes) })
         }
     }
     val chooseExportFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
@@ -204,6 +214,10 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onDelete = viewModel::organizeDelete,
                 onInsertBlank = viewModel::organizeInsertBlank,
                 onThumbnail = viewModel::organizeThumbnail,
+                onAddPdfs = { addPdfs.launch(arrayOf("application/pdf")) },
+                onImportPassword = viewModel::retryImportPassword,
+                onImportPasswordCancel = viewModel::cancelImportPassword,
+                onImportWarningsDismiss = viewModel::dismissImportWarnings,
             )
         },
         formFields = remember(viewModel) {

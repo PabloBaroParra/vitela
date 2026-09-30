@@ -64,6 +64,15 @@ interface PdfDocument : AutoCloseable {
      */
     fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Organizing pages is unavailable in this PDF core."))
     /**
+     * Adds every page of the PDF in [bytes] at [index] (the page count appends)
+     * as one undoable step, like [applyPageEdit]; [refreshPreview] must run
+     * before the new pages render. An encrypted source comes back as
+     * [PdfCoreError.PasswordRequired] or [PdfCoreError.WrongPassword] — both
+     * mean "ask for its password and try again".
+     */
+    fun importPdf(bytes: ByteArray, password: String?, index: Int): PdfCoreResult<ImportReport> =
+        PdfCoreResult.Failure(PdfCoreError.Failed("Adding PDFs is unavailable in this PDF core."))
+    /**
      * Rebuilds what [renderPage] draws from the pending edits. Rendering reads
      * a preview taken at open, not the live model, so an edit the page itself
      * shows — a moved, turned or removed page — stays invisible until this

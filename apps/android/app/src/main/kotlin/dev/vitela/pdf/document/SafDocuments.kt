@@ -19,8 +19,18 @@ class CreatedDocument(val displayName: String, val saveTarget: String?)
 object SafDocuments {
     /** Reads a document picked with `OpenDocument`, or null if it could not be read. */
     fun open(resolver: ContentResolver, uri: Uri): OpenedDocument? {
+        val read = read(resolver, uri) ?: return null
+        return OpenedDocument(read.displayName, read.bytes, persistAccess(resolver, uri))
+    }
+
+    /**
+     * Reads a document picked only to be read once — a PDF whose pages are
+     * being added — without keeping access to it: nothing will write back to
+     * it, and nothing reopens it.
+     */
+    fun read(resolver: ContentResolver, uri: Uri): OpenedDocument? {
         val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return null
-        return OpenedDocument(displayName(uri), bytes, persistAccess(resolver, uri))
+        return OpenedDocument(displayName(uri), bytes, saveTarget = null)
     }
 
     private fun displayName(uri: Uri): String = uri.lastPathSegment?.substringAfterLast('/') ?: "Document.pdf"

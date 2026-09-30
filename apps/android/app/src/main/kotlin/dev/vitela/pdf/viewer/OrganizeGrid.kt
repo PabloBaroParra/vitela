@@ -22,6 +22,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +45,10 @@ internal class OrganizeActions(
     val onDelete: (index: Int) -> Unit,
     val onInsertBlank: (index: Int, landscape: Boolean) -> Unit,
     val onThumbnail: (index: Int) -> Unit,
+    val onAddPdfs: () -> Unit,
+    val onImportPassword: (String) -> Unit,
+    val onImportPasswordCancel: () -> Unit,
+    val onImportWarningsDismiss: () -> Unit,
 )
 
 /**
@@ -51,7 +56,8 @@ internal class OrganizeActions(
  * step at a time with the arrow buttons rather than by dragging: a drag inside
  * a scrolling grid competes with the scroll itself, and each button is a
  * labelled target a screen reader can reach. A blank page goes in before any
- * card, or after the last one from the trailing "add" card.
+ * card, or after the last one from the trailing "add" card, which also adds
+ * the pages of other PDFs after the last one.
  */
 @Composable
 internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: OrganizeActions, modifier: Modifier = Modifier) {
@@ -73,9 +79,11 @@ internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: 
             ) {
                 InsertBlankButton(state.pageCount, "Add a blank page at the end", !organize.busy, actions.onInsertBlank)
                 Text("Add page", style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = actions.onAddPdfs, enabled = !organize.busy) { Text("Add PDFs") }
             }
         }
     }
+    ImportDialogs(organize, actions)
 }
 
 @Composable
