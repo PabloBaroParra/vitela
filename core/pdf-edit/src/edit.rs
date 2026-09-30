@@ -372,8 +372,46 @@ pub fn remove_text_run(
     };
 
     let span = target.operation_span.clone();
-    let scope = own_scope(document, page_object, &target.form_path, &stream)?;
-    splice(document, scope.stream_object, &stream, span, &replacement)
+    let destination = if target.form_path.is_empty() {
+        own_page_stream(document, page_object, target.stream_index, stream.object_id)?
+    } else {
+        own_scope(document, page_object, &target.form_path, &stream)?.stream_object
+    };
+    splice(document, destination, &stream, span, &replacement)
+}
+
+/// Copies only the targeted stream occurrence before deletion. `/Contents`
+/// streams can be shared by pages, or repeated within one page's array.
+fn own_page_stream(
+    document: &mut Document,
+    page_object: ObjectId,
+    stream_index: usize,
+    original: ObjectId,
+) -> Result<ObjectId, EditError> {
+    let mut contents = document
+        .get_dictionary(page_object)?
+        .get(b"Contents")?
+        .clone();
+    let entry = match &mut contents {
+        entry @ Object::Reference(_) if stream_index == 0 => Some(entry),
+        Object::Array(entries) => entries
+            .iter_mut()
+            .filter(|entry| matches!(entry, Object::Reference(_)))
+            .nth(stream_index),
+        _ => None,
+    }
+    .filter(|entry| matches!(entry, Object::Reference(id) if *id == original))
+    .ok_or_else(|| EditError::MalformedContent {
+        reason: "the targeted stream is no longer in the page's Contents".to_string(),
+        offset: 0,
+    })?;
+    let copy = document.get_object(original)?.as_stream()?.clone();
+    let copy_id = document.add_object(copy);
+    *entry = Object::Reference(copy_id);
+    document
+        .get_dictionary_mut(page_object)?
+        .set("Contents", contents);
+    Ok(copy_id)
 }
 
 /// Repositions an existing run so its box sits at `to`'s origin, keeping
@@ -1480,6 +1518,81 @@ mod tests {
     use pdf_document::{ContentItemId, PageContent, PageId};
 
     const HELLO: &[u8] = b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET";
+
+    #[test]
+    fn removing_text_from_shared_contents_preserves_the_other_page() {
+        for array in [false, true] {
+            let (mut document, page) = text_document(HELLO);
+            let contents = document
+                .get_dictionary(page)
+                .unwrap()
+                .get(b"Contents")
+                .unwrap()
+                .clone();
+            let shared_id = contents.as_reference().unwrap();
+            if array {
+                document
+                    .get_dictionary_mut(page)
+                    .unwrap()
+                    .set("Contents", vec![contents.clone()]);
+            }
+            let sibling = document.get_dictionary(page).unwrap().clone();
+            let parent = sibling.get(b"Parent").unwrap().as_reference().unwrap();
+            let sibling_id = document.add_object(sibling);
+            document
+                .get_dictionary_mut(parent)
+                .unwrap()
+                .set("Kids", vec![page.into(), sibling_id.into()]);
+            document.get_dictionary_mut(parent).unwrap().set("Count", 2);
+            let original_bytes = document
+                .get_object(shared_id)
+                .unwrap()
+                .as_stream()
+                .unwrap()
+                .content
+                .clone();
+            let target = run(&document, 0);
+
+            remove_text_run(&mut document, page, &target).unwrap();
+
+            assert!(content_of(&document).text_runs.is_empty());
+            assert_eq!(
+                read_page_content(&document, PageId(1)).unwrap().text_runs[0].text,
+                "Hello"
+            );
+            assert_eq!(
+                document
+                    .get_object(shared_id)
+                    .unwrap()
+                    .as_stream()
+                    .unwrap()
+                    .content,
+                original_bytes
+            );
+        }
+    }
+
+    #[test]
+    fn removing_text_from_a_repeated_stream_edits_only_one_occurrence() {
+        let (mut document, page) = text_document(HELLO);
+        let contents = document
+            .get_dictionary(page)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap()
+            .clone();
+        document
+            .get_dictionary_mut(page)
+            .unwrap()
+            .set("Contents", vec![contents.clone(), contents]);
+        let target = run(&document, 1);
+
+        remove_text_run(&mut document, page, &target).unwrap();
+
+        let remaining = content_of(&document).text_runs;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].text, "Hello");
+    }
 
     fn stream_bytes(document: &Document) -> Vec<u8> {
         let page_dict = document

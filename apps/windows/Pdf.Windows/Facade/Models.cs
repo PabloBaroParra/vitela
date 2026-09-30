@@ -151,15 +151,19 @@ public sealed class ContentTextRun
 {
     private readonly PdfCoreContentTextRun _source;
 
-    internal ContentTextRun(PdfCoreContentTextRun source, string? baseFont)
+    internal ContentTextRun(PdfCoreContentTextRun source, string? baseFont, string? sessionId = null, ulong revision = 0)
     {
         _source = source;
+        SessionId = sessionId;
+        Revision = revision;
         Bounds = new AnnotationRect(source.Bbox.X, source.Bbox.Y, source.Bbox.Width, source.Bbox.Height);
         FontKind = (ContentFontKind)source.FontKind;
         BaseFont = baseFont;
     }
 
     internal PdfCoreContentTextRun Source => _source;
+    internal string? SessionId { get; }
+    internal ulong Revision { get; }
 
     public ulong Id => _source.Id;
     public uint PageIndex => _source.PageIndex;
