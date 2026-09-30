@@ -397,6 +397,7 @@ internal abstract record PdfCoreEdit
     public sealed record RemoveTextRun(PdfCoreContentTextRun Item) : PdfCoreEdit;
     public sealed record MoveTextRun(PdfCoreContentTextRun Item, PdfCoreRect To) : PdfCoreEdit;
     public sealed record InsertTextRun(PdfCoreContentTextRun Item) : PdfCoreEdit;
+    public sealed record InsertImage(PdfCoreContentImage Item, byte[] Source) : PdfCoreEdit;
     public sealed record ResizeImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record MoveImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record RemoveImage(PdfCoreContentImage Item) : PdfCoreEdit;

@@ -3,6 +3,9 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("inserts image content with shared placement and history", InsertsContentImageAsync),
+    ("refuses invalid stale and forbidden image insertion", RefusesInvalidImageInsertionAsync),
+    ("keeps image insertion undoable after preview failure", KeepsImageInsertionAfterPreviewFailureAsync),
     ("deletes text without font substitution through preview and history", DeletesContentTextAsync),
     ("moves text preserving its source and shared history", MovesContentTextAsync),
     ("rejects invalid and stale text movement", RefusesInvalidTextMovementAsync),
@@ -2714,6 +2717,69 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
 }
 
+static async Task InsertsContentImageAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var target = (await facade.PrepareImageInsertionAsync(session.SessionId, 0)).Value!;
+    byte[] bytes = [1, 2, 3];
+    var result = await facade.InsertContentImageAsync(session.SessionId, target, bytes, -20, 0);
+    Assert(result.IsSuccess && result.Value!.CanUndo && core.RefreshPreviewCalls == 1, "insertion must record and refresh");
+    var edit = core.ImageInsertions.Single();
+    Assert(edit.Item.PageIndex == 0 && edit.Item.Bbox == new PdfCoreRect(-20, -77, 77, 77), "the core's top-left placement must be used unchanged");
+    bytes[0] = 9;
+    Assert(edit.Source.SequenceEqual(new byte[] { 1, 2, 3 }), "the edit must own its source for later save and redo");
+    Assert(!(await facade.InsertContentImageAsync(session.SessionId, target, bytes, 0, 0)).IsSuccess, "a submitted target must be stale");
+    var next = (await facade.PrepareImageInsertionAsync(session.SessionId, 0)).Value!;
+    Assert((await facade.InsertContentImageAsync(session.SessionId, next, bytes, 0, 0)).IsSuccess, "multiple pending images must work");
+    Assert(core.ImageInsertions.Select(item => item.Item.ResourceXObjectName).Distinct().Count() == 2, "insertions need independent resources");
+    Assert((await facade.UndoAsync(session.SessionId)).Value!.CanRedo, "insertion must be undoable");
+    Assert(!(await facade.InsertContentImageAsync(session.SessionId, next, bytes, 0, 0)).IsSuccess, "undo must not revive a target");
+    Assert((await facade.RedoAsync(session.SessionId)).Value!.CanUndo && core.RefreshPreviewCalls == 4, "redo must refresh");
+}
+
+static async Task RefusesInvalidImageInsertionAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    Assert(!(await facade.PrepareImageInsertionAsync(session.SessionId, session.PageCount)).IsSuccess, "missing pages must be refused");
+    var target = (await facade.PrepareImageInsertionAsync(session.SessionId, 0)).Value!;
+    foreach (var value in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+    {
+        Assert(!(await facade.InsertContentImageAsync(session.SessionId, target, [1], value, 0)).IsSuccess, "nonfinite X must be refused");
+        Assert(!(await facade.InsertContentImageAsync(session.SessionId, target, [1], 0, value)).IsSuccess, "nonfinite Y must be refused");
+    }
+    core.StampPlacementError = PdfCoreError.InvalidImage;
+    Assert(!(await facade.InsertContentImageAsync(session.SessionId, target, [], 0, 0)).IsSuccess, "undecodable bytes must not record");
+    core.StampPlacementError = null;
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.PrepareImageInsertionAsync(session.SessionId, 0)).IsSuccess, "preparation must check permission");
+    Assert(!(await facade.InsertContentImageAsync(session.SessionId, target, [1], 0, 0)).IsSuccess, "submission must recheck permission");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.InsertContentImageAsync(session.SessionId, target, [1], 0, 0)).IsSuccess, "a full rewrite must be possible");
+    core.LastDocument.FullRewriteAllowed = true;
+    await facade.ReplaceTextRunAsync(session.SessionId, (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns[0], "Changed");
+    Assert(!(await facade.InsertContentImageAsync(session.SessionId, target, [1], 0, 0)).IsSuccess, "intervening edits must invalidate the target");
+    var fresh = (await facade.PrepareImageInsertionAsync(session.SessionId, 0)).Value!;
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.InsertContentImageAsync(other.SessionId, fresh, [1], 0, 0)).IsSuccess, "cross-session targets must be refused");
+    Assert(!(await facade.InsertContentImageAsync(session.SessionId, fresh, [1], 0, 0)).IsSuccess, "retired sessions must be refused");
+    Assert(core.ImageInsertions.Count == 0, "refusals must not record images");
+}
+
+static async Task KeepsImageInsertionAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var target = (await facade.PrepareImageInsertionAsync(session.SessionId, 0)).Value!;
+    var result = await facade.InsertContentImageAsync(session.SessionId, target, [1], 0, 0);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.ImageInsertions.Count == 1, "preview failure must retain the undoable edit");
+}
+
 static async Task InsertsContentTextAsync()
 {
     var core = new FakeCore { FontFamilies = new Dictionary<string, string> { ["F1"] = "Courier", ["VitelaText1"] = "Times-Roman" } };
@@ -3491,7 +3557,7 @@ sealed class FakeCore : IPdfCore
     public bool BlockSave { get; init; }
     public bool SaveThrowsUnexpected { get; init; }
     public PdfCoreError? InsertStampError { get; init; }
-    public PdfCoreError? StampPlacementError { get; init; }
+    public PdfCoreError? StampPlacementError { get; set; }
     public System.Collections.Concurrent.ConcurrentQueue<(double X, double Y)> StampPlacementAnchors { get; } = new();
     public TaskCompletionSource FirstRenderStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public ManualResetEventSlim ReleaseFirstRender { get; } = new(false);
@@ -3613,6 +3679,7 @@ sealed class FakeCore : IPdfCore
     public List<PdfCoreEdit.RemoveTextRun> TextRemovals { get; } = [];
     public List<PdfCoreEdit.MoveTextRun> TextMoves { get; } = [];
     public List<PdfCoreEdit.InsertTextRun> TextInsertions { get; } = [];
+    public List<PdfCoreEdit.InsertImage> ImageInsertions { get; } = [];
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
@@ -3658,6 +3725,13 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.InsertImage insertImage)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            ImageInsertions.Add(insertImage);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.InsertTextRun insertText)
         {
             if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");

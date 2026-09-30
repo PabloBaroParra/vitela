@@ -487,6 +487,7 @@ public sealed partial class MainWindow
         InsertTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         MoveImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         DeleteImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
+        InsertImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         HighlightButton.IsEnabled = enabled;
         UnderlineButton.IsEnabled = enabled;
         StrikeoutButton.IsEnabled = enabled;
