@@ -112,12 +112,14 @@ pub fn extract_pages_to_pdf(handle: &DocumentHandle, pages: Vec<u32>) -> Result<
 
     prune_to(&mut document, &pages).map_err(|detail| FfiError::UnsupportedOperation { detail })?;
 
-    pdf_save::save_document(state.save_input_for(
-        &document,
-        FfiSaveIntent::Default,
-        FfiSignatureAcknowledgement::ProceedAndInvalidate,
-    ))
-    .map_err(Into::into)
+    state
+        .with_save_input_for(
+            &document,
+            FfiSaveIntent::Default,
+            FfiSignatureAcknowledgement::ProceedAndInvalidate,
+            pdf_save::save_document,
+        )
+        .map_err(Into::into)
 }
 
 /// Whether the document `handle` was opened from carries a digital signature

@@ -269,10 +269,13 @@ pub fn compression_refusal(
 
     // The acknowledgement says nothing about this question: a signature is
     // the other gate, and it has an answer rather than a fact.
-    pdf_save::compression_blocker(
-        state.save_input(intent, FfiSignatureAcknowledgement::Unacknowledged),
-    )
-    .map(Into::into)
+    state
+        .with_save_input(
+            intent,
+            FfiSignatureAcknowledgement::Unacknowledged,
+            pdf_save::compression_blocker,
+        )
+        .map(Into::into)
 }
 
 /// Whether compressing this document breaks a signature it already carries.
@@ -296,10 +299,13 @@ pub fn compressed_save_will_invalidate_signatures(
 ) -> Result<bool, FfiError> {
     let state = handle.lock();
 
-    pdf_save::compressed_save_will_invalidate_signatures(
-        state.save_input(intent, FfiSignatureAcknowledgement::Unacknowledged),
-    )
-    .map_err(Into::into)
+    state
+        .with_save_input(
+            intent,
+            FfiSignatureAcknowledgement::Unacknowledged,
+            pdf_save::compressed_save_will_invalidate_signatures,
+        )
+        .map_err(Into::into)
 }
 
 /// Saves `handle` and compresses the result as far as `preset` allows — the
@@ -329,8 +335,9 @@ pub fn save_compressed_to_bytes(
     let mut state = handle.lock();
     state.record_strip_consent(intent);
 
-    let saved =
-        pdf_save::save_document_compressed(state.save_input(intent, signatures), preset.into())?;
+    let saved = state.with_save_input(intent, signatures, |input| {
+        pdf_save::save_document_compressed(input, preset.into())
+    })?;
 
     Ok(saved.into())
 }
