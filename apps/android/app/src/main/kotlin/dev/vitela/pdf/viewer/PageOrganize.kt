@@ -22,6 +22,10 @@ data class OrganizeState(
      * by then, shows a different page.
      */
     val version: Int = 0,
+    /** The added PDF whose password the import is waiting for, or null. */
+    val importPassword: ImportPasswordPrompt? = null,
+    /** What the last import could not bring across exactly, shown until dismissed. */
+    val importWarnings: List<String> = emptyList(),
 )
 
 /** Longer side of a thumbnail, in pixels. Cheap on purpose: a grid shows many pages at once. */

@@ -118,6 +118,14 @@ impl From<pdf_manip::ManipError> for FfiError {
             E::SourceForbidsCopying => FfiError::UnsupportedOperation {
                 detail: "this PDF does not permit copying its pages".to_string(),
             },
+            // What an import refuses to graft is a fact about the source the
+            // user picked, not an internal failure: the shell shows it as is.
+            E::SourceHasFormFields(_)
+            | E::SourceHasXfaForm(_)
+            | E::SourceHasOptionalContent(_)
+            | E::SourceHasSignature(_) => FfiError::UnsupportedOperation {
+                detail: err.to_string(),
+            },
             E::InvalidPageNumber(index) => FfiError::PageIndexOutOfBounds { index },
             E::InvalidPageIndex(index) => FfiError::PageIndexOutOfBounds {
                 index: index as u32,

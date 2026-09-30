@@ -39,8 +39,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials,
-    ImageItem, Orientation, PageId, PageOrigin, Permissions, Rotation, SecurityContext,
-    SecurityHandler, TextRun,
+    ImageItem, ImportedDocumentId, Orientation, Page, PageId, PageOrigin, Permissions, Rotation,
+    SecurityContext, SecurityHandler, TextRun,
 };
 use pdf_manip::LopdfDocument;
 
@@ -80,6 +80,13 @@ pub(crate) struct DocumentState {
     /// in, so [`DocumentState::page_dimensions`] needs it to tell whether a
     /// pending rotation has put a page on its side since.
     opened_rotations: Vec<Rotation>,
+    /// Every PDF [`crate::import_pdf`] brought into this session, under the
+    /// id its pages' `PageOrigin::Imported` names.
+    ///
+    /// Kept for the handle's life, not dropped when an undo takes an import's
+    /// pages back out: a redo puts them back, and from then on every save,
+    /// preview and content read has to be able to materialize them again.
+    imported: Vec<(ImportedDocumentId, LopdfDocument)>,
 }
 
 impl DocumentState {
@@ -101,6 +108,7 @@ impl DocumentState {
             render_password,
             next_annotation_id: 0,
             opened_rotations,
+            imported: Vec::new(),
         }
     }
 
@@ -519,7 +527,8 @@ impl DocumentHandle {
 }
 
 impl DocumentState {
-    /// The save this handle's state describes, in `pdf-save`'s own words.
+    /// The save this handle's state describes, in `pdf-save`'s own words,
+    /// handed to `f`.
     ///
     /// One constructor rather than a struct literal per entry point: every
     /// save-shaped function here — ordinary, compressed, and the two
@@ -527,34 +536,97 @@ impl DocumentState {
     /// answer a shell gets stops being about the file it is going to write.
     /// `intent` and `signatures` stay arguments because they are the only
     /// two fields a caller actually decides.
-    pub(crate) fn save_input(
+    ///
+    /// A closure rather than a returned `SaveInput` because the imported
+    /// sources it carries are a borrowed list this call builds: see
+    /// [`Self::with_imported_sources`].
+    pub(crate) fn with_save_input<R>(
         &self,
         intent: FfiSaveIntent,
         signatures: FfiSignatureAcknowledgement,
-    ) -> pdf_save::SaveInput<'_> {
-        self.save_input_for(&self.document, intent, signatures)
+        f: impl FnOnce(pdf_save::SaveInput<'_>) -> R,
+    ) -> R {
+        self.with_save_input_for(&self.document, intent, signatures, f)
     }
 
-    /// The same save description [`Self::save_input`] builds, but against a
-    /// `document` the caller supplies instead of `self.document` — what
-    /// [`crate::extract::extract_pages_to_pdf`] needs to save a **pruned
-    /// clone** without mutating the live handle. `base` and `original_bytes`
-    /// still come from `self`: the source bytes a save is computed against
-    /// never change just because the page set being saved does.
-    pub(crate) fn save_input_for<'a>(
-        &'a self,
-        document: &'a Document,
+    /// The same save description [`Self::with_save_input`] builds, but
+    /// against a `document` the caller supplies instead of `self.document` —
+    /// what [`crate::extract::extract_pages_to_pdf`] needs to save a **pruned
+    /// clone** without mutating the live handle. `base`, `original_bytes`
+    /// and the imported sources still come from `self`: the source bytes a
+    /// save is computed against never change just because the page set being
+    /// saved does.
+    pub(crate) fn with_save_input_for<R>(
+        &self,
+        document: &Document,
         intent: FfiSaveIntent,
         signatures: FfiSignatureAcknowledgement,
-    ) -> pdf_save::SaveInput<'a> {
-        pdf_save::SaveInput {
-            document,
-            base: &self.base,
-            original_bytes: self.original_bytes.as_deref(),
-            intent: intent.into(),
-            signatures: signatures.into(),
-            imported_sources: pdf_save::ImportedSources::none(),
+        f: impl FnOnce(pdf_save::SaveInput<'_>) -> R,
+    ) -> R {
+        self.with_imported_sources(|imported_sources| {
+            f(pdf_save::SaveInput {
+                document,
+                base: &self.base,
+                original_bytes: self.original_bytes.as_deref(),
+                intent: intent.into(),
+                signatures: signatures.into(),
+                imported_sources,
+            })
+        })
+    }
+
+    /// This session's imported PDFs as the registry `pdf-save` resolves
+    /// imported pages through, handed to `f`.
+    ///
+    /// `ImportedSources` borrows a list of `(id, &document)` pairs rather
+    /// than owning one, so the list is built here and lives exactly as long
+    /// as the call. Every save, preview and content read goes through this:
+    /// one that passed `ImportedSources::none()` instead would refuse the
+    /// first imported page it met.
+    pub(crate) fn with_imported_sources<R>(
+        &self,
+        f: impl FnOnce(pdf_save::ImportedSources<'_, '_>) -> R,
+    ) -> R {
+        let sources: Vec<(ImportedDocumentId, &LopdfDocument)> = self
+            .imported
+            .iter()
+            .map(|(id, document)| (*id, document))
+            .collect();
+        f(pdf_save::ImportedSources::new(&sources))
+    }
+
+    /// The id the next imported PDF gets: one past the highest this session
+    /// has used, so an id is never handed out twice — not even after an undo
+    /// removed the pages that wore it, since the redo still needs it.
+    pub(crate) fn next_imported_id(&self) -> Result<ImportedDocumentId, FfiError> {
+        self.imported
+            .iter()
+            .map(|(id, _)| id.0)
+            .max()
+            .map_or(Some(0), |id| id.checked_add(1))
+            .map(ImportedDocumentId)
+            .ok_or_else(|| FfiError::UnsupportedOperation {
+                detail: "this document cannot import any more PDFs".to_string(),
+            })
+    }
+
+    /// Inserts `pages` at `index` as one undoable `ImportPages`, and keeps
+    /// `source` so every later save can materialize them. The source is only
+    /// kept when the command applied: a refused import leaves nothing behind.
+    pub(crate) fn import_pages(
+        &mut self,
+        id: ImportedDocumentId,
+        source: LopdfDocument,
+        index: usize,
+        pages: Vec<Page>,
+    ) -> Result<(), FfiError> {
+        if !apply_command(&mut self.document, Command::ImportPages { index, pages }) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "the imported pages were rejected against the open document".to_string(),
+            });
         }
+        self.imported.push((id, source));
+        Ok(())
     }
 
     /// A read-only view of the live document model, for callers (like
@@ -966,18 +1038,20 @@ impl DocumentHandle {
                 detail: "text extraction is not permitted".to_string(),
             });
         }
-        // Resolved through the page's origin, not through its position: this
-        // handle has no imported-source registry (importing is the Linux
-        // shell's for now), so an imported page is refused with a clear
-        // message instead of silently reading whichever base page happens to
-        // sit at that index.
-        let content: FfiPageContent = pdf_save::read_pending_page_content_of(
-            &state.document,
-            state.page_id(page)?,
-            &state.base,
-            pdf_save::ImportedSources::none(),
-        )?
-        .into();
+        // Resolved through the page's origin, not through its position: an
+        // imported page is read from the PDF it came from, never from
+        // whichever base page happens to sit at that index.
+        let page_id = state.page_id(page)?;
+        let content: FfiPageContent = state
+            .with_imported_sources(|sources| {
+                pdf_save::read_pending_page_content_of(
+                    &state.document,
+                    page_id,
+                    &state.base,
+                    sources,
+                )
+            })?
+            .into();
         // The items carry the page they were read from; hand it back as the
         // position it was asked by, so the shell can send them straight
         // back into `apply_edit`, which reads it as one.
@@ -1015,14 +1089,13 @@ impl DocumentHandle {
                 detail: "text extraction is not permitted".to_string(),
             });
         }
-        pdf_save::page_font_families_of(
-            &state.document,
-            state.page_id(page)?,
-            &state.base,
-            pdf_save::ImportedSources::none(),
-        )
-        .map(|families| families.into_iter().collect())
-        .map_err(Into::into)
+        let page_id = state.page_id(page)?;
+        state
+            .with_imported_sources(|sources| {
+                pdf_save::page_font_families_of(&state.document, page_id, &state.base, sources)
+            })
+            .map(|families| families.into_iter().collect())
+            .map_err(Into::into)
     }
 
     /// Current Document Info Dictionary snapshot (T-173, Batch 22): the last
@@ -1541,12 +1614,9 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         // `pdf_save::validate_content_command` for why a content command
         // recorded unchecked can only fail later, and take every other
         // queued edit down with it.
-        pdf_save::validate_content_command(
-            &state.document,
-            &state.base,
-            pdf_save::ImportedSources::none(),
-            &core_command,
-        )?;
+        state.with_imported_sources(|sources| {
+            pdf_save::validate_content_command(&state.document, &state.base, sources, &core_command)
+        })?;
 
         if let Some(index) = queued {
             // Retyping the same run twice amends the queued command instead
@@ -1654,14 +1724,12 @@ pub fn refresh_preview(handle: &DocumentHandle) -> Result<(), FfiError> {
     let mut preview = state.document.clone();
     preview.annotations = Default::default();
 
-    let bytes = pdf_save::save_document(pdf_save::SaveInput {
-        document: &preview,
-        base: &state.base,
-        original_bytes: state.original_bytes.as_deref(),
-        intent: pdf_save::SaveIntent::Default,
-        signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
-        imported_sources: pdf_save::ImportedSources::none(),
-    })?;
+    let bytes = state.with_save_input_for(
+        &preview,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::ProceedAndInvalidate,
+        pdf_save::save_document,
+    )?;
 
     let refreshed = open_render_doc_from_bytes(bytes, state.render_password.as_deref())?;
     if let Some(stale) = state.render_doc.replace(refreshed) {
@@ -1785,7 +1853,9 @@ pub fn save_to_bytes(
     let mut state = handle.lock();
     state.record_strip_consent(intent);
 
-    pdf_save::save_document(state.save_input(intent, signatures)).map_err(Into::into)
+    state
+        .with_save_input(intent, signatures, pdf_save::save_document)
+        .map_err(Into::into)
 }
 
 /// Applies new AES-128 password protection to a snapshot of `handle` and
@@ -1822,15 +1892,18 @@ pub fn protect_to_bytes(
         credentials: EncryptionCredentials::both(open_password, permissions_password),
         permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
     });
-    pdf_save::save_document(pdf_save::SaveInput {
-        document: &document,
-        base: &state.base,
-        original_bytes: state.original_bytes.as_deref(),
-        intent: pdf_save::SaveIntent::ApplyProtection,
-        signatures: signatures.into(),
-        imported_sources: pdf_save::ImportedSources::none(),
-    })
-    .map_err(Into::into)
+    state
+        .with_imported_sources(|imported_sources| {
+            pdf_save::save_document(pdf_save::SaveInput {
+                document: &document,
+                base: &state.base,
+                original_bytes: state.original_bytes.as_deref(),
+                intent: pdf_save::SaveIntent::ApplyProtection,
+                signatures: signatures.into(),
+                imported_sources,
+            })
+        })
+        .map_err(Into::into)
 }
 
 /// Whether applying new password protection would invalidate a signature.
@@ -1844,15 +1917,18 @@ pub fn protection_will_invalidate_signatures(handle: &DocumentHandle) -> Result<
         credentials: EncryptionCredentials::both("probe-open", "probe-permissions"),
         permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
     });
-    pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
-        document: &document,
-        base: &state.base,
-        original_bytes: state.original_bytes.as_deref(),
-        intent: pdf_save::SaveIntent::ApplyProtection,
-        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-        imported_sources: pdf_save::ImportedSources::none(),
-    })
-    .map_err(Into::into)
+    state
+        .with_imported_sources(|imported_sources| {
+            pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
+                document: &document,
+                base: &state.base,
+                original_bytes: state.original_bytes.as_deref(),
+                intent: pdf_save::SaveIntent::ApplyProtection,
+                signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+                imported_sources,
+            })
+        })
+        .map_err(Into::into)
 }
 
 /// Whether saving `handle` with `intent` would break a signature the file
@@ -1870,10 +1946,13 @@ pub fn will_invalidate_signatures(
 
     // The acknowledgement is irrelevant to the question: this reports what
     // the file and the edits imply, not what the caller has agreed to.
-    pdf_save::will_invalidate_signatures(
-        state.save_input(intent, FfiSignatureAcknowledgement::Unacknowledged),
-    )
-    .map_err(Into::into)
+    state
+        .with_save_input(
+            intent,
+            FfiSignatureAcknowledgement::Unacknowledged,
+            pdf_save::will_invalidate_signatures,
+        )
+        .map_err(Into::into)
 }
 
 /// Saves `handle` to `path` (GTK4-style convenience — delegates to

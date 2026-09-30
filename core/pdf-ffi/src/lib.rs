@@ -63,6 +63,7 @@ mod error;
 mod export;
 mod extract;
 mod form;
+mod import;
 mod placement;
 mod selection;
 mod split;
@@ -90,6 +91,7 @@ pub use form::{
     FfiFieldOrigin, FfiFieldValue, FfiFontFamily, FfiFormField, FfiFormFieldKind, FfiRadioOption,
     FfiTextStyle,
 };
+pub use import::{import_pdf, FfiImportReport};
 pub use placement::{
     place_point, place_rect, point_to_pdf, FfiPagePlacement, FfiPageRotation, FfiPlacedRect,
 };

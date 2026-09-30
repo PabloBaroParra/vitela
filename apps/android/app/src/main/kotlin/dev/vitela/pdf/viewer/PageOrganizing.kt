@@ -76,7 +76,7 @@ internal class PageOrganizing(
                         is PdfCoreResult.Success -> {
                             layout.markEdited()
                             state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
-                            val shown = layout.reread(openDocument, edit)
+                            val shown = layout.reread(openDocument) { remapAfterEdit(it, edit) }
                             // The edit sits in the shared log: Undo must light up, and the
                             // core reports every annotation at its page's new position.
                             annotations.refresh(openDocument)
