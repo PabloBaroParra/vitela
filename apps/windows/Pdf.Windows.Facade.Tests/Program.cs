@@ -158,6 +158,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("moves a field with structural permission and a current rect", MovesAFormFieldAsync)
     ,("restyles a field without losing its other style attributes", RestylesAFormFieldAsync)
     ,("refuses a stale or forbidden field rename", RefusesInvalidFormRenameAsync)
+    ,("edits form fields when only a full rewrite is refused", EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync)
     ,("refuses a fill for a field that is no longer there", RefusesAFillForAMissingFieldAsync)
     ,("refreshes the preview on history after a fill", RefreshesThePreviewOnHistoryAfterAFillAsync)
     ,("maps a dropdown choice to its list index and back", MapsDropdownChoicesToIndices)
@@ -2319,7 +2320,7 @@ static async Task ListsFormFieldsAsync()
     Assert(result.IsSuccess && result.Value!.Fields.Count == 3, "every field the core reports must reach the panel");
     Assert(result.Value!.Fields[1] is { Name: "agree", PageIndex: 1, Kind: FormFieldKind.Checkbox }, "a field must keep its name, page and kind");
     Assert(result.Value.FillAllowed, "an unrestricted document permits filling");
-    Assert(result.Value.RenameAllowed, "an unrestricted document permits renaming");
+    Assert(result.Value.StructureAllowed, "an unrestricted document permits structural edits");
 }
 
 static async Task FillsAFormFieldAsync()
@@ -2500,7 +2501,7 @@ static async Task FillsWhenOnlyContentEditingIsForbiddenAsync()
 
     Assert(result.IsSuccess, "filling needs only the annotation/fill permission");
     Assert(core.FormFields[2].Value == new FormFieldValue.Choice("M"), "the choice must be recorded");
-    Assert(!(await facade.FormFieldsAsync(session.SessionId)).Value!.RenameAllowed, "fill-only permission must not expose renaming");
+    Assert(!(await facade.FormFieldsAsync(session.SessionId)).Value!.StructureAllowed, "fill-only permission must not expose structural edits");
 }
 
 static async Task RenamesAFormFieldAsync()
@@ -2619,6 +2620,35 @@ static async Task RefusesInvalidFormRenameAsync()
     document.ContentEditingAllowed = false;
     forbidden = await facade.RenameFormFieldAsync(session.SessionId, 1, "agree", "accepted");
     Assert(!forbidden.IsSuccess && core.FormFields[1].Name == "agree", "renaming also requires content editing");
+}
+
+/// <summary>
+/// The document the core's <c>form_field_editing_allowed</c> exists for: both
+/// <c>/P</c> bits granted, but encrypted so a full rewrite is refused — and
+/// with it content editing. A form edit never rewrites the file, so none of
+/// the four structural gates may borrow that refusal.
+/// </summary>
+static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
+{
+    var rect = new PdfCoreRect(30, 40, 120, 24);
+    var style = new FormTextStyle(FormFont.Courier, 12, new AnnotationColor(20, 30, 40));
+    var core = new FakeCore { FormFields = [new PdfCoreFormField(7, 0, "name", new FormFieldKind.Text(false, null), new FormFieldValue.Text(""), style, rect)] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var document = core.LastDocument!;
+    document.FullRewriteAllowed = false;
+    Assert(!core.ContentEditingAllowed(document) && core.FormFieldEditingAllowed(document),
+        "precondition: content editing refused, form-field editing allowed");
+
+    Assert((await facade.FormFieldsAsync(session.SessionId)).Value!.StructureAllowed, "the panel must offer structural edits");
+    var moved = await facade.MoveFormFieldAsync(session.SessionId, 7, new AnnotationRect(30, 40, 120, 24), 50, 70);
+    Assert(moved.IsSuccess, "moving must not borrow the full-rewrite refusal");
+    var renamed = await facade.RenameFormFieldAsync(session.SessionId, 7, "name", "full_name");
+    Assert(renamed.IsSuccess, "renaming must not borrow the full-rewrite refusal");
+    var restyled = await facade.SetFormFieldFontSizeAsync(session.SessionId, 7, style, 16);
+    Assert(restyled.IsSuccess, "restyling must not borrow the full-rewrite refusal");
+    var created = await facade.AddTextFieldAsync(session.SessionId, 0, new PdfCoreRect(0, 0, 144, 36));
+    Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
 }
 
 static async Task RefusesAFillForAMissingFieldAsync()
@@ -3196,7 +3226,10 @@ sealed class FakeCore : IPdfCore
     }
 
     public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document).EditingAllowed;
-    public bool ContentEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document).ContentEditingAllowed;
+    /// <summary>Like the core's: the <c>/P</c> bit and a rewrite that can keep the encryption.</summary>
+    public bool ContentEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document) is var fake && fake.ContentEditingAllowed && fake.FullRewriteAllowed;
+    /// <summary>Like the core's: both <c>/P</c> bits, and never the rewrite check.</summary>
+    public bool FormFieldEditingAllowed(IPdfCoreDocument document) => ((FakeDocument)document) is var fake && fake.EditingAllowed && fake.ContentEditingAllowed;
     public bool CanUndo(IPdfCoreDocument document) => ((FakeDocument)document).CanUndo;
     public bool CanRedo(IPdfCoreDocument document) => ((FakeDocument)document).CanRedo;
     /// <summary>The content edits the facade handed the core, newest last.</summary>
@@ -3547,7 +3580,14 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
     }
     public bool Disposed { get; private set; }
     public bool EditingAllowed { get; set; } = true;
+    /// <summary>The <c>/P</c> modify-contents bit alone; see <see cref="FullRewriteAllowed"/>.</summary>
     public bool ContentEditingAllowed { get; set; } = true;
+    /// <summary>
+    /// False for an encrypted document a full rewrite could not re-encrypt
+    /// (opened with one password of two, say): the core then refuses content
+    /// editing, but not form-field editing.
+    /// </summary>
+    public bool FullRewriteAllowed { get; set; } = true;
     public List<PdfCoreAnnotation> Annotations { get; } = [];
     public bool CanUndo { get; private set; }
     public bool CanRedo { get; private set; }
