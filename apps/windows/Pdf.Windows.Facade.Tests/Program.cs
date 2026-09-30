@@ -3,6 +3,9 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("deletes text without font substitution through preview and history", DeletesContentTextAsync),
+    ("rejects stale and forbidden text deletion", RefusesInvalidTextDeletionAsync),
+    ("keeps text deletion undoable after preview failure", KeepsTextDeletionAfterPreviewFailureAsync),
     ("deletes resource and inline images through preview and history", DeletesContentImagesAsync),
     ("rejects stale and forbidden image deletion", RefusesInvalidImageDeletionAsync),
     ("keeps a deleted image undoable after preview failure", KeepsImageDeletionAfterPreviewFailureAsync),
@@ -2705,6 +2708,60 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
 }
 
+static async Task DeletesContentTextAsync()
+{
+    foreach (var kind in Enum.GetValues<PdfCoreFontKind>())
+    {
+        var source = new PdfCoreContentTextRun(7, 0, new PdfCoreRect(100, 700, 120, 12), "F1", kind, "Hello world");
+        var core = new FakeCore { PageTextRuns = [source] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+        var run = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+        var deleted = await facade.RemoveTextRunAsync(session.SessionId, run);
+        Assert(deleted.IsSuccess && deleted.Value!.CanUndo && core.RefreshPreviewCalls == 1, "deletion must refresh and enter history");
+        Assert(core.TextRemovals.Single().Item == source && core.SubstitutionEdits.Count == 0, "deletion must preserve the original run without substituting its font");
+        Assert(!(await facade.RemoveTextRunAsync(session.SessionId, run)).IsSuccess, "a deleted snapshot must not record a second removal");
+        Assert((await facade.UndoAsync(session.SessionId)).Value!.CanRedo, "deletion must be undoable");
+        Assert(!(await facade.RemoveTextRunAsync(session.SessionId, run)).IsSuccess, "undo must not revive a snapshot");
+        Assert((await facade.RedoAsync(session.SessionId)).Value!.CanUndo && core.RefreshPreviewCalls == 3, "redo must refresh the preview");
+    }
+}
+
+static async Task RefusesInvalidTextDeletionAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    var run = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+    var inlineRun = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns[0];
+    Assert(!(await facade.RemoveTextRunAsync(session.SessionId, inlineRun)).IsSuccess, "an inline-editor run is not a revision-bound deletion target");
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).IsSuccess, "reading deletion targets must check permission");
+    Assert(!(await facade.RemoveTextRunAsync(session.SessionId, run)).IsSuccess, "submission must check permission again");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.RemoveTextRunAsync(session.SessionId, run)).IsSuccess, "an unwritable deletion must be refused");
+    core.LastDocument.FullRewriteAllowed = true;
+    Assert(core.TextRemovals.Count == 0 && core.RefreshPreviewCalls == 0, "refusals must not record or refresh");
+    await facade.ReplaceTextRunAsync(session.SessionId, inlineRun, "Updated text");
+    Assert(!(await facade.RemoveTextRunAsync(session.SessionId, run)).IsSuccess, "intervening retyping must invalidate the deletion target");
+    var fresh = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.RemoveTextRunAsync(other.SessionId, fresh)).IsSuccess, "another session must not accept the same run id");
+    Assert(!(await facade.RemoveTextRunAsync(session.SessionId, fresh)).IsSuccess, "a retired session must be refused");
+    Assert(core.TextRemovals.Count == 0, "stale snapshots must not record deletions");
+}
+
+static async Task KeepsTextDeletionAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    var run = (await facade.PageTextDeletionTargetsAsync(session.SessionId, 0)).Value![0];
+    var result = await facade.RemoveTextRunAsync(session.SessionId, run);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.TextRemovals.Count == 1, "preview failure must retain the undoable deletion");
+}
+
 static async Task DeletesContentImagesAsync()
 {
     foreach (var resource in new string?[] { "Im1", null })
@@ -3425,6 +3482,7 @@ sealed class FakeCore : IPdfCore
     public List<PdfCoreEdit.ResizeImage> ImageEdits { get; } = [];
     public List<PdfCoreEdit.MoveImage> ImageMoves { get; } = [];
     public List<PdfCoreEdit.RemoveImage> ImageRemovals { get; } = [];
+    public List<PdfCoreEdit.RemoveTextRun> TextRemovals { get; } = [];
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
@@ -3470,6 +3528,13 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.RemoveTextRun removeText)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            TextRemovals.Add(removeText);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.RemoveImage removeImage)
         {
             if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");

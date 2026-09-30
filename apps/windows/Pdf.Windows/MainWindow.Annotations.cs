@@ -482,6 +482,7 @@ public sealed partial class MainWindow
         // shell is busy or has no document, and nothing may be armed then.
         ContentEditButton.IsEnabled = state is not null && _session?.ContentEditingAllowed == true && !_organizing;
         ResizeImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
+        DeleteTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         MoveImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         DeleteImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         HighlightButton.IsEnabled = enabled;

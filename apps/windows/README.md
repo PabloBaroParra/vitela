@@ -78,6 +78,14 @@ command, with preview refresh and undo/redo. Deletion requires content-edit
 permission and a full rewrite. Save first if the image already has a pending edit;
 reopen the dialog after any intervening edit. Save to keep the deletion.
 
+**Delete text** lists the text runs on the visible page, with their text and PDF
+coordinates. Choose a run and confirm deletion; the PDF preview refreshes and
+undo/redo restores or reapplies it. Deleting does not substitute composite fonts.
+It requires content-edit permission and a full rewrite. Reopen the dialog after
+any intervening edit. Save first if the run already has a pending edit, and save
+to keep the deletion. This is content editing,
+not secure redaction.
+
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
 as `1-3,7`, at 72–400 DPI (150 by default). The range grammar, the file names
