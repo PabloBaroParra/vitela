@@ -158,7 +158,7 @@ private fun PageSlot(
     var pageWidthPx by remember { mutableStateOf(0) }
         val density = LocalDensity.current.density.toDouble()
         val pageIndex = pageNumber - 1
-        // Edit text claims every tap on the page, and nothing else: no drag-select, no annotation drag.
+        // Edit content claims every tap on the page, and nothing else: no drag-select, no annotation drag.
         val contentMode = state.contentEdit != null
         // So does a field placement or move the Form fields panel armed.
         val formMode = state.formFields?.armed != null
@@ -269,6 +269,16 @@ private fun PageSlot(
                         }
                     },
             ) {
+                // Images first, so a caption's outline sits on top of the photo it is printed over.
+                state.contentEdit?.images?.get(pageIndex)?.forEach { image ->
+                    val bounds = image.bounds
+                    drawRect(
+                        Color(0x9920A060),
+                        Offset(bounds.x.toFloat() * screenScale, (size.heightPt - bounds.y - bounds.height).toFloat() * screenScale),
+                        androidx.compose.ui.geometry.Size(bounds.width.toFloat() * screenScale, bounds.height.toFloat() * screenScale),
+                        style = Stroke(2f),
+                    )
+                }
                 // Solid where the run keeps its font, dashed where a retype swaps in a standard one:
                 // otherwise nothing tells the two apart before the reader has typed.
                 state.contentEdit?.runs?.get(pageIndex)?.forEach { run ->

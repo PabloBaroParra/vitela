@@ -99,8 +99,8 @@ interface PdfDocument : AutoCloseable {
     fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Resizing form fields is unavailable in this PDF core."))
     /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
     fun contentEditingAllowed(): Boolean = false
-    /** The text runs page [pageIndex] paints, pending retypes included; refused when the document forbids text extraction. */
-    fun pageTextRuns(pageIndex: Int): PdfCoreResult<List<ContentTextRun>> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /** The text runs and images page [pageIndex] paints, pending edits included; refused when the document forbids text extraction. */
+    fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
      * Queues one undoable change to what [run] says, keeping its position; a
      * composite-font run is retyped in a standard font instead. A second retype
@@ -108,6 +108,11 @@ interface PdfDocument : AutoCloseable {
      * [refreshPreview]; the failure names a character the font cannot show.
      */
     fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable change to the box [image] fills, to [to]; the image
+     * is stretched to it. The page shows it only after [refreshPreview].
+     */
+    fun resizeImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp. */

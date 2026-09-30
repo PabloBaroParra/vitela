@@ -19,6 +19,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.ContentFontKind
+import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.FormField
@@ -28,6 +29,7 @@ import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageCharacters
+import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.TextRect
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
@@ -36,6 +38,7 @@ import dev.vitela.pdf.uniffi.FfiColor
 import dev.vitela.pdf.uniffi.FfiCompressOutcome
 import dev.vitela.pdf.uniffi.FfiCompressPreset
 import dev.vitela.pdf.uniffi.FfiCompressRefusal
+import dev.vitela.pdf.uniffi.FfiContentImageItem
 import dev.vitela.pdf.uniffi.FfiContentTextRun
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
@@ -250,8 +253,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
 
     override fun contentEditingAllowed(): Boolean = handle.contentEditingAllowed()
 
-    override fun pageTextRuns(pageIndex: Int): PdfCoreResult<List<ContentTextRun>> = try {
-        PdfCoreResult.Success(handle.readPageContent(pageIndex.toUInt()).textRuns.map { it.toTextRun() })
+    override fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = try {
+        val content = handle.readPageContent(pageIndex.toUInt())
+        PdfCoreResult.Success(PageContent(content.textRuns.map { it.toTextRun() }, content.images.map { it.toImage() }))
     } catch (error: FfiException.UnsupportedOperation) {
         // The only refusal here is the /P bit forbidding text extraction.
         PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be read."))
@@ -277,6 +281,19 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // The /P bit, or `pdf_edit` declining this run or its stream encoding;
         // the core's own sentence is a developer's, not a reader's.
         val sentence = if (handle.contentEditingAllowed()) "This text cannot be edited." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core stretches the image to `to`; the viewer picks the box, keeping its top-left corner.
+    override fun resizeImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.ResizeImage(image.toFfi(), to.toFfi()))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        // The /P bit, a document that cannot be rewritten whole, or `pdf_edit`
+        // declining this image; the core's own sentence is a developer's.
+        val sentence = if (handle.contentEditingAllowed()) "This image cannot be resized." else "This document does not permit content changes."
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -518,6 +535,10 @@ private fun PageEdit.toFfi(): FfiEditCommand = when (this) {
 private fun FfiContentTextRun.toTextRun() = ContentTextRun(id.toLong(), page.toInt(), bbox.toRect(), resourceFontName, fontKind.toFontKind(), text)
 
 // Rebuilt field for field: the core matches a retype against the parse it came from.
+private fun FfiContentImageItem.toImage() = ContentImage(id.toLong(), page.toInt(), bbox.toRect(), resourceXobjectName)
+
+private fun ContentImage.toFfi() = FfiContentImageItem(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), resourceName)
+
 private fun ContentTextRun.toFfi() = FfiContentTextRun(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), resourceFontName, fontKind.toFfi(), text)
 
 private fun FfiFontKind.toFontKind(): ContentFontKind = when (this) {
