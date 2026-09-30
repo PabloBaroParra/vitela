@@ -2,6 +2,8 @@ namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
 {
+    private enum ImageChange { Resize, Move, Remove }
+
     /// <summary>Reads images with pending edits applied, serialized against document changes.</summary>
     public async Task<OperationResult<IReadOnlyList<ContentImage>>> PageImagesAsync(string sessionId, uint pageIndex)
     {
@@ -37,15 +39,21 @@ public sealed partial class PdfDocumentFacade
 
     /// <summary>Resizes one image at its existing origin, then refreshes the PDF preview.</summary>
     public Task<OperationResult<AnnotationState>> ResizeImageAsync(string sessionId, ContentImage image, double width, double height) =>
-        ChangeImageGeometryAsync(sessionId, image, width, height, move: false);
+        ChangeImageAsync(sessionId, image, ImageChange.Resize, width, height);
 
     /// <summary>Moves one image in PDF space without changing its dimensions.</summary>
     public Task<OperationResult<AnnotationState>> MoveImageAsync(string sessionId, ContentImage image, double x, double y) =>
-        ChangeImageGeometryAsync(sessionId, image, x, y, move: true);
+        ChangeImageAsync(sessionId, image, ImageChange.Move, x, y);
 
-    private async Task<OperationResult<AnnotationState>> ChangeImageGeometryAsync(string sessionId, ContentImage image, double first, double second, bool move)
+    /// <summary>Removes an existing image, retaining its original source for undo in the core.</summary>
+    public Task<OperationResult<AnnotationState>> RemoveImageAsync(string sessionId, ContentImage image) =>
+        ChangeImageAsync(sessionId, image, ImageChange.Remove);
+
+    private async Task<OperationResult<AnnotationState>> ChangeImageAsync(string sessionId, ContentImage image, ImageChange change, double first = 0, double second = 0)
     {
-        var operation = move ? "move_image" : "resize_image";
+        var move = change == ImageChange.Move;
+        var remove = change == ImageChange.Remove;
+        var operation = remove ? "remove_image" : move ? "move_image" : "resize_image";
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -58,14 +66,15 @@ public sealed partial class PdfDocumentFacade
                     return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
-                if (!double.IsFinite(first) || !double.IsFinite(second) || (!move && (first <= 0 || second <= 0)))
+                if (!remove && (!double.IsFinite(first) || !double.IsFinite(second) || (!move && (first <= 0 || second <= 0))))
                     return OperationResult<AnnotationState>.Failure(CreateError(move ? "Image coordinates must be finite." : "Image dimensions must be finite and greater than zero.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 var bounds = image.Source.Bbox;
                 var target = move ? bounds with { X = first, Y = second } : bounds with { Width = first, Height = second };
-                if (bounds == target)
+                if (!remove && bounds == target)
                     return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
 
-                _core.ApplyEdit(session.Document, move ? new PdfCoreEdit.MoveImage(image.Source, target) : new PdfCoreEdit.ResizeImage(image.Source, target));
+                _core.ApplyEdit(session.Document, remove ? new PdfCoreEdit.RemoveImage(image.Source)
+                    : move ? new PdfCoreEdit.MoveImage(image.Source, target) : new PdfCoreEdit.ResizeImage(image.Source, target));
                 session.EditRevision++;
                 session.HasRecordedPreviewEdit = true;
             }

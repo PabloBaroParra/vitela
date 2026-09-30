@@ -3,6 +3,9 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("deletes resource and inline images through preview and history", DeletesContentImagesAsync),
+    ("rejects stale and forbidden image deletion", RefusesInvalidImageDeletionAsync),
+    ("keeps a deleted image undoable after preview failure", KeepsImageDeletionAfterPreviewFailureAsync),
     ("moves resource and inline images without resizing", MovesContentImagesAsync),
     ("rejects invalid, stale and forbidden image movement", RefusesInvalidImageMovementAsync),
     ("keeps a moved image undoable after preview failure", KeepsImageMoveAfterPreviewFailureAsync),
@@ -2702,6 +2705,59 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
 }
 
+static async Task DeletesContentImagesAsync()
+{
+    foreach (var resource in new string?[] { "Im1", null })
+    {
+        var source = new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), resource);
+        var core = new FakeCore { PageImages = [source] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+        var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+        var deleted = await facade.RemoveImageAsync(session.SessionId, image);
+        Assert(deleted.IsSuccess && deleted.Value!.CanUndo && core.RefreshPreviewCalls == 1, "deletion must refresh and enter shared history");
+        Assert(core.ImageRemovals.Single().Item == source, "deletion must preserve original image identity and resource/inline source");
+        Assert(!(await facade.RemoveImageAsync(session.SessionId, image)).IsSuccess, "the deleted snapshot must not record a second removal");
+        var undone = await facade.UndoAsync(session.SessionId);
+        Assert(undone.IsSuccess && undone.Value!.CanRedo, "deletion must be undoable");
+        Assert(!(await facade.RemoveImageAsync(session.SessionId, image)).IsSuccess, "undo must not revive a snapshot");
+        var redone = await facade.RedoAsync(session.SessionId);
+        Assert(redone.IsSuccess && redone.Value!.CanUndo && core.RefreshPreviewCalls == 3, "redo must rebuild the painted PDF");
+    }
+}
+
+static async Task RefusesInvalidImageDeletionAsync()
+{
+    var core = new FakeCore { PageImages = [new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), "Im1")] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.RemoveImageAsync(session.SessionId, image)).IsSuccess, "deletion must check content permission at submission");
+    core.LastDocument.ContentEditingAllowed = true;
+    core.LastDocument.FullRewriteAllowed = false;
+    Assert(!(await facade.RemoveImageAsync(session.SessionId, image)).IsSuccess, "an unwritable content edit must be refused");
+    core.LastDocument.FullRewriteAllowed = true;
+    Assert(core.ImageRemovals.Count == 0 && core.RefreshPreviewCalls == 0, "refusals must not record or refresh");
+    await facade.MoveImageAsync(session.SessionId, image, 40, 60);
+    Assert(!(await facade.RemoveImageAsync(session.SessionId, image)).IsSuccess, "an intervening edit must invalidate deletion snapshots");
+    var fresh = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    var other = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    Assert(!(await facade.RemoveImageAsync(other.SessionId, fresh)).IsSuccess, "another session must not accept the same image id");
+    Assert(!(await facade.RemoveImageAsync(session.SessionId, fresh)).IsSuccess, "a retired session must be refused");
+    Assert(core.ImageRemovals.Count == 0, "stale snapshots must never delete an image");
+}
+
+static async Task KeepsImageDeletionAfterPreviewFailureAsync()
+{
+    var core = new FakeCore { PageImages = [new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), null)], RefreshPreviewThrows = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageImagesAsync(session.SessionId, 0)).Value![0];
+    var result = await facade.RemoveImageAsync(session.SessionId, image);
+    Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.ImageRemovals.Count == 1, "a preview failure must retain the undoable deletion");
+}
+
 static async Task MovesContentImagesAsync()
 {
     foreach (var resource in new string?[] { "Im1", null })
@@ -3368,6 +3424,7 @@ sealed class FakeCore : IPdfCore
     public IReadOnlyList<PdfCoreContentImage> PageImages { get; init; } = [];
     public List<PdfCoreEdit.ResizeImage> ImageEdits { get; } = [];
     public List<PdfCoreEdit.MoveImage> ImageMoves { get; } = [];
+    public List<PdfCoreEdit.RemoveImage> ImageRemovals { get; } = [];
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
     {
@@ -3413,6 +3470,13 @@ sealed class FakeCore : IPdfCore
     public void ApplyEdit(IPdfCoreDocument document, PdfCoreEdit edit)
     {
         var fake = (FakeDocument)document;
+        if (edit is PdfCoreEdit.RemoveImage removeImage)
+        {
+            if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            ImageRemovals.Add(removeImage);
+            fake.Apply(edit);
+            return;
+        }
         if (edit is PdfCoreEdit.MoveImage moveImage)
         {
             if (!ContentEditingAllowed(document)) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
