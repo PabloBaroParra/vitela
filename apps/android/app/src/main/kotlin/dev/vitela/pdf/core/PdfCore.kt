@@ -109,6 +109,11 @@ interface PdfDocument : AutoCloseable {
      */
     fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
+     * Queues one undoable removal of [run] from its page — content editing,
+     * not a secure redaction. The page shows it only after [refreshPreview].
+     */
+    fun removeTextRun(run: ContentTextRun): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
      * Queues one undoable change to the box [image] fills, to [to]; the image
      * is stretched to it. The page shows it only after [refreshPreview].
      */

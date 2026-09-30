@@ -29,6 +29,8 @@ internal class ContentEditActions(
     val onTap: (Int, AnnotationPoint, Double) -> Unit,
     /** documentId, text: the document is the one the dialog was built for. */
     val onRetype: (Long, String) -> Unit,
+    /** documentId: deletes the dialog's run; the document is the one the dialog was built for. */
+    val onDeleteText: (Long) -> Unit,
     val onDismiss: () -> Unit,
     /** documentId, width, height as typed, in points: the document is the one the dialog was built for. */
     val onResize: (Long, String, String) -> Unit,
@@ -43,7 +45,8 @@ internal class ContentEditActions(
 /**
  * The retype dialog: the run's text, ready to change. Keyed on the editor, so
  * a refusal — which comes back with what was typed — reopens with it rather
- * than with the run's old text.
+ * than with the run's old text. Delete takes the run off the page at once,
+ * like an image's Delete: it is one undoable entry.
  */
 @Composable
 internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, actions: ContentEditActions) {
@@ -54,6 +57,7 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (editor.run.substitutesFont) Text(FONT_SUBSTITUTED, style = MaterialTheme.typography.bodySmall)
+                Text("Delete takes this text off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -64,7 +68,12 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
             }
         },
         confirmButton = { Button(onClick = { actions.onRetype(documentId, text) }) { Text("Retype") } },
-        dismissButton = { TextButton(onClick = actions.onDismiss) { Text("Cancel") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { actions.onDeleteText(documentId) }) { Text("Delete") }
+                TextButton(onClick = actions.onDismiss) { Text("Cancel") }
+            }
+        },
     )
 }
 

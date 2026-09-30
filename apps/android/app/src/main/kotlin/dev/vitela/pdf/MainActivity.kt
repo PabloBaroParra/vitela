@@ -221,6 +221,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onPageShown = viewModel::contentPageShown,
                 onTap = viewModel::tapContent,
                 onRetype = viewModel::retypeTextRun,
+                onDeleteText = viewModel::deleteTextRun,
                 onDismiss = viewModel::dismissTextRunEditor,
                 onResize = viewModel::resizeImage,
                 onDismissResizer = viewModel::dismissImageResizer,

@@ -11,9 +11,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * Edit content: retyping a line of text the page itself paints, keeping its
- * position and — unless it is a composite font — its font; resizing an image
- * it paints, keeping its top-left corner; moving one, keeping its size; and
- * deleting one. Each is one undoable entry in the shared edit log.
+ * position and — unless it is a composite font — its font, or deleting it;
+ * resizing an image it paints, keeping its top-left corner; moving one,
+ * keeping its size; and deleting one. Each is one undoable entry in the
+ * shared edit log.
  *
  * Nothing is drawn in place of the words or the picture: only the renderer can
  * paint them, so an edit rebuilds the preview and the page re-renders showing
@@ -170,6 +171,38 @@ internal class ContentEditing(
                         if (mode.editor?.run != editor.run) return@withLock
                         state.value = state.value.copy(contentEdit = mode.copy(editor = editor.copy(text = text, error = userMessage(result.error))))
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Deletes the open editor's run, for the document [documentId] the dialog
+     * was built for. Spent before the core answers, like an image delete: a
+     * second tap on Delete finds nothing open, and a refusal is reported in
+     * the status line.
+     */
+    fun deleteText(documentId: Long) {
+        val openDocument = session.document ?: return
+        if (documentId != state.value.documentId) return
+        val mode = state.value.contentEdit ?: return
+        val run = mode.editor?.run ?: return
+        state.value = state.value.copy(contentEdit = mode.copy(editor = null))
+        session.scope.launch {
+            session.documentLane.withLock {
+                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
+                when (val result = withContext(session.compute) { openDocument.removeTextRun(run) }) {
+                    is PdfCoreResult.Success -> {
+                        layout.markRedrawn()
+                        state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+                        // The delete sits in the shared log: Undo must light up.
+                        annotations.refresh(openDocument)
+                        val redrawn = layout.redraw(openDocument)
+                        // The core no longer reports the run, so its outline goes too.
+                        read(openDocument, run.pageIndex)
+                        if (redrawn) state.value = state.value.copy(status = TEXT_DELETED)
+                    }
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                 }
             }
         }

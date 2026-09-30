@@ -239,8 +239,8 @@ field lands in the wrong place. That is a known gap.
 ## Edit content
 
 **Edit content** arms a mode in which a tap on a line of text the page itself
-paints opens it in a dialog for retyping, and a tap on an image it paints opens
-it for resizing, moving or deleting
+paints opens it in a dialog for retyping or deleting, and a tap on an image it
+paints opens it for resizing, moving or deleting
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
 The run keeps its position and its font; **Retype** queues one undoable entry
 in the shared edit log. While armed, the mode claims every page tap — an armed
@@ -261,6 +261,16 @@ runs. The gate is `content_editing_allowed`, as on Windows. A character the
 run's font cannot show is refused by name and the dialog stays open with what
 was typed. Unlike the Windows shell, which writes as the reader types, a
 retype is committed once, from the dialog.
+
+**Delete** in that dialog takes the run off its page (`RemoveTextRun`) at once,
+with no second question, like an image's Delete: it is one undoable entry, and
+Undo puts it back. No font is touched, so a composite-font run is deleted as
+it stands. The dialog closes before the core answers, so a double tap queues
+one delete; a refusal — "This text cannot be deleted." — is reported in the
+status line. The delete redraws the page and re-reads it, so the outline goes
+with the run. The core checks the delete against the file as last saved, so it
+may refuse one on a run with a pending retype; save first. This is content
+editing, not a secure redaction: the dialog says so.
 
 The same read reports the page's images — resource and inline alike — with
 pending resizes and moves applied, and each is outlined in green; a pending

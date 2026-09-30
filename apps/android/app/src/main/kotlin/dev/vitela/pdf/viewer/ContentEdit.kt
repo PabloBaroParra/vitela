@@ -9,10 +9,10 @@ import kotlin.math.max
 
 /**
  * Edit content mode: a tap on a line of text the page itself paints opens it
- * for retyping, a tap on an image it paints opens it for resizing, moving or
- * deleting. [runs] and [images] hold each page's content as last read — only
- * pages that were shown or tapped — so the outlines describe what the page
- * now shows.
+ * for retyping or deleting, a tap on an image it paints opens it for
+ * resizing, moving or deleting. [runs] and [images] hold each page's content
+ * as last read — only pages that were shown or tapped — so the outlines
+ * describe what the page now shows.
  */
 data class ContentEditState(
     val runs: Map<Int, List<ContentTextRun>> = emptyMap(),
@@ -58,11 +58,12 @@ sealed interface ContentTarget {
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap text to retype it, or an image to resize, move or delete it."
+internal const val CONTENT_EDIT_ARMED = "Tap text to retype or delete it, or an image to resize, move or delete it."
 internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype it, or an image to resize, move or delete it."
+internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype or delete it, or an image to resize, move or delete it."
 internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
 internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
+internal const val TEXT_DELETED = "Text deleted. Save to keep the change."
 internal const val IMAGE_RESIZED = "Image resized. Save to keep the change."
 internal const val IMAGE_SIZE_INVALID = "Image dimensions must be finite and greater than zero."
 internal const val IMAGE_MOVED = "Image moved. Save to keep the change."

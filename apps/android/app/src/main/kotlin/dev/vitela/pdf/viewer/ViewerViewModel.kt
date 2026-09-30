@@ -312,6 +312,8 @@ class ViewerViewModel(
     fun tapContent(pageIndex: Int, point: AnnotationPoint, reach: Double) = contentEditing.tap(pageIndex, point, reach)
     /** Retypes the open editor's run; [documentId] is the document the dialog was built for. */
     fun retypeTextRun(documentId: Long, text: String) = contentEditing.retype(documentId, text)
+    /** Deletes the open dialog's run; [documentId] is the document the dialog was built for. */
+    fun deleteTextRun(documentId: Long) = contentEditing.deleteText(documentId)
     fun dismissTextRunEditor() = contentEditing.dismissEditor()
     /** Resizes the open resizer's image to the typed size, in points; [documentId] is the document the dialog was built for. */
     fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.resize(documentId, width, height)
