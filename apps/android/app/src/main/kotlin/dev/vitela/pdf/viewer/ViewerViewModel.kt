@@ -435,6 +435,8 @@ class ViewerViewModel(
     fun growSelected() = annotations.growSelected()
     fun restyleSelected(color: AnnotationColor) = annotations.restyleSelected(color)
     fun deleteSelected() = annotations.deleteSelected()
+    fun stepAnnotation(forward: Boolean) = annotations.step(forward)
+    fun consumeAnnotationReveal() = annotations.consumeReveal()
     fun undoAnnotations() = annotations.undo()
     fun redoAnnotations() = annotations.redo()
 

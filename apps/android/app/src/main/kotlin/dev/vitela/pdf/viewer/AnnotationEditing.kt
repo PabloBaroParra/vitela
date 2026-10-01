@@ -44,6 +44,28 @@ internal class AnnotationEditing(
         state.value = state.value.copy(selectedAnnotationId = selected?.id)
     }
 
+    /**
+     * Previous/Next annotation: selects the neighbour in snapshot order and asks
+     * the reader to reveal it. Only a selection and a scroll, never an edit, so
+     * it works on a document that forbids annotating.
+     */
+    fun step(forward: Boolean) {
+        val current = state.value
+        if (!annotationNavigationEnabled(current)) return
+        val target = annotationStep(current.annotations, current.selectedAnnotationId, forward) ?: return
+        val position = current.annotations.indexOf(target) + 1
+        state.value = current.copy(
+            selectedAnnotationId = target.id,
+            annotationReveal = annotationReveal(target),
+            status = "Annotation $position of ${current.annotations.size}.",
+        )
+    }
+
+    /** Consumed by the reader once it has scrolled, so the reveal fires once. */
+    fun consumeReveal() {
+        if (state.value.annotationReveal != null) state.value = state.value.copy(annotationReveal = null)
+    }
+
     fun handlePageGesture(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint>, handleReach: Double) {
         if (state.value.activeAnnotationTool != AnnotationTool.Pointer) {
             place(pageIndex, origin, current, points)

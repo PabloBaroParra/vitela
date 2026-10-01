@@ -71,6 +71,7 @@ internal fun PageList(
     state: ViewerState,
     onPositionChanged: (ReaderPosition) -> Unit,
     onScrollTargetConsumed: () -> Unit,
+    onAnnotationRevealConsumed: () -> Unit,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
     contentEdit: ContentEditActions,
@@ -122,6 +123,14 @@ internal fun PageList(
             val target = state.scrollTarget ?: return@LaunchedEffect
             listState.animateScrollToItem(target)
             onScrollTargetConsumed()
+        }
+
+        val pageWidthPx = with(LocalDensity.current) { pageWidth.roundToPx() }
+        LaunchedEffect(state.annotationReveal) {
+            val reveal = state.annotationReveal ?: return@LaunchedEffect
+            val viewport = RevealViewport(pageWidthPx, viewportWidthPx, viewportHeightPx)
+            revealAnnotation(reveal, state.pageSizes.getOrNull(reveal.pageIndex), viewport, listState, horizontalScrollState)
+            onAnnotationRevealConsumed()
         }
 
         LaunchedEffect(state.zoomFactor) {

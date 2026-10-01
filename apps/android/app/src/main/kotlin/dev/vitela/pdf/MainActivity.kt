@@ -240,6 +240,8 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onReplacementCancelled = viewModel::cancelReplacement,
         onPositionChanged = viewModel::onReaderPositionChanged,
         onScrollTargetConsumed = viewModel::consumeScrollTarget,
+        onAnnotationRevealConsumed = viewModel::consumeAnnotationReveal,
+        onAnnotationStep = viewModel::stepAnnotation,
         onAnnotationTool = viewModel::setAnnotationTool,
         onAnnotationGesture = viewModel::handlePageGesture,
         onAnnotationColor = viewModel::restyleSelected,
