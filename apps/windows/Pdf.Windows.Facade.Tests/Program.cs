@@ -92,6 +92,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("keeps stationary ink gestures as one sample and preserves real strokes", InkPointerTraceTests.RunAsync)
     ,("publishes restyled annotation colors", PublishesRestyledAnnotationColorAsync)
     ,("steps backward through annotations without changing the document", StepsBackwardThroughAnnotations)
+    ,("steps forward through annotations across pages without changing the document", StepsForwardThroughAnnotations)
     ,("refuses annotation edits when permissions deny them", RefusesForbiddenAnnotationEditsAsync)
     ,("holds annotation edits until destination replacement completes", HoldsEditsUntilDestinationReplacementCompletesAsync)
     ,("blocks opening another document with unsaved annotations", BlocksOpenWithUnsavedAnnotationsAsync)
@@ -1226,9 +1227,31 @@ static Task StepsBackwardThroughAnnotations()
     Assert(AnnotationSelection.PreviousId(annotations, 3) == 2, "selection should step backward in document order");
     Assert(AnnotationSelection.PreviousId(annotations, 1) == 3, "the first annotation should wrap to the last");
     Assert(AnnotationSelection.PreviousId(annotations, 9) is null, "a deleted selection should not select another annotation");
-    Assert(AnnotationSelection.PreviousId(annotations, null) is null, "navigation needs a selected annotation");
+    Assert(AnnotationSelection.PreviousId(annotations, null) == 3, "backward navigation starts at the last annotation without a selection");
     Assert(AnnotationSelection.PreviousId([], 1) is null, "an empty document has no previous annotation");
+    Assert(AnnotationSelection.PreviousId([], null) is null, "an empty document cannot start navigation");
+    Assert(AnnotationSelection.PreviousId([first], 1) == 1, "a single annotation wraps to itself");
     Assert(annotations[0].Id == 1 && annotations[1].Id == 2, "navigation must not reorder the document");
+    return Task.CompletedTask;
+}
+
+static Task StepsForwardThroughAnnotations()
+{
+    var first = new Annotation(8, 0, AnnotationKind.Shape, new AnnotationRect(0, 0, 10, 10), null, []);
+    var second = first with { Id = 2, PageIndex = 4 };
+    var third = first with { Id = 15, PageIndex = 1 };
+    Annotation[] annotations = [first, second, third];
+    var before = annotations.ToArray();
+
+    Assert(AnnotationSelection.NextId(annotations, null) == 8, "forward navigation starts at the first annotation");
+    Assert(AnnotationSelection.NextId(annotations, 8) == 2, "navigation uses snapshot order, not numeric ID or page order");
+    Assert(AnnotationSelection.NextId(annotations, 2) == 15, "navigation can move to an earlier page");
+    Assert(AnnotationSelection.NextId(annotations, 15) == 8, "the last annotation wraps to the first");
+    Assert(AnnotationSelection.NextId(annotations, 99) is null, "a stale selection must not navigate to another annotation");
+    Assert(AnnotationSelection.NextId([], null) is null, "an empty snapshot cannot start navigation");
+    Assert(AnnotationSelection.NextId([], 8) is null, "an empty snapshot has no next annotation");
+    Assert(AnnotationSelection.NextId([first], 8) == 8, "a single annotation wraps to itself");
+    Assert(annotations.SequenceEqual(before), "navigation must preserve annotation geometry, page assignments and order");
     return Task.CompletedTask;
 }
 
