@@ -278,6 +278,31 @@ impl DocumentState {
                     to: to as usize,
                 }
             }
+            FfiEditCommand::RemovePages { index, count } => {
+                // `remove_pages` for the reason `RemovePage` uses
+                // `remove_page`: it captures what is anchored to *every* page
+                // of the run. It refuses an empty or out-of-range run itself;
+                // the start is what this error can name.
+                Command::remove_pages(&self.document, index as usize, count as usize)
+                    .ok_or(FfiError::PageIndexOutOfBounds { index })?
+            }
+            FfiEditCommand::RotatePages {
+                from,
+                count,
+                delta_degrees,
+            } => {
+                let len = self.document.pages.len() as u64;
+                if count == 0 || u64::from(from) + u64::from(count) > len {
+                    return Err(FfiError::PageIndexOutOfBounds { index: from });
+                }
+                let pages = (from..from + count)
+                    .map(|position| self.page_id(position))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Command::RotatePages {
+                    pages,
+                    delta_degrees,
+                }
+            }
             FfiEditCommand::AddHighlight { page, rect, color } => {
                 let page = self.page_id(page)?;
                 let id = self.allocate_annotation_id();
@@ -771,13 +796,17 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
 /// classifies the FFI command instead because the check has to happen before
 /// `build_core_command`, which can allocate ids and read the page model.
 fn is_document_assembly_command(command: &FfiEditCommand) -> bool {
-    is_page_structure_command(command) || matches!(command, FfiEditCommand::RotatePage { .. })
+    is_page_structure_command(command)
+        || matches!(
+            command,
+            FfiEditCommand::RotatePage { .. } | FfiEditCommand::RotatePages { .. }
+        )
 }
 
 /// Whether `command` changes which pages the document has or in what order —
 /// the FFI twin of `pdf_document::Command::is_page_structure_edit`, and
-/// narrower than [`is_document_assembly_command`] by exactly the same one
-/// variant, `RotatePage`.
+/// narrower than [`is_document_assembly_command`] by exactly the rotations,
+/// `RotatePage` and `RotatePages`.
 ///
 /// The distinction is not cosmetic here: `pdf_save::has_structural_page_changes`
 /// compares page identity and origin, so a rotation stays on the incremental
@@ -789,6 +818,7 @@ fn is_page_structure_command(command: &FfiEditCommand) -> bool {
         command,
         FfiEditCommand::InsertBlankPage { .. }
             | FfiEditCommand::RemovePage { .. }
+            | FfiEditCommand::RemovePages { .. }
             | FfiEditCommand::MovePages { .. }
     )
 }
@@ -801,8 +831,10 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
     !matches!(
         command,
         FfiEditCommand::RotatePage { .. }
+            | FfiEditCommand::RotatePages { .. }
             | FfiEditCommand::InsertBlankPage { .. }
             | FfiEditCommand::RemovePage { .. }
+            | FfiEditCommand::RemovePages { .. }
             | FfiEditCommand::MovePages { .. }
             | FfiEditCommand::ReplaceTextRunContent { .. }
             | FfiEditCommand::ReplaceTextRunWithInsertedFont { .. }
@@ -1374,6 +1406,12 @@ mod tests {
                 orientation: FfiOrientation::Portrait,
             },
             FfiEditCommand::RemovePage { index: 0 },
+            FfiEditCommand::RemovePages { index: 0, count: 1 },
+            FfiEditCommand::RotatePages {
+                from: 0,
+                count: 1,
+                delta_degrees: 90,
+            },
             FfiEditCommand::MovePages {
                 from: 0,
                 count: 1,

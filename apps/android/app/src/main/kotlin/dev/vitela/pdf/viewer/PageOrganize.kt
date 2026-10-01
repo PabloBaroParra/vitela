@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import androidx.compose.ui.graphics.ImageBitmap
+import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageSize
 import kotlin.math.floor
@@ -26,7 +27,13 @@ data class OrganizeState(
     val importPassword: ImportPasswordPrompt? = null,
     /** What the last import could not bring across exactly, shown until dismissed. */
     val importWarnings: List<String> = emptyList(),
+    val view: OrganizeView = OrganizeView.Pages,
+    /** The Documents view's cards, as the core last grouped them; re-read after every layout change while it shows. */
+    val blocks: List<DocumentBlock> = emptyList(),
 )
+
+/** What the Organize grid shows a card for: each page, or each run of pages from the same PDF. */
+enum class OrganizeView { Pages, Documents }
 
 /** Longer side of a thumbnail, in pixels. Cheap on purpose: a grid shows many pages at once. */
 internal const val THUMBNAIL_BOX_PX = 220
@@ -55,23 +62,26 @@ internal const val ORGANIZE_NOTHING_TO_DO = "The page is already there."
  */
 internal fun organizeRefusal(pageCount: Int, edit: PageEdit): String? = when (edit) {
     is PageEdit.Move -> when {
-        edit.from !in 0 until pageCount || edit.to !in 0 until pageCount -> ORGANIZE_NO_SUCH_PAGE
+        !runFits(edit.from, edit.count, pageCount) || !runFits(edit.to, edit.count, pageCount) -> ORGANIZE_NO_SUCH_PAGE
         edit.from == edit.to -> ORGANIZE_NOTHING_TO_DO
         else -> null
     }
     is PageEdit.Rotate -> when {
-        edit.pageIndex !in 0 until pageCount -> ORGANIZE_NO_SUCH_PAGE
+        !runFits(edit.pageIndex, edit.count, pageCount) -> ORGANIZE_NO_SUCH_PAGE
         edit.deltaDegrees != 90 && edit.deltaDegrees != -90 -> ORGANIZE_QUARTER_TURNS
         else -> null
     }
     is PageEdit.Remove -> when {
-        edit.pageIndex !in 0 until pageCount -> ORGANIZE_NO_SUCH_PAGE
-        pageCount <= 1 -> ORGANIZE_LAST_PAGE
+        !runFits(edit.pageIndex, edit.count, pageCount) -> ORGANIZE_NO_SUCH_PAGE
+        edit.count >= pageCount -> ORGANIZE_LAST_PAGE
         else -> null
     }
     // pageCount itself is a valid position: after the last page.
     is PageEdit.InsertBlank -> if (edit.index !in 0..pageCount) ORGANIZE_NO_SUCH_PAGE else null
 }
+
+/** Whether the [count] pages starting at [start] are all in a document of [pageCount] pages. */
+private fun runFits(start: Int, count: Int, pageCount: Int): Boolean = count >= 1 && start >= 0 && start <= pageCount - count
 
 /**
  * The move that takes the page at [index] one step toward the front ([delta]
@@ -85,31 +95,37 @@ internal fun neighbourMove(index: Int, delta: Int, pageCount: Int): PageEdit.Mov
 
 /** Re-keys [byPage] (something cached by page position) for the layout [edit] produces. */
 internal fun <T> remapAfterEdit(byPage: Map<Int, T>, edit: PageEdit): Map<Int, T> = when (edit) {
-    is PageEdit.Move -> byPage.mapKeys { (position, _) -> positionAfterMove(position, edit.from, edit.to) }
-    // Only this page looks different now; keeping the old picture would let a
+    is PageEdit.Move -> byPage.mapKeys { (position, _) -> positionAfterMove(position, edit.from, edit.to, edit.count) }
+    // Only these pages look different now; keeping the old picture would let a
     // stale upright page stand in for the turned one while it renders.
-    is PageEdit.Rotate -> byPage - edit.pageIndex
-    is PageEdit.Remove -> (byPage - edit.pageIndex).mapKeys { (position, _) -> if (position > edit.pageIndex) position - 1 else position }
+    is PageEdit.Rotate -> byPage.filterKeys { it !in edit.pageIndex until edit.pageIndex + edit.count }
+    is PageEdit.Remove -> byPage
+        .filterKeys { it !in edit.pageIndex until edit.pageIndex + edit.count }
+        .mapKeys { (position, _) -> if (position >= edit.pageIndex + edit.count) position - edit.count else position }
     // The blank card starts without a picture; every page from its position on steps back one.
     is PageEdit.InsertBlank -> byPage.mapKeys { (position, _) -> if (position >= edit.index) position + 1 else position }
 }
 
-private fun positionAfterMove(position: Int, from: Int, to: Int): Int = when {
-    position == from -> to
-    from < to && position in (from + 1)..to -> position - 1
-    from > to && position in to until from -> position + 1
+/** Where [position] sits after the [count] pages at [from] move to [to]; the pages they skip over close up behind them. */
+private fun positionAfterMove(position: Int, from: Int, to: Int, count: Int): Int = when {
+    position in from until from + count -> to + (position - from)
+    from < to && position in (from + count) until (to + count) -> position - count
+    from > to && position in to until from -> position + count
     else -> position
 }
 
 internal fun organizeStatus(edit: PageEdit): String {
     val done = when (edit) {
-        is PageEdit.Move -> "Page moved."
-        is PageEdit.Rotate -> "Page rotated."
-        is PageEdit.Remove -> "Page deleted."
+        is PageEdit.Move -> pagesDone(edit.count, "moved")
+        is PageEdit.Rotate -> pagesDone(edit.count, "rotated")
+        is PageEdit.Remove -> pagesDone(edit.count, "deleted")
         is PageEdit.InsertBlank -> "Blank page added."
     }
     return "$done Changes are pending save."
 }
+
+private fun pagesDone(count: Int, verb: String): String = if (count == 1) "Page $verb." else "$count pages $verb."
+
 
 /** The density that fits a page's longer side into [boxPx]. */
 internal fun thumbnailDpi(size: PageSize?, boxPx: Int): Int {

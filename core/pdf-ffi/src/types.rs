@@ -620,6 +620,23 @@ pub enum FfiEditCommand {
         count: u32,
         to: u32,
     },
+    /// Removes the `count` contiguous pages starting at position `index` —
+    /// one Documents-view block — as one undoable step that also takes the
+    /// annotations and form fields anchored to them, so undo puts all of it
+    /// back.
+    RemovePages {
+        index: u32,
+        count: u32,
+    },
+    /// Turns each of the `count` contiguous pages starting at position
+    /// `from` by `delta_degrees`, as one undoable step. The positions are
+    /// resolved to the pages that sit there now, so the step undoes the same
+    /// pages even after a later reorder.
+    RotatePages {
+        from: u32,
+        count: u32,
+        delta_degrees: i32,
+    },
     AddHighlight {
         page: u32,
         rect: FfiRect,

@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.BlockSource
+import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.ImportReport
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageSize
@@ -25,12 +27,13 @@ internal class OrganizableDocument(
     private val refusal: PdfCoreError? = null,
     private val previewFailure: PdfCoreError? = null,
 ) : PdfDocument {
-    private class Page(val id: Int, var turned: Boolean = false)
+    private class Page(val id: Int, var turned: Boolean = false, val source: BlockSource = BlockSource.Base)
 
     private var pages = MutableList(pageCount) { Page(it) }
 
     /** A blank page is born with the next id, so it too reads back by its width; landscape is a turned one. */
     private var nextId = pageCount
+    private var nextSourceId = 40L
     private val undoable = ArrayDeque<Pair<() -> Unit, () -> Unit>>()
     private val redoable = ArrayDeque<Pair<() -> Unit, () -> Unit>>()
     val edits = mutableListOf<PageEdit>()
@@ -72,17 +75,42 @@ internal class OrganizableDocument(
         edits += edit
         val before = pages.toList()
         val after = when (edit) {
-            is PageEdit.Move -> before.toMutableList().also { it.add(edit.to, it.removeAt(edit.from)) }
-            is PageEdit.Remove -> before.toMutableList().also { it.removeAt(edit.pageIndex) }
-            is PageEdit.Rotate -> before.toMutableList().also { it[edit.pageIndex].turned = !it[edit.pageIndex].turned }
-            is PageEdit.InsertBlank -> before.toMutableList().also { it.add(edit.index, Page(nextId++, turned = edit.landscape)) }
+            is PageEdit.Move -> before.toMutableList().also { list ->
+                val run = List(edit.count) { list.removeAt(edit.from) }
+                list.addAll(edit.to, run)
+            }
+            is PageEdit.Remove -> before.toMutableList().also { list -> repeat(edit.count) { list.removeAt(edit.pageIndex) } }
+            is PageEdit.Rotate -> before.toMutableList().also { turn(it, edit) }
+            is PageEdit.InsertBlank -> before.toMutableList().also { it.add(edit.index, Page(nextId++, turned = edit.landscape, source = BlockSource.Blank)) }
         }
         pages = after.toMutableList()
-        val undo = { pages = before.toMutableList(); if (edit is PageEdit.Rotate) before[edit.pageIndex].turned = !before[edit.pageIndex].turned }
-        val redo = { pages = after.toMutableList(); if (edit is PageEdit.Rotate) after[edit.pageIndex].turned = !after[edit.pageIndex].turned }
+        val undo = { pages = before.toMutableList(); if (edit is PageEdit.Rotate) turn(before, edit) }
+        val redo = { pages = after.toMutableList(); if (edit is PageEdit.Rotate) turn(after, edit) }
         undoable.addLast(undo to redo)
         redoable.clear()
         return PdfCoreResult.Success(Unit)
+    }
+
+    private fun turn(pages: List<Page>, edit: PageEdit.Rotate) {
+        for (index in edit.pageIndex until edit.pageIndex + edit.count) pages[index].turned = !pages[index].turned
+    }
+
+    /** One block per run of pages from the same source, like the core's `derive_blocks`. */
+    override fun documentBlocks(): PdfCoreResult<List<DocumentBlock>> {
+        val runs = mutableListOf<Pair<BlockSource, IntRange>>()
+        pages.forEachIndexed { index, page ->
+            val last = runs.lastOrNull()
+            if (last != null && last.first == page.source) runs[runs.lastIndex] = last.first to (last.second.first..index)
+            else runs += page.source to (index..index)
+        }
+        val split = runs.groupingBy { it.first }.eachCount().filterValues { it > 1 }.keys
+        val seen = mutableMapOf<BlockSource, Int>()
+        return PdfCoreResult.Success(
+            runs.map { (source, range) ->
+                val part = if (source in split) seen.merge(source, 1, Int::plus) else null
+                DocumentBlock(source, part, range.first, range.last - range.first + 1)
+            },
+        )
     }
 
     /** Every import asked of the core: the position it was asked at, and the password it came with. */
@@ -96,12 +124,13 @@ internal class OrganizableDocument(
             FAKE_REFUSED -> return PdfCoreResult.Failure(PdfCoreError.Failed("The PDF does not permit copying its pages."))
         }
         val before = pages.toList()
-        val after = before.toMutableList().also { list -> list.addAll(index, List(bytes[1].toInt()) { Page(nextId++) }) }
+        val sourceId = nextSourceId++
+        val after = before.toMutableList().also { list -> list.addAll(index, List(bytes[1].toInt()) { Page(nextId++, source = BlockSource.Imported(sourceId)) }) }
         pages = after
         undoable.addLast(({ pages = before.toMutableList() }) to ({ pages = after.toMutableList() }))
         redoable.clear()
         val warnings = if (bytes[0] == FAKE_WARNS) listOf("a form field was renamed") else emptyList()
-        return PdfCoreResult.Success(ImportReport(bytes[1].toInt(), warnings))
+        return PdfCoreResult.Success(ImportReport(bytes[1].toInt(), warnings, sourceId))
     }
 
     /** An edit that is not a page edit, so undo has something to undo. */

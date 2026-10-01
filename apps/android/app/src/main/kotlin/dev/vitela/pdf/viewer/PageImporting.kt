@@ -98,7 +98,11 @@ internal class PageImporting(
                             attempt = null
                             addedThisRun = true
                             layout.markEdited()
-                            state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+                            state.value = state.value.copy(
+                                isDirty = true,
+                                revision = state.value.revision + 1,
+                                importedSourceNames = state.value.importedSourceNames + (result.value.sourceId to source.name),
+                            )
                         }
                         result is PdfCoreResult.Failure && result.error.asksForPassword() -> {
                             val organize = state.value.organize

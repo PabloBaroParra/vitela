@@ -46,6 +46,11 @@ pub struct FfiImportReport {
     /// imported pages, …). Empty when nothing was lost. The pages are already
     /// in the document; an undo takes them back out.
     pub warnings: Vec<String>,
+    /// The id the added pages' block carries in `document_blocks`
+    /// (`FfiBlockSource::Imported`) — how a shell tells which of the files it
+    /// picked a block came from. Never reused within one handle, not even
+    /// after an undo takes the pages back out.
+    pub source_id: u64,
 }
 
 /// Inserts every page of the PDF in `bytes` at position `index` (the
@@ -127,6 +132,7 @@ pub fn import_pdf(
     Ok(FfiImportReport {
         page_count,
         warnings,
+        source_id: id.0,
     })
 }
 

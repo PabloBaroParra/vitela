@@ -257,6 +257,10 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onImportPassword = viewModel::retryImportPassword,
                 onImportPasswordCancel = viewModel::cancelImportPassword,
                 onImportWarningsDismiss = viewModel::dismissImportWarnings,
+                onShow = viewModel::organizeShow,
+                onMoveBlock = viewModel::organizeMoveBlock,
+                onRotateBlock = viewModel::organizeRotateBlock,
+                onDeleteBlock = viewModel::organizeDeleteBlock,
             )
         },
         formFields = remember(viewModel) {

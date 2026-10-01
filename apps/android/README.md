@@ -193,9 +193,22 @@ whether the file survives the full rewrite a reorder forces); a refusal comes
 back as the sentence to show, as on Windows. The one refusal the shell makes
 itself is deleting the last page.
 
+A **Pages | Documents** selector above the grid switches to one card per
+document instead
+([`viewer/OrganizeDocumentList.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/OrganizeDocumentList.kt)):
+each contiguous run of pages from the same PDF — the opened file, a PDF added
+with **Add PDFs**, or inserted blank pages — named after its file, with
+"Part N" when that file is split across runs. A card moves its whole block past
+the previous or next one, turns every page of it a quarter, or deletes it; each
+is one undoable step (`MovePages`, `RotatePages`, `RemovePages`). The blocks are
+the core's (`document_blocks`, the same `derive_blocks` the Linux Documents
+view reads) and are asked again after every change, since a move can merge two
+runs or split one. Only the names are the shell's: the core reports an added
+PDF by the `source_id` its import returned.
+
 After an edit everything the shell keeps by page position is re-read
 (`viewer/PageLayout.kt`): page count and sizes, rendered bitmaps, search hits,
-text selection and annotations. Undo and redo re-read the layout too, but only
+text selection, annotations and, while it shows, the document blocks. Undo and redo re-read the layout too, but only
 once the session has edited its pages. A thumbnail is a small render taken on
 demand as its card scrolls into view; a moved page keeps its picture and only a
 turned one is rendered again.

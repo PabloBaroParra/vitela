@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.CompressPreset
+import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.PdfCore
@@ -331,6 +332,14 @@ class ViewerViewModel(
     fun organizeInsertBlank(index: Int, landscape: Boolean) = organizing.insertBlank(index, landscape)
     /** The grid scrolled the card at [index] into view without a picture. */
     fun organizeThumbnail(index: Int) = organizing.requestThumbnail(index)
+
+    fun organizeShow(view: OrganizeView) = organizing.show(view)
+
+    fun organizeMoveBlock(block: DocumentBlock, delta: Int) = organizing.moveBlock(block, delta)
+
+    fun organizeRotateBlock(block: DocumentBlock, delta: Int) = organizing.rotateBlock(block, delta)
+
+    fun organizeDeleteBlock(block: DocumentBlock) = organizing.deleteBlock(block)
 
     fun importPdfs(sources: List<ImportSource>) = importing.start(sources)
     fun retryImportPassword(password: String) = importing.retryWithPassword(password)
