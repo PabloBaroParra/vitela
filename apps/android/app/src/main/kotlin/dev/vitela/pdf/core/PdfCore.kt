@@ -278,6 +278,16 @@ interface PdfDocument : AutoCloseable {
 
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
+
+    /**
+     * This document as a save would write it right now, annotations included,
+     * reopened by the core as a separate document to print from. [renderPage]
+     * on this one leaves the session's annotations out, because the shell
+     * overlays them. The core reopens it under the password it already holds,
+     * so an encrypted document needs none from the shell. The caller owns
+     * and closes it.
+     */
+    fun outputSnapshot(): PdfCoreResult<PdfDocument> = PdfCoreResult.Failure(PdfCoreError.Failed("Printing is unavailable in this PDF core."))
 }
 
 interface PdfCore {

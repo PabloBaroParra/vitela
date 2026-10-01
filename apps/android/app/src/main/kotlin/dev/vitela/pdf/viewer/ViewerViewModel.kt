@@ -65,7 +65,7 @@ class ViewerViewModel(
     private val compressing = Compressing(session)
     private val protecting = Protecting(session, ::reopenProtected)
     private val signing = Signing(session, { bytes, password -> openSigningCertificate(bytes, password) }, ::reopenSigned)
-    private val saving = DocumentSaving(session) { sourceBytes }
+    private val saving = DocumentSaving(session)
 
     /**
      * [saveTarget] is where **Save** may later write this document back to;
@@ -258,7 +258,8 @@ class ViewerViewModel(
     fun fitPage() = reader.fitPage()
 
     // Save and print
-    suspend fun printBytes(): ByteArray? = saving.printBytes()
+    /** A throwaway copy to rasterize for printing; the caller closes it. See [DocumentSaving.printDocument]. */
+    suspend fun printDocument(): PdfDocument? = saving.printDocument()
     suspend fun saveSnapshot(): SaveSnapshot? = saving.saveSnapshot()
     fun confirmSaved(snapshot: SaveSnapshot) = saving.confirmSaved(snapshot)
     fun reportSaveFailure() = saving.reportSaveFailure()

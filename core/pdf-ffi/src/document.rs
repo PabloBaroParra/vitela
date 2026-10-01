@@ -68,7 +68,8 @@ pub(crate) struct DocumentState {
     render_doc: Option<pdf_render::DocumentHandle>,
     /// The password pdfium needs to reopen this document's bytes, kept only
     /// so [`refresh_preview`] can rebuild `render_doc` from an encrypted
-    /// snapshot. `None` for an unencrypted or freshly created document.
+    /// snapshot, and [`crate::output_snapshot`] can reopen a save of it.
+    /// `None` for an unencrypted or freshly created document.
     ///
     /// Held for the life of the handle because that is exactly as long as the
     /// render side may need to be rebuilt; it never leaves this crate, is
@@ -715,6 +716,12 @@ impl DocumentState {
     /// The pdfium side of this handle, for sibling modules that render.
     pub(crate) fn render_doc(&self) -> Option<pdf_render::DocumentHandle> {
         self.render_doc
+    }
+
+    /// The password [`Self::render_doc`] was opened with, for the one sibling
+    /// that reopens a save of this handle: [`crate::output_snapshot`].
+    pub(crate) fn render_password(&self) -> Option<&str> {
+        self.render_password.as_deref()
     }
 
     pub(crate) fn text_extraction_allowed(&self) -> bool {

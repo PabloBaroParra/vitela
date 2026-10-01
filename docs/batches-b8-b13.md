@@ -1291,11 +1291,19 @@ Windows/C#). Paralelo con B9 y B10.
 - [ ] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
       el placement_rect. [FirmaDibujada]
 - [ ] T-089 Undo/redo vía botones táctiles → EditLog. [ui-android, UndoRedo]
-- [ ] T-090 Android PrintManager usando render_page a DPI de impresión. [ui-android, Print]
+- [x] T-090 Android PrintManager usando render_page a DPI de impresión. [ui-android, Print]
       **(2026-07-26 — parcial: `PrintDocumentAdapter` wired a PrintManager, pero entrega los
       bytes originales del PDF al spooler en vez de rasterizar con `render_page` a DPI de
       impresión; tampoco honra el rango de páginas pedido. Vale mientras no haya edición —
       en cuanto el shell edite, imprimiría el documento sin los cambios)**
+      **(2026-10-01 — hecho: el adapter rasteriza con `render_page` a 300 DPI (como GTK y
+      Windows) sobre un `PrintedPdfDocument`, escalado a caber y centrado en el área de
+      contenido; reporta el número real de páginas, honra el rango pedido y respeta la
+      cancelación; una página que el core no puede rasterizar queda en blanco. Imprime el
+      `output_snapshot` del core (el guardado reabierto como documento descartable), no el
+      documento vivo, porque su preview omite las anotaciones de la sesión. El core lo
+      reabre con la contraseña que ya guarda, así que un documento con contraseña también
+      se imprime sin que el shell guarde ninguna. Sin verificar en dispositivo)**
 - [ ] T-091 Paste de bitmap desde portapapeles → stamp; rechazar URL-texto sin fetch. [ui-android, Clipboard]
 - [ ] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
       arrastre en split-screen. [ui-android, ShortcutsDnD]

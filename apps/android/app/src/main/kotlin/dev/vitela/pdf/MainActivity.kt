@@ -196,8 +196,14 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onPasswordCancel = viewModel::cancelPassword,
         onPrint = {
             scope.launch {
-                viewModel.printBytes()?.let { bytes ->
-                    (context.getSystemService(Context.PRINT_SERVICE) as PrintManager).print(state.title, PdfPrintDocumentAdapter(bytes, state.title), null)
+                val document = viewModel.printDocument() ?: return@launch
+                try {
+                    (context.getSystemService(Context.PRINT_SERVICE) as PrintManager)
+                        .print(state.title, PdfPrintDocumentAdapter(context.applicationContext, document, state.title), null)
+                } catch (error: RuntimeException) {
+                    // The adapter owns the copy once the job exists; until then it is ours to close.
+                    document.close()
+                    throw error
                 }
             }
         },
