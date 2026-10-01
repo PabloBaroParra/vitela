@@ -21,6 +21,9 @@ enum class AnnotationTool(val kind: AnnotationKind) {
 /** Where a Note will go once its text is entered: the page and the rectangle the tap or drag chose. */
 data class NotePlacement(val pageIndex: Int, val rect: AnnotationRect)
 
+/** What **Read note** shows: a snapshot of the note's page and its core-owned text. */
+data class NoteReading(val pageIndex: Int, val contents: String)
+
 internal const val NOTE_PLACEMENT_CANCELED = "Note placement canceled."
 
 enum class HandleCorner { BottomLeft, BottomRight, TopLeft, TopRight }

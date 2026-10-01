@@ -73,6 +73,8 @@ internal fun ViewerScreen(
     onAnnotationTool: (AnnotationTool) -> Unit,
     onNoteAdd: (Long, String) -> Unit,
     onNoteCancel: () -> Unit,
+    onNoteRead: () -> Unit,
+    onNoteReadingClose: () -> Unit,
     onAnnotationGesture: (Int, dev.vitela.pdf.core.AnnotationPoint, dev.vitela.pdf.core.AnnotationPoint, List<dev.vitela.pdf.core.AnnotationPoint>, Double) -> Unit,
     onAnnotationColor: (dev.vitela.pdf.core.AnnotationColor) -> Unit,
     onAnnotationGrow: () -> Unit,
@@ -224,6 +226,7 @@ internal fun ViewerScreen(
             val annotationNavigation = annotationNavigationEnabled(state)
             TextButton(onClick = { onAnnotationStep(false) }, enabled = annotationNavigation) { Text("Previous annotation") }
             TextButton(onClick = { onAnnotationStep(true) }, enabled = annotationNavigation) { Text("Next annotation") }
+            TextButton(onClick = onNoteRead, enabled = readableNote(state) != null) { Text("Read note") }
             TextButton(onClick = onCopySelection, enabled = state.textSelection != null) { Text("Copy") }
             TextButton(onClick = onAnnotationGrow, enabled = annotationControls.canGrow) { Text("Grow") }
             TextButton(onClick = onAnnotationDelete, enabled = selected != null && state.annotationEditingAllowed) { Text("Delete") }
@@ -319,6 +322,9 @@ internal fun ViewerScreen(
     }
     state.notePlacement?.let { placement ->
         NoteDialog(placement, state.documentId, onAdd = onNoteAdd, onCancel = onNoteCancel)
+    }
+    state.noteReading?.let { reading ->
+        NoteReadingDialog(reading, onClose = onNoteReadingClose)
     }
     state.metadataEditor?.let { editor ->
         MetadataDialog(editor, onChange = onMetadataChange, onApply = onMetadataApply, onDismiss = onMetadataDismiss)

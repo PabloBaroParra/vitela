@@ -40,3 +40,27 @@ internal fun NoteDialog(placement: NotePlacement, documentId: Long, onAdd: (Long
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
     )
 }
+
+/**
+ * **Read note**: the note's text in a read-only field — scrollable and
+ * selectable for copying, never editable. Closing records nothing.
+ */
+@Composable
+internal fun NoteReadingDialog(reading: NoteReading, onClose: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("Note — page ${reading.pageIndex + 1}") },
+        text = {
+            OutlinedTextField(
+                value = reading.contents,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Note text") },
+                minLines = 4,
+                maxLines = 10,
+                modifier = Modifier.heightIn(min = 120.dp),
+            )
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Close") } },
+    )
+}
