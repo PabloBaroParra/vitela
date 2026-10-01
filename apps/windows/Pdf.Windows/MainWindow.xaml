@@ -2,6 +2,7 @@
     x:Class="Pdf.Windows.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:viewer="using:Pdf.Windows.Viewer"
     Title="PDF">
     <!--
         KeyboardAcceleratorPlacementMode=Hidden because the paste, copy, find
@@ -27,7 +28,7 @@
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FindDocument_Invoked" />
             <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewDocument_Invoked" />
         </Grid.KeyboardAccelerators>
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12">
+        <viewer:ToolbarPanel Grid.Row="0">
             <Button x:Name="OpenButton" Click="OpenButton_Click" KeyboardAcceleratorPlacementMode="Auto">
                 Open
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="O" Modifiers="Control" /></Button.KeyboardAccelerators>
@@ -55,27 +56,35 @@
             <Button x:Name="ExtractPagesButton" Content="Extract pages" Click="ExtractPagesButton_Click" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
             <Button x:Name="SplitPagesButton" Content="Split PDF" Click="SplitPagesButton_Click" ToolTipService.ToolTip="Cut the document into several PDFs" />
             <ToggleButton x:Name="OrganizeButton" Content="Organize" Click="OrganizeButton_Click" ToolTipService.ToolTip="Move, rotate or delete pages" />
-            <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" />
+            <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" MaxWidth="200" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
-            <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
-            <TextBlock x:Name="ZoomLevel" VerticalAlignment="Center" MinWidth="110" />
-            <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" ToolTipService.ToolTip="Zoom in">&#x002B;</Button>
-            <Button x:Name="FitWidthButton" Click="FitWidthButton_Click">Fit width</Button>
-            <Button x:Name="FitPageButton" Click="FitPageButton_Click">Fit page</Button>
-            <Button x:Name="UndoButton" Click="UndoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
-                Undo
-                <Button.KeyboardAccelerators><KeyboardAccelerator Key="Z" Modifiers="Control" /></Button.KeyboardAccelerators>
-            </Button>
-            <Button x:Name="RedoButton" Click="RedoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
-                Redo
-                <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
-            </Button>
-            <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" ToolTipService.ToolTip="Case-sensitive. Press Enter to search." KeyDown="SearchBox_KeyDown" />
-            <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
+                <TextBlock x:Name="ZoomLevel" VerticalAlignment="Center" MinWidth="110" />
+                <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" ToolTipService.ToolTip="Zoom in">&#x002B;</Button>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="FitWidthButton" Click="FitWidthButton_Click">Fit width</Button>
+                <Button x:Name="FitPageButton" Click="FitPageButton_Click">Fit page</Button>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="UndoButton" Click="UndoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+                    Undo
+                    <Button.KeyboardAccelerators><KeyboardAccelerator Key="Z" Modifiers="Control" /></Button.KeyboardAccelerators>
+                </Button>
+                <Button x:Name="RedoButton" Click="RedoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+                    Redo
+                    <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
+                </Button>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" ToolTipService.ToolTip="Case-sensitive. Press Enter to search." KeyDown="SearchBox_KeyDown" />
+                <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
+            </StackPanel>
             <TextBlock x:Name="PrintStatus" VerticalAlignment="Center" TextWrapping="Wrap" />
-        </StackPanel>
+        </viewer:ToolbarPanel>
 
-        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
+        <viewer:ToolbarPanel Grid.Row="1">
             <Button x:Name="HighlightButton" Click="HighlightButton_Click">Highlight</Button>
             <Button x:Name="UnderlineButton" Click="UnderlineButton_Click">Underline</Button>
             <Button x:Name="StrikeoutButton" Click="StrikeoutButton_Click">Strikeout</Button>
@@ -106,7 +115,7 @@
             <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click" KeyboardAcceleratorPlacementMode="Auto">Delete
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteAnnotation_Invoked" /></Button.KeyboardAccelerators>
             </Button>
-        </StackPanel>
+        </viewer:ToolbarPanel>
 
         <TextBlock x:Name="AnnotationStatus" Grid.Row="2" TextWrapping="Wrap" />
 
