@@ -13,6 +13,7 @@
     <Compile Include="..\Pdf.Windows\Facade\DiagnosticLog.cs" Link="Facade\DiagnosticLog.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.cs" Link="Facade\PdfDocumentFacade.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Images.cs" Link="Facade\PdfDocumentFacade.Images.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Print.cs" Link="Facade\PdfDocumentFacade.Print.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextGeometry.cs" Link="Facade\PdfDocumentFacade.TextGeometry.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextInsertion.cs" Link="Facade\PdfDocumentFacade.TextInsertion.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ImageInsertion.cs" Link="Facade\PdfDocumentFacade.ImageInsertion.cs" />

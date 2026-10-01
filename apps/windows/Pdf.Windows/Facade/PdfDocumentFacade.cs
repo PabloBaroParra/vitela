@@ -34,7 +34,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(() => _core.OpenFromBytes(source.Bytes, password)).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document, _core.ContentEditingAllowed(document));
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document, _core.ContentEditingAllowed(document), password);
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -81,7 +81,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(_core.CreateBlank).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document, _core.ContentEditingAllowed(document));
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document, _core.ContentEditingAllowed(document), null);
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -277,32 +277,6 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             return QueueTileBatchLocked(session, pageIndex, dpi, tiles, invertContentColors);
-        }
-    }
-
-    /// <summary>
-    /// Renders one page at print quality, deliberately independent of the
-    /// coalesced viewer render queue so a scrolling page cannot supersede it.
-    /// Callers render a document one page at a time and release each page's
-    /// pixels before requesting the next, so printing a large document never
-    /// holds every page's raw bitmap in memory at once.
-    /// </summary>
-    public Task<RenderResult> RenderPageForPrintAsync(string sessionId, uint pageIndex, uint dpi, bool invertContentColors)
-    {
-        lock (_gate)
-        {
-            if (!TryGetCurrentSession(sessionId, out var session))
-            {
-                return Task.FromResult(RenderResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "print_render", sessionId, pageIndex)));
-            }
-
-            if (pageIndex >= session.Document.PageCount)
-            {
-                return Task.FromResult(RenderResult.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, "print_render", sessionId, pageIndex)));
-            }
-
-            session.InFlightPrints++;
-            return RenderPageForPrintAsync(session, pageIndex, dpi, invertContentColors);
         }
     }
 
@@ -1364,7 +1338,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(() => _core.OpenWithPasswordsFromBytes(bytes, openPassword, permissionsPassword)).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document));
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document), openPassword);
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -1710,40 +1684,6 @@ public sealed partial class PdfDocumentFacade : IDisposable
         }
     }
 
-    private async Task<RenderResult> RenderPageForPrintAsync(SessionEntry session, uint pageIndex, uint dpi, bool invertContentColors)
-    {
-        RenderResult result;
-        try
-        {
-            var bitmap = await Task.Run(() => _core.RenderPage(session.Document, pageIndex, dpi, invertContentColors)).ConfigureAwait(false);
-            result = RenderResult.Success(new RenderedPage(session.Id, pageIndex, (ulong)pageIndex + 1, bitmap.Width, bitmap.Height, bitmap.Stride, bitmap.Rgba));
-        }
-        catch (PdfCoreException error)
-        {
-            result = RenderResult.Failure(MapError(error, "print_render", session.Id, pageIndex));
-        }
-        catch (Exception error)
-        {
-            result = RenderResult.Failure(MapUnexpected(error, "print_render", session.Id, pageIndex));
-        }
-
-        lock (_gate)
-        {
-            session.InFlightPrints--;
-            if (session.Retired)
-            {
-                if (session.HasNoInFlightOperations)
-                {
-                    session.Dispose();
-                }
-
-                return RenderResult.Discarded();
-            }
-
-            return _currentSession == session ? result : RenderResult.Discarded();
-        }
-    }
-
     private bool TryGetCurrentSession(string sessionId, out SessionEntry session)
     {
         session = _currentSession!;
@@ -1797,17 +1737,37 @@ public sealed partial class PdfDocumentFacade : IDisposable
     {
         private readonly Dictionary<uint, PageRenderState> _pages = [];
 
-        public SessionEntry(string id, string displayName, IPdfCoreDocument document, bool contentEditingAllowed)
+        public SessionEntry(string id, string displayName, IPdfCoreDocument document, bool contentEditingAllowed, string? openPassword)
         {
             Id = id;
             DisplayName = displayName;
             Document = document;
             ContentEditingAllowed = contentEditingAllowed;
+            OpenPassword = openPassword;
         }
 
         public string Id { get; }
         public string DisplayName { get; }
         public IPdfCoreDocument Document { get; }
+
+        /// <summary>
+        /// The password this document was opened with, kept only so a print
+        /// snapshot of an encrypted document can be reopened — a save of it is
+        /// encrypted under the same password. Never leaves the facade.
+        /// </summary>
+        public string? OpenPassword { get; }
+
+        /// <summary>
+        /// The reopened full save print renders from, when this session has
+        /// annotations the preview leaves out. See <c>PreparePrintAsync</c>.
+        /// </summary>
+        public IPdfCoreDocument? PrintSnapshot { get; set; }
+
+        /// <summary>Released snapshots a print render may still be reading. Closed once no print is in flight.</summary>
+        public List<IPdfCoreDocument> ReleasedPrintSnapshots { get; } = [];
+
+        /// <summary>The document a print render reads: the snapshot when there is one.</summary>
+        public IPdfCoreDocument PrintDocument => PrintSnapshot ?? Document;
         public uint PageIndex { get; set; }
         public int InFlightRenders { get; set; }
         public int InFlightSearches { get; set; }
@@ -1911,7 +1871,34 @@ public sealed partial class PdfDocumentFacade : IDisposable
             core.CanUndo(Document),
             core.CanRedo(Document));
 
-        public void Dispose() => Document.Dispose();
+        /// <summary>Closes every released snapshot once no print render can still be reading one.</summary>
+        public void DisposeReleasedPrintSnapshotsIfIdle()
+        {
+            if (InFlightPrints != 0)
+            {
+                return;
+            }
+
+            foreach (var snapshot in ReleasedPrintSnapshots)
+            {
+                snapshot.Dispose();
+            }
+
+            ReleasedPrintSnapshots.Clear();
+        }
+
+        public void Dispose()
+        {
+            PrintSnapshot?.Dispose();
+            PrintSnapshot = null;
+            foreach (var snapshot in ReleasedPrintSnapshots)
+            {
+                snapshot.Dispose();
+            }
+
+            ReleasedPrintSnapshots.Clear();
+            Document.Dispose();
+        }
     }
 
     private sealed class PageRenderState
