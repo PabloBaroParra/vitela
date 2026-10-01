@@ -3,6 +3,7 @@ package dev.vitela.pdf
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
 import android.print.PrintManager
 import androidx.activity.ComponentActivity
@@ -24,6 +25,7 @@ import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.viewer.CERTIFICATE_MIME_TYPES
+import dev.vitela.pdf.viewer.CLIPBOARD_IMAGE_UNREADABLE
 import dev.vitela.pdf.viewer.ContentEditActions
 import dev.vitela.pdf.viewer.FormFieldActions
 import dev.vitela.pdf.viewer.IMAGE_REPLACE_CANCELLED
@@ -32,6 +34,7 @@ import dev.vitela.pdf.viewer.ImportSource
 import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.SignActions
 import dev.vitela.pdf.viewer.ViewerScreen
+import dev.vitela.pdf.viewer.pastableImageUri
 import dev.vitela.pdf.viewer.ViewerViewModel
 import dev.vitela.pdf.viewer.ZoomActions
 import kotlinx.coroutines.Dispatchers
@@ -216,6 +219,23 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         },
         onSaveCopy = { savePdf.launch(state.title.ifBlank { "Document.pdf" }) },
         onChooseStamp = { chooseStamp.launch("image/*") },
+        onPasteStamp = {
+            val clip = context.getSystemService(ClipboardManager::class.java).primaryClip
+            val description = clip?.description
+            val mimeTypes = description?.let { d -> (0 until d.mimeTypeCount).map(d::getMimeType) }.orEmpty()
+            val uris = clip?.let { c -> (0 until c.itemCount).map { c.getItemAt(it).uri?.toString() } }.orEmpty()
+            val uri = pastableImageUri(mimeTypes, uris)
+            if (uri == null) {
+                viewModel.refusePaste()
+            } else {
+                scope.launch {
+                    val bytes = withContext(Dispatchers.IO) {
+                        runCatching { context.contentResolver.openInputStream(Uri.parse(uri))?.use { it.readBytes() } }.getOrNull()
+                    }
+                    if (bytes == null) viewModel.refusePaste(CLIPBOARD_IMAGE_UNREADABLE) else viewModel.pasteImageStamp(bytes)
+                }
+            }
+        },
         onReplacementConfirmed = viewModel::confirmReplacement,
         onReplacementCancelled = viewModel::cancelReplacement,
         onPositionChanged = viewModel::onReaderPositionChanged,

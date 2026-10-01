@@ -78,10 +78,10 @@ internal class AnnotationEditing(
         state.value = state.value.copy(activeAnnotationTool = AnnotationTool.Pointer)
     }
 
-    fun selectImageStamp(bytes: ByteArray) {
+    fun selectImageStamp(bytes: ByteArray, prompt: String = "Tap a page to place the image stamp.") {
         if (!state.value.annotationEditingAllowed) return
         stampBytes = bytes
-        state.value = state.value.copy(activeAnnotationTool = AnnotationTool.Stamp, status = "Tap a page to place the image stamp.")
+        state.value = state.value.copy(activeAnnotationTool = AnnotationTool.Stamp, status = prompt)
     }
 
     fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) {

@@ -1304,7 +1304,13 @@ Windows/C#). Paralelo con B9 y B10.
       documento vivo, porque su preview omite las anotaciones de la sesión. El core lo
       reabre con la contraseña que ya guarda, así que un documento con contraseña también
       se imprime sin que el shell guarde ninguna. Sin verificar en dispositivo)**
-- [ ] T-091 Paste de bitmap desde portapapeles → stamp; rechazar URL-texto sin fetch. [ui-android, Clipboard]
+- [x] T-091 Paste de bitmap desde portapapeles → stamp; rechazar URL-texto sin fetch. [ui-android, Clipboard]
+      **(2026-10-01 — hecho: botón Paste en la toolbar de anotaciones. Lee solo un ítem con
+      MIME `image/*` respaldado por una URI `content:` (vía `ContentResolver`); el texto del
+      portapapeles nunca se lee y una imagen sobre `http(s):`/`file:` se rechaza, así que una
+      URL copiada no dispara ninguna descarga. A diferencia de Linux/Windows (Ctrl+V coloca en
+      el centro de la página visible) el paste arma el stamp y el siguiente tap lo coloca,
+      igual que el botón Stamp — touch-first. Sin verificar en dispositivo)**
 - [ ] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
       arrastre en split-screen. [ui-android, ShortcutsDnD]
 - [ ] T-093 .apk firmado + android.yml CI completo (bindings Kotlin + cross-compile por ABI +
