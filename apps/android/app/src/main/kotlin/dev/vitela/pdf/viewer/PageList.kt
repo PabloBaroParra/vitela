@@ -270,7 +270,7 @@ private fun PageSlot(
                     },
             ) {
                 // Images first, so a caption's outline sits on top of the photo it is printed over.
-                // The one an armed move will place is drawn heavier, so the reader sees what the next tap moves.
+                // The run or image an armed move will place is drawn heavier, so the reader sees what the next tap moves.
                 state.contentEdit?.images?.get(pageIndex)?.forEach { image ->
                     val bounds = image.bounds
                     val moving = state.contentEdit.movingImage?.id == image.id
@@ -285,11 +285,12 @@ private fun PageSlot(
                 // otherwise nothing tells the two apart before the reader has typed.
                 state.contentEdit?.runs?.get(pageIndex)?.forEach { run ->
                     val bounds = run.bounds
+                    val moving = state.contentEdit.movingText?.id == run.id
                     drawRect(
-                        if (run.substitutesFont) Color(0x99AA5ADC) else Color(0x992878EB),
+                        if (run.substitutesFont) Color(if (moving) 0xFFAA5ADC else 0x99AA5ADC) else Color(if (moving) 0xFF2878EB else 0x992878EB),
                         Offset(bounds.x.toFloat() * screenScale, (size.heightPt - bounds.y - bounds.height).toFloat() * screenScale),
                         androidx.compose.ui.geometry.Size(bounds.width.toFloat() * screenScale, bounds.height.toFloat() * screenScale),
-                        style = Stroke(2f, pathEffect = if (run.substitutesFont) PathEffect.dashPathEffect(floatArrayOf(6f, 4f)) else null),
+                        style = Stroke(if (moving) 5f else 2f, pathEffect = if (run.substitutesFont) PathEffect.dashPathEffect(floatArrayOf(6f, 4f)) else null),
                     )
                 }
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->

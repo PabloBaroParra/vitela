@@ -252,7 +252,7 @@ field lands in the wrong place. That is a known gap.
 ## Edit content
 
 **Edit content** arms a mode in which a tap on a line of text the page itself
-paints opens it in a dialog for retyping or deleting, and a tap on an image it
+paints opens it in a dialog for retyping, moving or deleting, and a tap on an image it
 paints opens it for resizing, moving, replacing or deleting
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
 The run keeps its position and its font; **Retype** queues one undoable entry
@@ -284,6 +284,21 @@ status line. The delete redraws the page and re-reads it, so the outline goes
 with the run. The core checks the delete against the file as last saved, so it
 may refuse one on a run with a pending retype; save first. This is content
 editing, not a secure redaction: the dialog says so.
+
+**Move** in that dialog closes it and arms the next page tap, like an image's
+Move: the run's top-left corner lands on the tap and its text, font and size
+are kept (`MoveTextRun`) — the core re-places the original show operands
+rather than re-encoding them, so a composite-font run keeps its font too, and
+the other runs on the line stay where they were. The armed run's outline is
+drawn heavier and **Cancel move** disarms it; one move, of a run or an image,
+is armed at a time, and arming an insert drops it. A tap on another page moves
+nothing and leaves the move armed; a tap on the corner the run already has
+queues nothing ("Text position unchanged."). The move is spent before the core
+answers, so a double tap queues one, and an undo or redo disarms a pending
+move, since the run may no longer be where it was. Like a delete, it is checked
+against the file as last saved, so the core may refuse a run with a pending
+retype or move — "This text cannot be moved." — until it is saved; it also refuses a
+run painted by the `"` operator, whose spacing a plain move would drop.
 
 The same read reports the page's images — resource and inline alike — with
 pending resizes and moves applied, and each is outlined in green; a pending

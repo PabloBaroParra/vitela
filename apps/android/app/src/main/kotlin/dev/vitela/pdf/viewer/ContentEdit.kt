@@ -9,7 +9,7 @@ import kotlin.math.max
 
 /**
  * Edit content mode: a tap on a line of text the page itself paints opens it
- * for retyping or deleting, a tap on an image it paints opens it for
+ * for retyping, moving or deleting, a tap on an image it paints opens it for
  * resizing, moving, replacing or deleting, and Add text or Add image claims the next tap
  * for something new. [runs] and [images] hold each page's content
  * as last read — only pages that were shown or tapped — so the outlines
@@ -23,10 +23,11 @@ data class ContentEditState(
     /** The image being resized, or null while no resizer is open. Never open with [editor]. */
     val resizer: ImageResizer? = null,
     /**
-     * The image the next page tap moves, armed from the resize dialog's Move;
-     * null while no move is armed. Never armed with a dialog open.
+     * The run or image the next page tap moves, armed from its dialog's Move;
+     * null while no move is armed. One field, so only one move is ever armed.
+     * Never armed with a dialog open.
      */
-    val movingImage: ContentImage? = null,
+    val moving: ContentTarget? = null,
     /**
      * The image a picked file replaces, set once the core recovered its
      * original and the picker is open; null otherwise. Never set with a
@@ -35,12 +36,18 @@ data class ContentEditState(
     val replacingImage: ContentImage? = null,
     /**
      * What the next page tap adds, armed from Add text or Add image; null
-     * while nothing is armed. Never armed with [movingImage] or a dialog open.
+     * while nothing is armed. Never armed with [moving] or a dialog open.
      */
     val adding: ContentAddition? = null,
     /** The new line being typed, or null while no insert dialog is open. */
     val inserter: TextInserter? = null,
-)
+) {
+    /** The run an armed move will place, if what is armed is a run. */
+    val movingText: ContentTextRun? get() = (moving as? ContentTarget.Run)?.run
+
+    /** The image an armed move will place, if what is armed is an image. */
+    val movingImage: ContentImage? get() = (moving as? ContentTarget.Image)?.image
+}
 
 /** What an armed tap adds to the page, its top-left corner on the tap. */
 sealed interface ContentAddition {
@@ -99,17 +106,19 @@ sealed interface ContentTarget {
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap text to retype or delete it, or an image to resize, move, replace or delete it."
+internal const val CONTENT_EDIT_ARMED = "Tap text to retype, move or delete it, or an image to resize, move, replace or delete it."
 internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype or delete it, or an image to resize, move, replace or delete it."
+internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype, move or delete it, or an image to resize, move, replace or delete it."
 internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
 internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
 internal const val TEXT_DELETED = "Text deleted. Save to keep the change."
+internal const val TEXT_MOVED = "Text moved. Save to keep the change."
+internal const val TEXT_POSITION_UNCHANGED = "Text position unchanged."
 internal const val IMAGE_RESIZED = "Image resized. Save to keep the change."
 internal const val IMAGE_SIZE_INVALID = "Image dimensions must be finite and greater than zero."
 internal const val IMAGE_MOVED = "Image moved. Save to keep the change."
 internal const val IMAGE_POSITION_UNCHANGED = "Image position unchanged."
-internal const val IMAGE_MOVE_CANCELLED = "Move cancelled."
+internal const val MOVE_CANCELLED = "Move cancelled."
 internal const val IMAGE_DELETED = "Image deleted. Save to keep the change."
 internal const val IMAGE_REPLACED = "Image replaced. Save to keep the change."
 internal const val IMAGE_REPLACE_CANCELLED = "Replace cancelled."
@@ -127,6 +136,9 @@ internal const val DEFAULT_INSERTED_TEXT_SIZE = 14.0
 
 /** What an armed move asks for; the image stays on its own page. */
 internal fun imageMovePrompt(pageIndex: Int) = "Tap page ${pageIndex + 1} where the image's top-left corner should go."
+
+/** What an armed text move asks for; the run stays on its own page. */
+internal fun textMovePrompt(pageIndex: Int) = "Tap page ${pageIndex + 1} where the text's top-left corner should go."
 internal const val FONT_SUBSTITUTED = "This text's font cannot be kept. What you type will use a standard font."
 
 /**
@@ -178,11 +190,11 @@ internal fun resizedImageRect(bounds: AnnotationRect, width: Double, height: Dou
 }
 
 /**
- * Where a tap at [tap] moves an image now at [bounds]: its top-left corner to
- * the tap, its size kept — the corner a form field's move lands on too.
- * Like a resize, not kept on the page: the corner tapped is the corner sent.
+ * Where a tap at [tap] moves a run or an image now at [bounds]: its top-left
+ * corner to the tap, its size kept — the corner a form field's move lands on
+ * too. Like a resize, not kept on the page: the corner tapped is the corner sent.
  */
-internal fun movedImageRect(bounds: AnnotationRect, tap: AnnotationPoint): AnnotationRect =
+internal fun movedRect(bounds: AnnotationRect, tap: AnnotationPoint): AnnotationRect =
     AnnotationRect(tap.x, tap.y - bounds.height, bounds.width, bounds.height)
 
 /**

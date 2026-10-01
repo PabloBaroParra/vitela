@@ -18,12 +18,12 @@ import dev.vitela.pdf.core.SearchHit
  * A two-page document whose pages paint text runs: "Hello" and "World" on
  * page 0 — the second in a composite font the core substitutes — and
  * "Page two" on page 1. Page 0 also paints one image, clear of both runs.
- * Every retype, text delete, insert, resize, move, image delete and image replacement is
+ * Every retype, text delete or move, insert, resize, move, image delete and image replacement is
  * undoable, like the core's. An inserted image is placed the way the core
  * places one: 40 by 20 points, its top-left corner on the anchor.
  *
  * Like the core, a re-read reports a retyped run under its original id with
- * the text it now shows — a resized or moved image with the box it now fills — and
+ * the text it now shows — a moved run, a resized or moved image with the box it now fills — and
  * rendering draws the *preview*: the runs as they stood at open and again only
  * after [refreshPreview]. [drawn] records, per render, the page and the texts
  * it showed.
@@ -46,6 +46,8 @@ internal class RetypableDocument(
     val retypes = mutableListOf<Pair<ContentTextRun, String>>()
     /** Each text delete the core accepted: the run as the shell sent it. */
     val textDeletes = mutableListOf<ContentTextRun>()
+    /** Each text move the core accepted: the run as the shell sent it, and the box it now fills. */
+    val textMoves = mutableListOf<Pair<ContentTextRun, AnnotationRect>>()
     /** Each resize the core accepted: the image as the shell sent it, and the box it now fills. */
     val resizes = mutableListOf<Pair<ContentImage, AnnotationRect>>()
     /** Each move the core accepted: the image as the shell sent it, and the box it now fills. */
@@ -100,6 +102,13 @@ internal class RetypableDocument(
         refusal?.let { return PdfCoreResult.Failure(it) }
         textDeletes += run
         record { runs = runs.filter { it.id != run.id } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun moveTextRun(run: ContentTextRun, to: AnnotationRect): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        textMoves += run to to
+        record { runs = runs.map { if (it.id == run.id) it.copy(bounds = to) else it } }
         return PdfCoreResult.Success(Unit)
     }
 

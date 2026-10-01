@@ -10,7 +10,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Edit content: retyping a line of text the page itself paints, keeping its
- * position and — unless it is a composite font — its font, or deleting it;
+ * position and — unless it is a composite font — its font; moving one,
+ * keeping its text, font and size; or deleting it;
  * resizing an image it paints, keeping its top-left corner; moving one,
  * keeping its size; replacing its picture, keeping its box; and deleting
  * one. Each is one undoable entry in the shared edit log.
@@ -40,7 +41,7 @@ internal class ContentEditing(
     /** Pages whose content is being read, so a page shown twice in a row is read once. */
     private val reading = mutableSetOf<Int>()
 
-    /** Retyping and deleting text runs. */
+    /** Retyping, moving and deleting text runs. */
     val text = TextRunEditing(session, this)
 
     /** Resizing, moving, replacing and deleting images. */
@@ -82,6 +83,12 @@ internal class ContentEditing(
         if (state.value.contentEdit != null) state.value = state.value.copy(contentEdit = null, status = CONTENT_EDIT_OFF)
     }
 
+    /** Disarms a move of a run or an image: the next tap opens what it hits. */
+    fun cancelMove() {
+        val mode = state.value.contentEdit ?: return
+        if (mode.moving != null) state.value = state.value.copy(contentEdit = mode.copy(moving = null), status = MOVE_CANCELLED)
+    }
+
     /** The reader laid out page [pageIndex]: read its content once, for the outlines. */
     fun pageShown(pageIndex: Int) {
         val openDocument = session.document ?: return
@@ -107,7 +114,11 @@ internal class ContentEditing(
         val openDocument = session.document ?: return
         val armed = state.value.contentEdit ?: return
         armed.adding?.let { addition -> return inserts.place(openDocument, addition, pageIndex, point) }
-        armed.movingImage?.let { image -> return images.move(openDocument, image, pageIndex, point) }
+        when (val moving = armed.moving) {
+            is ContentTarget.Run -> return text.move(openDocument, moving.run, pageIndex, point)
+            is ContentTarget.Image -> return images.move(openDocument, moving.image, pageIndex, point)
+            null -> Unit
+        }
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
@@ -149,10 +160,10 @@ internal class ContentEditing(
      */
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
-        // An armed move or an open replacement picker holds the image as it
-        // was; it may no longer be there. An armed insert and its dialog hold
-        // only a spot on a page, which survives.
-        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, movingImage = null, replacingImage = null))
+        // An armed move or an open replacement picker holds the run or image
+        // as it was; it may no longer be there. An armed insert and its dialog
+        // hold only a spot on a page, which survives.
+        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, moving = null, replacingImage = null))
         for (pageIndex in mode.runs.keys) read(document, pageIndex)
     }
 

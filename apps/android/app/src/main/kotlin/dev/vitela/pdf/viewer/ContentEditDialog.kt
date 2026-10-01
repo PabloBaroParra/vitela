@@ -33,12 +33,15 @@ internal class ContentEditActions(
     val onRetype: (Long, String) -> Unit,
     /** documentId: deletes the dialog's run; the document is the one the dialog was built for. */
     val onDeleteText: (Long) -> Unit,
+    /** documentId: swaps the retype dialog for a move armed on the next page tap. */
+    val onMoveText: (Long) -> Unit,
     val onDismiss: () -> Unit,
     /** documentId, width, height as typed, in points: the document is the one the dialog was built for. */
     val onResize: (Long, String, String) -> Unit,
     val onDismissResizer: () -> Unit,
     /** documentId: swaps the resize dialog for a move armed on the next page tap. */
     val onMove: (Long) -> Unit,
+    /** Disarms a move of a run or an image. */
     val onCancelMove: () -> Unit,
     /** documentId: deletes the dialog's image; the document is the one the dialog was built for. */
     val onDelete: (Long) -> Unit,
@@ -57,9 +60,11 @@ internal class ContentEditActions(
 /**
  * The retype dialog: the run's text, ready to change. Keyed on the editor, so
  * a refusal — which comes back with what was typed — reopens with it rather
- * than with the run's old text. Delete takes the run off the page at once,
- * like an image's Delete: it is one undoable entry.
+ * than with the run's old text. Move leaves it for a page tap that places the
+ * run, like an image's Move. Delete takes the run off the page at once, like
+ * an image's Delete: it is one undoable entry.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, actions: ContentEditActions) {
     var text by remember(editor) { mutableStateOf(editor.text) }
@@ -69,7 +74,7 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (editor.run.substitutesFont) Text(FONT_SUBSTITUTED, style = MaterialTheme.typography.bodySmall)
-                Text("Delete takes this text off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
+                Text("Move places this text where you tap next, keeping its font and size; save first if it already has a pending edit. Delete takes it off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -81,8 +86,10 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
         },
         confirmButton = { Button(onClick = { actions.onRetype(documentId, text) }) { Text("Retype") } },
         dismissButton = {
-            Row {
+            // Three actions beside Retype do not fit one row on a narrow phone.
+            FlowRow(horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { actions.onDeleteText(documentId) }) { Text("Delete") }
+                TextButton(onClick = { actions.onMoveText(documentId) }) { Text("Move") }
                 TextButton(onClick = actions.onDismiss) { Text("Cancel") }
             }
         },

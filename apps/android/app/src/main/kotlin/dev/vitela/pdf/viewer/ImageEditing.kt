@@ -32,12 +32,7 @@ internal class ImageEditing(
         if (documentId != state.value.documentId) return
         val mode = state.value.contentEdit ?: return
         val image = mode.resizer?.image ?: return
-        state.value = state.value.copy(contentEdit = mode.copy(resizer = null, movingImage = image), status = imageMovePrompt(image.pageIndex))
-    }
-
-    fun cancelMove() {
-        val mode = state.value.contentEdit ?: return
-        if (mode.movingImage != null) state.value = state.value.copy(contentEdit = mode.copy(movingImage = null), status = IMAGE_MOVE_CANCELLED)
+        state.value = state.value.copy(contentEdit = mode.copy(resizer = null, moving = ContentTarget.Image(image)), status = imageMovePrompt(image.pageIndex))
     }
 
     /**
@@ -173,9 +168,9 @@ internal class ImageEditing(
             return
         }
         val mode = state.value.contentEdit ?: return
-        val to = movedImageRect(image.bounds, point)
+        val to = movedRect(image.bounds, point)
         state.value = state.value.copy(
-            contentEdit = mode.copy(movingImage = null),
+            contentEdit = mode.copy(moving = null),
             status = if (to == image.bounds) IMAGE_POSITION_UNCHANGED else state.value.status,
         )
         if (to == image.bounds) return

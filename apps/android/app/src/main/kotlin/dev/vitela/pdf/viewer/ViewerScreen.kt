@@ -160,7 +160,7 @@ internal fun ViewerScreen(
             Button(onClick = formFields.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text("Form fields") }
             // Same reason: the grid hides the pages a retype or an image edit redraws.
             Button(onClick = contentEdit.onToggle, enabled = state.pageCount > 0 && state.organize == null) { Text(if (state.contentEdit != null) "Done editing" else "Edit content") }
-            if (state.contentEdit?.movingImage != null) TextButton(onClick = contentEdit.onCancelMove) { Text("Cancel move") }
+            if (state.contentEdit?.moving != null) TextButton(onClick = contentEdit.onCancelMove) { Text("Cancel move") }
             if (state.contentEdit != null) {
                 TextButton(onClick = contentEdit.onAddText) { Text("Add text") }
                 TextButton(onClick = contentEdit.onAddImage) { Text("Add image") }
