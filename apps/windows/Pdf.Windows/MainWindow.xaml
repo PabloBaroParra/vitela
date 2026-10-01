@@ -86,13 +86,13 @@
         </viewer:ToolbarPanel>
 
         <viewer:ToolbarPanel Grid.Row="1">
-            <Button x:Name="HighlightButton" Click="HighlightButton_Click">Highlight</Button>
-            <Button x:Name="UnderlineButton" Click="UnderlineButton_Click">Underline</Button>
-            <Button x:Name="StrikeoutButton" Click="StrikeoutButton_Click">Strikeout</Button>
-            <Button x:Name="ShapeButton" Click="ShapeButton_Click">Shape</Button>
-            <Button x:Name="InkButton" Click="InkButton_Click">Ink</Button>
-            <Button x:Name="NoteButton" Click="NoteButton_Click">Note</Button>
-            <Button x:Name="StampButton" Click="StampButton_Click">Stamp</Button>
+            <ToggleButton x:Name="HighlightButton" Click="HighlightButton_Click">Highlight</ToggleButton>
+            <ToggleButton x:Name="UnderlineButton" Click="UnderlineButton_Click">Underline</ToggleButton>
+            <ToggleButton x:Name="StrikeoutButton" Click="StrikeoutButton_Click">Strikeout</ToggleButton>
+            <ToggleButton x:Name="ShapeButton" Click="ShapeButton_Click">Shape</ToggleButton>
+            <ToggleButton x:Name="InkButton" Click="InkButton_Click">Ink</ToggleButton>
+            <ToggleButton x:Name="NoteButton" Click="NoteButton_Click">Note</ToggleButton>
+            <ToggleButton x:Name="StampButton" Click="StampButton_Click">Stamp</ToggleButton>
             <Button x:Name="PointerButton" Click="PointerButton_Click">Pointer</Button>
             <Button x:Name="PreviousAnnotationButton" Click="PreviousAnnotationButton_Click" ToolTipService.ToolTip="Select the previous annotation, including ones underneath others" IsEnabled="False">Previous annotation</Button>
             <ToggleButton x:Name="ContentEditButton" Click="ContentEditButton_Click" ToolTipService.ToolTip="Click a text run on the page to retype it">Edit text</ToggleButton>

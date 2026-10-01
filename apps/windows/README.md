@@ -208,6 +208,13 @@ Their width and height can be edited in PDF points without moving their origin.
 Resizing requires finite, positive dimensions and the same structural permissions;
 it is undoable and refreshes the page preview.
 
+Annotation tools show a pressed state while armed. Only one can be active;
+click it again, or choose **Pointer**, to disarm it. Placing an annotation
+returns to pointer mode, including a refused placement. Entering text editing,
+placing a form field, organizing pages or opening another document also clears
+the active annotation tool. Choosing a tool does not change the PDF or its
+undo history.
+
 **Previous annotation** steps backward through the document's annotations,
 wrapping from the first to the last. It lets you select an annotation hidden
 under another without changing the PDF or its undo history.
