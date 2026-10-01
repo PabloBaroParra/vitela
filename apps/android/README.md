@@ -253,7 +253,7 @@ field lands in the wrong place. That is a known gap.
 
 **Edit content** arms a mode in which a tap on a line of text the page itself
 paints opens it in a dialog for retyping or deleting, and a tap on an image it
-paints opens it for resizing, moving or deleting
+paints opens it for resizing, moving, replacing or deleting
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
 The run keeps its position and its font; **Retype** queues one undoable entry
 in the shared edit log. While armed, the mode claims every page tap — an armed
@@ -317,7 +317,20 @@ redraws the page and re-reads it, so the outline goes with the image; the gate
 is the same `content_editing_allowed`. The core checks a delete against the
 file as last saved (`validate_content_command`), so it refuses one on an image
 with a pending move or resize — "This image cannot be deleted."; save first.
-Replacing images is still Linux-only.
+
+**Replace** in that dialog swaps the image's picture for a PNG or JPEG, keeping
+its box: a different aspect ratio stretches to it (`ReplaceImageSource`). The
+core first reads the original back through `image_source_bytes`, before any
+picker opens, as the Windows shell does: an image with a pending edit, or an
+original whose encoding Undo could not restore without loss, is refused there
+and reported in the status line, so the reader never picks a file for nothing.
+The original is read again when the file lands, so the undo restores what the
+page holds then. A dismissed picker or an unreadable file replaces nothing; a
+file that is not PNG or JPEG is refused by the core. The pick is spent before
+the core answers, so a second one queues nothing, and an undo or redo while the
+picker is open drops the replacement, since the image it held may have
+changed. A replacement is one undoable entry, redraws the page and keeps the
+outline; the gate is the same `content_editing_allowed`.
 
 **Add text** and **Add image** next to Done editing arm the next page tap for
 something new, painted as page content rather than as an annotation

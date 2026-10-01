@@ -18,7 +18,7 @@ import dev.vitela.pdf.core.SearchHit
  * A two-page document whose pages paint text runs: "Hello" and "World" on
  * page 0 — the second in a composite font the core substitutes — and
  * "Page two" on page 1. Page 0 also paints one image, clear of both runs.
- * Every retype, text delete, insert, resize, move and image delete is
+ * Every retype, text delete, insert, resize, move, image delete and image replacement is
  * undoable, like the core's. An inserted image is placed the way the core
  * places one: 40 by 20 points, its top-left corner on the anchor.
  *
@@ -52,6 +52,10 @@ internal class RetypableDocument(
     val moves = mutableListOf<Pair<ContentImage, AnnotationRect>>()
     /** Each delete the core accepted: the image as the shell sent it. */
     val deletes = mutableListOf<ContentImage>()
+    /** Each image whose original the core recovered before a picker opened. */
+    val prepared = mutableListOf<ContentImage>()
+    /** Each source replacement the core accepted: the image as the shell sent it, and the new bytes. */
+    val replaces = mutableListOf<Pair<ContentImage, ByteArray>>()
     /** Each text insert the core accepted: the page, the text and the box sent. */
     val inserts = mutableListOf<Triple<Int, String, AnnotationRect>>()
     /** Each image insert the core accepted: the page, the bytes and the box sent. */
@@ -117,6 +121,20 @@ internal class RetypableDocument(
         refusal?.let { return PdfCoreResult.Failure(it) }
         deletes += image
         record { images = images.filter { it.id != image.id } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        prepared += image
+        return PdfCoreResult.Success(Unit)
+    }
+
+    // The new source fills the same box, so only the undo log shows it.
+    override fun replaceImage(image: ContentImage, imageBytes: ByteArray): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        replaces += image to imageBytes
+        record { images = images.toList() }
         return PdfCoreResult.Success(Unit)
     }
 
