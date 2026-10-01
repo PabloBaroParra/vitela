@@ -148,6 +148,12 @@
                     DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
             </Grid>
             <StackPanel Grid.Column="1" Spacing="8">
+                <Expander x:Name="PagesPanel" Header="Pages" IsExpanded="True">
+                    <ListView x:Name="PageNavigationList" MaxHeight="180" MinWidth="220"
+                              SelectionMode="Single" IsEnabled="False"
+                              AutomationProperties.Name="Go to page"
+                              SelectionChanged="PageNavigationList_SelectionChanged" />
+                </Expander>
                 <Expander x:Name="DocumentProperties" Header="Document properties" IsExpanded="False">
                     <StackPanel Spacing="6" Padding="0,8,0,8">
                         <TextBlock x:Name="MetadataPermission" TextWrapping="Wrap" />
