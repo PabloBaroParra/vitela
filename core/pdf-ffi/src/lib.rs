@@ -60,6 +60,7 @@
 //! rather than reintroducing a trait layer.
 
 mod bitmap;
+mod blocks;
 mod compress;
 mod document;
 mod error;
@@ -74,6 +75,7 @@ mod split;
 mod types;
 
 pub use bitmap::BitmapHandle;
+pub use blocks::{document_blocks, FfiBlockSource, FfiDocumentBlock};
 pub use compress::{
     compress_presets, compressed_save_will_invalidate_signatures, compression_refusal,
     save_compressed_to_bytes, save_compressed_to_path, FfiCompressOutcome, FfiCompressPreset,

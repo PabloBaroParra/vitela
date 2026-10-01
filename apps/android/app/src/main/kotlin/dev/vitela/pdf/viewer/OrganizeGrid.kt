@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,6 +37,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.core.DocumentBlock
 
 /** What the Organize grid can ask of the ViewModel; one value so the screen's parameter list stays short. */
 internal class OrganizeActions(
@@ -49,10 +51,33 @@ internal class OrganizeActions(
     val onImportPassword: (String) -> Unit,
     val onImportPasswordCancel: () -> Unit,
     val onImportWarningsDismiss: () -> Unit,
+    val onShow: (OrganizeView) -> Unit,
+    val onMoveBlock: (block: DocumentBlock, delta: Int) -> Unit,
+    val onRotateBlock: (block: DocumentBlock, delta: Int) -> Unit,
+    val onDeleteBlock: (DocumentBlock) -> Unit,
 )
 
 /**
- * Organize pages: one card per page, standing in for the reader. A page moves a
+ * Organize, standing in for the reader: a card per page, or per document
+ * ([OrganizeDocumentList]) when the view selector says so.
+ */
+@Composable
+internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: OrganizeActions, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(modifier = Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = organize.view == OrganizeView.Pages, onClick = { actions.onShow(OrganizeView.Pages) }, label = { Text("Pages") })
+            FilterChip(selected = organize.view == OrganizeView.Documents, onClick = { actions.onShow(OrganizeView.Documents) }, label = { Text("Documents") })
+        }
+        when (organize.view) {
+            OrganizeView.Pages -> OrganizePageGrid(state, organize, actions, Modifier.weight(1f))
+            OrganizeView.Documents -> OrganizeDocumentList(state, organize, actions, Modifier.weight(1f))
+        }
+    }
+    ImportDialogs(organize, actions)
+}
+
+/**
+ * Organize pages: one card per page. A page moves a
  * step at a time with the arrow buttons rather than by dragging: a drag inside
  * a scrolling grid competes with the scroll itself, and each button is a
  * labelled target a screen reader can reach. A blank page goes in before any
@@ -60,7 +85,7 @@ internal class OrganizeActions(
  * the pages of other PDFs after the last one.
  */
 @Composable
-internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: OrganizeActions, modifier: Modifier = Modifier) {
+private fun OrganizePageGrid(state: ViewerState, organize: OrganizeState, actions: OrganizeActions, modifier: Modifier = Modifier) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 150.dp),
         contentPadding = PaddingValues(4.dp),
@@ -83,7 +108,6 @@ internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: 
             }
         }
     }
-    ImportDialogs(organize, actions)
 }
 
 @Composable
@@ -138,7 +162,7 @@ private fun InsertBlankButton(index: Int, description: String, enabled: Boolean,
 }
 
 @Composable
-private fun CardButton(glyph: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+internal fun CardButton(glyph: String, description: String, enabled: Boolean, onClick: () -> Unit) {
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp).semantics { contentDescription = description }) {
         Text(glyph)
     }

@@ -15,11 +15,16 @@ data class SplitPart(val first: Int, val last: Int, val fileName: String)
  * in the document's *current* order, never a page identity.
  */
 sealed interface PageEdit {
-    /** Takes the page at [from] and puts it at [to]: the position it holds afterwards, as the core reads a move's target. */
-    data class Move(val from: Int, val to: Int) : PageEdit
-    /** Turns the page at [pageIndex] by [deltaDegrees] (a quarter-turn: 90 or -90). */
-    data class Rotate(val pageIndex: Int, val deltaDegrees: Int) : PageEdit
-    data class Remove(val pageIndex: Int) : PageEdit
+    /**
+     * Takes the [count] pages starting at [from] and puts them at [to]: the
+     * position the first of them holds afterwards, as the core reads a move's
+     * target. A [count] above one is a Documents-view block, kept in order.
+     */
+    data class Move(val from: Int, val to: Int, val count: Int = 1) : PageEdit
+    /** Turns the [count] pages starting at [pageIndex] by [deltaDegrees] (a quarter-turn: 90 or -90). */
+    data class Rotate(val pageIndex: Int, val deltaDegrees: Int, val count: Int = 1) : PageEdit
+    /** Removes the [count] pages starting at [pageIndex], with what is drawn on them. */
+    data class Remove(val pageIndex: Int, val count: Int = 1) : PageEdit
     /** Adds a blank A4 page at [index], before the page there; the page count appends it. */
     data class InsertBlank(val index: Int, val landscape: Boolean = false) : PageEdit
 }
@@ -72,6 +77,13 @@ interface PdfDocument : AutoCloseable {
      */
     fun importPdf(bytes: ByteArray, password: String?, index: Int): PdfCoreResult<ImportReport> =
         PdfCoreResult.Failure(PdfCoreError.Failed("Adding PDFs is unavailable in this PDF core."))
+    /**
+     * The pages grouped into one block per contiguous run from the same PDF,
+     * in page order. Positions, like every page index here: read again after
+     * any edit.
+     */
+    fun documentBlocks(): PdfCoreResult<List<DocumentBlock>> =
+        PdfCoreResult.Failure(PdfCoreError.Failed("The Documents view is unavailable in this PDF core."))
     /**
      * Rebuilds what [renderPage] draws from the pending edits. Rendering reads
      * a preview taken at open, not the live model, so an edit the page itself

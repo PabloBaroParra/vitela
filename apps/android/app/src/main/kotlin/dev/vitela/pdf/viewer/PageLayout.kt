@@ -9,7 +9,8 @@ import kotlinx.coroutines.withContext
  * Everything the shell keeps by page *position*, re-read when the layout
  * changes. A page edit, and an undo or redo that may have reverted one, moves
  * pages under the reader's feet: the rendered bitmaps, the page sizes, the
- * search hits and the text selection all described the old layout, so they go.
+ * search hits, the text selection and Organize's document blocks all described
+ * the old layout, so they go.
  * Annotations are re-read by the caller — the core reports them at their
  * pages' new positions.
  *
@@ -91,6 +92,10 @@ internal class PageLayout(
         reader.retireRenders()
         val refreshed = withContext(session.compute) { document.refreshPreview() }
         val (count, sizes) = withContext(session.compute) { document.pageCount to document.pageSizes }
+        // Only while the Documents view shows them; it asks again on the way in.
+        val blocks = if (state.value.organize?.view == OrganizeView.Documents) {
+            (withContext(session.compute) { document.documentBlocks() } as? PdfCoreResult.Success)?.value.orEmpty()
+        } else null
         selection.clear()
         val current = state.value
         state.value = current.copy(
@@ -103,7 +108,7 @@ internal class PageLayout(
             selectedAnnotationId = null,
             textSelection = null,
             organize = current.organize?.let {
-                it.copy(thumbnails = thumbnails(it.thumbnails), version = it.version + 1)
+                it.copy(thumbnails = thumbnails(it.thumbnails), version = it.version + 1, blocks = blocks ?: it.blocks)
             },
         )
         reader.layoutChanged(redrive = current.organize == null)
