@@ -39,6 +39,7 @@ internal class PageOrganizing(
             formFields = null,
             contentEdit = null,
             selectedAnnotationId = null,
+            annotationReveal = null,
             activeAnnotationTool = AnnotationTool.Pointer,
             status = "Move, turn, delete or add pages. Each change is one undo step.",
         )

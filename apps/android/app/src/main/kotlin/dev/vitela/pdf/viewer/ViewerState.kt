@@ -32,6 +32,8 @@ data class ViewerState(
      * owns the scroll position", which is the normal case while reading.
      */
     val scrollTarget: Int? = null,
+    /** An annotation Previous/Next annotation picked, for the reader to scroll into view once. */
+    val annotationReveal: AnnotationReveal? = null,
     val searchQuery: String = "",
     val searchHits: List<SearchHit> = emptyList(),
     val searchIndex: Int = 0,

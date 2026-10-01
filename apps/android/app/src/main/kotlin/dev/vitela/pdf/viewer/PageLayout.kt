@@ -106,6 +106,7 @@ internal class PageLayout(
             searchHits = emptyList(),
             searchIndex = 0,
             selectedAnnotationId = null,
+            annotationReveal = null,
             textSelection = null,
             organize = current.organize?.let {
                 it.copy(thumbnails = thumbnails(it.thumbnails), version = it.version + 1, blocks = blocks ?: it.blocks)

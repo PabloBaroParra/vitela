@@ -68,6 +68,8 @@ internal fun ViewerScreen(
     onReplacementCancelled: () -> Unit,
     onPositionChanged: (ReaderPosition) -> Unit,
     onScrollTargetConsumed: () -> Unit,
+    onAnnotationRevealConsumed: () -> Unit,
+    onAnnotationStep: (forward: Boolean) -> Unit,
     onAnnotationTool: (AnnotationTool) -> Unit,
     onAnnotationGesture: (Int, dev.vitela.pdf.core.AnnotationPoint, dev.vitela.pdf.core.AnnotationPoint, List<dev.vitela.pdf.core.AnnotationPoint>, Double) -> Unit,
     onAnnotationColor: (dev.vitela.pdf.core.AnnotationColor) -> Unit,
@@ -216,6 +218,10 @@ internal fun ViewerScreen(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {
+            // Not gated on editing: visiting an annotation changes nothing.
+            val annotationNavigation = annotationNavigationEnabled(state)
+            TextButton(onClick = { onAnnotationStep(false) }, enabled = annotationNavigation) { Text("Previous annotation") }
+            TextButton(onClick = { onAnnotationStep(true) }, enabled = annotationNavigation) { Text("Next annotation") }
             TextButton(onClick = onCopySelection, enabled = state.textSelection != null) { Text("Copy") }
             TextButton(onClick = onAnnotationGrow, enabled = annotationControls.canGrow) { Text("Grow") }
             TextButton(onClick = onAnnotationDelete, enabled = selected != null && state.annotationEditingAllowed) { Text("Delete") }
@@ -248,6 +254,7 @@ internal fun ViewerScreen(
                 state = state,
                 onPositionChanged = onPositionChanged,
                 onScrollTargetConsumed = onScrollTargetConsumed,
+                onAnnotationRevealConsumed = onAnnotationRevealConsumed,
                 onAnnotationGesture = onAnnotationGesture,
                 textSelection = remember(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd) {
                     TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd)

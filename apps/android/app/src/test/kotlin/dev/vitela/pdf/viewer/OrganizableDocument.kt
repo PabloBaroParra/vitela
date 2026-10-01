@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.DocumentBlock
@@ -26,6 +27,8 @@ internal class OrganizableDocument(
     pageCount: Int = 4,
     private val refusal: PdfCoreError? = null,
     private val previewFailure: PdfCoreError? = null,
+    private val annotationList: List<Annotation> = emptyList(),
+    private val annotationEditingAllowed: Boolean = true,
 ) : PdfDocument {
     private class Page(val id: Int, var turned: Boolean = false, val source: BlockSource = BlockSource.Base)
 
@@ -68,7 +71,7 @@ internal class OrganizableDocument(
 
     override fun search(query: String) = PdfCoreResult.Success(listOf(SearchHit(1, "x")))
 
-    override fun annotations() = PdfCoreResult.Success(AnnotationSnapshot(emptyList(), true, undoable.isNotEmpty(), redoable.isNotEmpty()))
+    override fun annotations() = PdfCoreResult.Success(AnnotationSnapshot(annotationList, annotationEditingAllowed, undoable.isNotEmpty(), redoable.isNotEmpty()))
 
     override fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> {
         refusal?.let { return PdfCoreResult.Failure(it) }
