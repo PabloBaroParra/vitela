@@ -56,6 +56,7 @@
             <Button x:Name="ExtractPagesButton" Content="Extract pages" Click="ExtractPagesButton_Click" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
             <Button x:Name="SplitPagesButton" Content="Split PDF" Click="SplitPagesButton_Click" ToolTipService.ToolTip="Cut the document into several PDFs" />
             <ToggleButton x:Name="OrganizeButton" Content="Organize" Click="OrganizeButton_Click" ToolTipService.ToolTip="Move, rotate or delete pages" />
+            <ToggleButton x:Name="PanelsButton" Content="Panels" IsChecked="True" Click="PanelsButton_Click" ToolTipService.ToolTip="Show or hide pages, properties, form fields and search results" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" MaxWidth="200" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
             <StackPanel Orientation="Horizontal" Spacing="12">
@@ -119,7 +120,7 @@
 
         <TextBlock x:Name="AnnotationStatus" Grid.Row="2" TextWrapping="Wrap" />
 
-        <Grid Grid.Row="3" ColumnSpacing="16" ColumnDefinitions="*,300">
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto">
             <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="2" IsActive="False" Visibility="Collapsed" />
             <StackPanel x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
@@ -156,44 +157,48 @@
                     DragItemsStarting="OrganizeGrid_DragItemsStarting"
                     DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
             </Grid>
-            <StackPanel Grid.Column="1" Spacing="8">
-                <Expander x:Name="PagesPanel" Header="Pages" IsExpanded="True">
-                    <ListView x:Name="PageNavigationList" MaxHeight="180" MinWidth="220"
-                              SelectionMode="Single" IsEnabled="False"
-                              AutomationProperties.Name="Go to page"
-                              SelectionChanged="PageNavigationList_SelectionChanged" />
-                </Expander>
-                <Expander x:Name="DocumentProperties" Header="Document properties" IsExpanded="False">
-                    <StackPanel Spacing="6" Padding="0,8,0,8">
-                        <TextBlock x:Name="MetadataPermission" TextWrapping="Wrap" />
-                        <TextBox x:Name="MetadataTitle" Header="Title" />
-                        <TextBox x:Name="MetadataAuthor" Header="Author" />
-                        <TextBox x:Name="MetadataSubject" Header="Subject" />
-                        <TextBox x:Name="MetadataKeywords" Header="Keywords" />
-                        <TextBox x:Name="MetadataCreator" Header="Creator" />
-                        <TextBox x:Name="MetadataProducer" Header="Producer" />
-                        <Button x:Name="ApplyMetadataButton" Content="Apply properties" Click="ApplyMetadataButton_Click" />
+            <ScrollViewer x:Name="DocumentSidebar" Grid.Column="1" Width="300" Margin="16,0,0,0"
+                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                          AutomationProperties.Name="Document panels">
+                <StackPanel Spacing="8">
+                    <Expander x:Name="PagesPanel" Header="Pages" IsExpanded="True">
+                        <ListView x:Name="PageNavigationList" MaxHeight="180" MinWidth="220"
+                                  SelectionMode="Single" IsEnabled="False"
+                                  AutomationProperties.Name="Go to page"
+                                  SelectionChanged="PageNavigationList_SelectionChanged" />
+                    </Expander>
+                    <Expander x:Name="DocumentProperties" Header="Document properties" IsExpanded="False">
+                        <StackPanel Spacing="6" Padding="0,8,0,8">
+                            <TextBlock x:Name="MetadataPermission" TextWrapping="Wrap" />
+                            <TextBox x:Name="MetadataTitle" Header="Title" />
+                            <TextBox x:Name="MetadataAuthor" Header="Author" />
+                            <TextBox x:Name="MetadataSubject" Header="Subject" />
+                            <TextBox x:Name="MetadataKeywords" Header="Keywords" />
+                            <TextBox x:Name="MetadataCreator" Header="Creator" />
+                            <TextBox x:Name="MetadataProducer" Header="Producer" />
+                            <Button x:Name="ApplyMetadataButton" Content="Apply properties" Click="ApplyMetadataButton_Click" />
+                        </StackPanel>
+                    </Expander>
+                    <Expander x:Name="FormFieldsPanel" Header="Form fields" IsExpanded="False">
+                        <StackPanel Spacing="6" Padding="0,8,0,8">
+                            <TextBlock x:Name="FormFieldsStatus" TextWrapping="Wrap" />
+                            <ToggleButton x:Name="PlaceTextFieldButton" Content="Place text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
+                            <ToggleButton x:Name="PlaceCheckboxButton" Content="Place checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
+                            <ToggleButton x:Name="PlaceRadioGroupButton" Content="Place radio group" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
+                            <ToggleButton x:Name="PlaceDropdownButton" Content="Place dropdown" Click="PlaceDropdownButton_Click" IsEnabled="False" />
+                            <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
+                                <StackPanel x:Name="FormFieldRows" Spacing="10" />
+                            </ScrollViewer>
+                        </StackPanel>
+                    </Expander>
+                    <TextBlock x:Name="SearchStatus" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="PreviousMatchButton" Click="PreviousMatchButton_Click" IsEnabled="False">Previous match</Button>
+                        <Button x:Name="NextMatchButton" Click="NextMatchButton_Click" IsEnabled="False">Next match</Button>
                     </StackPanel>
-                </Expander>
-                <Expander x:Name="FormFieldsPanel" Header="Form fields" IsExpanded="False">
-                    <StackPanel Spacing="6" Padding="0,8,0,8">
-                        <TextBlock x:Name="FormFieldsStatus" TextWrapping="Wrap" />
-                        <ToggleButton x:Name="PlaceTextFieldButton" Content="Place text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
-                        <ToggleButton x:Name="PlaceCheckboxButton" Content="Place checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
-                        <ToggleButton x:Name="PlaceRadioGroupButton" Content="Place radio group" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
-                        <ToggleButton x:Name="PlaceDropdownButton" Content="Place dropdown" Click="PlaceDropdownButton_Click" IsEnabled="False" />
-                        <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
-                            <StackPanel x:Name="FormFieldRows" Spacing="10" />
-                        </ScrollViewer>
-                    </StackPanel>
-                </Expander>
-                <TextBlock x:Name="SearchStatus" TextWrapping="Wrap" />
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="PreviousMatchButton" Click="PreviousMatchButton_Click" IsEnabled="False">Previous match</Button>
-                    <Button x:Name="NextMatchButton" Click="NextMatchButton_Click" IsEnabled="False">Next match</Button>
+                    <ListView x:Name="SearchResultsList" MaxHeight="240" SelectionChanged="SearchResultsList_SelectionChanged" />
                 </StackPanel>
-                <ListView x:Name="SearchResultsList" SelectionChanged="SearchResultsList_SelectionChanged" />
-            </StackPanel>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </Window>

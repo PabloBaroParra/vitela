@@ -82,6 +82,16 @@ public sealed partial class MainWindow
 
     private void FitPageButton_Click(object sender, RoutedEventArgs e) => ApplyZoom(ZoomSetting.FitPage);
 
+    private void PanelsButton_Click(object sender, RoutedEventArgs e) => SetDocumentPanelsVisible(PanelsButton.IsChecked == true);
+
+    private void SetDocumentPanelsVisible(bool visible)
+    {
+        PanelsButton.IsChecked = visible;
+        // The Auto column releases both the panel and its margin when collapsed.
+        // PageScroller_SizeChanged already retargets fit zoom for the new width.
+        DocumentSidebar.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     /// <summary>
     /// Publishes a freshly opened document: one placeholder per page, then a
     /// second layout pass once the scroller is visible. The first pass runs

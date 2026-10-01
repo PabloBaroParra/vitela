@@ -38,6 +38,14 @@ narrows, keeping their controls reachable. Zoom, fit, history and search control
 stay together as groups; keyboard shortcuts and tab order follow the same controls.
 Long document titles are truncated, while print status messages wrap.
 
+**Panels** shows or hides the right-hand column to give the document more room.
+Fit width and Fit page adjust to the available space; a custom zoom stays fixed.
+The column scrolls vertically so expanded properties, form fields and search
+results remain reachable in short windows. Hiding it preserves the panel contents
+and selections; the visibility choice survives opening another document. Running
+a search opens the column again to display its status and results. This is a
+window layout choice and does not change the PDF or its undo history.
+
 The current vertical opens a local PDF — either through the file picker or the
 **Open sample** button, which loads the shared sample document copied beside
 the executable as `Assets\vitela-sample.pdf` (see
