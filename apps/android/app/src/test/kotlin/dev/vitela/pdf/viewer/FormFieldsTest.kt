@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.NewFormField
+import dev.vitela.pdf.core.PageRotation
 import dev.vitela.pdf.core.PageSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -82,6 +83,14 @@ class FormFieldsTest {
     @Test
     fun aPlacedFieldNearAnEdgeStaysOnThePage() {
         assertEquals(AnnotationRect(468.0, 0.0, 144.0, 36.0), placedFieldRect(NewFormField.Text, AnnotationPoint(600.0, 10.0), letter))
+    }
+
+    @Test
+    fun aFieldOnATurnedPageIsKeptOnItsUnrotatedPage() {
+        // Drawn 792 wide, but the field lives in the unrotated 612 x 792 space the tap is read in.
+        val turned = PageSize(792.0, 612.0, PageRotation.Clockwise90)
+        assertEquals(AnnotationRect(468.0, 0.0, 144.0, 36.0), placedFieldRect(NewFormField.Text, AnnotationPoint(600.0, 10.0), turned))
+        assertEquals(AnnotationRect(468.0, 756.0, 144.0, 36.0), movedFieldRect(AnnotationRect(10.0, 20.0, 144.0, 36.0), AnnotationPoint(700.0, 800.0), turned))
     }
 
     @Test

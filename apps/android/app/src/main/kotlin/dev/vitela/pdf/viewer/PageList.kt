@@ -193,13 +193,14 @@ private fun PageSlot(
         }
         if (size != null) {
             val scale = maxOf(1, pageWidthPx).toDouble() / size.widthPt
-            val screenScale = scale.toFloat()
-            fun point(offset: Offset) = AnnotationPoint(offset.x / scale, size.heightPt - offset.y / scale)
+            // Taps and overlays both go through the page's turn: on a rotated page a bare y-flip misplaces every one.
+            val placement = PagePlacement(size, scale)
+            fun point(offset: Offset) = placement.pointToPdf(offset.x.toDouble(), offset.y.toDouble())
             androidx.compose.foundation.Canvas(
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { pageWidthPx = it.width }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, contentMode, formMode) {
+                    .pointerInput(pageNumber, placement, state.activeAnnotationTool, state.selectedAnnotationId, contentMode, formMode) {
                         detectTapGestures(
                             // In pointer mode a long-press belongs to text
                             // selection below. Declaring it here is what stops
@@ -216,7 +217,7 @@ private fun PageSlot(
                             }
                         }
                     }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, tapMode) {
+                    .pointerInput(pageNumber, placement, state.activeAnnotationTool, tapMode) {
                         // Long-press, then drag: the Android text-selection
                         // gesture. A plain drag stays the list's scroll — it
                         // moves past touch slop before the long-press fires,
@@ -235,7 +236,7 @@ private fun PageSlot(
                             onDragCancel = textSelection.onEnd,
                         )
                     }
-                    .pointerInput(pageNumber, scale, state.activeAnnotationTool, state.selectedAnnotationId, tapMode) {
+                    .pointerInput(pageNumber, placement, state.activeAnnotationTool, state.selectedAnnotationId, tapMode) {
                         if (tapMode) return@pointerInput
                         val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
                         awaitEachGesture {
@@ -274,10 +275,11 @@ private fun PageSlot(
                 state.contentEdit?.images?.get(pageIndex)?.forEach { image ->
                     val bounds = image.bounds
                     val moving = state.contentEdit.movingImage?.id == image.id
+                    val placed = placement.placeRect(bounds)
                     drawRect(
                         if (moving) Color(0xFF20A060) else Color(0x9920A060),
-                        Offset(bounds.x.toFloat() * screenScale, (size.heightPt - bounds.y - bounds.height).toFloat() * screenScale),
-                        androidx.compose.ui.geometry.Size(bounds.width.toFloat() * screenScale, bounds.height.toFloat() * screenScale),
+                        placed.topLeft,
+                        placed.size,
                         style = Stroke(if (moving) 5f else 2f),
                     )
                 }
@@ -286,28 +288,25 @@ private fun PageSlot(
                 state.contentEdit?.runs?.get(pageIndex)?.forEach { run ->
                     val bounds = run.bounds
                     val moving = state.contentEdit.movingText?.id == run.id
+                    val placed = placement.placeRect(bounds)
                     drawRect(
                         if (run.substitutesFont) Color(if (moving) 0xFFAA5ADC else 0x99AA5ADC) else Color(if (moving) 0xFF2878EB else 0x992878EB),
-                        Offset(bounds.x.toFloat() * screenScale, (size.heightPt - bounds.y - bounds.height).toFloat() * screenScale),
-                        androidx.compose.ui.geometry.Size(bounds.width.toFloat() * screenScale, bounds.height.toFloat() * screenScale),
+                        placed.topLeft,
+                        placed.size,
                         style = Stroke(if (moving) 5f else 2f, pathEffect = if (run.substitutesFont) PathEffect.dashPathEffect(floatArrayOf(6f, 4f)) else null),
                     )
                 }
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->
-                    drawRect(
-                        Color(0x553373E6),
-                        Offset(rect.x.toFloat() * screenScale, (size.heightPt - rect.y - rect.height).toFloat() * screenScale),
-                        androidx.compose.ui.geometry.Size(rect.width.toFloat() * screenScale, rect.height.toFloat() * screenScale),
-                    )
+                    val placed = placement.placeRect(rect)
+                    drawRect(Color(0x553373E6), placed.topLeft, placed.size)
                 }
                 // Current search match only, mirroring the Linux/Windows shells:
                 // one hit highlighted at a time, cleared as soon as the user
                 // steps to another match or page.
                 state.searchHits.getOrNull(state.searchIndex)?.takeIf { it.pageIndex == pageIndex }?.characterBounds?.forEach { rect ->
-                    val topLeft = Offset(rect.x.toFloat() * screenScale, (size.heightPt - rect.y - rect.height).toFloat() * screenScale)
-                    val boundsSize = androidx.compose.ui.geometry.Size(rect.width.toFloat() * screenScale, rect.height.toFloat() * screenScale)
-                    drawRect(Color(0x60FFD60A), topLeft, boundsSize)
-                    drawRect(Color(0xFFFF8C00), topLeft, boundsSize, style = Stroke(1f))
+                    val placed = placement.placeRect(rect)
+                    drawRect(Color(0x60FFD60A), placed.topLeft, placed.size)
+                    drawRect(Color(0xFFFF8C00), placed.topLeft, placed.size, style = Stroke(1f))
                 }
                 val previewOrigin = origin
                 val previewCurrent = current
@@ -324,34 +323,43 @@ private fun PageSlot(
                 } else null
                 state.annotations.filter { it.pageIndex == pageIndex }.forEach { annotation ->
                     val shown = if (annotation.id == draggedAnnotation?.id) draggedAnnotation else annotation
-                    drawAnnotationShape(shown, screenScale, size.heightPt, selected = annotation.id == state.selectedAnnotationId)
+                    drawAnnotationShape(shown, placement, selected = annotation.id == state.selectedAnnotationId)
                 }
                 // Live preview of the annotation being placed: without this, a
                 // highlight/underline/strikeout/ink stroke was invisible until
                 // the finger lifted and onAnnotationGesture actually applied it.
                 if (state.activeAnnotationTool != AnnotationTool.Pointer && previewOrigin != null && previewCurrent != null) {
-                    drawAnnotationShape(placementAnnotation(state.activeAnnotationTool, pageIndex, previewOrigin, previewCurrent, stroke), screenScale, size.heightPt, selected = false)
+                    drawAnnotationShape(placementAnnotation(state.activeAnnotationTool, pageIndex, previewOrigin, previewCurrent, stroke), placement, selected = false)
                 }
             }
         }
     }
 }
 
+private val PlacedRect.topLeft get() = Offset(left.toFloat(), top.toFloat())
+private val PlacedRect.size get() = androidx.compose.ui.geometry.Size(width.toFloat(), height.toFloat())
+private fun PagePlacement.offset(x: Double, y: Double) = placePoint(AnnotationPoint(x, y)).let { Offset(it.x.toFloat(), it.y.toFloat()) }
+
+/**
+ * Draws [annotation] where [placement] puts it. Rules and handles are placed as
+ * page-space points, not as edges of the placed rect: on a turned page the
+ * rect's PDF bottom edge — where an underline sits — is no longer at the bottom.
+ */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationShape(
     annotation: dev.vitela.pdf.core.Annotation,
-    screenScale: Float,
-    pageHeightPt: Double,
+    placement: PagePlacement,
     selected: Boolean,
 ) {
     val color = annotation.color?.let { Color(it.red, it.green, it.blue) } ?: Color(0xFF3366CC)
     annotation.rect?.let { rect ->
-        val top = (pageHeightPt - rect.y - rect.height).toFloat() * screenScale
-        val size = androidx.compose.ui.geometry.Size(rect.width.toFloat() * screenScale, rect.height.toFloat() * screenScale)
+        val placed = placement.placeRect(rect)
+        val right = rect.x + rect.width
+        val top = rect.y + rect.height
         when (annotation.kind) {
-            dev.vitela.pdf.core.AnnotationKind.Highlight -> drawRect(color.copy(alpha = if (selected) .65f else .4f), Offset(rect.x.toFloat() * screenScale, top), size)
-            dev.vitela.pdf.core.AnnotationKind.Underline -> drawLine(color, Offset(rect.x.toFloat() * screenScale, top + size.height), Offset((rect.x + rect.width).toFloat() * screenScale, top + size.height), 2f)
-            dev.vitela.pdf.core.AnnotationKind.Strikeout -> drawLine(color, Offset(rect.x.toFloat() * screenScale, top + size.height / 2), Offset((rect.x + rect.width).toFloat() * screenScale, top + size.height / 2), 2f)
-            else -> drawRect(color, Offset(rect.x.toFloat() * screenScale, top), size, style = Stroke(if (selected) 3f else 2f))
+            dev.vitela.pdf.core.AnnotationKind.Highlight -> drawRect(color.copy(alpha = if (selected) .65f else .4f), placed.topLeft, placed.size)
+            dev.vitela.pdf.core.AnnotationKind.Underline -> drawLine(color, placement.offset(rect.x, rect.y), placement.offset(right, rect.y), 2f)
+            dev.vitela.pdf.core.AnnotationKind.Strikeout -> drawLine(color, placement.offset(rect.x, rect.y + rect.height / 2), placement.offset(right, rect.y + rect.height / 2), 2f)
+            else -> drawRect(color, placed.topLeft, placed.size, style = Stroke(if (selected) 3f else 2f))
         }
         if (selected && annotation.supportsResize) {
             // Sized in dp, not raw pixels, so the handle is a real, consistently
@@ -359,10 +367,10 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationShape
             // square was easy to miss with a finger.
             val handleSize = HANDLE_DRAW_DP.dp.toPx()
             val half = handleSize / 2f
-            listOf(Offset(rect.x.toFloat() * screenScale, top), Offset((rect.x + rect.width).toFloat() * screenScale, top), Offset(rect.x.toFloat() * screenScale, top + size.height), Offset((rect.x + rect.width).toFloat() * screenScale, top + size.height)).forEach { handle -> drawRect(Color(0xFF1A59D9), handle - Offset(half, half), androidx.compose.ui.geometry.Size(handleSize, handleSize)) }
+            listOf(placement.offset(rect.x, top), placement.offset(right, top), placement.offset(rect.x, rect.y), placement.offset(right, rect.y)).forEach { handle -> drawRect(Color(0xFF1A59D9), handle - Offset(half, half), androidx.compose.ui.geometry.Size(handleSize, handleSize)) }
         }
     }
-    if (annotation.kind == dev.vitela.pdf.core.AnnotationKind.Ink && annotation.points.size > 1) annotation.points.zipWithNext().forEach { (a, b) -> drawLine(color, Offset(a.x.toFloat() * screenScale, (pageHeightPt - a.y).toFloat() * screenScale), Offset(b.x.toFloat() * screenScale, (pageHeightPt - b.y).toFloat() * screenScale), if (selected) 3f else 2f) }
+    if (annotation.kind == dev.vitela.pdf.core.AnnotationKind.Ink && annotation.points.size > 1) annotation.points.zipWithNext().forEach { (a, b) -> drawLine(color, placement.offset(a.x, a.y), placement.offset(b.x, b.y), if (selected) 3f else 2f) }
 }
 
 /** The reader's long-press drag-select callbacks, in PDF-space points. */

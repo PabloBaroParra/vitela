@@ -217,6 +217,26 @@ once the session has edited its pages. A thumbnail is a small render taken on
 demand as its card scrolls into view; a moved page keeps its picture and only a
 turned one is rendered again.
 
+## Rotated pages
+
+A page carrying `/Rotate` — from the file, or a quarter turn in Organize — is
+drawn turned, but nothing on it moved: text runs, images, form fields,
+annotations, search hits and selection rects all stay in the page's unrotated
+space. `PageSize` therefore carries the turn with the drawn size, and every
+tap and every overlay on a page goes through
+[`viewer/PagePlacement.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/PagePlacement.kt).
+A bare y-flip, which the reader used until then, put every outline and every
+tap on a turned page in the wrong place.
+
+`PagePlacement` is a port of `pdf_render::selection`'s `place_rect`,
+`place_point` and `point_to_pdf`, which `pdf-ffi` also exports so that shells
+need no copy of them, and which Windows calls. Android keeps a copy anyway.
+These functions run for every outline on every Compose frame, where a JNA
+crossing per rect is a cost the phone pays, and a JVM unit test cannot load the
+native library at all. `PagePlacementTest` pins the copy to the Rust tests'
+values, case for case. If a Rust case changes, the Kotlin case has to change
+with it.
+
 ## Form fields
 
 **Form fields** opens a panel below the reader
@@ -249,9 +269,10 @@ Nothing is drawn over the page. Only the renderer paints a field, so every
 edit rebuilds the preview and the page redraws. The permission is asked as the
 core's own question, not composed from the annotation and content answers:
 that composition would also refuse a file whose encryption cannot survive a
-full rewrite, and a field edit never needs one. As with every page tap on this
-shell, the tap is read in the page's unrotated space, so on a turned page a
-field lands in the wrong place. That is a known gap.
+full rewrite, and a field edit never needs one. A field is kept whole on its page in the unrotated
+space its rect lives in, not at the turned size the page is drawn at. On a
+turned page "top-left" and "down and to the right" are the field's own
+corners and directions, which the turn has carried elsewhere on screen.
 
 ## Edit content
 

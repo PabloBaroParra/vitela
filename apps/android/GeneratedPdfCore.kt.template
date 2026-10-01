@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreFactory
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.core.PageRotation
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
@@ -40,6 +41,7 @@ import dev.vitela.pdf.core.TextRect
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
 import dev.vitela.pdf.uniffi.FfiAnnotationKind
+import dev.vitela.pdf.uniffi.FfiPageRotation
 import dev.vitela.pdf.uniffi.FfiBlockSource
 import dev.vitela.pdf.uniffi.FfiColor
 import dev.vitela.pdf.uniffi.FfiCompressOutcome
@@ -136,7 +138,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     // sides, and the core answers from the live page model. The viewer reads
     // them once per open and once per page edit, not per layout pass.
     override val pageSizes: List<PageSize>
-        get() = handle.pageDimensions().map { PageSize(it.widthPt, it.heightPt) }
+        get() = handle.pageDimensions().map { PageSize(it.widthPt, it.heightPt, it.rotation.toRotation()) }
 
     override fun close() = handle.close()
 
@@ -773,4 +775,11 @@ private fun Throwable.toPdfCoreError(): PdfCoreError = when (this) {
     is FfiException.SignaturesWouldBeInvalidated -> PdfCoreError.Failed("Saving would invalidate this document's signature, so it was not saved.")
     is FfiException.RenderFailed -> PdfCoreError.Failed("PDFium is unavailable. This package must include externally supplied compatible PDFium libraries.")
     else -> PdfCoreError.Failed("The document could not be processed.")
+}
+
+private fun FfiPageRotation.toRotation() = when (this) {
+    FfiPageRotation.NONE -> PageRotation.None
+    FfiPageRotation.CLOCKWISE90 -> PageRotation.Clockwise90
+    FfiPageRotation.CLOCKWISE180 -> PageRotation.Clockwise180
+    FfiPageRotation.CLOCKWISE270 -> PageRotation.Clockwise270
 }
