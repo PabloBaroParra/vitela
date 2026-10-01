@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +52,7 @@ internal fun ViewerScreen(
     onOpenSample: (assetName: String, displayName: String) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onGoToPage: (Int) -> Unit,
     onZoomOut: () -> Unit,
     onZoomIn: () -> Unit,
     onSearch: (String) -> Unit,
@@ -108,6 +110,7 @@ internal fun ViewerScreen(
     var query by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var sampleMenuExpanded by remember { mutableStateOf(false) }
+    var pageListOpen by remember { mutableStateOf(false) }
     val zoomPercentage = (state.zoomFactor * 100).toInt()
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -167,10 +170,28 @@ internal fun ViewerScreen(
             }
             if (state.contentEdit?.adding != null) TextButton(onClick = contentEdit.onCancelInsert) { Text("Cancel insert") }
         }
+        val navigationEnabled = pageNavigationEnabled(state)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onPrevious, enabled = state.pageIndex > 0) { Text("Previous") }
             Button(onClick = onNext, enabled = state.pageIndex + 1 < state.pageCount) { Text("Next") }
-            Text(if (state.pageCount == 0) "No pages" else "Page ${state.pageIndex + 1} of ${state.pageCount}")
+            if (state.pageCount == 0) Text("No pages")
+            else TextButton(onClick = { pageListOpen = true }, enabled = navigationEnabled) {
+                Text("Page ${state.pageIndex + 1} of ${state.pageCount}")
+            }
+        }
+        // Closed, not just hidden, once navigation is disabled: a load or the
+        // grid would otherwise reopen it over pages the reader no longer shows.
+        LaunchedEffect(navigationEnabled) { if (!navigationEnabled) pageListOpen = false }
+        if (pageListOpen && navigationEnabled) {
+            PageNavigationDialog(
+                pageCount = state.pageCount,
+                currentPage = state.pageIndex,
+                onSelect = { pageIndex ->
+                    pageListOpen = false
+                    onGoToPage(pageIndex)
+                },
+                onDismiss = { pageListOpen = false },
+            )
         }
         val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
         val annotationControls = annotationControls(state.annotationEditingAllowed, selected, state.canUndoAnnotations, state.canRedoAnnotations)

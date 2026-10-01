@@ -250,6 +250,7 @@ class ViewerViewModel(
     fun onReaderPositionChanged(position: ReaderPosition) = reader.onPositionChanged(position)
     fun consumeScrollTarget() = reader.consumeScrollTarget()
     fun navigate(delta: Int) = reader.navigate(delta)
+    fun goToPage(pageIndex: Int) = reader.goTo(pageIndex)
     fun zoomIn() = reader.zoomIn()
     fun zoomOut() = reader.zoomOut()
 

@@ -30,8 +30,12 @@ render, which is what keeps that bound honest; a render that finishes after
 its page scrolled out of the cache window is dropped rather than cached. This
 mirrors the GTK4 shell's viewport tick (`apps/linux-gtk/src/app/render.rs`).
 
-Previous/Next and search navigation do not swap a page — they set a scroll
-target the list animates to, so the reader keeps one scroll position. The page
+Previous/Next, search navigation and the page list do not swap a page — they
+set a scroll target the list animates to, so the reader keeps one scroll
+position. The page list opens from the page counter ("Page 2 of 5"): picking a
+numbered row jumps there, like the Linux and Windows page lists. It is disabled
+while the Organize grid stands in for the reader or a document is loading, since
+a target set then would fire later over the page Organize returns to. The page
 counter reports the page covering most of the viewport, not the first one
 visible: at the bottom of a document the previous page keeps a sliver on
 screen, so "first visible" could never say "3 of 3".
