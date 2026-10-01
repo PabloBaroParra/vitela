@@ -220,6 +220,13 @@ accept multiple lines; **Add** becomes available when the text is not blank.
 Cancel closes the prompt without creating an annotation or an undo step. Adding
 records one undoable edit through the core; save to keep the note.
 
+**Stamp** asks for a PNG or JPEG after you click or drag on a page. The image
+fills the chosen rectangle; a different aspect ratio stretches to fit. Cancel,
+unreadable files and invalid images create no annotation or undo step. A successful
+placement selects the stamp and displays its image, with move, resize and undo/redo
+available. Save to keep it. Dropping an image or pasting a clipboard bitmap keeps
+its existing proportional default placement.
+
 Select a note created in the current session with **Previous annotation** or
 **Next annotation**, then choose
 **Read note** to view its multiline text in a read-only dialog. Reading also works
@@ -291,6 +298,19 @@ The saved note's `/Contents` should be exactly `  First line\rSecond line  `,
 including the carriage return and two spaces at each end; inspect it with a PDF
 parser such as pypdf. Rebuild without `CustomAfterMicrosoftCommonTargets` to
 restore the normal app before packaging.
+
+## Stamp placement runtime smoke
+
+`Tests/StampPlacementSmoke.targets` runs the stamp flow in real WinUI with real
+`StorageFile` reads and the native core. Only the picker response is substituted:
+the operating system's file-selection UI still needs a manual check. The harness
+covers PNG/JPEG insertion, chosen geometry, selection and preview, undo/redo,
+save, cancellation, rejected files, stale-session guards and restored controls.
+
+Use the same MSBuild and output directory setup as the note smoke, replacing
+`NotePlacementSmoke.targets` with `StampPlacementSmoke.targets`, then run the app.
+`stamp-smoke.log` must start with `PASS`; `stamp-smoke.pdf` contains the selected
+two-pixel red/blue image as a stamp. Rebuild without the custom targets afterward.
 
 ## Packaging and signing
 
