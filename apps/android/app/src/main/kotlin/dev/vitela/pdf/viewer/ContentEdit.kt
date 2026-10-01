@@ -10,7 +10,7 @@ import kotlin.math.max
 /**
  * Edit content mode: a tap on a line of text the page itself paints opens it
  * for retyping or deleting, a tap on an image it paints opens it for
- * resizing, moving or deleting, and Add text or Add image claims the next tap
+ * resizing, moving, replacing or deleting, and Add text or Add image claims the next tap
  * for something new. [runs] and [images] hold each page's content
  * as last read — only pages that were shown or tapped — so the outlines
  * describe what the page now shows.
@@ -27,6 +27,12 @@ data class ContentEditState(
      * null while no move is armed. Never armed with a dialog open.
      */
     val movingImage: ContentImage? = null,
+    /**
+     * The image a picked file replaces, set once the core recovered its
+     * original and the picker is open; null otherwise. Never set with a
+     * dialog open.
+     */
+    val replacingImage: ContentImage? = null,
     /**
      * What the next page tap adds, armed from Add text or Add image; null
      * while nothing is armed. Never armed with [movingImage] or a dialog open.
@@ -93,9 +99,9 @@ sealed interface ContentTarget {
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap text to retype or delete it, or an image to resize, move or delete it."
+internal const val CONTENT_EDIT_ARMED = "Tap text to retype or delete it, or an image to resize, move, replace or delete it."
 internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype or delete it, or an image to resize, move or delete it."
+internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype or delete it, or an image to resize, move, replace or delete it."
 internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
 internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
 internal const val TEXT_DELETED = "Text deleted. Save to keep the change."
@@ -105,6 +111,9 @@ internal const val IMAGE_MOVED = "Image moved. Save to keep the change."
 internal const val IMAGE_POSITION_UNCHANGED = "Image position unchanged."
 internal const val IMAGE_MOVE_CANCELLED = "Move cancelled."
 internal const val IMAGE_DELETED = "Image deleted. Save to keep the change."
+internal const val IMAGE_REPLACED = "Image replaced. Save to keep the change."
+internal const val IMAGE_REPLACE_CANCELLED = "Replace cancelled."
+internal const val IMAGE_UNREADABLE = "The selected image could not be read."
 internal const val TEXT_INSERT_PROMPT = "Tap the page where the new text's top-left corner should go."
 internal const val IMAGE_INSERT_PROMPT = "Tap the page where the image's top-left corner should go."
 internal const val INSERT_CANCELLED = "Insert cancelled."

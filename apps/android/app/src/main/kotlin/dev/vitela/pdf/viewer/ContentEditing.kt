@@ -12,8 +12,8 @@ import kotlinx.coroutines.withContext
  * Edit content: retyping a line of text the page itself paints, keeping its
  * position and — unless it is a composite font — its font, or deleting it;
  * resizing an image it paints, keeping its top-left corner; moving one,
- * keeping its size; and deleting one. Each is one undoable entry in the
- * shared edit log.
+ * keeping its size; replacing its picture, keeping its box; and deleting
+ * one. Each is one undoable entry in the shared edit log.
  *
  * Nothing is drawn in place of the words or the picture: only the renderer can
  * paint them, so an edit rebuilds the preview and the page re-renders showing
@@ -43,7 +43,7 @@ internal class ContentEditing(
     /** Retyping and deleting text runs. */
     val text = TextRunEditing(session, this)
 
-    /** Resizing, moving and deleting images. */
+    /** Resizing, moving, replacing and deleting images. */
     val images = ImageEditing(session, this)
 
     /** Adding new text and images. */
@@ -149,9 +149,10 @@ internal class ContentEditing(
      */
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
-        // An armed move holds the image as it was; it may no longer be there.
-        // An armed insert and its dialog hold only a spot on a page, which survives.
-        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, movingImage = null))
+        // An armed move or an open replacement picker holds the image as it
+        // was; it may no longer be there. An armed insert and its dialog hold
+        // only a spot on a page, which survives.
+        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, movingImage = null, replacingImage = null))
         for (pageIndex in mode.runs.keys) read(document, pageIndex)
     }
 

@@ -9,7 +9,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * The image half of Edit content: resizing, moving or deleting the image the
+ * The image half of Edit content: resizing, moving, replacing or deleting the image the
  * open resizer holds. [content] owns the mode, routes the page tap that
  * places an armed move, and lands each accepted edit.
  */
@@ -96,6 +96,64 @@ internal class ImageEditing(
                 when (val result = withContext(session.compute) { openDocument.removeImage(image) }) {
                     // The core no longer reports the image, so its outline goes too.
                     is PdfCoreResult.Success -> content.landed(openDocument, image.pageIndex, IMAGE_DELETED)
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
+                }
+            }
+        }
+    }
+
+    /**
+     * Asks the core whether the open dialog's image can be replaced, for the
+     * document [documentId] the dialog was built for — before a picker opens,
+     * like the Windows shell, so a refusal costs no trip to the files. True
+     * means the dialog is closed and the picker should open; a refusal is
+     * reported in the status line.
+     */
+    suspend fun prepareReplace(documentId: Long): Boolean {
+        val openDocument = session.document ?: return false
+        if (documentId != state.value.documentId) return false
+        val mode = state.value.contentEdit ?: return false
+        val image = mode.resizer?.image ?: return false
+        state.value = state.value.copy(contentEdit = mode.copy(resizer = null))
+        return session.documentLane.withLock {
+            if (session.document !== openDocument) return@withLock false
+            val result = withContext(session.compute) { openDocument.prepareImageReplacement(image) }
+            val now = state.value.contentEdit ?: return@withLock false
+            when (result) {
+                is PdfCoreResult.Success -> {
+                    state.value = state.value.copy(contentEdit = now.copy(replacingImage = image))
+                    true
+                }
+                is PdfCoreResult.Failure -> {
+                    state.value = state.value.copy(status = userMessage(result.error))
+                    false
+                }
+            }
+        }
+    }
+
+    /** No file came back from the picker, for the reason [status] gives: the image keeps its picture. */
+    fun cancelReplace(status: String) {
+        val mode = state.value.contentEdit ?: return
+        if (mode.replacingImage != null) state.value = state.value.copy(contentEdit = mode.copy(replacingImage = null), status = status)
+    }
+
+    /**
+     * Replaces the prepared image's picture with the picked file's [bytes].
+     * Spent before the core answers, like a delete: a second pick finds
+     * nothing prepared. An undo while the picker was open dropped the image,
+     * which may no longer be there.
+     */
+    fun replace(bytes: ByteArray) {
+        val openDocument = session.document ?: return
+        val mode = state.value.contentEdit ?: return
+        val image = mode.replacingImage ?: return
+        state.value = state.value.copy(contentEdit = mode.copy(replacingImage = null))
+        session.scope.launch {
+            session.documentLane.withLock {
+                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
+                when (val result = withContext(session.compute) { openDocument.replaceImage(image, bytes) }) {
+                    is PdfCoreResult.Success -> content.landed(openDocument, image.pageIndex, IMAGE_REPLACED)
                     is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                 }
             }

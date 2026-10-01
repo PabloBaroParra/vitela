@@ -26,6 +26,8 @@ import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.viewer.CERTIFICATE_MIME_TYPES
 import dev.vitela.pdf.viewer.ContentEditActions
 import dev.vitela.pdf.viewer.FormFieldActions
+import dev.vitela.pdf.viewer.IMAGE_REPLACE_CANCELLED
+import dev.vitela.pdf.viewer.IMAGE_UNREADABLE
 import dev.vitela.pdf.viewer.ImportSource
 import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.SignActions
@@ -72,6 +74,18 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
             }
             if (bytes == null) viewModel.reportReadFailure() else viewModel.armImageInsert(bytes)
+        }
+    }
+    val chooseReplacementImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) {
+            viewModel.cancelImageReplacement(IMAGE_REPLACE_CANCELLED)
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null) viewModel.cancelImageReplacement(IMAGE_UNREADABLE) else viewModel.replaceImage(bytes)
         }
     }
     val openPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -285,6 +299,8 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onMove = viewModel::armImageMove,
                 onCancelMove = viewModel::cancelImageMove,
                 onDelete = viewModel::deleteImage,
+                // The core decodes PNG and JPEG; anything else is refused when it lands.
+                onReplace = { documentId -> scope.launch { if (viewModel.prepareImageReplacement(documentId)) chooseReplacementImage.launch("image/*") } },
                 onAddText = viewModel::armTextInsert,
                 // The core decodes PNG and JPEG; anything else is refused when placed.
                 onAddImage = { chooseContentImage.launch("image/*") },

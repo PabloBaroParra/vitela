@@ -385,6 +385,39 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
+    // The original is read only to learn it can be: the core refuses an image
+    // with a pending edit, and an encoding an undo could not restore.
+    override fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> = try {
+        handle.imageSourceBytes(image.toFfi())
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(imageReplacementRefusal()))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // `before` is read again here, not carried from the check: an edit may have
+    // landed in between, and the undo must restore what the page holds now.
+    override fun replaceImage(image: ContentImage, imageBytes: ByteArray): PdfCoreResult<Unit> = try {
+        val item = image.toFfi()
+        ffiApplyEdit(handle, FfiEditCommand.ReplaceImageSource(item, handle.imageSourceBytes(item), imageBytes))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.InvalidImage) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(NOT_AN_IMAGE))
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(imageReplacementRefusal()))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core's sentences are a developer's; this one names what the reader can do.
+    private fun imageReplacementRefusal(): String =
+        if (handle.contentEditingAllowed()) {
+            "This image cannot be replaced. Save first if it already has a pending edit; some original encodings cannot be restored by Undo and are refused."
+        } else {
+            "This document does not permit content changes."
+        }
+
     // A new line gets a Helvetica resource of its own. The core reuses a font
     // already registered under the name it is given, so the name must be one
     // the page does not declare — checked against every declared font, used

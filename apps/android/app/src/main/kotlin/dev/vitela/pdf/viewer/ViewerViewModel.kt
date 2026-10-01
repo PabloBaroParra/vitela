@@ -379,6 +379,12 @@ class ViewerViewModel(
     fun cancelImageMove() = contentEditing.images.cancelMove()
     /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
     fun deleteImage(documentId: Long) = contentEditing.images.delete(documentId)
+    /** Checks the open dialog's image can be replaced; true means open the picker. [documentId] is the document the dialog was built for. */
+    suspend fun prepareImageReplacement(documentId: Long): Boolean = contentEditing.images.prepareReplace(documentId)
+    /** Replaces the prepared image's picture with the picked file's [bytes]. */
+    fun replaceImage(bytes: ByteArray) = contentEditing.images.replace(bytes)
+    /** The picker was dismissed or its file unreadable; [status] says which. */
+    fun cancelImageReplacement(status: String) = contentEditing.images.cancelReplace(status)
     /** Arms the next page tap to place a new line of text. */
     fun armTextInsert() = contentEditing.inserts.armText()
     /** Arms the next page tap to place the chosen image [bytes]. */

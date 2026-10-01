@@ -2,6 +2,8 @@ package dev.vitela.pdf.viewer
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -40,6 +42,8 @@ internal class ContentEditActions(
     val onCancelMove: () -> Unit,
     /** documentId: deletes the dialog's image; the document is the one the dialog was built for. */
     val onDelete: (Long) -> Unit,
+    /** documentId: checks the dialog's image can be replaced, then opens the image picker. */
+    val onReplace: (Long) -> Unit,
     /** Arms the next page tap to place a new line of text. */
     val onAddText: () -> Unit,
     /** Opens the image picker; the chosen image arms the next page tap. */
@@ -89,9 +93,11 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
  * The resize dialog: the image's width and height in points, ready to change.
  * Its top-left corner stays put. Keyed on the resizer, so a refusal reopens
  * with what was typed, like the retype dialog. Move leaves it for a page tap
- * that places the image, the way a form field is moved. Delete takes the image
- * off the page at once, with no second question: it is one undoable entry.
+ * that places the image, the way a form field is moved. Replace opens a picker
+ * for a PNG or JPEG that fills the same box. Delete takes the image off the
+ * page at once, with no second question: it is one undoable entry.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions: ContentEditActions) {
     var width by remember(resizer) { mutableStateOf(resizer.width) }
@@ -101,7 +107,7 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
         title = { Text("Edit image") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The image keeps its top-left corner and is stretched to the size you enter. Move places it where you tap next, keeping its size. Delete takes it off the page; Undo puts it back.", style = MaterialTheme.typography.bodySmall)
+                Text("The image keeps its top-left corner and is stretched to the size you enter. Move places it where you tap next, keeping its size. Replace swaps its picture for a PNG or JPEG, stretched to the same box; save first if the image already has a pending edit. Delete takes it off the page; Undo puts it back.", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
                     PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
@@ -111,8 +117,10 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
         },
         confirmButton = { Button(onClick = { actions.onResize(documentId, width, height) }) { Text("Resize") } },
         dismissButton = {
-            Row {
+            // Four actions beside Resize do not fit one row on a phone.
+            FlowRow(horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { actions.onDelete(documentId) }) { Text("Delete") }
+                TextButton(onClick = { actions.onReplace(documentId) }) { Text("Replace") }
                 TextButton(onClick = { actions.onMove(documentId) }) { Text("Move") }
                 TextButton(onClick = actions.onDismissResizer) { Text("Cancel") }
             }

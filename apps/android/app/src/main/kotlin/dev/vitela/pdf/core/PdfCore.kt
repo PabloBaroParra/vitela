@@ -150,6 +150,18 @@ interface PdfDocument : AutoCloseable {
      */
     fun removeImage(image: ContentImage): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
+     * Checks that [image]'s original can be recovered for an undo, before a
+     * picker opens; refused for an image with a pending edit or an encoding
+     * that cannot round-trip without loss.
+     */
+    fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable replacement of [image]'s picture with [imageBytes],
+     * a PNG or JPEG stretched to the box it fills. The page shows it only
+     * after [refreshPreview].
+     */
+    fun replaceImage(image: ContentImage, imageBytes: ByteArray): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
      * Queues one undoable new line of [text] on page [pageIndex], in a
      * standard font of its own. [bounds]' height is the font size and its
      * bottom edge the line's; the core measures the width itself. The page
