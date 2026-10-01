@@ -5,20 +5,8 @@ namespace Pdf.Windows.Facade;
 /// at a time outside the viewer's coalesced render queue.
 /// </summary>
 /// <remarks>
-/// <para>
-/// A print job must never render from the session's own document. What that
-/// document renders is the preview <see cref="IPdfCore.RefreshPreview"/>
-/// builds, and the preview leaves this session's annotations out on purpose:
-/// the shell draws them itself, as an overlay, so baking them in would paint
-/// each one twice. Printing has no overlay pass, so a page printed from it
-/// silently loses every annotation the reader added — saved or not, because
-/// this shell never reopens after a save.
-/// </para>
-/// <para>
-/// <see cref="PreparePrintAsync"/> therefore prints from a snapshot instead:
-/// the bytes a save would write, reopened as a throwaway document. The same
-/// approach the Android shell takes.
-/// </para>
+/// A print job renders an annotated session from its output snapshot, never
+/// from the session's own document — see <c>SnapshotIfAnnotated</c> for why.
 /// </remarks>
 public sealed partial class PdfDocumentFacade
 {
@@ -30,9 +18,7 @@ public sealed partial class PdfDocumentFacade
     /// </summary>
     /// <remarks>
     /// A session without annotations prints its own document: there is
-    /// nothing the preview leaves out, and no save that could fail. Signatures
-    /// are acknowledged silently — the snapshot is never written anywhere, and
-    /// a real save still asks first.
+    /// nothing the preview leaves out, and no save that could fail.
     /// </remarks>
     public async Task<OperationResult<uint>> PreparePrintAsync(string sessionId)
     {
@@ -48,15 +34,7 @@ public sealed partial class PdfDocumentFacade
                 }
             }
 
-            IPdfCoreDocument? snapshot = null;
-            if (_core.Annotations(session.Document).Count > 0)
-            {
-                snapshot = await Task.Run(() =>
-                {
-                    var bytes = _core.SaveToBytes(session.Document, signaturesAcknowledged: true);
-                    return _core.OpenFromBytes(bytes, session.OpenPassword);
-                }).ConfigureAwait(false);
-            }
+            var snapshot = await Task.Run(() => SnapshotIfAnnotated(session)).ConfigureAwait(false);
 
             lock (_gate)
             {

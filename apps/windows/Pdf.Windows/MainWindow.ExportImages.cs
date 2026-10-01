@@ -63,6 +63,11 @@ public sealed partial class MainWindow
     /// someone needs it, so the count of what <em>was</em> written is reported
     /// instead of carrying on.
     /// </summary>
+    /// <remarks>
+    /// Pages come from the facade's export snapshot, which carries the
+    /// annotations the canvas only ever draws as an overlay. It is prepared
+    /// once, before the first page, and released however the export ends.
+    /// </remarks>
     private async Task WriteImagesAsync(string sessionId, ImageExportPlan plan, StorageFolder folder)
     {
         SetBusy(true);
@@ -70,6 +75,14 @@ public sealed partial class MainWindow
         StorageFile? incomplete = null;
         try
         {
+            AnnotationStatus.Text = "Preparing to export...";
+            var prepared = await _facade.PrepareImageExportAsync(sessionId);
+            if (!prepared.IsSuccess)
+            {
+                AnnotationStatus.Text = $"Could not prepare the document for export: {prepared.Error!.Message}";
+                return;
+            }
+
             foreach (var file in plan.Files)
             {
                 AnnotationStatus.Text = $"Exporting page {file.PageIndex + 1} ({written + 1} of {plan.Files.Count})...";
@@ -101,6 +114,7 @@ public sealed partial class MainWindow
                 try { await incomplete.DeleteAsync(); }
                 catch { }
             }
+            await _facade.ReleaseImageExportAsync(sessionId);
             SetBusy(false);
             RestoreAnnotationControls();
         }

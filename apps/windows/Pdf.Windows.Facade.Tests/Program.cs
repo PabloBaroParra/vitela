@@ -44,6 +44,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("prints an annotated session from a reopened save", PrintsAnnotatedSessionFromSnapshotAsync),
     ("prints an unannotated session from its own document", PrintsUnannotatedSessionFromItsDocumentAsync),
     ("keeps a released print snapshot open until its render completes", KeepsReleasedPrintSnapshotUntilRenderCompletesAsync),
+    ("exports an annotated session from the core's output snapshot", ExportsAnnotatedSessionFromSnapshotAsync),
+    ("exports an unannotated session from its own document", ExportsUnannotatedSessionFromItsDocumentAsync),
     ("discards stale search results", DiscardsStaleSearchResultAsync),
     ("navigates to a selected search result", NavigatesToSearchResultAsync),
     ("steps through search hits and wraps at either end", StepsThroughSearchHits),
@@ -474,7 +476,7 @@ static async Task PrintsAnnotatedSessionFromSnapshotAsync()
     Assert(prepared.IsSuccess && prepared.Value == 2, "preparing must report the snapshot's page count");
     var snapshot = core.LastDocument!;
     Assert(!ReferenceEquals(snapshot, live), "an annotated session must print from a reopened save, not the preview");
-    Assert(core.LastSaveAcknowledgedSignatures == true, "a snapshot is never written anywhere, so it must not refuse over a signature");
+    Assert(core.SnapshottedDocuments.SequenceEqual([live]), "the core snapshots the session, under the password it already holds");
 
     var page = await facade.RenderPageForPrintAsync(session.SessionId, 1, 300, false);
     Assert(page.IsSuccess, "a page must render from the snapshot");
@@ -494,7 +496,7 @@ static async Task PrintsUnannotatedSessionFromItsDocumentAsync()
 
     var prepared = await facade.PreparePrintAsync(session.SessionId);
     Assert(prepared.IsSuccess && prepared.Value == 1, "preparing an unannotated session must succeed");
-    Assert(core.LastSaveAcknowledgedSignatures is null, "nothing is missing from the preview, so nothing must be saved");
+    Assert(core.SnapshottedDocuments.IsEmpty, "nothing is missing from the preview, so nothing must be saved");
     await facade.RenderPageForPrintAsync(session.SessionId, 0, 300, false);
     Assert(ReferenceEquals(core.RenderedDocuments.Last(), live), "an unannotated session prints its own document");
     facade.ReleasePrint(session.SessionId);
@@ -517,6 +519,44 @@ static async Task KeepsReleasedPrintSnapshotUntilRenderCompletesAsync()
     core.ReleaseFirstRender.Set();
     await print.WaitAsync(TimeSpan.FromSeconds(5));
     Assert(snapshot.Disposed, "the snapshot must close once its last render completes");
+}
+
+static async Task ExportsAnnotatedSessionFromSnapshotAsync()
+{
+    var core = new FakeCore { PageCount = 2 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var live = core.LastDocument!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+
+    var prepared = await facade.PrepareImageExportAsync(session.SessionId);
+    Assert(prepared.IsSuccess, "preparing an annotated export must succeed");
+    var snapshot = core.LastDocument!;
+    Assert(core.SnapshottedDocuments.SequenceEqual([live]), "an annotated session must be snapshotted once, before the first page");
+
+    var image = await facade.ExportPageImageAsync(session.SessionId, 1, 150, ImageExportFormat.Png);
+    Assert(image.IsSuccess, "a page must export from the snapshot");
+    Assert(ReferenceEquals(core.ExportedDocuments.Last(), snapshot), "the export must read the snapshot, which carries the annotations the preview leaves out");
+
+    await facade.ReleaseImageExportAsync(session.SessionId);
+    Assert(snapshot.Disposed, "releasing the export must close its snapshot");
+    Assert(!live.Disposed, "releasing the export must leave the session's own document open");
+}
+
+static async Task ExportsUnannotatedSessionFromItsDocumentAsync()
+{
+    var core = new FakeCore { PageCount = 1 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var live = core.LastDocument!;
+
+    var prepared = await facade.PrepareImageExportAsync(session.SessionId);
+    Assert(prepared.IsSuccess, "preparing an unannotated export must succeed");
+    Assert(core.SnapshottedDocuments.IsEmpty, "nothing is missing from the preview, so nothing must be saved");
+    await facade.ExportPageImageAsync(session.SessionId, 0, 150, ImageExportFormat.Png);
+    Assert(ReferenceEquals(core.ExportedDocuments.Last(), live), "an unannotated session exports its own document");
+    await facade.ReleaseImageExportAsync(session.SessionId);
+    Assert(!live.Disposed, "releasing must never close the session's own document");
 }
 
 static async Task DiscardsStaleSearchResultAsync()
@@ -4198,11 +4238,28 @@ sealed class FakeCore : IPdfCore
         return OversizedPage is { } page && pages.Contains(page) ? page : null;
     }
 
+    /// <summary>Which document each exported page read, in call order.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<IPdfCoreDocument> ExportedDocuments { get; } = new();
+
+    /// <summary>The documents <see cref="OutputSnapshot"/> was asked to snapshot, in call order.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<IPdfCoreDocument> SnapshottedDocuments { get; } = new();
+
+    /// <summary>
+    /// Mirrors the core: a fresh document, opened by the core itself, so no
+    /// password ever crosses the facade to make one.
+    /// </summary>
+    public IPdfCoreDocument OutputSnapshot(IPdfCoreDocument document)
+    {
+        SnapshottedDocuments.Enqueue(document);
+        return LastDocument = new FakeDocument(PageCount, PageWidthPt, PageHeightPt, PageRotation) { ContentEditingAllowed = ContentEditingPermitted };
+    }
+
     public byte[] ExportPageImage(IPdfCoreDocument document, uint pageIndex, uint dpi, PdfCoreImageFormat format)
     {
         // The real core refuses before rendering, so the fake does too.
         if (!ExtractionPermitted) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "extraction is not permitted");
         ExportedPages.Enqueue((pageIndex, dpi, format));
+        ExportedDocuments.Enqueue(document);
         return format == PdfCoreImageFormat.Jpeg ? [0xFF, 0xD8] : [0x89, 0x50];
     }
 

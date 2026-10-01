@@ -5,6 +5,8 @@
 //! `worker` — before a byte exists, and after. What is different here is that
 //! nothing comes back: an export installs no reopened document, so the only
 //! thing this module hands the session is a sentence for the status line.
+//! The one document it does open — the output snapshot an edited session is
+//! rendered from — it closes again itself.
 
 use std::path::{Path, PathBuf};
 
@@ -15,39 +17,40 @@ use pdf_save::ExportFormat;
 use super::options;
 use super::ExportRequest;
 use crate::app::state::Viewer;
+use crate::app::write::{snapshot_for_output, OutputSource};
 
 /// Renders and writes every selected page on a worker thread.
 ///
 /// `gio::spawn_blocking` rather than the viewer's coalesced render queue, for
 /// the same reason [`crate::app::print`] bypasses it: a page scrolling out of
 /// view must never supersede a page the export still owes a file for.
-pub(super) fn spawn_export(viewer: &Viewer, request: &ExportRequest, folder: PathBuf) {
+pub(super) fn spawn_export(viewer: &Viewer, request: ExportRequest, folder: PathBuf) {
     let count = request.options.pages.len();
     let pages = if count == 1 { "page" } else { "pages" };
     viewer
         .status
         .set_text(&format!("Exporting {count} {pages}…"));
 
-    let document = request.document;
-    let generation = request.generation;
-    let stem = request.stem.clone();
-    let total_pages = request.total_pages;
-    let selected = request.options.pages.clone();
-    let dpi = request.options.dpi;
-    let format = request.options.format;
+    let ExportRequest {
+        source,
+        generation,
+        stem,
+        total_pages,
+        options,
+    } = request;
 
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let destination = folder.clone();
             let result = gio::spawn_blocking(move || {
-                write_pages(
-                    document,
+                export_source(
+                    source,
                     &stem,
-                    &selected,
+                    &options.pages,
                     total_pages,
-                    dpi,
-                    format,
+                    options.dpi,
+                    options.format,
                     &folder,
                 )
             })
@@ -68,6 +71,48 @@ pub(super) fn spawn_export(viewer: &Viewer, request: &ExportRequest, folder: Pat
             }
         }
     });
+}
+
+/// Writes `pages` from the document `source` names.
+///
+/// An editable session is exported from a snapshot of its full save, built
+/// here on the worker thread and closed once the last page is written — the
+/// live handle is missing every annotation the canvas overlays (see
+/// [`snapshot_for_output`]). Without a model nothing can have been edited, so
+/// the live handle already is the whole document.
+fn export_source(
+    source: OutputSource,
+    stem: &str,
+    pages: &[u32],
+    total_pages: u32,
+    dpi: u32,
+    format: ExportFormat,
+    folder: &Path,
+) -> Result<usize, String> {
+    match source {
+        OutputSource::Live { document, .. } => {
+            write_pages(document, stem, pages, total_pages, dpi, format, folder)
+        }
+        OutputSource::Model {
+            document,
+            backing,
+            sources,
+        } => {
+            let snapshot = snapshot_for_output(&document, &backing, &sources)
+                .map_err(|error| format!("Could not prepare the document for export: {error}"))?;
+            let written = write_pages(
+                snapshot.document,
+                stem,
+                pages,
+                total_pages,
+                dpi,
+                format,
+                folder,
+            );
+            let _ = PdfiumRenderer::new().close_document(snapshot.document);
+            written
+        }
+    }
 }
 
 /// Renders each page and writes it into `folder`, stopping at the first
@@ -102,7 +147,10 @@ fn write_pages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::document::SAMPLE_PDF;
+    use crate::app::document::{open_document, SAMPLE_PDF};
+    use crate::app::state::DocumentSource;
+    use crate::app::test_fixtures::a_highlight;
+    use pdf_document::Command;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -157,6 +205,55 @@ mod tests {
 
         fs::remove_dir_all(&directory).expect("remove isolated temporary directory");
         renderer.close_document(document).ok();
+    }
+
+    /// The bug this module's snapshot exists for: a highlight the user added
+    /// and has not saved is drawn by the canvas overlay only. Exported from
+    /// the live handle it is missing from the file; exported from the
+    /// session's model it is there.
+    #[test]
+    fn an_unsaved_annotation_reaches_the_exported_file() {
+        let opened =
+            open_document(&DocumentSource::Embedded(SAMPLE_PDF), None).expect("the sample opens");
+        let mut model = opened.document_model.expect("the sample is editable");
+        let backing = opened.save_backing.expect("the sample has a save backing");
+        let page = model.pages[0].id;
+        let mut log = std::mem::take(&mut model.pending_edits);
+        log.apply(&mut model, Command::AddAnnotation(a_highlight(1, page)));
+        model.pending_edits = log;
+        let directory = isolated_directory("annotated");
+
+        let export = |source, name: &str| {
+            let folder = directory.join(name);
+            fs::create_dir(&folder).expect("create the export folder");
+            export_source(source, "sample", &[0], 1, 72, ExportFormat::Png, &folder)
+                .expect("the export succeeds");
+            let png = fs::read(folder.join("sample-1.png")).expect("the page was written");
+            image::load_from_memory(&png)
+                .expect("a real PNG")
+                .into_rgba8()
+                .into_raw()
+        };
+        let live = export(
+            OutputSource::Live {
+                document: opened.document,
+                page_sizes: Vec::new(),
+            },
+            "live",
+        );
+        let exported = export(
+            OutputSource::Model {
+                document: Box::new(model),
+                backing: Box::new(backing),
+                sources: Vec::new(),
+            },
+            "model",
+        );
+
+        assert_ne!(exported, live, "the export carries the annotation");
+
+        fs::remove_dir_all(&directory).expect("remove isolated temporary directory");
+        PdfiumRenderer::new().close_document(opened.document).ok();
     }
 
     /// The stopping rule, exercised rather than asserted: a page the document

@@ -196,6 +196,19 @@ internal interface IPdfCore
     byte[] ProtectToBytes(IPdfCoreDocument document, string openPassword, string permissionsPassword, bool signaturesAcknowledged);
 
     /// <summary>
+    /// <paramref name="document"/> as a save would write it right now —
+    /// annotations included — reopened by the core as a separate document for
+    /// printing or exporting from. The caller owns and disposes it.
+    /// </summary>
+    /// <remarks>
+    /// The core reopens it under the password the session was opened with, so
+    /// an encrypted document needs no second copy of that password here.
+    /// Signatures are acknowledged silently: the snapshot is never written
+    /// anywhere, and a real <see cref="SaveToBytes"/> still refuses.
+    /// </remarks>
+    IPdfCoreDocument OutputSnapshot(IPdfCoreDocument document);
+
+    /// <summary>
     /// Why <paramref name="document"/> cannot be compressed at all, in the
     /// core's own words, or <c>null</c> when it can.
     /// </summary>

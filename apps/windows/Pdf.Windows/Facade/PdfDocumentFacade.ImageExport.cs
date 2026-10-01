@@ -16,6 +16,10 @@ namespace Pdf.Windows.Facade;
 /// folder is picked. An export that fails on page 300 of 400 because of a
 /// choice that was wrong from the start leaves 299 files behind for nothing.
 /// </para>
+/// <para>
+/// An annotated session is exported from its output snapshot, never from its
+/// own document — see <c>SnapshotIfAnnotated</c> for why.
+/// </para>
 /// </remarks>
 public sealed partial class PdfDocumentFacade
 {
@@ -95,10 +99,84 @@ public sealed partial class PdfDocumentFacade
     }
 
     /// <summary>
+    /// Readies <paramref name="sessionId"/> for an export, once, before its
+    /// first <see cref="ExportPageImageAsync"/>. Pair it with
+    /// <see cref="ReleaseImageExportAsync"/> when the export ends, however it
+    /// ends.
+    /// </summary>
+    public async Task<OperationResult<bool>> PrepareImageExportAsync(string sessionId)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            SessionEntry session;
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out session))
+                {
+                    return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "export_prepare", sessionId, null));
+                }
+            }
+
+            var snapshot = await Task.Run(() => SnapshotIfAnnotated(session)).ConfigureAwait(false);
+            lock (_gate)
+            {
+                session.ExportSnapshot?.Dispose();
+                session.ExportSnapshot = snapshot;
+            }
+
+            return OperationResult<bool>.Success(true);
+        }
+        catch (PdfCoreException error)
+        {
+            return OperationResult<bool>.Failure(MapError(error, "export_prepare", sessionId, null));
+        }
+        catch (Exception error)
+        {
+            return OperationResult<bool>.Failure(MapUnexpected(error, "export_prepare", sessionId, null));
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Ends the export <see cref="PrepareImageExportAsync"/> started and
+    /// closes its snapshot, if it made one. Behind the document gate, so no
+    /// page export can still be reading it.
+    /// </summary>
+    public async Task ReleaseImageExportAsync(string sessionId)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                // A session replaced in the meantime closed its snapshot
+                // along with itself.
+                if (TryGetCurrentSession(sessionId, out var session))
+                {
+                    session.ExportSnapshot?.Dispose();
+                    session.ExportSnapshot = null;
+                }
+            }
+        }
+        finally
+        {
+            _documentChangeGate.Release();
+        }
+    }
+
+    /// <summary>
     /// One page, rendered and encoded — the bytes of the file to write. Held
     /// behind the document gate like a save, so the session cannot be
     /// replaced and disposed while the core is still reading it.
     /// </summary>
+    /// <remarks>
+    /// Reads the snapshot <see cref="PrepareImageExportAsync"/> made, if any;
+    /// otherwise the session's own document.
+    /// </remarks>
     public async Task<OperationResult<byte[]>> ExportPageImageAsync(string sessionId, uint pageIndex, uint dpi, ImageExportFormat format)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
@@ -113,7 +191,8 @@ public sealed partial class PdfDocumentFacade
                 }
             }
 
-            var bytes = await Task.Run(() => _core.ExportPageImage(session.Document, pageIndex, dpi, CoreFormat(format))).ConfigureAwait(false);
+            var document = session.ExportDocument;
+            var bytes = await Task.Run(() => _core.ExportPageImage(document, pageIndex, dpi, CoreFormat(format))).ConfigureAwait(false);
             return OperationResult<byte[]>.Success(bytes);
         }
         catch (PdfCoreException error)

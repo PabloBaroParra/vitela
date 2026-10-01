@@ -365,6 +365,12 @@ internal sealed class GeneratedPdfCore : IPdfCore
     public uint? FirstPageTooLargeToExport(IPdfCoreDocument document, IReadOnlyList<uint> pages, uint dpi) =>
         PdfFfiMethods.FirstPageTooLargeToExport(((GeneratedDocument)document).Handle, [.. pages], dpi);
 
+    public IPdfCoreDocument OutputSnapshot(IPdfCoreDocument document)
+    {
+        try { return new GeneratedDocument(PdfFfiMethods.OutputSnapshot(((GeneratedDocument)document).Handle)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     public byte[] ExportPageImage(IPdfCoreDocument document, uint pageIndex, uint dpi, PdfCoreImageFormat format)
     {
         try { return PdfFfiMethods.ExportPageImage(((GeneratedDocument)document).Handle, pageIndex, dpi, ImageFormat(format)); }

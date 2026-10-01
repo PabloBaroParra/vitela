@@ -9,13 +9,17 @@
 //!
 //! ## What gets exported is what is on screen
 //!
-//! The pages are rendered from the session's **live pdfium handle**, which is
-//! the same one the canvas draws from. So an unsaved edit that has already
-//! been folded into the backing bytes (every page-structure change goes
-//! through `write::refresh_preview`) is in the export, and one that has not is
-//! not — the export and the canvas can never disagree, which is the property
-//! worth having. It is not a second save path with its own idea of the
-//! document.
+//! What is on screen is two layers: the session's live pdfium handle, and
+//! the annotations and field values the canvas paints over it as an overlay.
+//! The live handle alone leaves the overlay out — a preview refresh builds it
+//! without the annotation layer on purpose — so an export taken from it
+//! silently dropped every annotation the user had not saved.
+//!
+//! An editable session is therefore exported from `write::OutputSource`'s
+//! snapshot: the bytes a Save would write right now, reopened for the length
+//! of the job, which is what print renders too. It is not a second save path
+//! with its own idea of the document — it is the save path, with nowhere to
+//! write.
 //!
 //! ## The permission gate
 //!
@@ -40,20 +44,21 @@ mod worker;
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog};
-use pdf_render::DocumentHandle;
 
 use options::ExportOptions;
 use worker::spawn_export;
 
 use super::state::Viewer;
+use super::write::OutputSource;
 
 /// What the chain carries from the live session into the worker thread.
 ///
 /// Every field is owned and `Send`: the worker may outlive the borrow it was
-/// built from, and `DocumentHandle` is a `u64` the render actor owns the
-/// lifetime of.
+/// built from. The model inside `source` is a clone, so an edit made while
+/// the export runs is not in it — the export is of the document as it was
+/// when the user confirmed the dialog.
 struct ExportRequest {
-    document: DocumentHandle,
+    source: OutputSource,
     /// Generation of the session this export was started under. `worker`
     /// compares it before touching the status line, so an export that
     /// finishes after the document was replaced says nothing at all.
@@ -116,7 +121,7 @@ fn build_request(viewer: &Viewer, options: ExportOptions) -> Option<ExportReques
     let state = viewer.state.borrow();
     let session = state.session.as_ref()?;
     Some(ExportRequest {
-        document: session.document,
+        source: OutputSource::of(session),
         generation: state.generation,
         stem: pdf_save::document_file_stem(&session.base_name).to_owned(),
         total_pages: session.pages.len() as u32,
@@ -149,7 +154,7 @@ fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request: ExportReq
                     .set_text("The selected location is not a local folder.");
                 return;
             };
-            spawn_export(&viewer, &request, folder);
+            spawn_export(&viewer, request, folder);
         }
     });
 }
