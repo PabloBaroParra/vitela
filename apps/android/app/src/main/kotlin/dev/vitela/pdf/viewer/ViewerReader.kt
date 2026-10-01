@@ -147,7 +147,17 @@ internal class ViewerReader(private val session: ViewerSession) {
 
     fun navigate(delta: Int) {
         if (state.value.pageCount == 0) return
-        state.value = state.value.copy(scrollTarget = boundedPageIndex(state.value.pageIndex + delta, state.value.pageCount))
+        scrollTo(state.value.pageIndex + delta)
+    }
+
+    /** Picked from the page list: a scroll only, never an edit. */
+    fun goTo(pageIndex: Int) {
+        if (!pageNavigationEnabled(state.value)) return
+        scrollTo(pageIndex)
+    }
+
+    private fun scrollTo(pageIndex: Int) {
+        state.value = state.value.copy(scrollTarget = boundedPageIndex(pageIndex, state.value.pageCount))
     }
 
     fun zoomIn() = changeZoom(zoomIn(state.value.zoomFactor))
