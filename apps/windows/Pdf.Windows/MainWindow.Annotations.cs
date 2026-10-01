@@ -227,9 +227,30 @@ public sealed partial class MainWindow
         };
         slot.Annotations.PointerCaptureLost += (_, _) =>
         {
-            if (_formFieldPress?.PageIndex == pageIndex) _formFieldPress = null;
+            CancelPagePointerGesture(pageIndex);
+        };
+        slot.Annotations.PointerCanceled += (_, args) =>
+        {
+            CancelPagePointerGesture(pageIndex);
+            slot.Annotations.ReleasePointerCapture(args.Pointer);
         };
         ConnectFileDrop(slot, pageIndex);
+    }
+
+    /// <summary>
+    /// Capture loss can replace pointer-up. Discard the uncommitted annotation
+    /// or field gesture and freeze text selection at its last sampled position.
+    /// Normal pointer-up clears its live state before releasing capture.
+    /// </summary>
+    private void CancelPagePointerGesture(int pageIndex)
+    {
+        if (_pointerDrag?.PageIndex == pageIndex)
+        {
+            _pointerDrag = null;
+            RedrawAnnotations();
+        }
+        if (_formFieldPress?.PageIndex == pageIndex) _formFieldPress = null;
+        if (_textSelection?.PageIndex == pageIndex) _textDragActive = false;
     }
 
     /// <summary>Returns whether the press was claimed as an annotation gesture.</summary>
@@ -317,11 +338,12 @@ public sealed partial class MainWindow
     {
         if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return false;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
-        _pointerDrag = drag with { Current = point };
         drag.Trace?.Append(point);
-        slot.Annotations.ReleasePointerCapture(args.Pointer);
-        var completed = _pointerDrag.Value;
+        var completed = drag with { Current = point };
+        // ReleasePointerCapture can synchronously raise PointerCaptureLost.
+        // Detach the completed gesture first so cancellation cannot discard it.
         _pointerDrag = null;
+        slot.Annotations.ReleasePointerCapture(args.Pointer);
         if (completed.Tool is { } tool)
         {
             await CommitPlacementAsync(pageIndex, tool, completed);
