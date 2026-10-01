@@ -220,9 +220,13 @@ annotation drag or form-field placement is discarded without an undo step. An
 armed tool stays available for another attempt. Text selection stops extending
 and retains the last sampled range.
 
-**Previous annotation** steps backward through the document's annotations,
-wrapping from the first to the last. It lets you select an annotation hidden
-under another without changing the PDF or its undo history.
+**Previous annotation** and **Next annotation** cycle through the document's
+annotations in their snapshot order, wrapping at either end. With nothing
+selected, Previous starts at the last annotation and Next at the first.
+The viewer reveals the selected annotation, including on another page or outside
+the zoomed viewport, using the page's current rotation and scale. These controls
+also work when annotation editing is forbidden, and let you select an annotation
+hidden under another without changing the PDF or its undo history.
 
 Build the native library and regenerate its matching bindings before building the
 WinUI app:
