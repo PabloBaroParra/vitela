@@ -43,11 +43,29 @@ public sealed partial class MainWindow
 
         var session = _session;
 
+        // Printing reads a snapshot that carries this session's annotations:
+        // the document the viewer renders leaves them out, because the
+        // canvas draws them as an overlay that never reaches paper.
+        PrintStatus.Text = "Preparing to print...";
+        var prepared = await _facade.PreparePrintAsync(session.SessionId);
+        if (!prepared.IsSuccess)
+        {
+            PrintStatus.Text = prepared.Error!.Message;
+            return;
+        }
+
+        PrintStatus.Text = string.Empty;
+        if (_session?.SessionId != session.SessionId)
+        {
+            _facade.ReleasePrint(session.SessionId);
+            return;
+        }
+
         // Pages are rendered lazily: the dialog opens immediately, preview
         // pages render on demand at screen DPI (GetPreviewPage), and the
         // full-quality pass at PrintDpi only runs once the user confirms
         // printing (AddPages).
-        _printJob = new PrintJob(session.SessionId, session.DisplayName, session.Pages.Count);
+        _printJob = new PrintJob(session.SessionId, session.DisplayName, (int)prepared.Value);
         try
         {
             EnsurePrintingAvailable();
@@ -57,12 +75,14 @@ public sealed partial class MainWindow
         {
             PrintStatus.Text = "Printing is unavailable on this Windows installation.";
             _printJob = null;
+            _facade.ReleasePrint(session.SessionId);
         }
         // NOTE: do NOT tear down _printJob/_printTaskOptions after ShowPrintUI.
         // ShowPrintUIForWindowAsync returns when the dialog is *shown*, not
         // when it is dismissed; the preview pipeline (Paginate/GetPreviewPage/
         // AddPages) runs afterwards while the dialog is open and needs this
-        // state alive. It is released in PrintTask_Completed instead.
+        // state alive — the print snapshot included. Both are released in
+        // PrintTask_Completed instead.
     }
 
     private void EnsurePrintingAvailable()
@@ -97,6 +117,11 @@ public sealed partial class MainWindow
     {
         DispatcherQueue.TryEnqueue(() =>
         {
+            if (_printJob is { } job)
+            {
+                _facade.ReleasePrint(job.SessionId);
+            }
+
             _printJob = null;
             _printTaskOptions = null;
         });

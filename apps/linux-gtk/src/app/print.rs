@@ -1,47 +1,139 @@
 //! Printing: driving the platform print dialog and rasterizing each page at
 //! print quality onto the printer's cairo surface, independent of the
-//! viewer's coalesced render queue.
+//! viewer's coalesced render queue — from a snapshot that carries the
+//! annotations the canvas only ever overlays.
 
 use gtk::gdk::prelude::GdkCairoContextExt;
 use gtk::prelude::*;
 use gtk::{
-    gdk_pixbuf, glib, ApplicationWindow, PrintContext, PrintOperation, PrintOperationAction,
+    gdk_pixbuf, gio, glib, ApplicationWindow, PrintContext, PrintOperation, PrintOperationAction,
     PrintOperationResult,
 };
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderOptions};
 
+use super::document::close_document_in_background;
 use super::render::{raster_dimensions, render_result};
-use super::state::Viewer;
+use super::state::{ImportedSource, SaveBacking, Viewer};
+use super::write::snapshot_for_print;
 
 /// Fixed rasterization DPI for printing. Unlike the viewer, printing does
 /// not fit to a widget width: it renders each page once at a print-quality
 /// resolution and lets cairo scale the bitmap onto the paper.
 const PRINT_DPI: u32 = 300;
 
+/// What a print job rasterizes, read off the session before anything runs.
+enum PrintSource {
+    /// The session's editable model: printed from a full save of it, so the
+    /// annotations and field values the canvas overlays are on paper too.
+    Model {
+        generation: u64,
+        document: Box<pdf_document::Document>,
+        backing: Box<SaveBacking>,
+        sources: Vec<ImportedSource>,
+    },
+    /// No editable model, so nothing can have been edited: the open handle
+    /// already is the whole document.
+    Live {
+        document: DocumentHandle,
+        page_sizes: Vec<(f32, f32)>,
+    },
+}
+
 /// Prints the open document via the platform print dialog.
+///
+/// Never straight from the handle the canvas renders: that one is missing
+/// every annotation the overlay draws (see [`snapshot_for_print`]). A
+/// session with an editable model prints a throwaway reopen of its full save
+/// instead, built on a worker thread before the dialog opens and closed once
+/// the job is done.
+pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
+    let source = {
+        let state = viewer.state.borrow();
+        state.session.as_ref().map(|session| {
+            match (&session.document_model, &session.save_backing) {
+                (Some(document), Some(backing)) => PrintSource::Model {
+                    generation: state.generation,
+                    document: Box::new(document.clone()),
+                    backing: Box::new(backing.clone()),
+                    sources: session.imported_sources.clone(),
+                },
+                _ => PrintSource::Live {
+                    document: session.document,
+                    page_sizes: session
+                        .pages
+                        .iter()
+                        .map(|page| (page.width_pt, page.height_pt))
+                        .collect(),
+                },
+            }
+        })
+    };
+
+    match source {
+        None => viewer.status.set_text("Open a PDF before printing."),
+        Some(PrintSource::Live {
+            document,
+            page_sizes,
+        }) => run_print(window, viewer, document, page_sizes),
+        Some(PrintSource::Model {
+            generation,
+            document,
+            backing,
+            sources,
+        }) => {
+            viewer.status.set_text("Preparing to print…");
+            glib::spawn_future_local({
+                let window = window.clone();
+                let viewer = viewer.clone();
+                async move {
+                    let result = gio::spawn_blocking(move || {
+                        snapshot_for_print(&document, &backing, &sources)
+                    })
+                    .await;
+                    match result {
+                        Ok(Ok(snapshot)) => {
+                            // A document opened (or closed) while the
+                            // snapshot was being built is not the one the
+                            // user asked to print.
+                            if viewer.session_is_generation(generation) {
+                                viewer.status.set_text("");
+                                run_print(&window, &viewer, snapshot.document, snapshot.page_sizes);
+                            }
+                            close_document_in_background(snapshot.document);
+                        }
+                        Ok(Err(error)) if viewer.session_is_generation(generation) => {
+                            viewer.status.set_text(&format!(
+                                "Could not prepare the document for printing: {error}"
+                            ))
+                        }
+                        Err(_) if viewer.session_is_generation(generation) => viewer
+                            .status
+                            .set_text("Could not prepare the document for printing."),
+                        _ => {}
+                    }
+                }
+            });
+        }
+    }
+}
+
+/// Runs the print dialog over `document`, one page per entry of
+/// `page_sizes`.
 ///
 /// Printing is deliberately independent of the viewer's coalesced render
 /// queue: each page is rasterized once at [`PRINT_DPI`] on demand inside
 /// `draw_page`, so a page scrolling out of view can never supersede a page
 /// the printer still needs. `PrintOperation::run` drives a modal dialog on
 /// a nested main loop and returns only once printing finishes or is
-/// cancelled; the per-page render blocks that loop, which is acceptable for
+/// cancelled — which is what lets the caller close a snapshot handle right
+/// after it. The per-page render blocks that loop, which is acceptable for
 /// a modal operation the user has explicitly started.
-pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
-    let Some((document, page_sizes)) = ({
-        let state = viewer.state.borrow();
-        state.session.as_ref().map(|session| {
-            let sizes: Vec<(f32, f32)> = session
-                .pages
-                .iter()
-                .map(|page| (page.width_pt, page.height_pt))
-                .collect();
-            (session.document, sizes)
-        })
-    }) else {
-        viewer.status.set_text("Open a PDF before printing.");
-        return;
-    };
+fn run_print(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    document: DocumentHandle,
+    page_sizes: Vec<(f32, f32)>,
+) {
     if page_sizes.is_empty() {
         viewer.status.set_text("The PDF has no pages to print.");
         return;

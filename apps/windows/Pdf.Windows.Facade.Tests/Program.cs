@@ -41,6 +41,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("renders a print page independently of viewer renders", RendersPrintPageIndependentlyAsync),
     ("renders every export page at the requested DPI without navigating", RendersExportPagesWithoutNavigatingAsync),
     ("discards a print page after a session swap", DiscardsPrintPageAfterSessionSwapAsync),
+    ("prints an annotated session from a reopened save", PrintsAnnotatedSessionFromSnapshotAsync),
+    ("prints an unannotated session from its own document", PrintsUnannotatedSessionFromItsDocumentAsync),
+    ("keeps a released print snapshot open until its render completes", KeepsReleasedPrintSnapshotUntilRenderCompletesAsync),
     ("discards stale search results", DiscardsStaleSearchResultAsync),
     ("navigates to a selected search result", NavigatesToSearchResultAsync),
     ("steps through search hits and wraps at either end", StepsThroughSearchHits),
@@ -457,6 +460,63 @@ static async Task DiscardsPrintPageAfterSessionSwapAsync()
     core.ReleaseFirstRender.Set();
     var result = await print.WaitAsync(TimeSpan.FromSeconds(5));
     Assert(result.IsDiscarded, "a print render for a replaced session must be discarded");
+}
+
+static async Task PrintsAnnotatedSessionFromSnapshotAsync()
+{
+    var core = new FakeCore { PageCount = 2, RequiredPassword = "secret" };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]), "secret")).Value!;
+    var live = core.LastDocument!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+
+    var prepared = await facade.PreparePrintAsync(session.SessionId);
+    Assert(prepared.IsSuccess && prepared.Value == 2, "preparing must report the snapshot's page count");
+    var snapshot = core.LastDocument!;
+    Assert(!ReferenceEquals(snapshot, live), "an annotated session must print from a reopened save, not the preview");
+    Assert(core.LastSaveAcknowledgedSignatures == true, "a snapshot is never written anywhere, so it must not refuse over a signature");
+
+    var page = await facade.RenderPageForPrintAsync(session.SessionId, 1, 300, false);
+    Assert(page.IsSuccess, "a page must render from the snapshot");
+    Assert(ReferenceEquals(core.RenderedDocuments.Last(), snapshot), "the print render must read the snapshot, which carries the annotations");
+
+    facade.ReleasePrint(session.SessionId);
+    Assert(snapshot.Disposed, "releasing an idle print must close its snapshot");
+    Assert(!live.Disposed, "releasing a print must leave the session's own document open");
+}
+
+static async Task PrintsUnannotatedSessionFromItsDocumentAsync()
+{
+    var core = new FakeCore { PageCount = 1 };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    var live = core.LastDocument!;
+
+    var prepared = await facade.PreparePrintAsync(session.SessionId);
+    Assert(prepared.IsSuccess && prepared.Value == 1, "preparing an unannotated session must succeed");
+    Assert(core.LastSaveAcknowledgedSignatures is null, "nothing is missing from the preview, so nothing must be saved");
+    await facade.RenderPageForPrintAsync(session.SessionId, 0, 300, false);
+    Assert(ReferenceEquals(core.RenderedDocuments.Last(), live), "an unannotated session prints its own document");
+    facade.ReleasePrint(session.SessionId);
+    Assert(!live.Disposed, "releasing must never close the session's own document");
+}
+
+static async Task KeepsReleasedPrintSnapshotUntilRenderCompletesAsync()
+{
+    var core = new FakeCore { PageCount = 1, BlockFirstRender = true };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1]))).Value!;
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    await facade.PreparePrintAsync(session.SessionId);
+    var snapshot = core.LastDocument!;
+
+    var print = facade.RenderPageForPrintAsync(session.SessionId, 0, 300, false);
+    await core.FirstRenderStarted.Task;
+    facade.ReleasePrint(session.SessionId);
+    Assert(!snapshot.Disposed, "a snapshot must not close under a render still reading it");
+    core.ReleaseFirstRender.Set();
+    await print.WaitAsync(TimeSpan.FromSeconds(5));
+    Assert(snapshot.Disposed, "the snapshot must close once its last render completes");
 }
 
 static async Task DiscardsStaleSearchResultAsync()
@@ -3668,9 +3728,13 @@ sealed class FakeCore : IPdfCore
     /// </summary>
     public IPdfCoreDocument CreateBlank() => LastDocument = new FakeDocument(1, PageWidthPt, PageHeightPt, PageRotation);
 
+    /// <summary>Which document each full-page render read, in call order.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<IPdfCoreDocument> RenderedDocuments { get; } = new();
+
     public PdfCoreBitmap RenderPage(IPdfCoreDocument document, uint pageIndex, uint dpi, bool invertContentColors)
     {
         RenderDpis.Enqueue(dpi);
+        RenderedDocuments.Enqueue(document);
         if (Interlocked.Increment(ref _renderCount) == 1 && BlockFirstRender)
         {
             FirstRenderStarted.SetResult();
