@@ -42,6 +42,14 @@ class ViewerViewModel(
     private var sourceBytes: ByteArray? = null
     /** The save target of [sourceBytes], kept beside it so a password retry opens with it. */
     private var sourceTarget: String? = null
+    /**
+     * Whether the reader already agreed to discard unsaved changes to open
+     * [sourceBytes]. An encrypted replacement fails its first open and asks
+     * for a password while the unsaved document stays installed; without
+     * this, the retry would ask to discard a second time (#283). Spent once
+     * the replacement is installed or the password prompt is cancelled.
+     */
+    private var sourceDiscardConfirmed = false
     private var pendingReplacement: PendingReplacement? = null
     private var nextDocumentId = 1L
 
@@ -107,6 +115,7 @@ class ViewerViewModel(
             }
             sourceBytes = bytes
             sourceTarget = saveTarget
+            sourceDiscardConfirmed = discardUnsaved
             _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
             when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, password) }) {
                 is PdfCoreResult.Success -> install(displayName, result.value, saveTarget)
@@ -118,6 +127,7 @@ class ViewerViewModel(
 
     /** Makes [document] the open one. Called with the document lane held. */
     private suspend fun install(displayName: String, document: PdfDocument, saveTarget: String?) {
+        sourceDiscardConfirmed = false
         session.document?.close()
         session.document = document
         selection.closeDrag()
@@ -195,7 +205,7 @@ class ViewerViewModel(
 
     fun retryPassword(password: String) {
         val bytes = sourceBytes ?: return
-        replaceDocument(_state.value.title, bytes, password, sourceTarget)
+        replaceDocument(_state.value.title, bytes, password, sourceTarget, discardUnsaved = sourceDiscardConfirmed)
     }
 
     /**
@@ -208,6 +218,7 @@ class ViewerViewModel(
         if (!_state.value.needsPassword) return
         sourceBytes = null
         sourceTarget = null
+        sourceDiscardConfirmed = false
         _state.value = _state.value.copy(
             isLoading = false,
             needsPassword = false,
