@@ -3,6 +3,7 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("preserves note contents in read-only snapshots without history", PreservesNoteContentsAsync),
     ("replaces resource and inline image sources with history", ReplacesContentImagesAsync),
     ("refuses stale forbidden and unrecoverable image replacement", RefusesImageReplacementAsync),
     ("retains image replacement after preview failure", KeepsImageReplacementAfterPreviewFailureAsync),
@@ -1102,6 +1103,27 @@ static async Task DiscardsTileBatchAfterSessionSwapAsync()
     core.ReleaseFirstRender.Set();
 
     Assert((await batch.WaitAsync(TimeSpan.FromSeconds(5))).IsDiscarded, "a tile batch from a retired document session must not publish");
+}
+
+static async Task PreservesNoteContentsAsync()
+{
+    var core = new FakeCore();
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("notes.pdf", [1]))).Value!;
+    var document = core.LastDocument!;
+    document.EditingAllowed = false;
+    document.Annotations.Add(new PdfCoreAnnotation(7, 0, PdfCoreAnnotationKind.TextNote,
+        new PdfCoreRect(10, 20, 30, 40), null, [], "  First line\rSecond line — 日本語  "));
+    document.Annotations.Add(new PdfCoreAnnotation(8, 0, PdfCoreAnnotationKind.TextNote,
+        new PdfCoreRect(50, 20, 30, 40), null, [], string.Empty));
+    document.Annotations.Add(new PdfCoreAnnotation(9, 0, PdfCoreAnnotationKind.Shape,
+        new PdfCoreRect(90, 20, 30, 40), new PdfCoreColor(255, 220, 0), []));
+
+    var state = (await facade.AnnotationStateAsync(session.SessionId)).Value!;
+    Assert(state.Annotations[0].Contents == document.Annotations[0].Contents, "reading must preserve multiline Unicode text and surrounding whitespace");
+    Assert(state.Annotations[1].Contents == string.Empty, "an empty note must remain distinguishable from a non-note");
+    Assert(state.Annotations[2].Contents is null, "non-note annotations must not acquire note text");
+    Assert(!state.EditingAllowed && !state.CanUndo && !state.CanRedo, "reading a restricted document must not require editing or create history");
 }
 
 static async Task RecordsAnnotationEditsInCoreHistoryAsync()

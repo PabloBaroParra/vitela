@@ -536,6 +536,7 @@ public sealed partial class MainWindow
         PointerButton.IsEnabled = enabled;
         PreviousAnnotationButton.IsEnabled = state is { Annotations.Count: > 0 } && !_organizing && !_isBusy;
         NextAnnotationButton.IsEnabled = PreviousAnnotationButton.IsEnabled;
+        ReadNoteButton.IsEnabled = selected?.Kind == AnnotationKind.TextNote && !_organizing && !_isBusy;
         UndoButton.IsEnabled = state?.CanUndo == true;
         RedoButton.IsEnabled = state?.CanRedo == true;
         DeleteAnnotationButton.IsEnabled = enabled && selected is not null;

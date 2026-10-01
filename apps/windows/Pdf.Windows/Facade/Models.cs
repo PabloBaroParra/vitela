@@ -251,7 +251,7 @@ public enum AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNo
 public sealed record AnnotationRect(double X, double Y, double Width, double Height);
 public sealed record AnnotationColor(byte R, byte G, byte B);
 public sealed record AnnotationPoint(double X, double Y);
-public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points);
+public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points, string? Contents = null);
 public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo);
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer);
 

@@ -96,6 +96,7 @@
             <Button x:Name="PointerButton" Click="PointerButton_Click">Pointer</Button>
             <Button x:Name="PreviousAnnotationButton" Click="PreviousAnnotationButton_Click" ToolTipService.ToolTip="Select the previous annotation, including ones underneath others" IsEnabled="False">Previous annotation</Button>
             <Button x:Name="NextAnnotationButton" Click="NextAnnotationButton_Click" ToolTipService.ToolTip="Select the next annotation, including ones underneath others" IsEnabled="False">Next annotation</Button>
+            <Button x:Name="ReadNoteButton" Click="ReadNoteButton_Click" ToolTipService.ToolTip="Read the selected note without changing the document" IsEnabled="False">Read note</Button>
             <ToggleButton x:Name="ContentEditButton" Click="ContentEditButton_Click" ToolTipService.ToolTip="Click a text run on the page to retype it">Edit text</ToggleButton>
             <Button x:Name="ResizeImageButton" Content="Resize image" Click="ResizeImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Resize a content image on the visible page" />
             <Button x:Name="MoveImageButton" Content="Move image" Click="MoveImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a content image on the visible page" />

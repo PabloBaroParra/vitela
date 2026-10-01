@@ -421,7 +421,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
         FfiAnnotationKind.Strikeout value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Strikeout, Rect(value.Rect), Color(value.Color), []),
         FfiAnnotationKind.Ink value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Ink, null, Color(value.Color), [.. value.Points.Select(point => new PdfCorePoint(point.X, point.Y))]),
         FfiAnnotationKind.Shape value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Shape, Rect(value.Rect), Color(value.Color), []),
-        FfiAnnotationKind.TextNote value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.TextNote, Rect(value.Rect), null, []),
+        FfiAnnotationKind.TextNote value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.TextNote, Rect(value.Rect), null, [], value.Contents),
         FfiAnnotationKind.Stamp value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Stamp, Rect(value.Rect), null, []),
         _ => throw new InvalidOperationException("Unsupported annotation kind."),
     };
