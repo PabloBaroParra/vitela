@@ -245,6 +245,8 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onAnnotationTool = viewModel::setAnnotationTool,
         onNoteAdd = viewModel::addNote,
         onNoteCancel = viewModel::cancelNote,
+        onNoteRead = viewModel::readNote,
+        onNoteReadingClose = viewModel::closeNoteReading,
         onAnnotationGesture = viewModel::handlePageGesture,
         onAnnotationColor = viewModel::restyleSelected,
         onAnnotationGrow = viewModel::growSelected,

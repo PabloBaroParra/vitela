@@ -140,6 +140,14 @@ without creating an annotation or an undo step. Adding records one undoable
 edit through the core; save to keep the note. The prompt carries the document
 it was opened for, so an answer can never land in a document that replaced it.
 
+Select a note with a tap or with **Previous annotation** / **Next annotation**,
+then choose **Read note** to see its text in a read-only, multi-line dialog,
+like the Windows shell. Reading is not an edit: it works when annotation
+editing is forbidden and changes neither the PDF, its undo history, nor the
+dirty state. The text is shown exactly as the core holds it, including a blank
+note. Like Windows, only notes in the core's session snapshot can be selected:
+annotations already in a reopened file are kept but not yet listed by it.
+
 All annotation mutations, undo/redo, byte snapshots, and document replacement
 are serialized by `ViewerViewModel`. **Save** writes a complete annotated
 snapshot back over the file that was opened; **Save copy** writes one through

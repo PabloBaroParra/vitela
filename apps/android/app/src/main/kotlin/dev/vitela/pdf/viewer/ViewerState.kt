@@ -106,6 +106,8 @@ data class ViewerState(
     val contentEdit: ContentEditState? = null,
     /** The Note prompt, holding the rectangle the user chose, or null while it is closed. */
     val notePlacement: NotePlacement? = null,
+    /** The Read note dialog, holding the selected note's text as the core gave it, or null while it is closed. */
+    val noteReading: NoteReading? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )

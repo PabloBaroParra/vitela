@@ -120,6 +120,20 @@ internal class AnnotationEditing(
         applyEdit(AnnotationEdit.Add(Annotation(0, placement.pageIndex, AnnotationKind.TextNote, placement.rect, null, contents = text)))
     }
 
+    /**
+     * **Read note**: shows the selected note's text exactly as the core holds
+     * it. Not an edit — no document lane, no history, no dirty flag — so it
+     * works when annotating is forbidden.
+     */
+    fun readNote() {
+        val note = readableNote(state.value) ?: return
+        state.value = state.value.copy(noteReading = NoteReading(note.pageIndex, note.contents.orEmpty()))
+    }
+
+    fun closeNoteReading() {
+        if (state.value.noteReading != null) state.value = state.value.copy(noteReading = null)
+    }
+
     /** The Note prompt's **Cancel**: no annotation, no undo step. */
     fun cancelNote() {
         if (state.value.notePlacement == null) return

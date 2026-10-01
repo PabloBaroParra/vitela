@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
 import dev.vitela.pdf.core.Annotation
+import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PageSize
 import kotlin.math.roundToInt
@@ -26,6 +27,15 @@ internal data class RevealScroll(val itemOffsetPx: Int, val scrollXPx: Int)
  */
 internal fun annotationNavigationEnabled(state: ViewerState): Boolean =
     state.annotations.isNotEmpty() && !state.isLoading && state.organize == null && state.contentEdit == null
+
+/**
+ * The selected annotation when **Read note** can show it: a note, while the
+ * reader is showing. Gated like navigation, not like editing — reading a note
+ * changes nothing, so a document that forbids annotating can still be read.
+ */
+internal fun readableNote(state: ViewerState): Annotation? =
+    state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
+        ?.takeIf { it.kind == AnnotationKind.TextNote && annotationNavigationEnabled(state) }
 
 /**
  * The annotation after (or before) [selectedId] in snapshot order, wrapping at
