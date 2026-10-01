@@ -13,81 +13,54 @@ use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderOptions};
 
 use super::document::close_document_in_background;
 use super::render::{raster_dimensions, render_result};
-use super::state::{ImportedSource, SaveBacking, Viewer};
-use super::write::snapshot_for_print;
+use super::state::Viewer;
+use super::write::{snapshot_for_output, OutputSource};
 
 /// Fixed rasterization DPI for printing. Unlike the viewer, printing does
 /// not fit to a widget width: it renders each page once at a print-quality
 /// resolution and lets cairo scale the bitmap onto the paper.
 const PRINT_DPI: u32 = 300;
 
-/// What a print job rasterizes, read off the session before anything runs.
-enum PrintSource {
-    /// The session's editable model: printed from a full save of it, so the
-    /// annotations and field values the canvas overlays are on paper too.
-    Model {
-        generation: u64,
-        document: Box<pdf_document::Document>,
-        backing: Box<SaveBacking>,
-        sources: Vec<ImportedSource>,
-    },
-    /// No editable model, so nothing can have been edited: the open handle
-    /// already is the whole document.
-    Live {
-        document: DocumentHandle,
-        page_sizes: Vec<(f32, f32)>,
-    },
-}
-
 /// Prints the open document via the platform print dialog.
 ///
 /// Never straight from the handle the canvas renders: that one is missing
-/// every annotation the overlay draws (see [`snapshot_for_print`]). A
+/// every annotation the overlay draws (see [`snapshot_for_output`]). A
 /// session with an editable model prints a throwaway reopen of its full save
 /// instead, built on a worker thread before the dialog opens and closed once
 /// the job is done.
 pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
     let source = {
         let state = viewer.state.borrow();
-        state.session.as_ref().map(|session| {
-            match (&session.document_model, &session.save_backing) {
-                (Some(document), Some(backing)) => PrintSource::Model {
-                    generation: state.generation,
-                    document: Box::new(document.clone()),
-                    backing: Box::new(backing.clone()),
-                    sources: session.imported_sources.clone(),
-                },
-                _ => PrintSource::Live {
-                    document: session.document,
-                    page_sizes: session
-                        .pages
-                        .iter()
-                        .map(|page| (page.width_pt, page.height_pt))
-                        .collect(),
-                },
-            }
-        })
+        state
+            .session
+            .as_ref()
+            .map(|session| (state.generation, OutputSource::of(session)))
     };
 
     match source {
         None => viewer.status.set_text("Open a PDF before printing."),
-        Some(PrintSource::Live {
-            document,
-            page_sizes,
-        }) => run_print(window, viewer, document, page_sizes),
-        Some(PrintSource::Model {
+        Some((
+            _,
+            OutputSource::Live {
+                document,
+                page_sizes,
+            },
+        )) => run_print(window, viewer, document, page_sizes),
+        Some((
             generation,
-            document,
-            backing,
-            sources,
-        }) => {
+            OutputSource::Model {
+                document,
+                backing,
+                sources,
+            },
+        )) => {
             viewer.status.set_text("Preparing to print…");
             glib::spawn_future_local({
                 let window = window.clone();
                 let viewer = viewer.clone();
                 async move {
                     let result = gio::spawn_blocking(move || {
-                        snapshot_for_print(&document, &backing, &sources)
+                        snapshot_for_output(&document, &backing, &sources)
                     })
                     .await;
                     match result {

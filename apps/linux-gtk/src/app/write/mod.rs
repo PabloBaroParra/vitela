@@ -22,10 +22,10 @@
 //! run. See that module's header — the ordering is the feature, not a
 //! shortcut.
 //!
-//! [`snapshot`] is the eighth: print's in-memory full save. It writes nothing
-//! and installs nothing — the reopened handle lives only as long as a print
-//! job — and it exists because the handle the canvas renders from never holds
-//! the annotations the overlay draws.
+//! [`snapshot`] is the eighth: the in-memory full save print and export
+//! rasterize. It writes nothing and installs nothing — the reopened handle
+//! lives only as long as one job — and it exists because the handle the
+//! canvas renders from never holds the annotations the overlay draws.
 //!
 //! ## What is shared, and why
 //!
@@ -72,7 +72,7 @@ pub(crate) use preview::refresh_preview;
 pub(crate) use protect::{begin_protect, ProtectRequest};
 pub(crate) use save::{show_save_chooser, show_save_chooser_then};
 pub(crate) use sign::{begin_sign, SignRequest};
-pub(crate) use snapshot::snapshot_for_print;
+pub(crate) use snapshot::{snapshot_for_output, OutputSource};
 pub(crate) use split::begin_split;
 
 /// The imported documents a save has to graft from, in the shape
