@@ -34,7 +34,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(() => _core.OpenFromBytes(source.Bytes, password)).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document, _core.ContentEditingAllowed(document), password);
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document, _core.ContentEditingAllowed(document));
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -81,7 +81,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(_core.CreateBlank).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document, _core.ContentEditingAllowed(document), null);
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document, _core.ContentEditingAllowed(document));
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -1338,7 +1338,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(() => _core.OpenWithPasswordsFromBytes(bytes, openPassword, permissionsPassword)).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document), openPassword);
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document));
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -1737,25 +1737,17 @@ public sealed partial class PdfDocumentFacade : IDisposable
     {
         private readonly Dictionary<uint, PageRenderState> _pages = [];
 
-        public SessionEntry(string id, string displayName, IPdfCoreDocument document, bool contentEditingAllowed, string? openPassword)
+        public SessionEntry(string id, string displayName, IPdfCoreDocument document, bool contentEditingAllowed)
         {
             Id = id;
             DisplayName = displayName;
             Document = document;
             ContentEditingAllowed = contentEditingAllowed;
-            OpenPassword = openPassword;
         }
 
         public string Id { get; }
         public string DisplayName { get; }
         public IPdfCoreDocument Document { get; }
-
-        /// <summary>
-        /// The password this document was opened with, kept only so a print
-        /// snapshot of an encrypted document can be reopened — a save of it is
-        /// encrypted under the same password. Never leaves the facade.
-        /// </summary>
-        public string? OpenPassword { get; }
 
         /// <summary>
         /// The reopened full save print renders from, when this session has
@@ -1768,6 +1760,17 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
         /// <summary>The document a print render reads: the snapshot when there is one.</summary>
         public IPdfCoreDocument PrintDocument => PrintSnapshot ?? Document;
+
+        /// <summary>
+        /// The output snapshot an export renders from, when this session has
+        /// annotations the preview leaves out. See <c>PrepareImageExportAsync</c>.
+        /// Only touched behind the document gate, so no page export can still
+        /// be reading it when it is closed.
+        /// </summary>
+        public IPdfCoreDocument? ExportSnapshot { get; set; }
+
+        /// <summary>The document an exported page reads: the snapshot when there is one.</summary>
+        public IPdfCoreDocument ExportDocument => ExportSnapshot ?? Document;
         public uint PageIndex { get; set; }
         public int InFlightRenders { get; set; }
         public int InFlightSearches { get; set; }
@@ -1897,6 +1900,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             ReleasedPrintSnapshots.Clear();
+            ExportSnapshot?.Dispose();
+            ExportSnapshot = null;
             Document.Dispose();
         }
     }
