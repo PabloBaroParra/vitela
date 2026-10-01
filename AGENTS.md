@@ -15,7 +15,7 @@ that enforces this is versioned at
 - Run the relevant tests, formatting checks, and linters, then hand the
   uncommitted diff to Fable, Opus or Orchestrator for Code Review.
 
-## For Fable, Opus and Orchestrator
+## For Fable, Opus, GPT 6 and Orchestrator
 
 These are the only actors that may create commits, and only after completing the
 Code Review.

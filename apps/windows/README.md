@@ -215,6 +215,11 @@ placing a form field, organizing pages or opening another document also clears
 the active annotation tool. Choosing a tool does not change the PDF or its
 undo history.
 
+If Windows cancels a page gesture or the page loses pointer capture, its pending
+annotation drag or form-field placement is discarded without an undo step. An
+armed tool stays available for another attempt. Text selection stops extending
+and retains the last sampled range.
+
 **Previous annotation** steps backward through the document's annotations,
 wrapping from the first to the last. It lets you select an annotation hidden
 under another without changing the PDF or its undo history.
