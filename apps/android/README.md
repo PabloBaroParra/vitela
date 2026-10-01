@@ -17,11 +17,12 @@ blank rather than failing the job.
 
 The pages are not rendered from the document on screen: its render preview
 leaves the session's annotations out (the shell overlays them), so a print
-would lose unsaved ones. `ViewerViewModel.printDocument()` instead saves a
-snapshot (every applied edit and annotation) and opens it as a throwaway
-document, which the adapter owns and closes in `onFinish`. A password-protected
-document is refused with a status message: the shell keeps no password, so the
-snapshot cannot be reopened, and encrypted bytes are never sent to the spooler.
+would lose unsaved ones. `ViewerViewModel.printDocument()` instead asks the
+core for its output snapshot (`output_snapshot`: every applied edit and
+annotation, saved and reopened as a throwaway document), which the adapter owns
+and closes in `onFinish`. The core reopens it under the password it already
+holds, so a password-protected document prints too, without the shell keeping
+a password; only rasterized pages reach the spooler, never encrypted bytes.
 The range and fit-and-centre maths live in
 [`print/PrintPages.kt`](app/src/main/kotlin/dev/vitela/pdf/print/PrintPages.kt),
 free of `android.*` so the JVM tests cover them.

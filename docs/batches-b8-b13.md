@@ -1299,11 +1299,11 @@ Windows/C#). Paralelo con B9 y B10.
       **(2026-10-01 — hecho: el adapter rasteriza con `render_page` a 300 DPI (como GTK y
       Windows) sobre un `PrintedPdfDocument`, escalado a caber y centrado en el área de
       contenido; reporta el número real de páginas, honra el rango pedido y respeta la
-      cancelación; una página que el core no puede rasterizar queda en blanco. Imprime un
-      snapshot (`saveToBytes`) reabierto como documento descartable, no el documento vivo,
-      porque su preview omite las anotaciones de la sesión. Un documento con contraseña se
-      rechaza con mensaje: el shell no guarda la contraseña para reabrir el snapshot. Sin
-      verificar en dispositivo)**
+      cancelación; una página que el core no puede rasterizar queda en blanco. Imprime el
+      `output_snapshot` del core (el guardado reabierto como documento descartable), no el
+      documento vivo, porque su preview omite las anotaciones de la sesión. El core lo
+      reabre con la contraseña que ya guarda, así que un documento con contraseña también
+      se imprime sin que el shell guarde ninguna. Sin verificar en dispositivo)**
 - [ ] T-091 Paste de bitmap desde portapapeles → stamp; rechazar URL-texto sin fetch. [ui-android, Clipboard]
 - [ ] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
       arrastre en split-screen. [ui-android, ShortcutsDnD]

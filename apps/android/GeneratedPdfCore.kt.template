@@ -78,6 +78,7 @@ import dev.vitela.pdf.uniffi.redo as ffiRedo
 import dev.vitela.pdf.uniffi.refreshPreview as ffiRefreshPreview
 import dev.vitela.pdf.uniffi.undo as ffiUndo
 import dev.vitela.pdf.uniffi.applyEdit as ffiApplyEdit
+import dev.vitela.pdf.uniffi.outputSnapshot as ffiOutputSnapshot
 import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
 import dev.vitela.pdf.uniffi.insertImageStamp as ffiInsertImageStamp
@@ -626,6 +627,12 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // Never acknowledged: this shell has no prompt yet that tells the user
         // a save breaks the file's signature, so the core refuses the save.
         PdfCoreResult.Success(ffiSaveToBytes(handle, FfiSaveIntent.DEFAULT, FfiSignatureAcknowledgement.UNACKNOWLEDGED))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun outputSnapshot(): PdfCoreResult<PdfDocument> = try {
+        PdfCoreResult.Success(GeneratedPdfDocument(ffiOutputSnapshot(handle)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }

@@ -65,7 +65,7 @@ class ViewerViewModel(
     private val compressing = Compressing(session)
     private val protecting = Protecting(session, ::reopenProtected)
     private val signing = Signing(session, { bytes, password -> openSigningCertificate(bytes, password) }, ::reopenSigned)
-    private val saving = DocumentSaving(session, core)
+    private val saving = DocumentSaving(session)
 
     /**
      * [saveTarget] is where **Save** may later write this document back to;
