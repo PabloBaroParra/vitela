@@ -120,13 +120,13 @@
 
         <TextBlock x:Name="AnnotationStatus" Grid.Row="2" TextWrapping="Wrap" />
 
-        <Grid Grid.Row="3" ColumnDefinitions="*,Auto">
-            <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="2" IsActive="False" Visibility="Collapsed" />
-            <StackPanel x:Name="EmptyState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+        <Grid x:Name="DocumentArea" Grid.Row="3" ColumnDefinitions="*,Auto,Auto" SizeChanged="DocumentArea_SizeChanged">
+            <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="3" IsActive="False" Visibility="Collapsed" />
+            <StackPanel x:Name="EmptyState" Grid.ColumnSpan="3" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
                 <TextBlock x:Name="EmptyStateMessage" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="Drop a PDF here to open it, or try the built-in sample." />
             </StackPanel>
-            <TextBlock x:Name="ErrorState" Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
+            <TextBlock x:Name="ErrorState" Grid.ColumnSpan="3" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
             <ScrollViewer
                 x:Name="PageScroller"
                 Grid.Column="0"
@@ -157,7 +157,19 @@
                     DragItemsStarting="OrganizeGrid_DragItemsStarting"
                     DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
             </Grid>
-            <ScrollViewer x:Name="DocumentSidebar" Grid.Column="1" Width="300" Margin="16,0,0,0"
+            <Thumb x:Name="SidebarDivider" Grid.Column="1" Width="16" Background="Transparent" IsTabStop="True" UseSystemFocusVisuals="True"
+                   AutomationProperties.Name="Resize document panels"
+                   ToolTipService.ToolTip="Drag to resize panels, or use Left and Right arrows when focused"
+                   DragDelta="SidebarDivider_DragDelta" KeyDown="SidebarDivider_KeyDown">
+                <Thumb.Template>
+                    <ControlTemplate TargetType="Thumb">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Border Width="2" HorizontalAlignment="Center" Background="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
+                        </Grid>
+                    </ControlTemplate>
+                </Thumb.Template>
+            </Thumb>
+            <ScrollViewer x:Name="DocumentSidebar" Grid.Column="2" Width="300"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                           AutomationProperties.Name="Document panels">
                 <StackPanel Spacing="8">
