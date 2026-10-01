@@ -671,7 +671,7 @@ private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation = whe
     is FfiAnnotationKind.Strikeout -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Strikeout, value.rect.toRect(), value.color.toColor())
     is FfiAnnotationKind.Ink -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Ink, null, value.color.toColor(), value.points.map { AnnotationPoint(it.x, it.y) })
     is FfiAnnotationKind.Shape -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Shape, value.rect.toRect(), value.color.toColor())
-    is FfiAnnotationKind.TextNote -> Annotation(id.toLong(), page.toInt(), AnnotationKind.TextNote, value.rect.toRect(), null)
+    is FfiAnnotationKind.TextNote -> Annotation(id.toLong(), page.toInt(), AnnotationKind.TextNote, value.rect.toRect(), null, contents = value.contents)
     is FfiAnnotationKind.Stamp -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Stamp, value.rect.toRect(), null)
 }
 
@@ -682,7 +682,7 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
         AnnotationKind.Strikeout -> FfiEditCommand.AddStrikeout(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
         AnnotationKind.Ink -> FfiEditCommand.AddInk(annotation.pageIndex.toUInt(), annotation.points.map { FfiPoint(it.x, it.y) }, requireNotNull(annotation.color).toFfi())
         AnnotationKind.Shape -> FfiEditCommand.AddShape(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
-        AnnotationKind.TextNote -> FfiEditCommand.AddTextNote(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), "Note")
+        AnnotationKind.TextNote -> FfiEditCommand.AddTextNote(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.contents))
         AnnotationKind.Stamp -> error("Use insertImageStamp for image-backed stamps")
     }
     is AnnotationEdit.Move -> FfiEditCommand.MoveAnnotation(id.toULong(), dx, dy)

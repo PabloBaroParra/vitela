@@ -104,6 +104,8 @@ data class ViewerState(
     val formFields: FormFieldsState? = null,
     /** Edit text mode, or null while page taps belong to the annotation tools. */
     val contentEdit: ContentEditState? = null,
+    /** The Note prompt, holding the rectangle the user chose, or null while it is closed. */
+    val notePlacement: NotePlacement? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )

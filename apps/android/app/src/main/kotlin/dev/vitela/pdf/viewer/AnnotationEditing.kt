@@ -1,7 +1,9 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationEdit
+import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
@@ -94,10 +96,34 @@ internal class AnnotationEditing(
                 return
             }
             insertImageStamp(pageIndex, image, origin)
+        } else if (tool == AnnotationTool.TextNote) {
+            // Nothing reaches the core yet: the prompt asks for the text first.
+            val rect = requireNotNull(placementAnnotation(tool, pageIndex, origin, current).rect)
+            state.value = state.value.copy(notePlacement = NotePlacement(pageIndex, rect))
         } else {
             applyEdit(AnnotationEdit.Add(placementAnnotation(tool, pageIndex, origin, current, points)))
         }
         state.value = state.value.copy(activeAnnotationTool = AnnotationTool.Pointer)
+    }
+
+    /**
+     * The Note prompt's **Add**: records the note with [text] exactly as typed,
+     * as one undoable edit. [documentId] is the document the prompt was built
+     * for — a prompt left over from a replaced document adds nothing — and a
+     * blank text keeps the prompt open, since a note must say something.
+     */
+    fun addNote(documentId: Long, text: String) {
+        val current = state.value
+        val placement = current.notePlacement ?: return
+        if (current.documentId != documentId || text.isBlank()) return
+        state.value = current.copy(notePlacement = null)
+        applyEdit(AnnotationEdit.Add(Annotation(0, placement.pageIndex, AnnotationKind.TextNote, placement.rect, null, contents = text)))
+    }
+
+    /** The Note prompt's **Cancel**: no annotation, no undo step. */
+    fun cancelNote() {
+        if (state.value.notePlacement == null) return
+        state.value = state.value.copy(notePlacement = null, status = NOTE_PLACEMENT_CANCELED)
     }
 
     fun selectImageStamp(bytes: ByteArray, prompt: String = "Tap a page to place the image stamp.") {
