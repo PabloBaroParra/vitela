@@ -63,6 +63,7 @@ internal fun ViewerScreen(
     onSave: () -> Unit,
     onSaveCopy: () -> Unit,
     onChooseStamp: () -> Unit,
+    onPasteStamp: () -> Unit,
     onReplacementConfirmed: () -> Unit,
     onReplacementCancelled: () -> Unit,
     onPositionChanged: (ReaderPosition) -> Unit,
@@ -208,6 +209,7 @@ internal fun ViewerScreen(
             TextButton(onClick = { onAnnotationTool(AnnotationTool.Shape) }, enabled = annotationControls.canCreate) { Text("Shape") }
             TextButton(onClick = { onAnnotationTool(AnnotationTool.TextNote) }, enabled = annotationControls.canCreate) { Text("Note") }
             TextButton(onClick = onChooseStamp, enabled = annotationControls.canCreate) { Text("Stamp") }
+            TextButton(onClick = onPasteStamp, enabled = annotationControls.canCreate) { Text("Paste") }
         }
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),

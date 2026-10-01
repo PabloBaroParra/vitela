@@ -426,6 +426,10 @@ class ViewerViewModel(
     fun placeAnnotation(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint> = emptyList()) =
         annotations.place(pageIndex, origin, current, points)
     fun selectImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes)
+    fun pasteImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes, PASTE_STAMP_PROMPT)
+    fun refusePaste(reason: String = CLIPBOARD_HAS_NO_IMAGE) {
+        _state.value = _state.value.copy(status = reason)
+    }
     fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) = annotations.moveSelected(origin, current)
     fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) = annotations.resizeSelected(corner, point)
     fun growSelected() = annotations.growSelected()
