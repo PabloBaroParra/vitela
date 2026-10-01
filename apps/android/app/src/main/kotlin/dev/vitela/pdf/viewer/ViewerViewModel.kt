@@ -253,6 +253,9 @@ class ViewerViewModel(
     fun goToPage(pageIndex: Int) = reader.goTo(pageIndex)
     fun zoomIn() = reader.zoomIn()
     fun zoomOut() = reader.zoomOut()
+    fun setZoom(zoomFactor: Double) = reader.setZoom(zoomFactor)
+    fun fitWidth() = reader.fitWidth()
+    fun fitPage() = reader.fitPage()
 
     // Save and print
     suspend fun printBytes(): ByteArray? = saving.printBytes()

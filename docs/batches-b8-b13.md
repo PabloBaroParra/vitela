@@ -1271,6 +1271,10 @@ Windows/C#). Paralelo con B9 y B10.
       página + invalidación por rotación; zoom custom por botones, con escalera discreta,
       re-render a DPI escalado, límite de píxeles y scroll horizontal, hecho; zoom fit-page
       y pinch siguen pendientes)**
+      **(2026-10-01 — hecho: pinch continuo (escala solo la imagen mientras los dedos están
+      apoyados y comitea un único zoom al soltar, anclado bajo los dedos) + botones Fit width
+      y Fit page; fit-page nunca pasa de fit-width y salta al tope de la página actual.
+      Sin verificar en dispositivo: el pinch no se puede manejar con `adb input`)**
 - [x] T-085 Prompt de contraseña en apertura encriptada + manejo de error. [ui-android, PwdPDF]
 - [ ] T-086 Selección de texto + búsqueda doc-wide con matches navegables. [ui-android, TextSelSearch]
       **(2026-07-26 — parcial: búsqueda doc-wide + matches navegables hechos; selección de
