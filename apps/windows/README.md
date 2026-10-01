@@ -33,6 +33,11 @@ Three rules make that affordable, and each exists because breaking it was slow:
 
 ## First vertical
 
+The document and editing toolbars wrap onto additional rows when the window
+narrows, keeping their controls reachable. Zoom, fit, history and search controls
+stay together as groups; keyboard shortcuts and tab order follow the same controls.
+Long document titles are truncated, while print status messages wrap.
+
 The current vertical opens a local PDF — either through the file picker or the
 **Open sample** button, which loads the shared sample document copied beside
 the executable as `Assets\vitela-sample.pdf` (see
