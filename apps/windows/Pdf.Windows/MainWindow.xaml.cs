@@ -715,6 +715,8 @@ public sealed partial class MainWindow : Window
         ErrorState.Visibility = Visibility.Collapsed;
         PageScroller.Visibility = Visibility.Collapsed;
         PageCounter.Text = "";
+        PageNavigationList.ItemsSource = null;
+        UpdatePageNavigationControls();
         ZoomLevel.Text = "";
     }
 
@@ -725,6 +727,7 @@ public sealed partial class MainWindow : Window
         ErrorState.Visibility = Visibility.Visible;
         EmptyState.Visibility = Visibility.Collapsed;
         PageScroller.Visibility = Visibility.Collapsed;
+        UpdatePageNavigationControls();
     }
 
     private void SetBusy(bool isBusy)
@@ -777,5 +780,6 @@ public sealed partial class MainWindow : Window
         // Only the busy half: whether a form may be filled is the fill
         // permission's answer, which each row already carries.
         FormFieldsScroller.IsEnabled = !_isBusy && _session is not null;
+        UpdatePageNavigationControls();
     }
 }

@@ -94,6 +94,7 @@ public sealed partial class MainWindow
         PageScroller.Visibility = Visibility.Visible;
         PageScroller.ChangeView(0, 0, 1, disableAnimation: true);
         PageScroller.UpdateLayout();
+        RebuildPageNavigation();
         LayoutPages(session);
         PageScroller.UpdateLayout();
         UpdateViewport(intermediate: false);
@@ -251,6 +252,7 @@ public sealed partial class MainWindow
             : visible.Expand(PrefetchWindow, _slots.Count);
         _firstVisiblePage = visible.First;
         PageCounter.Text = $"Page {visible.First + 1} of {_slots.Count}";
+        SyncPageNavigation();
         ZoomLevel.Text = DescribeZoom(_slots[visible.First].Factor);
 
         // Request renders even mid-scroll: the facade coalesces per-page

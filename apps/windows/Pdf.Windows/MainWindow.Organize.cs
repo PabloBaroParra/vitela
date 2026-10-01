@@ -82,6 +82,7 @@ public sealed partial class MainWindow
         OrganizeGrid.ItemsSource = _organizeCards;
         PageScroller.Visibility = Visibility.Collapsed;
         OrganizePanel.Visibility = Visibility.Visible;
+        UpdatePageNavigationControls();
         AnnotationStatus.Text = "Drag a page to move it. Changes are one undo step each.";
         BuildOrganizeCards();
         UpdateAnnotationControls(_annotationState);
@@ -102,6 +103,7 @@ public sealed partial class MainWindow
             PageScroller.Visibility = Visibility.Visible;
         }
 
+        SyncPageNavigation();
         UpdateAnnotationControls(_annotationState);
     }
 
@@ -113,6 +115,7 @@ public sealed partial class MainWindow
         OrganizeButton.IsChecked = false;
         OrganizePanel.Visibility = Visibility.Collapsed;
         _organizeCards.Clear();
+        UpdatePageNavigationControls();
     }
 
     /// <summary>

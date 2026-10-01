@@ -58,6 +58,12 @@ Press Enter in the search box to run the same search as **Find**.
 The search box indicates that matching is case-sensitive; while a query runs,
 the status names it, and an unsuccessful search reports which query found no matches.
 
+The **Pages** panel lists every page of the open document. Select a page to jump
+to it without searching; the selected row follows the page at the top of the
+viewport when scrolling or navigating through search results. The list uses the
+current zoom and page order, including after organizing or undo/redo. Navigation
+does not change the PDF or its history, and is disabled while organizing or busy.
+
 **Resize image** lists the content images on the page at the top of the viewport.
 Choose an image and enter its width and height in PDF points; its origin stays
 fixed. Resource images and inline images use the same Rust resize command.
