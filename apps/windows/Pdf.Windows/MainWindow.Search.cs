@@ -49,6 +49,7 @@ public sealed partial class MainWindow
         }
 
         var query = SearchBox.Text.Trim();
+        SetDocumentPanelsVisible(true);
         ClearSearchResults();
         if (query.Length == 0)
         {
