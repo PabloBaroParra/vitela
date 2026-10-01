@@ -55,6 +55,7 @@ public sealed partial class MainWindow
         SetContentEditMode(false);
         _placingFormField = kind;
         _armedAnnotation = null;
+        SyncAnnotationToolButtons();
         FormFieldsPanel.IsExpanded = true;
         FormFieldsStatus.Text = kind switch
         {

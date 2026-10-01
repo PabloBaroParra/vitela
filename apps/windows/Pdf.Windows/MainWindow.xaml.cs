@@ -583,6 +583,7 @@ public sealed partial class MainWindow : Window
         _pagesEdited = false;
         _viewerStale = false;
         _armedAnnotation = null;
+        SyncAnnotationToolButtons();
         _selectedAnnotationId = null;
         _annotationState = null;
         _pointerDrag = null;

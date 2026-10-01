@@ -46,13 +46,13 @@ public sealed partial class MainWindow
     private PointerDrag? _pointerDrag;
     private readonly StampPreviewCache<BitmapImage> _stampPreviews = new();
 
-    private void HighlightButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Highlight);
-    private void UnderlineButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Underline);
-    private void StrikeoutButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Strikeout);
-    private void ShapeButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Shape);
-    private void InkButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Ink);
-    private void NoteButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.TextNote);
-    private void StampButton_Click(object sender, RoutedEventArgs e) => Arm(AnnotationKind.Stamp);
+    private void HighlightButton_Click(object sender, RoutedEventArgs e) => Arm(HighlightButton.IsChecked == true ? AnnotationKind.Highlight : null);
+    private void UnderlineButton_Click(object sender, RoutedEventArgs e) => Arm(UnderlineButton.IsChecked == true ? AnnotationKind.Underline : null);
+    private void StrikeoutButton_Click(object sender, RoutedEventArgs e) => Arm(StrikeoutButton.IsChecked == true ? AnnotationKind.Strikeout : null);
+    private void ShapeButton_Click(object sender, RoutedEventArgs e) => Arm(ShapeButton.IsChecked == true ? AnnotationKind.Shape : null);
+    private void InkButton_Click(object sender, RoutedEventArgs e) => Arm(InkButton.IsChecked == true ? AnnotationKind.Ink : null);
+    private void NoteButton_Click(object sender, RoutedEventArgs e) => Arm(NoteButton.IsChecked == true ? AnnotationKind.TextNote : null);
+    private void StampButton_Click(object sender, RoutedEventArgs e) => Arm(StampButton.IsChecked == true ? AnnotationKind.Stamp : null);
     private void PointerButton_Click(object sender, RoutedEventArgs e) => Arm(null);
     private void PreviousAnnotationButton_Click(object sender, RoutedEventArgs e)
     {
@@ -168,13 +168,34 @@ public sealed partial class MainWindow
 
     private void Arm(AnnotationKind? kind)
     {
-        if (_annotationState?.EditingAllowed != true) return;
+        if (_annotationState?.EditingAllowed != true || _isBusy || _organizing)
+        {
+            SyncAnnotationToolButtons();
+            return;
+        }
         StopPlacingFormField();
         // One mode owns a page click at a time: arming a tool leaves content
         // editing, exactly as arming content editing disarms the tools.
         SetContentEditMode(false);
         _armedAnnotation = kind;
+        SyncAnnotationToolButtons();
         AnnotationStatus.Text = kind is null ? "Pointer mode." : $"{kind} armed. Drag on a page to place it.";
+    }
+
+    /// <summary>
+    /// Reflects the armed tool without creating a second owner of the mode.
+    /// Click handlers accept user changes; programmatic IsChecked updates do
+    /// not re-enter them when another mode or a completed placement disarms it.
+    /// </summary>
+    private void SyncAnnotationToolButtons()
+    {
+        HighlightButton.IsChecked = _armedAnnotation == AnnotationKind.Highlight;
+        UnderlineButton.IsChecked = _armedAnnotation == AnnotationKind.Underline;
+        StrikeoutButton.IsChecked = _armedAnnotation == AnnotationKind.Strikeout;
+        ShapeButton.IsChecked = _armedAnnotation == AnnotationKind.Shape;
+        InkButton.IsChecked = _armedAnnotation == AnnotationKind.Ink;
+        NoteButton.IsChecked = _armedAnnotation == AnnotationKind.TextNote;
+        StampButton.IsChecked = _armedAnnotation == AnnotationKind.Stamp;
     }
 
     private void ConnectAnnotationPointer(PageSlot slot, int pageIndex)
@@ -305,6 +326,7 @@ public sealed partial class MainWindow
         {
             await CommitPlacementAsync(pageIndex, tool, completed);
             _armedAnnotation = null;
+            SyncAnnotationToolButtons();
         }
         else if (completed.HandleCorner is { } corner && completed.Annotation?.Rect is { } bounds)
         {
@@ -471,6 +493,7 @@ public sealed partial class MainWindow
 
     private void UpdateAnnotationControls(AnnotationState? state)
     {
+        SyncAnnotationToolButtons();
         // Organizing hides the pages these tools draw on; only history stays live.
         var enabled = state?.EditingAllowed == true && !_organizing;
         var selected = _selectedAnnotationId is { } id
