@@ -215,6 +215,11 @@ placing a form field, organizing pages or opening another document also clears
 the active annotation tool. Choosing a tool does not change the PDF or its
 undo history.
 
+**Note** asks for text after you click or drag to choose its rectangle. Notes
+accept multiple lines; **Add** becomes available when the text is not blank.
+Cancel closes the prompt without creating an annotation or an undo step. Adding
+records one undoable edit through the core; save to keep the note.
+
 If Windows cancels a page gesture or the page loses pointer capture, its pending
 annotation drag or form-field placement is discarded without an undo step. An
 armed tool stays available for another attempt. Text selection stops extending
@@ -251,6 +256,30 @@ Facade behavior is checked without a WinUI runtime dependency:
 ```powershell
 dotnet run --project Pdf.Windows.Facade.Tests/Pdf.Windows.Facade.Tests.csproj
 ```
+
+## Note placement runtime smoke
+
+`Tests/NotePlacementSmoke.targets` replaces the app entry point with an opt-in
+WinUI harness. It exercises the real note dialog, cancel, blank validation,
+placement geometry, undo/redo, control restoration and stale-session guards.
+It writes `note-smoke.log` and `note-smoke.pdf` into the existing directory named
+by `VITELA_SMOKE_OUTPUT`. A successful process exit alone is not a pass: the log
+must start with `PASS`.
+
+From the repository root, build the harness with Visual Studio MSBuild:
+
+```powershell
+$env:VITELA_SMOKE_OUTPUT = $env:TEMP
+$env:PDFIUM_DYNAMIC_LIB_PATH = "$PWD\core\pdf-render\vendor\pdfium\bin\pdfium.dll"
+& $msbuild apps/windows/Pdf.Windows/Pdf.Windows.csproj -restore -p:Configuration=Release -p:Platform=x64 -p:RuntimeIdentifier=win-x64 -p:SelfContained=true -p:WindowsAppSDKSelfContained=true "-p:CustomAfterMicrosoftCommonTargets=$PWD\apps\windows\Tests\NotePlacementSmoke.targets"
+& ./apps/windows/Pdf.Windows/bin/x64/Release/net9.0-windows10.0.19041.0/win-x64/Pdf.Windows.exe
+```
+
+Here `$msbuild` is the Visual Studio MSBuild path resolved with `vswhere` above.
+The saved note's `/Contents` should be exactly `  First line\rSecond line  `,
+including the carriage return and two spaces at each end; inspect it with a PDF
+parser such as pypdf. Rebuild without `CustomAfterMicrosoftCommonTargets` to
+restore the normal app before packaging.
 
 ## Packaging and signing
 

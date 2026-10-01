@@ -377,8 +377,12 @@ public sealed partial class MainWindow
             await InsertStampFromImageBytesAsync(_session!.SessionId, (uint)pageIndex, rect, PlaceholderStampPng);
             return;
         }
-        var contents = tool == AnnotationKind.TextNote ? "Note" : null;
-        await ApplyEditAsync(new PdfCoreEdit.Add((PdfCoreAnnotationKind)tool, (uint)pageIndex, rect, new PdfCoreColor(DefaultAnnotationColor.R, DefaultAnnotationColor.G, DefaultAnnotationColor.B), Contents: contents));
+        if (tool == AnnotationKind.TextNote)
+        {
+            await PlaceTextNoteAsync((uint)pageIndex, rect);
+            return;
+        }
+        await ApplyEditAsync(new PdfCoreEdit.Add((PdfCoreAnnotationKind)tool, (uint)pageIndex, rect, new PdfCoreColor(DefaultAnnotationColor.R, DefaultAnnotationColor.G, DefaultAnnotationColor.B)));
     }
 
     /// <summary>
