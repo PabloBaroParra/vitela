@@ -46,6 +46,13 @@ and selections; the visibility choice survives opening another document. Running
 a search opens the column again to display its status and results. This is a
 window layout choice and does not change the PDF or its undo history.
 
+Drag the divider beside the panels to adjust their width, or focus it with Tab
+and press Left to widen or Right to narrow them. The width ranges from 300 to
+600 DIPs, leaving at least 240 DIPs for the document when the window has room.
+A smaller window temporarily limits the panel width; expanding it restores the
+requested width. Hiding the panels or opening another document also preserves
+the width for this window.
+
 The current vertical opens a local PDF — either through the file picker or the
 **Open sample** button, which loads the shared sample document copied beside
 the executable as `Assets\vitela-sample.pdf` (see
