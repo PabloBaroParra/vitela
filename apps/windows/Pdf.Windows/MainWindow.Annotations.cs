@@ -26,19 +26,6 @@ public sealed partial class MainWindow
     private const double MinTracedPt = 4.0;
     /// <summary>Corner-handle size and grab radius in screen pixels — matches the Linux shell's HANDLE_PX.</summary>
     private const double HandleReachPx = 8.0;
-    /// <summary>
-    /// A 1×1 opaque PNG so the Stamp button has something valid to stamp
-    /// without a file picker — <c>insert_image_stamp</c> decodes it to read the
-    /// alpha channel, so a placeholder still has to be a real image. Same
-    /// bytes as the Linux shell's PLACEHOLDER_STAMP_PNG; replace with a real
-    /// image-picker flow once one lands there too.
-    /// </summary>
-    private static readonly byte[] PlaceholderStampPng =
-    [
-        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0,
-        0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 0, 0, 3, 1, 1,
-        0, 24, 221, 141, 176, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
-    ];
 
     private AnnotationKind? _armedAnnotation;
     private AnnotationState? _annotationState;
@@ -374,7 +361,7 @@ public sealed partial class MainWindow
         var rect = NormalizedRect(completed.Origin, completed.Current, tool);
         if (tool == AnnotationKind.Stamp)
         {
-            await InsertStampFromImageBytesAsync(_session!.SessionId, (uint)pageIndex, rect, PlaceholderStampPng);
+            await PlaceImageStampAsync((uint)pageIndex, rect);
             return;
         }
         if (tool == AnnotationKind.TextNote)
