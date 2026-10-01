@@ -2,9 +2,29 @@
 
 This Jetpack Compose baseline opens a PDF with the Storage Access Framework,
 retries password-protected opens, reads the document as one continuously
-scrolling page list, searches text, and delegates printing of the selected
-source PDF to Android's print framework. It uses the byte-oriented `pdf-ffi`
+scrolling page list, searches text, and prints through Android's print
+framework (see [Printing](#printing)). It uses the byte-oriented `pdf-ffi`
 UniFFI API exclusively.
+
+## Printing
+
+`PdfPrintDocumentAdapter` rasterizes the pages the print dialog asks for, at a
+fixed 300 DPI (as GTK and Windows do), onto a `PrintedPdfDocument` and hands
+that to the spooler; it honours the requested page range and reports the real
+page count. Each page is scaled to the sheet's content area, aspect preserved
+and centred. A page the core cannot render (over its raster ceiling) is left
+blank rather than failing the job.
+
+The pages are not rendered from the document on screen: its render preview
+leaves the session's annotations out (the shell overlays them), so a print
+would lose unsaved ones. `ViewerViewModel.printDocument()` instead saves a
+snapshot (every applied edit and annotation) and opens it as a throwaway
+document, which the adapter owns and closes in `onFinish`. A password-protected
+document is refused with a status message: the shell keeps no password, so the
+snapshot cannot be reopened, and encrypted bytes are never sent to the spooler.
+The range and fit-and-centre maths live in
+[`print/PrintPages.kt`](app/src/main/kotlin/dev/vitela/pdf/print/PrintPages.kt),
+free of `android.*` so the JVM tests cover them.
 
 ## Continuous reader
 

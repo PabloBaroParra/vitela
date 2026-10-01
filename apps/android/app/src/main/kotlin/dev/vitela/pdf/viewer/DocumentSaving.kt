@@ -1,6 +1,9 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.PdfCore
+import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SaveSnapshot
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
@@ -8,19 +11,42 @@ import kotlinx.coroutines.withContext
 
 /**
  * Serializes the open document for Save, Save copy, and Print. The shell
- * writes the bytes; this owns the snapshot and whether a finished write
+ * writes the bytes (or rasterizes the print copy); this owns the snapshot and whether a finished write
  * still belongs to the document on screen.
  */
-internal class DocumentSaving(private val session: ViewerSession, private val sourceBytes: () -> ByteArray?) {
+internal class DocumentSaving(private val session: ViewerSession, private val core: PdfCore?) {
     private val state = session.state
 
-    /** Bytes for printing/sharing, recomputed to include every applied annotation edit. */
-    suspend fun printBytes(): ByteArray? {
-        return session.documentLane.withLock {
-            val openDocument = session.document ?: return@withLock sourceBytes()
+    /**
+     * A throwaway copy of the document for the print job to rasterize, opened
+     * from a fresh snapshot (every applied edit, annotations included) rather
+     * than the live document, whose render preview leaves annotations out.
+     * The caller owns it and must close it. Null, with the reason in the
+     * status, when there is nothing to print or the snapshot cannot be opened
+     * — never a fallback to the source file, which predates the edits.
+     */
+    suspend fun printDocument(): PdfDocument? {
+        val snapshot = session.documentLane.withLock {
+            val openDocument = session.document ?: return@withLock null
             when (val result = withContext(session.compute) { openDocument.saveToBytes() }) {
                 is PdfCoreResult.Success -> result.value
-                is PdfCoreResult.Failure -> sourceBytes()
+                is PdfCoreResult.Failure -> {
+                    state.value = state.value.copy(status = userMessage(result.error))
+                    null
+                }
+            }
+        } ?: return null
+        val availableCore = core ?: return null
+        // No password: the shell keeps none, so an encrypted snapshot cannot be reopened and must not be printed.
+        return when (val result = withContext(session.compute) { availableCore.openFromBytes(snapshot, null) }) {
+            is PdfCoreResult.Success -> result.value
+            is PdfCoreResult.Failure -> {
+                val message = when (result.error) {
+                    PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> "Printing a password-protected document is not supported yet."
+                    is PdfCoreError.Failed -> result.error.message
+                }
+                state.value = state.value.copy(status = message)
+                null
             }
         }
     }
