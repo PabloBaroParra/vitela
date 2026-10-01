@@ -27,12 +27,6 @@ internal data class AnnotationControls(
     companion object { val disabled = AnnotationControls(false, false, false, false, false, false, false) }
 }
 
-internal fun screenToPdf(point: AnnotationPoint, pageHeightPt: Double, scale: Double) =
-    AnnotationPoint(point.x / scale, pageHeightPt - point.y / scale)
-
-internal fun pdfToScreen(point: AnnotationPoint, pageHeightPt: Double, scale: Double) =
-    AnnotationPoint(point.x * scale, (pageHeightPt - point.y) * scale)
-
 internal fun placementAnnotation(tool: AnnotationTool, pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint> = emptyList()): Annotation {
     val rect = AnnotationRect(
         minOf(origin.x, current.x),

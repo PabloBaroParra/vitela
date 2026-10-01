@@ -13,14 +13,6 @@ import org.junit.Test
 
 class AnnotationsTest {
     @Test
-    fun composePdfConversion_flipsTheBottomLeftPdfAxisAtAnyZoom() {
-        val point = screenToPdf(AnnotationPoint(150.0, 75.0), pageHeightPt = 792.0, scale = 1.5)
-        assertEquals(100.0, point.x, 0.0)
-        assertEquals(742.0, point.y, 0.0)
-        assertEquals(AnnotationPoint(150.0, 75.0), pdfToScreen(point, pageHeightPt = 792.0, scale = 1.5))
-    }
-
-    @Test
     fun placement_createsMarkupAndFreehandWithNormalizedPdfGeometry() {
         val highlight = placementAnnotation(AnnotationTool.Highlight, 4, AnnotationPoint(300.0, 400.0), AnnotationPoint(120.0, 340.0))
         val ink = placementAnnotation(AnnotationTool.Ink, 4, AnnotationPoint(10.0, 20.0), AnnotationPoint(30.0, 40.0), listOf(AnnotationPoint(10.0, 20.0), AnnotationPoint(30.0, 40.0)))

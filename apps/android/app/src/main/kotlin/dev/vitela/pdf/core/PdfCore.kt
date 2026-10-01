@@ -4,8 +4,21 @@ data class RenderedPage(val width: Int, val height: Int, val stride: Int, val rg
 
 data class SearchHit(val pageIndex: Int, val text: String, val characterBounds: List<TextRect> = emptyList())
 
-/** A page's media box, in PDF points. */
-data class PageSize(val widthPt: Double, val heightPt: Double)
+/** The clockwise quarter-turn a page is drawn with — its `/Rotate`, as the core reports it. */
+enum class PageRotation { None, Clockwise90, Clockwise180, Clockwise270 }
+
+/**
+ * A page's media box, in PDF points, **as drawn**: a quarter [rotation] has
+ * already swapped its two sides. Everything *on* the page — text runs, images,
+ * fields, annotations, taps — lives in the [unrotated] space instead, so the
+ * two travel together; [dev.vitela.pdf.viewer.PagePlacement] maps between them.
+ */
+data class PageSize(val widthPt: Double, val heightPt: Double, val rotation: PageRotation = PageRotation.None) {
+    val isQuarterTurned get() = rotation == PageRotation.Clockwise90 || rotation == PageRotation.Clockwise270
+
+    /** The size content rects are measured against: the drawn size with a quarter turn's swap undone. */
+    val unrotated get() = if (isQuarterTurned) PageSize(heightPt, widthPt) else PageSize(widthPt, heightPt)
+}
 
 /** One file a split creates: zero-based pages [first] to [last], inclusive, written as [fileName]. */
 data class SplitPart(val first: Int, val last: Int, val fileName: String)
