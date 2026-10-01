@@ -17,6 +17,8 @@ data class Annotation(
     val rect: AnnotationRect?,
     val color: AnnotationColor?,
     val points: List<AnnotationPoint> = emptyList(),
+    /** A Note's text, as typed; null for every other kind. */
+    val contents: String? = null,
 )
 
 sealed interface AnnotationEdit {

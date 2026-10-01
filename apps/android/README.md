@@ -133,6 +133,13 @@ draws, while an unselected pointer drag remains available to scroll the page
 list. Image stamps are picked through SAF and use the core's placement policy,
 so Android does not invent its own aspect-ratio or anchor rules.
 
+**Note** asks for text after the tap or drag chooses its rectangle, like the
+Windows shell. Notes accept multiple lines and the text is kept exactly as
+typed; **Add** stays disabled while it is blank. Cancel closes the prompt
+without creating an annotation or an undo step. Adding records one undoable
+edit through the core; save to keep the note. The prompt carries the document
+it was opened for, so an answer can never land in a document that replaced it.
+
 All annotation mutations, undo/redo, byte snapshots, and document replacement
 are serialized by `ViewerViewModel`. **Save** writes a complete annotated
 snapshot back over the file that was opened; **Save copy** writes one through

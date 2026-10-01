@@ -425,6 +425,8 @@ class ViewerViewModel(
         annotations.handlePageGesture(pageIndex, origin, current, points, handleReach)
     fun placeAnnotation(pageIndex: Int, origin: AnnotationPoint, current: AnnotationPoint, points: List<AnnotationPoint> = emptyList()) =
         annotations.place(pageIndex, origin, current, points)
+    fun addNote(documentId: Long, text: String) = annotations.addNote(documentId, text)
+    fun cancelNote() = annotations.cancelNote()
     fun selectImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes)
     fun pasteImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes, PASTE_STAMP_PROMPT)
     fun refusePaste(reason: String = CLIPBOARD_HAS_NO_IMAGE) {

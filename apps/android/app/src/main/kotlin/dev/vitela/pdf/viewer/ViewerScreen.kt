@@ -71,6 +71,8 @@ internal fun ViewerScreen(
     onAnnotationRevealConsumed: () -> Unit,
     onAnnotationStep: (forward: Boolean) -> Unit,
     onAnnotationTool: (AnnotationTool) -> Unit,
+    onNoteAdd: (Long, String) -> Unit,
+    onNoteCancel: () -> Unit,
     onAnnotationGesture: (Int, dev.vitela.pdf.core.AnnotationPoint, dev.vitela.pdf.core.AnnotationPoint, List<dev.vitela.pdf.core.AnnotationPoint>, Double) -> Unit,
     onAnnotationColor: (dev.vitela.pdf.core.AnnotationColor) -> Unit,
     onAnnotationGrow: () -> Unit,
@@ -314,6 +316,9 @@ internal fun ViewerScreen(
     }
     state.contentEdit?.inserter?.let { inserter ->
         TextInserterDialog(inserter, state.documentId, contentEdit)
+    }
+    state.notePlacement?.let { placement ->
+        NoteDialog(placement, state.documentId, onAdd = onNoteAdd, onCancel = onNoteCancel)
     }
     state.metadataEditor?.let { editor ->
         MetadataDialog(editor, onChange = onMetadataChange, onApply = onMetadataApply, onDismiss = onMetadataDismiss)
