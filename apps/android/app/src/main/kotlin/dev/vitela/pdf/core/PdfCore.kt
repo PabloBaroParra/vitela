@@ -135,6 +135,12 @@ interface PdfDocument : AutoCloseable {
      */
     fun removeTextRun(run: ContentTextRun): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
+     * Queues one undoable move of [run] to [to], the same box somewhere else
+     * on its page; its text, font and size are kept. The core reads only the
+     * box's origin. The page shows it only after [refreshPreview].
+     */
+    fun moveTextRun(run: ContentTextRun, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
      * Queues one undoable change to the box [image] fills, to [to]; the image
      * is stretched to it. The page shows it only after [refreshPreview].
      */

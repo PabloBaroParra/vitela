@@ -1,13 +1,17 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.core.PdfDocument
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * The text half of Edit content: retyping or deleting the run the open
- * editor holds. [content] owns the mode and lands each accepted edit.
+ * The text half of Edit content: retyping, moving or deleting the run the
+ * open editor holds. [content] owns the mode, routes the page tap that places
+ * an armed move, and lands each accepted edit.
  */
 internal class TextRunEditing(
     private val session: ViewerSession,
@@ -67,6 +71,47 @@ internal class TextRunEditing(
                 when (val result = withContext(session.compute) { openDocument.removeTextRun(run) }) {
                     // The core no longer reports the run, so its outline goes too.
                     is PdfCoreResult.Success -> content.landed(openDocument, run.pageIndex, TEXT_DELETED)
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
+                }
+            }
+        }
+    }
+
+    /**
+     * Swaps the open editor for an armed move of its run, for the document
+     * [documentId] the dialog was built for: the next page tap places it.
+     */
+    fun armMove(documentId: Long) {
+        if (documentId != state.value.documentId) return
+        val mode = state.value.contentEdit ?: return
+        val run = mode.editor?.run ?: return
+        state.value = state.value.copy(contentEdit = mode.copy(editor = null, moving = ContentTarget.Run(run)), status = textMovePrompt(run.pageIndex))
+    }
+
+    /**
+     * Moves [run] so its top-left corner lands on the tap at [point], keeping
+     * its text, font and size. A tap on another page moves nothing —
+     * `MoveTextRun` carries a box, not a page — and leaves the move armed.
+     * Spent before the core answers, like an image's move: one tap, one edit.
+     */
+    fun move(openDocument: PdfDocument, run: ContentTextRun, pageIndex: Int, point: AnnotationPoint) {
+        if (pageIndex != run.pageIndex) {
+            state.value = state.value.copy(status = textMovePrompt(run.pageIndex))
+            return
+        }
+        val mode = state.value.contentEdit ?: return
+        val to = movedRect(run.bounds, point)
+        state.value = state.value.copy(
+            contentEdit = mode.copy(moving = null),
+            status = if (to == run.bounds) TEXT_POSITION_UNCHANGED else state.value.status,
+        )
+        if (to == run.bounds) return
+        session.scope.launch {
+            session.documentLane.withLock {
+                if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
+                when (val result = withContext(session.compute) { openDocument.moveTextRun(run, to) }) {
+                    // The outline follows the core's word for where the run now is.
+                    is PdfCoreResult.Success -> content.landed(openDocument, run.pageIndex, TEXT_MOVED)
                     is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                 }
             }

@@ -101,7 +101,7 @@ internal class ContentInserting(
     private fun arm(addition: ContentAddition, prompt: String) {
         val mode = state.value.contentEdit ?: return
         state.value = state.value.copy(
-            contentEdit = mode.copy(adding = addition, movingImage = null, editor = null, resizer = null, inserter = null),
+            contentEdit = mode.copy(adding = addition, moving = null, editor = null, resizer = null, inserter = null),
             status = prompt,
         )
     }

@@ -371,12 +371,15 @@ class ViewerViewModel(
     /** Deletes the open dialog's run; [documentId] is the document the dialog was built for. */
     fun deleteTextRun(documentId: Long) = contentEditing.text.deleteText(documentId)
     fun dismissTextRunEditor() = contentEditing.text.dismissEditor()
+    /** Swaps the retype dialog for an armed move of its run; [documentId] is the document the dialog was built for. */
+    fun armTextMove(documentId: Long) = contentEditing.text.armMove(documentId)
     /** Resizes the open resizer's image to the typed size, in points; [documentId] is the document the dialog was built for. */
     fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.images.resize(documentId, width, height)
     fun dismissImageResizer() = contentEditing.images.dismissResizer()
     /** Swaps the resize dialog for an armed move of its image; [documentId] is the document the dialog was built for. */
     fun armImageMove(documentId: Long) = contentEditing.images.armMove(documentId)
-    fun cancelImageMove() = contentEditing.images.cancelMove()
+    /** Disarms a move of a run or an image. */
+    fun cancelContentMove() = contentEditing.cancelMove()
     /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
     fun deleteImage(documentId: Long) = contentEditing.images.delete(documentId)
     /** Checks the open dialog's image can be replaced; true means open the picker. [documentId] is the document the dialog was built for. */

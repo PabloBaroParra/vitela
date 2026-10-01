@@ -293,11 +293,12 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onTap = viewModel::tapContent,
                 onRetype = viewModel::retypeTextRun,
                 onDeleteText = viewModel::deleteTextRun,
+                onMoveText = viewModel::armTextMove,
                 onDismiss = viewModel::dismissTextRunEditor,
                 onResize = viewModel::resizeImage,
                 onDismissResizer = viewModel::dismissImageResizer,
                 onMove = viewModel::armImageMove,
-                onCancelMove = viewModel::cancelImageMove,
+                onCancelMove = viewModel::cancelContentMove,
                 onDelete = viewModel::deleteImage,
                 // The core decodes PNG and JPEG; anything else is refused when it lands.
                 onReplace = { documentId -> scope.launch { if (viewModel.prepareImageReplacement(documentId)) chooseReplacementImage.launch("image/*") } },
