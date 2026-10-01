@@ -22,7 +22,7 @@ public partial class App : Application
         try
         {
             await _window.NotePlacementSmokeAsync(output);
-            File.WriteAllText(Path.Combine(output, "note-smoke.log"), "PASS blank validation; cancel without history; multiline placement; undo/redo; saved PDF; stale session; forbidden/busy/organize guards.");
+            File.WriteAllText(Path.Combine(output, "note-smoke.log"), "PASS blank validation; cancel without history; multiline placement; undo/redo; saved PDF; read pending/saved/empty/restricted session notes without history; reading guards; stale session; forbidden/busy/organize guards.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "note-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -68,6 +68,8 @@ public sealed partial class MainWindow
         var note = _annotationState.Annotations[^1];
         if (note.Kind != AnnotationKind.TextNote || note.Rect != new AnnotationRect(40, 80, 100, 40))
             throw new Exception("Placement lost note kind or traced geometry.");
+        if (note.Contents != text.Text) throw new Exception("Native snapshot lost pending note contents.");
+        await CheckNoteReadingAsync(note, text.Text);
         await ApplyHistoryAsync(true);
         if (_annotationState!.Annotations.Count != before.Annotations.Count || _annotationState.CanUndo != before.CanUndo)
             throw new Exception("One undo did not restore the initial state.");
@@ -77,6 +79,33 @@ public sealed partial class MainWindow
         var saved = await _facade.SaveToDestinationAsync(_session.SessionId, bytes =>
             File.WriteAllBytesAsync(Path.Combine(output, "note-smoke.pdf"), bytes));
         if (!saved.IsSuccess) throw new Exception(saved.Error!.Message);
+
+        await RefreshAnnotationStateAsync();
+        note = _annotationState!.Annotations.Single(annotation => annotation.Kind == AnnotationKind.TextNote && annotation.Contents == "  First line\rSecond line  ");
+        await CheckNoteReadingAsync(note, note.Contents!);
+        _annotationState = _annotationState with { EditingAllowed = false };
+        await CheckNoteReadingAsync(note, note.Contents!);
+        _annotationState = _annotationState with
+        {
+            Annotations = _annotationState.Annotations.Select(annotation => annotation.Id == note.Id ? annotation with { Contents = string.Empty } : annotation).ToArray(),
+        };
+        await CheckNoteReadingAsync(note, string.Empty);
+        _selectedAnnotationId = null;
+        UpdateAnnotationControls(_annotationState);
+        if (ReadNoteButton.IsEnabled) throw new Exception("Read enabled without selection.");
+        await ReadSelectedNoteAsync();
+        _selectedAnnotationId = note.Id;
+        _isBusy = true;
+        UpdateAnnotationControls(_annotationState);
+        if (ReadNoteButton.IsEnabled) throw new Exception("Read enabled while busy.");
+        await ReadSelectedNoteAsync();
+        _isBusy = false;
+        _organizing = true;
+        UpdateAnnotationControls(_annotationState);
+        if (ReadNoteButton.IsEnabled) throw new Exception("Read enabled while organizing.");
+        await ReadSelectedNoteAsync();
+        _organizing = false;
+        await OpenDocumentAsync("Placement guards", await File.ReadAllBytesAsync(SamplePath));
 
         placement = CommitPlacementAsync(0, AnnotationKind.TextNote, drag);
         dialog = await WaitForNoteDialogAsync(dialog);
@@ -100,13 +129,34 @@ public sealed partial class MainWindow
         if (_dialogOpen || _annotationState.CanUndo) throw new Exception("Guard opened a prompt or edited history.");
     }
 
-    private async Task<ContentDialog> WaitForNoteDialogAsync(ContentDialog? previous = null)
+    private async Task CheckNoteReadingAsync(Annotation note, string expected)
+    {
+        _selectedAnnotationId = note.Id;
+        UpdateAnnotationControls(_annotationState);
+        if (!ReadNoteButton.IsEnabled) throw new Exception("Selected note cannot be read.");
+        var before = _annotationState!;
+        var reading = ReadSelectedNoteAsync();
+        var dialog = await WaitForNoteDialogAsync(title: $"Note — page {note.PageIndex + 1}");
+        var text = (TextBox)dialog.Content;
+        if (!text.IsReadOnly || !text.AcceptsReturn || text.Text != expected || dialog.Title?.ToString() != $"Note — page {note.PageIndex + 1}")
+            throw new Exception($"Reading mismatch: readOnly={text.IsReadOnly}, multiline={text.AcceptsReturn}, title={dialog.Title}, actual=[{string.Join(',', text.Text.Select(c => (int)c))}], expected=[{string.Join(',', expected.Select(c => (int)c))}].");
+        await ReadSelectedNoteAsync(); // A second request must not open a second modal.
+        dialog.Hide();
+        await reading;
+        await WaitForAsync(() => !VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)
+            .Any(popup => FindNoteDialog(popup.Child) == dialog));
+        var after = (await _facade.AnnotationStateAsync(_session!.SessionId)).Value!;
+        if (_dialogOpen || after.CanUndo != before.CanUndo || after.CanRedo != before.CanRedo || after.Annotations.Count != before.Annotations.Count)
+            throw new Exception("Reading changed history or left a modal open.");
+    }
+
+    private async Task<ContentDialog> WaitForNoteDialogAsync(ContentDialog? previous = null, string? title = null)
     {
         ContentDialog? dialog = null;
         await WaitForAsync(() =>
         {
             dialog = VisualTreeHelper.GetOpenPopupsForXamlRoot(Content.XamlRoot)
-                .Select(popup => FindNoteDialog(popup.Child)).FirstOrDefault(item => item is not null && item != previous);
+                .Select(popup => FindNoteDialog(popup.Child)).FirstOrDefault(item => item is not null && item != previous && (title is null || item.Title?.ToString() == title));
             return dialog is not null;
         });
         return dialog!;

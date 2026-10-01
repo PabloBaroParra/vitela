@@ -220,6 +220,15 @@ accept multiple lines; **Add** becomes available when the text is not blank.
 Cancel closes the prompt without creating an annotation or an undo step. Adding
 records one undoable edit through the core; save to keep the note.
 
+Select a note created in the current session with **Previous annotation** or
+**Next annotation**, then choose
+**Read note** to view its multiline text in a read-only dialog. Reading also works
+when annotation editing is forbidden, and does not change the PDF or its history.
+The dialog preserves the core's text, including blank note snapshots. Saving
+keeps session notes available to read. After closing and reopening a PDF, existing
+annotations are preserved in the file but are not yet listed by the core's session
+snapshot, so this control cannot select those notes.
+
 If Windows cancels a page gesture or the page loses pointer capture, its pending
 annotation drag or form-field placement is discarded without an undo step. An
 armed tool stays available for another attempt. Text selection stops extending
@@ -262,6 +271,8 @@ dotnet run --project Pdf.Windows.Facade.Tests/Pdf.Windows.Facade.Tests.csproj
 `Tests/NotePlacementSmoke.targets` replaces the app entry point with an opt-in
 WinUI harness. It exercises the real note dialog, cancel, blank validation,
 placement geometry, undo/redo, control restoration and stale-session guards.
+It also reads pending and saved session notes through the native snapshot adapter,
+including empty and read-only snapshots, without adding history.
 It writes `note-smoke.log` and `note-smoke.pdf` into the existing directory named
 by `VITELA_SMOKE_OUTPUT`. A successful process exit alone is not a pass: the log
 must start with `PASS`.
