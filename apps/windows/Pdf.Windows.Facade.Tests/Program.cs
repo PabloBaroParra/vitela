@@ -84,6 +84,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("discards a tile batch the viewport superseded", DiscardsSupersededTileBatchAsync)
     ,("discards a tile batch after the document session changes", DiscardsTileBatchAfterSessionSwapAsync)
     ,("records annotation edits in core history", RecordsAnnotationEditsInCoreHistoryAsync)
+    ,("keeps stationary ink gestures as one sample and preserves real strokes", InkPointerTraceTests.RunAsync)
     ,("publishes restyled annotation colors", PublishesRestyledAnnotationColorAsync)
     ,("steps backward through annotations without changing the document", StepsBackwardThroughAnnotations)
     ,("refuses annotation edits when permissions deny them", RefusesForbiddenAnnotationEditsAsync)

@@ -247,7 +247,7 @@ public sealed partial class MainWindow
         {
             _pointerDrag = new PointerDrag(pageIndex, point, null, kind, null)
             {
-                Points = kind == AnnotationKind.Ink ? [point] : null,
+                Trace = kind == AnnotationKind.Ink ? new InkPointerTrace(point) : null,
             };
             claimed = true;
         }
@@ -307,7 +307,7 @@ public sealed partial class MainWindow
         if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return false;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _pointerDrag = drag with { Current = point };
-        drag.Points?.Add(point);
+        drag.Trace?.Append(point);
         RedrawAnnotations();
         return true;
     }
@@ -318,7 +318,7 @@ public sealed partial class MainWindow
         if (_pointerDrag is not { PageIndex: var dragPage } drag || dragPage != pageIndex) return false;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _pointerDrag = drag with { Current = point };
-        drag.Points?.Add(point);
+        drag.Trace?.Append(point);
         slot.Annotations.ReleasePointerCapture(args.Pointer);
         var completed = _pointerDrag.Value;
         _pointerDrag = null;
@@ -352,7 +352,7 @@ public sealed partial class MainWindow
     {
         if (tool == AnnotationKind.Ink)
         {
-            if (completed.Points is not { Count: >= 2 } points)
+            if (completed.Trace?.Points is not { Count: >= 2 } points)
             {
                 AnnotationStatus.Text = "Ink needs a drag, not a tap.";
                 return;
@@ -662,7 +662,7 @@ public sealed partial class MainWindow
         if (_pointerDrag is { Tool: { } tool } toolDrag)
         {
             var slot = _slots[toolDrag.PageIndex];
-            if (tool == AnnotationKind.Ink && toolDrag.Points is { Count: > 0 } points)
+            if (tool == AnnotationKind.Ink && toolDrag.Trace?.Points is { Count: > 0 } points)
             {
                 DrawInkStroke(slot, (uint)toolDrag.PageIndex, points, GoldenrodAnnotationColor, selected: false);
             }
@@ -766,6 +766,6 @@ public sealed partial class MainWindow
     {
         public AnnotationPoint Current { get; init; } = Origin;
         /// <summary>Accumulated trace for an in-progress <c>Ink</c> placement; unused otherwise.</summary>
-        public List<AnnotationPoint>? Points { get; init; }
+        public InkPointerTrace? Trace { get; init; }
     }
 }
