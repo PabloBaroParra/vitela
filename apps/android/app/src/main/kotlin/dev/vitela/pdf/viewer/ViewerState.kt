@@ -115,7 +115,8 @@ data class ViewerState(
  * centre of gravity are genuinely different questions. [viewportWidthPx] is
  * the width a page slot occupies, which is what fit-to-width rasterizes
  * against — it changes on rotation, and every cached bitmap is stale when it
- * does.
+ * does. [viewportHeightPx] renders nothing; it is only what fit-page fits to,
+ * and zero until the reader has been measured.
  */
 data class ReaderPosition(
     val first: Int,
@@ -123,6 +124,7 @@ data class ReaderPosition(
     val current: Int,
     val viewportWidthPx: Int,
     val zoomFactor: Double,
+    val viewportHeightPx: Int = 0,
 )
 
 internal fun boundedPageIndex(pageIndex: Int, pageCount: Int): Int =
@@ -153,6 +155,20 @@ private const val ZOOM_EPSILON = 1e-9
 
 internal fun clampZoomFactor(factor: Double): Double =
     if (factor.isFinite()) factor.coerceIn(MIN_ZOOM_FACTOR, MAX_ZOOM_FACTOR) else DEFAULT_ZOOM_FACTOR
+
+/**
+ * The zoom at which [size] is drawn whole inside the viewport. A page already
+ * whole at fit-to-width stays there: zooming further would push its sides off
+ * screen, which is the opposite of fitting it. Null while there is no page or
+ * no measured viewport to fit to.
+ */
+internal fun fitPageZoomFactor(size: PageSize?, viewportWidthPx: Int, viewportHeightPx: Int): Double? {
+    if (size == null || size.widthPt <= 0.0 || size.heightPt <= 0.0) return null
+    if (viewportWidthPx <= 0 || viewportHeightPx <= 0) return null
+    // At factor 1 the page is viewportWidthPx wide and so this tall.
+    val fitToWidthHeightPx = viewportWidthPx * size.heightPt / size.widthPt
+    return clampZoomFactor(minOf(DEFAULT_ZOOM_FACTOR, viewportHeightPx / fitToWidthHeightPx))
+}
 
 /** Returns the next explicit zoom-in rung, including when the current factor is between rungs. */
 internal fun zoomIn(factor: Double): Double {

@@ -1,8 +1,11 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.PageRotation
+import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.SaveSnapshot
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,6 +37,24 @@ class ViewerStateTest {
         assertEquals(MIN_ZOOM_FACTOR, clampZoomFactor(0.001), 0.0)
         assertEquals(MAX_ZOOM_FACTOR, clampZoomFactor(99.0), 0.0)
         assertEquals(DEFAULT_ZOOM_FACTOR, clampZoomFactor(Double.NaN), 0.0)
+    }
+
+    @Test
+    fun fitPage_fitsTheDrawnPageHeightAndNeverPassesFitToWidth() {
+        // A portrait page twice as tall as wide: 1000 px wide is 2000 px tall.
+        assertEquals(0.6, fitPageZoomFactor(PageSize(100.0, 200.0), 1000, 1200)!!, 1e-9)
+        // A quarter-turned page is drawn landscape, so it already fits at width.
+        assertEquals(DEFAULT_ZOOM_FACTOR, fitPageZoomFactor(PageSize(200.0, 100.0, PageRotation.Clockwise90), 1000, 1200)!!, 0.0)
+        // A sliver of a viewport still clamps to the smallest rung.
+        assertEquals(MIN_ZOOM_FACTOR, fitPageZoomFactor(PageSize(100.0, 200.0), 1000, 10)!!, 0.0)
+    }
+
+    @Test
+    fun fitPage_hasNoAnswerWithoutAPageOrAViewport() {
+        assertNull(fitPageZoomFactor(null, 1000, 1200))
+        assertNull(fitPageZoomFactor(PageSize(100.0, 0.0), 1000, 1200))
+        assertNull(fitPageZoomFactor(PageSize(100.0, 200.0), 1000, 0))
+        assertNull(fitPageZoomFactor(PageSize(100.0, 200.0), 0, 1200))
     }
 
     @Test

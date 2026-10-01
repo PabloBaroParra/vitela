@@ -164,6 +164,24 @@ internal class ViewerReader(private val session: ViewerSession) {
 
     fun zoomOut() = changeZoom(zoomOut(state.value.zoomFactor))
 
+    /** A pinch lands wherever the fingers stopped, not on a rung. */
+    fun setZoom(zoomFactor: Double) = changeZoom(clampZoomFactor(zoomFactor))
+
+    fun fitWidth() = changeZoom(DEFAULT_ZOOM_FACTOR)
+
+    /**
+     * Shows the current page whole. The list keeps its pixel offset across a
+     * zoom, which would leave the page part-scrolled, so it also scrolls to the
+     * page's top.
+     */
+    fun fitPage() {
+        val position = lastPosition ?: return
+        val pageIndex = state.value.pageIndex
+        val zoomFactor = fitPageZoomFactor(state.value.pageSizes.getOrNull(pageIndex), position.viewportWidthPx, position.viewportHeightPx) ?: return
+        changeZoom(zoomFactor)
+        scrollTo(pageIndex)
+    }
+
     private fun changeZoom(zoomFactor: Double) {
         if (session.document == null || zoomFactor == state.value.zoomFactor) return
         // Page geometry changes immediately. Keep cache-window pages beneath the

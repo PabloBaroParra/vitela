@@ -33,6 +33,7 @@ import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.SignActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.ViewerViewModel
+import dev.vitela.pdf.viewer.ZoomActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -179,8 +180,15 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         onPrevious = { viewModel.navigate(-1) },
         onNext = { viewModel.navigate(1) },
         onGoToPage = viewModel::goToPage,
-        onZoomOut = viewModel::zoomOut,
-        onZoomIn = viewModel::zoomIn,
+        zoom = remember(viewModel) {
+            ZoomActions(
+                onZoomIn = viewModel::zoomIn,
+                onZoomOut = viewModel::zoomOut,
+                onFitWidth = viewModel::fitWidth,
+                onFitPage = viewModel::fitPage,
+                onPinch = viewModel::setZoom,
+            )
+        },
         onSearch = viewModel::search,
         onPreviousMatch = { viewModel.stepSearch(-1) },
         onNextMatch = { viewModel.stepSearch(1) },

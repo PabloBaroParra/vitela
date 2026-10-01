@@ -53,8 +53,7 @@ internal fun ViewerScreen(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onGoToPage: (Int) -> Unit,
-    onZoomOut: () -> Unit,
-    onZoomIn: () -> Unit,
+    zoom: ZoomActions,
     onSearch: (String) -> Unit,
     onPreviousMatch: () -> Unit,
     onNextMatch: () -> Unit,
@@ -224,9 +223,11 @@ internal fun ViewerScreen(
             TextButton(onClick = onAnnotationRedo, enabled = annotationControls.canRedo || state.canRedoAnnotations) { Text("Redo") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onZoomOut, enabled = state.pageCount > 0 && state.zoomFactor > MIN_ZOOM_FACTOR) { Text("Zoom out") }
+            TextButton(onClick = zoom.onZoomOut, enabled = state.pageCount > 0 && state.zoomFactor > MIN_ZOOM_FACTOR) { Text("Zoom out") }
             Text("$zoomPercentage%", modifier = Modifier.semantics { contentDescription = "Zoom level: $zoomPercentage%" })
-            TextButton(onClick = onZoomIn, enabled = state.pageCount > 0 && state.zoomFactor < MAX_ZOOM_FACTOR) { Text("Zoom in") }
+            TextButton(onClick = zoom.onZoomIn, enabled = state.pageCount > 0 && state.zoomFactor < MAX_ZOOM_FACTOR) { Text("Zoom in") }
+            TextButton(onClick = zoom.onFitWidth, enabled = state.pageCount > 0 && state.zoomFactor != DEFAULT_ZOOM_FACTOR) { Text("Fit width") }
+            TextButton(onClick = zoom.onFitPage, enabled = state.pageCount > 0) { Text("Fit page") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = query, onValueChange = { query = it }, label = { Text("Find text") }, modifier = Modifier.weight(1f))
@@ -251,6 +252,7 @@ internal fun ViewerScreen(
                 },
                 contentEdit = contentEdit,
                 onFormFieldTap = formFields.onPageTap,
+                onPinch = zoom.onPinch,
                 modifier = Modifier.fillMaxSize(),
             )
             // Mirrors the WinUI empty state and the GTK4 shell's overlay mark:
