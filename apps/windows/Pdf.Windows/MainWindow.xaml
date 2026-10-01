@@ -108,6 +108,7 @@
             <Button x:Name="InsertTextButton" Content="Insert text" Click="InsertTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Add new text to the visible page" />
             <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="Shift the selected annotation">Nudge</Button>
             <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
+            <Button x:Name="ResizeAnnotationButton" Click="ResizeAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's width and height in PDF points" IsEnabled="False">Resize annotation</Button>
             <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color">Color
                 <Button.Flyout>
                     <Flyout x:Name="AnnotationColorFlyout" Closed="AnnotationColorFlyout_Closed">
