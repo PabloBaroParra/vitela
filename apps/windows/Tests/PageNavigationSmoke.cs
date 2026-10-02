@@ -24,7 +24,7 @@ public partial class App : Application
         try
         {
             await _window.PageNavigationSmokeAsync();
-            File.AppendAllText(log, "PASS validation; cancel; first/last page; current zoom; hidden panels; unchanged native history; stale order/session; busy/organize/modal guards; Ctrl+G wiring; previous/next buttons; first/last buttons; scrolling; single-page boundaries.");
+            File.AppendAllText(log, "PASS validation; cancel; first/last page; current zoom; hidden panels; unchanged native history; stale order/session; busy/organize/modal guards; Ctrl+G wiring; previous/next buttons; first/last buttons; scrolling; single-page boundaries; page shortcut wiring.");
         }
         catch (Exception error) { File.AppendAllText(log, "FAIL " + error); }
         finally { _window.Close(); }
@@ -54,6 +54,10 @@ public sealed partial class MainWindow
         if (shortcut.Key != global::Windows.System.VirtualKey.G
             || shortcut.Modifiers != global::Windows.System.VirtualKeyModifiers.Control)
             throw new Exception("Ctrl+G wiring changed.");
+        CheckPageShortcut(PreviousPageButton, global::Windows.System.VirtualKey.Up);
+        CheckPageShortcut(NextPageButton, global::Windows.System.VirtualKey.Down);
+        CheckPageShortcut(FirstPageButton, global::Windows.System.VirtualKey.Home);
+        CheckPageShortcut(LastPageButton, global::Windows.System.VirtualKey.End);
 
         await ApplyEditAsync(new PdfCoreEdit.Add(PdfCoreAnnotationKind.Shape, 0,
             new PdfCoreRect(40, 80, 100, 40), new PdfCoreColor(255, 220, 0)));
@@ -215,6 +219,15 @@ public sealed partial class MainWindow
         if (PageNavigationList.SelectedIndex != 0 || _slots[0].Factor != factor
             || FirstPageButton.IsEnabled || !LastPageButton.IsEnabled)
             throw new Exception("First did not synchronize page/zoom/boundaries.");
+    }
+
+    private static void CheckPageShortcut(Button button, global::Windows.System.VirtualKey key)
+    {
+        var shortcut = button.KeyboardAccelerators.Single();
+        if (shortcut.Key != key || shortcut.Modifiers != global::Windows.System.VirtualKeyModifiers.Control
+            || !shortcut.IsEnabled || button.KeyboardAcceleratorPlacementMode != Microsoft.UI.Xaml.Input.KeyboardAcceleratorPlacementMode.Auto
+            || ToolTipService.GetToolTip(button)?.ToString()?.Contains($"Ctrl+{key}", StringComparison.Ordinal) != true)
+            throw new Exception($"Page shortcut wiring changed for {button.Name}.");
     }
 
     private static void InvokePageStep(Button button) =>
