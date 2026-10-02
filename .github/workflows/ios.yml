@@ -11,6 +11,8 @@ name: ios
 # unfiltered iOS job charged ~100 minutes for every push — including pushes that
 # only touched the README. Use workflow_dispatch to force a run.
 on:
+  # release.yml runs this suite on the tagged commit before publishing anything.
+  workflow_call:
   push:
     branches: [main]
     # Duplicated rather than shared with a YAML anchor: the Actions workflow
@@ -52,7 +54,9 @@ permissions:
 # Superseded runs are cancelled rather than left to finish: at 10x, a queue of
 # stale iOS runs is the single most expensive thing in this repo.
 concurrency:
-  group: ios-${{ github.ref }}
+  # github.workflow is the caller's when release.yml calls this, which keeps a
+  # release rehearsal on main from cancelling (or being cancelled by) a push.
+  group: ios-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

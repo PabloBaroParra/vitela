@@ -437,10 +437,12 @@ Add-AppxPackage -Register build\windows-store\layout\AppxManifest.xml
 ### Releasing
 
 Releases are cut with `scripts/release.sh` (see the root README), and the tag
-is the only source of truth for the version. `windows-store.yml` runs on that
-tag and refuses it unless it points at a commit on `main`. It then:
+is the only source of truth for the version. The tag starts `release.yml`,
+which refuses it unless it points at a commit on `main` and then runs every
+platform's tests. Only after all of them pass does it call
+`windows-store.yml`, which:
 
-1. translates the tag with `scripts/release-version.sh <tag> msix`;
+1. receives the tag's MSIX translation (`scripts/release-version.sh <tag> msix`);
 2. builds and checks the MSIX;
 3. submits it with the Microsoft Store Developer CLI.
 

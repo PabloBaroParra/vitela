@@ -5,6 +5,8 @@ name: docs
 # documented status symbols. See scripts/check_readme_tables.py for what this
 # does and does not verify.
 on:
+  # release.yml runs this suite on the tagged commit before publishing anything.
+  workflow_call:
   push:
     branches: [main]
   pull_request:

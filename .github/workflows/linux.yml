@@ -4,8 +4,9 @@ name: linux
 # .AppImage that scripts/package-linux.sh and scripts/verify-linux-package.sh
 # produce locally (T-053). No upload step: this proves the packages assemble,
 # contain a genuine Linux/x64/non-V8/non-XFA PDFium, and pass the offline
-# smoke render — publishing them is linux-release.yml's job, which calls this
-# workflow and only then gets an uploaded artifact back.
+# smoke render — publishing them is linux-release.yml's job. On a release tag
+# release.yml calls this workflow with the tag's Debian version, and only then
+# are the verified packages uploaded for linux-release.yml to publish.
 #
 # linux-gtk-ui.yml stays the separate headless UI-interaction suite (Xvfb,
 # gtk::test); this workflow never touches a display — verify-linux-package.sh
@@ -40,13 +41,16 @@ on:
       - "apps/linux-gtk/tests/test-apt-repo.sh"
       - ".github/workflows/linux.yml"
   workflow_dispatch:
-  # linux-release.yml calls this with the Debian version derived from the
-  # release tag; only then are the verified packages uploaded as an artifact.
+  # release.yml calls this with the Debian version derived from the release
+  # tag; only then are the verified packages uploaded as an artifact. Its
+  # rehearsal run (workflow_dispatch, no tag) passes nothing: the packages are
+  # built and verified exactly as on a pull request, and nothing is uploaded.
   workflow_call:
     inputs:
       package-version:
-        description: Debian package version (e.g. 0.1.0~beta.1)
-        required: true
+        description: Debian package version (e.g. 0.1.0~beta.1); empty for a test-only run
+        required: false
+        default: ''
         type: string
 
 env:
@@ -57,7 +61,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: linux-package-${{ github.ref }}
+  # github.workflow is the caller's when release.yml calls this, which keeps a
+  # release rehearsal on main from cancelling (or being cancelled by) a push.
+  group: linux-package-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -156,7 +162,7 @@ jobs:
             build/linux/packages/*.AppImage
           if-no-files-found: error
 
-  # The release tooling linux-release.yml runs: the tag grammar/version
+  # The release tooling release.yml and linux-release.yml run: the tag grammar/version
   # formats and release.sh (scripts/tests/test-release.sh), and the signed APT
   # repository build, exercised end to end against a real unprivileged
   # `apt-get update` (see each test's own header).
