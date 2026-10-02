@@ -72,6 +72,41 @@ test_msix_versions_encode_the_release_order() {
     done
 }
 
+# Android: versionCode is one integer that must always grow, at most
+# 2100000000 (Play's ceiling). Encoded as major*1e7 + minor*1e5 + patch*400 +
+# rank*100 + N, the same rank/N folding as MSIX.
+test_android_version_codes_encode_the_release_order() {
+    [ "$(version v0.2.0-alpha.1 android-code)" = '200001' ] || fail 'android-code of an alpha tag'
+    [ "$(version v0.2.0-beta.1 android-code)" = '200101' ] || fail 'android-code of a beta tag'
+    [ "$(version v0.2.0-rc.2 android-code)" = '200202' ] || fail 'android-code of an rc tag'
+    [ "$(version v0.2.0 android-code)" = '200300' ] || fail 'android-code of a final tag'
+    [ "$(version v1.2.3 android-code)" = '10201500' ] || fail 'android-code of a later version'
+
+    local ordered=(v0.1.0 v0.2.0-alpha.1 v0.2.0-alpha.99 v0.2.0-beta.1 v0.2.0-rc.99 v0.2.0
+        v0.2.1-alpha.1 v0.2.249 v0.10.0 v0.99.0 v1.0.0 v10.0.0)
+    local i
+    for ((i = 1; i < ${#ordered[@]}; i++)); do
+        (( $(version "${ordered[i-1]}" android-code) < $(version "${ordered[i]}" android-code) )) \
+            || fail "android-code order: ${ordered[i-1]} must sort before ${ordered[i]}"
+    done
+
+    [ "$(version v209.99.249 android-code)" = '2099999900' ] || fail 'the largest version that still fits'
+    local tag
+    for tag in v0.100.0 v0.0.250 v210.0.0 v0.2.0-beta.100 v0.2 v0.2.0-preview.1; do
+        if version "$tag" android-code >/dev/null 2>&1; then fail "accepted a tag versionCode cannot hold: $tag"; fi
+    done
+}
+
+# Which Google Play track a tag ships to: alpha to internal testing, beta and
+# rc to open testing, a final release to production.
+test_play_tracks_follow_the_prerelease_word() {
+    [ "$(version v0.2.0-alpha.3 play-track)" = 'internal' ] || fail 'alpha track'
+    [ "$(version v0.2.0-beta.1 play-track)" = 'beta' ] || fail 'beta track'
+    [ "$(version v0.2.0-rc.1 play-track)" = 'beta' ] || fail 'rc track'
+    [ "$(version v0.2.0 play-track)" = 'production' ] || fail 'final track'
+    if version v0.2 play-track >/dev/null 2>&1; then fail 'play-track accepted a malformed tag'; fi
+}
+
 test_malformed_tags_and_formats_fail() {
     local tag
     for tag in 0.2.0 v0.2 v0.2.0- v0.2.0-beta v0.2.0-beta.0 v0.2.0-beta.01 v0.2.0-preview.1 v0.2.0-beta_1 \
@@ -166,6 +201,8 @@ test_required_assets_exist() {
 test_tag_maps_to_each_format
 test_debian_versions_sort_like_the_releases
 test_msix_versions_encode_the_release_order
+test_android_version_codes_encode_the_release_order
+test_play_tracks_follow_the_prerelease_word
 test_malformed_tags_and_formats_fail
 test_versions_compare_in_release_order
 test_release_tags_origin_main_and_pushes
@@ -174,4 +211,4 @@ test_release_refuses_existing_or_older_versions
 test_release_refuses_malformed_versions
 test_release_asks_before_pushing
 test_required_assets_exist
-printf 'release tooling shell tests: %d passed, %d skipped\n' $((11 - skipped)) "$skipped"
+printf 'release tooling shell tests: %d passed, %d skipped\n' $((13 - skipped)) "$skipped"
