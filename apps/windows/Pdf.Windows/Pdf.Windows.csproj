@@ -10,6 +10,52 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!--
+    Microsoft Store build: the same app as an MSIX, opted into with
+    -p:VitelaStorePackage=true by scripts/package-windows-store.ps1. Every
+    other build (F5, CI, the signed zip) stays unpackaged.
+
+    Unsigned on purpose: the Store re-signs what it ships, and Partner Center
+    takes the plain .msix. The Windows App SDK runtime is a
+    framework dependency the Store installs alongside the app, so only .NET is
+    self-contained here.
+
+    VitelaPdfiumDll is the verified pdfium.dll the script extracts; it lands at
+    the package root, which is AppContext.BaseDirectory at run time, where
+    BundledPdfium already looks for it.
+  -->
+  <PropertyGroup Condition="'$(VitelaStorePackage)' == 'true'">
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <GenerateAppxPackageOnBuild>true</GenerateAppxPackageOnBuild>
+    <AppxBundle>Never</AppxBundle>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <!--
+      The script moves bin/obj under build\windows-store. The SDK only excludes
+      the *current* output paths from its globs, so the project's own bin\ and
+      obj\ (left by ordinary builds) would be compiled in a second time.
+    -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!--
+    WinUI globs images in as Content by default, which would ship the Store
+    tiles inside every unpackaged build (and the zip). Drop them everywhere,
+    then add them back for the MSIX alone.
+  -->
+  <ItemGroup>
+    <Content Remove="Package\**" />
+    <None Remove="Package\**" />
+    <None Remove="Package.appxmanifest" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(VitelaStorePackage)' == 'true'">
+    <!-- An item, not a property: when set, the SDK skips its Package.appxmanifest default. -->
+    <AppxManifest Include="$(VitelaAppxManifest)" Condition="'$(VitelaAppxManifest)' != ''" />
+    <Content Include="Package\Images\*.png" />
+    <None Include="$(VitelaPdfiumDll)" Condition="'$(VitelaPdfiumDll)' != ''" CopyToOutputDirectory="PreserveNewest" TargetPath="pdfium.dll" />
+    <None Include="$(VitelaLicensesDir)\**\*" Condition="'$(VitelaLicensesDir)' != ''" CopyToOutputDirectory="PreserveNewest" LinkBase="licenses" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250606001" />
   </ItemGroup>

@@ -15,7 +15,9 @@
 #                  packaged files alone. Deliberately a second WinUI build:
 #                  winui-build proves the plain build a developer runs, this
 #                  one proves the RID-specific publish a reader downloads, and
-#                  either can break without the other noticing.
+#                  either can break without the other noticing. The same leg
+#                  also builds and checks the Microsoft Store MSIX that
+#                  windows-store.yml submits on a release tag.
 name: windows
 
 on:
@@ -225,6 +227,14 @@ jobs:
           } else {
             ./scripts/verify-windows-package.ps1 -AllowUntrustedSignature
           }
+      # The Microsoft Store MSIX, built on every change so a break surfaces in
+      # the pull request rather than on release day (windows-store.yml).
+      # Development identity, unsigned, never uploaded: the script's own checks
+      # (identity, version, pinned PDFium, compiled XAML, licenses) are the gate.
+      # It reuses this job's native build and PDFium input, and keeps its own
+      # bin/obj under build/windows-store, apart from the zip's.
+      - name: Build and check the Store MSIX (development identity)
+        run: ./scripts/package-windows-store.ps1
       - name: Publish the verification evidence to the job log
         if: always()
         run: |

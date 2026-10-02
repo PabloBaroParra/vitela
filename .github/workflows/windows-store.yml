@@ -1,0 +1,168 @@
+# Microsoft Store release of the Windows shell.
+#
+# A release tag (cut with `scripts/release.sh`, see linux-release.yml) builds
+# the MSIX (scripts/package-windows-store.ps1), uploads it to Partner Center
+# and commits the submission. Certification then
+# takes from a few hours to a few business days; once it passes, the Store
+# updates every installed copy on its own. Nothing here waits for that.
+#
+# The tag is the version's only source of truth. scripts/release-version.sh
+# translates it to MSIX (v0.2.0-beta.1 -> 0.2.101.0): MSIX has no prerelease
+# notation, so alpha < beta < rc < final is folded into the Build field and a
+# Store update can never go backwards.
+#
+# One-time setup, all in the `microsoft-store` environment
+# (Settings → Environments):
+#   variables  STORE_PRODUCT_ID             Partner Center → Product identity → Store ID
+#              STORE_IDENTITY_NAME          … → Package/Identity/Name
+#              STORE_PUBLISHER              … → Package/Identity/Publisher (CN=…)
+#              STORE_PUBLISHER_DISPLAY_NAME … → Package/Properties/PublisherDisplayName
+#   secrets    PARTNER_CENTER_TENANT_ID, PARTNER_CENTER_SELLER_ID,
+#              PARTNER_CENTER_CLIENT_ID, PARTNER_CENTER_CLIENT_SECRET
+#              (the Entra ID app associated with the Partner Center account)
+# The very first submission (listing, screenshots, age rating, privacy policy)
+# is made by hand in Partner Center; this workflow ships the updates after it.
+name: windows-store
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+# One submission at a time: publishing replaces the pending draft, so two
+# overlapping runs would race over the same submission.
+concurrency:
+  group: microsoft-store
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Build and submit MSIX (x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    environment: microsoft-store
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Fail in seconds, before a 20-minute build, when the environment is not
+      # set up yet.
+      - name: Check the Store configuration
+        env:
+          STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+          HAS_TENANT: ${{ secrets.PARTNER_CENTER_TENANT_ID != '' }}
+          HAS_SELLER: ${{ secrets.PARTNER_CENTER_SELLER_ID != '' }}
+          HAS_CLIENT: ${{ secrets.PARTNER_CENTER_CLIENT_ID != '' }}
+          HAS_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET != '' }}
+        run: |
+          $missing = @()
+          foreach ($name in 'STORE_PRODUCT_ID', 'STORE_IDENTITY_NAME', 'STORE_PUBLISHER', 'STORE_PUBLISHER_DISPLAY_NAME') {
+            if (-not (Get-Item "env:$name" -ErrorAction SilentlyContinue).Value) { $missing += "variable $name" }
+          }
+          foreach ($pair in @(@('HAS_TENANT', 'PARTNER_CENTER_TENANT_ID'), @('HAS_SELLER', 'PARTNER_CENTER_SELLER_ID'), @('HAS_CLIENT', 'PARTNER_CENTER_CLIENT_ID'), @('HAS_SECRET', 'PARTNER_CENTER_CLIENT_SECRET'))) {
+            if ((Get-Item "env:$($pair[0])").Value -ne 'true') { $missing += "secret $($pair[1])" }
+          }
+          if ($missing) {
+            $missing | ForEach-Object { Write-Host "::error::microsoft-store environment is missing $_" }
+            exit 1
+          }
+
+      # scripts/release.sh only ever tags origin/main; a tag pushed by hand onto
+      # a branch commit is refused here rather than shipped to every user.
+      - name: Resolve the release version
+        id: version
+        shell: bash
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "$GITHUB_REF_NAME does not point at a commit on main" >&2; exit 1; }
+          version="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" msix)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-package-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache uniffi-bindgen-cs
+        id: bindgen-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/uniffi-bindgen-cs.exe
+          key: uniffi-bindgen-cs-v0.11.0+v0.31.0-windows
+      - name: Install uniffi-bindgen-cs (cache miss)
+        if: steps.bindgen-cache.outputs.cache-hit != 'true'
+        run: cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.11.0+v0.31.0 --locked
+      # Kept as a raw archive, never extracted into core/pdf-render/vendor — see
+      # the package job in windows.yml for why that directory must stay empty.
+      - name: Cache pinned Windows PDFium packaging input
+        id: pdfium-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/windows/tools/pdfium-win-x64.tgz
+          key: pdfium-win-x64-7763-package-input
+      - name: Download pinned Windows PDFium packaging input (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: |
+          New-Item -ItemType Directory -Force -Path build/windows/tools | Out-Null
+          curl.exe -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-win-x64.tgz" -o build/windows/tools/pdfium-win-x64.tgz
+
+      - name: Build native library and regenerate bindings
+        run: ./build.ps1 -Configuration Release
+        working-directory: apps/windows
+
+      # The script checks the package it produced (identity, version, PDFium
+      # checksum, compiled XAML, licenses) and fails before anything is sent.
+      - name: Build the MSIX
+        id: package
+        env:
+          MSIX_VERSION: ${{ steps.version.outputs.version }}
+          STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
+          STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
+          STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          ./scripts/package-windows-store.ps1 `
+            -Version $env:MSIX_VERSION `
+            -IdentityName $env:STORE_IDENTITY_NAME `
+            -Publisher $env:STORE_PUBLISHER `
+            -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME
+
+      - name: Set up the Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
+      - name: Sign in to Partner Center
+        env:
+          TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          SELLER_ID: ${{ secrets.PARTNER_CENTER_SELLER_ID }}
+          CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+        run: |
+          msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The positional path must be the WinUI project (the CLI recognises it by
+      # Package.appxmanifest) and -i is a *directory*: msstore-cli takes the
+      # packages exactly one level below it, which is Pdf.Windows_<v>_x64_Test\
+      # and leaves out the Windows App SDK runtime under Dependencies\<arch>\.
+      # Read from the CLI source; its docs still call -i an input file.
+      - name: Submit to the Store
+        env:
+          STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+          PACKAGES: ${{ steps.package.outputs.packages }}
+        run: |
+          msstore publish apps/windows/Pdf.Windows -i $env:PACKAGES -id $env:STORE_PRODUCT_ID
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          msstore submission status $env:STORE_PRODUCT_ID

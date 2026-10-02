@@ -80,3 +80,6 @@ build/linux/
 # Local Windows distribution outputs, PDFium packaging input, and verification
 # receipts (T-064).
 build/windows/
+
+# Local Microsoft Store MSIX build: its own bin/obj, package and unpacked layout.
+build/windows-store/
