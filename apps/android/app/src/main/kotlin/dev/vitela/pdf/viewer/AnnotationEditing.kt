@@ -207,6 +207,50 @@ internal class AnnotationEditing(
         if (status == null) applyEdits(listOf(AnnotationEdit.Resize(resizer.id, to)), done = ANNOTATION_RESIZED)
     }
 
+    /**
+     * **Move to**: opens the position dialog on the selected annotation, at
+     * the bottom-left of its bounds — ink included, through its points. Never
+     * over the grid.
+     */
+    fun openPositioner() {
+        val current = state.value
+        if (!current.annotationEditingAllowed || current.organize != null) return
+        val selected = selectedAnnotation() ?: return
+        val bounds = selected.bounds ?: return
+        state.value = current.copy(annotationPositioner = AnnotationPositioner(selected, bounds))
+    }
+
+    /** The dialog's **Cancel**: no edit, so redo survives. */
+    fun cancelPositioner() {
+        if (state.value.annotationPositioner != null) state.value = state.value.copy(annotationPositioner = null)
+    }
+
+    /**
+     * The dialog's **Move**: puts the bottom-left at [x], [y] points as typed,
+     * size kept, for the document [documentId] the dialog was built for. A
+     * coordinate that is not finite keeps the dialog open with what was typed;
+     * an unchanged position records nothing, so redo survives. The dialog is
+     * spent before the core answers, and an annotation no longer as the dialog
+     * found it is left alone.
+     */
+    fun position(documentId: Long, x: String, y: String) {
+        val current = state.value
+        val positioner = current.annotationPositioner ?: return
+        if (current.documentId != documentId) return
+        val offset = positionOffset(positioner.bounds, typedPoints(x), typedPoints(y))
+        if (offset == null) {
+            state.value = current.copy(annotationPositioner = positioner.copy(x = x, y = y, error = ANNOTATION_POSITION_INVALID))
+            return
+        }
+        val status = when {
+            !current.annotationEditingAllowed || selectedAnnotation() != positioner.annotation -> ANNOTATION_POSITION_CHANGED
+            offset.x == 0.0 && offset.y == 0.0 -> ANNOTATION_POSITION_UNCHANGED
+            else -> null
+        }
+        state.value = current.copy(annotationPositioner = null, status = status ?: current.status)
+        if (status == null) applyEdits(listOf(AnnotationEdit.Move(positioner.annotation.id, offset.x, offset.y)), done = ANNOTATION_MOVED)
+    }
+
     fun restyleSelected(color: AnnotationColor) {
         selectedAnnotation()?.takeIf { it.supportsRestyle }?.let { applyEdit(AnnotationEdit.Restyle(it.id, color)) }
     }

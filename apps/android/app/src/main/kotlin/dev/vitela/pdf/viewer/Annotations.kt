@@ -51,6 +51,37 @@ internal const val ANNOTATION_CHANGED = "The annotation changed while the dialog
 internal fun sizedAnnotationRect(rect: AnnotationRect, width: Double, height: Double): AnnotationRect? =
     if (!width.isFinite() || !height.isFinite() || width <= 0.0 || height <= 0.0) null else rect.copy(width = width, height = height)
 
+/**
+ * The **Move to** dialog: a snapshot of the selected [annotation] and its
+ * [bounds] as it opened, and the [x] and [y] the reader typed, kept with the
+ * [error] after a refusal. The whole annotation is the snapshot — a move must
+ * still find it unchanged, or the offset would land on a different geometry.
+ */
+data class AnnotationPositioner(
+    val annotation: Annotation,
+    val bounds: AnnotationRect,
+    val x: String = pointsText(bounds.x),
+    val y: String = pointsText(bounds.y),
+    val error: String? = null,
+)
+
+// Wording follows the Windows shell's.
+internal const val ANNOTATION_MOVED = "Annotation moved. Save to keep the change."
+internal const val ANNOTATION_POSITION_UNCHANGED = "Annotation position unchanged."
+internal const val ANNOTATION_POSITION_INVALID = "Annotation coordinates must be finite numbers."
+internal const val ANNOTATION_POSITION_CHANGED = "The annotation changed while the dialog was open. Nothing was moved."
+
+/**
+ * The [AnnotationEdit.Move] offset that puts [bounds]' bottom-left corner at
+ * ([x], [y]); null unless both and the offset itself are finite. Zero and
+ * negative coordinates are fine: an annotation may sit off the page.
+ */
+internal fun positionOffset(bounds: AnnotationRect, x: Double, y: Double): AnnotationPoint? {
+    val dx = x - bounds.x
+    val dy = y - bounds.y
+    return if (x.isFinite() && y.isFinite() && dx.isFinite() && dy.isFinite()) AnnotationPoint(dx, dy) else null
+}
+
 enum class HandleCorner { BottomLeft, BottomRight, TopLeft, TopRight }
 sealed interface DragMode { data object Move : DragMode; data class Resize(val corner: HandleCorner) : DragMode }
 internal data class AnnotationControls(

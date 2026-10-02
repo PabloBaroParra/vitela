@@ -158,6 +158,15 @@ alone, redo included. The dialog keeps a snapshot of the rectangle it opened
 on and of its document: if an undo changed the annotation meanwhile, or the
 document was replaced, nothing is resized.
 
+**Move to** sets the selected annotation's bottom-left X/Y in unrotated PDF
+points (X increases rightward, Y upward), keeping its size, like the Windows
+shell. Ink uses the bottom-left of its points' bounds and moves every point by
+the same offset. Coordinates must be finite; zero and negative values are
+allowed. The edit needs annotation-edit permission and records one undo step
+through the core's move command. Cancel or an unchanged position leave history
+alone, redo included. As with **Resize**, the dialog keeps a snapshot of the
+annotation and its document, so nothing moves if either changed meanwhile.
+
 All annotation mutations, undo/redo, byte snapshots, and document replacement
 are serialized by `ViewerViewModel`. **Save** writes a complete annotated
 snapshot back over the file that was opened; **Save copy** writes one through
