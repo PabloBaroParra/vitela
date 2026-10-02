@@ -103,6 +103,11 @@ viewport page and Last on the last; both are disabled for a single-page document
 and use the same busy, organize and modal guards as Previous/Next. These jumps
 do not change PDF contents or undo/redo.
 
+The page buttons also support **Ctrl+Up** (Previous), **Ctrl+Down** (Next),
+**Ctrl+Home** (First) and **Ctrl+End** (Last). Their tooltips display the shortcuts;
+they use the same current-viewport navigation and availability as clicking the
+buttons, including when the panels are hidden.
+
 **Resize image** lists the content images on the page at the top of the viewport.
 Choose an image and enter its width and height in PDF points; its origin stays
 fixed. Resource images and inline images use the same Rust resize command.
@@ -380,6 +385,9 @@ checks first/last and single-page boundaries, scrolling, zoom, page-order change
 and restored controls after blocked entry. First/Last buttons are invoked against
 the native document, including after zoom and page-order changes, with panels
 hidden, at single-page boundaries and under the same entry guards.
+The harness checks Ctrl+Up/Down/Home/End accelerator wiring and tooltip placement;
+physical shortcut dispatch and interaction with focused text inputs still need
+a manual check.
 Rebuild without custom targets afterward.
 
 ## Packaging and signing
