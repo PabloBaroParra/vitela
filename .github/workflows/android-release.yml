@@ -1,0 +1,111 @@
+# Google Play release of the Android shell.
+#
+# Signs the release bundle that android.yml built and checked on the tagged
+# commit (artifact `android-bundle`, same run) with the Play upload key, and
+# uploads it to the track the tag maps to (scripts/release-version.sh
+# play-track: alpha -> internal, beta/rc -> beta, final -> production).
+# release.yml calls it, and only after every platform's tests passed; it has
+# no trigger of its own, so a release tag can never publish around that gate.
+#
+# The versionCode inside the bundle comes from the tag (release-version.sh
+# android-code), folded so that alpha < beta < rc < final and a Play update can
+# never go backwards.
+#
+# One-time setup:
+#   - Play Console: create the app (dev.vitela.pdf), enrol in Play App Signing,
+#     and upload the FIRST bundle by hand; the API cannot create an app. New
+#     personal developer accounts must also run a closed test (12 testers for
+#     14 days) before production access is granted.
+#   - Google Cloud: a service account with access to the app in Play Console
+#     (Users and permissions → release to testing tracks and production).
+#   - GitHub environment "google-play", restricted to tags matching v*, with:
+#       secrets   ANDROID_UPLOAD_KEYSTORE_BASE64   the upload keystore, base64
+#                 ANDROID_UPLOAD_KEYSTORE_PASSWORD
+#                 ANDROID_UPLOAD_KEY_ALIAS
+#                 ANDROID_UPLOAD_KEY_PASSWORD
+#                 GOOGLE_PLAY_SERVICE_ACCOUNT_JSON  the service account key
+#       variable  PLAY_RELEASE_STATUS (optional)   "draft" while the app has
+#                 never been published (Play refuses "completed" until then);
+#                 defaults to "completed".
+name: android-release
+
+on:
+  workflow_call:
+    inputs:
+      play-track:
+        description: Google Play track (release-version.sh <tag> play-track)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One Play edit at a time: two overlapping uploads would race over the track.
+concurrency:
+  group: google-play
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Sign and upload to Google Play
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: google-play
+    steps:
+      # Fail in seconds, and name what is missing, when the environment is not
+      # set up yet.
+      - name: Check the Google Play configuration
+        env:
+          HAS_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
+          HAS_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD != '' }}
+          HAS_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS != '' }}
+          HAS_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD != '' }}
+          HAS_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON != '' }}
+        run: |
+          missing=()
+          [ "$HAS_KEYSTORE" = true ] || missing+=(ANDROID_UPLOAD_KEYSTORE_BASE64)
+          [ "$HAS_STORE_PASSWORD" = true ] || missing+=(ANDROID_UPLOAD_KEYSTORE_PASSWORD)
+          [ "$HAS_ALIAS" = true ] || missing+=(ANDROID_UPLOAD_KEY_ALIAS)
+          [ "$HAS_KEY_PASSWORD" = true ] || missing+=(ANDROID_UPLOAD_KEY_PASSWORD)
+          [ "$HAS_SERVICE_ACCOUNT" = true ] || missing+=(GOOGLE_PLAY_SERVICE_ACCOUNT_JSON)
+          for name in "${missing[@]}"; do echo "::error::google-play environment is missing secret $name"; done
+          [ "${#missing[@]}" -eq 0 ]
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: android-bundle
+          path: bundle
+
+      # jarsigner is how Play expects an upload key on a bundle. The keystore
+      # exists only in $RUNNER_TEMP and is removed whatever happens next.
+      - name: Sign the bundle with the upload key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          keystore="$RUNNER_TEMP/upload.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          jarsigner -keystore "$keystore" -storepass:env KEYSTORE_PASSWORD -keypass:env KEY_PASSWORD \
+            -sigalg SHA256withRSA -digestalg SHA-256 bundle/app-release.aab "$KEY_ALIAS"
+      - name: Forget the upload key
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/upload.jks"
+      # jarsigner -verify exits 0 on an UNSIGNED file too ("no manifest"), so
+      # the result is read, not the exit code. No -strict: upload keys are
+      # self-signed by design, which -strict reports as a signer error.
+      - name: Verify the signature
+        run: |
+          result="$(jarsigner -verify bundle/app-release.aab)"
+          printf '%s\n' "$result"
+          grep -qx 'jar verified.' <<< "$result" || { echo 'bundle is not signed' >&2; exit 1; }
+
+      - name: Upload to Google Play
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: dev.vitela.pdf
+          releaseFiles: bundle/app-release.aab
+          track: ${{ inputs.play-track }}
+          status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}

@@ -8,16 +8,18 @@ name: release
 #   2. runs EVERY platform's test suite on the tagged commit, in parallel —
 #      the same workflows that gate pull requests, called rather than copied,
 #   3. publishes only if all of them passed: the signed APT repository and
-#      GitHub Release (linux-release.yml) and the Microsoft Store
-#      (windows-store.yml).
+#      GitHub Release (linux-release.yml), the Microsoft Store
+#      (windows-store.yml) and Google Play (android-release.yml).
 #
 # The publish workflows have no trigger of their own, so there is no path from
 # a tag to users that skips step 2. Each publish target is independent: if one
 # fails after the gate, the others still ship, and its job can be re-run.
 #
-# Linux is tested and packaged in one call: linux.yml builds and verifies the
-# .deb/.AppImage with the tag's version and uploads exactly those files, which
-# linux-release.yml publishes. Nothing is rebuilt between test and release.
+# Linux and Android are tested and packaged in one call each: linux.yml and
+# android.yml build and verify the .deb/.AppImage and the .aab with the tag's
+# version and upload exactly those files, which linux-release.yml publishes and
+# android-release.yml signs and uploads. Nothing is rebuilt between test and
+# release.
 #
 # workflow_dispatch is a rehearsal: the whole test gate on any ref, with no
 # version and nothing published. Use it before cutting a release.
@@ -43,6 +45,9 @@ jobs:
     outputs:
       debian: ${{ steps.map.outputs.debian }}
       msix: ${{ steps.map.outputs.msix }}
+      semver: ${{ steps.map.outputs.semver }}
+      android-code: ${{ steps.map.outputs.android-code }}
+      play-track: ${{ steps.map.outputs.play-track }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,8 +67,15 @@ jobs:
         run: |
           debian="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" debian)"
           msix="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" msix)"
-          printf 'debian=%s\nmsix=%s\n' "$debian" "$msix" >> "$GITHUB_OUTPUT"
-          printf '%s -> debian %s, msix %s\n' "$GITHUB_REF_NAME" "$debian" "$msix"
+          semver="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" semver)"
+          android_code="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" android-code)"
+          play_track="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" play-track)"
+          {
+            printf 'debian=%s\nmsix=%s\nsemver=%s\n' "$debian" "$msix" "$semver"
+            printf 'android-code=%s\nplay-track=%s\n' "$android_code" "$play_track"
+          } >> "$GITHUB_OUTPUT"
+          printf '%s -> debian %s, msix %s, android %s (%s) on %s\n' \
+            "$GITHUB_REF_NAME" "$debian" "$msix" "$semver" "$android_code" "$play_track"
 
   # --- The gate: every suite that protects main, on the tagged commit. ------
 
@@ -111,6 +123,10 @@ jobs:
     name: Android
     needs: version
     uses: ./.github/workflows/android.yml
+    with:
+      # Empty on a rehearsal: the bundle is built and checked, not uploaded.
+      version-code: ${{ needs.version.outputs.android-code }}
+      version-name: ${{ needs.version.outputs.semver }}
 
   macos:
     name: macOS
@@ -144,4 +160,13 @@ jobs:
     uses: ./.github/workflows/windows-store.yml
     with:
       msix-version: ${{ needs.version.outputs.msix }}
+    secrets: inherit
+
+  publish-android:
+    name: Publish Android (Google Play)
+    if: github.ref_type == 'tag'
+    needs: [version, core, security, maintainability, docs, linux, linux-gtk-ui, windows, android, macos, ios]
+    uses: ./.github/workflows/android-release.yml
+    with:
+      play-track: ${{ needs.version.outputs.play-track }}
     secrets: inherit

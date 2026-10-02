@@ -444,10 +444,21 @@ resizing or deleting one before a save is refused; save first, or Undo it.
 
 ## Native prerequisite
 
-PDFium is an external runtime prerequisite. This repository does **not** vendor,
-download, or claim to distribute PDFium Android binaries. Obtain compatible
-non-V8 `libpdfium.so` files yourself, with their required license notices, for
-each ABI the app packages. The required release must match the `pdfium_7763`
+PDFium is never vendored into this repository. A **distributable** build, the
+one Google Play gets, uses the same pinned third-party release as the Windows
+and Linux packages. `scripts/fetch-android-pdfium.sh` downloads
+`bblanchon/pdfium-binaries` `chromium/7763` for arm64 and x64 and refuses any
+archive whose SHA-256 is not the pin. It then checks that each library is build
+`7763`, built for Android and the right CPU, and has neither V8 nor XFA. It
+also stages the PDFium license notices, plus this project's, as app assets
+under `licenses/`.
+
+```sh
+eval "$(bash scripts/fetch-android-pdfium.sh | sed 's/^/export /')"
+```
+
+That prints the two variables below. You can still supply your own compatible
+non-V8 `libpdfium.so` files instead; the release must match the `pdfium_7763`
 feature selected by `core/pdf-render/Cargo.toml`.
 
 The packaging script needs the Android NDK (`ANDROID_NDK_HOME`), `cargo-ndk`,
@@ -518,3 +529,38 @@ The focused JVM tests intentionally do not need native libraries:
 ```sh
 gradle -p apps/android :app:testDebugUnitTest
 ```
+
+## Google Play release
+
+`android.yml`'s `release-bundle` job builds the distributable bundle on every
+Android change. It uses the pinned PDFium and the cargo-ndk core, checks the
+16-KB alignment, and produces an unsigned `bundleRelease`. It then checks that
+the `.aab` declares exactly `arm64-v8a` and `x86_64` and carries `libpdf_ffi.so`,
+`libpdfium.so` and the license notices for both.
+
+`abiFilters` limits the app to those two ABIs. JNA and androidx bring 32-bit
+libraries of their own. Without the filter, Play would install the app on
+32-bit devices that have no native core, where it can open nothing.
+
+A release tag sets the version. `release.yml` translates the tag with
+`scripts/release-version.sh`: `semver` gives `versionName` and `android-code`
+gives `versionCode`. The `versionCode` folds alpha < beta < rc < final into one
+growing integer, for example `v0.2.0-beta.1` → `200101` and `v0.2.0` →
+`200300`. `release.yml` passes both values into this build:
+
+```sh
+./gradlew :app:bundleRelease -Pvitela.versionCode=200101 -Pvitela.versionName=0.2.0-beta.1
+```
+
+Every other build keeps `1` / `0.1.0`.
+
+`android-release.yml` signs that exact bundle with the Play upload key
+(`jarsigner`) and uploads it to the track the tag maps to:
+
+| Tag | Play track |
+| --- | --- |
+| alpha | internal |
+| beta, rc | beta |
+| final | production |
+
+The one-time Play Console and GitHub setup is listed in that workflow's header.

@@ -238,7 +238,8 @@ The pushed tag starts
 [`.github/workflows/release.yml`](.github/workflows/release.yml), the only
 workflow a tag triggers. It runs **every** platform's test suite on the tagged
 commit, the same ones that gate pull requests. Only if all of them pass does it
-publish to the APT repository, the GitHub Release and the Microsoft Store.
+publish to the APT repository, the GitHub Release, the Microsoft Store and
+Google Play.
 Nothing publishes around that gate, because the publish workflows have no
 trigger of their own.
 
@@ -246,8 +247,9 @@ To rehearse a release, run `release.yml` by hand (*Run workflow*). It runs the
 whole gate on any branch and publishes nothing.
 
 Each target's one-time setup is listed in its workflow header:
-[`linux-release.yml`](.github/workflows/linux-release.yml) and
-[`windows-store.yml`](.github/workflows/windows-store.yml).
+[`linux-release.yml`](.github/workflows/linux-release.yml),
+[`windows-store.yml`](.github/workflows/windows-store.yml) and
+[`android-release.yml`](.github/workflows/android-release.yml).
 
 ## Building
 
