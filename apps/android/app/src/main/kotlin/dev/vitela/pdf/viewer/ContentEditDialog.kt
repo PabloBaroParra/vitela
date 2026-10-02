@@ -166,8 +166,9 @@ internal fun TextInserterDialog(inserter: TextInserter, documentId: Long, action
     )
 }
 
+/** A size in points, typed with a decimal keyboard; shared by the content and annotation dialogs. */
 @Composable
-private fun PointsField(label: String, value: String, onValueChange: (String) -> Unit, isError: Boolean, modifier: Modifier) {
+internal fun PointsField(label: String, value: String, onValueChange: (String) -> Unit, isError: Boolean, modifier: Modifier) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,

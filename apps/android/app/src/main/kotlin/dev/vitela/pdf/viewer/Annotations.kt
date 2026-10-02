@@ -26,6 +26,31 @@ data class NoteReading(val pageIndex: Int, val contents: String)
 
 internal const val NOTE_PLACEMENT_CANCELED = "Note placement canceled."
 
+/**
+ * The **Resize** dialog: a snapshot of the selected annotation's [rect] as it
+ * opened, and the [width] and [height] the reader typed, kept with the [error]
+ * after a refusal. The snapshot is what a resize must still find, or it would
+ * overwrite a change that landed while the dialog waited.
+ */
+data class AnnotationResizer(
+    val id: Long,
+    val pageIndex: Int,
+    val rect: AnnotationRect,
+    val width: String = pointsText(rect.width),
+    val height: String = pointsText(rect.height),
+    val error: String? = null,
+)
+
+// Wording follows the Windows shell's.
+internal const val ANNOTATION_RESIZED = "Annotation resized. Save to keep the change."
+internal const val ANNOTATION_SIZE_UNCHANGED = "Annotation dimensions unchanged."
+internal const val ANNOTATION_SIZE_INVALID = "Annotation dimensions must be finite and greater than zero."
+internal const val ANNOTATION_CHANGED = "The annotation changed while the dialog was open. Nothing was resized."
+
+/** [rect] at [width] by [height] points, its PDF-space origin (bottom-left) kept, like **Grow**; null unless both are finite and positive. */
+internal fun sizedAnnotationRect(rect: AnnotationRect, width: Double, height: Double): AnnotationRect? =
+    if (!width.isFinite() || !height.isFinite() || width <= 0.0 || height <= 0.0) null else rect.copy(width = width, height = height)
+
 enum class HandleCorner { BottomLeft, BottomRight, TopLeft, TopRight }
 sealed interface DragMode { data object Move : DragMode; data class Resize(val corner: HandleCorner) : DragMode }
 internal data class AnnotationControls(
