@@ -14,9 +14,21 @@ android {
         applicationId = "dev.vitela.pdf"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // A release takes both from its tag (scripts/release-version.sh
+        // android-code / semver), passed in by android.yml when release.yml
+        // calls it; every other build keeps these development values.
+        versionCode = providers.gradleProperty("vitela.versionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("vitela.versionName").orNull ?: "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Only the ABIs scripts/package-android.sh builds the native core for.
+        // JNA and androidx bring armeabi-v7a/x86 libraries of their own, and
+        // without this filter the bundle would declare those ABIs too: Play
+        // would then install the app on 32-bit devices with no libpdf_ffi or
+        // libpdfium, where it can open nothing.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     sourceSets {
@@ -34,6 +46,9 @@ android {
             // all three shells ship the byte-identical file produced by
             // `cargo run -p gen-sample`.
             assets.srcDir("../../../assets/sample")
+            // License notices for the app and the PDFium it bundles, staged by
+            // scripts/fetch-android-pdfium.sh for a distributable build.
+            assets.srcDir("build/generated/licenses")
         }
     }
 

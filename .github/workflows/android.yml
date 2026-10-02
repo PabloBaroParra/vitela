@@ -10,8 +10,21 @@
 name: android
 
 on:
-  # release.yml runs this suite on the tagged commit before publishing anything.
+  # release.yml runs this suite on the tagged commit before publishing anything,
+  # passing the tag's Android version; only then is the release bundle uploaded
+  # for android-release.yml to sign and publish. A rehearsal passes nothing.
   workflow_call:
+    inputs:
+      version-code:
+        description: versionCode of the release (release-version.sh <tag> android-code); empty for a test-only run
+        required: false
+        default: ''
+        type: string
+      version-name:
+        description: versionName of the release (release-version.sh <tag> semver)
+        required: false
+        default: ''
+        type: string
   push:
     branches: [main]
   pull_request:
@@ -25,6 +38,8 @@ on:
       # an asset source), so a change here changes what the app ships.
       - "assets/sample/**"
       - "scripts/package-android.sh"
+      - "scripts/fetch-android-pdfium.sh"
+      - "scripts/tests/test-fetch-android-pdfium.sh"
       - ".github/workflows/android.yml"
 
 permissions:
@@ -91,3 +106,94 @@ jobs:
         # fails here as a Kotlin compile error.
         run: ./gradlew :app:testDebugUnitTest
         working-directory: apps/android
+
+  # The distributable bundle, built on every change so a break surfaces in the
+  # pull request rather than on release day: the pinned PDFium (checksummed,
+  # BUILD/args.gn checked), the cargo-ndk core, the 16-KB alignment Play
+  # requires (package-android.sh), and an unsigned release .aab restricted to
+  # the two ABIs that carry the native core. On a release it is built with the
+  # tag's version and uploaded; android-release.yml signs and publishes that
+  # exact file.
+  release-bundle:
+    name: Release bundle (pinned PDFium, 16-KB aligned)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust (stable, Android targets)
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,x86_64-linux-android
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-android-release-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo-ndk
+        id: cargo-ndk-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-ndk
+          key: cargo-ndk-4.1.2-${{ runner.os }}
+      - name: Install cargo-ndk (cache miss)
+        if: steps.cargo-ndk-cache.outputs.cache-hit != 'true'
+        run: cargo install cargo-ndk --version 4.1.2 --locked
+      # The runner image ships several NDKs; package-android.sh and cargo-ndk
+      # both read ANDROID_NDK_HOME, so point it at the newest one.
+      - name: Select the Android NDK
+        run: printf 'ANDROID_NDK_HOME=%s\n' "$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+      - name: Cache pinned Android PDFium archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: build/android/tools
+          key: pdfium-android-7763-arm64-x64
+      - name: PDFium fetch script shell tests
+        run: bash scripts/tests/test-fetch-android-pdfium.sh
+      - name: Fetch and verify the pinned Android PDFium
+        run: bash scripts/fetch-android-pdfium.sh
+      - name: Build the native core and bindings (16-KB alignment checked)
+        run: bash scripts/package-android.sh
+      - name: Set up JDK 17
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Build the release bundle
+        working-directory: apps/android
+        env:
+          VERSION_CODE: ${{ inputs.version-code }}
+          VERSION_NAME: ${{ inputs.version-name }}
+        run: |
+          version_args=()
+          if [ -n "$VERSION_CODE" ]; then
+            version_args=("-Pvitela.versionCode=$VERSION_CODE" "-Pvitela.versionName=$VERSION_NAME")
+          fi
+          ./gradlew :app:bundleRelease "${version_args[@]}"
+      # The bundle must carry the native core for exactly the ABIs it declares,
+      # and the notices for the PDFium it ships.
+      - name: Check the bundle contents
+        run: |
+          aab=apps/android/app/build/outputs/bundle/release/app-release.aab
+          listing="$(unzip -Z1 "$aab")"
+          abis="$(grep -o '^base/lib/[^/]*/' <<< "$listing" | sort -u | tr '\n' ' ')"
+          [ "$abis" = 'base/lib/arm64-v8a/ base/lib/x86_64/ ' ] || { echo "unexpected ABIs: $abis" >&2; exit 1; }
+          for entry in base/lib/arm64-v8a/libpdf_ffi.so base/lib/arm64-v8a/libpdfium.so \
+              base/lib/x86_64/libpdf_ffi.so base/lib/x86_64/libpdfium.so \
+              base/assets/licenses/pdfium/LICENSE base/assets/licenses/LICENSE-MIT \
+              base/assets/licenses/LICENSE-APACHE base/assets/vitela-sample.pdf; do
+            grep -qx "$entry" <<< "$listing" || { echo "bundle is missing $entry" >&2; exit 1; }
+          done
+          echo "bundle contents OK: $abis"
+      - name: Upload the release bundle
+        if: inputs.version-code != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-bundle
+          path: apps/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

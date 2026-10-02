@@ -6,6 +6,8 @@
 #   release-version.sh v0.2.0-beta.1 semver   ->  0.2.0-beta.1
 #   release-version.sh v0.2.0-beta.1 debian   ->  0.2.0~beta.1
 #   release-version.sh v0.2.0-beta.1 msix     ->  0.2.101.0
+#   release-version.sh v0.2.0-beta.1 android-code  ->  200101
+#   release-version.sh v0.2.0-beta.1 play-track    ->  beta
 #   release-version.sh v0.2.0 newer-than v0.2.0-rc.1   (exit 0 if newer)
 #
 # Tag grammar: vMAJOR.MINOR.PATCH, optionally -alpha.N, -beta.N or -rc.N
@@ -72,6 +74,31 @@ case "$FORMAT" in
             (( field <= 65535 )) || fail "$TAG does not fit an MSIX version (fields are at most 65535)"
         done
         printf '%s.%s.%s.0\n' "$major" "$minor" "$build"
+        ;;
+    android-code)
+        # Google Play versionCode: one integer that must always grow, at most
+        # 2100000000. major*1e7 + minor*1e5 + patch*400 + rank*100 + N, with
+        # the same rank/N folding as msix; the caps keep each field inside
+        # its own decimal slot so no version can overtake a later one.
+        [ "$#" -eq 2 ] || fail "$FORMAT takes no further arguments"
+        parse "$TAG"
+        read -r major minor patch rank n <<< "$(sort_key "$TAG")"
+        (( n <= 99 )) || fail "$TAG: versionCode holds at most 99 prereleases of one kind"
+        (( minor <= 99 )) || fail "$TAG: versionCode holds a minor version of at most 99"
+        (( patch <= 249 )) || fail "$TAG: versionCode holds a patch version of at most 249"
+        (( major <= 209 )) || fail "$TAG: versionCode holds a major version of at most 209"
+        printf '%s\n' $(( major * 10000000 + minor * 100000 + patch * 400 + rank * 100 + n ))
+        ;;
+    play-track)
+        # Where a release lands on Google Play: alpha in internal testing,
+        # beta and rc in open testing, a final release in production.
+        [ "$#" -eq 2 ] || fail "$FORMAT takes no further arguments"
+        parse "$TAG"
+        case "$word" in
+            alpha) printf 'internal\n' ;;
+            beta|rc) printf 'beta\n' ;;
+            '') printf 'production\n' ;;
+        esac
         ;;
     newer-than)
         [ "$#" -eq 3 ] || fail 'usage: release-version.sh <tag> newer-than <tag>'

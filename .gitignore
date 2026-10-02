@@ -83,3 +83,6 @@ build/windows/
 
 # Local Microsoft Store MSIX build: its own bin/obj, package and unpacked layout.
 build/windows-store/
+
+# Android distribution inputs: pinned PDFium archives and their extraction.
+build/android/
