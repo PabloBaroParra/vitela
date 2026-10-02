@@ -528,6 +528,7 @@ public sealed partial class MainWindow
         RedoButton.IsEnabled = state?.CanRedo == true;
         DeleteAnnotationButton.IsEnabled = enabled && selected is not null;
         NudgeButton.IsEnabled = enabled && selected is not null;
+        MoveAnnotationButton.IsEnabled = enabled && !_isBusy && selected is not null && AnnotationBounds(selected) is not null;
         GrowButton.IsEnabled = enabled && selected?.Rect is not null;
         ResizeAnnotationButton.IsEnabled = GrowButton.IsEnabled && !_isBusy;
         var restyleEnabled = enabled && selected is not null && SupportsRestyle(selected.Kind);

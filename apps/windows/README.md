@@ -222,6 +222,13 @@ be resized. The edit requires annotation-edit permission, refreshes the overlay
 and records one undo step. Cancel or unchanged dimensions preserve history,
 including redo. Save to keep the change.
 
+**Move annotation** sets the selected annotation's bottom-left X/Y in unrotated
+PDF points (X increases rightward, Y upward), keeping its size. Ink uses the
+bottom-left bounds of its points and moves every point by the same offset.
+Coordinates must be finite; zero and negative values are allowed. The edit
+requires annotation-edit permission, refreshes the overlay and records one undo
+step. Cancel or an unchanged position preserves redo. Save to keep the change.
+
 **Note** asks for text after you click or drag to choose its rectangle. Notes
 accept multiple lines; **Add** becomes available when the text is not blank.
 Cancel closes the prompt without creating an annotation or an undo step. Adding
@@ -327,6 +334,18 @@ the app; `annotation-size-smoke.log` must start with `PASS`. It checks validatio
 cancel/no-op with redo preserved, exact geometry, undo/redo, save, stale snapshots
 and guarded entry. `annotation-size-smoke.pdf` contains a shape at X 40, Y 80 with
 width 123.5 and height 67.25 pt. Rebuild without custom targets afterward.
+
+## Annotation position runtime smoke
+
+`Tests/AnnotationPositionSmoke.targets` exercises the real WinUI position dialog
+and native move command. Use the note smoke setup with these targets, then run
+the app; it must exit with code 0 and `annotation-position-smoke.log` must start
+with `PASS` without an `UNHANDLED` entry. It covers finite
+input, negative/zero coordinates, cancel/no-op preserving redo, exact movement,
+undo/redo, rotated pages, ink translation, stale snapshots and guarded entry.
+`annotation-position-smoke.pdf` contains a shape at X 23.5, Y 47.25 with width
+100 and height 40 pt, and ink points (-5, 0) and (15, 20), on a 90-degree page.
+Rebuild without custom targets afterward.
 
 ## Packaging and signing
 
