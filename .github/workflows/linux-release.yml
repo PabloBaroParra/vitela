@@ -1,0 +1,156 @@
+name: linux-release
+
+# Publishes a Linux release when a release tag is pushed. Cut one with
+# `scripts/release.sh 0.2.0-beta.1`; the tag is the version's only source of
+# truth, for this platform and every other one.
+#
+#   1. requires the tag to be on main and maps it to a Debian version
+#      (scripts/release-version.sh; v0.2.0-beta.1 -> 0.2.0~beta.1),
+#   2. builds and verifies the .deb/.AppImage through linux.yml,
+#   3. attaches both to a GitHub Release (a prerelease for any -word.N tag),
+#   4. rebuilds the signed APT repository from the .deb of EVERY release and
+#      deploys it to GitHub Pages, so `apt-get install vitela` works and older
+#      versions stay installable.
+#
+# The releases are the source of truth; the Pages site is regenerated from
+# them on every run and never patched in place.
+#
+# One-time setup (repository settings, done by a maintainer):
+#   - Pages: Source = "GitHub Actions".
+#   - Environment "apt-release": deployment restricted to tags matching v*,
+#     with secret APT_SIGNING_KEY (ASCII-armored private key, no passphrase,
+#     used only for this archive).
+#   - Repository variable APT_SIGNING_KEY_FINGERPRINT: that key's full
+#     fingerprint. The job refuses to sign with any other key.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Releases deploy one shared Pages site; never run two at once, never cancel.
+  group: linux-release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Map tag to Debian version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      debian-version: ${{ steps.map.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # scripts/release.sh only ever tags origin/main; a tag pushed by hand
+      # onto a branch commit is refused here rather than published.
+      - name: Require the tag to be on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "$GITHUB_REF_NAME does not point at a commit on main" >&2; exit 1; }
+      - id: map
+        run: |
+          version="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" debian)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Build and verify packages
+    needs: version
+    uses: ./.github/workflows/linux.yml
+    with:
+      package-version: ${{ needs.version.outputs.debian-version }}
+
+  release:
+    name: GitHub Release
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: linux-packages
+          path: packages
+      - name: Create the release with the verified packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DEBIAN_VERSION: ${{ needs.version.outputs.debian-version }}
+        run: |
+          prerelease=()
+          case "$DEBIAN_VERSION" in *~*) prerelease=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
+            --title "Vitela $GITHUB_REF_NAME" "${prerelease[@]}" packages/*
+
+  apt-repo:
+    name: Build signed APT repository
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: apt-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - name: Collect the .deb of every published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p debs
+          gh release list --limit 1000 --exclude-drafts --json tagName --jq '.[].tagName' \
+            | grep '^v' | while IFS= read -r tag; do
+              # Per-tag directory: GitHub rewrites '~' to '.' in asset names,
+              # so two releases must never share a download directory.
+              gh release download "$tag" --pattern 'vitela_*_amd64.deb' --dir "tmp/$tag"
+              mv "tmp/$tag"/*.deb "debs/$tag.deb"
+            done
+          ls -l debs
+      - name: Import the archive signing key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+          EXPECTED_FINGERPRINT: ${{ vars.APT_SIGNING_KEY_FINGERPRINT }}
+        run: |
+          [ -n "$APT_SIGNING_KEY" ] || { echo 'APT_SIGNING_KEY secret is not set' >&2; exit 1; }
+          [ -n "$EXPECTED_FINGERPRINT" ] || { echo 'APT_SIGNING_KEY_FINGERPRINT variable is not set' >&2; exit 1; }
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --quiet --import
+          gpg --batch --with-colons --list-secret-keys | awk -F: '/^fpr:/ { print $10 }' \
+            | grep -Fqx "$EXPECTED_FINGERPRINT" \
+            || { echo 'imported key does not match APT_SIGNING_KEY_FINGERPRINT' >&2; exit 1; }
+          printf 'GNUPGHOME=%s\n' "$GNUPGHOME" >> "$GITHUB_ENV"
+      - name: Install apt-ftparchive
+        run: |
+          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
+          sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y apt-utils
+      - name: Build and sign the repository
+        env:
+          APT_SIGNING_KEY_ID: ${{ vars.APT_SIGNING_KEY_FINGERPRINT }}
+          APT_REPO_URL: ${{ steps.pages.outputs.base_url }}
+        run: bash scripts/build-apt-repo.sh debs site
+      - name: Forget the signing key
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/gnupg"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: Deploy APT repository to Pages
+    needs: apt-repo
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
