@@ -4,6 +4,8 @@ name: core
 # workflows (linux.yml, macos.yml, windows.yml) build/package the shells and
 # land in later batches (Batch 8/9/10) — see design.md "CI Sketch".
 on:
+  # release.yml runs this suite on the tagged commit before publishing anything.
+  workflow_call:
   push:
     branches: [main]
   pull_request:

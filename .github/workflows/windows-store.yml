@@ -1,15 +1,18 @@
 # Microsoft Store release of the Windows shell.
 #
-# A release tag (cut with `scripts/release.sh`, see linux-release.yml) builds
-# the MSIX (scripts/package-windows-store.ps1), uploads it to Partner Center
-# and commits the submission. Certification then
-# takes from a few hours to a few business days; once it passes, the Store
-# updates every installed copy on its own. Nothing here waits for that.
+# Builds the MSIX of a release (scripts/package-windows-store.ps1), uploads it
+# to Partner Center and commits the submission. release.yml calls it, and only
+# after every platform's tests passed on the tagged commit; it has no trigger
+# of its own, so a release tag can never publish around that gate.
 #
-# The tag is the version's only source of truth. scripts/release-version.sh
-# translates it to MSIX (v0.2.0-beta.1 -> 0.2.101.0): MSIX has no prerelease
-# notation, so alpha < beta < rc < final is folded into the Build field and a
-# Store update can never go backwards.
+# Certification then takes from a few hours to a few business days; once it
+# passes, the Store updates every installed copy on its own. Nothing here
+# waits for that.
+#
+# The tag is the version's only source of truth. release.yml passes its MSIX
+# translation (scripts/release-version.sh <tag> msix; v0.2.0-beta.1 ->
+# 0.2.101.0): MSIX has no prerelease notation, so alpha < beta < rc < final is
+# folded into the Build field and a Store update can never go backwards.
 #
 # One-time setup, all in the `microsoft-store` environment
 # (Settings → Environments):
@@ -25,8 +28,12 @@
 name: windows-store
 
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
+    inputs:
+      msix-version:
+        description: MSIX version of the release (release-version.sh <tag> msix)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -48,8 +55,6 @@ jobs:
     environment: microsoft-store
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
 
       # Fail in seconds, before a 20-minute build, when the environment is not
       # set up yet.
@@ -75,17 +80,6 @@ jobs:
             $missing | ForEach-Object { Write-Host "::error::microsoft-store environment is missing $_" }
             exit 1
           }
-
-      # scripts/release.sh only ever tags origin/main; a tag pushed by hand onto
-      # a branch commit is refused here rather than shipped to every user.
-      - name: Resolve the release version
-        id: version
-        shell: bash
-        run: |
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
-            || { echo "$GITHUB_REF_NAME does not point at a commit on main" >&2; exit 1; }
-          version="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" msix)"
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
@@ -131,7 +125,7 @@ jobs:
       - name: Build the MSIX
         id: package
         env:
-          MSIX_VERSION: ${{ steps.version.outputs.version }}
+          MSIX_VERSION: ${{ inputs.msix-version }}
           STORE_IDENTITY_NAME: ${{ vars.STORE_IDENTITY_NAME }}
           STORE_PUBLISHER: ${{ vars.STORE_PUBLISHER }}
           STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.STORE_PUBLISHER_DISPLAY_NAME }}

@@ -1,14 +1,13 @@
 name: linux-release
 
-# Publishes a Linux release when a release tag is pushed. Cut one with
-# `scripts/release.sh 0.2.0-beta.1`; the tag is the version's only source of
-# truth, for this platform and every other one.
+# Publishes a verified Linux build. release.yml calls it, and only after every
+# platform's tests passed on the tagged commit; it has no trigger of its own,
+# so a release tag can never publish around that gate.
 #
-#   1. requires the tag to be on main and maps it to a Debian version
-#      (scripts/release-version.sh; v0.2.0-beta.1 -> 0.2.0~beta.1),
-#   2. builds and verifies the .deb/.AppImage through linux.yml,
-#   3. attaches both to a GitHub Release (a prerelease for any -word.N tag),
-#   4. rebuilds the signed APT repository from the .deb of EVERY release and
+#   1. attaches the .deb/.AppImage that release.yml's linux.yml call built and
+#      verified (artifact `linux-packages`, same run) to a GitHub Release
+#      (a prerelease for any -word.N tag),
+#   2. rebuilds the signed APT repository from the .deb of EVERY release and
 #      deploys it to GitHub Pages, so `apt-get install vitela` works and older
 #      versions stay installable.
 #
@@ -23,8 +22,12 @@ name: linux-release
 #   - Repository variable APT_SIGNING_KEY_FINGERPRINT: that key's full
 #     fingerprint. The job refuses to sign with any other key.
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      debian-version:
+        description: Debian version of the release (release-version.sh <tag> debian)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -35,37 +38,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  version:
-    name: Map tag to Debian version
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      debian-version: ${{ steps.map.outputs.version }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      # scripts/release.sh only ever tags origin/main; a tag pushed by hand
-      # onto a branch commit is refused here rather than published.
-      - name: Require the tag to be on main
-        run: |
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
-            || { echo "$GITHUB_REF_NAME does not point at a commit on main" >&2; exit 1; }
-      - id: map
-        run: |
-          version="$(bash scripts/release-version.sh "$GITHUB_REF_NAME" debian)"
-          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
-
-  package:
-    name: Build and verify packages
-    needs: version
-    uses: ./.github/workflows/linux.yml
-    with:
-      package-version: ${{ needs.version.outputs.debian-version }}
-
   release:
     name: GitHub Release
-    needs: [version, package]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -79,7 +53,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          DEBIAN_VERSION: ${{ needs.version.outputs.debian-version }}
+          DEBIAN_VERSION: ${{ inputs.debian-version }}
         run: |
           prerelease=()
           case "$DEBIAN_VERSION" in *~*) prerelease=(--prerelease) ;; esac

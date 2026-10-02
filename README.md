@@ -224,14 +224,30 @@ source of truth. To release, run one command from any checkout:
 scripts/release.sh 0.2.0-beta.1
 ```
 
-It tags the current `origin/main` (never your local checkout), refuses a
-version that is not newer than the last release, asks before pushing, and the
-pushed tag starts the release workflows. Versions are `MAJOR.MINOR.PATCH`,
-optionally `-alpha.N`, `-beta.N` or `-rc.N`;
-[`scripts/release-version.sh`](scripts/release-version.sh) translates them into
-each platform's own format. The one-time repository setup the Linux release
-needs is listed in the header of
-[`.github/workflows/linux-release.yml`](.github/workflows/linux-release.yml).
+The script:
+
+- tags the current `origin/main`, never your local checkout;
+- refuses a version that is not newer than the last release;
+- asks before pushing.
+
+Versions are `MAJOR.MINOR.PATCH`, optionally followed by `-alpha.N`, `-beta.N`
+or `-rc.N`. [`scripts/release-version.sh`](scripts/release-version.sh)
+translates them into each platform's own format.
+
+The pushed tag starts
+[`.github/workflows/release.yml`](.github/workflows/release.yml), the only
+workflow a tag triggers. It runs **every** platform's test suite on the tagged
+commit, the same ones that gate pull requests. Only if all of them pass does it
+publish to the APT repository, the GitHub Release and the Microsoft Store.
+Nothing publishes around that gate, because the publish workflows have no
+trigger of their own.
+
+To rehearse a release, run `release.yml` by hand (*Run workflow*). It runs the
+whole gate on any branch and publishes nothing.
+
+Each target's one-time setup is listed in its workflow header:
+[`linux-release.yml`](.github/workflows/linux-release.yml) and
+[`windows-store.yml`](.github/workflows/windows-store.yml).
 
 ## Building
 

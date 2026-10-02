@@ -10,6 +10,8 @@
 name: android
 
 on:
+  # release.yml runs this suite on the tagged commit before publishing anything.
+  workflow_call:
   push:
     branches: [main]
   pull_request:

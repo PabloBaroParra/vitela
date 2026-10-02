@@ -1,6 +1,8 @@
 name: Linux GTK UI
 
 on:
+  # release.yml runs this suite on the tagged commit before publishing anything.
+  workflow_call:
   pull_request:
     paths:
       - 'apps/linux-gtk/**'
