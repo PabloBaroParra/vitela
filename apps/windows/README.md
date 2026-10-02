@@ -215,6 +215,13 @@ placing a form field, organizing pages or opening another document also clears
 the active annotation tool. Choosing a tool does not change the PDF or its
 undo history.
 
+**Resize annotation** sets the selected annotation's width and height in PDF
+points, keeping its bottom-left PDF-space origin fixed. Dimensions must be finite
+and positive; stamps stretch to the new rectangle. Ink has no rectangle and cannot
+be resized. The edit requires annotation-edit permission, refreshes the overlay
+and records one undo step. Cancel or unchanged dimensions preserve history,
+including redo. Save to keep the change.
+
 **Note** asks for text after you click or drag to choose its rectangle. Notes
 accept multiple lines; **Add** becomes available when the text is not blank.
 Cancel closes the prompt without creating an annotation or an undo step. Adding
@@ -311,6 +318,15 @@ Use the same MSBuild and output directory setup as the note smoke, replacing
 `NotePlacementSmoke.targets` with `StampPlacementSmoke.targets`, then run the app.
 `stamp-smoke.log` must start with `PASS`; `stamp-smoke.pdf` contains the selected
 two-pixel red/blue image as a stamp. Rebuild without the custom targets afterward.
+
+## Annotation size runtime smoke
+
+`Tests/AnnotationSizeSmoke.targets` exercises the real WinUI dimensions dialog
+and native resize command. Use the note smoke setup with these targets, then run
+the app; `annotation-size-smoke.log` must start with `PASS`. It checks validation,
+cancel/no-op with redo preserved, exact geometry, undo/redo, save, stale snapshots
+and guarded entry. `annotation-size-smoke.pdf` contains a shape at X 40, Y 80 with
+width 123.5 and height 67.25 pt. Rebuild without custom targets afterward.
 
 ## Packaging and signing
 
