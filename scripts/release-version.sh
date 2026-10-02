@@ -5,6 +5,7 @@
 #
 #   release-version.sh v0.2.0-beta.1 semver   ->  0.2.0-beta.1
 #   release-version.sh v0.2.0-beta.1 debian   ->  0.2.0~beta.1
+#   release-version.sh v0.2.0-beta.1 msix     ->  0.2.101.0
 #   release-version.sh v0.2.0 newer-than v0.2.0-rc.1   (exit 0 if newer)
 #
 # Tag grammar: vMAJOR.MINOR.PATCH, optionally -alpha.N, -beta.N or -rc.N
@@ -55,6 +56,22 @@ case "$FORMAT" in
             # '~' sorts before anything in dpkg, so a beta precedes its final.
             printf '%s~%s.%s\n' "$base" "$word" "$n"
         fi
+        ;;
+    msix)
+        # Microsoft Store: Major.Minor.Build.0. Every field is 16-bit and the
+        # Store reserves the revision, so the prerelease order is folded into
+        # Build: patch*400 + rank*100 + N (alpha 0, beta 1, rc 2, final 3).
+        # N is capped at 99 so one rank can never spill into the next.
+        [ "$#" -eq 2 ] || fail "$FORMAT takes no further arguments"
+        # Validate here: a parse failure inside $(sort_key ...) would not exit.
+        parse "$TAG"
+        read -r major minor patch rank n <<< "$(sort_key "$TAG")"
+        (( n <= 99 )) || fail "$TAG: MSIX holds at most 99 prereleases of one kind"
+        build=$(( patch * 400 + rank * 100 + n ))
+        for field in "$major" "$minor" "$build"; do
+            (( field <= 65535 )) || fail "$TAG does not fit an MSIX version (fields are at most 65535)"
+        done
+        printf '%s.%s.%s.0\n' "$major" "$minor" "$build"
         ;;
     newer-than)
         [ "$#" -eq 3 ] || fail 'usage: release-version.sh <tag> newer-than <tag>'
