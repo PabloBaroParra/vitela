@@ -54,7 +54,11 @@ mirrors the GTK4 shell's viewport tick (`apps/linux-gtk/src/app/render.rs`).
 Previous/Next, search navigation and the page list do not swap a page — they
 set a scroll target the list animates to, so the reader keeps one scroll
 position. The page list opens from the page counter ("Page 2 of 5"): picking a
-numbered row jumps there, like the Linux and Windows page lists. It is disabled
+numbered row jumps there, like the Linux and Windows page lists. Above the list,
+a page number can be typed (parity with Windows Go to page): the field opens
+with the current page selected, and Go stays disabled unless the text is a
+whole number in 1..N — a number past the end is a typo, not a request for the
+last page, so it is refused rather than clamped. It is disabled
 while the Organize grid stands in for the reader or a document is loading, since
 a target set then would fire later over the page Organize returns to. The page
 counter reports the page covering most of the viewport, not the first one
