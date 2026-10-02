@@ -1,0 +1,6 @@
+<Project>
+  <ItemGroup>
+    <Compile Remove="App.xaml.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)PageNavigationSmoke.cs" />
+  </ItemGroup>
+</Project>

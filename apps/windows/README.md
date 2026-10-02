@@ -84,6 +84,12 @@ viewport when scrolling or navigating through search results. The list uses the
 current zoom and page order, including after organizing or undo/redo. Navigation
 does not change the PDF or its history, and is disabled while organizing or busy.
 
+**Go to page** (Ctrl+G) jumps directly to a numbered page, even with the panels
+hidden. Enter a whole number from 1 through the document's page count. The dialog
+starts at the current viewport page; Cancel keeps the current position. Navigation
+uses the current zoom and preserves undo/redo. Opening another document or changing
+the page order while the dialog is open invalidates the request.
+
 **Resize image** lists the content images on the page at the top of the viewport.
 Choose an image and enter its width and height in PDF points; its origin stays
 fixed. Resource images and inline images use the same Rust resize command.
@@ -346,6 +352,17 @@ undo/redo, rotated pages, ink translation, stale snapshots and guarded entry.
 `annotation-position-smoke.pdf` contains a shape at X 23.5, Y 47.25 with width
 100 and height 40 pt, and ink points (-5, 0) and (15, 20), on a 90-degree page.
 Rebuild without custom targets afterward.
+
+## Page navigation runtime smoke
+
+`Tests/PageNavigationSmoke.targets` exercises the real WinUI page-number dialog
+and scrolling against a native document. Use the note smoke setup with these
+targets and a fresh log destination, then run the app. It must exit with code 0;
+`page-navigation-smoke.log` must start with `PASS` without an `UNHANDLED` entry.
+It covers invalid numbers, cancellation, first/last pages at the current zoom,
+hidden panels, preserved native undo/redo, stale page order/session and guarded
+entry. It checks the Ctrl+G accelerator wiring; pressing the physical shortcut
+still needs a manual check. Rebuild without custom targets afterward.
 
 ## Packaging and signing
 

@@ -59,6 +59,9 @@
             <ToggleButton x:Name="PanelsButton" Content="Panels" IsChecked="True" Click="PanelsButton_Click" ToolTipService.ToolTip="Show or hide pages, properties, form fields and search results" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" MaxWidth="200" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
+            <Button x:Name="GoToPageButton" Content="Go to page" Click="GoToPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Jump to a page by number">
+                <Button.KeyboardAccelerators><KeyboardAccelerator Key="G" Modifiers="Control" /></Button.KeyboardAccelerators>
+            </Button>
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
                 <TextBlock x:Name="ZoomLevel" VerticalAlignment="Center" MinWidth="110" />
