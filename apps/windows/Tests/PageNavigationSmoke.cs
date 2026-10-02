@@ -24,7 +24,7 @@ public partial class App : Application
         try
         {
             await _window.PageNavigationSmokeAsync();
-            File.AppendAllText(log, "PASS validation; cancel; first/last page; current zoom; hidden panels; unchanged native history; stale order/session; busy/organize/modal guards; Ctrl+G wiring; previous/next buttons; scrolling; single-page boundaries.");
+            File.AppendAllText(log, "PASS validation; cancel; first/last page; current zoom; hidden panels; unchanged native history; stale order/session; busy/organize/modal guards; Ctrl+G wiring; previous/next buttons; first/last buttons; scrolling; single-page boundaries.");
         }
         catch (Exception error) { File.AppendAllText(log, "FAIL " + error); }
         finally { _window.Close(); }
@@ -39,10 +39,13 @@ public sealed partial class MainWindow
         // Harness activation can precede the XAML tree becoming ready. Complete
         // the viewer's activation setup before driving layout and closing it.
         MainWindow_Activated(this, null!);
-        if (GoToPageButton.IsEnabled || PreviousPageButton.IsEnabled || NextPageButton.IsEnabled)
+        if (GoToPageButton.IsEnabled || PreviousPageButton.IsEnabled || NextPageButton.IsEnabled
+            || FirstPageButton.IsEnabled || LastPageButton.IsEnabled)
             throw new Exception("Navigation enabled without a document.");
         StepPage(1);
         StepPage(-1);
+        JumpToPageBoundary(last: false);
+        JumpToPageBoundary(last: true);
         await GoToPageAsync();
         await OpenDocumentAsync("Page navigation smoke", await File.ReadAllBytesAsync(SamplePath));
         await WaitForNavigationAsync(() => PageScroller.ViewportHeight > 0 && GoToPageButton.IsEnabled);
@@ -60,7 +63,7 @@ public sealed partial class MainWindow
         var navigating = GoToPageAsync();
         var dialog = await WaitForNavigationDialogAsync();
         var number = (NumberBox)dialog.Content;
-        if (PreviousPageButton.IsEnabled || NextPageButton.IsEnabled)
+        if (PreviousPageButton.IsEnabled || NextPageButton.IsEnabled || FirstPageButton.IsEnabled || LastPageButton.IsEnabled)
             throw new Exception("Modal left page steps enabled.");
         if (number.Value != _firstVisiblePage + 1) throw new Exception("Initial page differs from viewport.");
         foreach (var invalid in new[] { double.NaN, 0, -1, 1.5, _session.PageCount + 1.0 })
@@ -136,11 +139,14 @@ public sealed partial class MainWindow
             _dialogOpen = guard == "modal";
             PageScroller.Visibility = guard == "hidden" ? Visibility.Collapsed : Visibility.Visible;
             UpdatePageNavigationControls();
-            if (GoToPageButton.IsEnabled || PreviousPageButton.IsEnabled || NextPageButton.IsEnabled)
+            if (GoToPageButton.IsEnabled || PreviousPageButton.IsEnabled || NextPageButton.IsEnabled
+                || FirstPageButton.IsEnabled || LastPageButton.IsEnabled)
                 throw new Exception("Guard left navigation enabled.");
             offset = PageScroller.VerticalOffset;
             StepPage(1);
             StepPage(-1);
+            JumpToPageBoundary(last: false);
+            JumpToPageBoundary(last: true);
             if (PageScroller.VerticalOffset != offset) throw new Exception("Guard allowed page steps.");
             await GoToPageAsync();
         }
@@ -159,11 +165,14 @@ public sealed partial class MainWindow
         BuildPagePlaceholders(_session);
         await WaitForNavigationAsync(() => _firstVisiblePage == 0 && PageScroller.ViewportHeight > 0);
         UpdatePageNavigationControls();
-        if (!GoToPageButton.IsEnabled || PreviousPageButton.IsEnabled || NextPageButton.IsEnabled)
+        if (!GoToPageButton.IsEnabled || PreviousPageButton.IsEnabled || NextPageButton.IsEnabled
+            || FirstPageButton.IsEnabled || LastPageButton.IsEnabled)
             throw new Exception("Single-page boundaries incorrect.");
         offset = PageScroller.VerticalOffset;
         StepPage(-1);
         StepPage(1);
+        JumpToPageBoundary(last: false);
+        JumpToPageBoundary(last: true);
         if (PageScroller.VerticalOffset != offset) throw new Exception("Single-page step navigated.");
     }
 
@@ -171,7 +180,7 @@ public sealed partial class MainWindow
     {
         NavigateToPage(0);
         await WaitForNavigationAsync(() => _firstVisiblePage == 0 && PageScroller.VerticalOffset == 0);
-        if (PreviousPageButton.IsEnabled || !NextPageButton.IsEnabled)
+        if (PreviousPageButton.IsEnabled || !NextPageButton.IsEnabled || FirstPageButton.IsEnabled || !LastPageButton.IsEnabled)
             throw new Exception("First-page boundaries incorrect.");
         var offset = PageScroller.VerticalOffset;
         StepPage(-1);
@@ -187,15 +196,25 @@ public sealed partial class MainWindow
         // Scrolling, rather than a navigation command, must also update buttons.
         PageScroller.ChangeView(null, _spans[^1].Top, null, disableAnimation: true);
         await WaitForNavigationAsync(() => _firstVisiblePage == _spans.Count - 1);
-        if (!PreviousPageButton.IsEnabled || NextPageButton.IsEnabled)
+        if (!PreviousPageButton.IsEnabled || NextPageButton.IsEnabled || !FirstPageButton.IsEnabled || LastPageButton.IsEnabled)
             throw new Exception("Last-page boundaries incorrect after scrolling.");
         offset = PageScroller.VerticalOffset;
         StepPage(1);
         if (PageScroller.VerticalOffset != offset) throw new Exception("Next wrapped at last page.");
         InvokePageStep(PreviousPageButton);
         await WaitForNavigationAsync(() => _firstVisiblePage == _spans.Count - 2);
-        NavigateToPage(0);
+        InvokePageStep(FirstPageButton);
         await WaitForNavigationAsync(() => _firstVisiblePage == 0 && PageScroller.VerticalOffset == 0);
+        InvokePageStep(LastPageButton);
+        await WaitForNavigationAsync(() => _firstVisiblePage == _spans.Count - 1);
+        if (PageNavigationList.SelectedIndex != _firstVisiblePage || _slots[0].Factor != factor
+            || !FirstPageButton.IsEnabled || LastPageButton.IsEnabled)
+            throw new Exception("Last did not synchronize page/zoom/boundaries.");
+        InvokePageStep(FirstPageButton);
+        await WaitForNavigationAsync(() => _firstVisiblePage == 0 && PageScroller.VerticalOffset == 0);
+        if (PageNavigationList.SelectedIndex != 0 || _slots[0].Factor != factor
+            || FirstPageButton.IsEnabled || !LastPageButton.IsEnabled)
+            throw new Exception("First did not synchronize page/zoom/boundaries.");
     }
 
     private static void InvokePageStep(Button button) =>

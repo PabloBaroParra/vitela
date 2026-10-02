@@ -59,10 +59,12 @@
             <ToggleButton x:Name="PanelsButton" Content="Panels" IsChecked="True" Click="PanelsButton_Click" ToolTipService.ToolTip="Show or hide pages, properties, form fields and search results" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" MaxWidth="200" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
+            <Button x:Name="FirstPageButton" Content="First page" Click="FirstPageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Go to the first page of the document" />
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="PreviousPageButton" Content="Previous page" Click="PreviousPageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Go to the page before the current viewport page" />
                 <Button x:Name="NextPageButton" Content="Next page" Click="NextPageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Go to the page after the current viewport page" />
             </StackPanel>
+            <Button x:Name="LastPageButton" Content="Last page" Click="LastPageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Go to the last page of the document" />
             <Button x:Name="GoToPageButton" Content="Go to page" Click="GoToPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Jump to a page by number">
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="G" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>

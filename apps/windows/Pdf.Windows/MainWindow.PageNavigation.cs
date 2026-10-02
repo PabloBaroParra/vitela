@@ -27,6 +27,8 @@ public sealed partial class MainWindow
         GoToPageButton.IsEnabled = PageNavigationList.IsEnabled;
         PreviousPageButton.IsEnabled = PageNavigationList.IsEnabled && _firstVisiblePage > 0;
         NextPageButton.IsEnabled = PageNavigationList.IsEnabled && _firstVisiblePage < _spans.Count - 1;
+        FirstPageButton.IsEnabled = PreviousPageButton.IsEnabled;
+        LastPageButton.IsEnabled = NextPageButton.IsEnabled;
     }
 
     private void SyncPageNavigation()
@@ -63,11 +65,19 @@ public sealed partial class MainWindow
 
     private void NextPageButton_Click(object sender, RoutedEventArgs e) => StepPage(1);
 
-    private void StepPage(int delta)
+    private void FirstPageButton_Click(object sender, RoutedEventArgs e) => JumpToPageBoundary(last: false);
+
+    private void LastPageButton_Click(object sender, RoutedEventArgs e) => JumpToPageBoundary(last: true);
+
+    private void StepPage(int delta) => NavigateFromToolbar(_firstVisiblePage + delta);
+
+    private void JumpToPageBoundary(bool last) => NavigateFromToolbar(last ? _spans.Count - 1 : 0);
+
+    private void NavigateFromToolbar(int index)
     {
         if (_session is not { PageCount: > 0 } || _isBusy || _organizing || _dialogOpen
             || PageScroller.Visibility != Visibility.Visible) return;
-        NavigateToPage(_firstVisiblePage + delta);
+        NavigateToPage(index);
     }
 
     private async void GoToPageButton_Click(object sender, RoutedEventArgs e) => await GoToPageAsync();

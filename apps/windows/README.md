@@ -97,6 +97,12 @@ are disabled without a visible document, while busy, organizing or showing a
 modal dialog. Scrolling updates their availability; navigation preserves PDF
 contents and undo/redo.
 
+**First page** and **Last page** jump to either end of the document with the
+current zoom and panel visibility preserved. First is disabled on the first
+viewport page and Last on the last; both are disabled for a single-page document
+and use the same busy, organize and modal guards as Previous/Next. These jumps
+do not change PDF contents or undo/redo.
+
 **Resize image** lists the content images on the page at the top of the viewport.
 Choose an image and enter its width and height in PDF points; its origin stays
 fixed. Resource images and inline images use the same Rust resize command.
@@ -371,7 +377,10 @@ hidden panels, preserved native undo/redo, stale page order/session and guarded
 entry. It checks the Ctrl+G accelerator wiring; pressing the physical shortcut
 still needs a manual check. It also invokes the Previous/Next page buttons,
 checks first/last and single-page boundaries, scrolling, zoom, page-order changes
-and restored controls after blocked entry. Rebuild without custom targets afterward.
+and restored controls after blocked entry. First/Last buttons are invoked against
+the native document, including after zoom and page-order changes, with panels
+hidden, at single-page boundaries and under the same entry guards.
+Rebuild without custom targets afterward.
 
 ## Packaging and signing
 
