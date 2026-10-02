@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest for the Microsoft Store build only. It is read when the project
+  is built with -p:VitelaStorePackage=true (scripts/package-windows-store.ps1);
+  the ordinary build stays unpackaged and ignores it.
+
+  The Identity below is a development placeholder that sideloads locally. The
+  real Name, Publisher and PublisherDisplayName come from the app's Partner
+  Center reservation, and the packaging script writes them — and the Version —
+  into a build-time copy, never into this file.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="Vitela.Development"
+    Publisher="CN=Vitela Development"
+    Version="0.1.0.0" />
+
+  <Properties>
+    <DisplayName>Vitela</DisplayName>
+    <PublisherDisplayName>Vitela Development</PublisherDisplayName>
+    <Logo>Package\Images\StoreLogo.png</Logo>
+  </Properties>
+
+  <!-- Desktop only: the shell is a full-trust Win32 process. -->
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="x-generate" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="$targetentrypoint$">
+      <uap:VisualElements
+        DisplayName="Vitela"
+        Description="View, edit, organize and sign PDF documents."
+        BackgroundColor="transparent"
+        Square150x150Logo="Package\Images\Square150x150Logo.png"
+        Square44x44Logo="Package\Images\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Package\Images\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="Package\Images\SplashScreen.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

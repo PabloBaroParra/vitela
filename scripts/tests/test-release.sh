@@ -37,6 +37,41 @@ test_debian_versions_sort_like_the_releases() {
     done
 }
 
+# True when MSIX version $1 is strictly lower than $2, field by field.
+msix_lt() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        split(a, x, "."); split(b, y, ".")
+        for (i = 1; i <= 4; i++) { if (x[i] + 0 < y[i] + 0) exit 0; if (x[i] + 0 > y[i] + 0) exit 1 }
+        exit 1
+    }'
+}
+
+# MSIX (Microsoft Store): Major.Minor.Build.0, every field at most 65535, the
+# revision reserved by the Store. MSIX has no prerelease notation, so the
+# order is folded into Build (patch*400 + rank*100 + N) and a Store update
+# can never go backwards.
+test_msix_versions_encode_the_release_order() {
+    [ "$(version v0.2.0-alpha.1 msix)" = '0.2.1.0' ] || fail 'msix of an alpha tag'
+    [ "$(version v0.2.0-beta.1 msix)" = '0.2.101.0' ] || fail 'msix of a beta tag'
+    [ "$(version v0.2.0-rc.2 msix)" = '0.2.202.0' ] || fail 'msix of an rc tag'
+    [ "$(version v0.2.0 msix)" = '0.2.300.0' ] || fail 'msix of a final tag'
+    [ "$(version v1.2.3 msix)" = '1.2.1500.0' ] || fail 'msix of a later patch'
+
+    local ordered=(v0.1.0 v0.2.0-alpha.1 v0.2.0-alpha.99 v0.2.0-beta.1 v0.2.0-beta.10 v0.2.0-rc.1
+        v0.2.0-rc.99 v0.2.0 v0.2.1-alpha.1 v0.2.1 v0.10.0 v1.0.0)
+    local i
+    for ((i = 1; i < ${#ordered[@]}; i++)); do
+        msix_lt "$(version "${ordered[i-1]}" msix)" "$(version "${ordered[i]}" msix)" \
+            || fail "msix order: ${ordered[i-1]} must sort before ${ordered[i]}"
+    done
+
+    [ "$(version v0.0.163 msix)" = '0.0.65500.0' ] || fail 'the largest patch that still fits'
+    local tag
+    for tag in v0.0.164-alpha.1 v0.2.0-beta.100 v65536.0.0 v0.65536.0 v0.2 v0.2.0-preview.1; do
+        if version "$tag" msix >/dev/null 2>&1; then fail "accepted a tag MSIX cannot hold: $tag"; fi
+    done
+}
+
 test_malformed_tags_and_formats_fail() {
     local tag
     for tag in 0.2.0 v0.2 v0.2.0- v0.2.0-beta v0.2.0-beta.0 v0.2.0-beta.01 v0.2.0-preview.1 v0.2.0-beta_1 \
@@ -130,6 +165,7 @@ test_required_assets_exist() {
 
 test_tag_maps_to_each_format
 test_debian_versions_sort_like_the_releases
+test_msix_versions_encode_the_release_order
 test_malformed_tags_and_formats_fail
 test_versions_compare_in_release_order
 test_release_tags_origin_main_and_pushes
@@ -138,4 +174,4 @@ test_release_refuses_existing_or_older_versions
 test_release_refuses_malformed_versions
 test_release_asks_before_pushing
 test_required_assets_exist
-printf 'release tooling shell tests: %d passed, %d skipped\n' $((10 - skipped)) "$skipped"
+printf 'release tooling shell tests: %d passed, %d skipped\n' $((11 - skipped)) "$skipped"

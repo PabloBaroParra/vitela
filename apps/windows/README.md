@@ -394,6 +394,83 @@ mints a throwaway certificate no machine trusts; a release passes
 those secrets exist, every CI package is development-signed and says so in the
 job log.
 
+## Microsoft Store
+
+The Store build is the same app as an MSIX. The Store installs it, keeps every
+copy up to date, and signs it, so it needs no certificate of ours. Everything
+else stays unpackaged: `-p:VitelaStorePackage=true` is the only switch, and
+nothing but `scripts/package-windows-store.ps1` sets it.
+
+```powershell
+./build.ps1 -Configuration Release        # from apps/windows
+./scripts/package-windows-store.ps1       # from the repository root
+```
+
+The script checks the PDFium input with the same code as the zip
+(`scripts/windows-pdfium.ps1`). It builds into `build/windows-store/`, with its
+own `bin`/`obj`, and then opens the `.msix` it produced. It refuses the package
+unless all of these hold:
+
+- the identity and version are the ones requested;
+- `pdfium.dll` is the pinned binary;
+- `resources.pri` indexes `App.xbf` and `MainWindow.xbf`, because a packaged
+  WinUI app carries its compiled XAML inside the PRI, not as loose files;
+- the licenses are present;
+- the Windows App SDK is declared as a framework dependency.
+
+`.NET` is self-contained, but the Windows App SDK is not: the Store installs
+that runtime alongside the app. The `windows.yml` package job runs the script
+on every change.
+
+The committed `Package.appxmanifest` carries a development identity. The real
+`Name`, `Publisher` and `PublisherDisplayName` come from the Partner Center
+reservation, and the script writes them, plus the version, into a build-time
+copy.
+
+To smoke-test the package locally, turn on Developer Mode and register the
+unpacked layout. The package is unsigned, so it cannot be installed directly:
+
+```powershell
+Add-AppxPackage -Register build\windows-store\layout\AppxManifest.xml
+```
+
+### Releasing
+
+Releases are cut with `scripts/release.sh` (see the root README), and the tag
+is the only source of truth for the version. `windows-store.yml` runs on that
+tag and refuses it unless it points at a commit on `main`. It then:
+
+1. translates the tag with `scripts/release-version.sh <tag> msix`;
+2. builds and checks the MSIX;
+3. submits it with the Microsoft Store Developer CLI.
+
+MSIX has no way to mark a prerelease, so the order alpha < beta < rc < final
+is folded into the Build field (`patch×400 + rank×100 + N`). For example,
+`v0.2.0-beta.1` becomes `0.2.101.0` and `v0.2.0` becomes `0.2.300.0`. A Store
+update can never go backwards.
+
+Certification takes from a few hours to a few business days. After that, the
+Store updates installed copies on its own.
+
+One-time setup, outside the repository:
+
+1. Create a Partner Center developer account and reserve the app name.
+2. Make the **first submission by hand**. That covers the listing, screenshots,
+   age rating, privacy policy, and the `runFullTrust` justification. The
+   workflow ships updates after it.
+3. Register an Entra ID app and add it to Partner Center (Account settings →
+   User management → Microsoft Entra applications) with the Manager role.
+4. In GitHub, create the `microsoft-store` environment with:
+   - variables: `STORE_PRODUCT_ID`, `STORE_IDENTITY_NAME`, `STORE_PUBLISHER`,
+     `STORE_PUBLISHER_DISPLAY_NAME`, all from Partner Center → Product identity;
+   - secrets: `PARTNER_CENTER_TENANT_ID`, `PARTNER_CENTER_SELLER_ID`,
+     `PARTNER_CENTER_CLIENT_ID`, `PARTNER_CENTER_CLIENT_SECRET`.
+
+The workflow checks that configuration first and names whatever is missing.
+
+The Store tiles under `Pdf.Windows/Package/Images` are generated from the brand
+mark with `python scripts/windows-store-images.py`.
+
 ## Diagnosing a reported failure
 
 Failures shown to the user are deliberately vague — the shell never puts a
