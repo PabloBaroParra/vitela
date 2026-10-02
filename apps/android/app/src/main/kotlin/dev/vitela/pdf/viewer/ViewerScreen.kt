@@ -81,6 +81,9 @@ internal fun ViewerScreen(
     onAnnotationResize: () -> Unit,
     onAnnotationResizeConfirm: (Long, String, String) -> Unit,
     onAnnotationResizeCancel: () -> Unit,
+    onAnnotationPosition: () -> Unit,
+    onAnnotationPositionConfirm: (Long, String, String) -> Unit,
+    onAnnotationPositionCancel: () -> Unit,
     onAnnotationDelete: () -> Unit,
     onAnnotationUndo: () -> Unit,
     onAnnotationRedo: () -> Unit,
@@ -233,6 +236,7 @@ internal fun ViewerScreen(
             TextButton(onClick = onCopySelection, enabled = state.textSelection != null) { Text("Copy") }
             TextButton(onClick = onAnnotationGrow, enabled = annotationControls.canGrow) { Text("Grow") }
             TextButton(onClick = onAnnotationResize, enabled = annotationControls.canResize) { Text("Resize") }
+            TextButton(onClick = onAnnotationPosition, enabled = annotationControls.canMove) { Text("Move to") }
             TextButton(onClick = onAnnotationDelete, enabled = selected != null && state.annotationEditingAllowed) { Text("Delete") }
             TextButton(onClick = { onAnnotationColor(dev.vitela.pdf.core.AnnotationColor(220, 40, 40)) }, enabled = annotationControls.canRestyle) { Text("Red") }
             TextButton(onClick = { onAnnotationColor(DEFAULT_ANNOTATION_COLOR) }, enabled = annotationControls.canRestyle) { Text("Gold") }
@@ -332,6 +336,9 @@ internal fun ViewerScreen(
     }
     state.annotationResizer?.let { resizer ->
         AnnotationResizeDialog(resizer, state.documentId, onResize = onAnnotationResizeConfirm, onCancel = onAnnotationResizeCancel)
+    }
+    state.annotationPositioner?.let { positioner ->
+        AnnotationPositionDialog(positioner, state.documentId, onMove = onAnnotationPositionConfirm, onCancel = onAnnotationPositionCancel)
     }
     state.metadataEditor?.let { editor ->
         MetadataDialog(editor, onChange = onMetadataChange, onApply = onMetadataApply, onDismiss = onMetadataDismiss)
