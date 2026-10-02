@@ -148,6 +148,16 @@ dirty state. The text is shown exactly as the core holds it, including a blank
 note. Like Windows, only notes in the core's session snapshot can be selected:
 annotations already in a reopened file are kept but not yet listed by it.
 
+**Resize** sets the selected annotation's width and height in PDF points, like
+the Windows shell, beyond corner dragging and the fixed **Grow** step. The
+bottom-left PDF-space origin stays put; dimensions must be finite and positive,
+and stamps stretch to the new rectangle. Ink has no rectangle and cannot be
+resized. The edit needs annotation-edit permission and records one undo step
+through the core's resize command. Cancel or unchanged dimensions leave history
+alone, redo included. The dialog keeps a snapshot of the rectangle it opened
+on and of its document: if an undo changed the annotation meanwhile, or the
+document was replaced, nothing is resized.
+
 All annotation mutations, undo/redo, byte snapshots, and document replacement
 are serialized by `ViewerViewModel`. **Save** writes a complete annotated
 snapshot back over the file that was opened; **Save copy** writes one through

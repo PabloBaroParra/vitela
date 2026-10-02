@@ -163,6 +163,50 @@ internal class AnnotationEditing(
         selected.rect?.let { applyEdit(AnnotationEdit.Resize(selected.id, grownRect(it))) }
     }
 
+    /**
+     * **Resize**: opens the dimensions dialog on the selected annotation. Only
+     * one with a rectangle — ink has none — and never over the grid.
+     */
+    fun openResizer() {
+        val current = state.value
+        if (!current.annotationEditingAllowed || current.organize != null) return
+        val selected = selectedAnnotation() ?: return
+        val rect = selected.rect ?: return
+        state.value = current.copy(annotationResizer = AnnotationResizer(selected.id, selected.pageIndex, rect))
+    }
+
+    /** The dialog's **Cancel**: no edit, so redo survives. */
+    fun cancelResizer() {
+        if (state.value.annotationResizer != null) state.value = state.value.copy(annotationResizer = null)
+    }
+
+    /**
+     * The dialog's **Resize**: [width] by [height] points as typed, keeping the
+     * origin, for the document [documentId] the dialog was built for. A size
+     * that is not finite and positive keeps the dialog open with what was
+     * typed; an unchanged one records nothing, so redo survives. The dialog is
+     * spent before the core answers, so a second tap finds nothing open, and
+     * an annotation no longer as the dialog found it is left alone.
+     */
+    fun resize(documentId: Long, width: String, height: String) {
+        val current = state.value
+        val resizer = current.annotationResizer ?: return
+        if (current.documentId != documentId) return
+        val to = sizedAnnotationRect(resizer.rect, typedPoints(width), typedPoints(height))
+        if (to == null) {
+            state.value = current.copy(annotationResizer = resizer.copy(width = width, height = height, error = ANNOTATION_SIZE_INVALID))
+            return
+        }
+        val selected = selectedAnnotation()
+        val status = when {
+            !current.annotationEditingAllowed || selected?.id != resizer.id || selected.rect != resizer.rect -> ANNOTATION_CHANGED
+            to == resizer.rect -> ANNOTATION_SIZE_UNCHANGED
+            else -> null
+        }
+        state.value = current.copy(annotationResizer = null, status = status ?: current.status)
+        if (status == null) applyEdits(listOf(AnnotationEdit.Resize(resizer.id, to)), done = ANNOTATION_RESIZED)
+    }
+
     fun restyleSelected(color: AnnotationColor) {
         selectedAnnotation()?.takeIf { it.supportsRestyle }?.let { applyEdit(AnnotationEdit.Restyle(it.id, color)) }
     }
@@ -199,7 +243,8 @@ internal class AnnotationEditing(
 
     private fun applyEdit(edit: AnnotationEdit) = applyEdits(listOf(edit))
 
-    private fun applyEdits(edits: List<AnnotationEdit>) {
+    /** [done], when given, is the status line once every edit landed; a refusal reports itself instead. */
+    private fun applyEdits(edits: List<AnnotationEdit>, done: String? = null) {
         val openDocument = session.document ?: return
         if (!state.value.annotationEditingAllowed || edits.isEmpty()) return
         session.scope.launch {
@@ -219,7 +264,7 @@ internal class AnnotationEditing(
                         }
                     }
                 }
-                state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+                state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1, status = done ?: state.value.status)
                 refresh(openDocument)
             }
         }

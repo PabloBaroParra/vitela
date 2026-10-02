@@ -108,6 +108,8 @@ data class ViewerState(
     val notePlacement: NotePlacement? = null,
     /** The Read note dialog, holding the selected note's text as the core gave it, or null while it is closed. */
     val noteReading: NoteReading? = null,
+    /** The Resize annotation dialog, holding the selected annotation's rect as it opened, or null while it is closed. */
+    val annotationResizer: AnnotationResizer? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
 )
