@@ -22,9 +22,11 @@ public sealed partial class MainWindow
 
     private void UpdatePageNavigationControls()
     {
-        PageNavigationList.IsEnabled = !_isBusy && !_organizing
+        PageNavigationList.IsEnabled = !_isBusy && !_organizing && !_dialogOpen
             && _session is { PageCount: > 0 } && PageScroller.Visibility == Visibility.Visible;
         GoToPageButton.IsEnabled = PageNavigationList.IsEnabled;
+        PreviousPageButton.IsEnabled = PageNavigationList.IsEnabled && _firstVisiblePage > 0;
+        NextPageButton.IsEnabled = PageNavigationList.IsEnabled && _firstVisiblePage < _spans.Count - 1;
     }
 
     private void SyncPageNavigation()
@@ -55,6 +57,17 @@ public sealed partial class MainWindow
         // their current positions, not offsets captured when the list opened.
         PageScroller.ChangeView(null, _spans[index].Top, null, disableAnimation: true);
         UpdateViewport(intermediate: false);
+    }
+
+    private void PreviousPageButton_Click(object sender, RoutedEventArgs e) => StepPage(-1);
+
+    private void NextPageButton_Click(object sender, RoutedEventArgs e) => StepPage(1);
+
+    private void StepPage(int delta)
+    {
+        if (_session is not { PageCount: > 0 } || _isBusy || _organizing || _dialogOpen
+            || PageScroller.Visibility != Visibility.Visible) return;
+        NavigateToPage(_firstVisiblePage + delta);
     }
 
     private async void GoToPageButton_Click(object sender, RoutedEventArgs e) => await GoToPageAsync();

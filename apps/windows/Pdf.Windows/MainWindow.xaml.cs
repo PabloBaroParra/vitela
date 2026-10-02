@@ -496,6 +496,7 @@ public sealed partial class MainWindow : Window
         if (_dialogOpen) return ContentDialogResult.None;
 
         _dialogOpen = true;
+        UpdatePageNavigationControls();
         try
         {
             return await dialog.ShowAsync();
@@ -503,6 +504,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             _dialogOpen = false;
+            UpdatePageNavigationControls();
         }
     }
 

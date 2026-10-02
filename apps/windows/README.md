@@ -90,6 +90,13 @@ starts at the current viewport page; Cancel keeps the current position. Navigati
 uses the current zoom and preserves undo/redo. Opening another document or changing
 the page order while the dialog is open invalidates the request.
 
+**Previous page** and **Next page** move one page from the page at the top of
+the viewport, using the current zoom even when the panels are hidden. They do
+not wrap: Previous is disabled on the first page and Next on the last. Both
+are disabled without a visible document, while busy, organizing or showing a
+modal dialog. Scrolling updates their availability; navigation preserves PDF
+contents and undo/redo.
+
 **Resize image** lists the content images on the page at the top of the viewport.
 Choose an image and enter its width and height in PDF points; its origin stays
 fixed. Resource images and inline images use the same Rust resize command.
@@ -362,7 +369,9 @@ targets and a fresh log destination, then run the app. It must exit with code 0;
 It covers invalid numbers, cancellation, first/last pages at the current zoom,
 hidden panels, preserved native undo/redo, stale page order/session and guarded
 entry. It checks the Ctrl+G accelerator wiring; pressing the physical shortcut
-still needs a manual check. Rebuild without custom targets afterward.
+still needs a manual check. It also invokes the Previous/Next page buttons,
+checks first/last and single-page boundaries, scrolling, zoom, page-order changes
+and restored controls after blocked entry. Rebuild without custom targets afterward.
 
 ## Packaging and signing
 
