@@ -196,6 +196,43 @@ width and height in PDF points.
 > symbol outside its legend. It can't verify that a `✅` cell truly has passing
 > tests — that part stays on you.
 
+## Installing on Debian / Ubuntu (beta)
+
+The Linux build is published to a signed APT repository (x86_64). It is a
+beta: expect rough edges.
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://pablobaroparra.github.io/vitela/vitela-archive-keyring.gpg \
+  | sudo tee /etc/apt/keyrings/vitela-archive-keyring.gpg >/dev/null
+curl -fsSL https://pablobaroparra.github.io/vitela/vitela.sources \
+  | sudo tee /etc/apt/sources.list.d/vitela.sources >/dev/null
+sudo apt-get update
+sudo apt-get install vitela
+```
+
+`apt upgrade` then follows new releases. Each release also attaches the
+`.deb` and an `.AppImage` to its
+[GitHub Release](https://github.com/PabloBaroParra/vitela/releases).
+
+### Releasing (maintainers)
+
+Every platform ships the same version, and the release tag is its only
+source of truth. To release, run one command from any checkout:
+
+```sh
+scripts/release.sh 0.2.0-beta.1
+```
+
+It tags the current `origin/main` (never your local checkout), refuses a
+version that is not newer than the last release, asks before pushing, and the
+pushed tag starts the release workflows. Versions are `MAJOR.MINOR.PATCH`,
+optionally `-alpha.N`, `-beta.N` or `-rc.N`;
+[`scripts/release-version.sh`](scripts/release-version.sh) translates them into
+each platform's own format. The one-time repository setup the Linux release
+needs is listed in the header of
+[`.github/workflows/linux-release.yml`](.github/workflows/linux-release.yml).
+
 ## Building
 
 Requires stable Rust (edition 2021).

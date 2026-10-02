@@ -4,7 +4,8 @@ name: linux
 # .AppImage that scripts/package-linux.sh and scripts/verify-linux-package.sh
 # produce locally (T-053). No upload step: this proves the packages assemble,
 # contain a genuine Linux/x64/non-V8/non-XFA PDFium, and pass the offline
-# smoke render — publishing them is a separate release process.
+# smoke render — publishing them is linux-release.yml's job, which calls this
+# workflow and only then gets an uploaded artifact back.
 #
 # linux-gtk-ui.yml stays the separate headless UI-interaction suite (Xvfb,
 # gtk::test); this workflow never touches a display — verify-linux-package.sh
@@ -19,6 +20,11 @@ on:
       - "Cargo.lock"
       - "scripts/package-linux.sh"
       - "scripts/verify-linux-package.sh"
+      - "scripts/build-apt-repo.sh"
+      - "scripts/release-version.sh"
+      - "scripts/release.sh"
+      - "scripts/tests/test-release.sh"
+      - "apps/linux-gtk/tests/test-apt-repo.sh"
       - ".github/workflows/linux.yml"
   pull_request:
     paths:
@@ -27,8 +33,21 @@ on:
       - "Cargo.lock"
       - "scripts/package-linux.sh"
       - "scripts/verify-linux-package.sh"
+      - "scripts/build-apt-repo.sh"
+      - "scripts/release-version.sh"
+      - "scripts/release.sh"
+      - "scripts/tests/test-release.sh"
+      - "apps/linux-gtk/tests/test-apt-repo.sh"
       - ".github/workflows/linux.yml"
   workflow_dispatch:
+  # linux-release.yml calls this with the Debian version derived from the
+  # release tag; only then are the verified packages uploaded as an artifact.
+  workflow_call:
+    inputs:
+      package-version:
+        description: Debian package version (e.g. 0.1.0~beta.1)
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -114,6 +133,8 @@ jobs:
           LINUXDEPLOY: ${{ github.workspace }}/build/linux/tools/linuxdeploy
           APPIMAGETOOL: ${{ github.workspace }}/build/linux/tools/appimagetool
           PDFIUM_ARCHIVE: ${{ github.workspace }}/build/linux/tools/pdfium-linux-x64.tgz
+          # Empty outside workflow_call; the scripts then fall back to Cargo.toml.
+          PACKAGE_VERSION: ${{ inputs.package-version }}
         run: bash scripts/package-linux.sh
       # verify-linux-package.sh runs the packaged binary under a bare
       # `unshare --net` of its own (no --user/--map-root-user, see its own
@@ -122,4 +143,34 @@ jobs:
       # hold the privilege that syscall requires — hence the outer sudo,
       # same reasoning as core.yml's zero-network-enforcement job.
       - name: Verify packaged .deb and .AppImage (offline smoke)
+        env:
+          PACKAGE_VERSION: ${{ inputs.package-version }}
         run: sudo -E env "PATH=$PATH" bash scripts/verify-linux-package.sh "$GITHUB_WORKSPACE/build/linux/packages"
+      - name: Upload verified packages for the release
+        if: inputs.package-version != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-packages
+          path: |
+            build/linux/packages/*.deb
+            build/linux/packages/*.AppImage
+          if-no-files-found: error
+
+  # The release tooling linux-release.yml runs: the tag grammar/version
+  # formats and release.sh (scripts/tests/test-release.sh), and the signed APT
+  # repository build, exercised end to end against a real unprivileged
+  # `apt-get update` (see each test's own header).
+  release-tooling:
+    name: Release tooling and signed APT repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
+        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
+      - name: Install apt-ftparchive
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y apt-utils
+      - name: Release tooling shell tests
+        run: bash scripts/tests/test-release.sh
+      - name: APT repository shell tests
+        run: bash apps/linux-gtk/tests/test-apt-repo.sh
