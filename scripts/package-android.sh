@@ -12,6 +12,12 @@ generated_root="$app_root/build/generated/uniffi/kotlin"
 # `resources.srcDir`, which also keeps the generated .kt files out of the APK.
 resources_root="$app_root/build/generated/uniffi/resources"
 jni_root="$app_root/src/main/jniLibs"
+# cargo-ndk's `-o` copies every cdylib cargo reports, dependencies included.
+# pdfium-render declares `crate-type = ["lib", "staticlib", "cdylib"]`, so a
+# libpdfium_render-<hash>.so that nothing loads would land in jniLibs and ship
+# in the bundle. cargo-ndk writes to this staging tree instead, and only
+# libpdf_ffi.so is copied into jniLibs.
+ndk_staging_root="$app_root/build/cargo-ndk"
 abis=(arm64-v8a x86_64)
 
 require_command() {
@@ -98,16 +104,18 @@ for abi in "${abis[@]}"; do
     require_file "$pdfium_path" "$variable"
 done
 
-rm -rf "$generated_root" "$resources_root" "$jni_root"
-mkdir -p "$generated_root" "$resources_root" "$jni_root"
+rm -rf "$generated_root" "$resources_root" "$jni_root" "$ndk_staging_root"
+mkdir -p "$generated_root" "$resources_root" "$jni_root" "$ndk_staging_root"
 
 pushd "$repository_root" >/dev/null
-cargo ndk -t arm64-v8a -t x86_64 -o "$jni_root" build -p pdf-ffi --release
+cargo ndk -t arm64-v8a -t x86_64 -o "$ndk_staging_root" build -p pdf-ffi --release
 
 for abi in "${abis[@]}"; do
     variable="PDFIUM_ANDROID_${abi^^}"
     variable="${variable//-/_}"
     mkdir -p "$jni_root/$abi"
+    require_file "$ndk_staging_root/$abi/libpdf_ffi.so" "cargo-ndk libpdf_ffi.so for $abi"
+    cp "$ndk_staging_root/$abi/libpdf_ffi.so" "$jni_root/$abi/libpdf_ffi.so"
     cp "${!variable}" "$jni_root/$abi/libpdfium.so"
 done
 
