@@ -484,10 +484,16 @@ fails before Gradle if either generated `libpdf_ffi.so` or supplied
 `libpdfium.so` does not meet that requirement. This check also applies to the
 actual external PDFium binary, not only its build configuration.
 
-It builds `pdf-ffi` with `cargo-ndk`, copies each externally supplied PDFium
-library into `app/src/main/jniLibs/<abi>/`, and generates matching Kotlin
+It builds `pdf-ffi` with `cargo-ndk` into `app/build/cargo-ndk/`, copies only
+`libpdf_ffi.so` from there and each externally supplied PDFium library into
+`app/src/main/jniLibs/<abi>/`, and generates matching Kotlin
 bindings from that exact `libpdf_ffi.so`. The copied libraries and generated
 bindings are local build artifacts, ignored by Git.
+
+The staging step exists because cargo-ndk's `-o` copies every `cdylib` cargo
+reports, dependencies included, and `pdfium-render` declares itself a `cdylib`.
+Pointing `-o` straight at `jniLibs` shipped an unused
+`libpdfium_render-<hash>.so` in every ABI of the bundle.
 
 The script writes two separate generated trees, and the split matters:
 `build/generated/uniffi/kotlin` (registered as a `java.srcDir`) holds the
