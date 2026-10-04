@@ -9,7 +9,7 @@
 //! a second retype opened on text the page no longer showed.
 
 use pdf_ffi::{
-    apply_edit, open_from_bytes, save_to_bytes, undo, FfiContentTextRun, FfiEditCommand,
+    apply_edit, open_from_bytes, redo, save_to_bytes, undo, FfiContentTextRun, FfiEditCommand,
     FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 use std::sync::Arc;
@@ -90,4 +90,153 @@ fn retyping_the_run_as_read_back_amends_the_edit_and_saves() {
     assert_eq!(only_run(&reopened).text, "Goodbye moon");
     assert!(undo(&handle));
     assert!(!undo(&handle), "both retypes must stay one undo step");
+}
+
+#[test]
+fn deleting_a_retyped_run_saves_and_restores_the_original_in_one_undo_step() {
+    let handle = open_single_line("Hello world");
+    let original = only_run(&handle);
+    retype(&handle, original.clone(), "Goodbye wide wide world");
+    apply_edit(
+        &handle,
+        FfiEditCommand::RemoveTextRun {
+            item: only_run(&handle),
+        },
+    )
+    .expect("deleting a pending retype should amend its command");
+
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save removal against the original snapshot");
+    let reopened = open_from_bytes(saved, None).expect("reopen deletion");
+    assert!(reopened.read_page_content(0).unwrap().text_runs.is_empty());
+
+    assert!(undo(&handle));
+    assert_eq!(only_run(&handle), original);
+    assert!(
+        !undo(&handle),
+        "retype and deletion must share one undo step"
+    );
+    assert!(redo(&handle));
+    assert!(handle.read_page_content(0).unwrap().text_runs.is_empty());
+}
+
+#[test]
+fn deleting_a_retyped_run_does_not_remove_another_runs_pending_edit() {
+    let mut document = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    let handle = open_from_bytes(bytes, None).unwrap();
+    let original = handle.read_page_content(0).unwrap().text_runs;
+    retype(&handle, original[0].clone(), "Changed first");
+    retype(&handle, original[1].clone(), "Changed second");
+    let current = handle.read_page_content(0).unwrap().text_runs;
+    apply_edit(
+        &handle,
+        FfiEditCommand::RemoveTextRun {
+            item: current
+                .into_iter()
+                .find(|run| run.id == original[0].id)
+                .unwrap(),
+        },
+    )
+    .expect("amend the first run despite the later edit");
+    assert_eq!(only_run(&handle).text, "Changed second");
+    assert!(
+        undo(&handle),
+        "the later second-run edit stays the latest step"
+    );
+    assert_eq!(only_run(&handle).text, "Second line");
+    assert!(undo(&handle));
+    assert_eq!(handle.read_page_content(0).unwrap().text_runs, original);
+    assert!(!undo(&handle));
+}
+
+fn insert(handle: &pdf_ffi::DocumentHandle, font: &str) -> FfiContentTextRun {
+    let mut item = handle.read_page_content(0).unwrap().text_runs.remove(0);
+    item.id = 0;
+    item.resource_font_name = font.to_string();
+    item.bbox.y = 40.0;
+    item.text = "Inserted text".to_string();
+    apply_edit(handle, FfiEditCommand::InsertTextRun { item }).unwrap();
+    handle
+        .read_page_content(0)
+        .unwrap()
+        .text_runs
+        .into_iter()
+        .find(|run| run.resource_font_name == font)
+        .unwrap()
+}
+
+#[test]
+fn retyping_an_insertion_keeps_its_identity_geometry_and_single_undo_step() {
+    let handle = open_single_line("Original text");
+    let original = only_run(&handle);
+    let inserted = insert(&handle, "InsertedFont");
+    retype(&handle, inserted.clone(), "Changed insertion");
+    // An inline editor may keep the same target through successive pauses.
+    retype(&handle, inserted.clone(), "Final insertion");
+    let current = handle.read_page_content(0).unwrap().text_runs;
+    assert_eq!(current[1].id, inserted.id);
+    assert_eq!(current[1].text, "Final insertion");
+    assert_eq!(current[1].bbox.x, inserted.bbox.x);
+    assert_eq!(current[1].bbox.y, inserted.bbox.y);
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .unwrap();
+    let reopened = open_from_bytes(saved, None).unwrap();
+    let runs = reopened.read_page_content(0).unwrap().text_runs;
+    assert_eq!(runs.len(), 2);
+    assert_eq!(runs[1].text, "Final insertion");
+    assert!(undo(&handle));
+    assert_eq!(only_run(&handle), original);
+    assert!(!undo(&handle), "insertion and retyping must coalesce");
+    assert!(redo(&handle));
+    assert_eq!(handle.read_page_content(0).unwrap().text_runs, current);
+}
+
+#[test]
+fn a_reused_insertion_index_does_not_accept_the_retired_targets_font() {
+    let handle = open_single_line("Original text");
+    let retired = insert(&handle, "FirstInsertedFont");
+    assert!(undo(&handle));
+    let current = insert(&handle, "SecondInsertedFont");
+    assert_eq!(retired.id, current.id, "the log slot has been reused");
+    assert!(apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: retired,
+            after: "Wrong target".to_string(),
+        },
+    )
+    .is_err());
+    assert_eq!(handle.read_page_content(0).unwrap().text_runs[1], current);
+    assert!(undo(&handle));
+    assert!(!undo(&handle));
+}
+
+#[test]
+fn a_refused_insertion_retype_preserves_the_text_and_its_history() {
+    let handle = open_single_line("Original text");
+    let inserted = insert(&handle, "InsertedFont");
+    assert!(
+        apply_edit(
+            &handle,
+            FfiEditCommand::ReplaceTextRunContent {
+                item: inserted.clone(),
+                after: "\u{65e5}\u{672c}\u{8a9e}".to_string(),
+            },
+        )
+        .is_err(),
+        "unencodable text must be refused before amendment"
+    );
+    assert_eq!(handle.read_page_content(0).unwrap().text_runs[1], inserted);
+    assert!(undo(&handle));
+    assert!(!undo(&handle));
 }

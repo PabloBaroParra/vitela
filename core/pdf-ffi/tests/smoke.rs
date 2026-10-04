@@ -871,6 +871,40 @@ fn substituting_a_composite_run_then_saving_and_reopening_shows_the_new_text() {
 }
 
 #[test]
+fn deleting_a_substituted_composite_run_amends_the_original_and_saves() {
+    let handle = open_composite_single_line_fixture("Hello world");
+    let original = handle.read_page_content(0).unwrap().text_runs.remove(0);
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunWithInsertedFont {
+            item: original.clone(),
+            after: "Goodbye world".to_string(),
+        },
+    )
+    .unwrap();
+    let current = handle.read_page_content(0).unwrap().text_runs.remove(0);
+    apply_edit(&handle, FfiEditCommand::RemoveTextRun { item: current })
+        .expect("remove the original composite run, not the substituted snapshot");
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .unwrap();
+    let reopened = open_from_bytes(saved, None).unwrap();
+    assert!(reopened.read_page_content(0).unwrap().text_runs.is_empty());
+    assert!(undo(&handle));
+    assert_eq!(
+        handle.read_page_content(0).unwrap().text_runs,
+        vec![original]
+    );
+    assert!(
+        !undo(&handle),
+        "substitution and removal stay one undo step"
+    );
+}
+
+#[test]
 fn replace_text_run_content_with_a_stale_item_is_refused_before_it_is_recorded() {
     // A content command is inert on the `Document` model, so recording one
     // that `pdf-edit` cannot resolve would surface only when the *whole*

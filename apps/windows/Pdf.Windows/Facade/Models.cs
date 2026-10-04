@@ -168,6 +168,8 @@ public sealed class ContentTextRun
     internal ulong Revision { get; }
 
     public ulong Id => _source.Id;
+    /// <summary>Decodes the synthetic-id range exported by pdf_edit::PENDING_ITEM_ID_BASE.</summary>
+    public bool IsPendingInsertion => Id >= (1UL << 40);
     public uint PageIndex => _source.PageIndex;
 
     /// <summary>The run's box in PDF space, bottom-left origin — where an inline editor goes.</summary>

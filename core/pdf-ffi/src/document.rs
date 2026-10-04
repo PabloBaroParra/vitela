@@ -1723,12 +1723,12 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
 
     let mut core_command = state.build_core_command(command)?;
     if is_content {
-        let queued = pending_replacement_index(&state.document, &core_command);
+        let queued = pending_text_amendment_index(&state.document, &core_command)?;
         if let Some(index) = queued {
             // What a caller holds is the run as `read_page_content` reads it
             // now — the queued retype already applied. The save replays
             // against the untouched bytes, so the fold keeps the snapshot the
-            // queued command was built from and takes only the new text.
+            // queued command was built from, whether retyping or deleting it.
             core_command =
                 with_queued_item(&state.document.pending_edits.entries()[index], core_command);
         }
@@ -1741,13 +1741,17 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         })?;
 
         if let Some(index) = queued {
-            // Retyping the same run twice amends the queued command instead
-            // of appending a second one. `EditLog::amend`'s own docs carry
+            // Retyping or deleting a retyped run amends its queued command
+            // instead of appending another. `EditLog::amend`'s own docs carry
             // the reasoning: a save replays content commands in order against
             // a document it mutates as it goes, so a second command against
             // the same run would resolve against nothing and take the whole
             // save down.
-            state.document.pending_edits.amend(index, core_command);
+            if !state.document.pending_edits.amend(index, core_command) {
+                return Err(FfiError::UnsupportedOperation {
+                    detail: "the pending text edit is no longer available".to_string(),
+                });
+            }
             return Ok(());
         }
     }
@@ -1761,35 +1765,61 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
 
 /// The queued command `command` should replace rather than follow, if any.
 ///
-/// Only text replacement folds today, because it is the only content edit a
-/// caller can repeat against the same target without re-reading the page:
-/// the run it names keeps its identity through the edit. The move/resize
-/// variants describe geometry the caller cannot recompute against a pending
-/// state, and are refused rather than folded by the shells that offer them
-/// (see the GTK shell's `text_move_refusal`); they append here, as before.
-fn pending_replacement_index(document: &Document, command: &Command) -> Option<usize> {
+/// A replacement or removal of a retyped run folds into that run's pending
+/// replacement. The original snapshot is retained for validation and save.
+/// Synthetic insertion targets amend the insertion itself; pending moves do not.
+fn pending_text_amendment_index(
+    document: &Document,
+    command: &Command,
+) -> Result<Option<usize>, FfiError> {
     let item = match command {
         Command::ReplaceTextRunContent { item, .. }
-        | Command::ReplaceTextRunWithInsertedFont { item, .. } => item,
-        _ => return None,
+        | Command::ReplaceTextRunWithInsertedFont { item, .. }
+        | Command::RemoveTextRun(item) => item,
+        _ => return Ok(None),
     };
 
-    document.pending_edits.entries().iter().position(|queued| {
+    if let Some(index) = pdf_edit::pending_log_index(item.id) {
+        // Log slots can be reused after Undo. Check the page, resource and
+        // placement too, never redirect a cached target by its index alone.
+        if matches!(command, Command::ReplaceTextRunContent { .. })
+            && matches!(document.pending_edits.entries().get(index),
+                Some(Command::InsertTextRun(run))
+                    if run.page == item.page
+                        && run.resource_font_name == item.resource_font_name
+                        && run.font_kind == item.font_kind
+                        && run.bbox.x == item.bbox.x && run.bbox.y == item.bbox.y
+                        && run.bbox.height == item.bbox.height)
+        {
+            return Ok(Some(index));
+        }
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this pending insertion cannot be edited with that text target".to_string(),
+        });
+    }
+    Ok(document.pending_edits.entries().iter().position(|queued| {
         matches!(
             queued,
             Command::ReplaceTextRunContent { item: queued_item, .. }
                 | Command::ReplaceTextRunWithInsertedFont { item: queued_item, .. }
                 if queued_item.id == item.id && queued_item.page == item.page
         )
-    })
+    }))
 }
 
 /// `command` carrying `queued`'s run snapshot in place of its own.
 ///
-/// Only called for a pair [`pending_replacement_index`] matched, so both are
-/// text replacements of the same run; `command` keeps its own variant and
-/// text.
+/// Only called for a pair [`pending_text_amendment_index`] matched: retyping
+/// an insertion, or replacing/removing a run with a queued replacement.
 fn with_queued_item(queued: &Command, command: Command) -> Command {
+    if let (Command::InsertTextRun(run), Command::ReplaceTextRunContent { after, .. }) =
+        (queued, &command)
+    {
+        return Command::InsertTextRun(TextRun {
+            text: after.clone(),
+            ..run.clone()
+        });
+    }
     let original = match queued {
         Command::ReplaceTextRunContent { item, .. }
         | Command::ReplaceTextRunWithInsertedFont { item, .. } => item.clone(),
@@ -1806,6 +1836,7 @@ fn with_queued_item(queued: &Command, command: Command) -> Command {
                 after,
             }
         }
+        Command::RemoveTextRun(_) => Command::RemoveTextRun(original),
         other => other,
     }
 }

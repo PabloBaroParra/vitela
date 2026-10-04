@@ -19,11 +19,6 @@ public sealed partial class MainWindow
             // unrecorded keystrokes: deletion supersedes them.
             await _pump.DrainAsync();
             if (_session?.SessionId != sessionId || _pump.Box != editor) return;
-            if (_pump.WrittenFor(editor.PageIndex, editor.Run.Id) is not null)
-            {
-                AnnotationStatus.Text = "This text has a pending retype — save and reopen before deleting it.";
-                return;
-            }
             var targets = await _facade.PageTextEditTargetsAsync(sessionId, editor.PageIndex);
             if (_session?.SessionId != sessionId || _pump.Box != editor || !_contentEditMode || _organizing) return;
             if (!targets.IsSuccess)

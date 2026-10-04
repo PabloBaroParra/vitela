@@ -99,11 +99,10 @@ public sealed partial class MainWindow
     private void UpdateEditTextSelection()
     {
         var editor = _pump.Box;
-        var pending = editor is not null && _pump.WrittenFor(editor.PageIndex, editor.Run.Id) is not null;
         DeleteTextButton.IsEnabled = ContentEditButton.IsEnabled && _contentEditMode
-            && editor is not null && !pending && !_deletingContentText;
+            && editor is not null && !editor.Run.IsPendingInsertion && !_deletingContentText;
         _editTextHint.Text = editor is null ? "Click a text run to retype it in place."
-            : pending ? "This text has a pending retype — save and reopen before deleting it."
+            : editor.Run.IsPendingInsertion ? "Retype this inserted text; save and reopen before deleting it."
             : "Text run selected — delete it, or retype it in place.";
     }
 }
