@@ -1,25 +1,39 @@
 namespace Pdf.Windows.Facade;
 
+/// <summary>
+/// "Add PDFs" in the Linux shell's two phases: <see cref="PrepareImportAsync"/>
+/// per picked file (no document touched), then <see cref="ImportPreparedAsync"/>
+/// for the whole pick as ONE undoable edit.
+/// </summary>
 public sealed partial class PdfDocumentFacade
 {
-    /// <summary>
-    /// Adds every page of one PDF at <paramref name="index"/> as one undoable
-    /// edit, rebuilds the preview, and hands back the new page layout.
-    /// </summary>
-    /// <remarks>
-    /// One file per call, as <c>pdf-ffi</c>'s <c>import_pdf</c> is: a shell
-    /// importing several files calls this once per file, so each is its own
-    /// undo step and a password is asked about that file alone. The parse and
-    /// graft run off the UI thread but inside the document-change gate, so no
-    /// other page edit can land between the import and its revision bump.
-    ///
-    /// A preview that cannot be rebuilt is reported, but the pages are already
-    /// in the document: as with <see cref="EditPagesAsync"/>, undo is how they
-    /// leave, and the session says they are there.
-    /// </remarks>
-    public async Task<OperationResult<ImportedPdf>> ImportPdfAsync(string sessionId, byte[] bytes, string? password, uint index)
+    public async Task<OperationResult<IImportSource>> PrepareImportAsync(byte[] bytes, string? password)
     {
-        const string operation = "import_pdf";
+        const string operation = "prepare_import";
+        try { return OperationResult<IImportSource>.Success(await Task.Run(() => _core.PrepareImport(bytes, password)).ConfigureAwait(false)); }
+        catch (PdfCoreException error) { return OperationResult<IImportSource>.Failure(MapImportError(error, operation, null)); }
+        catch (Exception error) { return OperationResult<IImportSource>.Failure(MapUnexpected(error, operation, null, null)); }
+    }
+
+    /// <summary>The core's reason this document refuses any import, as a sentence, or <c>null</c> — asked before the picker.</summary>
+    public Task<OperationResult<string?>> ImportRefusalAsync(string sessionId)
+    {
+        lock (_gate)
+        {
+            if (!TryGetCurrentSession(sessionId, out var session))
+                return Task.FromResult(OperationResult<string?>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "import_refusal", sessionId, null)));
+            return Task.FromResult(OperationResult<string?>.Success(_core.ImportRefusalOf(session.Document) is { } refusal ? Sentence(refusal) : null));
+        }
+    }
+
+    /// <remarks>
+    /// All or nothing in the core. A preview that cannot be rebuilt afterwards
+    /// is reported, but the pages are already in: as with
+    /// <see cref="EditPagesAsync"/>, undo is how they leave.
+    /// </remarks>
+    public async Task<OperationResult<ImportedPdfs>> ImportPreparedAsync(string sessionId, IReadOnlyList<IImportSource> sources, uint index)
+    {
+        const string operation = "import_prepared";
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -27,18 +41,12 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<ImportedPdf>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<ImportedPdfs>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
             }
 
-            PdfCoreImportReport report;
-            try
-            {
-                report = await Task.Run(() => _core.ImportPdf(session.Document, bytes, password, index)).ConfigureAwait(false);
-            }
-            catch (PdfCoreException error) when (error.Category == PdfCoreError.UnsupportedOperation && error.ReaderFacingDetail is { Length: > 0 } reason)
-            {
-                return OperationResult<ImportedPdf>.Failure(CreateError(Sentence(reason), error.Category, operation, sessionId, null));
-            }
+            PdfCoreBatchImportReport report;
+            try { report = await Task.Run(() => _core.ImportPrepared(session.Document, sources, index)).ConfigureAwait(false); }
+            catch (PdfCoreException error) { return OperationResult<ImportedPdfs>.Failure(MapImportError(error, operation, sessionId)); }
 
             lock (_gate)
             {
@@ -48,15 +56,16 @@ public sealed partial class PdfDocumentFacade
             }
 
             var refreshed = await RefreshPreviewAsync(session, operation, null).ConfigureAwait(false);
-            if (!refreshed.IsSuccess) return OperationResult<ImportedPdf>.Failure(refreshed.Error!);
-
-            lock (_gate)
-            {
-                return OperationResult<ImportedPdf>.Success(new(session.ToDto(), report.PageCount, report.Warnings, report.SourceId));
-            }
+            if (!refreshed.IsSuccess) return OperationResult<ImportedPdfs>.Failure(refreshed.Error!);
+            lock (_gate) return OperationResult<ImportedPdfs>.Success(new(session.ToDto(), report.PageCount, report.SourceIds));
         }
-        catch (PdfCoreException error) { return OperationResult<ImportedPdf>.Failure(MapError(error, operation, sessionId, null)); }
-        catch (Exception error) { return OperationResult<ImportedPdf>.Failure(MapUnexpected(error, operation, sessionId, null)); }
+        catch (Exception error) { return OperationResult<ImportedPdfs>.Failure(MapUnexpected(error, operation, sessionId, null)); }
         finally { _documentChangeGate.Release(); }
     }
+
+    /// <summary>An import refusal is the core's own sentence; everything else maps as usual.</summary>
+    private UserSafeError MapImportError(PdfCoreException error, string operation, string? sessionId) =>
+        error.Category == PdfCoreError.UnsupportedOperation && error.ReaderFacingDetail is { Length: > 0 } reason
+            ? CreateError(Sentence(reason), error.Category, operation, sessionId, null)
+            : MapError(error, operation, sessionId, null);
 }

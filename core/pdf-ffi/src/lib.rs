@@ -98,7 +98,10 @@ pub use form::{
     FfiFieldOrigin, FfiFieldValue, FfiFontFamily, FfiFormField, FfiFormFieldKind, FfiRadioOption,
     FfiTextStyle,
 };
-pub use import::{import_pdf, FfiImportReport};
+pub use import::{
+    import_pdf, import_prepared, import_refusal, prepare_import, FfiBatchImportReport,
+    FfiImportReport, PreparedImport,
+};
 pub use output::output_snapshot;
 pub use placement::{
     place_point, place_rect, point_to_pdf, FfiPagePlacement, FfiPageRotation, FfiPlacedRect,

@@ -1,8 +1,9 @@
 using Pdf.Windows.Facade;
 
 /// <summary>
-/// "Add PDFs" through the facade: one file per call and one undo step per
-/// file, the shape <c>pdf-ffi</c>'s <c>import_pdf</c> gives every shell.
+/// "Add PDFs" through the facade, in the Linux shell's two phases: every
+/// picked file is prepared on its own (progress, its own password, a cancel
+/// that just drops it), then the whole pick lands as ONE undo step.
 /// </summary>
 internal static class ImportParityTests
 {
@@ -13,9 +14,11 @@ internal static class ImportParityTests
 
     public static async Task RunAsync()
     {
-        await AppendsEveryPageOfTheImportedPdfAsync();
-        await AsksForTheSourcePasswordAsync();
+        await PreparingChangesNothingAsync();
+        await ImportsAWholePickAsOneEditAsync();
+        await AsksForTheSourcePasswordWhilePreparingAsync();
         await NamesTheCoreRefusalAsync();
+        await LeavesEverythingAsItWasWhenRefusedAsync();
         await RefusesARetiredSessionAsync();
         await KeepsTheImportWhenThePreviewFailsAsync();
     }
@@ -28,56 +31,90 @@ internal static class ImportParityTests
         return (core, facade, session);
     }
 
-    private static async Task AppendsEveryPageOfTheImportedPdfAsync()
+    private static async Task<IImportSource> PrepareAsync(PdfDocumentFacade facade, byte pages, string? password = null) =>
+        (await facade.PrepareImportAsync([pages], password)).Value!;
+
+    private static async Task PreparingChangesNothingAsync()
     {
         var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3, ImportWarnings = ["a form field was renamed"] });
         using var _ = facade;
+
+        using var source = await PrepareAsync(facade, 2);
+
+        Check(source.PageCount == 2 && source.Warnings.SequenceEqual(["a form field was renamed"]),
+            "a prepared source reports its pages and warnings before anything is added");
+        Check(core.LastDocument!.PageCount == 3 && core.RefreshPreviewCalls == 0 && !core.LastDocument.CanUndo,
+            "preparing must not touch the open document or its history");
+        Check((await facade.OpenAsync(new DocumentSource("other.pdf", [2]))).IsSuccess,
+            "a prepared but unimported source is not unsaved work");
+    }
+
+    private static async Task ImportsAWholePickAsOneEditAsync()
+    {
+        var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3 });
+        using var _ = facade;
         var before = (await facade.DocumentBlocksAsync(session.SessionId)).Value!.Revision;
 
-        var result = await facade.ImportPdfAsync(session.SessionId, [7, 7], password: null, index: session.PageCount);
+        var result = await facade.ImportPreparedAsync(session.SessionId, [await PrepareAsync(facade, 2), await PrepareAsync(facade, 1)], 3);
 
-        Check(result.IsSuccess, "a permitted import must succeed");
+        Check(result.IsSuccess, "a permitted pick must import");
         var imported = result.Value!;
-        Check(imported.PageCount == 2 && imported.Session.PageCount == 5, "every source page is appended");
-        Check(imported.Session.Pages.Select(page => page.WidthPt).SequenceEqual([100, 101, 102, 300, 300]),
-            "existing pages keep their order and the imported ones follow");
-        Check(imported.Warnings.SequenceEqual(["a form field was renamed"]), "the core's warnings reach the shell unchanged");
-        Check(core.Imports.Single() == (3u, (string?)null), "the end position and the absent password reach the core");
-        Check(core.RefreshPreviewCalls == 1, "the imported pages only render from a rebuilt preview");
+        Check(imported.PageCount == 3 && imported.Session.PageCount == 6, "every page of every source is appended");
+        Check(imported.Session.Pages.Select(page => page.WidthPt).SequenceEqual([100, 101, 102, 300, 300, 301]),
+            "the sources land in pick order after the existing pages");
+        Check(imported.SourceIds.Count == 2 && imported.SourceIds[0] != imported.SourceIds[1], "each source names its own block");
+        Check(core.BatchImports.Single() == (3u, 2), "the whole pick reaches the core as ONE import");
+        Check(core.RefreshPreviewCalls == 1, "one rebuild for the whole pick");
         Check((await facade.DocumentBlocksAsync(session.SessionId)).Value!.Revision == before + 1,
-            "an import is an edit: snapshots taken before it must go stale");
-        var second = await facade.ImportPdfAsync(session.SessionId, [7], null, imported.Session.PageCount);
-        Check(second.IsSuccess && second.Value!.SourceId != imported.SourceId, "each import names its own source");
+            "one edit, so exactly one revision");
         var blocked = await facade.OpenAsync(new DocumentSource("other.pdf", [2]));
         Check(!blocked.IsSuccess && blocked.Error!.RequiresPendingEditDecision, "imported pages are unsaved work");
     }
 
-    private static async Task AsksForTheSourcePasswordAsync()
+    private static async Task AsksForTheSourcePasswordWhilePreparingAsync()
     {
-        var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3, ImportPassword = "source" });
-        using var _ = facade;
+        var (core, facade, _) = await OpenAsync(new FakeCore { PageCount = 3, ImportPassword = "source" });
+        using var __ = facade;
 
-        var missing = await facade.ImportPdfAsync(session.SessionId, [7], null, 3);
-        var wrong = await facade.ImportPdfAsync(session.SessionId, [7], "nope", 3);
+        var missing = await facade.PrepareImportAsync([1], null);
+        var wrong = await facade.PrepareImportAsync([1], "nope");
+        var unlocked = await facade.PrepareImportAsync([1], "source");
 
         Check(!missing.IsSuccess && missing.Error!.RequiresPassword, "a locked source asks for its password");
         Check(!wrong.IsSuccess && wrong.Error!.RequiresPassword, "a wrong password asks again");
-        Check(core.RefreshPreviewCalls == 0 && core.LastDocument!.PageCount == 3, "nothing is added until the source opens");
-        var unlocked = await facade.ImportPdfAsync(session.SessionId, [7], "source", 3);
-        Check(unlocked.IsSuccess && unlocked.Value!.Session.PageCount == 5, "the right password imports the pages");
+        Check(unlocked.IsSuccess, "the right password prepares the source");
+        Check(core.LastDocument!.PageCount == 3, "asking for a password never touches the document");
     }
 
     private static async Task NamesTheCoreRefusalAsync()
     {
-        var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3, ImportRefusal = "the PDF does not permit copying its pages" });
+        var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3, ImportRefusal = "this document does not permit changing its content" });
         using var _ = facade;
 
-        var result = await facade.ImportPdfAsync(session.SessionId, [7], null, 3);
+        var asked = await facade.ImportRefusalAsync(session.SessionId);
+        var result = await facade.ImportPreparedAsync(session.SessionId, [await PrepareAsync(facade, 1)], 3);
 
-        Check(!result.IsSuccess && result.Error!.Message == "The PDF does not permit copying its pages.",
-            "the core's own reason is the reader's message, not a generic \"not supported\"");
-        Check(!result.Error!.RequiresPassword, "a refusal is not a password prompt");
+        Check(asked.IsSuccess && asked.Value == "This document does not permit changing its content.",
+            "the refusal can be asked before the picker, in the core's own words");
+        Check(!result.IsSuccess && result.Error!.Message == "This document does not permit changing its content.",
+            "the import is refused with the same reason, not a generic \"not supported\"");
         Check(core.RefreshPreviewCalls == 0 && core.LastDocument!.PageCount == 3, "a refused import changes nothing");
+    }
+
+    private static async Task LeavesEverythingAsItWasWhenRefusedAsync()
+    {
+        var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3 });
+        using var _ = facade;
+        Check((await facade.ImportRefusalAsync(session.SessionId)).Value is null, "an editable document has no refusal");
+        var source = await PrepareAsync(facade, 1);
+
+        var refused = await facade.ImportPreparedAsync(session.SessionId, [source], 9);
+        var retried = await facade.ImportPreparedAsync(session.SessionId, [source], 3);
+        var spent = await facade.ImportPreparedAsync(session.SessionId, [source], 4);
+
+        Check(!refused.IsSuccess && core.RefreshPreviewCalls == 1 && retried.IsSuccess,
+            "a refused pick keeps its sources, so the same pick can be imported afterwards");
+        Check(!spent.IsSuccess && core.LastDocument!.PageCount == 4, "a source imports only once");
     }
 
     private static async Task RefusesARetiredSessionAsync()
@@ -85,18 +122,19 @@ internal static class ImportParityTests
         var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3 });
         using var _ = facade;
 
-        var result = await facade.ImportPdfAsync("stale", [7], null, 3);
+        var result = await facade.ImportPreparedAsync("stale", [await PrepareAsync(facade, 1)], 3);
 
-        Check(!result.IsSuccess && core.Imports.Count == 0, "another session's import must not reach the core");
+        Check(!result.IsSuccess && core.BatchImports.Count == 0, "another session's import must not reach the core");
+        Check(!(await facade.ImportRefusalAsync("stale")).IsSuccess, "nor may it be asked about");
         Check((await facade.SessionAsync(session.SessionId)).Value!.PageCount == 3, "the open document is untouched");
     }
 
     private static async Task KeepsTheImportWhenThePreviewFailsAsync()
     {
-        var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3, RefreshPreviewThrows = true });
-        using var _ = facade;
+        var (_, facade, session) = await OpenAsync(new FakeCore { PageCount = 3, RefreshPreviewThrows = true });
+        using var __ = facade;
 
-        var result = await facade.ImportPdfAsync(session.SessionId, [7], null, 3);
+        var result = await facade.ImportPreparedAsync(session.SessionId, [await PrepareAsync(facade, 2)], 3);
 
         Check(!result.IsSuccess, "a preview that cannot be rebuilt is reported");
         Check((await facade.SessionAsync(session.SessionId)).Value!.PageCount == 5,
@@ -104,12 +142,24 @@ internal static class ImportParityTests
     }
 }
 
+/// <summary>A prepared source whose page count is the first byte it was prepared from.</summary>
+sealed class FakeImportSource(uint pageCount, IReadOnlyList<string> warnings) : IImportSource
+{
+    public uint PageCount { get; } = pageCount;
+    public IReadOnlyList<string> Warnings { get; } = warnings;
+    public bool Spent { get; set; }
+    public bool Disposed { get; private set; }
+    public void Dispose() => Disposed = true;
+}
+
 sealed partial class FakeDocument
 {
-    /// <summary>What a real import leaves behind: pages inserted, history moved on.</summary>
-    public void InsertImportedPages(uint index, uint count)
+    /// <summary>What a real import leaves behind: one source's pages, each 300pt plus the source's position.</summary>
+    public void InsertImportedPages(uint index, IReadOnlyList<uint> counts)
     {
-        _pages.InsertRange((int)index, Enumerable.Range(0, (int)count).Select(_ => new PdfCorePageDimensions(300, 842, PageRotation.None)));
+        var pages = counts.SelectMany((count, source) => Enumerable.Range(0, (int)count)
+            .Select(_ => new PdfCorePageDimensions(300 + source, 842, PageRotation.None)));
+        _pages.InsertRange((int)index, pages);
         CanUndo = true;
         CanRedo = false;
     }

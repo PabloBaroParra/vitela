@@ -6,7 +6,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shell lifecycle conservatively guards full Undo without changing the default", DocumentStatesParityTests.RunAsync),
     ("lifecycle query follows pending edits, successful writes and stale sessions", QueriesLifecycleChangesAsync),
     ("document block snapshots, single commands and stale guards", OrganizeParityTests.RunAsync),
-    ("imports another PDF's pages as one undo step per file", ImportParityTests.RunAsync),
+    ("prepares PDFs without edits and imports the whole batch as one undo step", ImportParityTests.RunAsync),
     ("edits metadata dates and individual properties without losing offsets", MetadataParityTests.RunAsync),
     ("guards annotation color choices against stale targets and permissions", AnnotationStyleParityTests.RunAsync),
     ("refuses document search before matching when extraction is forbidden", SearchParityTests.RunAsync),
@@ -3986,19 +3986,28 @@ sealed class FakeCore : IPdfCore
     public IReadOnlyList<string> ImportWarnings { get; init; } = [];
     public string? ImportPassword { get; init; }
     public string? ImportRefusal { get; init; }
-    /// <summary>Every import the core accepted: where it landed and the password it was given.</summary>
-    public List<(uint Index, string? Password)> Imports { get; } = [];
+    /// <summary>Every batch the core accepted: where it landed and how many sources it held.</summary>
+    public List<(uint Index, int Sources)> BatchImports { get; } = [];
     private ulong _nextImportedSourceId;
-    public PdfCoreImportReport ImportPdf(IPdfCoreDocument document, byte[] bytes, string? password, uint index)
+    public IImportSource PrepareImport(byte[] bytes, string? password)
     {
-        // The same order as `pdf-ffi`'s import_pdf: the document's own gates,
-        // then the source's password.
-        if (ImportRefusal is { } refusal) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "import refused", refusal);
         if (ImportPassword is { } required && password != required)
             throw new PdfCoreException(password is null ? PdfCoreError.PasswordRequired : PdfCoreError.WrongPassword, "sensitive diagnostic");
-        Imports.Add((index, password));
-        ((FakeDocument)document).InsertImportedPages(index, 2);
-        return new PdfCoreImportReport(2, ImportWarnings, _nextImportedSourceId++);
+        return new FakeImportSource(bytes[0], ImportWarnings);
+    }
+    public string? ImportRefusalOf(IPdfCoreDocument document) => ImportRefusal;
+    public PdfCoreBatchImportReport ImportPrepared(IPdfCoreDocument document, IReadOnlyList<IImportSource> sources, uint index)
+    {
+        // All or nothing, in `pdf-ffi`'s order: the document's gates, then the batch.
+        if (ImportRefusal is { } refusal) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "import refused", refusal);
+        var fakes = sources.Cast<FakeImportSource>().ToArray();
+        if (fakes.Length == 0 || fakes.Any(source => source.Spent))
+            throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "import refused", "one of these PDFs has already been imported");
+        if (index > document.PageCount) throw new PdfCoreException(PdfCoreError.PageIndexOutOfBounds, "index");
+        foreach (var source in fakes) source.Spent = true;
+        BatchImports.Add((index, fakes.Length));
+        ((FakeDocument)document).InsertImportedPages(index, [.. fakes.Select(source => source.PageCount)]);
+        return new PdfCoreBatchImportReport((uint)fakes.Sum(source => source.PageCount), [.. fakes.Select(_ => _nextImportedSourceId++)]);
     }
     public uint PageCount { get; init; } = 1;
     public double PageWidthPt { get; init; } = 595;
