@@ -12,6 +12,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("guards selection and cached copying independently of editing", SelectionParityTests.RunAsync),
     ("signing gates, failed writes and serialized reopen preserve the live session", SigningParityTests.RunAsync),
     ("defines one palette with the same roles in both themes and a Home breakpoint", ThemeParityTests.RunAsync),
+    ("draws every icon from the shared tinted set with palette tint roles", IconParityTests.RunAsync),
     ("folds a side column dragged below its minimum", FoldsSideColumnBelowMinimum),
     ("reopens a side column at its last open width", ReopensSideColumnAtLastWidth),
     ("keeps an open side column within its bounds", KeepsSideColumnWithinBounds),

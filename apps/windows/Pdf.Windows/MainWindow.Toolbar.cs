@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -34,22 +35,22 @@ public sealed partial class MainWindow
         }
         EditorToolbar.Children.Clear();
 
-        ToolbarIcon(OpenButton, "\uE8E5", "Open PDF", "Open PDF (Ctrl+O)", "Open");
-        ToolbarIcon(OpenSampleButton, "\uE8A5", "Open sample");
-        ToolbarIcon(SaveButton, "\uE74E", "Save as", "Save as (Ctrl+S)");
-        ToolbarIcon(PrintButton, "\uE749", "Print", "Print (Ctrl+P)");
-        ToolbarIcon(ExportImagesButton, "\uE91B", "Export images", "Export pages as images");
-        ToolbarIcon(UndoButton, "\uE7A7", "Undo", "Undo (Ctrl+Z)");
-        ToolbarIcon(RedoButton, "\uE7A6", "Redo", "Redo (Ctrl+Y)");
-        ToolbarIcon(ZoomOutButton, "\uE71F", "Zoom out");
-        ToolbarIcon(ZoomInButton, "\uE8A3", "Zoom in");
-        ToolbarIcon(FitWidthButton, "\uE9A9", "Fit width");
-        ToolbarIcon(FitPageButton, "\uE740", "Fit page");
-        ToolbarIcon(PagesPanelButton, "\uE892", "Pages", "Show or hide the page list");
-        ToolbarIcon(ToolsPanelButton, "\uE893", "Tools", "Show or hide tools");
-        ToolbarIcon(PreviousMatchButton, "\uE76B", "Previous match");
-        ToolbarIcon(NextMatchButton, "\uE76C", "Next match");
-        ToolbarIcon(_findDocumentButton, "\uE721", "Find in document", "Find in document (Ctrl+F)");
+        ToolbarIcon(OpenButton, ShellIcon.Files, "Open PDF", "Open PDF (Ctrl+O)", "Open");
+        ToolbarIcon(OpenSampleButton, ShellIcon.Sample, "Open sample");
+        ToolbarIcon(SaveButton, ShellIcon.Save, "Save as", "Save as (Ctrl+S)");
+        ToolbarIcon(PrintButton, ShellIcon.Print, "Print", "Print (Ctrl+P)");
+        ToolbarIcon(ExportImagesButton, ShellIcon.ExportImages, "Export images", "Export pages as images");
+        ToolbarIcon(UndoButton, ShellIcon.Undo, "Undo", "Undo (Ctrl+Z)");
+        ToolbarIcon(RedoButton, ShellIcon.Redo, "Redo", "Redo (Ctrl+Y)");
+        ToolbarIcon(ZoomOutButton, ShellIcon.ZoomOut, "Zoom out");
+        ToolbarIcon(ZoomInButton, ShellIcon.ZoomIn, "Zoom in");
+        ToolbarIcon(FitWidthButton, ShellIcon.FitWidth, "Fit width");
+        ToolbarIcon(FitPageButton, ShellIcon.FitPage, "Fit page");
+        ToolbarIcon(PagesPanelButton, ShellIcon.PanelLeft, "Pages", "Show or hide the page list");
+        ToolbarIcon(ToolsPanelButton, ShellIcon.PanelRight, "Tools", "Show or hide tools");
+        ToolbarIcon(PreviousMatchButton, ShellIcon.Previous, "Previous match");
+        ToolbarIcon(NextMatchButton, ShellIcon.Next, "Next match");
+        ToolbarIcon(_findDocumentButton, ShellIcon.Search, "Find in document", "Find in document (Ctrl+F)");
 
         ToolTipService.SetToolTip(PageCounter, "Current page / total pages");
         AutomationProperties.SetName(PageCounter, "Current page / total pages");
@@ -64,17 +65,17 @@ public sealed partial class MainWindow
 
         // Windows already offers these commands. Keep them reachable, separately
         // from GTK's eight primary groups, instead of deleting working behaviour.
-        ToolbarIcon(FirstPageButton, "\uE892", "First page", "Go to the first page of the document (Ctrl+Home)");
-        ToolbarIcon(PreviousPageButton, "\uE76B", "Previous page", "Go to the page before the current viewport page (Ctrl+Up)");
-        ToolbarIcon(NextPageButton, "\uE76C", "Next page", "Go to the page after the current viewport page (Ctrl+Down)");
-        ToolbarIcon(LastPageButton, "\uE893", "Last page", "Go to the last page of the document (Ctrl+End)");
-        ToolbarIcon(GoToPageButton, "\uE8A9", "Go to page", "Jump to a page by number (Ctrl+G)");
+        ToolbarIcon(FirstPageButton, ShellIcon.FirstPage, "First page", "Go to the first page of the document (Ctrl+Home)");
+        ToolbarIcon(PreviousPageButton, ShellIcon.Previous, "Previous page", "Go to the page before the current viewport page (Ctrl+Up)");
+        ToolbarIcon(NextPageButton, ShellIcon.Next, "Next page", "Go to the page after the current viewport page (Ctrl+Down)");
+        ToolbarIcon(LastPageButton, ShellIcon.LastPage, "Last page", "Go to the last page of the document (Ctrl+End)");
+        ToolbarIcon(GoToPageButton, ShellIcon.GoToPage, "Go to page", "Jump to a page by number (Ctrl+G)");
         AddToolbarGroup("Page navigation", FirstPageButton, PreviousPageButton, NextPageButton, LastPageButton, GoToPageButton);
-        ToolbarIcon(ProtectButton, "\uE72E", "Protect");
-        ToolbarIcon(CompressButton, "\uE8B8", "Compress");
-        ToolbarIcon(ExtractPagesButton, "\uE8A5", "Extract pages", "Save chosen pages as a new PDF");
-        ToolbarIcon(SplitPagesButton, "\uE8A4", "Split PDF", "Cut the document into several PDFs");
-        ToolbarIcon(OrganizeButton, "\uE8A9", "Organize", "Move, rotate or delete pages");
+        ToolbarIcon(ProtectButton, ShellIcon.Protect, "Protect");
+        ToolbarIcon(CompressButton, ShellIcon.Compress, "Compress");
+        ToolbarIcon(ExtractPagesButton, ShellIcon.ExtractPages, "Extract pages", "Save chosen pages as a new PDF");
+        ToolbarIcon(SplitPagesButton, ShellIcon.SplitPages, "Split PDF", "Cut the document into several PDFs");
+        ToolbarIcon(OrganizeButton, ShellIcon.Organize, "Organize", "Move, rotate or delete pages");
         AddToolbarGroup("More document tools", ProtectButton, CompressButton, ExtractPagesButton, SplitPagesButton, OrganizeButton);
         AddToolbarGroup("Document title", DocumentTitle);
 
@@ -105,10 +106,12 @@ public sealed partial class MainWindow
         EditorToolbar.Children.Add(group);
     }
 
-    private static void ToolbarIcon(ButtonBase button, string glyph, string name, string? tooltip = null, string? caption = null)
+    /// <summary>Icon plus optional caption: 18px neutral as editor_toolbar.rs draws it, or the caller's size and tint.</summary>
+    private static void ToolbarIcon(ButtonBase button, ShellIcon icon, string name, string? tooltip = null, string? caption = null,
+        double size = 18, IconTint tint = IconTint.Neutral)
     {
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        content.Children.Add(new FontIcon { Glyph = glyph, FontSize = 18 });
+        content.Children.Add(ShellIconImage(icon, size, tint, button));
         if (caption is not null) content.Children.Add(new TextBlock { Text = caption, VerticalAlignment = VerticalAlignment.Center });
         button.Content = content;
         AutomationProperties.SetName(button, name);

@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
 using Windows.ApplicationModel.DataTransfer;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -93,24 +94,19 @@ public sealed partial class MainWindow
             details.Children.Add(new TextBlock { Text = meta, Style = NamedStyle("OrganizeBlockMetaStyle") });
             var actions = new Viewer.ToolbarPanel { HorizontalAlignment = HorizontalAlignment.Left };
             var capturedPosition = position;
-            void AddAction(string glyph, string label, DocumentBlockAction action, bool available, int slot = 0)
+            void AddAction(ShellIcon icon, string label, DocumentBlockAction action, bool available, int slot = 0)
             {
-                var button = CardButton(glyph, $"{label}: {name}", false);
-                if (action == DocumentBlockAction.RotateLeft && button.Content is FontIcon icon)
-                {
-                    icon.RenderTransformOrigin = new global::Windows.Foundation.Point(0.5, 0.5);
-                    icon.RenderTransform = new ScaleTransform { ScaleX = -1 };
-                }
+                var button = CardButton(icon, $"{label}: {name}");
                 AutomationProperties.SetAutomationId(button, $"OrganizeDocument_{position}_{label.Replace(" ", "")}");
                 _organizeDocumentActions.Add((button, available));
                 button.Click += async (_, _) => await EditOrganizeBlockAsync(snapshot, capturedPosition, action, slot, session.SessionId, generation);
                 actions.Children.Add(button);
             }
-            AddAction("\uE74A", "Move up", DocumentBlockAction.Move, position > 0, position - 1);
-            AddAction("\uE74B", "Move down", DocumentBlockAction.Move, position + 1 < snapshot.Blocks.Count, position + 2);
-            AddAction("\uE7AD", "Rotate left", DocumentBlockAction.RotateLeft, true);
-            AddAction("\uE7AD", "Rotate right", DocumentBlockAction.RotateRight, true);
-            AddAction("\uE74D", "Delete", DocumentBlockAction.Delete, true);
+            AddAction(ShellIcon.MoveUp, "Move up", DocumentBlockAction.Move, position > 0, position - 1);
+            AddAction(ShellIcon.MoveDown, "Move down", DocumentBlockAction.Move, position + 1 < snapshot.Blocks.Count, position + 2);
+            AddAction(ShellIcon.RotateLeft, "Rotate left", DocumentBlockAction.RotateLeft, true);
+            AddAction(ShellIcon.RotateRight, "Rotate right", DocumentBlockAction.RotateRight, true);
+            AddAction(ShellIcon.Delete, "Delete", DocumentBlockAction.Delete, true);
             // Controls wrap below the details in narrow windows; cover remains a native image.
             details.Children.Add(actions);
             var body = new Grid { ColumnSpacing = 12 };

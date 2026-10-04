@@ -2,12 +2,16 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
 /// <summary>Edit-page presentation; existing feature partials retain edit state and commands.</summary>
 public sealed partial class MainWindow
 {
+    /// <summary>EDIT_ICON_PX (content_edit/panel.rs): the cards' tiles carry 16px accent icons, muted when unavailable.</summary>
+    private const double EditIconSize = 16;
+
     private readonly TextBlock _editAvailability = EditHint("Open a PDF to edit the text and images on its pages.");
     private Border? _editNotice;
     private readonly TextBlock _editTextHint = EditHint("Click a text run to retype it in place.");
@@ -27,15 +31,15 @@ public sealed partial class MainWindow
 
         // Explicit collection removal also works before this hidden subtree loads.
         foreach (var control in row.Children.ToArray()) row.Children.Remove(control);
-        ToolbarIcon(ContentEditButton, "\uE70F", "Edit content",
-            "Turn on content editing, then click a text run on the page", "Edit content");
-        ToolbarIcon(InsertTextButton, "\uE8D2", "Insert text", "Click the page to place a new text box", "Insert text");
-        ToolbarIcon(DeleteTextButton, "\uE74D", "Delete text", "Remove the text run being edited from the page (not secure redaction)", "Delete text");
+        ToolbarIcon(ContentEditButton, ShellIcon.Edit, "Edit content",
+            "Turn on content editing, then click a text run on the page", "Edit content", EditIconSize, IconTint.Accent);
+        ToolbarIcon(InsertTextButton, ShellIcon.Text, "Insert text", "Click the page to place a new text box", "Insert text", EditIconSize, IconTint.Accent);
+        ToolbarIcon(DeleteTextButton, ShellIcon.Delete, "Delete text", "Remove the text run being edited from the page (not secure redaction)", "Delete text", EditIconSize, IconTint.Accent);
         // Keep the inline target when clicked, without removing keyboard access.
         DeleteTextButton.AllowFocusOnInteraction = false;
-        ToolbarIcon(InsertImageButton, "\uEB9F", "Insert image", "Click the page to insert a picture", "Insert image");
-        ToolbarIcon(ReplaceImageButton, "\uEB9F", "Replace image", "Swap the selected image for a file on disk", "Replace image");
-        ToolbarIcon(DeleteImageButton, "\uE74D", "Delete image", "Remove the selected image from the page", "Delete image");
+        ToolbarIcon(InsertImageButton, ShellIcon.Image, "Insert image", "Click the page to insert a picture", "Insert image", EditIconSize, IconTint.Accent);
+        ToolbarIcon(ReplaceImageButton, ShellIcon.Image, "Replace image", "Swap the selected image for a file on disk", "Replace image", EditIconSize, IconTint.Accent);
+        ToolbarIcon(DeleteImageButton, ShellIcon.Delete, "Delete image", "Remove the selected image from the page", "Delete image", EditIconSize, IconTint.Accent);
         // .edit-tile: the cards' buttons are tiles; an armed mode (Edit content, Insert text/image) moves its border to the accent.
         foreach (var mode in new[] { ContentEditButton, InsertTextButton, InsertImageButton })
             mode.Style = NamedStyle("EditTileToggleStyle");

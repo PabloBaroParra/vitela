@@ -100,4 +100,13 @@
     <!-- The running window's icon (AppWindow.SetIcon in MainWindow.Chrome.cs). -->
     <None Include="vitela.ico" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela.ico" />
   </ItemGroup>
+
+  <!--
+    The shared line icons (assets/icons), embedded rather than copied: each is
+    tinted per role before SvgImageSource parses it (MainWindow.Icons.cs), so the
+    shell needs the text, not a file URI. Same idea as Linux's include_str!.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\..\assets\icons\*.svg" LogicalName="Pdf.Windows.Icons.%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

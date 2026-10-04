@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -20,14 +21,15 @@ public sealed partial class MainWindow
         foreach (var button in AppRail.Children.OfType<ToggleButton>())
         {
             var label = (string)button.Content;
-            var glyph = (string)button.Tag switch
+            var icon = (string)button.Tag switch
             {
-                "Home" => "\uE80F", "Recent" => "\uE823", "Files" => "\uE8B7",
-                "Annotate" => "\uE7E6", "Edit" => "\uE70F", "Organize" => "\uE8A9",
-                "Sign" => "\uE77F", _ => "\uE72E",
+                "Home" => ShellIcon.Home, "Recent" => ShellIcon.Recent, "Files" => ShellIcon.Files,
+                "Annotate" => ShellIcon.Annotate, "Edit" => ShellIcon.Edit, "Organize" => ShellIcon.Organize,
+                "Sign" => ShellIcon.Sign, _ => ShellIcon.Protect,
             };
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16 });
+            // RAIL_ICON_PX in NEUTRAL_TINT (shell.rs).
+            row.Children.Add(ShellIconImage(icon, 16, IconTint.Neutral, button));
             row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
             button.Content = row;
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);

@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
 using Windows.ApplicationModel.DataTransfer;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -92,9 +93,9 @@ public sealed partial class MainWindow
         var thumbnail = new Image { Stretch = Stretch.Uniform };
         var number = new TextBlock { Text = (index + 1).ToString(), VerticalAlignment = VerticalAlignment.Center, Style = NamedStyle("OrganizeBlockNameStyle") };
         var source = new TextBlock { Visibility = Visibility.Collapsed, Style = NamedStyle("OrganizeCardSourceStyle") };
-        var left = CardButton("\uE7AD", "Rotate page left", true);
-        var right = CardButton("\uE7AD", "Rotate page right", false);
-        var delete = CardButton("\uE74D", "Delete page", false);
+        var left = CardButton(ShellIcon.RotateLeft, "Rotate page left");
+        var right = CardButton(ShellIcon.RotateRight, "Rotate page right");
+        var delete = CardButton(ShellIcon.Delete, "Delete page");
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         actions.Children.Add(left);
         actions.Children.Add(right);

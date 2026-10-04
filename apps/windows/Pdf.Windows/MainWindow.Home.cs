@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -17,24 +18,22 @@ public sealed partial class MainWindow
         for (var row = 0; row < 2; row++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var entries = new[]
         {
-            ("Edit", "Retype text and replace images", "\uE70F", 0x6b4effu),
-            ("Annotate", "Highlight, draw, and add notes", "\uE7E6", 0x14b8a6u),
-            ("Sign", "Sign with a certificate, card, or token", "\uE77F", 0xec4899u),
-            ("Organize", "Reorder and delete pages", "\uE8A9", 0x22c55eu),
-            ("Compress", "Write a smaller copy of the file", "\uE8B1", 0xf59e0bu),
-            ("Protect", "Require a password to open the document", "\uE72E", 0x6366f1u),
+            ("Edit", "Retype text and replace images", ShellIcon.Edit, IconTint.Edit),
+            ("Annotate", "Highlight, draw, and add notes", ShellIcon.Annotate, IconTint.Annotate),
+            ("Sign", "Sign with a certificate, card, or token", ShellIcon.Sign, IconTint.Sign),
+            ("Organize", "Reorder and delete pages", ShellIcon.Organize, IconTint.Organize),
+            ("Compress", "Write a smaller copy of the file", ShellIcon.Compress, IconTint.Compress),
+            ("Protect", "Require a password to open the document", ShellIcon.Protect, IconTint.Protect),
         };
         for (var index = 0; index < entries.Length; index++)
         {
-            var (label, description, glyph, tint) = entries[index];
+            var (label, description, icon, tint) = entries[index];
             var content = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
-            content.Children.Add(new FontIcon
-            {
-                Glyph = glyph, FontSize = 24,
-                Foreground = new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, (byte)(tint >> 16), (byte)(tint >> 8), (byte)tint)),
-            });
+            var tile = new Button { Tag = label, Style = HomeStyle("ToolTileButtonStyle") };
+            // TILE_ICON_PX in the tool's own hue; a disabled tile goes muted (home/tools.rs).
+            content.Children.Add(ShellIconImage(icon, 24, tint, tile));
             content.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center });
-            var tile = new Button { Content = content, Tag = label, Style = HomeStyle("ToolTileButtonStyle") };
+            tile.Content = content;
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tile, label);
             ToolTipService.SetToolTip(tile, description);
             tile.Click += async (_, e) => await NavigateToToolAsync(label, e);
@@ -52,20 +51,22 @@ public sealed partial class MainWindow
     private void BuildHomeQuickActions()
     {
         var actions = new StackPanel { Spacing = 8 };
-        foreach (var (label, glyph, run) in new (string, string, Func<Task>)[]
+        foreach (var (label, icon, run) in new (string, ShellIcon, Func<Task>)[]
         {
-            ("New blank PDF", "\uE8A5", CreateNewDocumentAsync),
-            ("Open file…", "\uE8B7", async () => { await PickShellDocumentAsync(); }),
-            ("Open the sample", "\uE8A5", async () =>
+            ("New blank PDF", ShellIcon.NewFile, CreateNewDocumentAsync),
+            ("Open file…", ShellIcon.Files, async () => { await PickShellDocumentAsync(); }),
+            ("Open the sample", ShellIcon.Sample, async () =>
             {
                 if (!_isBusy && !_dialogOpen && !_shellPickingFile) await OpenSampleFileAsync(SamplePath, SampleDisplayName);
             }),
         })
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            row.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16 });
+            var button = new Button { Style = HomeStyle("HomeLinkButtonStyle") };
+            // ROW_ICON_PX in ACCENT_TINT (home/tools.rs).
+            row.Children.Add(ShellIconImage(icon, 16, IconTint.Accent, button));
             row.Children.Add(new TextBlock { Text = label });
-            var button = new Button { Content = row, Style = HomeStyle("HomeLinkButtonStyle") };
+            button.Content = row;
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
             button.Click += async (_, _) => await run();
             actions.Children.Add(button);

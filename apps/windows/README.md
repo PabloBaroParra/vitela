@@ -339,7 +339,11 @@ unfolds it, and the toggle reopens at the last width. Focused dividers also resp
 The canvas absorbs window resizes; the column rule lives in `Viewer/SideColumn.cs` and is unit tested.
 
 The editor toolbar wraps whole Document, Output, History, Position, Zoom, Fit,
-Panels and Find groups, in Linux's order. Compact native icons retain accessible
+Panels and Find groups, in Linux's order. Every rail, tab, tool tile, toolbar,
+Edit and Organize icon is the shared `assets/icons` drawing Linux uses, tinted
+per role (`MainWindow.Icons.cs`, `Viewer/ShellIcons.cs`): neutral, accent and
+muted follow the palette in both themes, a disabled control's icon goes muted,
+and the icons stay out of the accessibility tree so buttons keep their own
 names and shortcut tooltips. **Open sample** keeps its three-entry native menu.
 Windows' extra page-navigation and document commands remain in separate groups.
 **Find in document** opens a native flyout with the query, previous/next match

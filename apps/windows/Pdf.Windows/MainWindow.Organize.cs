@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -207,16 +208,11 @@ public sealed partial class MainWindow
         });
     }
 
-    private static Button CardButton(string glyph, string label, bool mirrored)
+    /// <summary>FOOTER_ICON_PX in the accent, as organize/grid/card.rs and documents/card.rs draw their actions.</summary>
+    private static Button CardButton(ShellIcon icon, string label)
     {
-        var icon = new FontIcon { Glyph = glyph, FontSize = 14 };
-        if (mirrored)
-        {
-            icon.RenderTransformOrigin = new global::Windows.Foundation.Point(0.5, 0.5);
-            icon.RenderTransform = new ScaleTransform { ScaleX = -1 };
-        }
-
-        var button = new Button { Content = icon, Padding = new Thickness(6) };
+        var button = new Button { Padding = new Thickness(6) };
+        button.Content = ShellIconImage(icon, 16, IconTint.Accent, button);
         AutomationProperties.SetName(button, label);
         ToolTipService.SetToolTip(button, label);
         return button;
