@@ -74,7 +74,13 @@ public sealed partial class MainWindow
     /// document, then closes it. A click on another run, leaving the mode, and
     /// pressing Enter all arrive here.
     /// </summary>
-    private Task CommitContentEditorAsync() => _pump.CommitAsync();
+    private async Task CommitContentEditorAsync()
+    {
+        // At most one of the two boxes is open; resolving both keeps every
+        // caller blind to which kind it is.
+        await CommitInsertEditorAsync();
+        await _pump.CommitAsync();
+    }
 
     /// <summary>
     /// Puts the run back the way the editor found it, then closes the box.
@@ -100,7 +106,11 @@ public sealed partial class MainWindow
     /// <see cref="ContentEditPump{TBox}.SettleForHistoryAsync"/> for why a
     /// history step cannot leave a box open over the run it is about to move.
     /// </summary>
-    private Task SettleContentEditorForHistoryAsync() => _pump.SettleForHistoryAsync();
+    private async Task SettleContentEditorForHistoryAsync()
+    {
+        await CommitInsertEditorAsync();
+        await _pump.SettleForHistoryAsync();
+    }
 
     /// <summary>
     /// Forgets which runs carry an unsaved retype, after an undo or redo — the
@@ -162,8 +172,13 @@ public sealed partial class MainWindow
     /// <summary>The pump's write port, wired to the facade.</summary>
     private sealed class FacadeContentWriter(MainWindow owner) : IContentEditWriter<ContentEditor>
     {
-        public Task<ContentWriteOutcome> WriteAsync(ContentEditor box, string text) =>
-            owner.SendEditorTextAsync(box, text);
+        public async Task<ContentWriteOutcome> WriteAsync(ContentEditor box, string text)
+        {
+            var outcome = await owner.SendEditorTextAsync(box, text);
+            // The pump records WrittenFor only after this port returns.
+            owner.DispatcherQueue.TryEnqueue(owner.UpdateEditTextSelection);
+            return outcome;
+        }
     }
 
     /// <summary>The pump's pause port, wired to the shell's dispatcher timer.</summary>

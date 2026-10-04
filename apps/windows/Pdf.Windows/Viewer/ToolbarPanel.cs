@@ -7,8 +7,11 @@ namespace Pdf.Windows.Viewer;
 /// <summary>Wraps toolbar controls or control groups without changing their tab order.</summary>
 public sealed class ToolbarPanel : Panel
 {
-    private const double ColumnSpacing = 12;
-    private const double RowSpacing = 8;
+    /// <summary>Gap between items in a row. Toolbars keep 12; Home's recent cards use Linux's 10.</summary>
+    public double ColumnSpacing { get; set; } = 12;
+
+    /// <summary>Gap between rows. Toolbars keep 8; Home's recent cards use Linux's 10.</summary>
+    public double RowSpacing { get; set; } = 8;
 
     protected override Size MeasureOverride(Size availableSize)
     {

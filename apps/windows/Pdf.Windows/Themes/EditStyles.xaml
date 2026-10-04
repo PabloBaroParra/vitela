@@ -1,0 +1,172 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Edit PDF page. Ports EDIT_CSS (content_edit/panel.rs); the class name is
+        in each comment. Colours come only from Palette.xaml.
+    -->
+
+    <!-- .panel-heading, with the Edit page's larger title -->
+    <Style x:Key="EditPanelHeadingStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{ThemeResource VitelaTextPrimaryBrush}" />
+    </Style>
+
+    <!-- .edit-hint -->
+    <Style x:Key="EditHintStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{ThemeResource VitelaTextHintBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- .edit-card -->
+    <Style x:Key="EditCardStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource VitelaSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource VitelaHairlineBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="12" />
+    </Style>
+
+    <!-- .edit-card-title -->
+    <Style x:Key="EditCardTitleStyle" TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{ThemeResource VitelaTextPrimaryBrush}" />
+    </Style>
+
+    <!-- .edit-notice: the availability / permission message -->
+    <Style x:Key="EditNoticeStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource VitelaTileBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource VitelaTileBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="10,8" />
+    </Style>
+
+    <Style x:Key="EditNoticeTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{ThemeResource VitelaTextSecondaryBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- .edit-tile (momentary): tile fill, hover accent-soft, disabled greyed -->
+    <Style x:Key="EditTileButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource VitelaTileBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource VitelaTextSecondaryBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource VitelaTileBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaAccentSoftBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaAccentSoftBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaDisabledFillBrush}" />
+                                        <Setter Target="Root.BorderBrush" Value="{ThemeResource VitelaDisabledBorderBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource VitelaMutedBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <ContentPresenter x:Name="Presenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- .edit-tile:checked — an armed mode moves the border to the accent too -->
+    <Style x:Key="EditTileToggleStyle" TargetType="ToggleButton">
+        <Setter Property="Background" Value="{ThemeResource VitelaTileBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource VitelaTextSecondaryBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource VitelaTileBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaAccentSoftBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaAccentSoftBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaDisabledFillBrush}" />
+                                        <Setter Target="Root.BorderBrush" Value="{ThemeResource VitelaDisabledBorderBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource VitelaMutedBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Checked">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaAccentSoftBrush}" />
+                                        <Setter Target="Root.BorderBrush" Value="{ThemeResource VitelaAccentBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource VitelaAccentBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaAccentSoftBrush}" />
+                                        <Setter Target="Root.BorderBrush" Value="{ThemeResource VitelaAccentBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource VitelaAccentBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedPressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaAccentSoftBrush}" />
+                                        <Setter Target="Root.BorderBrush" Value="{ThemeResource VitelaAccentBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource VitelaAccentBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="CheckedDisabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource VitelaDisabledFillBrush}" />
+                                        <Setter Target="Root.BorderBrush" Value="{ThemeResource VitelaDisabledBorderBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource VitelaMutedBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <ContentPresenter x:Name="Presenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Foreground="{TemplateBinding Foreground}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

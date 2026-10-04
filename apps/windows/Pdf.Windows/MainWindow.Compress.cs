@@ -26,66 +26,43 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
+    private bool _compressingDocument;
+
     private async void CompressButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_session is null) return;
-        var sessionId = _session.SessionId;
-        var displayName = _session.DisplayName;
-
-        var refusal = await _facade.CompressionRefusalAsync(sessionId);
-        if (!refusal.IsSuccess)
-        {
-            AnnotationStatus.Text = refusal.Error!.Message;
-            return;
-        }
-        if (refusal.Value is { } reason)
-        {
-            AnnotationStatus.Text = reason;
-            return;
-        }
-
-        var preset = await AskCompressionPresetAsync();
-        if (preset is null)
-        {
-            AnnotationStatus.Text = "Compression cancelled.";
-            return;
-        }
-
-        // The compression's own signature question, not Save's: a compressed
-        // save rewrites a signed file even when nothing was edited.
-        var signatureQuery = await _facade.CompressionWillInvalidateSignaturesAsync(sessionId);
-        if (!signatureQuery.IsSuccess)
-        {
-            AnnotationStatus.Text = signatureQuery.Error!.Message;
-            return;
-        }
-
-        var acknowledged = false;
-        if (signatureQuery.Value)
-        {
-            var warning = new ContentDialog
-            {
-                Title = "Compressing will break this document's signature",
-                Content = new TextBlock
-                {
-                    Text = "Compressing rewrites the file, so the compressed copy's digital signature will no longer verify. The open document is not changed.",
-                    TextWrapping = TextWrapping.Wrap,
-                },
-                PrimaryButtonText = "Compress anyway",
-                CloseButtonText = "Cancel",
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = Content.XamlRoot,
-            };
-            if (await ShowModalAsync(warning) != ContentDialogResult.Primary) return;
-            acknowledged = true;
-        }
-
-        SetBusy(true);
+        if (_compressingDocument || _isBusy || _dialogOpen || _session is not { } session) return;
+        _compressingDocument = true;
+        var sessionId = session.SessionId;
         StorageFile? temporary = null;
         try
         {
+            SetBusy(true);
+            if (!await PrepareDocumentLifecycleAsync()) return;
+            var refusal = await _facade.CompressionRefusalAsync(sessionId);
+            if (!refusal.IsSuccess)
+            {
+                AnnotationStatus.Text = refusal.Error!.Message;
+                return;
+            }
+            if (refusal.Value is { } reason)
+            {
+                AnnotationStatus.Text = reason;
+                return;
+            }
+            var preset = await AskCompressionPresetAsync(session.SourceByteCount);
+            if (preset is null)
+            {
+                AnnotationStatus.Text = "Compression cancelled.";
+                return;
+            }
+            if (_session?.SessionId != sessionId) return;
+            // Rewriting always asks the compression-specific core question, even without edits.
+            var acknowledged = await AskSignatureLossAsync(compressing: true);
+            if (acknowledged is null || _session?.SessionId != sessionId) return;
+            SetBusy(true);
             AnnotationStatus.Text = "Compressing PDF...";
-            var compressed = await _facade.CompressAsync(sessionId, preset.Value, acknowledged);
+            var compressed = await _facade.CompressAsync(sessionId, preset.Value, acknowledged.Value);
+            if (_session?.SessionId != sessionId) return;
             if (!compressed.IsSuccess)
             {
                 AnnotationStatus.Text = compressed.Error!.Message;
@@ -100,9 +77,8 @@ public sealed partial class MainWindow
             }
             AnnotationStatus.Text = CompressionWording.ReductionSummary(result);
 
-            var picker = new FileSavePicker();
+            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = "Save" };
             picker.FileTypeChoices.Add("PDF", [".pdf"]);
-            picker.SuggestedFileName = $"{Path.GetFileNameWithoutExtension(displayName)}-compressed";
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
             var file = await picker.PickSaveFileAsync();
             if (file is null)
@@ -110,6 +86,7 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = "Compression cancelled. No file was written.";
                 return;
             }
+            if (_session?.SessionId != sessionId) return;
 
             AnnotationStatus.Text = "Writing the compressed PDF...";
             var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(file.Path)!);
@@ -125,6 +102,7 @@ public sealed partial class MainWindow
         }
         finally
         {
+            _compressingDocument = false;
             if (temporary is not null)
             {
                 try { await temporary.DeleteAsync(); }
@@ -139,7 +117,7 @@ public sealed partial class MainWindow
     /// One radio per preset, Balanced pre-selected — the core's own "default
     /// offer". No predicted saving: nothing can answer that without running.
     /// </summary>
-    private async Task<CompressionPreset?> AskCompressionPresetAsync()
+    private async Task<CompressionPreset?> AskCompressionPresetAsync(ulong? sourceByteCount)
     {
         var choices = new RadioButtons();
         foreach (var preset in Enum.GetValues<CompressionPreset>())
@@ -147,15 +125,17 @@ public sealed partial class MainWindow
             var (name, description) = CompressionWording.Describe(preset);
             var label = new StackPanel { Spacing = 2 };
             label.Children.Add(new TextBlock { Text = name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            label.Children.Add(new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
-            choices.Items.Add(new RadioButton { Content = label, Tag = preset });
+            label.Children.Add(new TextBlock { Text = description, TextWrapping = TextWrapping.Wrap, MaxWidth = 350, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
+            var choice = new RadioButton { Content = label, Tag = preset };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(choice, name);
+            choices.Items.Add(choice);
         }
         choices.SelectedIndex = Array.IndexOf(Enum.GetValues<CompressionPreset>(), CompressionPreset.Balanced);
 
         var panel = new StackPanel { Spacing = 12, MaxWidth = 420 };
         panel.Children.Add(new TextBlock
         {
-            Text = "Writes a smaller copy. The open document stays as it is.",
+            Text = sourceByteCount is { } bytes ? $"This file is {CompressionWording.HumanSize(bytes)} on disk." : "No source file size is available for this new document.",
             TextWrapping = TextWrapping.Wrap,
         });
         panel.Children.Add(choices);
@@ -171,6 +151,6 @@ public sealed partial class MainWindow
         };
 
         if (await ShowModalAsync(dialog) != ContentDialogResult.Primary) return null;
-        return (choices.SelectedItem as RadioButton)?.Tag as CompressionPreset?;
+        return (choices.SelectedItem as RadioButton)?.Tag as CompressionPreset? ?? CompressionPreset.Balanced;
     }
 }

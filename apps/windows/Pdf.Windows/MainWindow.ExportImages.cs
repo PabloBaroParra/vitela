@@ -27,34 +27,45 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
+    private bool _exportingImages;
+
     private async void ExportImagesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isBusy || _session is not { PageCount: > 0 } session) return;
-
-        var plan = await AskImageExportAsync(session);
-        if (plan is null)
+        if (_exportingImages || _isBusy || _dialogOpen || _session is not { PageCount: > 0 } session) return;
+        _exportingImages = true;
+        try
         {
-            AnnotationStatus.Text = "Export cancelled.";
-            return;
+            SetBusy(true);
+            if (!await PrepareDocumentLifecycleAsync()) return;
+            var plan = await AskImageExportAsync(session);
+            if (plan is null)
+            {
+                AnnotationStatus.Text = "Export cancelled.";
+                return;
+            }
+            if (_session?.SessionId != session.SessionId) return;
+            var picker = new FolderPicker();
+            picker.FileTypeFilter.Add("*");
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            var folder = await picker.PickSingleFolderAsync();
+            if (folder is null)
+            {
+                AnnotationStatus.Text = "Export cancelled. No file was written.";
+                return;
+            }
+            if (_session?.SessionId != session.SessionId) return;
+            await WriteImagesAsync(session.SessionId, plan, folder);
         }
-
-        var picker = new FolderPicker();
-        picker.FileTypeFilter.Add("*");
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        StorageFolder? folder;
-        try { folder = await picker.PickSingleFolderAsync(); }
         catch (Exception error)
         {
             AnnotationStatus.Text = _facade.SaveWriteFailure(error).Error!.Message;
-            return;
         }
-        if (folder is null)
+        finally
         {
-            AnnotationStatus.Text = "Export cancelled. No file was written.";
-            return;
+            _exportingImages = false;
+            SetBusy(false);
+            RestoreAnnotationControls();
         }
-
-        await WriteImagesAsync(session.SessionId, plan, folder);
     }
 
     /// <summary>
@@ -127,19 +138,25 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task<ImageExportPlan?> AskImageExportAsync(DocumentSession session)
     {
-        var currentPage = (uint)Math.Max(0, _firstVisiblePage);
+        var currentPage = session.PageCount == 0 ? 0 : Math.Min((uint)Math.Max(0, _firstVisiblePage), session.PageCount - 1);
 
         var pages = new RadioButtons { Header = "Pages" };
-        var range = new TextBox { PlaceholderText = "e.g. 1-3,7", MinWidth = 200 };
-        pages.Items.Add(new RadioButton { Content = $"All pages ({session.PageCount})", Tag = ImageExportPages.All });
-        pages.Items.Add(new RadioButton { Content = $"Current page ({currentPage + 1})", Tag = ImageExportPages.Current });
+        var range = new TextBox { PlaceholderText = "1-3,7", MinWidth = 200, IsEnabled = false, Name = "ExportPageRange" };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(range, "Page range");
+        pages.Items.Add(new RadioButton { Content = "All pages", Tag = ImageExportPages.All });
+        pages.Items.Add(new RadioButton { Content = "Current page", Tag = ImageExportPages.Current });
         var custom = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        custom.Children.Add(new TextBlock { Text = "Pages:", VerticalAlignment = VerticalAlignment.Center });
+        custom.Children.Add(new TextBlock { Text = "Pages", VerticalAlignment = VerticalAlignment.Center });
         custom.Children.Add(range);
-        pages.Items.Add(new RadioButton { Content = custom, Tag = ImageExportPages.Custom });
+        var customChoice = new RadioButton { Content = custom, Tag = ImageExportPages.Custom };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(customChoice, "Pages");
+        pages.Items.Add(customChoice);
         pages.SelectedIndex = 0;
-        // Typing a range means a range: no need to pick the radio first.
-        range.GotFocus += (_, _) => pages.SelectedIndex = pages.Items.Count - 1;
+        pages.SelectionChanged += (_, _) =>
+        {
+            range.IsEnabled = SelectedPages(pages) == ImageExportPages.Custom;
+            if (range.IsEnabled) range.Focus(FocusState.Programmatic);
+        };
 
         var format = new ComboBox { Header = "Format", MinWidth = 120 };
         foreach (var choice in Enum.GetValues<ImageExportFormat>())
@@ -160,11 +177,11 @@ public sealed partial class MainWindow
             ValidationMode = NumberBoxValidationMode.InvalidInputOverwritten,
         };
 
-        var settings = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        var settings = new StackPanel { Spacing = 12 };
         settings.Children.Add(format);
         settings.Children.Add(dpi);
 
-        var refusal = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+        var refusal = new TextBlock { Name = "ExportValidationError", TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
         refusal.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
 
         var panel = new StackPanel { Spacing = 12, MaxWidth = 420 };

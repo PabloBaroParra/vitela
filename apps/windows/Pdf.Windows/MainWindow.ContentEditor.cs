@@ -34,6 +34,7 @@ public sealed partial class MainWindow
     /// and a pause made of a dispatcher timer.
     /// </remarks>
     private readonly ContentEditPump<ContentEditor> _pump;
+    private uint _contentEditorRequest;
 
     /// <summary>
     /// Resolves whatever editor is open, then opens one over the run under
@@ -41,14 +42,20 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task OpenContentEditorAsync(uint pageIndex, AnnotationPoint point)
     {
+        if (_session is null || !_contentEditMode) return;
+        var sessionId = _session.SessionId;
+        var generation = _contentModeGeneration;
+        var request = ++_contentEditorRequest;
+        bool IsCurrent() => _session?.SessionId == sessionId && _contentEditMode
+            && _contentModeGeneration == generation && _contentEditorRequest == request;
         await CommitContentEditorAsync();
-        if (_session is null || !_contentEditMode)
+        if (!IsCurrent())
         {
             return;
         }
 
         var content = await EnsurePageContentAsync(pageIndex);
-        if (content is null || _session is null || !_contentEditMode)
+        if (content is null || !IsCurrent())
         {
             return;
         }
@@ -66,7 +73,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (_session is null || !_contentEditMode)
+        if (!IsCurrent())
         {
             return;
         }
@@ -141,6 +148,7 @@ public sealed partial class MainWindow
         // why two of these overlap on a double click.
         var editor = new ContentEditor(pageIndex, run, box, mask, box.Text) { TakeOffThePage = CloseEditor };
         _pump.Open(editor);
+        UpdateEditTextSelection();
         slot.Content.Children.Add(mask);
         slot.Content.Children.Add(box);
         PlaceEditor(slot, pageIndex, editor);
@@ -197,6 +205,7 @@ public sealed partial class MainWindow
     {
         editor.Box.KeyDown -= ContentEditor_KeyDown;
         editor.Box.TextChanged -= ContentEditor_TextChanged;
+        UpdateEditTextSelection();
         if (editor.PageIndex < _slots.Count)
         {
             var content = _slots[(int)editor.PageIndex].Content;
@@ -278,20 +287,30 @@ public sealed partial class MainWindow
     /// honest fix then is to sample the rendered page rather than to guess
     /// harder here.
     /// </remarks>
-    private static void MakeEditorLookLikeThePage(TextBox box, Brush ink)
+    /// <param name="outline">
+    /// A border to keep through every visual state, for a box with nothing
+    /// underneath it to read as its edge. Set here rather than afterwards: a
+    /// WinUI <see cref="ResourceDictionary"/> throws (0x800F0902) when a key
+    /// it already holds is assigned again.
+    /// </param>
+    private static void MakeEditorLookLikeThePage(TextBox box, Brush ink, Brush? outline = null)
     {
         var invisible = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var none = new Thickness(0);
+        var border = outline ?? invisible;
+        var borderThickness = outline is null ? none : new Thickness(1);
+        box.BorderBrush = border;
+        box.BorderThickness = borderThickness;
         box.Resources["TextControlBackground"] = invisible;
         box.Resources["TextControlBackgroundPointerOver"] = invisible;
         box.Resources["TextControlBackgroundFocused"] = invisible;
         box.Resources["TextControlBackgroundDisabled"] = invisible;
-        box.Resources["TextControlBorderBrush"] = invisible;
-        box.Resources["TextControlBorderBrushPointerOver"] = invisible;
-        box.Resources["TextControlBorderBrushFocused"] = invisible;
-        box.Resources["TextControlBorderBrushDisabled"] = invisible;
-        box.Resources["TextControlBorderThemeThickness"] = none;
-        box.Resources["TextControlBorderThemeThicknessFocused"] = none;
+        box.Resources["TextControlBorderBrush"] = border;
+        box.Resources["TextControlBorderBrushPointerOver"] = border;
+        box.Resources["TextControlBorderBrushFocused"] = border;
+        box.Resources["TextControlBorderBrushDisabled"] = border;
+        box.Resources["TextControlBorderThemeThickness"] = borderThickness;
+        box.Resources["TextControlBorderThemeThicknessFocused"] = borderThickness;
         box.Resources["TextControlForeground"] = ink;
         box.Resources["TextControlForegroundPointerOver"] = ink;
         box.Resources["TextControlForegroundFocused"] = ink;

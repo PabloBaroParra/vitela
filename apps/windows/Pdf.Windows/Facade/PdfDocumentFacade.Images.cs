@@ -2,7 +2,7 @@ namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
 {
-    private enum ImageChange { Resize, Move, Remove }
+    private enum ImageChange { Resize, Move, Bounds, Remove }
 
     /// <summary>Reads images with pending edits applied, serialized against document changes.</summary>
     public async Task<OperationResult<IReadOnlyList<ContentImage>>> PageImagesAsync(string sessionId, uint pageIndex)
@@ -45,14 +45,23 @@ public sealed partial class PdfDocumentFacade
     public Task<OperationResult<AnnotationState>> MoveImageAsync(string sessionId, ContentImage image, double x, double y) =>
         ChangeImageAsync(sessionId, image, ImageChange.Move, x, y);
 
+    /// <summary>
+    /// Replaces an image's full bounds in one edit, for a corner drag that can
+    /// move its origin as well as resize it.
+    /// </summary>
+    public Task<OperationResult<AnnotationState>> SetImageBoundsAsync(string sessionId, ContentImage image, AnnotationRect bounds) =>
+        ChangeImageAsync(sessionId, image, ImageChange.Bounds, bounds.X, bounds.Y, bounds.Width, bounds.Height);
+
     /// <summary>Removes an existing image, retaining its original source for undo in the core.</summary>
     public Task<OperationResult<AnnotationState>> RemoveImageAsync(string sessionId, ContentImage image) =>
         ChangeImageAsync(sessionId, image, ImageChange.Remove);
 
-    private async Task<OperationResult<AnnotationState>> ChangeImageAsync(string sessionId, ContentImage image, ImageChange change, double first = 0, double second = 0)
+    private async Task<OperationResult<AnnotationState>> ChangeImageAsync(string sessionId, ContentImage image, ImageChange change,
+        double first = 0, double second = 0, double third = 0, double fourth = 0)
     {
         var move = change == ImageChange.Move;
         var remove = change == ImageChange.Remove;
+        var boundsChange = change == ImageChange.Bounds;
         var operation = remove ? "remove_image" : move ? "move_image" : "resize_image";
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         try
@@ -66,10 +75,14 @@ public sealed partial class PdfDocumentFacade
                     return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
-                if (!remove && (!double.IsFinite(first) || !double.IsFinite(second) || (!move && (first <= 0 || second <= 0))))
+                if (!remove && (!double.IsFinite(first) || !double.IsFinite(second)
+                    || (boundsChange && (!double.IsFinite(third) || !double.IsFinite(fourth)))
+                    || (!move && (boundsChange ? third <= 0 || fourth <= 0 : first <= 0 || second <= 0))))
                     return OperationResult<AnnotationState>.Failure(CreateError(move ? "Image coordinates must be finite." : "Image dimensions must be finite and greater than zero.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 var bounds = image.Source.Bbox;
-                var target = move ? bounds with { X = first, Y = second } : bounds with { Width = first, Height = second };
+                var target = move ? bounds with { X = first, Y = second }
+                    : boundsChange ? new PdfCoreRect(first, second, third, fourth)
+                    : bounds with { Width = first, Height = second };
                 if (!remove && bounds == target)
                     return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
 

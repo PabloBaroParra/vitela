@@ -51,52 +51,6 @@ public sealed partial class MainWindow
         await RefreshFormFieldsAsync();
     }
 
-    /// <summary>
-    /// Repaints the selected annotation with the color under the pointer, live,
-    /// as the user drags the picker — a plain local redraw, no facade call, no
-    /// undo entry. <see cref="AnnotationColorFlyout_Closed"/> is what commits.
-    /// </summary>
-    private void AnnotationColorPicker_ColorChanged(ColorPicker sender, ColorChangedEventArgs args)
-    {
-        if (_selectedAnnotationId is null) return;
-        RedrawAnnotations();
-    }
-
-    /// <summary>
-    /// Commits the chosen color once, when the flyout closes — <see cref="ColorPicker"/>
-    /// raises <c>ColorChanged</c> continuously while the user drags the spectrum, and
-    /// applying an edit per tick would both flood undo history with one step per pixel
-    /// of drag and disable the picker mid-gesture via <see cref="SetBusy"/>.
-    /// </summary>
-    private async void AnnotationColorFlyout_Closed(object sender, object e)
-    {
-        if (_selectedAnnotationId is not { } id || _annotationState?.EditingAllowed != true) return;
-        var selected = _annotationState.Annotations.LastOrDefault(annotation => annotation.Id == id);
-        if (selected?.Color is not { } current) return;
-        var chosen = AnnotationColorPicker.Color;
-        if (chosen.R == current.R && chosen.G == current.G && chosen.B == current.B) return;
-
-        SetBusy(true);
-        try
-        {
-            var result = await _facade.EditAnnotationAsync(_session!.SessionId, new PdfCoreEdit.Restyle(id, new PdfCoreColor(chosen.R, chosen.G, chosen.B)));
-            if (!result.IsSuccess)
-            {
-                AnnotationStatus.Text = result.Error!.Message;
-                return;
-            }
-
-            _annotationState = result.Value!;
-            AnnotationStatus.Text = "Annotation color changed. Changes are pending save.";
-            RedrawAnnotations();
-        }
-        finally
-        {
-            SetBusy(false);
-            UpdateAnnotationControls(_annotationState);
-        }
-    }
-
     private async void NudgeButton_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedAnnotationId is { } id) await ApplyEditAsync(new PdfCoreEdit.Move(id, NudgePt, NudgePt));
@@ -181,6 +135,7 @@ public sealed partial class MainWindow
         // not at the text underneath it. See `MainWindow.Selection.cs`.
         slot.Annotations.PointerPressed += (_, args) =>
         {
+            if (_isBusy || _dialogOpen) return;
             if (BeginFormFieldPlacement(slot, pageIndex, args)) return;
             // Content editing is asked first, and answers for the whole
             // gesture when armed: it is a mode, not a tool competing for the
@@ -190,14 +145,26 @@ public sealed partial class MainWindow
         };
         slot.Annotations.PointerMoved += (_, args) =>
         {
-            if (_placingFormField is not null) return;
-            if (_contentEditMode) return;
+            if (_formEditMode)
+            {
+                ContinueFormGesture(pageIndex, ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position));
+                return;
+            }
+            if (_contentEditMode)
+            {
+                ContinueContentImageGesture(pageIndex, ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position));
+                return;
+            }
             if (!ContinueAnnotationPointer(slot, pageIndex, args)) ContinueTextSelection(slot, pageIndex, args);
         };
         slot.Annotations.PointerReleased += async (_, args) =>
         {
             if (await EndFormFieldPlacementAsync(slot, pageIndex, args)) return;
-            if (_contentEditMode) return;
+            if (_contentEditMode)
+            {
+                await EndContentImageGestureAsync(slot, pageIndex, args);
+                return;
+            }
             if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
         };
         slot.Annotations.PointerCaptureLost += (_, _) =>
@@ -224,7 +191,8 @@ public sealed partial class MainWindow
             _pointerDrag = null;
             RedrawAnnotations();
         }
-        if (_formFieldPress?.PageIndex == pageIndex) _formFieldPress = null;
+        CancelFormGesture(pageIndex);
+        CancelContentImageGesture(pageIndex);
         if (_textSelection?.PageIndex == pageIndex) _textDragActive = false;
     }
 
@@ -440,6 +408,8 @@ public sealed partial class MainWindow
     private async Task ApplyHistoryAsync(bool undo)
     {
         if (_session is null) return;
+        await _formFillTail;
+        if (_session is null) return;
         // The toolbar stays live while the inline editor has focus, so a
         // history step can arrive with a box open over the run it is about to
         // move. Resolve the box first — see
@@ -496,7 +466,7 @@ public sealed partial class MainWindow
     {
         SyncAnnotationToolButtons();
         // Organizing hides the pages these tools draw on; only history stays live.
-        var enabled = state?.EditingAllowed == true && !_organizing;
+        var enabled = state?.EditingAllowed == true && _session is { PageCount: > 0 } && !_organizing && !_isBusy;
         var selected = _selectedAnnotationId is { } id
             ? state?.Annotations.LastOrDefault(annotation => annotation.Id == id)
             : null;
@@ -504,15 +474,15 @@ public sealed partial class MainWindow
         // annotations and refuse content changes, or the reverse. It follows
         // `state` only for the part they share — a blanked toolbar means the
         // shell is busy or has no document, and nothing may be armed then.
-        ContentEditButton.IsEnabled = state is not null && _session?.ContentEditingAllowed == true && !_organizing;
+        ContentEditButton.IsEnabled = state is not null && _session is { ContentEditingAllowed: true, PageCount: > 0 } && !_organizing && !_isBusy;
         ResizeImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
-        DeleteTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         MoveTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         InsertTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         MoveImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
-        DeleteImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
-        ReplaceImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         InsertImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
+        // Delete and Replace image follow the canvas selection, not just the
+        // permission — see UpdateImageCard, which this reaches.
+        UpdateEditPanelAvailability();
         HighlightButton.IsEnabled = enabled;
         UnderlineButton.IsEnabled = enabled;
         StrikeoutButton.IsEnabled = enabled;
@@ -521,11 +491,11 @@ public sealed partial class MainWindow
         NoteButton.IsEnabled = enabled;
         StampButton.IsEnabled = enabled;
         PointerButton.IsEnabled = enabled;
-        PreviousAnnotationButton.IsEnabled = state is { Annotations.Count: > 0 } && !_organizing && !_isBusy;
-        NextAnnotationButton.IsEnabled = PreviousAnnotationButton.IsEnabled;
+        PreviousAnnotationButton.IsEnabled = enabled && selected is not null;
+        NextAnnotationButton.IsEnabled = state is { Annotations.Count: > 0 } && !_organizing && !_isBusy;
         ReadNoteButton.IsEnabled = selected?.Kind == AnnotationKind.TextNote && !_organizing && !_isBusy;
-        UndoButton.IsEnabled = state?.CanUndo == true;
-        RedoButton.IsEnabled = state?.CanRedo == true;
+        UndoButton.IsEnabled = state?.CanUndo == true && !_isBusy;
+        RedoButton.IsEnabled = state?.CanRedo == true && !_isBusy;
         DeleteAnnotationButton.IsEnabled = enabled && selected is not null;
         NudgeButton.IsEnabled = enabled && selected is not null;
         MoveAnnotationButton.IsEnabled = enabled && !_isBusy && selected is not null && AnnotationBounds(selected) is not null;
@@ -533,11 +503,8 @@ public sealed partial class MainWindow
         ResizeAnnotationButton.IsEnabled = GrowButton.IsEnabled && !_isBusy;
         var restyleEnabled = enabled && selected is not null && SupportsRestyle(selected.Kind);
         AnnotationColorButton.IsEnabled = restyleEnabled;
-        AnnotationColorPicker.IsEnabled = restyleEnabled;
-        if (selected?.Color is { } color)
-        {
-            AnnotationColorPicker.Color = global::Windows.UI.Color.FromArgb(255, color.R, color.G, color.B);
-        }
+        UpdateFormToolbar();
+        UpdateSigningControls();
     }
 
     /// <summary>Mirrors the Linux shell's <c>supports_restyle</c>: only kinds carrying a color field can be restyled.</summary>
@@ -680,27 +647,12 @@ public sealed partial class MainWindow
                 slot.Annotations.Children.Add(preview);
             }
         }
+        DrawFormFieldSelection();
     }
 
     private static readonly AnnotationColor GoldenrodAnnotationColor = new(218, 165, 32);
 
-    /// <summary>
-    /// The color to paint an annotation with: for the one currently open in the
-    /// restyle picker, that is the color being dragged right now, not yet
-    /// committed — <see cref="AnnotationColorPicker"/> stays in sync with the
-    /// real color whenever nothing is being dragged (see
-    /// <see cref="UpdateAnnotationControls"/>), so reading it unconditionally
-    /// gives a live preview during a drag and the true color at rest alike.
-    /// </summary>
-    private AnnotationColor ResolveDisplayColor(Annotation annotation)
-    {
-        if (annotation.Id == _selectedAnnotationId && SupportsRestyle(annotation.Kind))
-        {
-            var picked = AnnotationColorPicker.Color;
-            return new AnnotationColor(picked.R, picked.G, picked.B);
-        }
-        return annotation.Color ?? DefaultAnnotationColor;
-    }
+    private static AnnotationColor ResolveDisplayColor(Annotation annotation) => annotation.Color ?? DefaultAnnotationColor;
 
     private void DrawAnnotationShape(PageSlot slot, uint pageIndex, Annotation annotation, AnnotationRect rect, AnnotationColor color, bool selected)
     {

@@ -2,7 +2,7 @@ using uniffi.pdf_ffi;
 
 namespace Pdf.Windows.Facade;
 
-internal sealed class GeneratedPdfCore : IPdfCore
+internal sealed partial class GeneratedPdfCore : IPdfCore
 {
     public IPdfCoreDocument OpenFromBytes(byte[] bytes, string? password)
     {
@@ -163,13 +163,15 @@ internal sealed class GeneratedPdfCore : IPdfCore
 
     private static FormFieldKind FieldKind(FfiFormFieldKind kind) => kind switch
     {
+        // form.rs encodes unmodeled kinds as single-line text with MaxLen 0.
+        // Present that documented read-only sentinel explicitly, not as an editor.
+        FfiFormFieldKind.Text { Multiline: false, MaxLen: 0 } => new FormFieldKind.Unsupported(),
         FfiFormFieldKind.Text text => new FormFieldKind.Text(text.Multiline, text.MaxLen),
         FfiFormFieldKind.Checkbox => new FormFieldKind.Checkbox(),
         FfiFormFieldKind.RadioGroup radio => new FormFieldKind.RadioGroup([.. radio.Options.Select(option => option.ExportValue)]),
         FfiFormFieldKind.Dropdown dropdown => new FormFieldKind.Dropdown(dropdown.Options, dropdown.Editable),
-        // The core already folds a kind it does not model into a read-only
-        // text field; a binding newer than this shell gets the same answer.
-        _ => new FormFieldKind.Text(Multiline: false, MaxLength: 0),
+        // A binding newer than this shell also gets an explicit unsupported row.
+        _ => new FormFieldKind.Unsupported(),
     };
 
     private static FormFieldValue FieldValue(FfiFieldValue value) => value switch
@@ -200,7 +202,7 @@ internal sealed class GeneratedPdfCore : IPdfCore
     public PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document)
     {
         var info = ((GeneratedDocument)document).Handle.ReadDocumentInfo();
-        return new PdfCoreDocumentInfo(info.Title, info.Author, info.Subject, info.Keywords, info.Creator, info.Producer, info.CreationDate, info.ModDate);
+        return new PdfCoreDocumentInfo(info.Title, info.Author, info.Subject, info.Keywords, info.Creator, info.Producer, MetadataDateFromCore(info.CreationDate), MetadataDateFromCore(info.ModDate));
     }
 
     public PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex)
@@ -445,8 +447,8 @@ internal sealed class GeneratedPdfCore : IPdfCore
             value.After.Keywords,
             value.After.Creator,
             value.After.Producer,
-            (FfiPdfDate?)value.After.CreationDate,
-            (FfiPdfDate?)value.After.ModDate)),
+            MetadataDateToCore(value.After.CreationDate),
+            MetadataDateToCore(value.After.ModDate))),
         PdfCoreEdit.ReplaceTextRun value =>
             new FfiEditCommand.ReplaceTextRunContent(ContentRun(value.Item), value.After),
         PdfCoreEdit.ReplaceTextRunWithInsertedFont value =>
@@ -489,6 +491,8 @@ internal sealed class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.RotatePage value => new FfiEditCommand.RotatePage(value.PageIndex, value.DeltaDegrees),
         PdfCoreEdit.RemovePage value => new FfiEditCommand.RemovePage(value.PageIndex),
         PdfCoreEdit.MovePages value => new FfiEditCommand.MovePages(value.From, value.Count, value.To),
+        PdfCoreEdit.RemovePages value => new FfiEditCommand.RemovePages(value.Index, value.Count),
+        PdfCoreEdit.RotatePages value => new FfiEditCommand.RotatePages(value.From, value.Count, value.DeltaDegrees),
         _ => throw new InvalidOperationException("Unsupported annotation edit."),
     };
 

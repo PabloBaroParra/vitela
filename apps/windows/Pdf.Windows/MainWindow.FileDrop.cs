@@ -72,11 +72,17 @@ public sealed partial class MainWindow
     private async void Window_Drop(object sender, DragEventArgs args)
     {
         args.Handled = true;
-        if (_isBusy) return;
+        if (_isBusy || _shellPickingFile || _dialogOpen) return;
 
-        if (await ClaimDroppedFileAsync(args) is not { } dropped)
+        if (await ClaimDroppedFileAsync(args) is not { } file)
         {
-            AnnotationStatus.Text = UnsupportedDropMessage;
+            AnnotationStatus.Text = HomeView.Visibility == Visibility.Visible
+                ? "Only PDF files can be opened from the Home screen."
+                : UnsupportedDropMessage;
+        }
+        else if (await ReadDroppedFileAsync(file) is not { } dropped)
+        {
+            AnnotationStatus.Text = "The dropped file could not be read.";
         }
         else if (dropped.Kind == DroppedFileKind.Document)
         {
@@ -84,7 +90,9 @@ public sealed partial class MainWindow
         }
         else
         {
-            AnnotationStatus.Text = _session is null
+            AnnotationStatus.Text = HomeView.Visibility == Visibility.Visible
+                ? "Only PDF files can be opened from the Home screen."
+                : _session is null
                 ? "Open a PDF first, then drop an image onto a page to stamp it."
                 : "Drop the image onto a page to place it as a stamp.";
         }
@@ -97,12 +105,26 @@ public sealed partial class MainWindow
     private async Task DropOnPageAsync(PageSlot slot, int pageIndex, DragEventArgs args)
     {
         args.Handled = true;
-        if (_isBusy) return;
+        if (_isBusy || _shellPickingFile || _dialogOpen) return;
 
+        var sessionId = _session?.SessionId;
+        if (sessionId is null) return;
         var point = ToPdf(slot, pageIndex, args.GetPosition(slot.Annotations));
-        if (await ClaimDroppedFileAsync(args) is not { } dropped)
+        var file = await ClaimDroppedFileAsync(args);
+        if (_session?.SessionId != sessionId || pageIndex >= _slots.Count || !ReferenceEquals(_slots[pageIndex], slot)
+            || _isBusy || _shellPickingFile || _dialogOpen) return;
+        if (file is null)
         {
             AnnotationStatus.Text = UnsupportedDropMessage;
+        }
+        else if (await ReadDroppedFileAsync(file) is not { } dropped)
+        {
+            if (_session?.SessionId == sessionId) AnnotationStatus.Text = "The dropped file could not be read.";
+        }
+        else if (_session?.SessionId != sessionId || pageIndex >= _slots.Count || !ReferenceEquals(_slots[pageIndex], slot)
+            || _isBusy || _shellPickingFile || _dialogOpen)
+        {
+            return;
         }
         else if (dropped.Kind == DroppedFileKind.Document)
         {
@@ -111,37 +133,37 @@ public sealed partial class MainWindow
             // unsaved-changes guard included.
             await OpenStorageFileAsync(dropped.Item);
         }
+        else if (dropped.Kind == DroppedFileKind.Unsupported)
+        {
+            AnnotationStatus.Text = "Dropped file is neither a PDF nor a supported image.";
+        }
         else
         {
-            await StampDroppedImageAsync(dropped.Item, pageIndex, point);
+            await StampDroppedImageAsync(dropped.Content, pageIndex, point);
         }
     }
 
     /// <summary>
-    /// Reads the dropped image and hands it to the shared stamp path. The
+    /// Hands the already-read dropped image to the shared stamp path. The
     /// permission check lives here rather than at the drop, because a read-only
     /// document still accepts a dropped PDF — it just cannot be annotated.
     /// </summary>
-    private async Task StampDroppedImageAsync(StorageFile file, int pageIndex, AnnotationPoint point)
+    private async Task StampDroppedImageAsync(byte[] imageBytes, int pageIndex, AnnotationPoint point)
     {
         if (_session is not { } session) return;
+        if (pageIndex < 0 || pageIndex >= _slots.Count) return;
+        var targetSlot = _slots[pageIndex];
         if (_annotationState?.EditingAllowed != true)
         {
             AnnotationStatus.Text = "This document does not allow annotation edits.";
             return;
         }
 
-        try
-        {
-            var buffer = await FileIO.ReadBufferAsync(file);
-            CryptographicBuffer.CopyToByteArray(buffer, out byte[] imageBytes);
-            if (DefaultStampRect(imageBytes, point) is not { } rect) return;
-            await InsertStampFromImageBytesAsync(session.SessionId, (uint)pageIndex, rect, imageBytes);
-        }
-        catch (Exception)
-        {
-            ReportDropFailure(session.SessionId, "The dropped image could not be read.");
-        }
+        if (_session?.SessionId != session.SessionId || pageIndex >= _slots.Count
+            || !ReferenceEquals(_slots[pageIndex], targetSlot) || _isBusy || _dialogOpen || _organizing || _shellPickingFile
+            || _annotationState?.EditingAllowed != true) return;
+        if (DefaultStampRect(imageBytes, point) is not { } rect) return;
+        await InsertStampFromImageBytesAsync(session.SessionId, (uint)pageIndex, rect, imageBytes);
     }
 
     /// <summary>
@@ -159,14 +181,14 @@ public sealed partial class MainWindow
     /// reader answered. A <see cref="StorageFile"/> outlives the view it came
     /// from, so the caller loses nothing by being handed one.
     /// </summary>
-    private static async Task<(StorageFile Item, DroppedFileKind Kind)?> ClaimDroppedFileAsync(DragEventArgs args)
+    private static async Task<StorageFile?> ClaimDroppedFileAsync(DragEventArgs args)
     {
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return null;
         var deferral = args.GetDeferral();
         try
         {
             var items = await args.DataView.GetStorageItemsAsync();
-            return FileDropRouting.FirstActionable(items.OfType<StorageFile>(), file => file.Path);
+            return FileDropRouting.FirstFile(items.OfType<StorageFile>());
         }
         catch (Exception)
         {
@@ -177,6 +199,27 @@ public sealed partial class MainWindow
             deferral.Complete();
         }
     }
+
+    /// <summary>
+    /// Reads and classifies a claimed file after its drag deferral has completed.
+    /// The same bytes reach stamp placement, so classification cannot disagree
+    /// with the image the shell asks the core to insert.
+    /// </summary>
+    private static async Task<DroppedFile?> ReadDroppedFileAsync(StorageFile file)
+    {
+        try
+        {
+            var buffer = await FileIO.ReadBufferAsync(file);
+            CryptographicBuffer.CopyToByteArray(buffer, out byte[] content);
+            return new DroppedFile(file, FileDropRouting.Classify(content), content);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private sealed record DroppedFile(StorageFile Item, DroppedFileKind Kind, byte[] Content);
 
     /// <summary>Reports a drop failure only if the document it was aimed at is still open.</summary>
     private void ReportDropFailure(string sessionId, string message)
@@ -199,26 +242,31 @@ public sealed partial class MainWindow
         }
 
         args.Handled = true;
+        if (_isBusy || _organizing || _shellPickingFile || _dialogOpen) return;
         if (_session is not { State: DocumentSessionState.Ready } session || _annotationState?.EditingAllowed != true || session.Pages.Count == 0)
         {
             AnnotationStatus.Text = "Open an editable PDF before pasting an image.";
             return;
         }
-        var content = Clipboard.GetContent();
-        if (!content.Contains(StandardDataFormats.Bitmap))
-        {
-            AnnotationStatus.Text = "Clipboard does not contain a bitmap image.";
-            return;
-        }
-
+        // Capture the target before reading the clipboard: scrolling or replacing
+        // the document during the read must not retarget this paste.
+        var pageIndex = (uint)Math.Clamp(_firstVisiblePage, 0, session.Pages.Count - 1);
+        if (pageIndex >= _slots.Count) return;
+        var page = session.Pages[(int)pageIndex];
+        var targetSlot = _slots[(int)pageIndex];
+        var centre = _facade.PointToPdf(new PlacedPoint(page.WidthPt / 2, page.HeightPt / 2), PagePlacement.Of(page, 1));
         try
         {
+            var content = Clipboard.GetContent();
+            if (!content.Contains(StandardDataFormats.Bitmap))
+            {
+                AnnotationStatus.Text = "Clipboard does not contain a bitmap image.";
+                return;
+            }
             var imageBytes = await ReadClipboardBitmapAsPngAsync(content);
-            var pageIndex = (uint)Math.Clamp(_firstVisiblePage, 0, session.Pages.Count - 1);
-            var page = session.Pages[(int)pageIndex];
-            // The middle of the page as drawn, taken back into page space: a
-            // quarter turn has swapped the width and height this reports.
-            var centre = _facade.PointToPdf(new PlacedPoint(page.WidthPt / 2, page.HeightPt / 2), PagePlacement.Of(page, 1));
+            if (_session?.SessionId != session.SessionId || pageIndex >= _slots.Count
+                || !ReferenceEquals(_slots[(int)pageIndex], targetSlot) || _isBusy || _dialogOpen || _organizing || _shellPickingFile
+                || _annotationState?.EditingAllowed != true) return;
             if (DefaultStampRect(imageBytes, centre) is not { } rect) return;
             await InsertStampFromImageBytesAsync(session.SessionId, pageIndex, rect, imageBytes);
         }

@@ -10,6 +10,131 @@ maths that does not need a UI runtime lives beside them in `Viewer/` — `PageZo
 `PageWindow.cs`, `PageRenderPlan.cs`, `ViewportTilePlan.cs` — which is why the facade
 suite can cover it.
 
+## Document lifecycle dialogs
+
+Home, the editor toolbar and Ctrl+O share one native PDF picker and its
+duplicate-picker guard. Replacing a document or creating a blank portrait A4 PDF
+uses **Unsaved changes**, with Save, Discard and Cancel. The wording covers all
+edits, including forms, metadata and page organization, not only annotations.
+
+The system Close button and Alt+F4 use the same confirmation with a close-specific
+explanation. Cancel, a cancelled Save picker, a refused save or a failed write
+keeps the window and document open. Close requests during an operation or modal
+are ignored; retry after it finishes. Pending inline text and submitted form
+fills settle before querying unsaved work. The shell opts into Facade's conservative
+lifecycle policy: after an edit, even full Undo still prompts before Open, New or
+Close, matching Linux. Only a successful destination save or an explicitly
+discarded/replaced session clears that state. Other facade clients retain the
+tested clean-after-full-Undo default; no core or FFI contract changes.
+
+Document-wide zoom, navigation, Save, Print and export controls are disabled when
+there are no pages. A pageless session shows **The PDF contains no pages.** History
+remains available to recover deleted pages. Busy gates disable history and editing
+without dropping the current permission snapshot, and restore the same controls
+when the operation ends. Failed replacement opens keep the prior document and its
+tools; an initial failure uses the error view. `MainWindow.DocumentStates.cs` owns
+this presentation independently of the bootstrap.
+
+**Password required** keeps the same native modal during an incorrect-password
+retry, clears the password and displays **The password is incorrect. Try again.**
+Enter submits Open; cancelling preserves the previous document. Password values
+are cleared on every attempt and when the modal ends.
+
+Save chooses a native PDF destination (initial name **document.pdf**) before
+querying signature loss. Native overwrite confirmation owns filename collisions;
+the shell does not rename the chosen path after confirmation. A signed source
+gets **Save anyway / Cancel** only when the core reports a rewrite would invalidate
+its signature; Cancel is the default. Picker and write failures are reported in
+the persistent status region. Writes replace through a temporary sibling, so a
+failed replacement keeps the existing destination and pending work.
+
+`Tests/LifecycleDialogsSmoke.targets` exercises real encrypted-sample retry and
+cancellation, replacement Cancel/Discard, fresh A4 creation, actual native close
+Cancel/Discard, a real signed-source warning and locked-destination write failure.
+`test-lifecycle-dialogs.ps1` checks native Save-picker cancellation and
+Close → Save → picker cancellation against the unchanged built-in sample, then
+restores its fixture edit through Undo. Facade tests cover failed/successful writes
+and stale sessions. Neither harness touches a user document.
+
+**Protect with a password** asks for Password to open the document and Permissions
+password. Its **Protect** action validates both nonempty, distinct roles inline
+without reopening the modal, explaining why identical passwords are unsafe.
+Enter in the first field moves to the permissions field; the second submits.
+Both secret controls are cleared on exit. A signed source uses the shared
+signature-invalidation warning before the destination picker; cancellation keeps
+the original session. The operation captures its session and prevents system
+close during its picker/write/reopen chain. The native lifecycle harness covers
+the two roles, validation, secret clearing and signed-warning cancellation.
+
+## Certificate signing dialogs
+
+Certificate signing uses a native **Certificate password required** dialog.
+An incorrect password keeps the same modal, clears the secret and explains that
+PKCS#12 cannot distinguish a wrong password from an invalid file. Unlock retries
+in place; Cancel clears the secret without opening a destination. **Choose a
+signing identity** lists mutually exclusive identities with the first selected;
+Sign requires a selection and Cancel is the default. Pending inline/form edits
+settle before certificate selection. Card/token and computer-store dialogs remain
+blocked by the absent shared signing adapters; they are not simulated.
+`Tests/SigningDialogsSmoke.targets` checks these dialogs with an ephemeral key,
+independently of the retained encrypted-signing regression (still blocked in core).
+
+## Native printing flow
+
+Print and Ctrl+P open the Windows print UI for documents with pages. Pending
+inline text and form writes settle before preparing the output snapshot. The
+shell holds its operation guard until the native task completes, preventing a
+second print, document replacement or system close from retiring that snapshot.
+Cancellation/unavailable UI releases the guard; failed jobs report **Printing
+failed.** Preview uses 144 DPI and confirmed output uses 300 DPI independently
+of viewer zoom. A raster failure keeps that page's position blank and reports it
+in the status region rather than silently truncating the remaining document.
+
+`Tests/PrintSmoke.targets` checks native shell guards, real-core preparation and
+bitmap materialization, failed-raster status and retry. Printer selection,
+physical output still require manual checks. `test-print.ps1` opens the actual
+Windows Print UI twice for the unchanged sample, checks its full page count and
+preview host, and cancels both tasks without submitting a job. It verifies that
+native completion releases guards and preserves the session/history.
+The FFI does not expose a print-permission query; permission-state parity remains
+blocked rather than inferred from the unrelated content-edit permission.
+
+## Find in document
+
+Find and Ctrl+F focus the native popup's **Search document** entry. The hint is
+**Case-sensitive. Press Enter to search.** Queries are exact, including leading
+and trailing spaces. Enter can supersede a pending query; only the latest
+session/query may publish results. Previous/Next wrap through matches and remain
+disabled without results or while an operation is busy. Search reports preparation,
+empty input, no matches, permission refusal, errors and the current match in the
+persistent lower status region. It does not open the Tools column automatically;
+the existing Windows result list remains supplementary there. The facade asks
+the exported core text-extraction permission before scheduling any matching work,
+independently of annotation/content-edit permission.
+
+## Organize page cards
+
+The **Pages** view keeps each page's thumbnail, number and actions together.
+Source labels are hidden for a single origin; mixed base/blank/imported origins
+show an ellipsized name with a full tooltip. Imported identities are preserved;
+until the blocked import workflow supplies a name registry, their fallback is
+**Imported PDF**, not an invented filename.
+
+The primary footer is Rotate page left, Rotate page right, Delete page.
+**Page actions** offers keyboard-accessible Move page earlier/later (disabled at
+the boundaries) and the supplementary Windows A4 blank-page insert commands.
+Native GridView drag reordering retains native insertion feedback and edge
+scrolling. The Documents scroller has its own bounded, ramped edge-scroll driver;
+it stops on drop, departure, busy state, view change, close or a scroll boundary.
+Page commands validate their session and revision at the facade boundary. Each
+move, turn or deletion is one Undo step; deleting the final page leaves an empty
+grid with Undo and blank-page insertion still available.
+
+The opt-in `Tests/OrganizePagesSmoke.targets` harness checks real-core card/source
+updates, history, stale drags, busy controls, zero-page recovery and clean close.
+Physical mouse drag/insertion feedback, native edge scrolling and keyboard menu
+focus still need a human eye check; the harness does not simulate those gestures.
+
 ## Deep zoom
 
 Past the point where a whole page no longer fits the per-page pixel budget, the
@@ -33,10 +158,197 @@ Three rules make that affordable, and each exists because breaking it was slow:
 
 ## First vertical
 
-The document and editing toolbars wrap onto additional rows when the window
-narrows, keeping their controls reachable. Zoom, fit, history and search controls
-stay together as groups; keyboard shortcuts and tab order follow the same controls.
-Long document titles are truncated, while print status messages wrap.
+The window identifies itself as **Vitela**. Document/edit messages and print
+status stay in a bottom status region, outside the document canvas. Long messages
+ellipsize instead of forcing the window wider; hover over either line to read its
+full text. Status lines declare polite live regions for assistive technology.
+
+The persistent application rail separates Home/Recent/My files from document
+destinations. Home preserves the open document and offers a **Return to document**
+button; document destinations request a PDF first when none is open. The tools
+column has Annotate, Edit, Comments and Fill & Sign pages. Existing controls retain
+their handlers and permissions; Comments explicitly states that it is unavailable.
+The icon-and-label tab strip wraps within the tools column. Clicking the active
+tab keeps it active; rail and Home destinations select that same page, never a
+second independently tracked view. Inactive pages take no layout space.
+**Signing** appears above Form fields on Fill & Sign. Choose a `.pfx` or `.p12`
+certificate, unlock it (empty passwords are accepted), select an identity and
+choose a signed PDF destination. Cancel leaves the document unchanged; password
+errors allow retry. The private-key handle is disposed when the flow ends.
+Signing writes through a temporary sibling file, then reopens the signed PDF;
+the panel shows **✓ This document is digitally signed.** This indicator detects
+signature structure, not certificate trust or cryptographic validity. Signing
+follows the core's signature-field permissions and is disabled while busy or
+organizing. **Use card or token…** and **Use a certificate from this computer…**
+are visibly disabled with an explanation: the shared FFI exposes PKCS#12 only.
+Full source parity remains blocked in `.opencode/state/windows-parity.md`.
+Encrypted-source signing also remains blocked: the native signing smoke exposes
+a shared-core malformed `/Contents` placeholder error. No encryption is stripped
+as a workaround; signing failure leaves the live document unchanged. The opt-in
+`SigningSmoke.targets` harness retains its failing encrypted-signature assertion
+so that limitation is not silently accepted as parity.
+
+Annotate shows **Annotations** followed by Highlight, Underline, Strikeout, Ink,
+Note, Shape and Stamp, then Previous annotation, Nudge, Grow, Restyle and Delete.
+Selection actions follow the current annotation and document permissions;
+Previous annotation requires a selection, matching Linux. Windows' additional
+Pointer, Next annotation, Read note and numeric move/resize commands remain
+available below the primary row. Document properties follow these controls.
+Restyle uses **Choose annotation color**, a native RGB-only Choose/Cancel dialog.
+Cancellation or an unchanged choice adds no history. A chosen color commits once
+against the captured annotation under the facade mutation gate; a changed,
+deleted or retired target is refused. **Choose field color** shares the same
+native presentation and preserves the selected field's font and size. Both
+dialogs own modal state and restore inspector/annotation controls on exit.
+
+**Document properties** is visible below Annotate, with Pages and editable Title,
+Author, Subject, Keywords, Creator, Producer, Created and Modified. Text changes
+are recorded immediately; there is no Apply button. Dates commit on Enter or
+focus loss and accept `YYYY-MM-DD`, `YYYY-MM-DD HH:MM` or `YYYY-MM-DD HH:MM:SS`.
+Invalid dates revert with a status message; empty input removes the date. Editing
+preserves the original UTC offset. Component-valid metadata dates (including
+future dates and February 30) match Linux rather than calendar-picker limits.
+Fields follow document permissions and busy states; Undo/Redo refreshes values.
+
+Fill & Sign exposes **Form fields**, a wrapping **Edit forms** / Text field /
+Checkbox / Radio group / Dropdown row, **Field style**, and **Fill fields**.
+Placement implies Edit forms; selecting another type disarms the previous type.
+After placement, Edit forms stays active for selection. Click an existing field
+in that mode, or focus its fill-row control while Edit forms is active, to select it for the common font,
+4–400 pt size and Color inspector. Font and size changes apply immediately;
+Color opens a native Choose/Cancel dialog. Structure permissions, busy state and
+selection control availability. Existing numeric position/size controls remain
+in the field rows; canvas move/resize parity is still pending. Arming content
+editing or an annotation tool disarms Edit forms.
+
+**Fill fields** records text and editable-dropdown values as they change, without
+replacing the row or its keyboard focus. Checkboxes, radio export values and
+fixed dropdowns use native controls; dropdowns include `(none)`. Field names are
+read-only until double-clicked or F2 is pressed. Enter or focus loss accepts a
+rename; Escape cancels it. Filling and renaming retain the core's distinct
+permission checks. Unsupported kinds explicitly say **Unsupported field**, and
+empty documents explain how to open or place fields. Clicking a field on the
+canvas in Edit forms focuses its fill control. Undo/Redo refreshes the rows.
+
+Native regression checks: after opening the unchanged built-in sample, run
+`powershell -File apps/windows/test-metadata.ps1` to exercise Properties text,
+date normalization/rejection and Undo/Redo. The opt-in
+`Tests/FormToolbarSmoke.targets` entry point exercises mode/type exclusivity,
+the shared inspector with real-core font/size changes, history and permission
+gates. `Tests/FormFillSmoke.targets` verifies immediate ordered typing, row/focus
+preservation, native name accept/cancel, checkbox/radio/dropdown changes and
+unsupported/empty/permission/busy/stale-row states against the built-in sample.
+These harnesses never save a user PDF. Rebuild normally after any replacement-entry-point harness before
+launching the app for use.
+
+The **Comments** tab explicitly says “Comments aren't available in this shell
+yet.” in secondary text, matching Linux; it is not an empty or working comments
+list. Switching tabs hides that placeholder without affecting the document.
+
+Edit now shows an **Edit PDF** heading, an availability notice and separate
+**Text** and **Images** cards with wrapping icon-and-label controls. The notice
+explains missing documents, permission refusal, empty PDFs and busy states;
+it disappears entirely when editing is available. All content commands are
+disabled while the document is busy. Numeric move/resize commands remain below
+the cards. This is a presentation step, not complete Linux editing parity:
+insertion and image deletion/replacement still use the existing Windows dialogs.
+**Delete text** now targets the run whose inline editor is open, without a
+selector dialog. It is disabled until a run is opened; its hint follows that
+target. Clicking Delete preserves the editor target and keyboard Tab access.
+Deletion discards keystrokes not yet recorded, remains undoable, and is not
+secure redaction. A recorded retype must be saved and reopened before deletion:
+the current FFI cannot amend a pending retype into a removal as Linux does.
+
+Home starts with **Search recent files and tools** and **Open file**; its separate
+search filters tool labels without running a document text search. Ctrl+O works
+from both Home and the editor; Ctrl+S and Ctrl+P still target the open document
+when Home is showing. The Home body scrolls on both axes in small windows.
+
+The Tools card keeps GTK's six destinations and descriptions in the same order,
+with a distinct accent per tool. Edit/Annotate/Sign reveal the corresponding tools
+page; Organize opens the page grid; Compress and Protect use their existing dialogs.
+
+Compress PDF shows the opened source byte size (decimal kB/MB), followed by the
+Lossless, Balanced (default), and Small presets with their full descriptions.
+New blank sessions have no source file size; the dialog says so rather than
+predicting a saving. Pending inline text and field writes settle before output;
+an unresolved text edit refuses the flow. Signed sources use the shared
+signature-loss warning with Cancel as the default, even when there are no edits.
+Compression reports measured uncompressed/compressed sizes before asking for a
+native Save destination; no-gain results open no picker. Cancelling or writing a
+copy never replaces the current session or its Undo history.
+
+Export pages as images offers All pages (default), Current page, or Pages with
+a `1-3,7` range entry enabled only for that choice. PNG/JPEG and 72–400 DPI
+(150 default) are validated in the same dialog before a native folder picker.
+The flow settles pending inline/field writes and guards against replacement or
+close while selecting a folder. Each page reports progress; the first render or
+write failure stops the export and reports the completed count. Existing files
+keep Windows' safe unique-name policy, and the live session/history stay intact.
+
+Extract pages opens a focused Pages to extract entry (`1-3,7`) with the current
+document page-count hint. Empty/invalid ranges remain in the same dialog with
+the shared-core error. Extraction/rewrite refusals appear before the dialog;
+pending inline/field writes settle before output. A native Save picker owns the
+destination/overwrite choice, and the new PDF is written through a temporary
+sibling file. The source session and history are unchanged. For a signed source,
+the completion status explains that the extracted signature no longer verifies;
+there is no misleading preflight signature-loss modal for the untouched source.
+
+Split PDF asks for cut points after pages (`3,7`) with a focused entry and the
+page-count/new-file hint. Invalid cuts stay in the same modal. After the native
+folder picker, one Cancel-default confirmation counts all existing part names
+before any write; Replace keeps the planned names instead of silently adding
+suffixes. Each complete temporary part replaces its destination; a failure stops
+the chain and keeps earlier complete parts. Progress and the final folder/count
+summary do not change the live session/history; signed parts receive the same
+post-write invalid-signature explanation as Linux.
+With no document open, a destination first requests a PDF. Cancelling that picker
+does not arm a tool or claim a new navigation destination.
+
+**Quick actions** offers New blank PDF, Open file… and Open the sample. New blank
+PDF shares Ctrl+N's existing unsaved-changes guard and creates one A4 page through
+the facade. The Keyboard shortcuts card lists Open, New, Save, Find and Print.
+
+The welcome area offers **Select file**, accepts a PDF drop, and opens the picker
+when its background is clicked. The drop highlight clears when the drag leaves or
+completes. Non-PDF drops on Home report that only PDFs can be opened there; image
+drops on an editor page still use the existing stamp workflow.
+
+**Recent** reads the Windows desktop's shared Recent shortcuts, showing up to
+eight existing local PDFs grouped by Today, Yesterday and Earlier. Successful
+file opens register with that OS-owned history; Windows privacy settings still
+govern it. The shortcut update time supplies the opened date. Cards render their
+first page independently of the editor session; encrypted/unreadable thumbnails
+leave a placeholder and never prompt for a password. Search filters file names
+and hides empty groups. The rail's Recent action focuses the first matching card.
+
+With the app showing Home, run
+`powershell -File apps/windows/test-home.ps1 -TestPicker` from the repository root
+for the UI Automation smoke test. It checks
+the initial screen, recent-card cap, no-match filtering and picker cancellation,
+then restores the search text. It never opens a recent user document.
+On a freshly launched instance, add `-TestSample` to check the built-in sample
+quick action and Home/editor session preservation. That opt-in replaces the
+current document; do not use it with work in progress.
+
+The editor lays out like the Linux shell: Pages on the left, the canvas in the middle and Tools on the right.
+Each side column has its own divider and toolbar toggle (**Pages**, **Tools**). Dragging a divider past the
+column's minimum folds it instead of clipping its controls; the divider stays on screen, so dragging back
+unfolds it, and the toggle reopens at the last width. Focused dividers also respond to Left and Right.
+The canvas absorbs window resizes; the column rule lives in `Viewer/SideColumn.cs` and is unit tested.
+
+The editor toolbar wraps whole Document, Output, History, Position, Zoom, Fit,
+Panels and Find groups, in Linux's order. Every rail, tab, tool tile, toolbar,
+Edit and Organize icon is the shared `assets/icons` drawing Linux uses, tinted
+per role (`MainWindow.Icons.cs`, `Viewer/ShellIcons.cs`): neutral, accent and
+muted follow the palette in both themes, a disabled control's icon goes muted,
+and the icons stay out of the accessibility tree so buttons keep their own
+names and shortcut tooltips. **Open sample** keeps its three-entry native menu.
+Windows' extra page-navigation and document commands remain in separate groups.
+**Find in document** opens a native flyout with the query, previous/next match
+buttons and case-sensitive hint; Ctrl+F opens and focuses it, also from Home when
+a document is retained. Existing search results remain in the tools column.
 
 **Panels** shows or hides the right-hand column to give the document more room.
 Fit width and Fit page adjust to the available space; a custom zoom stays fixed.
@@ -122,20 +434,23 @@ Moving uses the same permission, preview, undo/redo and snapshot checks as resiz
 The core refuses a second geometry edit on the same image while the first is
 pending. Save first, then reopen the dialog; rereading alone does not clear it.
 
-**Delete image** lists the content images on the visible page and removes the
-chosen image after confirmation. Resource and inline images use the same Rust
-command, with preview refresh and undo/redo. Deletion requires content-edit
-permission and a full rewrite. Save first if the image already has a pending edit;
-reopen the dialog after any intervening edit. Save to keep the deletion.
+**Delete image** removes the image selected on the canvas (Edit content armed,
+click an image). Resource and inline images use the same Rust command, with
+preview refresh and undo/redo. Deletion requires content-edit permission and a
+full rewrite. It is disabled until an image is selected and while the selected
+image has a pending edit; the Images card hint says which. A selection made
+before an edit on another page is re-read at click time rather than refused as
+stale. Save to keep the deletion.
 
-**Replace image** lists content images on the visible page, then asks for a PNG
-or JPEG. The chosen image keeps its position and dimensions; a different aspect
-ratio stretches to that rectangle. Original bytes are recovered through Rust
-before the picker opens and again at submission, including on imported pages.
-Encodings that cannot round-trip without loss are refused so undo can restore
-the source. Save first if the image has a pending edit. Replacement requires
+**Replace image** swaps the image selected on the canvas for a PNG or JPEG. The
+chosen image keeps its position and dimensions; a different aspect ratio
+stretches to that rectangle. Original bytes are recovered through Rust as soon as
+the image is selected, again before the picker opens and at submission, including
+on imported pages. Encodings that cannot round-trip without loss grey Replace out
+with an explanation, so undo can always restore the source. A pending edit on the
+selected image disables both Replace and Delete. Replacement requires
 content-edit permission and a full rewrite, refreshes the preview and supports
-undo/redo. Reopen after intervening edits, and save to keep the replacement.
+undo/redo. Save to keep the replacement.
 
 **Delete text** lists the text runs on the visible page, with their text and PDF
 coordinates. Choose a run and confirm deletion; the PDF preview refreshes and
@@ -154,22 +469,25 @@ Reopen the dialog after any intervening edit. Save first if the run already has
 a pending edit, including retyping or moving, and save to keep the new position.
 The core refuses runs painted by the double-quote spacing operator.
 
-**Insert text** adds a nonempty single line of Helvetica text to the visible
-page as real page content, not an annotation. Enter X/Y in PDF points relative
-to the unrotated page's bottom-left and a size from 1–72 pt (14 by default).
-Zero and negative coordinates are allowed. Each insertion uses a fresh font
-resource so existing fonts and other pending insertions are preserved. Characters
-outside the font's WinAnsi encoding are refused by the core. Insertion refreshes
-the preview and supports undo/redo; it requires content-edit permission and a
-full rewrite. Reopen the dialog after any intervening edit, and save to keep it.
+**Insert text** is a toggle, as on Linux: arm it (this also arms Edit content)
+and click the page to open a blank outlined box there. Type one line and press
+Enter, click elsewhere or move focus to insert it as real page content, not an
+annotation; Escape or an empty box records nothing. The text is 14 pt Helvetica
+whose box's bottom-left corner sits at the click. The toggle stays armed for the
+next insertion until it is clicked again or Edit content is turned off; a click
+on an existing image still selects the image. Each insertion uses a fresh font
+resource so existing fonts and other pending insertions are preserved.
+Characters outside the font's WinAnsi encoding are refused by the core and the
+reason appears in the status line. Insertion refreshes the preview and supports
+undo/redo; it requires content-edit permission and a full rewrite. Save to keep
+it.
 
-**Insert image** adds a PNG or JPEG to the visible page as real content, not a
-stamp annotation. Enter its top-left X/Y in PDF points relative to the unrotated
-page's bottom-left (X increases rightward, Y upward). The shared core preserves
-its proportions with a longest side of 144 pt, as on Linux. Coordinates must be
-finite; zero and negative values are allowed. Insertion refreshes the preview
-and supports undo/redo; it requires content-edit permission and a full rewrite.
-Reopen the dialog after any intervening edit, and save to keep the image.
+**Insert image** is the image twin of Insert text: arm it and click the page,
+then choose a PNG or JPEG. It is added as real content, not a stamp annotation,
+with its top-left corner at the click; the shared core preserves its proportions
+with a longest side of 144 pt, as on Linux. Insertion refreshes the preview and
+supports undo/redo; it requires content-edit permission and a full rewrite. Save
+to keep the image.
 
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
@@ -198,9 +516,51 @@ status line says its signature no longer verifies.
 PDFs). The cut grammar, boundaries and file names come from the same Rust core
 used by Linux; each part is extracted from the open document without changing
 it. Parts are written through temporary files into a chosen folder. Existing
-files are preserved with a unique suffix, and a failure reports how many parts
-were completed. A signed source produces parts with signatures that no longer
+part names require one counted Replace/Cancel confirmation before any writes;
+Cancel is the default. A failure reports how many parts were completed and keeps
+those complete files. A signed source produces parts with signatures that no longer
 verify.
+
+**Organize pages** opens a dedicated full-width screen, replacing the editor
+toolbar, canvas and side columns without discarding their layout preferences.
+Its wrapping header presents **Undo**, **Redo**, **Add PDFs**, **Extract**,
+**Split**, and **Save**, in that order. History and output actions reuse the
+editor's commands and enabled-state owners; **Return to document** restores the
+editor and the same session. Page edits lock navigation and header commands
+until the shared facade finishes the edit.
+
+**Add PDFs** is visibly disabled with an explanation. Linux prepares a multi-file
+import with progress/cancellation and applies it as one undo step; the current
+FFI exposes only immediate, per-file `ImportPdf` mutations. Atomic batch
+preparation, progress and cancellation need an additional shared API contract.
+There is no pretend progress indicator or shell-side undo rollback. The remaining
+page-card parity is still pending.
+
+Organize opens on **Documents**; **Pages** switches to the individual-page grid.
+Each document card shows a stacked first-page cover, its source name, page count
+and current range. Split source runs display **Part 1**, **Part 2**, and so on.
+Drag a document into a highlighted gap to move all its pages, or use the keyboard-
+accessible **Move up**/**Move down** buttons. The first/last boundary moves are
+disabled. **Rotate left**, **Rotate right**, and **Delete** act on the whole block;
+each operation is one undo step. Cards rebuild from core-derived blocks after
+edits/history, and stale cards cannot mutate a different layout or document.
+Deleting the final document block leaves an empty Documents view; **Undo** or
+adding a blank page recovers it. The existing individual-page deletion command
+still refuses to remove the last page. Controls are disabled through mutation
+and card refresh, not merely until the native call returns.
+
+The opt-in `Tests/OrganizeDocumentsSmoke.targets` harness checks real-core range
+operations, one-step Undo/Redo, zero-page deletion/recovery and split source parts.
+Build it with full MSBuild and `-p:CustomAfterMicrosoftCommonTargets=<absolute
+targets path>`, set `VITELA_SMOKE_OUTPUT` to an existing scratch directory, then
+launch the app. Rebuild normally afterward. Mouse drag-gap highlighting and
+placement, narrow-window wrapping and both themes still require visual checks.
+
+Run `powershell -File apps/windows/test-organize.ps1` with the unchanged built-in
+sample open to verify the dedicated screen, header gates, real-core blank-page
+insertion, Undo/Redo, restored page count and return/reentry. The smoke never
+writes the sample to disk or edits a user document; it ends back in the editor
+with the added page undone (and available through Redo).
 
 In **Organize**, **Add blank A4 page** appends a portrait page, while **Add
 landscape A4 page** appends a horizontal one. Each page card can also insert
@@ -279,6 +639,29 @@ annotation drag or form-field placement is discarded without an undo step. An
 armed tool stays available for another attempt. Text selection stops extending
 and retains the last sampled range.
 
+Drag on page text in Pointer mode, then press **Ctrl+C** to copy it. Selection
+and copying each recheck the core's extraction permission, independently of
+content/annotation editing. A refusal clears the selection and reports the
+reason; copying without selected text reports what to do. Ctrl+C in an editable
+control keeps its normal text-control behavior. Character and content loads
+invalidated by an edit or history change cannot publish stale page data; failed
+content parses can be retried by clicking again.
+
+Leaving and reentering Edit content cancels obsolete asynchronous click requests.
+An in-flight bitmap paste retains the page/center captured at invocation, not the
+page reached by scrolling while the clipboard is being read. A page drop/paste
+whose target session or page layout was replaced is ignored; busy/modal states
+cannot accept a late image insertion. Drops classify the first local file by
+content signature rather than filename: PDF content opens the document and PNG/JPEG
+content dropped on a page becomes a stamp. Physical OS drag/drop gestures remain
+outside the automated harness.
+
+The opt-in `Tests/SelectionSmoke.targets` native harness checks actual sample
+selection/highlights, actual clipboard output, refused/empty copying,
+same-session stale-load disposal and obsolete inline-editor requests. Full Canvas parity
+is not claimed: text movement/insertion amendments need FFI support, and content
+image gestures and click-to-insert presentation still need shell work.
+
 **Previous annotation** and **Next annotation** cycle through the document's
 annotations in their snapshot order, wrapping at either end. With nothing
 selected, Previous starts at the last annotation and Next at the first.
@@ -310,6 +693,33 @@ Facade behavior is checked without a WinUI runtime dependency:
 ```powershell
 dotnet run --project Pdf.Windows.Facade.Tests/Pdf.Windows.Facade.Tests.csproj
 ```
+
+## Inline text deletion runtime smoke
+
+`Tests/ContentDeleteSmoke.targets` replaces the entry point with an opt-in native
+test. Set `VITELA_SMOKE_OUTPUT` to an existing directory, build with
+`-p:CustomAfterMicrosoftCommonTargets=<absolute path to ContentDeleteSmoke.targets>`,
+then launch the app. It writes `content-delete-smoke.log` and exits. It checks the
+inline target and hint, click-focus/Tab properties, busy and synthetic permission
+gates, discarded unrecorded typing, real deletion/undo/redo, and automatic refusal
+after a recorded retype. It does not simulate an actual pointer click or claim
+full Linux editing parity. Rebuild without that property before normal use.
+
+## Canvas insertion runtime smoke
+
+`Tests/CanvasInsertSmoke.targets` replaces the entry point with an opt-in native
+test. Set `VITELA_SMOKE_OUTPUT` to an existing directory, build with
+`-p:CustomAfterMicrosoftCommonTargets=<absolute path to CanvasInsertSmoke.targets>`,
+then launch the app. It writes `canvas-insert-smoke.log` and exits. It checks
+that the insert toggles arm Edit content and exclude each other, that a miss
+click with Insert text opens a blank box at the click, that Escape and an empty
+box record nothing, that a commit records exactly one undoable run which saves
+at the click, the Images card's Nothing/Ready/pending states (the pending state
+is synthetic), Delete on the canvas selection with one undo, re-reading a
+selection made stale by an edit on another page, and that leaving Edit content
+disarms the insert kind. The press is driven through the canvas gesture handler,
+not a physical pointer, and Insert image's native picker is not automated.
+Rebuild without that property before normal use.
 
 ## Note placement runtime smoke
 

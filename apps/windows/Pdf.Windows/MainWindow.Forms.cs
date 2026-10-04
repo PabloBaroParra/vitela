@@ -1,9 +1,8 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
-using Windows.System;
 
 namespace Pdf.Windows;
 
@@ -44,14 +43,21 @@ public sealed partial class MainWindow
     /// untouched never costs a round trip to the core.
     /// </summary>
     private readonly Dictionary<ulong, FormFieldValue> _shownFieldValues = [];
+    private int _formRowsGeneration;
+    private Task _formFillTail = Task.CompletedTask;
+    private readonly Dictionary<ulong, Control> _formFocusTargets = [];
 
     private void ResetFormFieldState()
     {
         StopPlacingFormField();
+        _formFieldState = null;
+        UpdateFormToolbar();
         _filledFieldPages.Clear();
         _shownFieldValues.Clear();
+        _formRowsGeneration++;
+        _formFocusTargets.Clear();
         FormFieldRows.Children.Clear();
-        FormFieldsStatus.Text = "";
+        FormFieldsStatus.Text = "Open a PDF with form fields to fill them in, or place one in Edit forms mode.";
     }
 
     private async Task RefreshFormFieldsAsync()
@@ -59,8 +65,9 @@ public sealed partial class MainWindow
         if (_session is null) return;
 
         var sessionId = _session.SessionId;
+        var generation = _formRowsGeneration;
         var result = await _facade.FormFieldsAsync(sessionId);
-        if (_session?.SessionId != sessionId) return;
+        if (_session?.SessionId != sessionId || generation != _formRowsGeneration) return;
 
         if (!result.IsSuccess)
         {
@@ -73,33 +80,32 @@ public sealed partial class MainWindow
 
     private void ShowFormFields(FormFieldState state)
     {
-        PlaceTextFieldButton.IsEnabled = state.StructureAllowed;
-        PlaceCheckboxButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
-        PlaceRadioGroupButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
-        PlaceDropdownButton.IsEnabled = PlaceTextFieldButton.IsEnabled;
+        _formFieldState = state;
+        if (!state.Fields.Any(field => field.Id == _selectedFormFieldId)) _selectedFormFieldId = null;
+        UpdateFormToolbar();
+        _formRowsGeneration++;
+        _formFocusTargets.Clear();
         FormFieldRows.Children.Clear();
         _shownFieldValues.Clear();
         FormFieldsStatus.Text = state.Fields.Count == 0
-            ? "This document has no form fields."
+            ? "Open a PDF with form fields to fill them in, or place one in Edit forms mode."
             : state.FillAllowed ? "" : "This document does not permit filling in its form.";
 
         foreach (var field in state.Fields)
         {
             _shownFieldValues[field.Id] = field.Value;
             var value = FormFieldRow(state.SessionId, field);
+            AutomationProperties.SetName(value, field.Name);
             if (!state.FillAllowed) DisableRow(value);
             var row = new StackPanel { Spacing = 4 };
+            row.GotFocus += (_, _) =>
+            {
+                if (_formEditMode) SelectFormField(field.Id);
+            };
+            row.Children.Add(FormFieldName(state.SessionId, field, state.FillAllowed));
+            row.Children.Add(value);
             if (state.StructureAllowed)
             {
-                var name = new TextBox { Header = "Field name", Text = field.Name };
-                var submitted = false;
-                name.LostFocus += async (_, _) =>
-                {
-                    if (submitted || name.Text == field.Name) return;
-                    submitted = true;
-                    await CommitFieldNameAsync(state.SessionId, field, name.Text);
-                };
-                row.Children.Add(name);
                 if (field.Rect is { } rect)
                 {
                     var position = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -133,50 +139,7 @@ public sealed partial class MainWindow
                     dimensions.Children.Add(height);
                     row.Children.Add(dimensions);
                 }
-                if (field.Style is { } style && field.Kind is FormFieldKind.Text or FormFieldKind.Dropdown)
-                {
-                    var font = new ComboBox { Header = "Font family", HorizontalAlignment = HorizontalAlignment.Stretch };
-                    font.Items.Add("Helvetica");
-                    font.Items.Add("Times Roman");
-                    font.Items.Add("Courier");
-                    font.SelectedIndex = (int)style.Font;
-                    font.SelectionChanged += async (_, _) =>
-                    {
-                        if (font.SelectedIndex >= 0 && font.SelectedIndex != (int)style.Font)
-                            await CommitFieldFontAsync(state.SessionId, field, style, (FormFont)font.SelectedIndex);
-                    };
-                    row.Children.Add(font);
-                    var size = new NumberBox
-                    {
-                        Header = "Font size (pt)",
-                        Value = style.SizePt,
-                        SmallChange = 1,
-                        SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
-                    };
-                    size.LostFocus += async (_, _) =>
-                    {
-                        if (!double.IsFinite(size.Value)) size.Value = style.SizePt;
-                        else if (size.Value != style.SizePt)
-                            await CommitFieldFontSizeAsync(state.SessionId, field, style, size.Value);
-                    };
-                    row.Children.Add(size);
-                    var picker = new ColorPicker
-                    {
-                        Color = global::Windows.UI.Color.FromArgb(255, style.Color.R, style.Color.G, style.Color.B),
-                        IsAlphaEnabled = false,
-                    };
-                    var flyout = new Flyout { Content = picker };
-                    flyout.Closed += async (_, _) =>
-                    {
-                        var chosen = picker.Color;
-                        var color = new AnnotationColor(chosen.R, chosen.G, chosen.B);
-                        if (color != style.Color)
-                            await CommitFieldColorAsync(state.SessionId, field, style, color);
-                    };
-                    row.Children.Add(new Button { Content = "Text color", Flyout = flyout });
-                }
             }
-            row.Children.Add(value);
             FormFieldRows.Children.Add(row);
         }
     }
@@ -261,27 +224,28 @@ public sealed partial class MainWindow
         FormFieldKind.RadioGroup radio => RadioGroupRow(sessionId, field, radio),
         FormFieldKind.Dropdown { Editable: true } => EditableDropdownRow(sessionId, field),
         FormFieldKind.Dropdown dropdown => DropdownRow(sessionId, field, dropdown),
-        _ => new TextBlock { Text = field.Name },
+        _ => new TextBlock { Text = "Unsupported field", TextWrapping = TextWrapping.Wrap },
     };
 
     private TextBox TextFieldRow(string sessionId, FormField field, FormFieldKind.Text kind)
     {
         var box = new TextBox
         {
-            Header = field.Name,
             Text = field.Value is FormFieldValue.Text text ? FormFieldText.ToTextBox(text.Value) : "",
             AcceptsReturn = kind.Multiline,
             TextWrapping = kind.Multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
         };
-        // WinUI reads MaxLength 0 as "no limit", while the core sends 0 for a
-        // field nobody may type into — a kind it does not model — so that one
-        // becomes read-only instead of unlimited.
+        // WinUI reads MaxLength 0 as unlimited; preserve a real zero-length limit.
         if (kind.MaxLength == 0) box.IsReadOnly = true;
         else if (kind.MaxLength is { } max) box.MaxLength = (int)Math.Min(max, int.MaxValue);
 
-        box.LostFocus += async (_, _) =>
-            await CommitFormFieldAsync(sessionId, field, new FormFieldValue.Text(FormFieldText.FromTextBox(box.Text)));
-        if (!kind.Multiline) CommitOnEnter(box, sessionId, field, () => new FormFieldValue.Text(box.Text));
+        var generation = _formRowsGeneration;
+        box.TextChanging += async (_, _) =>
+        {
+            if (box.IsEnabled && !box.IsReadOnly)
+                await QueueFormFillAsync(sessionId, field, generation, new FormFieldValue.Text(FormFieldText.FromTextBox(box.Text)));
+        };
+        _formFocusTargets[field.Id] = box;
         return box;
     }
 
@@ -289,13 +253,14 @@ public sealed partial class MainWindow
     {
         var check = new CheckBox
         {
-            Content = field.Name,
             IsChecked = field.Value is FormFieldValue.Checked { Value: true },
         };
         // Click, not Checked/Unchecked: it fires only for the reader, never for
         // the initial state set just above.
+        var generation = _formRowsGeneration;
         check.Click += async (_, _) =>
-            await CommitFormFieldAsync(sessionId, field, new FormFieldValue.Checked(check.IsChecked == true));
+            await QueueFormFillAsync(sessionId, field, generation, new FormFieldValue.Checked(check.IsChecked == true));
+        _formFocusTargets[field.Id] = check;
         return check;
     }
 
@@ -303,7 +268,7 @@ public sealed partial class MainWindow
     {
         var chosen = field.Value is FormFieldValue.Choice choice ? choice.Option : null;
         var group = new StackPanel { Spacing = 2 };
-        group.Children.Add(new TextBlock { Text = field.Name });
+        var generation = _formRowsGeneration;
         foreach (var option in kind.Options)
         {
             var button = new RadioButton
@@ -314,7 +279,8 @@ public sealed partial class MainWindow
                 GroupName = $"form-field-{field.Id}",
                 IsChecked = option == chosen,
             };
-            button.Click += async (_, _) => await CommitFormFieldAsync(sessionId, field, new FormFieldValue.Choice(option));
+            button.Checked += async (_, _) => await QueueFormFillAsync(sessionId, field, generation, new FormFieldValue.Choice(option));
+            if (!_formFocusTargets.ContainsKey(field.Id)) _formFocusTargets[field.Id] = button;
             group.Children.Add(button);
         }
 
@@ -323,14 +289,16 @@ public sealed partial class MainWindow
 
     private ComboBox DropdownRow(string sessionId, FormField field, FormFieldKind.Dropdown kind)
     {
-        var combo = new ComboBox { Header = field.Name, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         combo.Items.Add(FormFieldChoices.NoChoiceLabel);
         foreach (var option in kind.Options) combo.Items.Add(option);
         combo.SelectedIndex = FormFieldChoices.IndexFor(kind.Options, field.Value is FormFieldValue.Choice choice ? choice.Option : null);
         // Subscribed after the initial selection, which would otherwise arrive
         // as a commit of the value the field already holds.
+        var generation = _formRowsGeneration;
         combo.SelectionChanged += async (_, _) =>
-            await CommitFormFieldAsync(sessionId, field, new FormFieldValue.Choice(FormFieldChoices.ChoiceFor(kind.Options, combo.SelectedIndex)));
+            await QueueFormFillAsync(sessionId, field, generation, new FormFieldValue.Choice(FormFieldChoices.ChoiceFor(kind.Options, combo.SelectedIndex)));
+        _formFocusTargets[field.Id] = combo;
         return combo;
     }
 
@@ -344,27 +312,20 @@ public sealed partial class MainWindow
         var options = field.Kind is FormFieldKind.Dropdown dropdown ? dropdown.Options : [];
         var box = new TextBox
         {
-            Header = field.Name,
             Text = field.Value is FormFieldValue.Choice { Option: { } option } ? option : "",
             PlaceholderText = string.Join(", ", options),
         };
-        box.LostFocus += async (_, _) => await CommitFormFieldAsync(sessionId, field, EditableChoice(box.Text));
-        CommitOnEnter(box, sessionId, field, () => EditableChoice(box.Text));
+        var generation = _formRowsGeneration;
+        box.TextChanging += async (_, _) =>
+        {
+            if (box.IsEnabled) await QueueFormFillAsync(sessionId, field, generation, EditableChoice(box.Text));
+        };
+        _formFocusTargets[field.Id] = box;
         return box;
     }
 
     private static FormFieldValue EditableChoice(string text) =>
         new FormFieldValue.Choice(text.Length == 0 ? null : text);
-
-    private void CommitOnEnter(TextBox box, string sessionId, FormField field, Func<FormFieldValue> value)
-    {
-        box.KeyDown += async (_, args) =>
-        {
-            if (args.Key != VirtualKey.Enter) return;
-            args.Handled = true;
-            await CommitFormFieldAsync(sessionId, field, value());
-        };
-    }
 
     private static void DisableRow(FrameworkElement row)
     {
@@ -386,14 +347,26 @@ public sealed partial class MainWindow
     /// TextBox losing focus as the panel is cleared — and its field id means
     /// nothing against the new bytes, so that commit is dropped.
     /// </summary>
-    private async Task CommitFormFieldAsync(string sessionId, FormField field, FormFieldValue value)
+    private Task QueueFormFillAsync(string sessionId, FormField field, int generation, FormFieldValue value)
     {
-        if (_session?.SessionId != sessionId) return;
-        if (_shownFieldValues.TryGetValue(field.Id, out var shown) && shown == value) return;
-
+        if (_session?.SessionId != sessionId || generation != _formRowsGeneration || _isBusy || _formFieldState?.FillAllowed != true)
+            return Task.CompletedTask;
+        if (_shownFieldValues.TryGetValue(field.Id, out var shown) && shown == value) return Task.CompletedTask;
         _shownFieldValues[field.Id] = value;
+        // Submit immediately: the facade's document-change gate orders these
+        // writes before a subsequent Save/Undo, even while preview I/O awaits.
+        var commit = CommitFormFillAsync(sessionId, field, generation, value);
+        _formFillTail = _formFillTail.IsCompleted ? commit : Task.WhenAll(_formFillTail, commit);
+        return commit;
+    }
+
+    private async Task CommitFormFillAsync(string sessionId, FormField field, int generation, FormFieldValue value)
+    {
         var result = await _facade.SetFormFieldValueAsync(sessionId, field.Id, value);
-        if (_session?.SessionId != sessionId) return;
+        // TextChanging is synchronous and may occur during layout. Never
+        // rebuild rows or update sibling controls inside that event's stack.
+        await Task.Yield();
+        if (_session?.SessionId != sessionId || generation != _formRowsGeneration) return;
 
         if (!result.IsSuccess)
         {
@@ -405,6 +378,8 @@ public sealed partial class MainWindow
         }
 
         _annotationState = result.Value;
+        if (_formFieldState is { } state)
+            _formFieldState = state with { Fields = state.Fields.Select(candidate => candidate.Id == field.Id ? candidate with { Value = value } : candidate).ToArray() };
         UpdateAnnotationControls(_annotationState);
         _filledFieldPages.Add(field.PageIndex);
         InvalidatePageRender(field.PageIndex);

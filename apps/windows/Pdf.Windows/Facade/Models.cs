@@ -13,7 +13,7 @@ public sealed record DocumentSource(string DisplayName, byte[] Bytes);
 /// annotation editing (<see cref="AnnotationState.EditingAllowed"/>): a
 /// document can allow one and refuse the other.
 /// </param>
-public sealed record DocumentSession(string SessionId, string DisplayName, uint PageCount, uint PageIndex, DocumentSessionState State, IReadOnlyList<PageDimensions> Pages, bool ContentEditingAllowed);
+public sealed record DocumentSession(string SessionId, string DisplayName, uint PageCount, uint PageIndex, DocumentSessionState State, IReadOnlyList<PageDimensions> Pages, bool ContentEditingAllowed, ulong? SourceByteCount = null);
 
 /// <summary>
 /// One page's layout size in PDF points (1/72 inch), as it is drawn: a
@@ -67,6 +67,8 @@ public sealed record PlacedPoint(double Left, double Top);
 /// </summary>
 public abstract record PageEdit
 {
+    public sealed record Block(DocumentBlocksSnapshot Snapshot, int Position, DocumentBlockAction Action, int Slot = 0) : PageEdit;
+    public sealed record OrganizePage(DocumentBlocksSnapshot Snapshot, uint Index, DocumentBlockAction Action, uint Target = 0) : PageEdit;
     /// <summary>Inserts an A4 page at a position, including after the last page.</summary>
     public sealed record InsertBlank(uint Index, PageOrientation Orientation = PageOrientation.Portrait) : PageEdit;
     /// <summary>Turns a page clockwise by <paramref name="DeltaDegrees"/>; negative turns it back.</summary>
@@ -207,7 +209,7 @@ public sealed class ContentTextRun
 /// survive a preview refresh, which leaves those bytes alone, but a save and
 /// reopen invalidates every id — re-read the page after one.
 /// </remarks>
-public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns);
+public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns, IReadOnlyList<ContentImage> Images);
 
 /// <summary>A page bound to the revision at which the image insertion started.</summary>
 public sealed class ImageInsertionTarget
@@ -253,7 +255,15 @@ public sealed record AnnotationColor(byte R, byte G, byte B);
 public sealed record AnnotationPoint(double X, double Y);
 public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points, string? Contents = null);
 public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo);
-public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer);
+public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer,
+    MetadataDate? CreationDate = null, MetadataDate? ModDate = null);
+
+public enum DocumentProperty { Title, Author, Subject, Keywords, Creator, Producer }
+public enum DocumentDateProperty { Created, Modified }
+
+/// <summary>PDF date components, not a calendar timestamp. February 30 and years beyond 9999 are valid metadata.</summary>
+public sealed record MetadataDate(ushort Year, byte Month, byte Day, byte Hour, byte Minute, byte Second, MetadataDateOffset Offset);
+public sealed record MetadataDateOffset(int Sign = 0, byte Hours = 0, byte Minutes = 0);
 
 /// <summary>
 /// What a form field can hold. Mirrors the core's four fillable kinds;
@@ -264,6 +274,7 @@ public abstract record FormFieldKind
     /// <summary><paramref name="MaxLength"/> is the field's <c>/MaxLen</c>, when it has one.</summary>
     public sealed record Text(bool Multiline, uint? MaxLength) : FormFieldKind;
     public sealed record Checkbox : FormFieldKind;
+    public sealed record Unsupported : FormFieldKind;
     /// <summary>The export value of each button, in the order the file lists them.</summary>
     public sealed record RadioGroup(IReadOnlyList<string> Options) : FormFieldKind;
     /// <summary>An editable dropdown also accepts text that is not one of its options.</summary>

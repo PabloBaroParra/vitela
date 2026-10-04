@@ -48,6 +48,11 @@ public sealed partial class MainWindow
 
     private void PageScroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        if (!e.IsIntermediate)
+        {
+            _requestedPage.Landed(PageScroller.VerticalOffset);
+        }
+
         UpdateViewport(e.IsIntermediate);
     }
 
@@ -202,6 +207,8 @@ public sealed partial class MainWindow
         var rasterizationScale = _xamlRoot?.RasterizationScale ?? 1.0;
 
         var retargeted = false;
+        // A requested page is pinned to an offset in the old boxes.
+        _requestedPage.Clear();
         _spans = new List<PageSpan>(_slots.Count);
         double top = 0;
         for (var index = 0; index < _slots.Count && index < session.Pages.Count; index++)
@@ -226,6 +233,8 @@ public sealed partial class MainWindow
                 slot.Tiles.Clear();
             }
             slot.Render.RetargetTo(baseDpi);
+            // A new fit gives failed tiles the same one retry as the page.
+            slot.Tiles.FailedDpi = 0;
             _spans.Add(new PageSpan(top, box.HeightDips));
             top += box.HeightDips + PageSpacing;
         }
@@ -242,7 +251,7 @@ public sealed partial class MainWindow
         }
 
         var visible = PageWindow.Resolve(_spans, PageScroller.VerticalOffset, PageScroller.ViewportHeight);
-        if (_deferPrefetchUntilVisibleSettles && !visible.HasOutstandingRender(index => _slots[index].Render.NeedsRender))
+        if (_deferPrefetchUntilVisibleSettles && !visible.HasOutstandingRender(index => _slots[index].Render.OwesRender))
         {
             _deferPrefetchUntilVisibleSettles = false;
         }
@@ -250,10 +259,10 @@ public sealed partial class MainWindow
         _renderWindow = _deferPrefetchUntilVisibleSettles
             ? visible
             : visible.Expand(PrefetchWindow, _slots.Count);
-        _firstVisiblePage = visible.First;
-        PageCounter.Text = $"Page {visible.First + 1} of {_slots.Count}";
+        _firstVisiblePage = _requestedPage.Current(visible.First, PageScroller.VerticalOffset);
+        PageCounter.Text = $"{_firstVisiblePage + 1} / {_slots.Count}";
         SyncPageNavigation();
-        ZoomLevel.Text = DescribeZoom(_slots[visible.First].Factor);
+        ZoomLevel.Text = $"{_slots[visible.First].Factor * 100:F0}%";
 
         // Request renders even mid-scroll: the facade coalesces per-page
         // requests, and starting early is what makes pages arrive in time.
@@ -339,7 +348,7 @@ public sealed partial class MainWindow
     private void RequestVisibleTiles(string sessionId, int pageIndex, PageSlot slot, ViewportTilePlan plan)
     {
         slot.Tiles.Retarget(plan, slot.Factor);
-        if (slot.Tiles.Requested)
+        if (slot.Tiles.Requested || slot.Tiles.FailedDpi == plan.Dpi)
         {
             return;
         }
@@ -367,8 +376,20 @@ public sealed partial class MainWindow
 
         var slot = _slots[pageIndex];
         slot.Tiles.Requested = false;
-        if (!result.IsSuccess || generation != slot.Tiles.Generation)
+        if (generation != slot.Tiles.Generation)
         {
+            return;
+        }
+
+        if (!result.IsSuccess)
+        {
+            // Same latch as the base render: a batch that failed at this DPI
+            // would fail again on every walk. The page keeps its bridge bitmap.
+            if (!result.IsDiscarded)
+            {
+                slot.Tiles.FailedDpi = dpi;
+            }
+
             return;
         }
 
@@ -413,20 +434,19 @@ public sealed partial class MainWindow
         var slot = _slots[pageIndex];
         if (result.IsDiscarded || result.IsEmpty)
         {
-            slot.Render.Fail();
+            slot.Render.Release();
             return;
         }
 
         if (!result.IsSuccess)
         {
-            slot.Render.Fail();
-            // A single failed page keeps its placeholder; only fail the whole
-            // view when nothing has rendered at all (e.g. a broken document).
-            if (!_slots.Any(other => other.Render.HasBitmap))
-            {
-                ShowError(result.Error!);
-            }
-
+            // Linux's render-failure state (render.rs apply_render_result): the
+            // page keeps its placeholder, the rest of the document stays
+            // readable, and the status line names the page. Latched so the
+            // viewport walk does not re-queue it until the next fit.
+            slot.Render.Fail(dpi);
+            var error = result.Error!;
+            AnnotationStatus.Text = $"Could not render page {pageIndex + 1} of {_slots.Count}: {error.Message} Reference: {error.CorrelationId}";
             return;
         }
 
@@ -474,13 +494,6 @@ public sealed partial class MainWindow
     /// </summary>
     private double CurrentFactor() =>
         _slots.Count > 0 ? _slots[Math.Clamp(_firstVisiblePage, 0, _slots.Count - 1)].Factor : 1.0;
-
-    private string DescribeZoom(double factor) => _zoom.Mode switch
-    {
-        PageZoomMode.FitWidth => $"Fit width ({factor * 100:F0}%)",
-        PageZoomMode.FitPage => $"Fit page ({factor * 100:F0}%)",
-        _ => $"{factor * 100:F0}%"
-    };
 
     private ScrollAnchor CaptureAnchor()
     {
@@ -532,6 +545,8 @@ public sealed partial class MainWindow
         private uint _dpi;
         private double _factor;
         public bool Requested { get; set; }
+        /// <summary>DPI the last tile batch failed at; 0 when none has. Cleared with the grid.</summary>
+        public uint FailedDpi { get; set; }
         public ulong Generation { get; private set; }
 
         public void Add(TileRequest tile, Image image)
@@ -579,6 +594,7 @@ public sealed partial class MainWindow
         {
             Generation++;
             Requested = false;
+            FailedDpi = 0;
             _images.Clear();
             _tiles.Clear();
             _capacity = Slack;

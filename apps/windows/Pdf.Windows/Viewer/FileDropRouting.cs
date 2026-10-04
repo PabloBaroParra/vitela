@@ -12,40 +12,34 @@ public enum DroppedFileKind
 }
 
 /// <summary>
-/// Decides what a dropped file is for, from its name alone.
+/// Decides what a dropped file is for, from its content signature.
 ///
 /// The two outcomes are unrelated operations — a stamp edits the open
 /// document, a PDF replaces it — so the choice is made once, up front, instead
 /// of being left to whichever drop handler happens to run first. Content is
-/// not sniffed here: opening still goes through the core's own parse and
-/// stamping through <see cref="ImageStampInput.HasSupportedSignature"/>, both
-/// of which report a real error for a file that lied about its extension.
+/// not decoded here: opening still goes through the core's own parse and
+/// stamping through its builder, both of which report a real error for corrupt
+/// content that has an otherwise supported signature.
 /// </summary>
 public static class FileDropRouting
 {
-    public static DroppedFileKind Classify(string? path)
+    public static DroppedFileKind Classify(ReadOnlySpan<byte> bytes)
     {
-        if (string.IsNullOrWhiteSpace(path)) return DroppedFileKind.Unsupported;
-        if (Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase)) return DroppedFileKind.Document;
-        return ImageStampInput.HasSupportedFileExtension(path) ? DroppedFileKind.ImageStamp : DroppedFileKind.Unsupported;
+        if (bytes.StartsWith("%PDF-"u8)) return DroppedFileKind.Document;
+        return ImageStampInput.HasSupportedSignature(bytes) ? DroppedFileKind.ImageStamp : DroppedFileKind.Unsupported;
     }
 
     /// <summary>
-    /// The first file in the drop that the shell knows what to do with.
+    /// The first local file in the drop.
     ///
     /// Dragging several files at once is usually an accident — a whole folder
     /// selection swept in — and neither opening every PDF nor stamping every
     /// image is ever what was meant, so exactly one wins and the rest are
-    /// ignored. Unsupported entries are skipped rather than failing the drop,
-    /// so a PDF dragged alongside a README still opens.
+    /// ignored. Its content decides whether it is supported after the drag
+    /// payload is released.
     /// </summary>
-    public static (T Item, DroppedFileKind Kind)? FirstActionable<T>(IEnumerable<T> items, Func<T, string?> path)
+    public static T? FirstFile<T>(IEnumerable<T> items) where T : class
     {
-        foreach (var item in items)
-        {
-            var kind = Classify(path(item));
-            if (kind != DroppedFileKind.Unsupported) return (item, kind);
-        }
-        return null;
+        return items.FirstOrDefault();
     }
 }

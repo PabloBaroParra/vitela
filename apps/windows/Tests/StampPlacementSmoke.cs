@@ -109,6 +109,9 @@ public sealed partial class MainWindow
         await RefreshAnnotationStateAsync();
 
         // A response that arrives after the document was replaced must be ignored.
+        var fixtureSave = await _facade.SaveToDestinationAsync(_session!.SessionId,
+            bytes => File.WriteAllBytesAsync(Path.Combine(output, "stamp-history-fixture.pdf"), bytes));
+        if (!fixtureSave.IsSuccess) throw new Exception(fixtureSave.Error!.Message);
         var response = new TaskCompletionSource<StorageFile?>();
         var placement = PlaceImageStampAsync(0, rect, () => response.Task);
         var replacement = await _facade.OpenAsync(new DocumentSource("Replacement", await File.ReadAllBytesAsync(SamplePath)));

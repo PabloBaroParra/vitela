@@ -131,5 +131,9 @@ shared, because that is what the eye lines up on.
 | Shell | How it is packaged | How it is drawn |
 | ----- | ------------------ | --------------- |
 | Linux (GTK4) | `include_str!` at compile time (`apps/linux-gtk/src/app/icons.rs`) | tinted, then rasterised through gdk-pixbuf's SVG loader into a `GdkTexture` |
+| Windows (WinUI 3) | `EmbeddedResource` at build time (`apps/windows/Pdf.Windows/Viewer/ShellIcons.cs`) | tinted per palette role for the element's theme, then parsed by `SvgImageSource` (`MainWindow.Icons.cs`) |
 
-No other shell uses these yet.
+`first-page`, `last-page`, `go-to-page`, `extract-pages` and `split-pages` are
+drawn only by Windows, whose toolbar keeps those extra commands; they follow the
+same grid. Windows' `IconParityTests` fails if a file here has no `ShellIcon`
+member, or one has no file.

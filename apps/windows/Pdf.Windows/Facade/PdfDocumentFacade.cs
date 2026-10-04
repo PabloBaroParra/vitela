@@ -4,14 +4,16 @@ public sealed partial class PdfDocumentFacade : IDisposable
 {
     private readonly IPdfCore _core;
     private readonly IDiagnosticLogger _diagnostics;
+    private readonly bool _conservativeLifecycle;
     private readonly object _gate = new();
     private readonly SemaphoreSlim _documentChangeGate = new(1, 1);
     private SessionEntry? _currentSession;
 
-    internal PdfDocumentFacade(IPdfCore core, IDiagnosticLogger diagnostics)
+    internal PdfDocumentFacade(IPdfCore core, IDiagnosticLogger diagnostics, bool conservativeLifecycle = false)
     {
         _core = core;
         _diagnostics = diagnostics;
+        _conservativeLifecycle = conservativeLifecycle;
     }
 
     /// <summary>
@@ -27,14 +29,16 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             lock (_gate)
             {
-                if (!discardPendingEdits && _currentSession is { } current && current.HasUnsavedEdits(_core))
+                if (!discardPendingEdits && _currentSession is { } current && HasLifecycleChanges(current))
                 {
-                    return OperationResult<DocumentSession>.Failure(CreateError("Save or undo the pending annotation changes before opening another document.", PdfCoreError.UnsavedChanges, "open", current.Id, null));
+                    return OperationResult<DocumentSession>.Failure(CreateError(_conservativeLifecycle
+                        ? "Save or discard the unsaved changes before opening another document."
+                        : "Save or undo the pending annotation changes before opening another document.", PdfCoreError.UnsavedChanges, "open", current.Id, null));
                 }
             }
 
             var document = await Task.Run(() => _core.OpenFromBytes(source.Bytes, password)).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document, _core.ContentEditingAllowed(document));
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), source.DisplayName, document, _core.ContentEditingAllowed(document), (ulong)source.Bytes.LongLength);
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -74,9 +78,11 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             lock (_gate)
             {
-                if (!discardPendingEdits && _currentSession is { } current && current.HasUnsavedEdits(_core))
+                if (!discardPendingEdits && _currentSession is { } current && HasLifecycleChanges(current))
                 {
-                    return OperationResult<DocumentSession>.Failure(CreateError("Save or undo the pending annotation changes before creating another document.", PdfCoreError.UnsavedChanges, "create_blank", current.Id, null));
+                    return OperationResult<DocumentSession>.Failure(CreateError(_conservativeLifecycle
+                        ? "Save or discard the unsaved changes before creating another document."
+                        : "Save or undo the pending annotation changes before creating another document.", PdfCoreError.UnsavedChanges, "create_blank", current.Id, null));
                 }
             }
 
@@ -179,6 +185,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 {
                     _core.ApplyEdit(session.Document, edit switch
                     {
+                        PageEdit.Block block => ResolveBlockEdit(session, block),
+                        PageEdit.OrganizePage page => ResolveOrganizePageEdit(session, page),
                         PageEdit.InsertBlank insert => new PdfCoreEdit.InsertBlankPage(insert.Index, insert.Orientation),
                         PageEdit.Rotate rotate => new PdfCoreEdit.RotatePage(rotate.PageIndex, rotate.DeltaDegrees),
                         PageEdit.Remove remove => new PdfCoreEdit.RemovePage(remove.PageIndex),
@@ -280,19 +288,6 @@ public sealed partial class PdfDocumentFacade : IDisposable
         }
     }
 
-    public Task<SearchResult> SearchAsync(string sessionId, string query)
-    {
-        lock (_gate)
-        {
-            if (!TryGetCurrentSession(sessionId, out var session))
-            {
-                return Task.FromResult(SearchResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "search", sessionId, null)));
-            }
-
-            return QueueSearchLocked(session, query);
-        }
-    }
-
     public Task<OperationResult<DocumentSession>> NavigateToSearchResultAsync(string sessionId, SearchHit hit)
     {
         lock (_gate)
@@ -309,48 +304,6 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
             session.PageIndex = hit.PageIndex;
             return Task.FromResult(OperationResult<DocumentSession>.Success(session.ToDto()));
-        }
-    }
-
-    /// <summary>
-    /// Loads and flattens one page's characters for caret hit-testing and
-    /// selection-rect queries. Dispatched off the UI thread because it reads
-    /// text runs from pdfium; the returned handle is then queried
-    /// synchronously by the shell on every pointer-move of a drag-select — no
-    /// per-move round trip.
-    /// </summary>
-    public async Task<OperationResult<PageCharacters>> PageCharactersAsync(string sessionId, uint pageIndex)
-    {
-        SessionEntry session;
-        lock (_gate)
-        {
-            if (!TryGetCurrentSession(sessionId, out session))
-            {
-                return OperationResult<PageCharacters>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
-            }
-        }
-
-        try
-        {
-            var handle = await Task.Run(() => _core.PageCharacters(session.Document, pageIndex)).ConfigureAwait(false);
-            lock (_gate)
-            {
-                if (session.Retired || _currentSession != session)
-                {
-                    handle.Dispose();
-                    return OperationResult<PageCharacters>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
-                }
-
-                return OperationResult<PageCharacters>.Success(new PageCharacters(pageIndex, handle));
-            }
-        }
-        catch (PdfCoreException error)
-        {
-            return OperationResult<PageCharacters>.Failure(MapError(error, "page_characters", sessionId, pageIndex));
-        }
-        catch (Exception error)
-        {
-            return OperationResult<PageCharacters>.Failure(MapUnexpected(error, "page_characters", sessionId, pageIndex));
         }
     }
 
@@ -387,58 +340,22 @@ public sealed partial class PdfDocumentFacade : IDisposable
         }
     }
 
-    public async Task<OperationResult<DocumentInfo>> SetDocumentInfoAsync(string sessionId, DocumentInfo info)
-    {
-        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
-        try
+    public Task<OperationResult<DocumentInfo>> SetDocumentInfoAsync(string sessionId, DocumentInfo info) =>
+        MutateDocumentInfoAsync(sessionId, current => current with
         {
-            lock (_gate)
-            {
-                if (!TryGetCurrentSession(sessionId, out var session))
-                {
-                    return OperationResult<DocumentInfo>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "document_info", sessionId, null));
-                }
-
-                if (!session.ContentEditingAllowed)
-                {
-                    return OperationResult<DocumentInfo>.Failure(CreateError("This document does not permit metadata changes.", PdfCoreError.UnsupportedOperation, "document_info", sessionId, null));
-                }
-
-                try
-                {
-                    var current = _core.ReadDocumentInfo(session.Document);
-                    var after = current with
-                    {
-                        Title = EmptyToNull(info.Title),
-                        Author = EmptyToNull(info.Author),
-                        Subject = EmptyToNull(info.Subject),
-                        Keywords = EmptyToNull(info.Keywords),
-                        Creator = EmptyToNull(info.Creator),
-                        Producer = EmptyToNull(info.Producer),
-                    };
-                    if (after != current)
-                    {
-                        _core.ApplyEdit(session.Document, new PdfCoreEdit.SetDocumentInfo(after));
-                        session.EditRevision++;
-                    }
-                    return OperationResult<DocumentInfo>.Success(ToDocumentInfo(after));
-                }
-                catch (PdfCoreException error)
-                {
-                    return OperationResult<DocumentInfo>.Failure(MapError(error, "document_info", sessionId, null));
-                }
-            }
-        }
-        finally
-        {
-            _documentChangeGate.Release();
-        }
-    }
+            Title = EmptyToNull(info.Title),
+            Author = EmptyToNull(info.Author),
+            Subject = EmptyToNull(info.Subject),
+            Keywords = EmptyToNull(info.Keywords),
+            Creator = EmptyToNull(info.Creator),
+            Producer = EmptyToNull(info.Producer),
+        });
 
     private static string? EmptyToNull(string? value) => string.IsNullOrEmpty(value) ? null : value;
 
     private static DocumentInfo ToDocumentInfo(PdfCoreDocumentInfo info) =>
-        new(info.Title, info.Author, info.Subject, info.Keywords, info.Creator, info.Producer);
+        new(info.Title, info.Author, info.Subject, info.Keywords, info.Creator, info.Producer,
+            info.CreationDate as MetadataDate, info.ModDate as MetadataDate);
 
     public Task<OperationResult<FormFieldState>> FormFieldsAsync(string sessionId)
     {
@@ -570,47 +487,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
     }
 
     /// <summary>Resizes a field without moving its origin; refuses an out-of-date row.</summary>
-    public async Task<OperationResult<AnnotationState>> ResizeFormFieldAsync(string sessionId, ulong fieldId, AnnotationRect expected, double width, double height)
-    {
-        const string operation = "form_resize";
-        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            SessionEntry session;
-            uint pageIndex;
-            lock (_gate)
-            {
-                if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
-                if (!_core.FormFieldEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit resizing form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
-                if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
-                    return OperationResult<AnnotationState>.Failure(CreateError("Enter finite, positive field dimensions.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
-
-                try
-                {
-                    var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
-                    if (field?.Rect is not { } rect || new AnnotationRect(rect.X, rect.Y, rect.Width, rect.Height) != expected)
-                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
-                    if (rect.Width == width && rect.Height == height) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
-                    pageIndex = field.PageIndex;
-                    _core.ApplyEdit(session.Document, new PdfCoreEdit.ResizeFormField(fieldId, rect with { Width = width, Height = height }));
-                    session.EditRevision++;
-                    session.HasRecordedPreviewEdit = true;
-                }
-                catch (PdfCoreException error)
-                {
-                    return OperationResult<AnnotationState>.Failure(MapError(error, operation, sessionId, null));
-                }
-            }
-
-            return await RefreshPreviewAsync(session, operation, pageIndex).ConfigureAwait(false);
-        }
-        finally
-        {
-            _documentChangeGate.Release();
-        }
-    }
+    public Task<OperationResult<AnnotationState>> ResizeFormFieldAsync(string sessionId, ulong fieldId, AnnotationRect expected, double width, double height)
+        => ResizeFormFieldAsync(sessionId, fieldId, expected, expected with { Width = width, Height = height });
 
     /// <summary>Renames a field's definition, with the same structural permissions as field creation.</summary>
     public async Task<OperationResult<AnnotationState>> RenameFormFieldAsync(string sessionId, ulong fieldId, string expectedName, string name)
@@ -930,7 +808,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
             return OperationResult<PageContent>.Success(new PageContent(
                 pageIndex,
-                [.. content.TextRuns.Select(run => new ContentTextRun(run, fonts.GetValueOrDefault(run.ResourceFontName)))]));
+                [.. content.TextRuns.Select(run => new ContentTextRun(run, fonts.GetValueOrDefault(run.ResourceFontName)))],
+                [.. content.Images.Select(image => new ContentImage(image, sessionId, session.EditRevision))]));
         }
         catch (PdfCoreException error)
         {
@@ -1027,7 +906,10 @@ public sealed partial class PdfDocumentFacade : IDisposable
     {
         try
         {
-            await Task.Run(() => _core.RefreshPreview(session.Document)).ConfigureAwait(false);
+            // An empty Documents view has no preview to render. History or
+            // insertion rebuilds it as soon as the model has pages again.
+            if (session.Document.PageCount > 0)
+                await Task.Run(() => _core.RefreshPreview(session.Document)).ConfigureAwait(false);
         }
         catch (PdfCoreException error)
         {
@@ -1338,7 +1220,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             }
 
             var document = await Task.Run(() => _core.OpenWithPasswordsFromBytes(bytes, openPassword, permissionsPassword)).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document));
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document), (ulong)bytes.LongLength);
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -1737,16 +1619,19 @@ public sealed partial class PdfDocumentFacade : IDisposable
     {
         private readonly Dictionary<uint, PageRenderState> _pages = [];
 
-        public SessionEntry(string id, string displayName, IPdfCoreDocument document, bool contentEditingAllowed)
+        public SessionEntry(string id, string displayName, IPdfCoreDocument document, bool contentEditingAllowed, ulong? sourceByteCount = null)
         {
             Id = id;
             DisplayName = displayName;
             Document = document;
             ContentEditingAllowed = contentEditingAllowed;
+            SourceByteCount = sourceByteCount;
         }
 
         public string Id { get; }
         public string DisplayName { get; }
+        // Backing bytes, not a predicted uncompressed save size; unchanged by edits or copy output.
+        public ulong? SourceByteCount { get; }
         public IPdfCoreDocument Document { get; }
 
         /// <summary>
@@ -1807,8 +1692,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
         /// stack alone would keep reporting work after a save, when the file
         /// on disk already holds every edit still sitting in it.
         ///
-        /// Mirrors the Linux shell's <c>has_pending_annotation_edits</c>,
-        /// which asks the same <c>pending_edits.can_undo()</c> question.
+        /// This is the legacy facade policy. The shell uses the separate
+        /// conservative lifecycle policy, matching Linux's unsaved-to-disk latch.
         /// </summary>
         public bool HasUnsavedEdits(IPdfCore core) => EditRevision != SavedRevision && core.CanUndo(Document);
         public SearchState Search { get; } = new();
@@ -1859,7 +1744,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
             PageIndex,
             Document.PageCount == 0 ? DocumentSessionState.Empty : DocumentSessionState.Ready,
             [.. Document.PageDimensions.Select(page => new PageDimensions(page.WidthPt, page.HeightPt, page.Rotation))],
-            ContentEditingAllowed);
+            ContentEditingAllowed,
+            SourceByteCount);
 
         public AnnotationState AnnotationState(IPdfCore core) => new(
             Id,

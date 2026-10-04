@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -7,6 +8,7 @@ namespace Pdf.Windows;
 public sealed partial class MainWindow
 {
     private bool _syncingPageNavigation;
+    private readonly RequestedPage _requestedPage = new();
 
     private void RebuildPageNavigation()
     {
@@ -57,7 +59,8 @@ public sealed partial class MainWindow
         if (index < 0 || index >= _spans.Count) return;
         // The spans are rebuilt at each zoom and page-structure change. Use
         // their current positions, not offsets captured when the list opened.
-        PageScroller.ChangeView(null, _spans[index].Top, null, disableAnimation: true);
+        var offset = _requestedPage.Request(index, _spans[index].Top, PageScroller.ScrollableHeight);
+        PageScroller.ChangeView(null, offset, null, disableAnimation: true);
         UpdateViewport(intermediate: false);
     }
 

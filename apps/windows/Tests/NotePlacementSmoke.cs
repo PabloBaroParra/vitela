@@ -105,6 +105,9 @@ public sealed partial class MainWindow
         if (ReadNoteButton.IsEnabled) throw new Exception("Read enabled while organizing.");
         await ReadSelectedNoteAsync();
         _organizing = false;
+        var fixtureSave = await _facade.SaveToDestinationAsync(_session!.SessionId,
+            bytes => File.WriteAllBytesAsync(Path.Combine(Environment.GetEnvironmentVariable("VITELA_SMOKE_OUTPUT")!, "note-history-fixture.pdf"), bytes));
+        if (!fixtureSave.IsSuccess) throw new Exception(fixtureSave.Error!.Message);
         await OpenDocumentAsync("Placement guards", await File.ReadAllBytesAsync(SamplePath));
 
         placement = CommitPlacementAsync(0, AnnotationKind.TextNote, drag);
