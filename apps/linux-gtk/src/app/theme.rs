@@ -574,7 +574,7 @@ mod tests {
     /// Writing the widget theme must never feed back into the scheme: the
     /// startup value stays the input, so dark can still switch back to light.
     #[gtk::test]
-    fn the_widget_theme_follows_the_scheme_without_latching() {
+    fn gtk_ui_the_widget_theme_follows_the_scheme_without_latching() {
         // GTK tests share one thread and one `Settings`; leave it light.
         struct Restore;
         impl Drop for Restore {
