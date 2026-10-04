@@ -20,10 +20,7 @@
 //! picture.
 
 use gtk::prelude::*;
-use gtk::{
-    style_context_add_provider_for_display, Box as GtkBox, Button, CssProvider, Label, Orientation,
-    Separator,
-};
+use gtk::{Box as GtkBox, Button, Label, Orientation, Separator};
 
 use super::brand::build_brand_lockup;
 use super::content_edit::panel::EDIT_CSS;
@@ -37,18 +34,18 @@ const RAIL_ICON_PX: i32 = 16;
 
 pub(crate) const SHELL_CSS: &str = r#"
 .vitela-shell {
-  background: #f8f7fb;
-  color: #302d3a;
+  background: @vitela_window;
+  color: @vitela_text;
 }
 
 .editor-toolbar,
 .status-bar {
-  background: #ffffff;
-  border-color: #e3e0e9;
+  background: @vitela_surface;
+  border-color: @vitela_border;
 }
 
 .editor-toolbar {
-  border-bottom: 1px solid #e3e0e9;
+  border-bottom: 1px solid @vitela_border;
   padding: 10px 8px;
 }
 
@@ -68,23 +65,23 @@ pub(crate) const SHELL_CSS: &str = r#"
   border-radius: 6px;
   background: transparent;
   box-shadow: none;
-  color: #302d3a;
+  color: @vitela_text;
   transition: background-color 120ms ease;
 }
 
 .editor-toolbar button:hover,
 .toolbar-search button:hover {
-  background: #f5f3fa;
+  background: @vitela_hover;
 }
 
 .editor-toolbar button:checked {
-  background: #f2edff;
-  border-color: #ded3ff;
+  background: @vitela_checked;
+  border-color: @vitela_accent_border;
 }
 
 .editor-toolbar button:focus-visible,
 .toolbar-search button:focus-visible {
-  outline: 2px solid #6b4eff;
+  outline: 2px solid @vitela_accent;
   outline-offset: -2px;
 }
 
@@ -95,7 +92,7 @@ pub(crate) const SHELL_CSS: &str = r#"
 
 .toolbar-group {
   padding: 0 8px;
-  border-right: 1px solid #eeecf2;
+  border-right: 1px solid @vitela_divider;
 }
 
 .toolbar-group-last {
@@ -106,44 +103,44 @@ pub(crate) const SHELL_CSS: &str = r#"
   min-width: 54px;
   min-height: 32px;
   padding: 0 6px;
-  border: 1px solid #e7e4ed;
+  border: 1px solid @vitela_border_indicator;
   border-radius: 6px;
-  background: #fcfbfe;
+  background: @vitela_input;
 }
 
 .editor-toolbar .zoom-indicator {
   min-width: 48px;
-  color: #302d3a;
+  color: @vitela_text;
 }
 
 .toolbar-search > contents {
   padding: 14px;
-  background: #ffffff;
-  color: #302d3a;
+  background: @vitela_surface;
+  color: @vitela_text;
 }
 
 .toolbar-search entry {
   min-height: 32px;
-  border: 1px solid #ded9e9;
+  border: 1px solid @vitela_input_border;
   border-radius: 6px;
-  background: #fcfbfe;
-  color: #302d3a;
-  caret-color: #302d3a;
+  background: @vitela_input;
+  color: @vitela_text;
+  caret-color: @vitela_text;
 }
 
 .editor-main {
-  background: #f2f0f5;
+  background: @vitela_recessed;
 }
 
 .app-rail,
 .navigation-panel,
 .tools-panel {
-  background: #ffffff;
+  background: @vitela_surface;
   padding: 12px;
 }
 
 .app-rail {
-  border-right: 1px solid #e3e0e9;
+  border-right: 1px solid @vitela_border;
 }
 
 .app-rail .brand-lockup {
@@ -153,48 +150,48 @@ pub(crate) const SHELL_CSS: &str = r#"
 
 /* Between the rail's navigate group and its act-on-the-document group. */
 .app-rail-separator {
-  background-color: #e3e0e9;
+  background-color: @vitela_border;
   margin: 6px 2px;
 }
 
 .app-rail-item {
-  color: #51496a;
+  color: @vitela_text_secondary;
   border-radius: 6px;
 }
 
 .app-rail-item:hover,
 .app-rail-item:focus-visible {
-  background: #eee9fa;
+  background: @vitela_accent_soft;
 }
 
 .app-rail-item.app-rail-active {
-  background: #eee9fa;
-  color: #6b4eff;
+  background: @vitela_accent_soft;
+  color: @vitela_accent;
   font-weight: 700;
 }
 
 .navigation-panel {
-  border-right: 1px solid #e3e0e9;
+  border-right: 1px solid @vitela_border;
 }
 
 .tools-panel {
-  border-left: 1px solid #e3e0e9;
+  border-left: 1px solid @vitela_border;
 }
 
 .panel-heading {
-  color: #625b72;
+  color: @vitela_text_muted;
   font-weight: 700;
   font-size: 0.85em;
 }
 
 .page-navigation button {
-  color: #51496a;
+  color: @vitela_text_secondary;
   border-radius: 6px;
 }
 
 .page-navigation button:hover,
 .page-navigation button:focus-visible {
-  background: #eee9fa;
+  background: @vitela_accent_soft;
 }
 
 .canvas-frame {
@@ -202,23 +199,23 @@ pub(crate) const SHELL_CSS: &str = r#"
 }
 
 .canvas-frame > viewport {
-  background: #e9e6ec;
+  background: @vitela_canvas;
 }
 
 .status-bar {
-  border-top: 1px solid #e3e0e9;
-  color: #625b72;
+  border-top: 1px solid @vitela_border;
+  color: @vitela_text_muted;
   padding: 6px 12px;
 }
 
 .page-indicator,
 .zoom-indicator {
-  color: #51496a;
+  color: @vitela_text_secondary;
   font-weight: 600;
 }
 
 .tools-tab-switcher {
-  border-bottom: 1px solid #e3e0e9;
+  border-bottom: 1px solid @vitela_border;
   padding-bottom: 8px;
 }
 
@@ -231,7 +228,7 @@ pub(crate) const SHELL_CSS: &str = r#"
 
 .tools-tab-switcher button:hover,
 .tools-tab-switcher button:focus-visible {
-  background: #eee9fa;
+  background: @vitela_accent_soft;
 }
 
 /* The open page's own tab — same treatment as `.editor-toolbar button:checked`
@@ -239,8 +236,8 @@ pub(crate) const SHELL_CSS: &str = r#"
    reads at a glance instead of relying on the default GTK theme's `:checked`
    (or lack of one) to say so. */
 .tools-tab-switcher button:checked {
-  background: #f2edff;
-  color: #6b4eff;
+  background: @vitela_checked;
+  color: @vitela_accent;
   font-weight: 700;
 }
 
@@ -260,14 +257,14 @@ pub(crate) const SHELL_CSS: &str = r#"
    it and this draws the grip on top so dragging it reads as an affordance
    instead of something the user has to already know is there. */
 .editor-main paned > separator {
-  background-color: #e9e6ec;
+  background-color: @vitela_sash;
   min-width: 6px;
   transition: background-color 120ms ease;
 }
 
 .editor-main paned > separator:hover,
 .editor-main paned > separator:selected {
-  background-color: #c9c2e0;
+  background-color: @vitela_border_strong;
 }
 
 .property-row {
@@ -275,23 +272,23 @@ pub(crate) const SHELL_CSS: &str = r#"
 }
 
 .property-key {
-  color: #625b72;
+  color: @vitela_text_muted;
   font-weight: 600;
   font-size: 0.9em;
 }
 
 .property-value {
-  color: #302d3a;
+  color: @vitela_text;
   font-size: 0.9em;
 }
 
 .tools-placeholder {
-  color: #625b72;
+  color: @vitela_text_muted;
   padding-top: 8px;
 }
 
 .signed-indicator {
-  color: #1f8a4c;
+  color: @vitela_success;
   font-weight: 700;
 }
 "#;
@@ -438,20 +435,14 @@ fn rail_item(rail: &GtkBox, label: &str, icon: Icon) -> Button {
     button
 }
 
+/// Every stylesheet the shell installs, in cascade order. They share one
+/// palette (see `theme`) and one provider.
+pub(crate) fn all_sheets() -> String {
+    format!("{SHELL_CSS}{HOME_CSS}{EDIT_CSS}{ORGANIZE_CSS}")
+}
+
 pub(crate) fn install_shell_css() {
-    let Some(display) = gtk::gdk::Display::default() else {
-        return;
-    };
-    let provider = CssProvider::new();
-    // One provider for all three sheets: they share a palette and a cascade,
-    // and two providers at the same priority would leave which one wins a
-    // question of registration order.
-    provider.load_from_data(&format!("{SHELL_CSS}{HOME_CSS}{EDIT_CSS}{ORGANIZE_CSS}"));
-    style_context_add_provider_for_display(
-        &display,
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
+    super::theme::install(all_sheets());
 }
 
 #[cfg(test)]

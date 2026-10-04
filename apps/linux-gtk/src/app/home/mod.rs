@@ -52,21 +52,21 @@ const SIDE_COLUMN_WIDTH: i32 = 268;
 /// It lives here rather than in that constant for the same reason this
 /// module exists at all: the shell's CSS describes the chrome around a
 /// document, and Home is not part of that chrome. Colours are the shell
-/// palette exactly — `#6b4eff` accent, `#e3e0e9` hairlines, `#625b72`
-/// secondary text — so the two screens read as one application.
+/// palette exactly — the named `@vitela_*` colours `theme` defines, in both
+/// light and dark — so the two screens read as one application.
 pub(crate) const HOME_CSS: &str = r#"
 .home-view {
-  background: #f8f7fb;
+  background: @vitela_window;
 }
 
 .home-header {
-  background: #ffffff;
-  border-bottom: 1px solid #e3e0e9;
+  background: @vitela_surface;
+  border-bottom: 1px solid @vitela_border;
   padding: 10px 16px;
 }
 
 .brand-word {
-  color: #6b4eff;
+  color: @vitela_accent;
   font-weight: 800;
   font-size: 1.15em;
 }
@@ -76,9 +76,9 @@ pub(crate) const HOME_CSS: &str = r#"
 }
 
 .home-primary {
-  background: #6b4eff;
-  color: #ffffff;
-  border: 1px solid #5a3ee6;
+  background: @vitela_accent_fill;
+  color: @vitela_on_accent;
+  border: 1px solid @vitela_accent_fill_deep;
   border-radius: 8px;
   padding: 6px 14px;
   font-weight: 700;
@@ -87,7 +87,7 @@ pub(crate) const HOME_CSS: &str = r#"
 
 .home-primary:hover,
 .home-primary:focus-visible {
-  background: #5a3ee6;
+  background: @vitela_accent_fill_deep;
 }
 
 .home-body {
@@ -97,85 +97,85 @@ pub(crate) const HOME_CSS: &str = r#"
 .home-hero-title {
   font-size: 1.7em;
   font-weight: 800;
-  color: #302d3a;
+  color: @vitela_text;
 }
 
 .home-hero-subtitle,
 .home-empty {
-  color: #625b72;
+  color: @vitela_text_muted;
 }
 
 .home-section-title {
   font-size: 1.15em;
   font-weight: 800;
-  color: #302d3a;
+  color: @vitela_text;
 }
 
 /* The drop zone is a plain box, not a button: it accepts a drag anywhere in
    its area, and the click affordance inside it is the real button. */
 .home-dropzone {
-  background: #f2f0f5;
-  border: 2px dashed #c9c2e0;
+  background: @vitela_recessed;
+  border: 2px dashed @vitela_border_strong;
   border-radius: 14px;
   padding: 28px;
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 
 .home-dropzone.drop-active {
-  background: #eee9fa;
-  border-color: #6b4eff;
+  background: @vitela_accent_soft;
+  border-color: @vitela_accent;
 }
 
 .home-card {
-  background: #ffffff;
-  border: 1px solid #e3e0e9;
+  background: @vitela_surface;
+  border: 1px solid @vitela_border;
   border-radius: 12px;
   padding: 14px;
 }
 
 .home-card-title {
   font-weight: 700;
-  color: #302d3a;
+  color: @vitela_text;
 }
 
 .home-link {
   background: none;
   border: none;
-  color: #6b4eff;
+  color: @vitela_accent;
   font-weight: 600;
   padding: 2px 6px;
 }
 
 .home-link:hover,
 .home-link:focus-visible {
-  background: #eee9fa;
+  background: @vitela_accent_soft;
   border-radius: 6px;
 }
 
 .tool-tile {
-  background: #f6f4fd;
-  border: 1px solid #e7e2fb;
+  background: @vitela_tile;
+  border: 1px solid @vitela_accent_soft_border;
   border-radius: 10px;
   padding: 10px 6px;
-  color: #51496a;
+  color: @vitela_text_secondary;
   font-weight: 600;
   transition: background-color 120ms ease;
 }
 
 .tool-tile:hover,
 .tool-tile:focus-visible {
-  background: #eee9fa;
+  background: @vitela_accent_soft;
 }
 
 .tool-tile:disabled {
-  background: #f5f4f7;
-  border-color: #eae8ef;
-  color: #a49fb3;
+  background: @vitela_tile_disabled;
+  border-color: @vitela_border_disabled;
+  color: @vitela_text_disabled;
 }
 
 .recent-card {
-  background: #ffffff;
-  border: 1px solid #e3e0e9;
+  background: @vitela_surface;
+  border: 1px solid @vitela_border;
   border-radius: 12px;
   padding: 8px;
   transition: background-color 120ms ease, border-color 120ms ease;
@@ -183,30 +183,30 @@ pub(crate) const HOME_CSS: &str = r#"
 
 .recent-card:hover,
 .recent-card:focus-visible {
-  background: #faf9fe;
-  border-color: #c9c2e0;
+  background: @vitela_card_hover;
+  border-color: @vitela_border_strong;
 }
 
 .recent-thumb {
-  background: #e9e6ec;
+  background: @vitela_canvas;
   border-radius: 8px;
 }
 
 .recent-name {
   font-weight: 600;
-  color: #302d3a;
+  color: @vitela_text;
 }
 
 .recent-meta {
   font-size: 0.85em;
-  color: #625b72;
+  color: @vitela_text_muted;
 }
 
 /* "Today" / "Yesterday" / "Earlier". A Label rather than a widget of its own —
    GTK4 applies padding and a radius to labels, which is the whole pill. */
 .day-chip {
-  background: #eee9fa;
-  color: #6b4eff;
+  background: @vitela_accent_soft;
+  color: @vitela_accent;
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 0.82em;
