@@ -116,9 +116,9 @@ independently of annotation/content-edit permission.
 
 The **Pages** view keeps each page's thumbnail, number and actions together.
 Source labels are hidden for a single origin; mixed base/blank/imported origins
-show an ellipsized name with a full tooltip. Imported identities are preserved;
-until the blocked import workflow supplies a name registry, their fallback is
-**Imported PDF**, not an invented filename.
+show an ellipsized name with a full tooltip. Imported identities are preserved:
+a block this session imported shows the picked file's name, and any other
+falls back to **Imported PDF**, not an invented filename.
 
 The primary footer is Rotate page left, Rotate page right, Delete page.
 **Page actions** offers keyboard-accessible Move page earlier/later (disabled at
@@ -529,12 +529,25 @@ editor's commands and enabled-state owners; **Return to document** restores the
 editor and the same session. Page edits lock navigation and header commands
 until the shared facade finishes the edit.
 
-**Add PDFs** is visibly disabled with an explanation. Linux prepares a multi-file
-import with progress/cancellation and applies it as one undo step; the current
-FFI exposes only immediate, per-file `ImportPdf` mutations. Atomic batch
-preparation, progress and cancellation need an additional shared API contract.
-There is no pretend progress indicator or shell-side undo rollback. The remaining
-page-card parity is still pending.
+**Add PDFs** picks one or more PDFs and appends every page of each, through the
+FFI's per-file `import_pdf` (the call Android uses). This is deliberately not
+Linux's shape: Linux prepares the whole pick and applies it as one undo step,
+while here **each file is its own undo step** — there is no atomic batch
+contract in the shared API, and the shell does not fake one with an undo
+rollback. Progress counts finished files (`N of M PDFs`); **Cancel import**
+stops before the next file, and files already added stay until undone. A locked
+file asks for its own password (wrong ones re-ask); any other refusal — the
+document's permissions, a source that forbids copying, something the core
+cannot graft — stops the rest with the core's own reason. Pages the core had to
+alter on the way in (a renamed form field, a dropped link) are listed in one
+dialog at the end. The Documents view and page-card source labels name an
+imported block after the file it came from.
+
+The opt-in `Tests/ImportPdfsSmoke.targets` harness checks real-core multi-file
+import, one undo/redo per file, block names, rendering, an encrypted source's
+password and a save round trip; it is built and run like the Documents harness
+below. The file picker, password dialog, progress bar and Cancel still need a
+human eye check.
 
 Organize opens on **Documents**; **Pages** switches to the individual-page grid.
 Each document card shows a stacked first-page cover, its source name, page count

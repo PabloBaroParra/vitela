@@ -63,7 +63,7 @@ public sealed partial class MainWindow
         foreach (var block in _organizePageSnapshot.Blocks)
         {
             var name = block.Source switch { DocumentBlockSource.Base => session.DisplayName,
-                DocumentBlockSource.Blank => "Blank page", _ => "Imported PDF" };
+                DocumentBlockSource.Blank => "Blank page", _ => ImportedBlockName(session.SessionId, block.ImportedSourceId) };
             for (var page = block.Start; page < block.Start + block.Count && page < _organizeCards.Count; page++)
             {
                 var source = ((OrganizeCard)_organizeCards[(int)page].Tag).Source;

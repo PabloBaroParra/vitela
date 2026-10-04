@@ -315,15 +315,18 @@
                     <Button x:Name="OrganizeRedoButton" Content="Redo" Click="OrganizeRedoButton_Click" IsEnabled="False">
                         <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
                     </Button>
-                    <Button x:Name="OrganizeAddPdfsButton" Content="Add PDFs" IsEnabled="False"
-                            ToolTipService.ToolTip="Multi-PDF import with atomic undo and cancellation is not available through the shared API yet." />
+                    <Button x:Name="OrganizeAddPdfsButton" Content="Add PDFs" IsEnabled="False" Click="OrganizeAddPdfsButton_Click"
+                            ToolTipService.ToolTip="Add every page of other PDFs to the end" />
                     <Button x:Name="OrganizeExtractButton" Content="Extract" Click="ExtractPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
                     <Button x:Name="OrganizeSplitButton" Content="Split" Click="SplitPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="Cut this PDF into several new PDFs" />
                     <Button x:Name="OrganizeSaveButton" Content="Save" Click="SaveButton_Click" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
                 </viewer:ToolbarPanel>
             </StackPanel>
-            <TextBlock Grid.Row="1" Text="Adding PDFs with import progress and cancellation isn't available in this shell yet."
-                       TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <StackPanel x:Name="ImportProgressPanel" Grid.Row="1" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                <ProgressBar x:Name="ImportProgressBar" Width="240" VerticalAlignment="Center" AutomationProperties.Name="PDF import progress" />
+                <TextBlock x:Name="ImportProgressText" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" />
+                <Button x:Name="CancelImportButton" Content="Cancel import" Click="CancelImportButton_Click" />
+            </StackPanel>
             <viewer:ToolbarPanel Grid.Row="2">
                 <Button x:Name="InsertBlankPageButton" Content="Add blank A4 page" Click="InsertBlankPageButton_Click" />
                 <Button x:Name="InsertLandscapePageButton" Content="Add landscape A4 page" Click="InsertLandscapePageButton_Click" />

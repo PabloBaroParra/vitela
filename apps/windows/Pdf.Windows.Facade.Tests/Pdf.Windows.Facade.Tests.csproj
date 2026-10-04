@@ -15,6 +15,8 @@
     <Compile Include="..\Pdf.Windows\Viewer\DragEdgeScroll.cs" Link="Viewer\DragEdgeScroll.cs" />
     <Compile Include="..\Pdf.Windows\Facade\DocumentBlocks.cs" Link="Facade\DocumentBlocks.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Organize.cs" Link="Facade\PdfDocumentFacade.Organize.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\ImportPdf.cs" Link="Facade\ImportPdf.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Import.cs" Link="Facade\PdfDocumentFacade.Import.cs" />
     <Compile Include="..\Pdf.Windows\Facade\Signing.cs" Link="Facade\Signing.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Signing.cs" Link="Facade\PdfDocumentFacade.Signing.cs" />
     <Compile Include="..\Pdf.Windows\Facade\BundledPdfium.cs" Link="Facade\BundledPdfium.cs" />

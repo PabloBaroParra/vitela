@@ -74,7 +74,7 @@ public sealed partial class MainWindow
             {
                 DocumentBlockSource.Base => session.DisplayName,
                 DocumentBlockSource.Blank => "Blank pages",
-                _ => "Imported PDF",
+                _ => ImportedBlockName(session.SessionId, block.ImportedSourceId),
             };
             if (block.Part is { } part) name += $" — Part {part}";
             var meta = block.Count == 1 ? $"1 page · {block.Start + 1}" : $"{block.Count} pages · {block.Start + 1}–{block.Start + block.Count}";

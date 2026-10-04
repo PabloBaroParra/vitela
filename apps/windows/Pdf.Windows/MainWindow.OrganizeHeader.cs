@@ -29,6 +29,7 @@ public sealed partial class MainWindow
         OrganizeSplitButton.IsEnabled = ready && SplitPagesButton.IsEnabled;
         OrganizeSaveButton.IsEnabled = ready && SaveButton.IsEnabled;
         OrganizeReturnButton.IsEnabled = ready;
+        OrganizeAddPdfsButton.IsEnabled = ready;
         InsertBlankPageButton.IsEnabled = ready;
         InsertLandscapePageButton.IsEnabled = ready;
         OrganizeGrid.IsEnabled = ready;

@@ -21,6 +21,20 @@ internal interface IPdfCore
     ISigningCertificate OpenSigningCertificate(byte[] bytes, string password);
     byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId);
 
+    /// <summary>
+    /// Inserts every page of the PDF in <paramref name="bytes"/> at
+    /// <paramref name="index"/> as one undoable edit. The document keeps the
+    /// source for its lifetime, so saves and a redo after undo still resolve
+    /// the imported pages. Callers rebuild the preview afterwards.
+    /// </summary>
+    /// <remarks>
+    /// A refusal is <see cref="PdfCoreError.UnsupportedOperation"/> with the
+    /// core's reason in <see cref="PdfCoreException.ReaderFacingDetail"/>:
+    /// the document's permissions, the source forbidding copies, or something
+    /// the import cannot graft.
+    /// </remarks>
+    PdfCoreImportReport ImportPdf(IPdfCoreDocument document, byte[] bytes, string? password, uint index);
+
     IPdfCoreDocument OpenFromBytes(byte[] bytes, string? password);
 
     IPdfCoreDocument OpenWithPasswordsFromBytes(byte[] bytes, string openPassword, string permissionsPassword);
