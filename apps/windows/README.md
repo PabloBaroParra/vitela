@@ -530,24 +530,25 @@ editor and the same session. Page edits lock navigation and header commands
 until the shared facade finishes the edit.
 
 **Add PDFs** picks one or more PDFs and appends every page of each, through the
-FFI's per-file `import_pdf` (the call Android uses). This is deliberately not
-Linux's shape: Linux prepares the whole pick and applies it as one undo step,
-while here **each file is its own undo step** — there is no atomic batch
-contract in the shared API, and the shell does not fake one with an undo
-rollback. Progress counts finished files (`N of M PDFs`); **Cancel import**
-stops before the next file, and files already added stay until undone. A locked
+FFI's two-phase batch import, matching Linux: `prepare_import` checks each source
+without editing the document, then one `import_prepared` applies the whole pick
+as **one undo step**, all or nothing. Progress counts prepared files (`N of M
+PDFs`); **Cancel import** discards the prepared sources without changing pages
+or history. Cancellation is disabled once the atomic apply begins. A locked
 file asks for its own password (wrong ones re-ask); any other refusal — the
 document's permissions, a source that forbids copying, something the core
 cannot graft — stops the rest with the core's own reason. Pages the core had to
 alter on the way in (a renamed form field, a dropped link) are listed in one
-dialog at the end. The Documents view and page-card source labels name an
-imported block after the file it came from.
+Cancel-default **Import anyway** confirmation before any pages are added. The
+Documents view and page-card source labels name an imported block after the file
+it came from.
 
 The opt-in `Tests/ImportPdfsSmoke.targets` harness checks real-core multi-file
-import, one undo/redo per file, block names, rendering, an encrypted source's
-password and a save round trip; it is built and run like the Documents harness
-below. The file picker, password dialog, progress bar and Cancel still need a
-human eye check.
+import, one undo/redo for the whole batch, cancelled/failed preparation preserving
+history, warning confirmation, block names, rendering, an encrypted source's
+password cancel/retry and a save round trip; it is built and run like the
+Documents harness below. The file picker and visual presentation of the password
+dialog, progress bar and Cancel still need a human eye check.
 
 Organize opens on **Documents**; **Pages** switches to the individual-page grid.
 Each document card shows a stacked first-page cover, its source name, page count

@@ -15,11 +15,9 @@ namespace Pdf.Windows;
 /// shell's organize/import.rs reached through the facade.
 /// </summary>
 /// <remarks>
-/// Each file is one <see cref="PdfDocumentFacade.ImportPdfAsync"/> call and so
-/// one undo step — the shape the FFI gives every shell, where Linux folds a
-/// whole pick into one. Cancel stops before the next file; files already added
-/// stay, and undo takes them back out one at a time. A locked file asks for
-/// its own password; any other refusal stops the rest, as on Linux.
+/// Prepare each source without editing the document, then apply the whole pick
+/// as one undo step. Cancellation drops the prepared sources. Warnings require
+/// confirmation before applying; a locked file asks for its own password.
 /// </remarks>
 public sealed partial class MainWindow
 {
@@ -33,18 +31,39 @@ public sealed partial class MainWindow
     private async void OrganizeAddPdfsButton_Click(object sender, RoutedEventArgs e)
     {
         if (!_organizing || _session is not { } session || _isBusy || _organizeBusy || _dialogOpen) return;
-        // Two of the core's three gates are already on the session; asking
-        // here spares the reader a file pick that could only be refused.
-        if (!session.ContentEditingAllowed)
+        _organizeBusy = true;
+        SetBusy(true);
+        UpdateOrganizeHeader();
+        IReadOnlyList<StorageFile>? files = null;
+        try
         {
-            AnnotationStatus.Text = "This document does not allow adding pages.";
+            var refusal = await _facade.ImportRefusalAsync(session.SessionId);
+            if (!refusal.IsSuccess || refusal.Value is not null)
+            {
+                AnnotationStatus.Text = refusal.Error?.Message ?? refusal.Value!;
+                return;
+            }
+            var picker = new FileOpenPicker();
+            picker.FileTypeFilter.Add(".pdf");
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            files = await picker.PickMultipleFilesAsync();
+        }
+        catch (Exception)
+        {
+            AnnotationStatus.Text = "Could not select PDFs to import.";
             return;
         }
-
-        var picker = new FileOpenPicker();
-        picker.FileTypeFilter.Add(".pdf");
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        var files = await picker.PickMultipleFilesAsync();
+        finally
+        {
+            _organizeBusy = false;
+            if (!_windowClosed)
+            {
+                SetBusy(false);
+                UpdateAnnotationControls(_annotationState);
+                UpdateOrganizeHeader();
+            }
+        }
+        if (_windowClosed) return;
         if (files is null || files.Count == 0 || _session?.SessionId != session.SessionId || !_organizing)
         {
             AnnotationStatus.Text = ImportCancelled;
@@ -67,22 +86,16 @@ public sealed partial class MainWindow
         _importCancelRequested = false;
         SetBusy(true);
         UpdateOrganizeHeader();
-        // Before the first import: it rebuilds the preview, and a thumbnail
-        // asked of the old layout must not land after it.
-        _thumbnailGeneration++;
-        ClearOrganizePageDrag();
         SetImportProgress(0, files.Count);
-
-        var importedFiles = 0;
-        uint importedPages = 0;
-        var touched = false;
+        AnnotationStatus.Text = "Checking selected PDFs...";
+        var sources = new List<IImportSource>();
         var warnings = new List<string>();
-        string? stopped = null;
         try
         {
+            if (files.Count == 0) { AnnotationStatus.Text = ImportCancelled; return; }
             foreach (var file in files)
             {
-                if (_importCancelRequested) { stopped = ImportCancelled; break; }
+                if (!ImportIsCurrent(sessionId)) { AnnotationStatus.Text = ImportCancelled; return; }
                 byte[] bytes;
                 try
                 {
@@ -91,33 +104,71 @@ public sealed partial class MainWindow
                 }
                 catch (Exception)
                 {
-                    stopped = $"Could not import {file.Name}: the file could not be read.";
-                    break;
+                    AnnotationStatus.Text = $"Could not import {file.Name}: the file could not be read.";
+                    return;
                 }
-
-                var result = await ImportOneAsync(sessionId, file.Name, bytes);
-                if (_session?.SessionId != sessionId) return;
-                if (result is null) { stopped = ImportCancelled; break; }
-                touched = true;
+                if (!ImportIsCurrent(sessionId)) { AnnotationStatus.Text = ImportCancelled; return; }
+                var result = await PrepareImportAsync(sessionId, file.Name, bytes);
+                if (result is null) { AnnotationStatus.Text = ImportCancelled; return; }
                 if (!result.IsSuccess)
                 {
-                    stopped = $"Could not import {file.Name}: {result.Error!.Message}";
-                    break;
+                    AnnotationStatus.Text = $"Could not import {file.Name}: {result.Error!.Message}";
+                    return;
                 }
-
-                var imported = result.Value!;
-                // The next file appends after this one, so its index must
-                // come from the layout this import left, not the one before.
-                _session = imported.Session;
-                RememberImportedName(sessionId, imported.SourceId, file.Name);
-                warnings.AddRange(imported.Warnings.Select(warning => $"{file.Name}: {warning}"));
-                importedFiles++;
-                importedPages += imported.PageCount;
-                SetImportProgress(importedFiles, files.Count);
+                sources.Add(result.Value!);
+                if (!ImportIsCurrent(sessionId)) { AnnotationStatus.Text = ImportCancelled; return; }
+                warnings.AddRange(result.Value!.Warnings.Select(warning => $"{file.Name}: {warning}"));
+                SetImportProgress(sources.Count, files.Count);
             }
+            if (warnings.Count > 0 && !await ConfirmImportWarningsAsync(warnings))
+            {
+                AnnotationStatus.Text = ImportCancelled;
+                return;
+            }
+            if (!ImportIsCurrent(sessionId)) { AnnotationStatus.Text = ImportCancelled; return; }
+
+            // Once apply begins it cannot be cancelled: the core commits one
+            // atomic command, then the facade rebuilds its preview.
+            CancelImportButton.IsEnabled = false;
+            AnnotationStatus.Text = "Adding selected PDFs...";
+            _thumbnailGeneration++;
+            ClearOrganizePageDrag();
+            var previousPageCount = _session!.PageCount;
+            var imported = await _facade.ImportPreparedAsync(sessionId, sources, previousPageCount);
+            if (_session?.SessionId != sessionId || _windowClosed) return;
+            if (imported.IsSuccess)
+            {
+                _session = imported.Value!.Session;
+                foreach (var (sourceId, file) in imported.Value.SourceIds.Zip(files))
+                    RememberImportedName(sessionId, sourceId, file.Name);
+            }
+            else
+            {
+                // Preview failure can follow a successful core commit. Query
+                // the session so those pages and their undo remain visible.
+                var current = await _facade.SessionAsync(sessionId);
+                if (current.IsSuccess) _session = current.Value!;
+            }
+            if (_session.PageCount != previousPageCount)
+            {
+                _pagesEdited = true;
+                _viewerStale = true;
+                RefreshSessionCommands();
+                if (_organizing) BuildOrganizeCards();
+                await RefreshAnnotationStateAsync();
+            }
+            AnnotationStatus.Text = imported.IsSuccess
+                ? $"Imported {imported.Value!.PageCount} {(imported.Value.PageCount == 1 ? "page" : "pages")} from "
+                    + $"{files.Count} {(files.Count == 1 ? "PDF" : "PDFs")}. Changes are pending save."
+                : imported.Error!.Message;
+        }
+        catch (Exception)
+        {
+            AnnotationStatus.Text = "Could not import the selected PDFs.";
         }
         finally
         {
+            foreach (var source in sources) source.Dispose();
             ImportProgressPanel.Visibility = Visibility.Collapsed;
             _organizeBusy = false;
             if (!_windowClosed)
@@ -127,36 +178,22 @@ public sealed partial class MainWindow
                 UpdateOrganizeHeader();
             }
         }
-
-        if (touched && _session?.SessionId == sessionId)
-        {
-            // Re-read rather than trust the last result: a failed preview
-            // rebuild still left its file's pages in the document.
-            var current = await _facade.SessionAsync(sessionId);
-            if (current.IsSuccess) _session = current.Value!;
-            _pagesEdited = true;
-            _viewerStale = true;
-            RefreshSessionCommands();
-            if (_organizing) BuildOrganizeCards();
-            await RefreshAnnotationStateAsync();
-        }
-
-        var done = importedFiles == 0 ? "" : $"Imported {importedPages} {(importedPages == 1 ? "page" : "pages")} from "
-            + $"{importedFiles} {(importedFiles == 1 ? "PDF" : "PDFs")}. Changes are pending save.";
-        AnnotationStatus.Text = stopped is null ? done : $"{stopped} {done}".Trim();
-        if (warnings.Count > 0) await ShowImportWarningsAsync(warnings);
     }
 
+    private bool ImportIsCurrent(string sessionId) =>
+        !_importCancelRequested && !_windowClosed && _organizing && _session?.SessionId == sessionId;
+
     /// <summary>
-    /// Imports one file, asking for its password as often as it takes, or
+    /// Prepares one file, asking for its password as often as it takes, or
     /// <c>null</c> when the reader cancelled.
     /// </summary>
-    private async Task<OperationResult<ImportedPdf>?> ImportOneAsync(string sessionId, string name, byte[] bytes)
+    private async Task<OperationResult<IImportSource>?> PrepareImportAsync(string sessionId, string name, byte[] bytes)
     {
         string? password = null;
         while (true)
         {
-            var result = await _facade.ImportPdfAsync(sessionId, bytes, password, _session!.PageCount);
+            if (!ImportIsCurrent(sessionId)) return null;
+            var result = await _facade.PrepareImportAsync(bytes, password);
             if (result.IsSuccess || !result.Error!.RequiresPassword) return result;
             if (_importCancelRequested || _session?.SessionId != sessionId) return null;
             password = await AskImportPasswordAsync(name, retry: password is not null);
@@ -195,20 +232,22 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task ShowImportWarningsAsync(IReadOnlyList<string> warnings)
+    private async Task<bool> ConfirmImportWarningsAsync(IReadOnlyList<string> warnings)
     {
         var text = new TextBlock { Text = string.Join("\n", warnings), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(new ScrollViewer { Content = text, MaxHeight = 320 });
-        panel.Children.Add(new TextBlock { Text = "The pages were added. Undo takes an imported PDF back out.", TextWrapping = TextWrapping.Wrap,
+        panel.Children.Add(new TextBlock { Text = "No pages have been added. Import anyway to add the whole batch as one undo step.", TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
-        await ShowModalAsync(new ContentDialog
+        return await ShowModalAsync(new ContentDialog
         {
-            Title = "Some document-level information stayed behind",
+            Title = "Some document-level information will stay behind",
             Content = panel,
-            CloseButtonText = "OK",
+            PrimaryButtonText = "Import anyway",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
-        });
+        }) == ContentDialogResult.Primary;
     }
 
     private void SetImportProgress(int completed, int total)

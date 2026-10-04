@@ -636,22 +636,24 @@ impl DocumentState {
             })
     }
 
-    /// Inserts `pages` at `index` as one undoable `ImportPages`, and keeps
-    /// `source` so every later save can materialize them. The source is only
-    /// kept when the command applied: a refused import leaves nothing behind.
+    /// Inserts `pages` — drawn from any number of sources — at `index` as one
+    /// undoable `ImportPages`, and keeps the sources `take_sources` hands over
+    /// so every later save can materialize them.
+    ///
+    /// The sources are only taken once the command applied: a refused import
+    /// leaves nothing behind, and the caller still holds every source.
     pub(crate) fn import_pages(
         &mut self,
-        id: ImportedDocumentId,
-        source: LopdfDocument,
         index: usize,
         pages: Vec<Page>,
+        take_sources: impl FnOnce() -> Vec<(ImportedDocumentId, LopdfDocument)>,
     ) -> Result<(), FfiError> {
         if !apply_command(&mut self.document, Command::ImportPages { index, pages }) {
             return Err(FfiError::UnsupportedOperation {
                 detail: "the imported pages were rejected against the open document".to_string(),
             });
         }
-        self.imported.push((id, source));
+        self.imported.extend(take_sources());
         Ok(())
     }
 

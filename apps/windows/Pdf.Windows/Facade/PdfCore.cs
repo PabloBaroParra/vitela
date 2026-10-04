@@ -22,18 +22,22 @@ internal interface IPdfCore
     byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId);
 
     /// <summary>
-    /// Inserts every page of the PDF in <paramref name="bytes"/> at
-    /// <paramref name="index"/> as one undoable edit. The document keeps the
-    /// source for its lifetime, so saves and a redo after undo still resolve
-    /// the imported pages. Callers rebuild the preview afterwards.
+    /// Opens one PDF as an import source (decrypt, copy permission, graft
+    /// check) without touching any document. A refusal is
+    /// <see cref="PdfCoreError.UnsupportedOperation"/> with the core's reason
+    /// in <see cref="PdfCoreException.ReaderFacingDetail"/>.
     /// </summary>
-    /// <remarks>
-    /// A refusal is <see cref="PdfCoreError.UnsupportedOperation"/> with the
-    /// core's reason in <see cref="PdfCoreException.ReaderFacingDetail"/>:
-    /// the document's permissions, the source forbidding copies, or something
-    /// the import cannot graft.
-    /// </remarks>
-    PdfCoreImportReport ImportPdf(IPdfCoreDocument document, byte[] bytes, string? password, uint index);
+    IImportSource PrepareImport(byte[] bytes, string? password);
+
+    /// <summary>Why <paramref name="document"/> refuses any import now, as the core's clause, or <c>null</c>.</summary>
+    string? ImportRefusalOf(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Adds every page of every source, in order, at <paramref name="index"/>
+    /// as ONE undoable edit — all or nothing. Callers rebuild the preview
+    /// afterwards. Refusals carry the core's reason, as for <see cref="PrepareImport"/>.
+    /// </summary>
+    PdfCoreBatchImportReport ImportPrepared(IPdfCoreDocument document, IReadOnlyList<IImportSource> sources, uint index);
 
     IPdfCoreDocument OpenFromBytes(byte[] bytes, string? password);
 

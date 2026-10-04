@@ -1,14 +1,23 @@
 namespace Pdf.Windows.Facade;
 
 /// <summary>
-/// What one "Add PDFs" file did: the session with its new page layout, how
-/// many pages arrived, and what they could not bring across exactly.
+/// One picked PDF, opened and checked but not yet added. Dispose it to
+/// abandon the import; once imported it is spent.
 /// </summary>
-/// <param name="SourceId">
-/// The id the pages' block carries as <see cref="DocumentBlock.ImportedSourceId"/>
-/// — how the shell names a block after the file it came from.
-/// </param>
-public sealed record ImportedPdf(DocumentSession Session, uint PageCount, IReadOnlyList<string> Warnings, ulong SourceId);
+public interface IImportSource : IDisposable
+{
+    uint PageCount { get; }
 
-/// <summary>The core's <c>FfiImportReport</c>, on this side of the boundary.</summary>
-internal sealed record PdfCoreImportReport(uint PageCount, IReadOnlyList<string> Warnings, ulong SourceId);
+    /// <summary>What its pages will not bring across exactly — known before anything is added.</summary>
+    IReadOnlyList<string> Warnings { get; }
+}
+
+/// <summary>
+/// What one "Add PDFs" pick did: the session with its new page layout, how
+/// many pages arrived, and each source's <see cref="DocumentBlock.ImportedSourceId"/>
+/// in pick order — how the shell names a block after its file.
+/// </summary>
+public sealed record ImportedPdfs(DocumentSession Session, uint PageCount, IReadOnlyList<ulong> SourceIds);
+
+/// <summary>The core's <c>FfiBatchImportReport</c>, on this side of the boundary.</summary>
+internal sealed record PdfCoreBatchImportReport(uint PageCount, IReadOnlyList<ulong> SourceIds);

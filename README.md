@@ -180,9 +180,9 @@ JPEG with the same page ranges and DPI range as Linux, and extracts a chosen
 range of pages into a new PDF the same way, sharing the core's page-pruning
 cut (`pdf_document::prune`) rather than a second implementation. Windows can
 move, rotate and delete pages from a thumbnail grid or whole documents from the
-Documents view, and adds other PDFs' pages through the same `import_pdf` FFI
-call Android uses — one undo step per file, where Linux folds a multi-file pick
-into one. Windows can fill and
+Documents view, and adds other PDFs' pages through the FFI's two-phase batch
+import — one undo step for the whole pick, matching Linux. Android retains the
+single-file `import_pdf` call. Windows can fill and
 rename existing fields, and place text fields, checkboxes, radio groups and
 dropdowns by clicking or dragging on a page; font family and size can be
 changed in Windows, as can text color and an existing field's X/Y position,
