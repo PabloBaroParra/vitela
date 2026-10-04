@@ -55,7 +55,7 @@ public sealed partial class MainWindow
             panel.Children.Add(y);
             panel.Children.Add(new TextBlock
             {
-                Text = "Coordinates use PDF space: X increases rightward and Y upward. The text keeps its font and size. Save first if this run already has a pending edit.",
+                Text = "Coordinates use PDF space: X increases rightward and Y upward. The text keeps its font and size. Repeated moves share one Undo step; moving newly inserted text updates its insertion. Save and reopen first if existing text has been retyped.",
                 TextWrapping = TextWrapping.Wrap,
             });
             var dialog = new ContentDialog

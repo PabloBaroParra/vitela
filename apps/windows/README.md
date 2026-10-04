@@ -263,8 +263,10 @@ for validation and saving, including when the retype substituted the font.
 Inserted text can be reopened and retyped before saving; further typing amends
 the same insertion, so one Undo removes it and Redo restores its latest text.
 Escape cancels only that retyping and keeps the insertion. Deleting a pending
-insertion remains disabled, matching Linux. Moving pending insertions and repeated
-text moves remain separate parity gaps.
+insertion remains disabled, matching Linux. Repeated moves of existing runs amend
+one movement command. Moving newly inserted text updates that insertion, including
+after retyping; one Undo removes it and Redo restores its latest text and position.
+Retyping an already moved existing run remains a separate parity gap.
 
 Home starts with **Search recent files and tools** and **Open file**; its separate
 search filters tool labels without running a document text search. Ctrl+O works
@@ -472,8 +474,11 @@ X/Y coordinates in PDF points (X increases rightward, Y upward). Its text, font
 and size remain intact, and other runs stay in place. Coordinates must be finite;
 zero and negative values are allowed. The edit refreshes the preview and supports
 undo/redo under the same permission and full-rewrite checks as Delete text.
-Reopen the dialog after any intervening edit. Save first if the run already has
-a pending edit, including retyping or moving, and save to keep the new position.
+Reopen the dialog after any intervening edit. Repeated moves retain the original
+snapshot and share one Undo step; Redo restores the latest destination. Save and
+reopen first if existing text has been retyped, and save to keep the new position.
+Newly inserted text can be moved and retyped before saving; those changes update
+the insertion while preserving its font and size, rather than stacking commands.
 The core refuses runs painted by the double-quote spacing operator.
 
 **Insert text** is a toggle, as on Linux: arm it (this also arms Edit content)
@@ -730,6 +735,19 @@ gates, discarded unrecorded typing, real deletion/undo/redo, deletion after a
 recorded retype with one-step original restoration, and saved-PDF reopening.
 It does not simulate an actual pointer click or claim
 full Linux editing parity. Rebuild without that property before normal use.
+
+## Text movement runtime smoke
+
+`Tests/TextMoveSmoke.targets` replaces the entry point with an opt-in native test.
+Set `VITELA_SMOKE_OUTPUT` to an existing directory, build with
+`-p:CustomAfterMicrosoftCommonTargets=<absolute path to TextMoveSmoke.targets>`,
+then launch the app. `text-move-smoke.log` must start with `PASS`. It drives the
+real Move text dialog twice, including native preview refresh, stale-target
+refusal, cancel/no-op, one-step Undo/Redo and final-coordinate save/reopen. It also
+click-inserts text, moves it, reopens it through canvas hit-testing to retype it,
+moves it again and verifies one insertion Undo/Redo and final save/reopen.
+Rebuild without that property before normal use. Physical pointer gestures are
+not exercised by this harness.
 
 ## Canvas insertion runtime smoke
 
