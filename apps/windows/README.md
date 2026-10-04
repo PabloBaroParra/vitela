@@ -546,9 +546,13 @@ it came from.
 The opt-in `Tests/ImportPdfsSmoke.targets` harness checks real-core multi-file
 import, one undo/redo for the whole batch, cancelled/failed preparation preserving
 history, warning confirmation, block names, rendering, an encrypted source's
-password cancel/retry and a save round trip; it is built and run like the
-Documents harness below. The file picker and visual presentation of the password
-dialog, progress bar and Cancel still need a human eye check.
+password cancel/retry and a save round trip. It also deletes the final destination
+block, imports into that zero-page session, and checks one Undo/Redo back to empty
+and recovered pages. A real encrypted destination opened with its user password
+checks permission refusal before the picker, unchanged pages/history, and control
+restoration; direct facade apply must return the same refusal. The harness is built
+and run like the Documents harness below. The file picker and visual presentation
+of the password dialog, progress bar and Cancel still need a human eye check.
 
 Organize opens on **Documents**; **Pages** switches to the individual-page grid.
 Each document card shows a stacked first-page cover, its source name, page count
