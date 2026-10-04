@@ -1726,9 +1726,9 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         let queued = pending_text_amendment_index(&state.document, &core_command)?;
         if let Some(index) = queued {
             // What a caller holds is the run as `read_page_content` reads it
-            // now — the queued retype already applied. The save replays
+            // now — the queued text edit already applied. The save replays
             // against the untouched bytes, so the fold keeps the snapshot the
-            // queued command was built from, whether retyping or deleting it.
+            // queued command was built from, including repeated moves.
             core_command =
                 with_queued_item(&state.document.pending_edits.entries()[index], core_command);
         }
@@ -1741,7 +1741,7 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         })?;
 
         if let Some(index) = queued {
-            // Retyping or deleting a retyped run amends its queued command
+            // Retyping, deleting a retyped run or moving again amends its queued command
             // instead of appending another. `EditLog::amend`'s own docs carry
             // the reasoning: a save replays content commands in order against
             // a document it mutates as it goes, so a second command against
@@ -1767,11 +1767,39 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
 ///
 /// A replacement or removal of a retyped run folds into that run's pending
 /// replacement. The original snapshot is retained for validation and save.
-/// Synthetic insertion targets amend the insertion itself; pending moves do not.
+/// Repeated moves retain their original snapshot and only change destination.
+/// Synthetic insertion targets amend the insertion itself when retyping or moving.
 fn pending_text_amendment_index(
     document: &Document,
     command: &Command,
 ) -> Result<Option<usize>, FfiError> {
+    if let Command::MoveTextRun { item, to } = command {
+        if !to.x.is_finite() || !to.y.is_finite() {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "Text coordinates must be finite.".to_string(),
+            });
+        }
+        if pdf_edit::pending_log_index(item.id).is_some() {
+            return pending_insertion_amendment_index(document, item);
+        }
+        // A replacement's estimated box is not a safe save-time move target.
+        // Match Linux's refusal even when a move precedes that replacement.
+        if document.pending_edits.entries().iter().any(|queued| {
+            matches!(queued,
+                Command::ReplaceTextRunContent { item: target, .. }
+                    | Command::ReplaceTextRunWithInsertedFont { item: target, .. }
+                    if target.id == item.id && target.page == item.page)
+        }) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "This text has an unsaved edit — save the document before moving it."
+                    .to_string(),
+            });
+        }
+        return Ok(document.pending_edits.entries().iter().position(|queued| {
+            matches!(queued, Command::MoveTextRun { item: target, .. }
+                if target.id == item.id && target.page == item.page)
+        }));
+    }
     let item = match command {
         Command::ReplaceTextRunContent { item, .. }
         | Command::ReplaceTextRunWithInsertedFont { item, .. }
@@ -1779,19 +1807,9 @@ fn pending_text_amendment_index(
         _ => return Ok(None),
     };
 
-    if let Some(index) = pdf_edit::pending_log_index(item.id) {
-        // Log slots can be reused after Undo. Check the page, resource and
-        // placement too, never redirect a cached target by its index alone.
-        if matches!(command, Command::ReplaceTextRunContent { .. })
-            && matches!(document.pending_edits.entries().get(index),
-                Some(Command::InsertTextRun(run))
-                    if run.page == item.page
-                        && run.resource_font_name == item.resource_font_name
-                        && run.font_kind == item.font_kind
-                        && run.bbox.x == item.bbox.x && run.bbox.y == item.bbox.y
-                        && run.bbox.height == item.bbox.height)
-        {
-            return Ok(Some(index));
+    if pdf_edit::pending_log_index(item.id).is_some() {
+        if matches!(command, Command::ReplaceTextRunContent { .. }) {
+            return pending_insertion_amendment_index(document, item);
         }
         return Err(FfiError::UnsupportedOperation {
             detail: "this pending insertion cannot be edited with that text target".to_string(),
@@ -1807,11 +1825,54 @@ fn pending_text_amendment_index(
     }))
 }
 
+/// Resolves synthetic targets without letting a reused log slot redirect an edit.
+fn pending_insertion_amendment_index(
+    document: &Document,
+    item: &TextRun,
+) -> Result<Option<usize>, FfiError> {
+    let index = pdf_edit::pending_log_index(item.id);
+    // Text and measured width can differ during typing, but page, resource and
+    // placement identify the insertion that the caller originally targeted.
+    if let Some(index) = index {
+        if matches!(document.pending_edits.entries().get(index),
+            Some(Command::InsertTextRun(run))
+                if run.page == item.page
+                    && run.resource_font_name == item.resource_font_name
+                    && run.font_kind == item.font_kind
+                    && run.bbox.x == item.bbox.x && run.bbox.y == item.bbox.y
+                    && run.bbox.height == item.bbox.height)
+        {
+            return Ok(Some(index));
+        }
+    }
+    Err(FfiError::UnsupportedOperation {
+        detail: "this pending insertion cannot be edited with that text target".to_string(),
+    })
+}
+
 /// `command` carrying `queued`'s run snapshot in place of its own.
 ///
 /// Only called for a pair [`pending_text_amendment_index`] matched: retyping
-/// an insertion, or replacing/removing a run with a queued replacement.
+/// an insertion, replacing/removing a run with a queued replacement, or moving
+/// a run with a queued move.
 fn with_queued_item(queued: &Command, command: Command) -> Command {
+    if let (Command::InsertTextRun(run), Command::MoveTextRun { to, .. }) = (queued, &command) {
+        return Command::InsertTextRun(TextRun {
+            bbox: pdf_document::annotation::Rect {
+                x: to.x,
+                y: to.y,
+                ..run.bbox
+            },
+            ..run.clone()
+        });
+    }
+    if let (Command::MoveTextRun { item, .. }, Command::MoveTextRun { to, .. }) = (queued, &command)
+    {
+        return Command::MoveTextRun {
+            item: item.clone(),
+            to: *to,
+        };
+    }
     if let (Command::InsertTextRun(run), Command::ReplaceTextRunContent { after, .. }) =
         (queued, &command)
     {

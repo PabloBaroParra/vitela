@@ -171,6 +171,104 @@ fn insert(handle: &pdf_ffi::DocumentHandle, font: &str) -> FfiContentTextRun {
         .unwrap()
 }
 
+fn move_run(handle: &pdf_ffi::DocumentHandle, item: FfiContentTextRun, x: f64, y: f64) {
+    let to = pdf_ffi::FfiRect { x, y, ..item.bbox };
+    apply_edit(handle, FfiEditCommand::MoveTextRun { item, to }).expect("move text");
+}
+
+#[test]
+fn repeated_moves_save_the_final_position_and_share_one_undo_step() {
+    let handle = open_single_line("Original text");
+    let original = only_run(&handle);
+    move_run(&handle, original.clone(), 80.0, 90.0);
+    move_run(&handle, only_run(&handle), 120.0, 140.0);
+    let final_run = only_run(&handle);
+    assert_eq!(final_run.bbox.x, 120.0);
+    assert_eq!(final_run.bbox.y, 140.0);
+    assert_eq!(final_run.text, original.text);
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("save amended move");
+    let reopened = open_from_bytes(saved, None).unwrap();
+    let written = only_run(&reopened);
+    assert!((written.bbox.x - 120.0).abs() < 0.01);
+    assert!((written.bbox.y - 140.0).abs() < 0.01);
+    assert!(undo(&handle));
+    assert_eq!(only_run(&handle), original);
+    assert!(!undo(&handle));
+    assert!(redo(&handle));
+    assert_eq!(only_run(&handle), final_run);
+}
+
+#[test]
+fn repeated_move_does_not_consume_another_runs_later_edit() {
+    let mut document = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    let handle = open_from_bytes(bytes, None).unwrap();
+    let original = handle.read_page_content(0).unwrap().text_runs;
+    move_run(&handle, original[0].clone(), 80.0, 90.0);
+    retype(&handle, original[1].clone(), "Changed second");
+    let moved = handle.read_page_content(0).unwrap().text_runs.remove(0);
+    move_run(&handle, moved, 120.0, 140.0);
+    assert!(undo(&handle));
+    let current = handle.read_page_content(0).unwrap().text_runs;
+    assert_eq!(current[1], original[1]);
+    assert_eq!(current[0].bbox.x, 120.0);
+    assert!(undo(&handle));
+    assert_eq!(handle.read_page_content(0).unwrap().text_runs, original);
+    assert!(!undo(&handle));
+}
+
+#[test]
+fn moving_after_a_retype_is_refused_without_changing_history() {
+    let handle = open_single_line("Original text");
+    let original = only_run(&handle);
+    retype(&handle, only_run(&handle), "Changed text");
+    let current = only_run(&handle);
+    let to = pdf_ffi::FfiRect {
+        x: 120.0,
+        ..current.bbox
+    };
+    assert!(apply_edit(
+        &handle,
+        FfiEditCommand::MoveTextRun {
+            item: current.clone(),
+            to
+        }
+    )
+    .is_err());
+    assert_eq!(only_run(&handle), current);
+    assert!(undo(&handle));
+    assert_eq!(only_run(&handle), original);
+    assert!(!undo(&handle));
+}
+
+#[test]
+fn invalid_repeated_move_preserves_the_previous_destination_and_history() {
+    let handle = open_single_line("Original text");
+    move_run(&handle, only_run(&handle), 80.0, 90.0);
+    let current = only_run(&handle);
+    let to = pdf_ffi::FfiRect {
+        x: f64::NAN,
+        ..current.bbox
+    };
+    assert!(apply_edit(
+        &handle,
+        FfiEditCommand::MoveTextRun {
+            item: current.clone(),
+            to
+        }
+    )
+    .is_err());
+    assert_eq!(only_run(&handle), current);
+    assert!(undo(&handle));
+    assert!(!undo(&handle));
+}
+
 #[test]
 fn retyping_an_insertion_keeps_its_identity_geometry_and_single_undo_step() {
     let handle = open_single_line("Original text");
@@ -217,6 +315,73 @@ fn a_reused_insertion_index_does_not_accept_the_retired_targets_font() {
     )
     .is_err());
     assert_eq!(handle.read_page_content(0).unwrap().text_runs[1], current);
+    assert!(undo(&handle));
+    assert!(!undo(&handle));
+}
+
+#[test]
+fn moving_and_retyping_an_insertion_preserves_one_command_and_saves_final_geometry() {
+    let handle = open_single_line("Original text");
+    let original = only_run(&handle);
+    let inserted = insert(&handle, "InsertedFont");
+    retype(&handle, inserted.clone(), "Before movement");
+    let target = handle.read_page_content(0).unwrap().text_runs.remove(1);
+    move_run(&handle, target, 80.0, 90.0);
+    let target = handle.read_page_content(0).unwrap().text_runs.remove(1);
+    move_run(&handle, target, 120.0, 140.0);
+    let target = handle.read_page_content(0).unwrap().text_runs.remove(1);
+    retype(&handle, target, "After movement");
+    let current = handle.read_page_content(0).unwrap().text_runs.remove(1);
+    assert_eq!(current.id, inserted.id);
+    assert_eq!(current.resource_font_name, inserted.resource_font_name);
+    assert_eq!(current.bbox.height, inserted.bbox.height);
+    assert_eq!(current.text, "After movement");
+    assert_eq!((current.bbox.x, current.bbox.y), (120.0, 140.0));
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .unwrap();
+    let reopened = open_from_bytes(saved, None).unwrap();
+    let written = reopened.read_page_content(0).unwrap().text_runs.remove(1);
+    assert_eq!(written.text, current.text);
+    assert!((written.bbox.x - 120.0).abs() < 0.01);
+    assert!((written.bbox.y - 140.0).abs() < 0.01);
+    assert!(undo(&handle));
+    assert_eq!(only_run(&handle), original);
+    assert!(!undo(&handle));
+    assert!(redo(&handle));
+    assert_eq!(handle.read_page_content(0).unwrap().text_runs[1], current);
+}
+
+#[test]
+fn moving_a_retired_insertion_target_cannot_redirect_a_reused_log_slot() {
+    let handle = open_single_line("Original text");
+    let retired = insert(&handle, "FirstInsertedFont");
+    assert!(undo(&handle));
+    let current = insert(&handle, "SecondInsertedFont");
+    let to = pdf_ffi::FfiRect {
+        x: 120.0,
+        ..retired.bbox
+    };
+    assert!(apply_edit(&handle, FfiEditCommand::MoveTextRun { item: retired, to }).is_err());
+    assert_eq!(handle.read_page_content(0).unwrap().text_runs[1], current);
+    assert!(undo(&handle));
+    assert!(!undo(&handle));
+}
+
+#[test]
+fn moving_an_insertion_refuses_stale_placement_and_invalid_coordinates_without_history_changes() {
+    let handle = open_single_line("Original text");
+    let inserted = insert(&handle, "InsertedFont");
+    move_run(&handle, inserted.clone(), 80.0, 90.0);
+    let current = handle.read_page_content(0).unwrap().text_runs.remove(1);
+    for (item, x) in [(inserted, 120.0), (current.clone(), f64::INFINITY)] {
+        let to = pdf_ffi::FfiRect { x, ..item.bbox };
+        assert!(apply_edit(&handle, FfiEditCommand::MoveTextRun { item, to }).is_err());
+        assert_eq!(handle.read_page_content(0).unwrap().text_runs[1], current);
+    }
     assert!(undo(&handle));
     assert!(!undo(&handle));
 }
