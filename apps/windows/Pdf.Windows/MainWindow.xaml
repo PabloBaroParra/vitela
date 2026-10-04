@@ -3,16 +3,15 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:viewer="using:Pdf.Windows.Viewer"
-    Title="PDF">
+    Title="Vitela">
     <!--
-        KeyboardAcceleratorPlacementMode=Hidden because the paste, copy, find
-        and new-document accelerators sit on the root Grid to catch
-        Ctrl+V/Ctrl+C/Ctrl+F/Ctrl+N anywhere in the window, and Auto would
+        KeyboardAcceleratorPlacementMode=Hidden because shell accelerators
+        sit on the root Grid to catch file, clipboard and find commands
+        anywhere in the window, and Auto would
         advertise them as tooltips over that whole surface — a "Ctrl+V" label
         floating in the middle of the page. The property INHERITS, so the
-        toolbar buttons whose shortcut tooltip is worth showing set Auto back
-        locally; dropping that override silently mutes Ctrl+O, Ctrl+S,
-        Ctrl+P, Ctrl+Z and Ctrl+Y too.
+        toolbar buttons with local accelerators set Auto back locally. Open,
+        Save and Print instead state their shell-wide shortcuts in explicit tooltips.
     -->
     <!--
         Background=Transparent so the window is hit-testable for drag and drop
@@ -20,18 +19,98 @@
         onto the empty state is the whole point. Same reason the page overlay
         Canvas carries one.
     -->
-    <Grid Padding="20" RowSpacing="16" RowDefinitions="Auto,Auto,Auto,*" KeyboardAcceleratorPlacementMode="Hidden"
-          Background="Transparent" AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop">
+    <Grid x:Name="ShellRoot" RowDefinitions="*,Auto" ColumnDefinitions="Auto,*" KeyboardAcceleratorPlacementMode="Hidden"
+          Background="{ThemeResource VitelaWindowBackgroundBrush}" AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop" Loaded="ShellRoot_Loaded">
         <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="ShellOpen_Invoked" />
+            <KeyboardAccelerator Key="S" Modifiers="Control" Invoked="ShellSave_Invoked" />
+            <KeyboardAccelerator Key="P" Modifiers="Control" Invoked="ShellPrint_Invoked" />
             <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteImage_Invoked" />
             <KeyboardAccelerator Key="C" Modifiers="Control" Invoked="CopySelection_Invoked" />
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FindDocument_Invoked" />
             <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewDocument_Invoked" />
         </Grid.KeyboardAccelerators>
-        <viewer:ToolbarPanel Grid.Row="0">
-            <Button x:Name="OpenButton" Click="OpenButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+        <Border Grid.Row="0" Grid.Column="0" Width="176" Style="{StaticResource RailContainerStyle}">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="AppRail" Padding="12" Spacing="4" AutomationProperties.Name="Vitela sections">
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="2,2,2,8">
+                    <Image Source="{ThemeResource AppMarkImageSource}" Width="24" Height="24" AutomationProperties.AccessibilityView="Raw" />
+                    <TextBlock Text="Vitela" Style="{StaticResource BrandWordStyle}" />
+                </StackPanel>
+                <ToggleButton x:Name="HomeRailButton" Style="{StaticResource RailItemStyle}" Content="Home" Tag="Home" IsChecked="True" Click="RailButton_Click" />
+                <ToggleButton x:Name="RecentRailButton" Style="{StaticResource RailItemStyle}" Content="Recent" Tag="Recent" Click="RailButton_Click" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="My files" Tag="Files" Click="RailButton_Click" />
+                <Border Style="{StaticResource RailSeparatorStyle}" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Annotate" Tag="Annotate" Click="RailButton_Click" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Edit PDF" Tag="Edit" Click="RailButton_Click" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Organize pages" Tag="Organize" Click="RailButton_Click" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Sign" Tag="Sign" Click="RailButton_Click" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Protect" Tag="Protect" Click="RailButton_Click" />
+            </StackPanel>
+        </ScrollViewer>
+        </Border>
+        <!--
+            HomeView is a UserControl only so the header can stay put while the
+            body scrolls and the whole page still has one Visibility/IsEnabled
+            owner for the navigation code. The body scrolls vertically only: a
+            horizontally scrolling parent measures its children at infinite
+            width, which collapsed the star columns and clipped the right column
+            in the first Windows Home. HomeLayout reflows the columns instead.
+        -->
+        <UserControl x:Name="HomeView" Grid.Column="1" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+        <Grid RowDefinitions="Auto,*" Background="{ThemeResource VitelaWindowBackgroundBrush}">
+            <Border Style="{StaticResource HomeHeaderStyle}">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <TextBox x:Name="HomeSearchBox" PlaceholderText="Search recent files and tools" MaxWidth="340" VerticalAlignment="Center"
+                             AutomationProperties.Name="Search recent files and tools" TextChanged="HomeSearchBox_TextChanged" />
+                    <Button Grid.Column="1" Content="Open file" Style="{StaticResource HomePrimaryButtonStyle}" VerticalAlignment="Center"
+                            Click="ShellOpen_Click" ToolTipService.ToolTip="Open a PDF (Ctrl+O)" />
+                </Grid>
+            </Border>
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <Grid x:Name="HomeBody" Padding="24" ColumnSpacing="20" RowSpacing="0" RowDefinitions="Auto,Auto" ColumnDefinitions="*,268" SizeChanged="HomeBody_SizeChanged">
+                    <StackPanel x:Name="HomeMainColumn" Spacing="20">
+                        <Button x:Name="ReturnToDocumentButton" Content="Return to document" Click="ReturnToDocument_Click" Visibility="Collapsed" Style="{StaticResource HomePrimaryButtonStyle}" HorizontalAlignment="Left" />
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Welcome to Vitela" Style="{StaticResource HomeHeroTitleStyle}" />
+                            <TextBlock Text="Your fast, private PDF workspace." Style="{StaticResource HomeSubtitleStyle}" Margin="0,0,0,10" />
+                            <TextBlock Text="Start a new task" Style="{StaticResource HomeSectionTitleStyle}" Margin="0,0,0,6" />
+                            <Border x:Name="HomeDropZone" Background="{ThemeResource VitelaEditorBackgroundBrush}" CornerRadius="14"
+                                    Tapped="HomeDropZone_Tapped" AllowDrop="True"
+                                    DragOver="HomeDropZone_DragOver" DragLeave="HomeDropZone_DragLeave" Drop="HomeDropZone_Drop">
+                                <Grid>
+                                    <!-- .home-dropzone's 2px dashed border: a Border cannot dash, so the outline is a Rectangle. -->
+                                    <Rectangle x:Name="HomeDropZoneOutline" RadiusX="13" RadiusY="13" StrokeThickness="2" StrokeDashArray="4 3"
+                                               Stroke="{ThemeResource VitelaStrongSeparatorBrush}" IsHitTestVisible="False" />
+                                    <StackPanel Spacing="10" Margin="28">
+                                        <TextBlock Text="Drag and drop a PDF here" TextAlignment="Center" Style="{StaticResource HomeSubtitleStyle}" />
+                                        <TextBlock Text="or click anywhere in this area to open one" TextAlignment="Center" Style="{StaticResource HomeMetaStyle}" />
+                                        <Button x:Name="HomeSelectFileButton" Content="Select file" Style="{StaticResource HomePrimaryButtonStyle}"
+                                                Click="ShellOpen_Click" HorizontalAlignment="Center" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Recent" Style="{StaticResource HomeSectionTitleStyle}" />
+                            <ItemsControl x:Name="RecentFilesList" AutomationProperties.Name="Recent files" IsTabStop="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate><StackPanel Spacing="14" /></ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                            <TextBlock x:Name="RecentEmptyMessage" Text="No recent documents yet. Open a PDF and it will show up here." Style="{StaticResource HomeSubtitleStyle}" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel x:Name="HomeToolsColumn" Grid.Column="1" Spacing="16" VerticalAlignment="Top" />
+                </Grid>
+            </ScrollViewer>
+        </Grid>
+        </UserControl>
+        <Grid x:Name="EditorView" Grid.Column="1" RowSpacing="0" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,*" Visibility="Collapsed">
+        <Border Grid.Row="0" Style="{StaticResource EditorToolbarStyle}">
+        <viewer:ToolbarPanel x:Name="EditorToolbar">
+            <Button x:Name="OpenButton" Click="OpenButton_Click" ToolTipService.ToolTip="Open a PDF (Ctrl+O)">
                 Open
-                <Button.KeyboardAccelerators><KeyboardAccelerator Key="O" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
             <Button x:Name="OpenSampleButton" Content="Open sample">
                 <Button.Flyout>
@@ -42,13 +121,11 @@
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
-            <Button x:Name="PrintButton" Click="PrintButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+            <Button x:Name="PrintButton" Click="PrintButton_Click" ToolTipService.ToolTip="Print (Ctrl+P)">
                 Print
-                <Button.KeyboardAccelerators><KeyboardAccelerator Key="P" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
-            <Button x:Name="SaveButton" Click="SaveButton_Click" KeyboardAcceleratorPlacementMode="Auto">
+            <Button x:Name="SaveButton" Click="SaveButton_Click" ToolTipService.ToolTip="Save as (Ctrl+S)">
                 Save
-                <Button.KeyboardAccelerators><KeyboardAccelerator Key="S" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
             <Button x:Name="ProtectButton" Content="Protect" Click="ProtectButton_Click" />
             <Button x:Name="CompressButton" Content="Compress" Click="CompressButton_Click" />
@@ -56,7 +133,8 @@
             <Button x:Name="ExtractPagesButton" Content="Extract pages" Click="ExtractPagesButton_Click" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
             <Button x:Name="SplitPagesButton" Content="Split PDF" Click="SplitPagesButton_Click" ToolTipService.ToolTip="Cut the document into several PDFs" />
             <ToggleButton x:Name="OrganizeButton" Content="Organize" Click="OrganizeButton_Click" ToolTipService.ToolTip="Move, rotate or delete pages" />
-            <ToggleButton x:Name="PanelsButton" Content="Panels" IsChecked="True" Click="PanelsButton_Click" ToolTipService.ToolTip="Show or hide pages, properties, form fields and search results" />
+            <ToggleButton x:Name="PagesPanelButton" Content="Pages" IsChecked="True" Click="PagesPanelButton_Click" ToolTipService.ToolTip="Show or hide the page list" />
+            <ToggleButton x:Name="ToolsPanelButton" Content="Tools" IsChecked="True" Click="ToolsPanelButton_Click" ToolTipService.ToolTip="Show or hide tools, properties, form fields and search results" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" MaxWidth="200" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
             <Button x:Name="FirstPageButton" Content="First page" Click="FirstPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Go to the first page of the document (Ctrl+Home)">
@@ -99,10 +177,10 @@
                 <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" ToolTipService.ToolTip="Case-sensitive. Press Enter to search." KeyDown="SearchBox_KeyDown" />
                 <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
             </StackPanel>
-            <TextBlock x:Name="PrintStatus" VerticalAlignment="Center" TextWrapping="Wrap" />
         </viewer:ToolbarPanel>
+        </Border>
 
-        <viewer:ToolbarPanel Grid.Row="1">
+        <viewer:ToolbarPanel x:Name="EditingToolbar" Grid.Row="1">
             <ToggleButton x:Name="HighlightButton" Click="HighlightButton_Click">Highlight</ToggleButton>
             <ToggleButton x:Name="UnderlineButton" Click="UnderlineButton_Click">Underline</ToggleButton>
             <ToggleButton x:Name="StrikeoutButton" Click="StrikeoutButton_Click">Strikeout</ToggleButton>
@@ -127,30 +205,35 @@
             <Button x:Name="MoveAnnotationButton" Click="MoveAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's X and Y in PDF points" IsEnabled="False">Move annotation</Button>
             <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
             <Button x:Name="ResizeAnnotationButton" Click="ResizeAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's width and height in PDF points" IsEnabled="False">Resize annotation</Button>
-            <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color">Color
-                <Button.Flyout>
-                    <Flyout x:Name="AnnotationColorFlyout" Closed="AnnotationColorFlyout_Closed">
-                        <ColorPicker x:Name="AnnotationColorPicker" ColorChanged="AnnotationColorPicker_ColorChanged" IsAlphaEnabled="False" Orientation="Horizontal" />
-                    </Flyout>
-                </Button.Flyout>
-            </Button>
+            <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color" Click="AnnotationColorButton_Click">Color</Button>
             <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click" KeyboardAcceleratorPlacementMode="Auto">Delete
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteAnnotation_Invoked" /></Button.KeyboardAccelerators>
             </Button>
         </viewer:ToolbarPanel>
 
-        <TextBlock x:Name="AnnotationStatus" Grid.Row="2" TextWrapping="Wrap" />
-
-        <Grid x:Name="DocumentArea" Grid.Row="3" ColumnDefinitions="*,Auto,Auto" SizeChanged="DocumentArea_SizeChanged">
-            <ProgressRing x:Name="BusyIndicator" Grid.ColumnSpan="3" IsActive="False" Visibility="Collapsed" />
-            <StackPanel x:Name="EmptyState" Grid.ColumnSpan="3" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+        <Grid x:Name="DocumentArea" Grid.Row="2" Padding="16" ColumnDefinitions="Auto,Auto,*,Auto,Auto" SizeChanged="DocumentArea_SizeChanged">
+            <Grid x:Name="PagesSidebar" Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="8" Width="160" Padding="8" Background="{ThemeResource VitelaSurfaceBrush}" CornerRadius="8"
+                  AutomationProperties.Name="Pages">
+                <TextBlock Text="Pages" FontWeight="SemiBold" />
+                <ListView x:Name="PageNavigationList" Grid.Row="1"
+                          SelectionMode="Single" IsEnabled="False"
+                          AutomationProperties.Name="Go to page"
+                          SelectionChanged="PageNavigationList_SelectionChanged" />
+            </Grid>
+            <Thumb x:Name="PagesDivider" Grid.Column="1" Style="{StaticResource SideColumnDividerStyle}"
+                   AutomationProperties.Name="Resize page list"
+                   ToolTipService.ToolTip="Drag to resize or fold the page list, or use Left and Right arrows when focused"
+                   DragStarted="PagesDivider_DragStarted" DragDelta="PagesDivider_DragDelta" KeyDown="PagesDivider_KeyDown" />
+            <ProgressRing x:Name="BusyIndicator" Grid.Column="2" IsActive="False" Visibility="Collapsed" />
+            <StackPanel x:Name="EmptyState" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
                 <TextBlock x:Name="EmptyStateMessage" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="Drop a PDF here to open it, or try the built-in sample." />
             </StackPanel>
-            <TextBlock x:Name="ErrorState" Grid.ColumnSpan="3" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
+            <TextBlock x:Name="ErrorState" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
             <ScrollViewer
                 x:Name="PageScroller"
-                Grid.Column="0"
+                Grid.Column="2"
+                Background="{ThemeResource VitelaCanvasBackgroundBrush}"
                 HorizontalScrollBarVisibility="Auto"
                 VerticalScrollBarVisibility="Auto"
                 Visibility="Collapsed"
@@ -163,69 +246,55 @@
                 a card is acted on through its own buttons or by dragging it,
                 and a selection would only be a second, unused state.
             -->
-            <Grid x:Name="OrganizePanel" Grid.Column="0" RowDefinitions="Auto,*" Visibility="Collapsed" RowSpacing="8">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="InsertBlankPageButton" Content="Add blank A4 page" Click="InsertBlankPageButton_Click" />
-                    <Button x:Name="InsertLandscapePageButton" Content="Add landscape A4 page" Click="InsertLandscapePageButton_Click" />
-                </StackPanel>
-                <GridView
-                    x:Name="OrganizeGrid"
-                    Grid.Row="1"
-                    SelectionMode="None"
-                    CanDragItems="True"
-                    CanReorderItems="True"
-                    AllowDrop="True"
-                    DragItemsStarting="OrganizeGrid_DragItemsStarting"
-                    DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
-            </Grid>
-            <Thumb x:Name="SidebarDivider" Grid.Column="1" Width="16" Background="Transparent" IsTabStop="True" UseSystemFocusVisuals="True"
-                   AutomationProperties.Name="Resize document panels"
-                   ToolTipService.ToolTip="Drag to resize panels, or use Left and Right arrows when focused"
-                   DragDelta="SidebarDivider_DragDelta" KeyDown="SidebarDivider_KeyDown">
-                <Thumb.Template>
-                    <ControlTemplate TargetType="Thumb">
-                        <Grid Background="{TemplateBinding Background}">
-                            <Border Width="2" HorizontalAlignment="Center" Background="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
-                        </Grid>
-                    </ControlTemplate>
-                </Thumb.Template>
-            </Thumb>
-            <ScrollViewer x:Name="DocumentSidebar" Grid.Column="2" Width="300"
+            <Thumb x:Name="ToolsDivider" Grid.Column="3" Style="{StaticResource SideColumnDividerStyle}"
+                   AutomationProperties.Name="Resize tools panel"
+                   ToolTipService.ToolTip="Drag to resize or fold the tools panel, or use Left and Right arrows when focused"
+                   DragStarted="ToolsDivider_DragStarted" DragDelta="ToolsDivider_DragDelta" KeyDown="ToolsDivider_KeyDown" />
+            <ScrollViewer x:Name="DocumentSidebar" Grid.Column="4" Width="300" Padding="12" Background="{ThemeResource VitelaSurfaceBrush}" CornerRadius="8"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                           AutomationProperties.Name="Document panels">
-                <StackPanel Spacing="8">
-                    <Expander x:Name="PagesPanel" Header="Pages" IsExpanded="True">
-                        <ListView x:Name="PageNavigationList" MaxHeight="180" MinWidth="220"
-                                  SelectionMode="Single" IsEnabled="False"
-                                  AutomationProperties.Name="Go to page"
-                                  SelectionChanged="PageNavigationList_SelectionChanged" />
-                    </Expander>
-                    <Expander x:Name="DocumentProperties" Header="Document properties" IsExpanded="False">
+                <StackPanel x:Name="SidebarContent" Spacing="8">
+                    <StackPanel x:Name="DocumentProperties" Spacing="6">
+                        <TextBlock Text="Document properties" FontWeight="SemiBold" />
                         <StackPanel Spacing="6" Padding="0,8,0,8">
                             <TextBlock x:Name="MetadataPermission" TextWrapping="Wrap" />
-                            <TextBox x:Name="MetadataTitle" Header="Title" />
-                            <TextBox x:Name="MetadataAuthor" Header="Author" />
-                            <TextBox x:Name="MetadataSubject" Header="Subject" />
-                            <TextBox x:Name="MetadataKeywords" Header="Keywords" />
-                            <TextBox x:Name="MetadataCreator" Header="Creator" />
-                            <TextBox x:Name="MetadataProducer" Header="Producer" />
-                            <Button x:Name="ApplyMetadataButton" Content="Apply properties" Click="ApplyMetadataButton_Click" />
+                            <TextBlock x:Name="MetadataPages" Text="Pages: —" />
+                            <TextBox x:Name="MetadataTitle" Header="Title" Tag="Title" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataAuthor" Header="Author" Tag="Author" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataSubject" Header="Subject" Tag="Subject" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataKeywords" Header="Keywords" Tag="Keywords" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataCreator" Header="Creator" Tag="Creator" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataProducer" Header="Producer" Tag="Producer" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataCreated" Header="Created" Tag="Created" IsEnabled="False" PlaceholderText="YYYY-MM-DD HH:MM:SS" KeyDown="MetadataDate_KeyDown" LostFocus="MetadataDate_LostFocus" />
+                            <TextBox x:Name="MetadataModified" Header="Modified" Tag="Modified" IsEnabled="False" PlaceholderText="YYYY-MM-DD HH:MM:SS" KeyDown="MetadataDate_KeyDown" LostFocus="MetadataDate_LostFocus" />
                         </StackPanel>
-                    </Expander>
-                    <Expander x:Name="FormFieldsPanel" Header="Form fields" IsExpanded="False">
+                    </StackPanel>
+                    <StackPanel x:Name="FormFieldsPanel" Spacing="10">
                         <StackPanel Spacing="6" Padding="0,8,0,8">
-                            <TextBlock x:Name="FormFieldsStatus" TextWrapping="Wrap" />
-                            <ToggleButton x:Name="PlaceTextFieldButton" Content="Place text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
-                            <ToggleButton x:Name="PlaceCheckboxButton" Content="Place checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
-                            <ToggleButton x:Name="PlaceRadioGroupButton" Content="Place radio group" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
-                            <ToggleButton x:Name="PlaceDropdownButton" Content="Place dropdown" Click="PlaceDropdownButton_Click" IsEnabled="False" />
+                            <TextBlock Text="Form fields" FontWeight="SemiBold" />
+                            <viewer:ToolbarPanel>
+                                <ToggleButton x:Name="EditFormsButton" Content="Edit forms" Click="EditFormsButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceTextFieldButton" Content="Text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceCheckboxButton" Content="Checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceRadioGroupButton" Content="Radio group" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceDropdownButton" Content="Dropdown" Click="PlaceDropdownButton_Click" IsEnabled="False" />
+                            </viewer:ToolbarPanel>
+                            <TextBlock Text="Field style" FontWeight="SemiBold" />
+                            <viewer:ToolbarPanel>
+                                <ComboBox x:Name="FormStyleFont" Header="Font" Width="145" IsEnabled="False" SelectionChanged="FormStyleFont_SelectionChanged">
+                                    <x:String>Helvetica</x:String><x:String>Times Roman</x:String><x:String>Courier</x:String>
+                                </ComboBox>
+                                <NumberBox x:Name="FormStyleSize" Header="Size (pt)" Width="110" Minimum="4" Maximum="400" SmallChange="1" LargeChange="10" Value="12" IsEnabled="False" SpinButtonPlacementMode="Compact" ValueChanged="FormStyleSize_ValueChanged" />
+                                <Button x:Name="FormStyleColor" Content="Color" IsEnabled="False" Click="FormStyleColor_Click" />
+                            </viewer:ToolbarPanel>
+                            <TextBlock Text="Fill fields" FontWeight="SemiBold" />
+                            <TextBlock x:Name="FormFieldsStatus" Text="Open a PDF with form fields to fill them in, or place one in Edit forms mode." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
                                 <StackPanel x:Name="FormFieldRows" Spacing="10" />
                             </ScrollViewer>
                         </StackPanel>
-                    </Expander>
-                    <TextBlock x:Name="SearchStatus" TextWrapping="Wrap" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
+                    </StackPanel>
+                    <StackPanel x:Name="SearchMatchControls" Orientation="Horizontal" Spacing="8">
                         <Button x:Name="PreviousMatchButton" Click="PreviousMatchButton_Click" IsEnabled="False">Previous match</Button>
                         <Button x:Name="NextMatchButton" Click="NextMatchButton_Click" IsEnabled="False">Next match</Button>
                     </StackPanel>
@@ -233,5 +302,56 @@
                 </StackPanel>
             </ScrollViewer>
         </Grid>
+        </Grid>
+        <Grid x:Name="OrganizePanel" Grid.Column="1" Padding="16" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,Auto,Auto,*"
+              Visibility="Collapsed" RowSpacing="12" Loaded="OrganizePanel_Loaded">
+            <StackPanel Spacing="12">
+                <TextBlock x:Name="OrganizeHeading" Text="Organize pages" Style="{StaticResource OrganizeHeadingStyle}" />
+                <viewer:ToolbarPanel>
+                    <Button x:Name="OrganizeUndoButton" Content="Undo" Click="OrganizeUndoButton_Click" IsEnabled="False">
+                        <Button.KeyboardAccelerators><KeyboardAccelerator Key="Z" Modifiers="Control" /></Button.KeyboardAccelerators>
+                    </Button>
+                    <Button x:Name="OrganizeRedoButton" Content="Redo" Click="OrganizeRedoButton_Click" IsEnabled="False">
+                        <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
+                    </Button>
+                    <Button x:Name="OrganizeAddPdfsButton" Content="Add PDFs" IsEnabled="False"
+                            ToolTipService.ToolTip="Multi-PDF import with atomic undo and cancellation is not available through the shared API yet." />
+                    <Button x:Name="OrganizeExtractButton" Content="Extract" Click="ExtractPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
+                    <Button x:Name="OrganizeSplitButton" Content="Split" Click="SplitPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="Cut this PDF into several new PDFs" />
+                    <Button x:Name="OrganizeSaveButton" Content="Save" Click="SaveButton_Click" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
+                </viewer:ToolbarPanel>
+            </StackPanel>
+            <TextBlock Grid.Row="1" Text="Adding PDFs with import progress and cancellation isn't available in this shell yet."
+                       TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <viewer:ToolbarPanel Grid.Row="2">
+                <Button x:Name="InsertBlankPageButton" Content="Add blank A4 page" Click="InsertBlankPageButton_Click" />
+                <Button x:Name="InsertLandscapePageButton" Content="Add landscape A4 page" Click="InsertLandscapePageButton_Click" />
+                <Button x:Name="OrganizeReturnButton" Content="Return to document" Click="OrganizeReturnButton_Click" />
+            </viewer:ToolbarPanel>
+            <StackPanel Grid.Row="3" Spacing="8">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <ToggleButton x:Name="OrganizeDocumentsToggle" Style="{StaticResource OrganizeSwitchToggleStyle}" Content="Documents" IsChecked="True" Click="OrganizeDocumentsToggle_Click" />
+                    <ToggleButton x:Name="OrganizePagesToggle" Style="{StaticResource OrganizeSwitchToggleStyle}" Content="Pages" Click="OrganizePagesToggle_Click" />
+                </StackPanel>
+                <TextBlock x:Name="OrganizeViewHint" Text="Drag a document to move all of its pages." Style="{StaticResource OrganizeHintStyle}" />
+            </StackPanel>
+            <ScrollViewer x:Name="OrganizeDocumentsScroller" Grid.Row="4" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="OrganizeDocumentsList" />
+            </ScrollViewer>
+            <GridView x:Name="OrganizeGrid" Grid.Row="4" Visibility="Collapsed" SelectionMode="None" CanDragItems="True" CanReorderItems="True" AllowDrop="True"
+                      DragOver="OrganizeGrid_DragOver" DragItemsStarting="OrganizeGrid_DragItemsStarting" DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
+        </Grid>
+        <Border Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource StatusBarStyle}"
+                AutomationProperties.Name="Status">
+            <StackPanel Spacing="4">
+                <TextBlock x:Name="AnnotationStatus" Style="{StaticResource StatusTextStyle}" Text="Choose a PDF file to view, or open the built-in sample."
+                           TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"
+                           ToolTipService.ToolTip="{Binding Text, ElementName=AnnotationStatus}" />
+                <TextBlock x:Name="PrintStatus" Style="{StaticResource StatusTextStyle}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"
+                            ToolTipService.ToolTip="{Binding Text, ElementName=PrintStatus}" />
+                <TextBlock x:Name="SearchStatus" Style="{StaticResource StatusTextStyle}" Visibility="Collapsed" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"
+                           ToolTipService.ToolTip="{Binding Text, ElementName=SearchStatus}" />
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>

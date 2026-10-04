@@ -6,21 +6,17 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <!--
+                    Order matters: Palette re-points WinUI's own brush keys, so it
+                    has to come after XamlControlsResources to win. It also owns the
+                    per-theme brand mark. Follows the system theme; no RequestedTheme.
+                -->
+                <ResourceDictionary Source="Themes/Palette.xaml" />
+                <ResourceDictionary Source="Themes/ShellStyles.xaml" />
+                <ResourceDictionary Source="Themes/HomeStyles.xaml" />
+                <ResourceDictionary Source="Themes/EditStyles.xaml" />
+                <ResourceDictionary Source="Themes/OrganizeStyles.xaml" />
             </ResourceDictionary.MergedDictionaries>
-
-            <!--
-                The brand mark, picked per theme. "Default" is the key XAML
-                applies under the dark theme — it is not a synonym for "Light",
-                so the light variant needs its own explicit entry below.
-            -->
-            <ResourceDictionary.ThemeDictionaries>
-                <ResourceDictionary x:Key="Default">
-                    <SvgImageSource x:Key="AppMarkImageSource" UriSource="ms-appx:///Assets/vitela-app-mark-dark.svg" />
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Light">
-                    <SvgImageSource x:Key="AppMarkImageSource" UriSource="ms-appx:///Assets/vitela-app-mark.svg" />
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

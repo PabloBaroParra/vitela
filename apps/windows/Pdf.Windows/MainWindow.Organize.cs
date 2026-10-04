@@ -22,7 +22,7 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
-    /// <summary>Thumbnail box edge, in DIPs. Square, so every card is the same size whatever the page shape.</summary>
+    /// <summary>Thumbnail rendering budget, in DIPs; fixed card frames contain either page orientation.</summary>
     private const double ThumbnailBox = 150;
 
     private readonly ObservableCollection<Border> _organizeCards = [];
@@ -38,13 +38,6 @@ public sealed partial class MainWindow
     private bool _viewerStale;
     /// <summary>Bumped on every rebuild and edit, so a thumbnail that finishes late is dropped rather than painted onto the wrong card.</summary>
     private ulong _thumbnailGeneration;
-    private int _organizeDragFrom = -1;
-
-    private sealed class OrganizeCard(Image thumbnail, TextBlock number)
-    {
-        public Image Thumbnail { get; } = thumbnail;
-        public TextBlock Number { get; } = number;
-    }
 
     private async void OrganizeButton_Click(object sender, RoutedEventArgs e)
     {
@@ -66,11 +59,14 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (_isBusy || _organizeBusy || _dialogOpen) return;
+        var sessionId = _session.SessionId;
+
         // An open text editor has writes in flight against a page position
         // the grid is about to let the reader change. Land them first, then
         // drop the mode: its parsed runs are keyed by position too.
         await SettleContentEditorForHistoryAsync();
-        if (_session is null) return;
+        if (_session?.SessionId != sessionId || _isBusy) return;
         ResetContentEditMode();
         StopPlacingFormField();
         _armedAnnotation = null;
@@ -82,9 +78,13 @@ public sealed partial class MainWindow
         OrganizeGrid.ItemsSource = _organizeCards;
         PageScroller.Visibility = Visibility.Collapsed;
         OrganizePanel.Visibility = Visibility.Visible;
+        EditorView.Visibility = Visibility.Collapsed;
+        HomeView.Visibility = Visibility.Collapsed;
+        MarkRailDestination("Organize");
+        UpdateOrganizeHeader();
         UpdatePageNavigationControls();
         AnnotationStatus.Text = "Drag a page to move it. Changes are one undo step each.";
-        BuildOrganizeCards();
+        ShowOrganizeDocuments(showDocuments: true);
         UpdateAnnotationControls(_annotationState);
     }
 
@@ -111,10 +111,14 @@ public sealed partial class MainWindow
     private void CloseOrganizeView()
     {
         _organizing = false;
+        ClearOrganizePageState();
         _thumbnailGeneration++;
         OrganizeButton.IsChecked = false;
+        if (OrganizePanel.Visibility == Visibility.Visible) EditorView.Visibility = Visibility.Visible;
         OrganizePanel.Visibility = Visibility.Collapsed;
         _organizeCards.Clear();
+        ClearOrganizeDocuments();
+        UpdateOrganizeHeader();
         UpdatePageNavigationControls();
     }
 
@@ -163,7 +167,13 @@ public sealed partial class MainWindow
 
     private void BuildOrganizeCards()
     {
+        if (_showingOrganizeDocuments)
+        {
+            _ = PopulateOrganizeDocumentsAsync();
+            return;
+        }
         _thumbnailGeneration++;
+        ClearOrganizePageState();
         _organizeCards.Clear();
         if (_session is null) return;
 
@@ -173,6 +183,7 @@ public sealed partial class MainWindow
         }
 
         _ = RenderThumbnailsAsync(_thumbnailGeneration);
+        _ = RefreshOrganizePageSourcesAsync(_thumbnailGeneration);
     }
 
     private async void InsertBlankPageButton_Click(object sender, RoutedEventArgs e)
@@ -196,56 +207,6 @@ public sealed partial class MainWindow
         });
     }
 
-    private Border CreateOrganizeCard(int index)
-    {
-        var thumbnail = new Image { Stretch = Stretch.Uniform };
-        var frame = new Border
-        {
-            Width = ThumbnailBox,
-            Height = ThumbnailBox,
-            Child = thumbnail,
-        };
-        var number = new TextBlock { Text = (index + 1).ToString(), VerticalAlignment = VerticalAlignment.Center };
-
-        var rotateLeft = CardButton("", "Rotate left", mirrored: true);
-        var rotateRight = CardButton("", "Rotate right", mirrored: false);
-        var insertBefore = CardButton("", "Insert blank page before", mirrored: false);
-        var insertMenu = new MenuFlyout();
-        var insertPortrait = new MenuFlyoutItem { Text = "Portrait A4" };
-        var insertLandscape = new MenuFlyoutItem { Text = "Landscape A4" };
-        insertMenu.Items.Add(insertPortrait);
-        insertMenu.Items.Add(insertLandscape);
-        insertBefore.Flyout = insertMenu;
-        var delete = CardButton("", "Delete page", mirrored: false);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, HorizontalAlignment = HorizontalAlignment.Right };
-        actions.Children.Add(insertBefore);
-        actions.Children.Add(rotateLeft);
-        actions.Children.Add(rotateRight);
-        actions.Children.Add(delete);
-
-        var footer = new Grid();
-        footer.Children.Add(number);
-        footer.Children.Add(actions);
-
-        var body = new StackPanel { Spacing = 6 };
-        body.Children.Add(frame);
-        body.Children.Add(footer);
-
-        var card = new Border { Padding = new Thickness(8), Child = body };
-        card.Tag = new OrganizeCard(thumbnail, number);
-        async Task InsertBeforeAsync(PageOrientation orientation)
-        {
-            var position = _organizeCards.IndexOf(card);
-            if (position >= 0) await InsertBlankPageAsync((uint)position, orientation);
-        }
-        insertPortrait.Click += async (_, _) => await InsertBeforeAsync(PageOrientation.Portrait);
-        insertLandscape.Click += async (_, _) => await InsertBeforeAsync(PageOrientation.Landscape);
-        rotateLeft.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Rotate(index, -90), "Page rotated.");
-        rotateRight.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Rotate(index, 90), "Page rotated.");
-        delete.Click += async (_, _) => await EditPageAtCardAsync(card, index => new PageEdit.Remove(index), "Page deleted.");
-        return card;
-    }
-
     private static Button CardButton(string glyph, string label, bool mirrored)
     {
         var icon = new FontIcon { Glyph = glyph, FontSize = 14 };
@@ -263,7 +224,11 @@ public sealed partial class MainWindow
 
     private void OrganizeGrid_DragItemsStarting(object sender, DragItemsStartingEventArgs e)
     {
-        _organizeDragFrom = e.Items.FirstOrDefault() is Border card ? _organizeCards.IndexOf(card) : -1;
+        ClearOrganizePageDrag();
+        if (!OrganizePagesReady || e.Items.Count != 1 || e.Items[0] is not Border card) { e.Cancel = true; return; }
+        _organizePageDrag = new(_organizePageSnapshot!, card, _organizeCards.IndexOf(card), _thumbnailGeneration);
+        e.Data.SetData(PageDragFormat, _organizePageDrag.Token);
+        e.Data.RequestedOperation = global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move;
     }
 
     /// <summary>
@@ -273,35 +238,49 @@ public sealed partial class MainWindow
     /// </summary>
     private async void OrganizeGrid_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
     {
-        var from = _organizeDragFrom;
-        _organizeDragFrom = -1;
+        var drag = _organizePageDrag;
+        ClearOrganizePageDrag();
         if (args.DropResult != global::Windows.ApplicationModel.DataTransfer.DataPackageOperation.Move
-            || from < 0
-            || args.Items.FirstOrDefault() is not Border card)
+            || drag is null || !OrganizePageDragCurrent(drag)
+            || args.Items.FirstOrDefault() is not Border card || card != drag.Card)
         {
             return;
         }
 
         var to = _organizeCards.IndexOf(card);
-        if (to < 0 || to == from) return;
+        if (to < 0 || to == drag.From) return;
 
-        await EditPagesAsync(new PageEdit.Move((uint)from, (uint)to), "Page moved.", onSuccess: _ => RenumberOrganizeCards());
+        await CompleteOrganizePageMoveAsync(drag, to);
     }
 
-    private async Task EditPageAtCardAsync(Border card, Func<uint, PageEdit> edit, string done)
+    private async Task CompleteOrganizePageMoveAsync(OrganizePageDrag drag, int to)
     {
+        if (!OrganizePageDragCurrent(drag) || to < 0 || to >= _organizeCards.Count || to == drag.From) return;
+        await EditPagesAsync(new PageEdit.OrganizePage(drag.Snapshot, (uint)drag.From, DocumentBlockAction.Move, (uint)to),
+            "Page moved.", onSuccess: _ => RenumberOrganizeCards());
+    }
+
+    private async Task EditPageAtCardAsync(Border card, DocumentBlockAction action, int target = -1)
+    {
+        if (!OrganizePagesReady) return;
         var index = _organizeCards.IndexOf(card);
         if (index < 0) return;
 
-        await EditPagesAsync(edit((uint)index), done, onSuccess: pageEdit =>
+        await EditPagesAsync(new PageEdit.OrganizePage(_organizePageSnapshot!, (uint)index, action, (uint)Math.Max(0, target)),
+            action == DocumentBlockAction.Delete ? "Page deleted." : action == DocumentBlockAction.Move ? "Page moved." : "Page rotated.", onSuccess: _ =>
         {
-            switch (pageEdit)
+            switch (action)
             {
-                case PageEdit.Remove:
+                case DocumentBlockAction.Delete:
                     _organizeCards.RemoveAt(index);
                     RenumberOrganizeCards();
                     break;
-                case PageEdit.Rotate:
+                case DocumentBlockAction.Move:
+                    _organizeCards.Move(index, target);
+                    RenumberOrganizeCards();
+                    break;
+                case DocumentBlockAction.RotateLeft:
+                case DocumentBlockAction.RotateRight:
                     // Only this page looks different now. Clearing the old
                     // picture keeps a stale upright page from standing in
                     // for the turned one while it renders.
@@ -322,39 +301,61 @@ public sealed partial class MainWindow
     /// </remarks>
     private async Task EditPagesAsync(PageEdit edit, string done, Action<PageEdit> onSuccess)
     {
-        if (_session is null || _organizeBusy) return;
+        if (_session is null || _organizeBusy || _isBusy || _dialogOpen) return;
 
         _organizeBusy = true;
-        OrganizeGrid.IsEnabled = false;
-        InsertBlankPageButton.IsEnabled = false;
-        InsertLandscapePageButton.IsEnabled = false;
+        SetBusy(true);
+        UpdateOrganizeHeader();
         // Before the edit, not after: the preview is rebuilt inside it, and a
         // thumbnail asked of the old layout could land once it has — on a
         // card that, after a drop, no longer sits where it was asked for.
         _thumbnailGeneration++;
-        var result = await _facade.EditPagesAsync(_session.SessionId, edit);
-        _organizeBusy = false;
-        OrganizeGrid.IsEnabled = true;
-        InsertBlankPageButton.IsEnabled = true;
-        InsertLandscapePageButton.IsEnabled = true;
-        if (!_organizing) return;
-
-        if (!result.IsSuccess)
+        ClearOrganizePageDrag();
+        try
         {
-            AnnotationStatus.Text = result.Error!.Message;
-            BuildOrganizeCards();
-            return;
-        }
+            var result = await _facade.EditPagesAsync(_session.SessionId, edit);
+            if (!_organizing) return;
 
-        _session = result.Value!;
-        _pagesEdited = true;
-        _viewerStale = true;
-        onSuccess(edit);
-        // Picks up every card still blank, the turned one included.
-        _ = RenderThumbnailsAsync(_thumbnailGeneration);
-        AnnotationStatus.Text = $"{done} Changes are pending save.";
-        RefreshSessionCommands();
-        await RefreshAnnotationStateAsync();
+            if (!result.IsSuccess)
+            {
+                AnnotationStatus.Text = result.Error!.Message;
+                var current = await _facade.SessionAsync(_session.SessionId);
+                if (current.IsSuccess) _session = current.Value!;
+                // A preview failure can follow a recorded edit. Reconcile from
+                // core and retain the history refresh obligation even on error.
+                _pagesEdited = true;
+                _viewerStale = true;
+                RefreshSessionCommands();
+                BuildOrganizeCards();
+                await RefreshAnnotationStateAsync();
+                return;
+            }
+
+            _session = result.Value!;
+            _pagesEdited = true;
+            _viewerStale = true;
+            if (_showingOrganizeDocuments) await PopulateOrganizeDocumentsAsync();
+            else
+            {
+                onSuccess(edit);
+                await RefreshOrganizePageSourcesAsync(_thumbnailGeneration);
+            }
+            // Picks up every card still blank, the turned one included.
+            _ = RenderThumbnailsAsync(_thumbnailGeneration);
+            AnnotationStatus.Text = $"{done} Changes are pending save.";
+            RefreshSessionCommands();
+            await RefreshAnnotationStateAsync();
+        }
+        finally
+        {
+            _organizeBusy = false;
+            if (!_windowClosed)
+            {
+                SetBusy(false);
+                UpdateAnnotationControls(_annotationState);
+                UpdateOrganizeHeader();
+            }
+        }
     }
 
     private void RenumberOrganizeCards()
@@ -362,6 +363,7 @@ public sealed partial class MainWindow
         for (var index = 0; index < _organizeCards.Count; index++)
         {
             ((OrganizeCard)_organizeCards[index].Tag).Number.Text = (index + 1).ToString();
+            AutomationProperties.SetName(_organizeCards[index], $"Page {index + 1}");
         }
     }
 
@@ -387,8 +389,11 @@ public sealed partial class MainWindow
             if (generation != _thumbnailGeneration) return;
             if (result.IsSuccess)
             {
-                card.Thumbnail.Source = await MaterializeBitmapAsync(result.Value!);
+                var bitmap = await MaterializeBitmapAsync(result.Value!);
+                if (generation != _thumbnailGeneration || _session?.SessionId != sessionId) return;
+                card.Thumbnail.Source = bitmap;
             }
+            else ToolTipService.SetToolTip(card.Thumbnail, result.Error!.Message);
         }
     }
 

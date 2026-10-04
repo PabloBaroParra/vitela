@@ -7,8 +7,20 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Selection.cs" Link="Facade\PdfDocumentFacade.Selection.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.FormGeometry.cs" Link="Facade\PdfDocumentFacade.FormGeometry.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Search.cs" Link="Facade\PdfDocumentFacade.Search.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.AnnotationStyle.cs" Link="Facade\PdfDocumentFacade.AnnotationStyle.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Lifecycle.cs" Link="Facade\PdfDocumentFacade.Lifecycle.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\DragEdgeScroll.cs" Link="Viewer\DragEdgeScroll.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\DocumentBlocks.cs" Link="Facade\DocumentBlocks.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Organize.cs" Link="Facade\PdfDocumentFacade.Organize.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\Signing.cs" Link="Facade\Signing.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Signing.cs" Link="Facade\PdfDocumentFacade.Signing.cs" />
     <Compile Include="..\Pdf.Windows\Facade\BundledPdfium.cs" Link="Facade\BundledPdfium.cs" />
     <Compile Include="..\Pdf.Windows\Facade\Models.cs" Link="Facade\Models.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\MetadataDateText.cs" Link="Facade\MetadataDateText.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Metadata.cs" Link="Facade\PdfDocumentFacade.Metadata.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfCore.cs" Link="Facade\PdfCore.cs" />
     <Compile Include="..\Pdf.Windows\Facade\DiagnosticLog.cs" Link="Facade\DiagnosticLog.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.cs" Link="Facade\PdfDocumentFacade.cs" />
@@ -28,8 +40,10 @@
     <Compile Include="..\Pdf.Windows\Viewer\ImageExportWording.cs" Link="Viewer\ImageExportWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ExtractPagesWording.cs" Link="Viewer\ExtractPagesWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageZoom.cs" Link="Viewer\PageZoom.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\SideColumn.cs" Link="Viewer\SideColumn.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageRenderPlan.cs" Link="Viewer\PageRenderPlan.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageWindow.cs" Link="Viewer\PageWindow.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\RequestedPage.cs" Link="Viewer\RequestedPage.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ViewportTilePlan.cs" Link="Viewer\ViewportTilePlan.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\StampPreviewCache.cs" Link="Viewer\StampPreviewCache.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ImageStampInput.cs" Link="Viewer\ImageStampInput.cs" />
@@ -44,5 +58,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\FormFieldChoices.cs" Link="Viewer\FormFieldChoices.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormFieldText.cs" Link="Viewer\FormFieldText.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormPlacementRect.cs" Link="Viewer\FormPlacementRect.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\HomeLayout.cs" Link="Viewer\HomeLayout.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\TitleBarColors.cs" Link="Viewer\TitleBarColors.cs" />
   </ItemGroup>
 </Project>

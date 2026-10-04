@@ -82,8 +82,8 @@ public sealed partial class MainWindow
         await navigating;
         if (PageScroller.VerticalOffset != offset || _dialogOpen) throw new Exception("Cancel navigated or kept modal open.");
 
-        PanelsButton.IsChecked = false;
-        PanelsButton_Click(PanelsButton, new RoutedEventArgs());
+        PagesPanelButton.IsChecked = false;
+        PagesPanelButton_Click(PagesPanelButton, new RoutedEventArgs());
         navigating = GoToPageAsync();
         dialog = await WaitForNavigationDialogAsync(dialog);
         ((NumberBox)dialog.Content).Value = _session.PageCount;
@@ -92,7 +92,7 @@ public sealed partial class MainWindow
         InvokeGo(dialog);
         await navigating;
         await WaitForNavigationAsync(() => _firstVisiblePage == _slots.Count - 1);
-        if (PageNavigationList.SelectedIndex != _firstVisiblePage || PanelsButton.IsChecked != false)
+        if (PageNavigationList.SelectedIndex != _firstVisiblePage || PagesPanelButton.IsChecked != false)
             throw new Exception("Page list or panels changed unexpectedly.");
         navigating = GoToPageAsync();
         dialog = await WaitForNavigationDialogAsync(dialog);

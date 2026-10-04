@@ -16,6 +16,11 @@ internal sealed record PdfCorePageDimensions(double WidthPt, double HeightPt, Pa
 
 internal interface IPdfCore
 {
+    IReadOnlyList<DocumentBlock> DocumentBlocks(IPdfCoreDocument document);
+    string? SigningRefusal(IPdfCoreDocument document);
+    ISigningCertificate OpenSigningCertificate(byte[] bytes, string password);
+    byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId);
+
     IPdfCoreDocument OpenFromBytes(byte[] bytes, string? password);
 
     IPdfCoreDocument OpenWithPasswordsFromBytes(byte[] bytes, string openPassword, string permissionsPassword);
@@ -386,6 +391,8 @@ internal abstract record PdfCoreEdit
     public sealed record RemovePage(uint PageIndex) : PdfCoreEdit;
     /// <summary><paramref name="To"/> is where the block starts after the move.</summary>
     public sealed record MovePages(uint From, uint Count, uint To) : PdfCoreEdit;
+    public sealed record RemovePages(uint Index, uint Count) : PdfCoreEdit;
+    public sealed record RotatePages(uint From, uint Count, int DeltaDegrees) : PdfCoreEdit;
 
     /// <summary>
     /// Fills an existing field in. The core validates <paramref name="Value"/>

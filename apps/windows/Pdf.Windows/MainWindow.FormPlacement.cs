@@ -12,7 +12,7 @@ public sealed partial class MainWindow
 
     private FieldToPlace? _placingFormField;
     private bool _creatingFormField;
-    private (int PageIndex, AnnotationPoint Origin)? _formFieldPress;
+    private (int PageIndex, AnnotationPoint Origin, AnnotationPoint Current)? _formFieldPress;
     private uint _formPlacementGeneration;
 
     private async void PlaceTextFieldButton_Click(object sender, RoutedEventArgs e) =>
@@ -29,7 +29,7 @@ public sealed partial class MainWindow
 
     private async Task SetFormFieldPlacementAsync(FieldToPlace kind, bool requested)
     {
-        StopPlacingFormField();
+        ClearFormFieldPlacement();
         if (!requested) return;
         var button = kind switch
         {
@@ -41,22 +41,28 @@ public sealed partial class MainWindow
         button.IsChecked = true;
         var generation = _formPlacementGeneration;
         var sessionId = _session?.SessionId;
-        if (sessionId is null)
+        if (sessionId is null || !EditFormsButton.IsEnabled)
         {
             StopPlacingFormField();
             return;
         }
         await SettleContentEditorForHistoryAsync();
-        if (_session?.SessionId != sessionId || generation != _formPlacementGeneration || button.IsChecked != true)
+        if (_session?.SessionId != sessionId || generation != _formPlacementGeneration || button.IsChecked != true || !EditFormsButton.IsEnabled)
         {
             if (generation == _formPlacementGeneration) StopPlacingFormField();
             return;
         }
         SetContentEditMode(false);
+        _formEditMode = true;
+        EditFormsButton.IsChecked = true;
+        _textSelection = null;
+        _textDragActive = false;
+        RedrawSelection();
         _placingFormField = kind;
         _armedAnnotation = null;
+        _selectedAnnotationId = null;
         SyncAnnotationToolButtons();
-        FormFieldsPanel.IsExpanded = true;
+        RedrawAnnotations();
         FormFieldsStatus.Text = kind switch
         {
             FieldToPlace.Text => "Click or drag on a page to place a text field.",
@@ -68,9 +74,20 @@ public sealed partial class MainWindow
 
     private void StopPlacingFormField()
     {
+        ClearFormFieldPlacement();
+        _formEditMode = false;
+        _selectedFormFieldId = null;
+        EditFormsButton.IsChecked = false;
+        UpdateFormToolbar();
+        RedrawAnnotations();
+    }
+
+    private void ClearFormFieldPlacement()
+    {
         _formPlacementGeneration++;
         _placingFormField = null;
         _formFieldPress = null;
+        _formGeometryDrag = null;
         PlaceTextFieldButton.IsChecked = false;
         PlaceCheckboxButton.IsChecked = false;
         PlaceRadioGroupButton.IsChecked = false;
@@ -79,8 +96,16 @@ public sealed partial class MainWindow
 
     private bool BeginFormFieldPlacement(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
-        if (_placingFormField is null) return false;
-        _formFieldPress = (pageIndex, ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position));
+        if (!_formEditMode || !EditFormsButton.IsEnabled) return false;
+        if (_placingFormField is null)
+        {
+            var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
+            if (BeginFormGeometryDrag(pageIndex, point, slot.Scale)) slot.Annotations.CapturePointer(args.Pointer);
+            args.Handled = true;
+            return true;
+        }
+        var origin = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
+        _formFieldPress = (pageIndex, origin, origin);
         slot.Annotations.CapturePointer(args.Pointer);
         args.Handled = true;
         return true;
@@ -88,7 +113,15 @@ public sealed partial class MainWindow
 
     private async Task<bool> EndFormFieldPlacementAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
-        if (_placingFormField is not { } kind) return false;
+        if (_formGeometryDrag is { Field.PageIndex: var dragPage } drag && dragPage == pageIndex)
+        {
+            _formGeometryDrag = null;
+            slot.Annotations.ReleasePointerCapture(args.Pointer);
+            await CommitFormGeometryDragAsync(drag with { Current = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position) });
+            RedrawAnnotations();
+            return true;
+        }
+        if (_placingFormField is not { } kind) return _formEditMode;
         if (_formFieldPress is not { PageIndex: var pressPage, Origin: var origin } ||
             pressPage != pageIndex || _creatingFormField || _session is null) return true;
         _formFieldPress = null;
@@ -109,6 +142,7 @@ public sealed partial class MainWindow
         if (rect.Width <= 0 || rect.Height <= 0) return true;
 
         _creatingFormField = true;
+        var previousIds = _formFieldState?.Fields.Select(field => field.Id).ToHashSet() ?? [];
         try
         {
             var result = kind switch
@@ -133,6 +167,7 @@ public sealed partial class MainWindow
             if (_session?.SessionId != sessionId) return true;
             if (generation == _formPlacementGeneration)
             {
+                SelectFormField(_formFieldState?.Fields.FirstOrDefault(field => !previousIds.Contains(field.Id))?.Id);
                 FormFieldsStatus.Text = kind switch
                 {
                     FieldToPlace.Text => "Text field placed. Save to keep the change.",
@@ -140,7 +175,7 @@ public sealed partial class MainWindow
                     FieldToPlace.RadioGroup => "Radio group placed. Save to keep the change.",
                     _ => "Dropdown placed. Save to keep the change.",
                 };
-                StopPlacingFormField();
+                ClearFormFieldPlacement();
             }
         }
         finally

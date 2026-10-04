@@ -48,6 +48,11 @@ public sealed partial class MainWindow
 
     private void PageScroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        if (!e.IsIntermediate)
+        {
+            _requestedPage.Landed(PageScroller.VerticalOffset);
+        }
+
         UpdateViewport(e.IsIntermediate);
     }
 
@@ -202,6 +207,8 @@ public sealed partial class MainWindow
         var rasterizationScale = _xamlRoot?.RasterizationScale ?? 1.0;
 
         var retargeted = false;
+        // A requested page is pinned to an offset in the old boxes.
+        _requestedPage.Clear();
         _spans = new List<PageSpan>(_slots.Count);
         double top = 0;
         for (var index = 0; index < _slots.Count && index < session.Pages.Count; index++)
@@ -250,8 +257,8 @@ public sealed partial class MainWindow
         _renderWindow = _deferPrefetchUntilVisibleSettles
             ? visible
             : visible.Expand(PrefetchWindow, _slots.Count);
-        _firstVisiblePage = visible.First;
-        PageCounter.Text = $"Page {visible.First + 1} of {_slots.Count}";
+        _firstVisiblePage = _requestedPage.Current(visible.First, PageScroller.VerticalOffset);
+        PageCounter.Text = $"Page {_firstVisiblePage + 1} of {_slots.Count}";
         SyncPageNavigation();
         ZoomLevel.Text = DescribeZoom(_slots[visible.First].Factor);
 

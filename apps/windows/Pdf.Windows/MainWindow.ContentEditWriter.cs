@@ -162,8 +162,13 @@ public sealed partial class MainWindow
     /// <summary>The pump's write port, wired to the facade.</summary>
     private sealed class FacadeContentWriter(MainWindow owner) : IContentEditWriter<ContentEditor>
     {
-        public Task<ContentWriteOutcome> WriteAsync(ContentEditor box, string text) =>
-            owner.SendEditorTextAsync(box, text);
+        public async Task<ContentWriteOutcome> WriteAsync(ContentEditor box, string text)
+        {
+            var outcome = await owner.SendEditorTextAsync(box, text);
+            // The pump records WrittenFor only after this port returns.
+            owner.DispatcherQueue.TryEnqueue(owner.UpdateEditTextSelection);
+            return outcome;
+        }
     }
 
     /// <summary>The pump's pause port, wired to the shell's dispatcher timer.</summary>

@@ -32,57 +32,82 @@ public sealed partial class MainWindow
     private IPrintDocumentSource? _printDocumentSource;
     private PrintJob? _printJob;
     private PrintTaskOptions? _printTaskOptions;
+    private bool _printingDocument;
 
     private async void PrintButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_session is null || _session.State == Facade.DocumentSessionState.Empty)
+        if (_printingDocument || _isBusy || _dialogOpen || _shellPickingFile) return;
+        if (_session is null)
         {
-            PrintStatus.Text = "Open a document with pages before printing.";
+            PrintStatus.Text = "Open a PDF before printing.";
             return;
         }
-
+        if (_session.PageCount == 0)
+        {
+            PrintStatus.Text = "The PDF has no pages to print.";
+            return;
+        }
         var session = _session;
-
-        // Printing reads a snapshot that carries this session's annotations:
-        // the document the viewer renders leaves them out, because the
-        // canvas draws them as an overlay that never reaches paper.
-        PrintStatus.Text = "Preparing to print...";
-        var prepared = await _facade.PreparePrintAsync(session.SessionId);
-        if (!prepared.IsSuccess)
-        {
-            PrintStatus.Text = prepared.Error!.Message;
-            return;
-        }
-
-        PrintStatus.Text = string.Empty;
-        if (_session?.SessionId != session.SessionId)
-        {
-            _facade.ReleasePrint(session.SessionId);
-            return;
-        }
-
-        // Pages are rendered lazily: the dialog opens immediately, preview
-        // pages render on demand at screen DPI (GetPreviewPage), and the
-        // full-quality pass at PrintDpi only runs once the user confirms
-        // printing (AddPages).
-        _printJob = new PrintJob(session.SessionId, session.DisplayName, (int)prepared.Value);
+        _printingDocument = true;
+        SetBusy(true);
         try
         {
+            if (!await PrepareDocumentLifecycleAsync())
+            {
+                FinishPrinting();
+                return;
+            }
+            // Print reads the output snapshot, including edits and annotations
+            // that otherwise exist only in the viewer's overlay.
+            PrintStatus.Text = "Preparing to print...";
+            var prepared = await _facade.PreparePrintAsync(session.SessionId);
+            if (!prepared.IsSuccess)
+            {
+                PrintStatus.Text = $"Could not prepare the document for printing: {prepared.Error!.Message}";
+                FinishPrinting();
+                return;
+            }
+            PrintStatus.Text = string.Empty;
+            if (_session?.SessionId != session.SessionId || prepared.Value == 0)
+            {
+                if (_session?.SessionId == session.SessionId)
+                    PrintStatus.Text = "The PDF has no pages to print.";
+                _facade.ReleasePrint(session.SessionId);
+                FinishPrinting();
+                return;
+            }
+            // Native preview renders on demand; full quality runs in AddPages.
+            _printJob = new PrintJob(session.SessionId, session.DisplayName, (int)prepared.Value);
             EnsurePrintingAvailable();
-            await PrintManagerInterop.ShowPrintUIForWindowAsync(WindowNative.GetWindowHandle(this));
+            if (!await PrintManagerInterop.ShowPrintUIForWindowAsync(WindowNative.GetWindowHandle(this)))
+                FinishPrinting();
         }
         catch (Exception error) when (error is COMException or InvalidOperationException or NotImplementedException)
         {
             PrintStatus.Text = "Printing is unavailable on this Windows installation.";
-            _printJob = null;
-            _facade.ReleasePrint(session.SessionId);
+            FinishPrinting();
+        }
+        catch (Exception error)
+        {
+            PrintStatus.Text = $"Could not print: {error.Message}";
+            FinishPrinting();
         }
         // NOTE: do NOT tear down _printJob/_printTaskOptions after ShowPrintUI.
         // ShowPrintUIForWindowAsync returns when the dialog is *shown*, not
         // when it is dismissed; the preview pipeline (Paginate/GetPreviewPage/
         // AddPages) runs afterwards while the dialog is open and needs this
         // state alive — the print snapshot included. Both are released in
-        // PrintTask_Completed instead.
+        // the task's Completed handler instead.
+    }
+
+    private void FinishPrinting()
+    {
+        if (_printJob is { } job) _facade.ReleasePrint(job.SessionId);
+        _printJob = null;
+        _printTaskOptions = null;
+        _printingDocument = false;
+        SetBusy(false);
+        RestoreAnnotationControls();
     }
 
     private void EnsurePrintingAvailable()
@@ -103,34 +128,31 @@ public sealed partial class MainWindow
 
     private void PrintManager_PrintTaskRequested(PrintManager sender, PrintTaskRequestedEventArgs args)
     {
-        if (_printJob is null || _printDocumentSource is null)
+        var job = _printJob;
+        if (job is null || _printDocumentSource is null)
         {
             return;
         }
 
         var source = _printDocumentSource;
-        var task = args.Request.CreatePrintTask(_printJob.DisplayName, sourceArgs => sourceArgs.SetSource(source));
-        task.Completed += PrintTask_Completed;
-    }
-
-    private void PrintTask_Completed(PrintTask sender, PrintTaskCompletedEventArgs args)
-    {
-        DispatcherQueue.TryEnqueue(() =>
+        var task = args.Request.CreatePrintTask(job.DisplayName, sourceArgs => sourceArgs.SetSource(source));
+        task.Completed += (_, completed) =>
         {
-            if (_printJob is { } job)
+            var completion = completed.Completion;
+            DispatcherQueue.TryEnqueue(() =>
             {
-                _facade.ReleasePrint(job.SessionId);
-            }
-
-            _printJob = null;
-            _printTaskOptions = null;
-        });
+                if (_printJob != job) return;
+                if (completion == PrintTaskCompletion.Failed) PrintStatus.Text = "Printing failed.";
+                FinishPrinting();
+            });
+        };
     }
 
     private void PrintDocument_Paginate(object sender, PaginateEventArgs e)
     {
+        if (_printJob is not { } job) return;
         _printTaskOptions = e.PrintTaskOptions;
-        _printDocument!.SetPreviewPageCount(_printJob!.PageCount, PreviewPageCountType.Final);
+        _printDocument!.SetPreviewPageCount(job.PageCount, PreviewPageCountType.Final);
     }
 
     private async void PrintDocument_GetPreviewPage(object sender, GetPreviewPageEventArgs e)
@@ -148,17 +170,16 @@ public sealed partial class MainWindow
         try
         {
             var bitmap = await GetPreviewBitmapAsync(job, e.PageNumber - 1);
-            if (bitmap is null || _printJob != job)
+            if (_printJob != job || _printTaskOptions is null)
             {
                 return;
             }
 
             _printDocument!.SetPreviewPage(e.PageNumber, CreatePrintPage(bitmap, e.PageNumber - 1, _printTaskOptions!));
         }
-        catch (Exception)
+        catch (Exception error)
         {
-            // async void: an unhandled exception here crashes the process.
-            // A failed page simply stays on the preview pane's spinner.
+            if (_printJob == job) PrintStatus.Text = $"Could not prepare the print preview: {error.Message}";
         }
     }
 
@@ -175,24 +196,18 @@ public sealed partial class MainWindow
             for (var pageIndex = 0; pageIndex < job.PageCount; pageIndex++)
             {
                 var bitmap = await RenderPrintBitmapAsync(job, pageIndex, PrintDpi);
-                if (bitmap is null)
-                {
-                    PrintStatus.Text = "Unable to prepare all pages; the print job was truncated.";
-                    break;
-                }
-
+                if (_printJob != job) return;
                 _printDocument!.AddPage(CreatePrintPage(bitmap, pageIndex, e.PrintTaskOptions));
             }
         }
-        catch (Exception)
+        catch (Exception error)
         {
-            // async void: an unhandled exception here crashes the process.
+            if (_printJob == job) PrintStatus.Text = $"Could not print: {error.Message}";
         }
         finally
         {
-            // Always complete, even truncated — a job with pending pages
-            // leaves the print dialog waiting forever.
-            _printDocument!.AddPagesComplete();
+            // Completion may arrive while a raster is in flight.
+            if (_printJob == job) _printDocument!.AddPagesComplete();
         }
     }
 
@@ -211,16 +226,22 @@ public sealed partial class MainWindow
 
     private async Task<WriteableBitmap?> RenderPrintBitmapAsync(PrintJob job, int pageIndex, uint dpi)
     {
-        var rendered = await _facade.RenderPageForPrintAsync(job.SessionId, (uint)pageIndex, dpi, false);
-        if (!rendered.IsSuccess)
+        try
         {
-            return null;
+            var rendered = await _facade.RenderPageForPrintAsync(job.SessionId, (uint)pageIndex, dpi, false);
+            if (rendered.IsSuccess) return await MaterializeBitmapAsync(rendered.Value!);
         }
-
-        return await MaterializeBitmapAsync(rendered.Value!);
+        catch (Exception)
+        {
+            // Bitmap conversion can fail too; preserve this page's slot just
+            // as for a core raster failure, and report it below.
+        }
+        if (_printJob == job)
+            PrintStatus.Text = $"Could not render page {pageIndex + 1} for printing. It will be blank.";
+        return null;
     }
 
-    private Grid CreatePrintPage(WriteableBitmap bitmap, int pageIndex, PrintTaskOptions options)
+    private Grid CreatePrintPage(WriteableBitmap? bitmap, int pageIndex, PrintTaskOptions options)
     {
         var description = options.GetPageDescription((uint)pageIndex);
         var page = new Grid
@@ -228,6 +249,7 @@ public sealed partial class MainWindow
             Width = description.PageSize.Width,
             Height = description.PageSize.Height,
         };
+        if (bitmap is null) return page;
         var imageable = description.ImageableRect;
         page.Children.Add(new Image
         {

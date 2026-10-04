@@ -41,6 +41,7 @@ public sealed partial class MainWindow
     private void BeginTextSelection(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
         if (_session is null) return;
+        if (!CanSelectDocumentText()) return;
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _textSelection = new TextDrag(pageIndex, point, point);
         _textDragActive = true;
@@ -90,13 +91,43 @@ public sealed partial class MainWindow
         }
 
         args.Handled = true;
-        var text = SelectedText();
-        if (text is not { Length: > 0 }) return;
+        CopySelectedDocumentText();
+    }
 
-        var package = new DataPackage();
-        package.SetText(text);
-        Clipboard.SetContent(package);
-        AnnotationStatus.Text = "Text copied.";
+    /// <summary>Clipboard output boundary, independent of keyboard focus routing.</summary>
+    private void CopySelectedDocumentText()
+    {
+        if (!CanSelectDocumentText()) return;
+        var text = SelectedText();
+        if (text is not { Length: > 0 })
+        {
+            AnnotationStatus.Text = "Select text on a page before copying.";
+            return;
+        }
+
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(text);
+            Clipboard.SetContent(package);
+            AnnotationStatus.Text = "Text copied.";
+        }
+        catch (Exception)
+        {
+            AnnotationStatus.Text = "Could not copy the selected text.";
+        }
+    }
+
+    private bool CanSelectDocumentText()
+    {
+        if (_session is null) return false;
+        var permission = _facade.SelectionAllowed(_session.SessionId);
+        if (permission.IsSuccess) return true;
+        _textSelection = null;
+        _textDragActive = false;
+        RedrawSelection();
+        AnnotationStatus.Text = permission.Error!.Message;
+        return false;
     }
 
     private string? SelectedText()
@@ -129,10 +160,11 @@ public sealed partial class MainWindow
         var result = await _facade.PageCharactersAsync(sessionId, pageIndex);
         state.Loading = false;
 
-        if (_session is null || _session.SessionId != sessionId)
+        if (_session is null || _session.SessionId != sessionId
+            || !_pageText.TryGetValue(pageIndex, out var current) || !ReferenceEquals(current, state))
         {
-            // A different document opened while this was in flight — the
-            // cache it would populate has already been reset.
+            // Replacement, history or a content edit invalidated this exact
+            // cache entry while loading. Never leak its handle or publish it.
             result.Value?.Dispose();
             return;
         }

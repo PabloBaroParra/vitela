@@ -3,6 +3,19 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("shell lifecycle conservatively guards full Undo without changing the default", DocumentStatesParityTests.RunAsync),
+    ("lifecycle query follows pending edits, successful writes and stale sessions", QueriesLifecycleChangesAsync),
+    ("document block snapshots, single commands and stale guards", OrganizeParityTests.RunAsync),
+    ("edits metadata dates and individual properties without losing offsets", MetadataParityTests.RunAsync),
+    ("guards annotation color choices against stale targets and permissions", AnnotationStyleParityTests.RunAsync),
+    ("refuses document search before matching when extraction is forbidden", SearchParityTests.RunAsync),
+    ("guards selection and cached copying independently of editing", SelectionParityTests.RunAsync),
+    ("signing gates, failed writes and serialized reopen preserve the live session", SigningParityTests.RunAsync),
+    ("defines one palette with the same roles in both themes and a Home breakpoint", ThemeParityTests.RunAsync),
+    ("folds a side column dragged below its minimum", FoldsSideColumnBelowMinimum),
+    ("reopens a side column at its last open width", ReopensSideColumnAtLastWidth),
+    ("keeps an open side column within its bounds", KeepsSideColumnWithinBounds),
+    ("squeezes and folds side columns when the window is too narrow", SqueezesAndFoldsSideColumnsInNarrowWindows),
     ("preserves note contents in read-only snapshots without history", PreservesNoteContentsAsync),
     ("replaces resource and inline image sources with history", ReplacesContentImagesAsync),
     ("refuses stale forbidden and unrecoverable image replacement", RefusesImageReplacementAsync),
@@ -25,6 +38,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("resizes resource and inline images through preview and history", ResizesContentImagesAsync),
     ("rejects invalid, stale and forbidden image resizing", RefusesInvalidImageResizingAsync),
     ("keeps a resized image undoable after preview failure", KeepsImageResizeAfterPreviewFailureAsync),
+    ("sets full image bounds in one geometry transaction", SetsContentImageBoundsAsync),
     ("maps typed password failures without diagnostics", MapsTypedPasswordFailureAsync),
     ("flags password failures as recoverable, others not", FlagsPasswordFailuresAsRecoverableAsync),
     ("maps selected-file read failures to user-safe results", MapsReadFailureAsync),
@@ -72,6 +86,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("resolves the pages a viewport shows", ResolvesVisiblePages),
     ("keeps the page straddling the top of the viewport", KeepsPageStraddlingViewportTop),
     ("clamps an expanded window to the document", ClampsExpandedWindowToDocument),
+    ("keeps a requested page while its scroll is on the way", KeepsRequestedPageWhileScrollIsOnTheWay),
+    ("keeps a requested page the scroller cannot bring to the top", KeepsRequestedPageTheScrollerCannotReach),
+    ("releases a requested page once the reader scrolls away", ReleasesRequestedPageOnScrollAway),
     ("admits visible pages before prefetch after a zoom retarget", AdmitsVisiblePagesBeforePrefetchAfterZoomRetarget),
     ("restores prefetch after visible pages reach a display-scale target", RestoresPrefetchAfterDisplayScaleRetarget),
     ("drops pages the zoom left behind out of the render window", DropsPagesLeftBehindByZoom)
@@ -125,6 +142,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("reopens protected bytes with both password roles", ReopensProtectedBytesWithBothPasswordRolesAsync)
     ,("refuses protection when content changes are forbidden", RefusesForbiddenProtectionAsync)
     ,("compresses with the chosen preset and reports both sizes", CompressesWithTheChosenPresetAsync)
+    ,("keeps compression source size separate from output size", KeepsCompressionSourceSizeAsync)
     ,("refuses to silently break a signature when compressing", RefusesToSilentlyBreakASignatureWhenCompressingAsync)
     ,("compresses a signed document once acknowledged", CompressesASignedDocumentOnceAcknowledgedAsync)
     ,("reports why a document cannot be compressed", ReportsWhyADocumentCannotBeCompressedAsync)
@@ -890,6 +908,51 @@ static Task ClampsExpandedWindowToDocument()
     return Task.CompletedTask;
 }
 
+static Task KeepsRequestedPageWhileScrollIsOnTheWay()
+{
+    var pages = Stack(10, height: 100);
+    var requested = new RequestedPage();
+    var offset = requested.Request(5, pages[5].Top, scrollableHeight: 1000);
+    Assert(offset == pages[5].Top, "a page the scroller can reach is brought to the top");
+    // ChangeView applies on the next layout pass: the offset is still the old one.
+    Assert(requested.Current(firstVisible: 0, verticalOffset: 0) == 5,
+        "the page list must not bounce back to the page the reader just left");
+    return Task.CompletedTask;
+}
+
+static Task KeepsRequestedPageTheScrollerCannotReach()
+{
+    var pages = Stack(10, height: 100);
+    var requested = new RequestedPage();
+    var bottom = 800.0;
+    var offset = requested.Request(9, pages[9].Top, scrollableHeight: bottom);
+    Assert(offset == bottom, "the last pages can only scroll as far as the end of the document");
+    requested.Landed(bottom);
+    var firstVisible = PageWindow.Resolve(pages, bottom, 300).First;
+    Assert(firstVisible == 7, "the clamped scroll shows an earlier page at the top");
+    Assert(requested.Current(firstVisible, bottom) == 9, "the page the reader picked stays the current page");
+    return Task.CompletedTask;
+}
+
+static Task ReleasesRequestedPageOnScrollAway()
+{
+    var pages = Stack(10, height: 100);
+    var requested = new RequestedPage();
+    requested.Landed(0);
+    Assert(requested.Current(firstVisible: 2, verticalOffset: 250) == 2, "without a request the viewport decides");
+
+    var offset = requested.Request(9, pages[9].Top, scrollableHeight: 800);
+    requested.Landed(offset + 0.4);
+    Assert(requested.Current(7, offset + 0.4) == 9, "layout rounding where the scroll landed keeps the request");
+    Assert(requested.Current(firstVisible: 5, verticalOffset: 600) == 5, "a scroll elsewhere hands control back to the viewport");
+    Assert(requested.Current(firstVisible: 7, verticalOffset: offset + 0.4) == 7, "a released request does not come back");
+
+    requested.Request(4, pages[4].Top, scrollableHeight: 800);
+    requested.Clear();
+    Assert(requested.Current(firstVisible: 0, verticalOffset: 0) == 0, "a relayout drops the request");
+    return Task.CompletedTask;
+}
+
 static Task AdmitsVisiblePagesBeforePrefetchAfterZoomRetarget()
 {
     var pages = Plans(6, targetDpi: 96, renderedDpi: 96);
@@ -1191,6 +1254,21 @@ static async Task BlocksOpenWithUnsavedAnnotationsAsync()
     Assert(open.Error!.Message == "Save or undo the pending annotation changes before opening another document.", "the user must be told a way out that the shell actually offers");
 }
 
+static async Task QueriesLifecycleChangesAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("first.pdf", [1]))).Value!;
+    Assert((await facade.HasUnsavedChangesAsync(session.SessionId)) is { IsSuccess: true, Value: false }, "a fresh document must close without a prompt");
+    await facade.EditAnnotationAsync(session.SessionId, new PdfCoreEdit.Add(PdfCoreAnnotationKind.Highlight, 0, new PdfCoreRect(10, 20, 30, 40), new PdfCoreColor(255, 220, 0)));
+    Assert((await facade.HasUnsavedChangesAsync(session.SessionId)).Value, "closing must see the same pending work as opening");
+    var failed = await facade.SaveToDestinationAsync(session.SessionId, _ => Task.FromException(new IOException("write failed")));
+    Assert(!failed.IsSuccess && (await facade.HasUnsavedChangesAsync(session.SessionId)).Value, "a failed write must keep the close prompt necessary");
+    Assert((await facade.SaveToDestinationAsync(session.SessionId, _ => Task.CompletedTask)).IsSuccess, "fixture save must succeed");
+    Assert(!(await facade.HasUnsavedChangesAsync(session.SessionId)).Value, "only a successful write clears unsaved state");
+    await facade.OpenAsync(new DocumentSource("second.pdf", [2]));
+    Assert(!(await facade.HasUnsavedChangesAsync(session.SessionId)).IsSuccess, "a retired session must not authorize closing a replacement");
+}
+
 /// <summary>
 /// The revision counter climbs on undo as well, so it can never fall back to
 /// the saved revision on its own — before the edit log was consulted, undoing
@@ -1350,23 +1428,23 @@ static Task ReportsAnUnplaceableStampImage()
 
 static Task RoutesDroppedFilesByKind()
 {
-    Assert(FileDropRouting.Classify("report.pdf") == DroppedFileKind.Document, "a dropped PDF must open as the document");
-    Assert(FileDropRouting.Classify("REPORT.PDF") == DroppedFileKind.Document, "extensions must be matched case-insensitively");
-    Assert(FileDropRouting.Classify(@"C:\stamps\signature.png") == DroppedFileKind.ImageStamp, "a dropped image must be placed as a stamp");
-    Assert(FileDropRouting.Classify("scan.jpeg") == DroppedFileKind.ImageStamp, "JPEG shares the image stamp route");
-    Assert(FileDropRouting.Classify("notes.txt") == DroppedFileKind.Unsupported, "an unrelated file must be refused rather than guessed at");
-    Assert(FileDropRouting.Classify("") == DroppedFileKind.Unsupported, "a path-less drop entry must be refused");
-    Assert(FileDropRouting.Classify(null) == DroppedFileKind.Unsupported, "a path-less drop entry must be refused");
+    Assert(FileDropRouting.Classify("%PDF-1.7"u8) == DroppedFileKind.Document, "a dropped PDF must open as the document");
+    Assert(FileDropRouting.Classify("%PDF-2.0"u8) == DroppedFileKind.Document, "PDF routing must not depend on the file name");
+    Assert(FileDropRouting.Classify([137, 80, 78, 71, 13, 10, 26, 10]) == DroppedFileKind.ImageStamp, "a dropped image must be placed as a stamp");
+    Assert(FileDropRouting.Classify([0xff, 0xd8, 0xff]) == DroppedFileKind.ImageStamp, "JPEG shares the image stamp route");
+    Assert(FileDropRouting.Classify("not a supported file"u8) == DroppedFileKind.Unsupported, "an unrelated file must be refused rather than guessed at");
+    Assert(FileDropRouting.Classify([]) == DroppedFileKind.Unsupported, "empty file content must be refused");
+    Assert(FileDropRouting.Classify([0x89, 0x50]) == DroppedFileKind.Unsupported, "a partial signature must be refused");
     return Task.CompletedTask;
 }
 
 static Task ActsOnOneDroppedFile()
 {
     string[] paths = ["README.md", "first.pdf", "second.pdf", "logo.png"];
-    var chosen = FileDropRouting.FirstActionable(paths, path => path);
-    Assert(chosen is { Item: "first.pdf", Kind: DroppedFileKind.Document }, "unsupported entries are skipped and the first actionable file wins");
-    Assert(FileDropRouting.FirstActionable(["a.txt", "b.zip"], path => path) is null, "a drop with nothing actionable must report no choice");
-    Assert(FileDropRouting.FirstActionable(Array.Empty<string>(), path => path) is null, "an empty drop must report no choice");
+    var chosen = FileDropRouting.FirstFile(paths);
+    Assert(chosen == "README.md", "the first dropped file wins before its content is classified");
+    Assert(FileDropRouting.FirstFile(["a.txt", "b.zip"]) == "a.txt", "an unsupported first file must not be skipped for a later file");
+    Assert(FileDropRouting.FirstFile(Array.Empty<string>()) is null, "an empty drop must report no choice");
     return Task.CompletedTask;
 }
 
@@ -1648,6 +1726,19 @@ static async Task CompressesWithTheChosenPresetAsync()
     Assert(compressed.Bytes.SequenceEqual(new byte[] { 7 }), "the compressed bytes must be the core's");
     Assert(compressed.BeforeBytes == 2_400_000 && compressed.AfterBytes == 840_000 && compressed.SavedBytes == 1_560_000, "both sizes must be the core's measurement, not re-derived");
     Assert(compressed.Reduced, "the outcome must be carried, not guessed from the sizes");
+}
+
+static async Task KeepsCompressionSourceSizeAsync()
+{
+    using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger());
+    var opened = (await facade.OpenAsync(new DocumentSource("sample.pdf", [1, 2, 3]))).Value!;
+    Assert(opened.SourceByteCount == 3, "size must describe input bytes, not compression BeforeBytes");
+    var compressed = await facade.CompressAsync(opened.SessionId, CompressionPreset.Balanced);
+    Assert(compressed.IsSuccess && compressed.Value!.BeforeBytes == 10, "fixture output size differs from input");
+    var current = (await facade.SessionAsync(opened.SessionId)).Value!;
+    Assert(current.SourceByteCount == 3, "copy output must not replace live backing size");
+    var blank = await facade.CreateBlankAsync();
+    Assert(blank.IsSuccess && blank.Value!.SourceByteCount is null, "new documents must not invent disk bytes");
 }
 
 static async Task RefusesToSilentlyBreakASignatureWhenCompressingAsync()
@@ -2250,6 +2341,63 @@ static async Task RefusesPageEditsAfterSessionSwapAsync()
     Assert(!result.IsSuccess && result.Error!.Message == "The document is no longer available.",
         "a page position means nothing against another document");
     Assert(core.PageEdits.Count == 0, "the core should not be asked");
+}
+
+static Task FoldsSideColumnBelowMinimum()
+{
+    var column = new SideColumn(minimum: 120, maximum: 320, initial: 160);
+    column.BeginDrag();
+    column.DragBy(-30);
+    Assert(column.IsOpen && column.PreferredWidth == 130, "a drag that still leaves room to draw keeps the column open");
+    column.DragBy(-20);
+    Assert(!column.IsOpen && column.Width(1000) == 0, "a drag past the minimum folds the column instead of clipping it");
+    column.DragBy(25);
+    Assert(column.IsOpen && column.PreferredWidth == 135, "dragging back across the minimum unfolds it from the divider");
+    return Task.CompletedTask;
+}
+
+static Task ReopensSideColumnAtLastWidth()
+{
+    var column = new SideColumn(minimum: 300, maximum: 600, initial: 300);
+    column.BeginDrag();
+    column.DragBy(150);
+    column.SetOpen(false);
+    Assert(!column.IsOpen && column.Width(1000) == 0, "the toggle folds the column");
+    column.SetOpen(true);
+    Assert(column.Width(1000) == 450, "the toggle restores the width the user last dragged");
+    column.BeginDrag();
+    column.DragBy(-400);
+    column.SetOpen(true);
+    Assert(column.Width(1000) == 450, "a drag fold keeps the last open width for the toggle");
+    return Task.CompletedTask;
+}
+
+static Task KeepsSideColumnWithinBounds()
+{
+    var column = new SideColumn(minimum: 300, maximum: 600, initial: 300);
+    column.BeginDrag();
+    column.DragBy(900);
+    Assert(column.PreferredWidth == 600, "a drag never widens past the maximum");
+    Assert(column.Width(420) == 420, "a smaller window squeezes the column without losing its preference");
+    Assert(column.Width(100) == 300, "an open column never draws below its minimum");
+    Assert(column.Width(2000) == 600, "a wider window gives back the preferred width");
+    return Task.CompletedTask;
+}
+
+static Task SqueezesAndFoldsSideColumnsInNarrowWindows()
+{
+    var tools = new SideColumn(minimum: 300, maximum: 600, initial: 300);
+    Assert(tools.Width(100, squeezeFloor: 200) == 200, "a narrow window squeezes the column to its floor, not to nothing and not to its full minimum");
+    Assert(tools.Width(250, squeezeFloor: 200) == 250, "room between the floor and the minimum is used");
+    Assert(tools.Width(420, squeezeFloor: 200) == 300, "a floor changes nothing while there is room: the preference wins");
+    Assert(tools.Width(100) == 300, "without a floor the minimum still holds");
+    var pages = new SideColumn(minimum: 120, maximum: 320, initial: 160);
+    Assert(pages.WidthOrFold(80) == 0, "a column with no room to draw folds instead of clipping");
+    Assert(pages.WidthOrFold(130) == 130, "a column that fits its minimum stays open");
+    Assert(pages.WidthOrFold(500) == 160, "and returns to its preference when there is room");
+    pages.SetOpen(false);
+    Assert(pages.WidthOrFold(500) == 0, "a column the user closed stays closed");
+    return Task.CompletedTask;
 }
 
 static void Assert(bool condition, string message)
@@ -3334,6 +3482,34 @@ static async Task KeepsImageResizeAfterPreviewFailureAsync()
     Assert(!result.IsSuccess && core.LastDocument!.CanUndo && core.ImageEdits.Count == 1, "a preview failure must report failure while retaining the undoable edit");
 }
 
+static async Task SetsContentImageBoundsAsync()
+{
+    var source = new PdfCoreContentImage(8, 0, new PdfCoreRect(20, 30, 100, 50), "Im1");
+    var core = new FakeCore { PageImages = [source] };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("image.pdf", [1]))).Value!;
+    var image = (await facade.PageContentAsync(session.SessionId, 0)).Value!.Images.Single();
+    var unchanged = await facade.SetImageBoundsAsync(session.SessionId, image, image.Bounds);
+    Assert(unchanged.IsSuccess && core.ImageEdits.Count == 0, "unchanged bounds must not enter history");
+    Assert(!(await facade.SetImageBoundsAsync(session.SessionId, image, new AnnotationRect(double.NaN, 10, 150, 75))).IsSuccess,
+        "non-finite bounds must not enter history");
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.SetImageBoundsAsync(session.SessionId, image, new AnnotationRect(5, 10, 150, 75))).IsSuccess,
+        "content permission must be rechecked when bounds are submitted");
+    core.LastDocument.ContentEditingAllowed = true;
+
+    var changed = await facade.SetImageBoundsAsync(session.SessionId, image, new AnnotationRect(5, 10, 150, 75));
+    Assert(changed.IsSuccess && changed.Value!.CanUndo && core.ImageEdits.Count == 1 && core.RefreshPreviewCalls == 1,
+        "a bounds change must enter one undoable transaction and refresh the preview");
+    Assert(core.ImageEdits[0].Item == source && core.ImageEdits[0].Rect == new PdfCoreRect(5, 10, 150, 75),
+        "a corner resize must preserve the image snapshot while replacing its complete bounds");
+    Assert(!(await facade.SetImageBoundsAsync(session.SessionId, image, new AnnotationRect(0, 0, 1, 1))).IsSuccess,
+        "a geometry commit must refuse its stale image snapshot");
+    await facade.UndoAsync(session.SessionId);
+    await facade.RedoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 3, "undo and redo must refresh the image geometry preview");
+}
+
 static async Task RefusesAFillForAMissingFieldAsync()
 {
     var core = new FakeCore { FormFields = SampleFormFields() };
@@ -3755,6 +3931,13 @@ static Task CommittingStopsThePauseBeforeItWaits()
 
 sealed class FakeCore : IPdfCore
 {
+    public System.Collections.Concurrent.ConcurrentQueue<string> SearchQueries { get; } = new();
+    public IReadOnlyList<DocumentBlock> Blocks { get; set; } = [];
+    public IReadOnlyList<DocumentBlock> DocumentBlocks(IPdfCoreDocument document) => Blocks;
+    public string? SignRefusal { get; set; }
+    public string? SigningRefusal(IPdfCoreDocument document) => SignRefusal ?? (document.PageCount == 0 ? "the document has no pages to sign" : null);
+    public ISigningCertificate OpenSigningCertificate(byte[] bytes, string password) => new FakeSigningCertificate();
+    public byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId) => [1, 2, 3];
     public uint PageCount { get; init; } = 1;
     public double PageWidthPt { get; init; } = 595;
     public double PageHeightPt { get; init; } = 842;
@@ -3845,6 +4028,7 @@ sealed class FakeCore : IPdfCore
 
     public IReadOnlyList<PdfCoreSearchHit> Search(IPdfCoreDocument document, string query)
     {
+        SearchQueries.Enqueue(query);
         if (Interlocked.Increment(ref _searchCount) == 1 && BlockFirstSearch)
         {
             FirstSearchStarted.SetResult();
@@ -4043,7 +4227,7 @@ sealed class FakeCore : IPdfCore
             return;
         }
 
-        if (edit is PdfCoreEdit.InsertBlankPage or PdfCoreEdit.RotatePage or PdfCoreEdit.RemovePage or PdfCoreEdit.MovePages)
+        if (edit is PdfCoreEdit.InsertBlankPage or PdfCoreEdit.RotatePage or PdfCoreEdit.RemovePage or PdfCoreEdit.MovePages or PdfCoreEdit.RotatePages or PdfCoreEdit.RemovePages)
         {
             // The assembly permission, as in the core's `apply_edit`.
             if (!fake.PageEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "this document does not permit inserting, removing or rotating its pages");
@@ -4255,6 +4439,7 @@ sealed class FakeCore : IPdfCore
 
     /// <summary>What <see cref="TextExtractionAllowed"/> answers — the document's <c>/P</c> bit 5.</summary>
     public bool ExtractionPermitted { get; init; } = true;
+    public Func<bool>? ExtractionPermissionOverride { get; init; }
     /// <summary>The pages a custom range parses to; <c>null</c> reads every page.</summary>
     public uint[]? ParsedSelection { get; init; }
     /// <summary>When set, the core refuses any custom range with this sentence.</summary>
@@ -4265,7 +4450,7 @@ sealed class FakeCore : IPdfCore
     public (IReadOnlyList<uint> Pages, uint Dpi)? LastOversizeQuery;
     public System.Collections.Concurrent.ConcurrentQueue<(uint Page, uint Dpi, PdfCoreImageFormat Format)> ExportedPages { get; } = new();
 
-    public bool TextExtractionAllowed(IPdfCoreDocument document) => ExtractionPermitted;
+    public bool TextExtractionAllowed(IPdfCoreDocument document) => ExtractionPermissionOverride?.Invoke() ?? ExtractionPermitted;
 
     public IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages)
     {
@@ -4352,7 +4537,7 @@ sealed class FakePageCharacters : IPdfCorePageCharacters
     public void Dispose() => Disposed = true;
 }
 
-sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt = 842, PageRotation rotation = PageRotation.None) : IPdfCoreDocument
+sealed partial class FakeDocument(uint pageCount, double widthPt = 595, double heightPt = 842, PageRotation rotation = PageRotation.None) : IPdfCoreDocument
 {
     private readonly List<PdfCorePageDimensions> _pages =
         [.. Enumerable.Range(0, (int)pageCount).Select(_ => new PdfCorePageDimensions(widthPt, heightPt, rotation))];
@@ -4384,6 +4569,7 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
 
     public void Apply(PdfCoreEdit edit)
     {
+        if (TrackAnnotationHistory) RecordAnnotationHistory();
         switch (edit)
         {
             case PdfCoreEdit.Add add:
@@ -4414,6 +4600,17 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
             case PdfCoreEdit.RemovePage removePage:
                 _pages.RemoveAt((int)removePage.PageIndex);
                 break;
+            case PdfCoreEdit.RemovePages removePages:
+                _pages.RemoveRange((int)removePages.Index, (int)removePages.Count);
+                break;
+            case PdfCoreEdit.RotatePages rotatePages:
+                for (var pageIndex = rotatePages.From; pageIndex < rotatePages.From + rotatePages.Count; pageIndex++)
+                {
+                    var page = _pages[(int)pageIndex];
+                    var turn = (PageRotation)((((int)page.Rotation + rotatePages.DeltaDegrees / 90) % 4 + 4) % 4);
+                    _pages[(int)pageIndex] = new(page.HeightPt, page.WidthPt, turn);
+                }
+                break;
             case PdfCoreEdit.MovePages move:
                 var block = _pages.GetRange((int)move.From, (int)move.Count);
                 _pages.RemoveRange((int)move.From, (int)move.Count);
@@ -4435,8 +4632,8 @@ sealed class FakeDocument(uint pageCount, double widthPt = 595, double heightPt 
         CanUndo = true;
         CanRedo = false;
     }
-    public bool Undo() { if (!CanUndo) return false; CanUndo = false; CanRedo = true; return true; }
-    public bool Redo() { if (!CanRedo) return false; CanRedo = false; CanUndo = true; return true; }
+    public bool Undo() { if (TrackAnnotationHistory) return RestoreAnnotationHistory(undo: true); if (!CanUndo) return false; CanUndo = false; CanRedo = true; return true; }
+    public bool Redo() { if (TrackAnnotationHistory) return RestoreAnnotationHistory(undo: false); if (!CanRedo) return false; CanRedo = false; CanUndo = true; return true; }
     public void Dispose() => Disposed = true;
 }
 

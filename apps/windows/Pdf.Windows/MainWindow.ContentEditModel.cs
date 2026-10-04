@@ -25,9 +25,8 @@ public sealed partial class MainWindow
     private readonly Dictionary<uint, PageContentState> _pageContent = [];
 
     /// <summary>
-    /// Loads and caches one page's content. A refusal is cached too, so a
-    /// document that withholds content editing does not re-ask the facade on
-    /// every click.
+    /// Loads and caches one page's content. Failed parses remain retryable,
+    /// matching Linux; permission is checked by the facade on each load.
     /// </summary>
     private async Task<PageContent?> EnsurePageContentAsync(uint pageIndex)
     {
@@ -42,7 +41,7 @@ public sealed partial class MainWindow
             _pageContent[pageIndex] = state;
         }
 
-        if (state.Content is not null || state.Denied)
+        if (state.Content is not null)
         {
             return state.Content;
         }
@@ -68,7 +67,8 @@ public sealed partial class MainWindow
     private async Task<PageContent?> LoadPageContentAsync(string sessionId, uint pageIndex, PageContentState state)
     {
         var result = await _facade.PageContentAsync(sessionId, pageIndex);
-        if (_session is null || _session.SessionId != sessionId)
+        if (_session is null || _session.SessionId != sessionId
+            || !_pageContent.TryGetValue(pageIndex, out var current) || !ReferenceEquals(current, state))
         {
             // A different document opened while this was in flight — the cache
             // it would populate has already been cleared.
@@ -77,7 +77,6 @@ public sealed partial class MainWindow
 
         if (!result.IsSuccess)
         {
-            state.Denied = true;
             AnnotationStatus.Text = result.Error!.Message;
             return null;
         }
@@ -159,6 +158,5 @@ public sealed partial class MainWindow
     {
         public PageContent? Content { get; set; }
         public Task<PageContent?>? Loading { get; set; }
-        public bool Denied { get; set; }
     }
 }

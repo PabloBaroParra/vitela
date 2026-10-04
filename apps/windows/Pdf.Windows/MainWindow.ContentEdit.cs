@@ -40,6 +40,7 @@ public sealed partial class MainWindow
     private readonly HashSet<uint> _contentEditedPages = [];
 
     private bool _contentEditMode;
+    private uint _contentModeGeneration;
 
     private void ContentEditButton_Click(object sender, RoutedEventArgs e) =>
         SetContentEditMode(ContentEditButton.IsChecked == true);
@@ -61,6 +62,7 @@ public sealed partial class MainWindow
         }
 
         _contentEditMode = active;
+        var generation = ++_contentModeGeneration;
         ContentEditButton.IsChecked = active;
 
         if (!active)
@@ -68,6 +70,8 @@ public sealed partial class MainWindow
             // Leaving the mode resolves the edit in progress rather than
             // dropping it — the same thing clicking another run does.
             await CommitContentEditorAsync();
+            if (generation != _contentModeGeneration) return;
+            ClearContentImageSelection();
             ClearContentEditVisuals();
             AnnotationStatus.Text = "Content editing off.";
             return;
@@ -95,6 +99,12 @@ public sealed partial class MainWindow
         {
             return false;
         }
+        if (_isBusy || _deletingContentText) return true;
+        if (!ContentEditButton.IsEnabled)
+        {
+            AnnotationStatus.Text = "This document does not permit content changes.";
+            return true;
+        }
 
         // Armed, the mode claims every press on a page: a click that lands on
         // no run still resolves the editor already open, and still says why
@@ -102,7 +112,7 @@ public sealed partial class MainWindow
         // would make an armed mode mean different things in different places
         // on the same page.
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
-        _ = OpenContentEditorAsync((uint)pageIndex, point);
+        _ = BeginContentGestureAsync(slot, pageIndex, point, args);
         return true;
     }
 
@@ -207,29 +217,34 @@ public sealed partial class MainWindow
         var slot = _slots[(int)pageIndex];
         ClearContentOutlines(slot);
 
-        if (!_contentEditMode || !_pageContent.TryGetValue(pageIndex, out var state) || state.Content is not { } content)
+        if (!_contentEditMode)
         {
             return;
         }
 
-        foreach (var run in content.TextRuns)
+        if (_pageContent.TryGetValue(pageIndex, out var state) && state.Content is { } content)
         {
-            var outline = new Rectangle
+            foreach (var run in content.TextRuns)
             {
-                StrokeThickness = 1,
-                Stroke = new SolidColorBrush(run.RequiresFontSubstitution
-                    ? global::Windows.UI.Color.FromArgb(120, 170, 90, 220)
-                    : global::Windows.UI.Color.FromArgb(120, 40, 120, 235)),
-                IsHitTestVisible = false,
-            };
-            if (run.RequiresFontSubstitution)
-            {
-                outline.StrokeDashArray = [2, 2];
-            }
+                var outline = new Rectangle
+                {
+                    StrokeThickness = 1,
+                    Stroke = new SolidColorBrush(run.RequiresFontSubstitution
+                        ? global::Windows.UI.Color.FromArgb(120, 170, 90, 220)
+                        : global::Windows.UI.Color.FromArgb(120, 40, 120, 235)),
+                    IsHitTestVisible = false,
+                };
+                if (run.RequiresFontSubstitution)
+                {
+                    outline.StrokeDashArray = [2, 2];
+                }
 
-            PlaceOverPage(outline, slot, (int)pageIndex, BoundsOf(run));
-            slot.Content.Children.Add(outline);
+                PlaceOverPage(outline, slot, (int)pageIndex, BoundsOf(run));
+                slot.Content.Children.Add(outline);
+            }
         }
+
+        DrawContentImageSelection(slot, pageIndex);
     }
 
     /// <summary>
@@ -280,9 +295,11 @@ public sealed partial class MainWindow
     /// </remarks>
     private void ResetContentEditState()
     {
+        _contentEditorRequest++;
         // Resets the pump too — the open editor and every run it has written
         // for — which is why this runs before the visuals are cleared.
         _pump.Reset();
+        ResetContentImageGestureState();
         ClearContentEditVisuals();
         _pageContent.Clear();
         _pendingRunBounds.Clear();
@@ -296,6 +313,7 @@ public sealed partial class MainWindow
     /// </summary>
     private void ResetContentEditMode()
     {
+        _contentModeGeneration++;
         _contentEditMode = false;
         ContentEditButton.IsChecked = false;
         ResetContentEditState();

@@ -30,29 +30,52 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
+    private bool _extractingPages;
+
     private async void ExtractPagesButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_isBusy || _session is not { PageCount: > 0 } session) return;
-
-        var plan = await AskExtractPagesAsync(session);
-        if (plan is null)
+        if (_extractingPages || _isBusy || _dialogOpen || _session is not { PageCount: > 0 } session) return;
+        _extractingPages = true;
+        try
         {
-            AnnotationStatus.Text = "Extract cancelled.";
-            return;
+            SetBusy(true);
+            if (!await PrepareDocumentLifecycleAsync()) return;
+            // Check the shared extraction/rewrite gates before offering the range dialog.
+            var preflight = await _facade.PlanExtractPagesAsync(session.SessionId, new ExtractPagesRequest("1"));
+            if (!preflight.IsSuccess)
+            {
+                AnnotationStatus.Text = preflight.Error!.Message;
+                return;
+            }
+            var plan = await AskExtractPagesAsync(session);
+            if (plan is null)
+            {
+                AnnotationStatus.Text = "Extract cancelled.";
+                return;
+            }
+            if (_session?.SessionId != session.SessionId) return;
+            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = "Save" };
+            picker.FileTypeChoices.Add("PDF", [".pdf"]);
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            var file = await picker.PickSaveFileAsync();
+            if (file is null)
+            {
+                AnnotationStatus.Text = "Extract cancelled. No file was written.";
+                return;
+            }
+            if (_session?.SessionId != session.SessionId) return;
+            await WriteExtractedPagesAsync(session.SessionId, plan, file);
         }
-
-        var picker = new FileSavePicker();
-        picker.FileTypeChoices.Add("PDF", [".pdf"]);
-        picker.SuggestedFileName = $"{Path.GetFileNameWithoutExtension(session.DisplayName)}-extract";
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        var file = await picker.PickSaveFileAsync();
-        if (file is null)
+        catch (Exception error)
         {
-            AnnotationStatus.Text = "Extract cancelled. No file was written.";
-            return;
+            AnnotationStatus.Text = _facade.SaveWriteFailure(error).Error!.Message;
         }
-
-        await WriteExtractedPagesAsync(session.SessionId, plan, file);
+        finally
+        {
+            _extractingPages = false;
+            SetBusy(false);
+            RestoreAnnotationControls();
+        }
     }
 
     private async Task WriteExtractedPagesAsync(string sessionId, ExtractPagesPlan plan, StorageFile file)
@@ -112,8 +135,9 @@ public sealed partial class MainWindow
     {
         var range = new TextBox
         {
-            Header = "Pages",
-            PlaceholderText = "e.g. 1-3,7",
+            Name = "ExtractPageRange",
+            Header = "Pages to extract",
+            PlaceholderText = "1-3,7",
             MinWidth = 240,
         };
 
@@ -122,17 +146,24 @@ public sealed partial class MainWindow
 
         var panel = new StackPanel { Spacing = 12, MaxWidth = 420 };
         panel.Children.Add(range);
+        panel.Children.Add(new TextBlock
+        {
+            Text = $"This document has {session.PageCount} {(session.PageCount == 1 ? "page" : "pages")}.",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+        });
         panel.Children.Add(refusal);
 
         var dialog = new ContentDialog
         {
-            Title = "Extract pages to a new PDF",
+            Title = "Extract pages",
             Content = panel,
             PrimaryButtonText = "Extract",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
+        dialog.Opened += (_, _) => range.Focus(FocusState.Programmatic);
 
         ExtractPagesPlan? plan = null;
         dialog.PrimaryButtonClick += async (_, args) =>

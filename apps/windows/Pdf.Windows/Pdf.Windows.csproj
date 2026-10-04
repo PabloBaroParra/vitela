@@ -8,6 +8,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Exe icon (Explorer, pinned taskbar button). Regenerate: python scripts/windows-app-icon.py -->
+    <ApplicationIcon>vitela.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!--
@@ -95,5 +97,7 @@
   <ItemGroup>
     <None Include="..\..\..\assets\brand\vitela-app-mark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark.svg" />
     <None Include="..\..\..\assets\brand\vitela-app-mark-dark.svg" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela-app-mark-dark.svg" />
+    <!-- The running window's icon (AppWindow.SetIcon in MainWindow.Chrome.cs). -->
+    <None Include="vitela.ico" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\vitela.ico" />
   </ItemGroup>
 </Project>

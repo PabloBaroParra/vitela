@@ -19,6 +19,7 @@ public sealed partial class MainWindow
     private string? _searchQuery;
     private readonly Dictionary<uint, List<SearchHit>> _searchHitsByPage = [];
     private SearchHit? _paintedHit;
+    private bool _searchPending;
 
     /// <summary>
     /// Ctrl+F moves focus to the search box rather than running a search —
@@ -29,53 +30,65 @@ public sealed partial class MainWindow
     private void FindDocument_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
-        SearchBox.Focus(FocusState.Programmatic);
+        if (_session is null || _isBusy || _dialogOpen || !_findDocumentButton.IsEnabled) return;
+        if (_organizing)
+        {
+            LeaveOrganizeView();
+            MarkRailDestination("Annotate");
+        }
+        ShowEditorView();
+        _documentFindFlyout.ShowAt(_findDocumentButton);
     }
 
     private async void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != VirtualKey.Enter) return;
         e.Handled = true;
-        if (SearchButton.IsEnabled) await RunSearchAsync();
+        if (!_isBusy && _session is { PageCount: > 0 }) await RunSearchAsync();
     }
 
     private async void SearchButton_Click(object sender, RoutedEventArgs e) => await RunSearchAsync();
 
     private async Task RunSearchAsync()
     {
+        if (_isBusy || _dialogOpen) return;
         if (_session is null)
         {
+            SetSearchStatus("Open a PDF before searching.");
             return;
         }
 
-        var query = SearchBox.Text.Trim();
-        SetDocumentPanelsVisible(true);
+        var query = SearchBox.Text;
         ClearSearchResults();
         if (query.Length == 0)
         {
-            SearchStatus.Text = "Enter text to find.";
+            SetSearchStatus("Enter text to find.");
             return;
         }
 
         var sessionId = _session.SessionId;
         var generation = _searchGeneration;
-        SearchButton.IsEnabled = false;
-        SearchStatus.Text = $"Searching for \"{query}\"...";
+        _searchPending = true;
+        UpdateSearchControls();
+        SetSearchStatus($"Searching for \"{query}\"...");
         var result = await _facade.SearchAsync(sessionId, query);
-        if (generation != _searchGeneration || _session?.SessionId != sessionId || result.IsDiscarded)
+        if (generation != _searchGeneration || _session?.SessionId != sessionId)
         {
             return;
         }
-        SearchButton.IsEnabled = !_isBusy;
+        _searchPending = false;
+        UpdateSearchControls();
+        if (result.IsDiscarded) { SetSearchStatus(""); return; }
 
         if (!result.IsSuccess)
         {
-            SearchStatus.Text = result.Error!.Message;
+            var error = result.Error!;
+            SetSearchStatus(error.Message == PdfDocumentFacade.TextExtractionRefusalMessage ? error.Message : $"Could not search: {error.Message}");
             return;
         }
 
         var search = result.Value!;
-        SearchStatus.Text = search.Hits.Count == 0 ? $"No matches for \"{query}\"." : $"{search.Hits.Count} match(es).";
+        SetSearchStatus(search.Hits.Count == 0 ? $"No matches for \"{query}\"." : SearchSelection.Status(query, 0, search.Hits.Count));
         _searchQuery = search.Hits.Count == 0 ? null : query;
         foreach (var hit in search.Hits)
         {
@@ -108,9 +121,24 @@ public sealed partial class MainWindow
 
     private void UpdateMatchButtons()
     {
-        var enabled = !_isBusy && _session is not null && SearchResultsList.Items.Count > 0;
+        var enabled = !_isBusy && !_searchPending && _session is { PageCount: > 0 } && SearchResultsList.Items.Count > 0;
         PreviousMatchButton.IsEnabled = enabled;
         NextMatchButton.IsEnabled = enabled;
+    }
+
+    private void UpdateSearchControls()
+    {
+        var enabled = !_isBusy && _session is { PageCount: > 0 };
+        _findDocumentButton.IsEnabled = enabled;
+        SearchBox.IsEnabled = enabled;
+        SearchButton.IsEnabled = enabled && !_searchPending;
+        UpdateMatchButtons();
+    }
+
+    private void SetSearchStatus(string text)
+    {
+        SearchStatus.Text = text;
+        SearchStatus.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private async void SearchResultsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -126,12 +154,13 @@ public sealed partial class MainWindow
         if (_session?.SessionId != sessionId || generation != _searchGeneration || !ReferenceEquals(SearchResultsList.SelectedItem, selected)) return;
         if (!navigation.IsSuccess)
         {
-            ShowError(navigation.Error!);
+            SetSearchStatus($"Could not navigate to the match: {navigation.Error!.Message}");
             return;
         }
 
         _session = navigation.Value!;
         var pageIndex = checked((int)hit.PageIndex);
+        if (pageIndex >= _spans.Count) return;
         PageScroller.ChangeView(null, _spans[pageIndex].Top, null, disableAnimation: false);
         var previousPage = _paintedHit?.PageIndex;
         _paintedHit = hit;
@@ -139,19 +168,20 @@ public sealed partial class MainWindow
         RedrawSearchHighlights(pageIndex);
         if (_searchQuery is not null)
         {
-            SearchStatus.Text = SearchSelection.Status(_searchQuery, SearchResultsList.SelectedIndex, SearchResultsList.Items.Count);
+            SetSearchStatus(SearchSelection.Status(_searchQuery, SearchResultsList.SelectedIndex, SearchResultsList.Items.Count));
         }
     }
 
     private void ClearSearchResults()
     {
         _searchGeneration++;
+        _searchPending = false;
         _searchQuery = null;
         _paintedHit = null;
         _searchHitsByPage.Clear();
         SearchResultsList.Items.Clear();
-        UpdateMatchButtons();
-        SearchStatus.Text = "";
+        UpdateSearchControls();
+        SetSearchStatus("");
         foreach (var slot in _slots)
         {
             slot.SearchHighlights.Children.Clear();

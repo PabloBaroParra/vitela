@@ -34,6 +34,7 @@ public sealed partial class MainWindow
     /// and a pause made of a dispatcher timer.
     /// </remarks>
     private readonly ContentEditPump<ContentEditor> _pump;
+    private uint _contentEditorRequest;
 
     /// <summary>
     /// Resolves whatever editor is open, then opens one over the run under
@@ -41,14 +42,20 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task OpenContentEditorAsync(uint pageIndex, AnnotationPoint point)
     {
+        if (_session is null || !_contentEditMode) return;
+        var sessionId = _session.SessionId;
+        var generation = _contentModeGeneration;
+        var request = ++_contentEditorRequest;
+        bool IsCurrent() => _session?.SessionId == sessionId && _contentEditMode
+            && _contentModeGeneration == generation && _contentEditorRequest == request;
         await CommitContentEditorAsync();
-        if (_session is null || !_contentEditMode)
+        if (!IsCurrent())
         {
             return;
         }
 
         var content = await EnsurePageContentAsync(pageIndex);
-        if (content is null || _session is null || !_contentEditMode)
+        if (content is null || !IsCurrent())
         {
             return;
         }
@@ -66,7 +73,7 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (_session is null || !_contentEditMode)
+        if (!IsCurrent())
         {
             return;
         }
@@ -141,6 +148,7 @@ public sealed partial class MainWindow
         // why two of these overlap on a double click.
         var editor = new ContentEditor(pageIndex, run, box, mask, box.Text) { TakeOffThePage = CloseEditor };
         _pump.Open(editor);
+        UpdateEditTextSelection();
         slot.Content.Children.Add(mask);
         slot.Content.Children.Add(box);
         PlaceEditor(slot, pageIndex, editor);
@@ -197,6 +205,7 @@ public sealed partial class MainWindow
     {
         editor.Box.KeyDown -= ContentEditor_KeyDown;
         editor.Box.TextChanged -= ContentEditor_TextChanged;
+        UpdateEditTextSelection();
         if (editor.PageIndex < _slots.Count)
         {
             var content = _slots[(int)editor.PageIndex].Content;
