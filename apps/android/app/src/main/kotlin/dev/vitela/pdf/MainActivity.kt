@@ -11,7 +11,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -24,6 +23,7 @@ import dev.vitela.pdf.document.SafDocuments
 import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
+import dev.vitela.pdf.ui.theme.VitelaTheme
 import dev.vitela.pdf.viewer.CERTIFICATE_MIME_TYPES
 import dev.vitela.pdf.viewer.CLIPBOARD_IMAGE_UNREADABLE
 import dev.vitela.pdf.viewer.ContentEditActions
@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { MaterialTheme { VitelaApp() } }
+        setContent { VitelaTheme { VitelaApp() } }
     }
 }
 
