@@ -94,14 +94,18 @@ def convert(svg: Path) -> str:
     )
 
 
+def render_all() -> dict[str, str]:
+    """Every drawable this script owns, keyed by file name."""
+    return {f"{PREFIX}{svg.stem.replace('-', '_')}.xml": convert(svg) for svg in sorted(SOURCE.glob("*.svg"))}
+
+
 def main() -> int:
     for stale in TARGET.glob(f"{PREFIX}*.xml"):
         stale.unlink()
-    icons = sorted(SOURCE.glob("*.svg"))
-    for svg in icons:
-        name = PREFIX + svg.stem.replace("-", "_")
-        (TARGET / f"{name}.xml").write_text(convert(svg), encoding="utf-8", newline="\n")
-    print(f"wrote {len(icons)} drawables to {TARGET.relative_to(REPO_ROOT)}")
+    drawables = render_all()
+    for name, text in drawables.items():
+        (TARGET / name).write_text(text, encoding="utf-8", newline="\n")
+    print(f"wrote {len(drawables)} drawables to {TARGET.relative_to(REPO_ROOT)}")
     return 0
 
 

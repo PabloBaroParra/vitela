@@ -35,7 +35,41 @@ internal data class ContextActions(
     val onColor: (AnnotationColor) -> Unit,
     val onCancelMove: () -> Unit,
     val onCancelInsert: () -> Unit,
-)
+) {
+    fun run(chip: ContextChip) = when (chip) {
+        ContextChip.Copy -> onCopy()
+        ContextChip.ReadNote -> onReadNote()
+        ContextChip.CancelMove -> onCancelMove()
+        ContextChip.CancelInsert -> onCancelInsert()
+        ContextChip.Grow -> onGrow()
+        ContextChip.Resize -> onResize()
+        ContextChip.MoveTo -> onPosition()
+        ContextChip.Red -> onColor(RED_ANNOTATION_COLOR)
+        ContextChip.Gold -> onColor(DEFAULT_ANNOTATION_COLOR)
+        ContextChip.Delete -> onDelete()
+    }
+}
+
+internal enum class ContextChip(val label: String) {
+    Copy("Copy"), ReadNote("Read note"), CancelMove("Cancel move"), CancelInsert("Cancel insert"),
+    Grow("Grow"), Resize("Resize"), MoveTo("Move to"), Red("Red"), Gold("Gold"), Delete("Delete"),
+}
+
+private val RED_ANNOTATION_COLOR = AnnotationColor(220, 40, 40)
+
+/** The chips for what is selected or armed right now, in display order; empty when nothing is. */
+internal fun contextChips(state: ViewerState, controls: AnnotationControls): List<ContextChip> = buildList {
+    val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
+    if (state.textSelection != null) add(ContextChip.Copy)
+    if (readableNote(state) != null) add(ContextChip.ReadNote)
+    if (state.contentEdit?.moving != null) add(ContextChip.CancelMove)
+    if (state.contentEdit?.adding != null) add(ContextChip.CancelInsert)
+    if (controls.canGrow) add(ContextChip.Grow)
+    if (controls.canResize) add(ContextChip.Resize)
+    if (controls.canMove) add(ContextChip.MoveTo)
+    if (controls.canRestyle) addAll(listOf(ContextChip.Red, ContextChip.Gold))
+    if (selected != null && state.annotationEditingAllowed) add(ContextChip.Delete)
+}
 
 /**
  * A chip row that exists only while something is selected or armed, so the
@@ -43,27 +77,13 @@ internal data class ContextActions(
  */
 @Composable
 internal fun ContextChips(state: ViewerState, controls: AnnotationControls, actions: ContextActions) {
-    val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
-    val chips = buildList<Pair<String, () -> Unit>> {
-        if (state.textSelection != null) add("Copy" to actions.onCopy)
-        if (readableNote(state) != null) add("Read note" to actions.onReadNote)
-        if (state.contentEdit?.moving != null) add("Cancel move" to actions.onCancelMove)
-        if (state.contentEdit?.adding != null) add("Cancel insert" to actions.onCancelInsert)
-        if (controls.canGrow) add("Grow" to actions.onGrow)
-        if (controls.canResize) add("Resize" to actions.onResize)
-        if (controls.canMove) add("Move to" to actions.onPosition)
-        if (controls.canRestyle) {
-            add("Red" to { actions.onColor(AnnotationColor(220, 40, 40)) })
-            add("Gold" to { actions.onColor(DEFAULT_ANNOTATION_COLOR) })
-        }
-        if (selected != null && state.annotationEditingAllowed) add("Delete" to actions.onDelete)
-    }
+    val chips = contextChips(state, controls)
     if (chips.isEmpty()) return
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        chips.forEach { (label, onClick) -> AssistChip(onClick = onClick, label = { Text(label) }) }
+        chips.forEach { chip -> AssistChip(onClick = { actions.run(chip) }, label = { Text(chip.label) }) }
     }
 }
 
