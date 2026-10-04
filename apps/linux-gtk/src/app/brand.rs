@@ -6,6 +6,7 @@ use gtk::prelude::*;
 use gtk::{Box as GtkBox, Label, Orientation, Picture, Settings};
 
 use super::icons::rasterize;
+use super::theme::prefers_dark;
 
 /// The two authored variants of the mark, linked in from the same shared
 /// `assets/brand/` files the Windows shell copies beside its executable.
@@ -117,22 +118,6 @@ fn draw_mark(picture: &Picture, logical_edge: i32) {
         MARK_LIGHT
     };
     picture.set_paintable(rasterize(variant, edge).as_ref());
-}
-
-/// Whether the current theme is a dark one.
-///
-/// Plain GTK4 has no equivalent of libadwaita's `AdwStyleManager`, so this
-/// reads the two settings that actually carry the preference: the portal maps
-/// a dark colour scheme onto `gtk-application-prefer-dark-theme`, while a user
-/// who picked a dark theme outright gets it in the theme name.
-fn prefers_dark() -> bool {
-    let Some(settings) = Settings::default() else {
-        return false;
-    };
-    settings.is_gtk_application_prefer_dark_theme()
-        || settings
-            .gtk_theme_name()
-            .is_some_and(|name| name.to_lowercase().contains("dark"))
 }
 
 #[cfg(test)]

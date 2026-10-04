@@ -31,9 +31,11 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use super::theme;
 use gtk::gdk::Texture;
 use gtk::gdk_pixbuf::prelude::PixbufLoaderExt;
 use gtk::gdk_pixbuf::{Pixbuf, PixbufLoader};
+use gtk::glib;
 use gtk::prelude::*;
 use gtk::Image;
 
@@ -43,8 +45,8 @@ use gtk::Image;
 /// drawing it is rather than as an invisible one.
 const TINT_TOKEN: &str = "#000000";
 
-/// The shell's own accent — the same `#6b4eff` the CSS uses for a primary
-/// button and the active rail section. Worn by anything that is *this
+/// The shell's own accent — the same `#6b4eff` the light CSS palette uses for
+/// a primary button and the active rail section (`theme` lightens it on dark). Worn by anything that is *this
 /// application acting*, rather than one tool among several.
 pub(crate) const ACCENT_TINT: &str = "#6b4eff";
 
@@ -236,8 +238,9 @@ impl Icon {
 /// Re-rasterises when the monitor scale changes, for the reason
 /// `brand::build_mark` does: a texture has no logical size of its own, so a
 /// bitmap made for a 1x display is drawn upscaled and soft on a 2x one.
-/// Unlike the mark it ignores the *theme*, because the colour is the
-/// caller's decision here, not the desktop's.
+/// The colour is the caller's decision, named as its light-scheme tint; the
+/// desktop's colour scheme only decides whether `theme` remaps that tint (see
+/// [`retint_all`], which redraws every icon when the scheme changes).
 pub(crate) fn build_icon(icon: Icon, logical_edge: i32, color: &str) -> Image {
     let image = Image::new();
     image.set_pixel_size(logical_edge);
@@ -250,6 +253,7 @@ pub(crate) fn build_icon(icon: Icon, logical_edge: i32, color: &str) -> Image {
 
     let color = color.to_string();
     draw_icon(&image, icon, logical_edge, &color);
+    register(&image, icon, logical_edge, &color);
 
     let weak = image.downgrade();
     image.connect_notify_local(Some("scale-factor"), move |_, _| {
@@ -261,9 +265,92 @@ pub(crate) fn build_icon(icon: Icon, logical_edge: i32, color: &str) -> Image {
     image
 }
 
+/// Draws `icon` in `color` as the live colour scheme sees it: `color` is the
+/// light-scheme tint the caller named, and `theme` says what it becomes now.
 fn draw_icon(image: &Image, icon: Icon, logical_edge: i32, color: &str) {
     let edge = logical_edge * image.scale_factor().max(1);
-    image.set_paintable(icon_texture(icon, edge, color).as_ref());
+    let color = theme::current_tint(color);
+    image.set_paintable(icon_texture(icon, edge, &color).as_ref());
+}
+
+/// One icon widget the shell has built, as [`retint_all`] needs to redraw it.
+struct Live {
+    image: glib::WeakRef<Image>,
+    icon: Icon,
+    logical_edge: i32,
+    color: String,
+}
+
+thread_local! {
+    /// Every icon widget that may still be on screen.
+    ///
+    /// A tint is baked in at raster time, so a scheme change cannot reach an
+    /// icon through CSS; something has to know which widgets to redraw. Weak
+    /// references, so this never keeps a widget (or an Organize card, which
+    /// builds hundreds) alive.
+    static LIVE_ICONS: RefCell<Registry> = const { RefCell::new(Registry::new()) };
+}
+
+struct Registry {
+    icons: Vec<Live>,
+    /// Length at which dead entries are next swept out. Doubles with the live
+    /// population so the sweep stays amortised-constant per registration.
+    sweep_at: usize,
+}
+
+impl Registry {
+    const MIN_SWEEP: usize = 256;
+
+    const fn new() -> Self {
+        Self {
+            icons: Vec::new(),
+            sweep_at: Self::MIN_SWEEP,
+        }
+    }
+
+    fn sweep(&mut self) {
+        self.icons.retain(|live| live.image.upgrade().is_some());
+        self.sweep_at = (self.icons.len() * 2).max(Self::MIN_SWEEP);
+    }
+}
+
+fn register(image: &Image, icon: Icon, logical_edge: i32, color: &str) {
+    LIVE_ICONS.with_borrow_mut(|registry| {
+        if registry.icons.len() >= registry.sweep_at {
+            registry.sweep();
+        }
+        registry.icons.push(Live {
+            image: image.downgrade(),
+            icon,
+            logical_edge,
+            color: color.to_owned(),
+        });
+    });
+}
+
+/// Redraws every icon still alive in the live colour scheme. Called by
+/// `theme` after a scheme change.
+pub(super) fn retint_all() {
+    // Snapshot first: `draw_icon` takes no registry borrow today, but the
+    // texture cache is a second thread-local and this keeps the borrow short.
+    let live: Vec<_> = LIVE_ICONS.with_borrow_mut(|registry| {
+        registry.sweep();
+        registry
+            .icons
+            .iter()
+            .filter_map(|live| {
+                Some((
+                    live.image.upgrade()?,
+                    live.icon,
+                    live.logical_edge,
+                    live.color.clone(),
+                ))
+            })
+            .collect()
+    });
+    for (image, icon, logical_edge, color) in live {
+        draw_icon(&image, icon, logical_edge, &color);
+    }
 }
 
 thread_local! {

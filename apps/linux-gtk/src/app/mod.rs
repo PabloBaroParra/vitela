@@ -28,6 +28,7 @@ mod shell;
 mod side_panel;
 mod sign;
 mod state;
+mod theme;
 mod tools_panel;
 mod write;
 

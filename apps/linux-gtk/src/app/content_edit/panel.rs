@@ -142,67 +142,67 @@ pub(crate) const TEXT_SELECTED: &str = "Text run selected — delete it, or rety
 /// This page's own styling, installed alongside `shell::SHELL_CSS` and
 /// `home::HOME_CSS` by `shell::install_shell_css`.
 ///
-/// The palette is the shell's exactly — `#6b4eff` accent, `#e3e0e9`
-/// hairlines, `#625b72` secondary text. The classes are this page's own
+/// The palette is the shell's exactly — the named `@vitela_*` colours
+/// `theme` defines, in light and dark. The classes are this page's own
 /// rather than Home's `.home-card`: a card in the tools panel is a narrower
 /// box with tighter padding than one on a full-width launch screen, and
 /// borrowing the name would make every future tweak to Home's card silently
 /// resize this one.
 pub(crate) const EDIT_CSS: &str = r#"
 .edit-card {
-  background: #ffffff;
-  border: 1px solid #e3e0e9;
+  background: @vitela_surface;
+  border: 1px solid @vitela_border;
   border-radius: 12px;
   padding: 12px;
 }
 
 .edit-card-title {
   font-weight: 700;
-  color: #302d3a;
+  color: @vitela_text;
 }
 
 .edit-hint {
   font-size: 0.85em;
-  color: #625b72;
+  color: @vitela_text_muted;
 }
 
 .edit-notice {
-  background: #f6f4fd;
-  border: 1px solid #e7e2fb;
+  background: @vitela_tile;
+  border: 1px solid @vitela_accent_soft_border;
   border-radius: 8px;
   padding: 8px 10px;
-  color: #51496a;
+  color: @vitela_text_secondary;
   font-size: 0.85em;
 }
 
 .edit-tile {
-  background: #f6f4fd;
-  border: 1px solid #e7e2fb;
+  background: @vitela_tile;
+  border: 1px solid @vitela_accent_soft_border;
   border-radius: 10px;
   padding: 6px 10px;
-  color: #51496a;
+  color: @vitela_text_secondary;
   font-weight: 600;
   transition: background-color 120ms ease, border-color 120ms ease;
 }
 
 .edit-tile:hover,
 .edit-tile:focus-visible {
-  background: #eee9fa;
+  background: @vitela_accent_soft;
 }
 
 /* An armed mode, not merely a pressed button: the border moves to the accent
    too, because "is this mode on right now" is the one question this page is
    asked most and a background shift alone is easy to miss beside a hover. */
 .edit-tile:checked {
-  background: #eee9fa;
-  border-color: #6b4eff;
-  color: #6b4eff;
+  background: @vitela_accent_soft;
+  border-color: @vitela_accent;
+  color: @vitela_accent;
 }
 
 .edit-tile:disabled {
-  background: #f5f4f7;
-  border-color: #eae8ef;
-  color: #a49fb3;
+  background: @vitela_tile_disabled;
+  border-color: @vitela_border_disabled;
+  color: @vitela_text_disabled;
 }
 "#;
 

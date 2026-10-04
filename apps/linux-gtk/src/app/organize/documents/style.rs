@@ -9,50 +9,50 @@ pub(crate) const ORGANIZE_CSS: &str = r#"
 .organize-view-switch button {
   min-height: 30px;
   padding: 4px 16px;
-  color: #625b72;
+  color: @vitela_text_muted;
 }
 
 .organize-view-switch button:checked {
-  background: #f2edff;
-  color: #302d3a;
+  background: @vitela_checked;
+  color: @vitela_text;
   font-weight: 600;
 }
 
 .organize-card,
 .organize-block {
-  background: #ffffff;
-  border: 1px solid #e3e0e9;
+  background: @vitela_surface;
+  border: 1px solid @vitela_border;
   border-radius: 10px;
   padding: 10px;
 }
 
 .organize-block:focus-visible {
-  outline: 2px solid #6b4eff;
+  outline: 2px solid @vitela_accent;
   outline-offset: -2px;
 }
 
 .organize-thumb,
 .organize-cover {
-  background: #e9e6ec;
+  background: @vitela_canvas;
   border-radius: 6px;
 }
 
 /* The two sheets peeking out behind the cover. Purely decorative: they are
    empty boxes, never a render of the block's other pages. */
 .organize-cover-sheet {
-  background: #f1eef6;
-  border: 1px solid #e3e0e9;
+  background: @vitela_sheet;
+  border: 1px solid @vitela_border;
   border-radius: 6px;
 }
 
 .organize-block-name {
   font-weight: 600;
-  color: #302d3a;
+  color: @vitela_text;
 }
 
 .organize-block-meta {
   font-size: 0.85em;
-  color: #625b72;
+  color: @vitela_text_muted;
 }
 
 /* A drop position between two block cards. It keeps its height when idle so
@@ -64,7 +64,7 @@ pub(crate) const ORGANIZE_CSS: &str = r#"
 }
 
 .organize-gap-active {
-  background: #6b4eff;
+  background: @vitela_accent;
 }
 
 /* A page card's provenance line — the PDF its page came from, shown only
@@ -72,7 +72,7 @@ pub(crate) const ORGANIZE_CSS: &str = r#"
    after the thumbnail and the page number, never before them. */
 .organize-card-source {
   font-size: 0.78em;
-  color: #625b72;
+  color: @vitela_text_muted;
 }
 
 /* The Pages grid's equivalent of `.organize-gap-active`: the insertion slot
@@ -80,11 +80,11 @@ pub(crate) const ORGANIZE_CSS: &str = r#"
    An inset shadow rather than a border, so lighting it up never changes the
    card's size and re-flows the grid mid-drag. */
 .organize-card-drop-before {
-  box-shadow: inset 3px 0 0 0 #6b4eff;
+  box-shadow: inset 3px 0 0 0 @vitela_accent;
 }
 
 .organize-card-drop-after {
-  box-shadow: inset -3px 0 0 0 #6b4eff;
+  box-shadow: inset -3px 0 0 0 @vitela_accent;
 }
 
 /* The entrance the cards of a view make when the user switches to it
