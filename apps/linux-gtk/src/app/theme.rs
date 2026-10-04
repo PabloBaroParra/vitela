@@ -177,9 +177,30 @@ fn desktop_scheme() -> Scheme {
     };
     scheme_for(
         portal,
-        settings.is_gtk_application_prefer_dark_theme(),
+        initial_prefer_dark(&settings),
         settings.gtk_theme_name().as_deref(),
     )
+}
+
+/// `gtk-application-prefer-dark-theme` as the user configured it
+/// (`settings.ini`), read once before [`paint_widgets`] first writes it. After
+/// that write the setting is ours, so reading it live would latch dark: a
+/// switch back to light would find the `true` we wrote and stay dark.
+fn initial_prefer_dark(settings: &Settings) -> bool {
+    INITIAL_PREFER_DARK
+        .with(|cell| *cell.get_or_init(|| settings.is_gtk_application_prefer_dark_theme()))
+}
+
+/// Puts GTK's own theme on the same side as the palette. The sheets only
+/// colour what they style; every other surface — a resting button, an entry,
+/// a scrollbar, a popover — is drawn by the theme, and `Adwaita` stays light
+/// under GNOME's dark style unless the application asks for its dark variant.
+fn paint_widgets(scheme: Scheme) {
+    let Some(settings) = Settings::default() else {
+        return;
+    };
+    initial_prefer_dark(&settings);
+    settings.set_gtk_application_prefer_dark_theme(scheme == Scheme::Dark);
 }
 
 const PORTAL_BUS_NAME: &str = "org.freedesktop.portal.Desktop";
@@ -270,6 +291,7 @@ thread_local! {
     static LIVE: Cell<Scheme> = const { Cell::new(Scheme::Light) };
     static PROVIDER: RefCell<Option<Installed>> = const { RefCell::new(None) };
     static PORTAL: OnceCell<Cell<Option<u32>>> = const { OnceCell::new() };
+    static INITIAL_PREFER_DARK: OnceCell<bool> = const { OnceCell::new() };
     static LISTENERS: RefCell<Vec<Box<dyn Fn()>>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -300,6 +322,7 @@ pub(crate) fn install(sheets: String) {
     };
     let scheme = desktop_scheme();
     LIVE.set(scheme);
+    paint_widgets(scheme);
 
     let first_install = PROVIDER.with_borrow_mut(|slot| match slot {
         Some(installed) => {
@@ -331,14 +354,14 @@ pub(crate) fn install(sheets: String) {
 }
 
 /// Re-applies the palette when any input behind [`desktop_scheme`] changes.
+/// `gtk-application-prefer-dark-theme` is not one of them: [`paint_widgets`]
+/// writes it, and only its value at startup is an input.
 fn watch_desktop() {
     watch_portal();
     let Some(settings) = Settings::default() else {
         return;
     };
-    for property in ["gtk-application-prefer-dark-theme", "gtk-theme-name"] {
-        settings.connect_notify_local(Some(property), |_, _| refresh());
-    }
+    settings.connect_notify_local(Some("gtk-theme-name"), |_, _| refresh());
 }
 
 /// Moves the shell to whatever [`desktop_scheme`] says now, if that differs
@@ -349,6 +372,7 @@ fn refresh() {
         return;
     }
     LIVE.set(scheme);
+    paint_widgets(scheme);
     PROVIDER.with_borrow(|slot| {
         if let Some(installed) = slot {
             installed
@@ -545,6 +569,29 @@ mod tests {
             scheme_for(Some(0), false, Some("Adwaita-dark")),
             Scheme::Dark
         );
+    }
+
+    /// Writing the widget theme must never feed back into the scheme: the
+    /// startup value stays the input, so dark can still switch back to light.
+    #[gtk::test]
+    fn the_widget_theme_follows_the_scheme_without_latching() {
+        // GTK tests share one thread and one `Settings`; leave it light.
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                paint_widgets(Scheme::Light);
+            }
+        }
+        let _restore = Restore;
+        let settings = Settings::default().expect("a display");
+        let startup = initial_prefer_dark(&settings);
+
+        paint_widgets(Scheme::Dark);
+        assert!(settings.is_gtk_application_prefer_dark_theme());
+        assert_eq!(initial_prefer_dark(&settings), startup);
+
+        paint_widgets(Scheme::Light);
+        assert!(!settings.is_gtk_application_prefer_dark_theme());
     }
 
     #[test]
