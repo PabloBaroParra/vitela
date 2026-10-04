@@ -287,20 +287,30 @@ public sealed partial class MainWindow
     /// honest fix then is to sample the rendered page rather than to guess
     /// harder here.
     /// </remarks>
-    private static void MakeEditorLookLikeThePage(TextBox box, Brush ink)
+    /// <param name="outline">
+    /// A border to keep through every visual state, for a box with nothing
+    /// underneath it to read as its edge. Set here rather than afterwards: a
+    /// WinUI <see cref="ResourceDictionary"/> throws (0x800F0902) when a key
+    /// it already holds is assigned again.
+    /// </param>
+    private static void MakeEditorLookLikeThePage(TextBox box, Brush ink, Brush? outline = null)
     {
         var invisible = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         var none = new Thickness(0);
+        var border = outline ?? invisible;
+        var borderThickness = outline is null ? none : new Thickness(1);
+        box.BorderBrush = border;
+        box.BorderThickness = borderThickness;
         box.Resources["TextControlBackground"] = invisible;
         box.Resources["TextControlBackgroundPointerOver"] = invisible;
         box.Resources["TextControlBackgroundFocused"] = invisible;
         box.Resources["TextControlBackgroundDisabled"] = invisible;
-        box.Resources["TextControlBorderBrush"] = invisible;
-        box.Resources["TextControlBorderBrushPointerOver"] = invisible;
-        box.Resources["TextControlBorderBrushFocused"] = invisible;
-        box.Resources["TextControlBorderBrushDisabled"] = invisible;
-        box.Resources["TextControlBorderThemeThickness"] = none;
-        box.Resources["TextControlBorderThemeThicknessFocused"] = none;
+        box.Resources["TextControlBorderBrush"] = border;
+        box.Resources["TextControlBorderBrushPointerOver"] = border;
+        box.Resources["TextControlBorderBrushFocused"] = border;
+        box.Resources["TextControlBorderBrushDisabled"] = border;
+        box.Resources["TextControlBorderThemeThickness"] = borderThickness;
+        box.Resources["TextControlBorderThemeThicknessFocused"] = borderThickness;
         box.Resources["TextControlForeground"] = ink;
         box.Resources["TextControlForegroundPointerOver"] = ink;
         box.Resources["TextControlForegroundFocused"] = ink;

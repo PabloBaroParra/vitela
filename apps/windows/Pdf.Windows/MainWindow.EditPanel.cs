@@ -11,6 +11,7 @@ public sealed partial class MainWindow
     private readonly TextBlock _editAvailability = EditHint("Open a PDF to edit the text and images on its pages.");
     private Border? _editNotice;
     private readonly TextBlock _editTextHint = EditHint("Click a text run to retype it in place.");
+    private readonly TextBlock _editImageHint = EditHint(NoImageSelectedHint);
 
     private void BuildEditPanel(Viewer.ToolbarPanel row)
     {
@@ -28,23 +29,24 @@ public sealed partial class MainWindow
         foreach (var control in row.Children.ToArray()) row.Children.Remove(control);
         ToolbarIcon(ContentEditButton, "\uE70F", "Edit content",
             "Turn on content editing, then click a text run on the page", "Edit content");
-        ToolbarIcon(InsertTextButton, "\uE8D2", "Insert text", "Insert a new text run using page coordinates", "Insert text");
+        ToolbarIcon(InsertTextButton, "\uE8D2", "Insert text", "Click the page to place a new text box", "Insert text");
         ToolbarIcon(DeleteTextButton, "\uE74D", "Delete text", "Remove the text run being edited from the page (not secure redaction)", "Delete text");
         // Keep the inline target when clicked, without removing keyboard access.
         DeleteTextButton.AllowFocusOnInteraction = false;
-        ToolbarIcon(InsertImageButton, "\uEB9F", "Insert image", "Choose a picture and its page coordinates", "Insert image");
-        ToolbarIcon(ReplaceImageButton, "\uEB9F", "Replace image", "Choose a page image to replace with a file on disk", "Replace image");
-        ToolbarIcon(DeleteImageButton, "\uE74D", "Delete image", "Choose a page image to remove", "Delete image");
-        // .edit-tile: the cards' buttons are tiles; an armed mode (Edit content) moves its border to the accent.
-        ContentEditButton.Style = NamedStyle("EditTileToggleStyle");
-        foreach (var tile in new Button[] { InsertTextButton, DeleteTextButton, InsertImageButton, ReplaceImageButton, DeleteImageButton })
+        ToolbarIcon(InsertImageButton, "\uEB9F", "Insert image", "Click the page to insert a picture", "Insert image");
+        ToolbarIcon(ReplaceImageButton, "\uEB9F", "Replace image", "Swap the selected image for a file on disk", "Replace image");
+        ToolbarIcon(DeleteImageButton, "\uE74D", "Delete image", "Remove the selected image from the page", "Delete image");
+        // .edit-tile: the cards' buttons are tiles; an armed mode (Edit content, Insert text/image) moves its border to the accent.
+        foreach (var mode in new[] { ContentEditButton, InsertTextButton, InsertImageButton })
+            mode.Style = NamedStyle("EditTileToggleStyle");
+        foreach (var tile in new Button[] { DeleteTextButton, ReplaceImageButton, DeleteImageButton })
             tile.Style = NamedStyle("EditTileButtonStyle");
 
         page.Children.Add(EditCard("Text", "EditTextCard",
             _editTextHint,
             ContentEditButton, InsertTextButton, DeleteTextButton));
         page.Children.Add(EditCard("Images", "EditImagesCard",
-            EditHint("Insert image, Replace image and Delete image currently use dialogs. Choose an image on the visible page; save first if it already has a pending edit. Some encodings cannot be replaced because the swap could not be undone."),
+            _editImageHint,
             InsertImageButton, ReplaceImageButton, DeleteImageButton));
 
         // Preserve working Windows-only numeric geometry commands below the primary cards.
@@ -79,6 +81,7 @@ public sealed partial class MainWindow
     private void UpdateEditPanelAvailability()
     {
         UpdateEditTextSelection();
+        UpdateImageCard();
         if (_editNotice is null) return;
         var reason = _session is null ? "Open a PDF to edit the text and images on its pages."
             : !_session.ContentEditingAllowed ? "This document does not permit content changes."

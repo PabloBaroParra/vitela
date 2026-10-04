@@ -430,20 +430,23 @@ Moving uses the same permission, preview, undo/redo and snapshot checks as resiz
 The core refuses a second geometry edit on the same image while the first is
 pending. Save first, then reopen the dialog; rereading alone does not clear it.
 
-**Delete image** lists the content images on the visible page and removes the
-chosen image after confirmation. Resource and inline images use the same Rust
-command, with preview refresh and undo/redo. Deletion requires content-edit
-permission and a full rewrite. Save first if the image already has a pending edit;
-reopen the dialog after any intervening edit. Save to keep the deletion.
+**Delete image** removes the image selected on the canvas (Edit content armed,
+click an image). Resource and inline images use the same Rust command, with
+preview refresh and undo/redo. Deletion requires content-edit permission and a
+full rewrite. It is disabled until an image is selected and while the selected
+image has a pending edit; the Images card hint says which. A selection made
+before an edit on another page is re-read at click time rather than refused as
+stale. Save to keep the deletion.
 
-**Replace image** lists content images on the visible page, then asks for a PNG
-or JPEG. The chosen image keeps its position and dimensions; a different aspect
-ratio stretches to that rectangle. Original bytes are recovered through Rust
-before the picker opens and again at submission, including on imported pages.
-Encodings that cannot round-trip without loss are refused so undo can restore
-the source. Save first if the image has a pending edit. Replacement requires
+**Replace image** swaps the image selected on the canvas for a PNG or JPEG. The
+chosen image keeps its position and dimensions; a different aspect ratio
+stretches to that rectangle. Original bytes are recovered through Rust as soon as
+the image is selected, again before the picker opens and at submission, including
+on imported pages. Encodings that cannot round-trip without loss grey Replace out
+with an explanation, so undo can always restore the source. A pending edit on the
+selected image disables both Replace and Delete. Replacement requires
 content-edit permission and a full rewrite, refreshes the preview and supports
-undo/redo. Reopen after intervening edits, and save to keep the replacement.
+undo/redo. Save to keep the replacement.
 
 **Delete text** lists the text runs on the visible page, with their text and PDF
 coordinates. Choose a run and confirm deletion; the PDF preview refreshes and
@@ -462,22 +465,25 @@ Reopen the dialog after any intervening edit. Save first if the run already has
 a pending edit, including retyping or moving, and save to keep the new position.
 The core refuses runs painted by the double-quote spacing operator.
 
-**Insert text** adds a nonempty single line of Helvetica text to the visible
-page as real page content, not an annotation. Enter X/Y in PDF points relative
-to the unrotated page's bottom-left and a size from 1–72 pt (14 by default).
-Zero and negative coordinates are allowed. Each insertion uses a fresh font
-resource so existing fonts and other pending insertions are preserved. Characters
-outside the font's WinAnsi encoding are refused by the core. Insertion refreshes
-the preview and supports undo/redo; it requires content-edit permission and a
-full rewrite. Reopen the dialog after any intervening edit, and save to keep it.
+**Insert text** is a toggle, as on Linux: arm it (this also arms Edit content)
+and click the page to open a blank outlined box there. Type one line and press
+Enter, click elsewhere or move focus to insert it as real page content, not an
+annotation; Escape or an empty box records nothing. The text is 14 pt Helvetica
+whose box's bottom-left corner sits at the click. The toggle stays armed for the
+next insertion until it is clicked again or Edit content is turned off; a click
+on an existing image still selects the image. Each insertion uses a fresh font
+resource so existing fonts and other pending insertions are preserved.
+Characters outside the font's WinAnsi encoding are refused by the core and the
+reason appears in the status line. Insertion refreshes the preview and supports
+undo/redo; it requires content-edit permission and a full rewrite. Save to keep
+it.
 
-**Insert image** adds a PNG or JPEG to the visible page as real content, not a
-stamp annotation. Enter its top-left X/Y in PDF points relative to the unrotated
-page's bottom-left (X increases rightward, Y upward). The shared core preserves
-its proportions with a longest side of 144 pt, as on Linux. Coordinates must be
-finite; zero and negative values are allowed. Insertion refreshes the preview
-and supports undo/redo; it requires content-edit permission and a full rewrite.
-Reopen the dialog after any intervening edit, and save to keep the image.
+**Insert image** is the image twin of Insert text: arm it and click the page,
+then choose a PNG or JPEG. It is added as real content, not a stamp annotation,
+with its top-left corner at the click; the shared core preserves its proportions
+with a longest side of 144 pt, as on Linux. Insertion refreshes the preview and
+supports undo/redo; it requires content-edit permission and a full rewrite. Save
+to keep the image.
 
 **Export images** writes pages of the open document to separate PNG or JPEG
 files in a chosen folder: all pages, the current page, or a typed range such
@@ -694,6 +700,22 @@ inline target and hint, click-focus/Tab properties, busy and synthetic permissio
 gates, discarded unrecorded typing, real deletion/undo/redo, and automatic refusal
 after a recorded retype. It does not simulate an actual pointer click or claim
 full Linux editing parity. Rebuild without that property before normal use.
+
+## Canvas insertion runtime smoke
+
+`Tests/CanvasInsertSmoke.targets` replaces the entry point with an opt-in native
+test. Set `VITELA_SMOKE_OUTPUT` to an existing directory, build with
+`-p:CustomAfterMicrosoftCommonTargets=<absolute path to CanvasInsertSmoke.targets>`,
+then launch the app. It writes `canvas-insert-smoke.log` and exits. It checks
+that the insert toggles arm Edit content and exclude each other, that a miss
+click with Insert text opens a blank box at the click, that Escape and an empty
+box record nothing, that a commit records exactly one undoable run which saves
+at the click, the Images card's Nothing/Ready/pending states (the pending state
+is synthetic), Delete on the canvas selection with one undo, re-reading a
+selection made stale by an edit on another page, and that leaving Edit content
+disarms the insert kind. The press is driven through the canvas gesture handler,
+not a physical pointer, and Insert image's native picker is not automated.
+Rebuild without that property before normal use.
 
 ## Note placement runtime smoke
 

@@ -48,10 +48,21 @@ public sealed partial class MainWindow
                 _selectedContentImage = null;
                 RedrawContentImageSelection();
             }
+            // An armed insert kind turns a miss into new content; an image
+            // under the pointer still wins, exactly as with nothing armed.
+            if (_contentInsertKind is { } insert)
+            {
+                await InsertContentAtAsync(insert, (uint)pageIndex, point);
+                return;
+            }
             await OpenContentEditorAsync((uint)pageIndex, point);
             return;
         }
 
+        if (!ReferenceEquals(hit, _selectedContentImage))
+        {
+            _ = ProbeImageReplacementAsync(hit);
+        }
         _selectedContentImage = hit;
         if (_pendingImageEdits.Contains((hit.PageIndex, hit.Id)))
         {
@@ -108,7 +119,12 @@ public sealed partial class MainWindow
         SetBusy(true);
         try
         {
-            var result = await _facade.SetImageBoundsAsync(completed.SessionId, completed.Image, after);
+            // The handle may predate an edit on another page; see CurrentContentImageAsync.
+            if (await CurrentContentImageAsync(completed.SessionId, completed.Image) is not { } current)
+            {
+                return;
+            }
+            var result = await _facade.SetImageBoundsAsync(completed.SessionId, current, after);
             if (_session?.SessionId != completed.SessionId)
             {
                 return;
@@ -117,13 +133,7 @@ public sealed partial class MainWindow
             // The facade records exactly one ResizeImage command for bounds
             // changes, including a corner drag that moved the origin.
             _contentEditedPages.Add(completed.Image.PageIndex);
-            CancelContentEditor();
-            _pageContent.Remove(completed.Image.PageIndex);
-            foreach (var key in _pendingRunBounds.Keys.Where(key => key.Page == completed.Image.PageIndex).ToArray())
-            {
-                _pendingRunBounds.Remove(key);
-            }
-            InvalidatePageRender(completed.Image.PageIndex);
+            AfterImageEdit(completed.Image.PageIndex);
             if (!result.IsSuccess)
             {
                 await RefreshAnnotationStateAsync();
@@ -161,6 +171,7 @@ public sealed partial class MainWindow
     {
         ClearContentImageSelection();
         _pendingImageEdits.Clear();
+        _replaceRefusedImages.Clear();
     }
 
     private void ClearContentImageSelection()
@@ -171,6 +182,7 @@ public sealed partial class MainWindow
 
     private void RedrawContentImageSelection()
     {
+        UpdateImageCard();
         foreach (var index in Enumerable.Range(0, _slots.Count))
         {
             DrawContentOutlines((uint)index);

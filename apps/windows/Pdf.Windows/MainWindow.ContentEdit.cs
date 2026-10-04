@@ -67,6 +67,9 @@ public sealed partial class MainWindow
 
         if (!active)
         {
+            // An insert kind cannot outlive the mode that makes its click mean
+            // anything.
+            ClearContentInsertMode();
             // Leaving the mode resolves the edit in progress rather than
             // dropping it — the same thing clicking another run does.
             await CommitContentEditorAsync();
@@ -196,6 +199,11 @@ public sealed partial class MainWindow
         {
             PlaceEditor(_slots[(int)editor.PageIndex], editor.PageIndex, editor);
         }
+
+        if (_insertEditor is { } insert)
+        {
+            PlaceInsertEditor(insert);
+        }
     }
 
     /// <summary>
@@ -276,6 +284,7 @@ public sealed partial class MainWindow
     private void ClearContentEditVisuals()
     {
         CancelContentEditor();
+        CancelInsertEditor();
         foreach (var slot in _slots)
         {
             slot.Content.Children.Clear();
@@ -316,6 +325,7 @@ public sealed partial class MainWindow
         _contentModeGeneration++;
         _contentEditMode = false;
         ContentEditButton.IsChecked = false;
+        ClearContentInsertMode();
         ResetContentEditState();
     }
 }

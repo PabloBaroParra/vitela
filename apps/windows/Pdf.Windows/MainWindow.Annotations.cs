@@ -479,9 +479,9 @@ public sealed partial class MainWindow
         MoveTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         InsertTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         MoveImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
-        DeleteImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
-        ReplaceImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         InsertImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
+        // Delete and Replace image follow the canvas selection, not just the
+        // permission — see UpdateImageCard, which this reaches.
         UpdateEditPanelAvailability();
         HighlightButton.IsEnabled = enabled;
         UnderlineButton.IsEnabled = enabled;

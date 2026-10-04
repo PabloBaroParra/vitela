@@ -1,5 +1,4 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
+using Pdf.Windows.Facade;
 using Windows.Security.Cryptography;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -7,61 +6,31 @@ using WinRT.Interop;
 
 namespace Pdf.Windows;
 
+/// <summary>
+/// "Insert image" armed and a page clicked: pick a PNG or JPEG and add it as
+/// page content with its top-left corner at the click.
+/// </summary>
+/// <remarks>
+/// The default box is the annotation Stamp tool's: natural proportions, the
+/// longest side capped at 144 pt (<c>stamp_placement</c>, applied inside the
+/// facade). The GTK shell's <c>image::insert_at</c> reaches the same core
+/// function, so the two shells agree about where a placed image lands.
+/// </remarks>
 public sealed partial class MainWindow
 {
-    private async void InsertImageButton_Click(object sender, RoutedEventArgs e)
+    private async Task InsertContentImageAtAsync(uint pageIndex, AnnotationPoint point)
     {
         if (_session is null || _organizing || _isBusy || _editingImage) return;
         _editingImage = true;
         var sessionId = _session.SessionId;
         try
         {
-            await SettleContentEditorForHistoryAsync();
-            if (_session?.SessionId != sessionId) return;
-            var pageIndex = (uint)_firstVisiblePage;
             var prepared = await _facade.PrepareImageInsertionAsync(sessionId, pageIndex);
             if (_session?.SessionId != sessionId) return;
             if (!prepared.IsSuccess) { AnnotationStatus.Text = prepared.Error!.Message; return; }
-            var picker = new FileOpenPicker();
-            foreach (var extension in new[] { ".png", ".jpg", ".jpeg" }) picker.FileTypeFilter.Add(extension);
-            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-            var file = await picker.PickSingleFileAsync();
-            if (file is null || _session?.SessionId != sessionId) return;
-            byte[] bytes;
-            try
-            {
-                var buffer = await FileIO.ReadBufferAsync(file);
-                CryptographicBuffer.CopyToByteArray(buffer, out bytes);
-            }
-            catch (Exception)
-            {
-                if (_session?.SessionId == sessionId) AnnotationStatus.Text = "The selected image could not be read.";
-                return;
-            }
-            if (_session?.SessionId != sessionId) return;
-            var measured = _facade.StampPlacement(bytes, 0, 0);
-            if (!measured.IsSuccess) { AnnotationStatus.Text = measured.Error!.Message; return; }
-            var x = new NumberBox { Header = "Top-left X (pt)", Value = 36 };
-            var y = new NumberBox { Header = "Top-left Y (pt)", Value = 180 };
-            var panel = new StackPanel { Spacing = 8 };
-            panel.Children.Add(x);
-            panel.Children.Add(y);
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Adds the image as page content, preserving its proportions with a longest side of 144 pt. X increases rightward and Y upward from the bottom-left of the unrotated page. Coordinates place the image's top-left corner.",
-                TextWrapping = TextWrapping.Wrap,
-            });
-            var dialog = new ContentDialog
-            {
-                XamlRoot = PageScroller.XamlRoot, Title = $"Insert image — page {pageIndex + 1}", Content = panel,
-                PrimaryButtonText = "Insert", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close,
-            };
-            void validate() => dialog.IsPrimaryButtonEnabled = double.IsFinite(x.Value) && double.IsFinite(y.Value);
-            x.ValueChanged += (_, _) => validate();
-            y.ValueChanged += (_, _) => validate();
-            validate();
-            if (await ShowModalAsync(dialog) != ContentDialogResult.Primary || _session?.SessionId != sessionId) return;
-            var result = await _facade.InsertContentImageAsync(sessionId, prepared.Value!, bytes, x.Value, y.Value);
+            var bytes = await PickContentImageBytesAsync(sessionId);
+            if (bytes is null || _session?.SessionId != sessionId) return;
+            var result = await _facade.InsertContentImageAsync(sessionId, prepared.Value!, bytes, point.X, point.Y);
             if (_session?.SessionId != sessionId) return;
             // A recorded edit remains undoable even when refreshing its preview fails.
             _contentEditedPages.Add(pageIndex);
@@ -81,5 +50,30 @@ public sealed partial class MainWindow
             AnnotationStatus.Text = "Image inserted. Save to keep the change.";
         }
         finally { _editingImage = false; }
+    }
+
+    /// <summary>
+    /// Asks for a PNG or JPEG and reads it, or <c>null</c> when the picker was
+    /// cancelled or the file could not be read (the reason goes to the status
+    /// line). Shared with Replace image.
+    /// </summary>
+    private async Task<byte[]?> PickContentImageBytesAsync(string sessionId)
+    {
+        var picker = new FileOpenPicker();
+        foreach (var extension in new[] { ".png", ".jpg", ".jpeg" }) picker.FileTypeFilter.Add(extension);
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        var file = await picker.PickSingleFileAsync();
+        if (file is null || _session?.SessionId != sessionId) return null;
+        try
+        {
+            var buffer = await FileIO.ReadBufferAsync(file);
+            CryptographicBuffer.CopyToByteArray(buffer, out var bytes);
+            return bytes;
+        }
+        catch (Exception)
+        {
+            if (_session?.SessionId == sessionId) AnnotationStatus.Text = "The selected image could not be read.";
+            return null;
+        }
     }
 }

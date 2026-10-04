@@ -90,8 +90,29 @@ if ($mode.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).
 }
 if ((Find-Element 'DeleteTextButton').Current.IsEnabled) { throw 'Arming Edit content alone must not enable Delete text.' }
 $mode.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-(Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+Start-Sleep -Milliseconds 150
 'PASS Edit PDF heading, Text/Images cards, accessible commands, availability and mode toggle'
+
+function Get-Toggle([string]$id) {
+    (Find-Element $id).GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Current.ToggleState
+}
+$on = [System.Windows.Automation.ToggleState]::On
+$off = [System.Windows.Automation.ToggleState]::Off
+if ((Find-Element 'DeleteImageButton').Current.IsEnabled -or (Find-Element 'ReplaceImageButton').Current.IsEnabled) {
+    throw 'Delete and Replace image must require an image selected on the page.'
+}
+if ((Find-Element 'EditImagesCardHint').Current.Name -ne 'Click an image on the page to select it.') { throw 'Missing image selection guidance.' }
+(Find-Element 'InsertTextButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+Start-Sleep -Milliseconds 150
+if ((Get-Toggle 'InsertTextButton') -ne $on -or (Get-Toggle 'ContentEditButton') -ne $on) { throw 'Insert text must arm itself and Edit content.' }
+(Find-Element 'InsertImageButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+Start-Sleep -Milliseconds 150
+if ((Get-Toggle 'InsertImageButton') -ne $on -or (Get-Toggle 'InsertTextButton') -ne $off) { throw 'Insert text and Insert image must be mutually exclusive.' }
+$mode.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+Start-Sleep -Milliseconds 150
+if ((Get-Toggle 'ContentEditButton') -ne $off -or (Get-Toggle 'InsertImageButton') -ne $off) { throw 'Leaving Edit content must disarm the insert kind.' }
+(Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+'PASS Insert text/image arm by click, imply Edit content, exclude each other; image commands follow the selection'
 
 foreach ($id in @('PreviousAnnotationButton', 'NudgeButton', 'GrowButton', 'AnnotationColorButton', 'DeleteAnnotationButton')) {
     $command = Find-Element $id
