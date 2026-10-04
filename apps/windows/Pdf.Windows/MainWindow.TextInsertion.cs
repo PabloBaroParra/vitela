@@ -15,11 +15,11 @@ namespace Pdf.Windows;
 /// <remarks>
 /// Deliberately not the retype editor (<see cref="ContentEditPump{TBox}"/>).
 /// That one rewrites an existing run on every pause in typing, amending its
-/// own queued command; an inserted run cannot be amended through the FFI yet,
-/// so this box writes exactly once — on Enter, on losing focus, or when the
-/// next page click resolves it — and Escape records nothing. The GTK shell's
+/// own queued command. This blank box writes exactly once — on Enter, on losing
+/// focus, or when the next page click resolves it — and Escape records nothing. The GTK shell's
 /// <c>editor::open_insert_editor</c> uses the same fixed default box: 14 pt
-/// Helvetica, anchored by its bottom-left corner at the click.
+/// Helvetica, anchored by its bottom-left corner at the click. Once recorded,
+/// the run can be reopened in the regular inline editor, which amends its insertion.
 /// </remarks>
 public sealed partial class MainWindow
 {

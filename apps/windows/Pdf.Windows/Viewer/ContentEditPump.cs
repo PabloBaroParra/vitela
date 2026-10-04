@@ -154,6 +154,7 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
     private TBox? _box;
     private Task? _inFlight;
     private bool _refused;
+    private bool _preserveCommandOnAbandon;
 
     /// <summary>The editor currently open, or <c>null</c>.</summary>
     public TBox? Box => _box;
@@ -176,11 +177,14 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
     /// <see cref="Box"/> is what makes an editor current, and one that stops
     /// being current while its box is still on the page is an orphan nothing
     /// owns: still visible, still focusable, still carrying its handlers.
+    /// When preserving an existing command, abandonment writes the opening
+    /// text back instead of undoing the command this editor amended.
     /// </remarks>
-    public void Open(TBox box)
+    public void Open(TBox box, bool preserveCommandOnAbandon = false)
     {
         Close();
         _box = box;
+        _preserveCommandOnAbandon = preserveCommandOnAbandon;
     }
 
     /// <summary>Closes the live editor, if any, without recording anything.</summary>
@@ -188,6 +192,7 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
     {
         pause.Stop();
         _refused = false;
+        _preserveCommandOnAbandon = false;
         // Cleared before the box is told, so anything the close runs into
         // finds no live editor rather than the one being dismantled.
         var closing = _box;
@@ -340,7 +345,7 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
             return ContentEditAbandon.Nothing;
         }
 
-        if (box.OpenedWith == box.RunText)
+        if (box.OpenedWith == box.RunText && !_preserveCommandOnAbandon)
         {
             _written.Remove((box.PageIndex, box.RunId));
             Close();

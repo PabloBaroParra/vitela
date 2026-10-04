@@ -22,7 +22,7 @@ public partial class App : Application
             var notes = await _window.CanvasInsertSmokeAsync(output);
             File.WriteAllText(Path.Combine(output, "canvas-insert-smoke.log"),
                 "PASS insert toggles arm content editing and exclude each other; a miss click with Insert text opens a blank box at the click; "
-                + "Escape records nothing; commit records one undoable run that saves at the click; image card Nothing/Ready/synthetic PendingEdit; "
+                + "Escape records nothing; insertion retyping/cancellation preserve one undoable run that saves at the click; image card Nothing/Ready/synthetic PendingEdit; "
                 + "Delete acts on the canvas selection with one undo; leaving the mode disarms the insert kind. " + notes);
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "canvas-insert-smoke.log"), "FAIL " + error); }
@@ -76,6 +76,37 @@ public sealed partial class MainWindow
         if (_annotationState!.CanUndo) throw new Exception("An empty insert box recorded a command.");
         await ApplyHistoryAsync(false);
 
+        // Reopen the pending run through the normal canvas hit-test, not a direct editor shortcut.
+        SetContentInsertMode(null);
+        var pending = (await _facade.PageContentAsync(_session!.SessionId, 0)).Value!.TextRuns.Single(run => run.Text == inserted);
+        var editPoint = new AnnotationPoint(pending.Bounds.X + 2, pending.Bounds.Y + pending.Bounds.Height / 2);
+        await BeginContentGestureAsync(_slots[0], 0, editPoint, null!);
+        if (_pump.Box is null || !_pump.Box.Run.IsPendingInsertion || DeleteTextButton.IsEnabled)
+            throw new Exception("Pending inserted text did not open in the inline editor with deletion refused.");
+        _pump.Box.Box.Text = "Cancelled insertion retype";
+        _liveEdit.Stop();
+        await _pump.PumpAsync();
+        await AbandonContentEditorAsync();
+        var cancelled = await _facade.PageTextEditTargetsAsync(_session.SessionId, 0);
+        if (!cancelled.IsSuccess || cancelled.Value!.Single(run => run.Id == pending.Id).Text != inserted || !_annotationState!.CanUndo)
+            throw new Exception("Escape removed the insertion instead of restoring its text.");
+        await BeginContentGestureAsync(_slots[0], 0, editPoint, null!);
+        const string finalInserted = "Vitela smoke inserted and retyped";
+        _pump.Box!.Box.Text = "First insertion retype";
+        _liveEdit.Stop();
+        await _pump.PumpAsync();
+        _pump.Box.Box.Text = finalInserted;
+        await CommitContentEditorAsync();
+        var retyped = await _facade.PageTextEditTargetsAsync(_session.SessionId, 0);
+        if (!retyped.IsSuccess || retyped.Value!.Single(run => run.Id == pending.Id).Text != finalInserted)
+            throw new Exception("Repeated typing did not amend the insertion.");
+        await ApplyHistoryAsync(true);
+        if (_annotationState!.CanUndo) throw new Exception("Insertion retyping stacked history entries.");
+        var removed = await _facade.PageTextEditTargetsAsync(_session.SessionId, 0);
+        if (!removed.IsSuccess || removed.Value!.Any(run => run.Id == pending.Id))
+            throw new Exception("One Undo did not remove the amended insertion.");
+        await ApplyHistoryAsync(false);
+
         // --- an image to select, inserted at a known spot, then saved -----------
         var prepared = await _facade.PrepareImageInsertionAsync(_session!.SessionId, 0);
         var png = await TwoPixelPngAsync();
@@ -87,7 +118,7 @@ public sealed partial class MainWindow
         await ReopenForSmokeAsync(await File.ReadAllBytesAsync(Path.Combine(output, "canvas-insert-fixture.pdf")));
 
         var runs = await _facade.PageTextEditTargetsAsync(_session!.SessionId, 0);
-        var run = runs.Value?.FirstOrDefault(candidate => candidate.Text == inserted)
+        var run = runs.Value?.FirstOrDefault(candidate => candidate.Text == finalInserted)
             ?? throw new Exception("Inserted text did not survive save and reopen.");
         if (Math.Abs(run.Bounds.X - point.X) > 1) throw new Exception($"Inserted text landed at x={run.Bounds.X}, not at the click.");
 

@@ -147,7 +147,8 @@ public sealed partial class MainWindow
         // Opening closes whatever was open — see `ContentEditPump.Open` for
         // why two of these overlap on a double click.
         var editor = new ContentEditor(pageIndex, run, box, mask, box.Text) { TakeOffThePage = CloseEditor };
-        _pump.Open(editor);
+        // Escape restores this retype, not the insertion it amended.
+        _pump.Open(editor, preserveCommandOnAbandon: run.IsPendingInsertion);
         UpdateEditTextSelection();
         slot.Content.Children.Add(mask);
         slot.Content.Children.Add(box);

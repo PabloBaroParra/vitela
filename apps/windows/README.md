@@ -256,8 +256,15 @@ insertion and image deletion/replacement still use the existing Windows dialogs.
 selector dialog. It is disabled until a run is opened; its hint follows that
 target. Clicking Delete preserves the editor target and keyboard Tab access.
 Deletion discards keystrokes not yet recorded, remains undoable, and is not
-secure redaction. A recorded retype must be saved and reopened before deletion:
-the current FFI cannot amend a pending retype into a removal as Linux does.
+secure redaction. Deleting a run after a recorded retype amends that pending edit
+into a removal, matching Linux; one Undo restores the original text from before
+typing, and Redo removes it again. The shared core retains the original snapshot
+for validation and saving, including when the retype substituted the font.
+Inserted text can be reopened and retyped before saving; further typing amends
+the same insertion, so one Undo removes it and Redo restores its latest text.
+Escape cancels only that retyping and keeps the insertion. Deleting a pending
+insertion remains disabled, matching Linux. Moving pending insertions and repeated
+text moves remain separate parity gaps.
 
 Home starts with **Search recent files and tools** and **Open file**; its separate
 search filters tool labels without running a document text search. Ctrl+O works
@@ -719,8 +726,9 @@ test. Set `VITELA_SMOKE_OUTPUT` to an existing directory, build with
 `-p:CustomAfterMicrosoftCommonTargets=<absolute path to ContentDeleteSmoke.targets>`,
 then launch the app. It writes `content-delete-smoke.log` and exits. It checks the
 inline target and hint, click-focus/Tab properties, busy and synthetic permission
-gates, discarded unrecorded typing, real deletion/undo/redo, and automatic refusal
-after a recorded retype. It does not simulate an actual pointer click or claim
+gates, discarded unrecorded typing, real deletion/undo/redo, deletion after a
+recorded retype with one-step original restoration, and saved-PDF reopening.
+It does not simulate an actual pointer click or claim
 full Linux editing parity. Rebuild without that property before normal use.
 
 ## Canvas insertion runtime smoke
@@ -732,7 +740,10 @@ then launch the app. It writes `canvas-insert-smoke.log` and exits. It checks
 that the insert toggles arm Edit content and exclude each other, that a miss
 click with Insert text opens a blank box at the click, that Escape and an empty
 box record nothing, that a commit records exactly one undoable run which saves
-at the click, the Images card's Nothing/Ready/pending states (the pending state
+at the click, that the pending run can be hit-tested and retyped repeatedly with
+one Undo/Redo, that cancelling a recorded retype preserves its insertion, and
+that the final text survives save/reopen. It also checks the Images card's
+Nothing/Ready/pending states (the pending state
 is synthetic), Delete on the canvas selection with one undo, re-reading a
 selection made stale by an edit on another page, and that leaving Edit content
 disarms the insert kind. The press is driven through the canvas gesture handler,
