@@ -81,6 +81,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("does not queue a second render while one is in flight", DoesNotQueueConcurrentRenders),
     ("releases stale completed work for immediate re-request", ReleasesStaleCompletedWorkForImmediateReRequest),
     ("re-requests a render that finished at a superseded zoom", ReRequestsSupersededRender),
+    ("latches a failed render until the next fit", LatchesAFailedRenderUntilTheNextFit),
+    ("does not latch a failure from a superseded zoom", DoesNotLatchAFailureFromASupersededZoom),
+    ("releases a discarded render without latching", ReleasesADiscardedRenderWithoutLatching),
     ("settles a page once its render matches the current zoom", SettlesPageAtCurrentZoom),
     ("needs a render again after its bitmap is evicted", NeedsRenderAfterEviction),
     ("resolves the pages a viewport shows", ResolvesVisiblePages),
@@ -851,6 +854,46 @@ static Task ReRequestsSupersededRender()
     plan.RetargetTo(288);
     Assert(!plan.CompleteWith(96), "a render finished at a superseded zoom must not be published");
     Assert(plan.ShouldRequest, "a superseded render must leave the page asking again, never stranded");
+    return Task.CompletedTask;
+}
+
+/// <summary>
+/// Linux marks a page `Failed` for the current fit (state.rs PageState): a
+/// render that can only fail again must not be re-queued on every viewport
+/// walk. A new fit gives it one retry.
+/// </summary>
+static Task LatchesAFailedRenderUntilTheNextFit()
+{
+    var plan = new PageRenderPlan();
+    plan.RetargetTo(96);
+    plan.MarkRequested();
+    plan.Fail(96);
+    Assert(!plan.ShouldRequest, "a page that failed at the current DPI must not be re-requested on the next viewport walk");
+    Assert(!plan.OwesRender, "a failed page must not hold prefetch hostage as an outstanding render");
+
+    plan.RetargetTo(96);
+    Assert(plan.ShouldRequest, "a new fit gives a failed page one retry, even at the same DPI");
+    return Task.CompletedTask;
+}
+
+static Task DoesNotLatchAFailureFromASupersededZoom()
+{
+    var plan = new PageRenderPlan();
+    plan.RetargetTo(96);
+    plan.MarkRequested();
+    plan.RetargetTo(144);
+    plan.Fail(96);
+    Assert(plan.ShouldRequest, "a failure at an old DPI says nothing about the current zoom, which must still be tried");
+    return Task.CompletedTask;
+}
+
+static Task ReleasesADiscardedRenderWithoutLatching()
+{
+    var plan = new PageRenderPlan();
+    plan.RetargetTo(96);
+    plan.MarkRequested();
+    plan.Release();
+    Assert(plan.ShouldRequest, "a discarded render is not a failure: the page must still ask for its bitmap");
     return Task.CompletedTask;
 }
 

@@ -41,6 +41,14 @@ if ((Find-Element 'UndoButton').Current.IsEnabled -or (Find-Element 'RedoButton'
 }
 'PASS Compact toolbar accessible names, visibility and empty-history gates'
 
+function Read-Text([string]$Id) {
+    (Find-Element $Id).GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange.GetText(-1)
+}
+# Linux's editor_toolbar.rs readouts: "current / total" and a bare percentage.
+if ((Read-Text 'PageCounter') -notmatch '^\d+ / \d+$') { throw "Page indicator must read 'N / M': $(Read-Text 'PageCounter')" }
+if ((Read-Text 'ZoomLevel') -notmatch '^\d+%$') { throw "Zoom indicator must read 'N%': $(Read-Text 'ZoomLevel')" }
+'PASS Page and zoom indicators use the Linux readout'
+
 $keys = @('Annotate', 'Edit', 'Comments', 'Sign')
 foreach ($key in $keys) {
     $tab = Find-Element "ToolsTab_$key"

@@ -137,7 +137,7 @@
             <ToggleButton x:Name="PagesPanelButton" Content="Pages" IsChecked="True" Click="PagesPanelButton_Click" ToolTipService.ToolTip="Show or hide the page list" />
             <ToggleButton x:Name="ToolsPanelButton" Content="Tools" IsChecked="True" Click="ToolsPanelButton_Click" ToolTipService.ToolTip="Show or hide tools, properties, form fields and search results" />
             <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" MaxWidth="200" TextTrimming="CharacterEllipsis" />
-            <TextBlock x:Name="PageCounter" VerticalAlignment="Center" />
+            <TextBlock x:Name="PageCounter" VerticalAlignment="Center" MinWidth="54" TextAlignment="Center" />
             <Button x:Name="FirstPageButton" Content="First page" Click="FirstPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Go to the first page of the document (Ctrl+Home)">
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Home" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
@@ -157,7 +157,7 @@
             </Button>
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
-                <TextBlock x:Name="ZoomLevel" VerticalAlignment="Center" MinWidth="110" />
+                <TextBlock x:Name="ZoomLevel" VerticalAlignment="Center" MinWidth="48" TextAlignment="Center" />
                 <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" ToolTipService.ToolTip="Zoom in">&#x002B;</Button>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="12">

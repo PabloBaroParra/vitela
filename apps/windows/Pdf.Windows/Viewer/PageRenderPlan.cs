@@ -35,10 +35,30 @@ public sealed class PageRenderPlan
     /// </summary>
     public bool NeedsRender => RenderedDpi != TargetDpi;
 
-    public bool ShouldRequest => NeedsRender && !Requested;
+    /// <summary>
+    /// DPI the last render failed at, latched for the current fit; 0 when
+    /// none has. Mirrors Linux's <c>PageState::Failed</c>.
+    /// </summary>
+    private uint _failedDpi;
 
-    /// <summary>Points this page at the DPI the current zoom calls for.</summary>
-    public void RetargetTo(uint dpi) => TargetDpi = dpi;
+    /// <summary>
+    /// True when the page still owes a render it can actually get. A page
+    /// whose render failed at the current fit owes nothing until the next one.
+    /// </summary>
+    public bool OwesRender => NeedsRender && _failedDpi != TargetDpi;
+
+    public bool ShouldRequest => OwesRender && !Requested;
+
+    /// <summary>
+    /// Points this page at the DPI the current fit calls for. Every new fit
+    /// clears a failure latch, giving a failed page one retry — even at the
+    /// same DPI, as Linux's <c>refresh_layout</c> does.
+    /// </summary>
+    public void RetargetTo(uint dpi)
+    {
+        TargetDpi = dpi;
+        _failedDpi = 0;
+    }
 
     public void MarkRequested() => Requested = true;
 
@@ -78,8 +98,22 @@ public sealed class PageRenderPlan
         return true;
     }
 
-    /// <summary>Releases the in-flight slot after a failed or discarded render.</summary>
-    public void Fail() => Requested = false;
+    /// <summary>
+    /// Records a render that failed, so the viewport walk stops re-queueing a
+    /// job that can only fail again. A failure at a superseded DPI says nothing
+    /// about the current one and is not latched.
+    /// </summary>
+    public void Fail(uint dpi)
+    {
+        Requested = false;
+        if (dpi == TargetDpi)
+        {
+            _failedDpi = dpi;
+        }
+    }
+
+    /// <summary>Releases the in-flight slot after a discarded render; nothing failed.</summary>
+    public void Release() => Requested = false;
 
     /// <summary>Drops the bitmap when the page leaves the keep window.</summary>
     public void DropBitmap() => RenderedDpi = 0;
