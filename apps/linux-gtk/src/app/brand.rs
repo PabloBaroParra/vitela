@@ -6,7 +6,7 @@ use gtk::prelude::*;
 use gtk::{Box as GtkBox, Label, Orientation, Picture, Settings};
 
 use super::icons::rasterize;
-use super::theme::prefers_dark;
+use super::theme::{connect_scheme_changed, prefers_dark};
 
 /// The two authored variants of the mark, linked in from the same shared
 /// `assets/brand/` files the Windows shell copies beside its executable.
@@ -84,21 +84,23 @@ fn build_mark(edge: i32) -> Picture {
     picture.set_size_request(edge, edge);
     draw_mark(&picture, edge);
 
-    // Re-rasterise when the answer to either input changes: the theme decides
-    // which variant, the scale factor decides at what pixel size.
-    if let Some(settings) = Settings::default() {
-        for property in [
-            "gtk-application-prefer-dark-theme",
-            "gtk-theme-name",
-            "gtk-icon-theme-name",
-        ] {
-            let weak = picture.downgrade();
-            settings.connect_notify_local(Some(property), move |_, _| {
-                if let Some(picture) = weak.upgrade() {
-                    draw_mark(&picture, edge);
-                }
-            });
+    // Re-rasterise when the answer to either input changes: the scheme decides
+    // which variant, the scale factor decides at what pixel size. The scheme
+    // comes from `theme`, which also follows the portal — a GTK setting alone
+    // misses GNOME's dark style.
+    let weak = picture.downgrade();
+    connect_scheme_changed(move || {
+        if let Some(picture) = weak.upgrade() {
+            draw_mark(&picture, edge);
         }
+    });
+    if let Some(settings) = Settings::default() {
+        let weak = picture.downgrade();
+        settings.connect_notify_local(Some("gtk-icon-theme-name"), move |_, _| {
+            if let Some(picture) = weak.upgrade() {
+                draw_mark(&picture, edge);
+            }
+        });
     }
     let weak = picture.downgrade();
     picture.connect_notify_local(Some("scale-factor"), move |_, _| {
