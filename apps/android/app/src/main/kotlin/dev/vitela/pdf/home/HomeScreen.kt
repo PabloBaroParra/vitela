@@ -39,11 +39,11 @@ import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.R
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.ui.theme.Vitela
+import dev.vitela.pdf.viewer.DocumentStartTool
 
 /**
  * What the app shows while no document is open: the mobile counterpart of the
- * desktop Home. Recent files and the tool shortcuts come later — Android does
- * not remember opened files yet, and a tool tile needs a document first.
+ * desktop Home. Tool shortcuts ask for a document before opening their tool.
  */
 @Composable
 internal fun HomeScreen(
@@ -51,6 +51,7 @@ internal fun HomeScreen(
     isLoading: Boolean,
     status: String,
     onOpen: () -> Unit,
+    onOpenTool: (DocumentStartTool) -> Unit,
     onOpenSample: (assetName: String, displayName: String) -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
@@ -64,6 +65,7 @@ internal fun HomeScreen(
                 Text("Your fast, private PDF workspace.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             OpenCard(canOpen, isLoading, onOpen)
+            HomeTools(canOpen, onOpenTool)
             SampleCard(canOpen, onOpenSample)
             Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

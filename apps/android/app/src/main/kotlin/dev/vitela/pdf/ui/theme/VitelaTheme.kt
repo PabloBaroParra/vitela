@@ -3,6 +3,7 @@ package dev.vitela.pdf.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -120,9 +121,14 @@ object Vitela {
 /** Follows the system light/dark setting, like the desktop shells; there is no in-app override. */
 @Composable
 fun VitelaTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    CompositionLocalProvider(LocalVitelaColors provides if (darkTheme) DarkExtras else LightExtras) {
+    val scheme = if (darkTheme) DarkScheme else LightScheme
+    CompositionLocalProvider(
+        LocalVitelaColors provides if (darkTheme) DarkExtras else LightExtras,
+        // MaterialTheme does not supply a default content colour for plain layouts.
+        LocalContentColor provides scheme.onBackground,
+    ) {
         MaterialTheme(
-            colorScheme = if (darkTheme) DarkScheme else LightScheme,
+            colorScheme = scheme,
             shapes = VitelaShapes,
             content = content,
         )

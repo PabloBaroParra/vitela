@@ -39,6 +39,7 @@ import dev.vitela.pdf.ui.theme.Vitela
 internal fun ViewerScreen(
     state: ViewerState,
     onOpen: () -> Unit,
+    onOpenTool: (DocumentStartTool) -> Unit,
     onOpenSample: (assetName: String, displayName: String) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -110,13 +111,11 @@ internal fun ViewerScreen(
     contentEdit: ContentEditActions,
 ) {
     if (showsHome(state)) {
-        HomeScreen(canOpen = state.canOpen, isLoading = state.isLoading, status = state.status, onOpen = onOpen, onOpenSample = onOpenSample)
+        HomeScreen(canOpen = state.canOpen && !state.isLoading && !state.needsPassword, isLoading = state.isLoading, status = state.status, onOpen = onOpen, onOpenTool = onOpenTool, onOpenSample = onOpenSample)
     } else {
-        var mode by rememberSaveable { mutableStateOf(ReaderMode.Read) }
+        var mode by rememberSaveable(state.documentId) { mutableStateOf(initialReaderMode(state.startTool)) }
         var searchOpen by rememberSaveable { mutableStateOf(false) }
         var pageListOpen by remember { mutableStateOf(false) }
-        // A new document starts in Read: tools armed for the last one have nothing to act on.
-        LaunchedEffect(state.documentId) { mode = ReaderMode.Read }
         val switchMode: (ReaderMode) -> Unit = { to ->
             val exit = modeExit(mode, to, state)
             if (exit.disarmTool) onAnnotationTool(AnnotationTool.Pointer)

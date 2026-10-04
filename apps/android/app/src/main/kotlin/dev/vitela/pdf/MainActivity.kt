@@ -16,6 +16,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.vitela.pdf.core.PdfCoreProvider
@@ -27,6 +30,7 @@ import dev.vitela.pdf.ui.theme.VitelaTheme
 import dev.vitela.pdf.viewer.CERTIFICATE_MIME_TYPES
 import dev.vitela.pdf.viewer.CLIPBOARD_IMAGE_UNREADABLE
 import dev.vitela.pdf.viewer.ContentEditActions
+import dev.vitela.pdf.viewer.DocumentStartTool
 import dev.vitela.pdf.viewer.FormFieldActions
 import dev.vitela.pdf.viewer.IMAGE_REPLACE_CANCELLED
 import dev.vitela.pdf.viewer.IMAGE_UNREADABLE
@@ -54,6 +58,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pickedTool by rememberSaveable { mutableStateOf<DocumentStartTool?>(null) }
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -93,10 +98,12 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
         }
     }
     val openPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val startTool = pickedTool
+        pickedTool = null
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, uri) }
-            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget)
+            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget, startTool = startTool)
         }
     }
     val addPdfs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -169,7 +176,8 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
     }
     ViewerScreen(
         state = state,
-        onOpen = { openPdf.launch(arrayOf("application/pdf")) },
+        onOpen = { pickedTool = null; openPdf.launch(arrayOf("application/pdf")) },
+        onOpenTool = { tool -> pickedTool = tool; openPdf.launch(arrayOf("application/pdf")) },
         onOpenSample = { assetName, displayName ->
             scope.launch {
                 val bytes = withContext(Dispatchers.IO) { runCatching { SampleDocument.read(context.assets, assetName) }.getOrNull() }

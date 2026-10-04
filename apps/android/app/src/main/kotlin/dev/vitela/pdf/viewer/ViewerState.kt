@@ -60,6 +60,8 @@ data class ViewerState(
     val isDirty: Boolean = false,
     /** Identifies the active document so an older save can never clear newer work. */
     val documentId: Long = 0,
+    /** The initial reader tab for this document's Home shortcut; not a live tool selection. */
+    val startTool: DocumentStartTool? = null,
     val revision: Long = 0,
     /**
      * Where **Save** writes back to: an opaque token the shell minted for the
