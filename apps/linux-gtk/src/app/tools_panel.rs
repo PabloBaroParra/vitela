@@ -1,4 +1,4 @@
-//! The right-hand panel's own chrome: the Annotate/Edit/Comments/Fill & Sign
+//! The right-hand panel's own chrome: the Edit/Annotate/Comments/Fill & Sign
 //! tab switcher and the document-properties readout, mirroring `shell`'s left
 //! rail on the other side of the canvas.
 //!
@@ -32,9 +32,13 @@ use super::icons::{build_icon, Icon, NEUTRAL_TINT};
 /// `Comments` has no rail button of its own, so it gets an icon of its own.
 /// One list rather than several parallel ones, so a page can never be added
 /// to the stack without a tab to reach it by.
+///
+/// Edit leads, matching the rail and Home's Tools card. The strip order is
+/// only presentation: the page that opens by default is the `Stack`'s first
+/// child (Annotate, see `build_tools_panel`), not the first tab.
 const TABS: [(&str, &str, Icon); 4] = [
-    (ANNOTATE_PAGE, "Annotate", Icon::Annotate),
     (EDIT_PAGE, "Edit", Icon::Edit),
+    (ANNOTATE_PAGE, "Annotate", Icon::Annotate),
     ("comments", "Comments", Icon::Comments),
     (FILL_SIGN_PAGE, "Fill & Sign", Icon::Sign),
 ];
@@ -414,6 +418,39 @@ mod tests {
             assert!(mismatch.is_none(), "{title}: {mismatch:?}");
             assert_eq!(toggle.tooltip_text().as_deref(), Some(*title));
         }
+    }
+
+    /// The strip leads with Edit, like the rail and Home's Tools card, while
+    /// the panel still opens on Annotate: reordering the tabs must not move
+    /// the default page, which the rail marks as the editor's landing spot.
+    #[gtk::test]
+    fn gtk_ui_tabs_lead_with_edit_but_the_panel_opens_on_annotate() {
+        let annotation_row = ScrolledWindow::new();
+        let (_edit_controls, edit_content) = crate::app::content_edit::panel::build_edit_content();
+        let (_forms_toolbar, forms_content) = crate::app::forms::build_forms_content();
+        let (_choose_pfx, _choose_pkcs11, _choose_nss, _signed_indicator, sign_content) =
+            crate::app::sign::build_sign_content();
+        let (_metadata_panel, metadata_content) = crate::app::metadata::build_metadata_panel();
+        let (panel, stack) = build_tools_panel(
+            &annotation_row,
+            &edit_content,
+            &forms_content,
+            &sign_content,
+            &metadata_content,
+        );
+
+        let switcher = panel
+            .first_child()
+            .and_then(|child| child.downcast::<FlowBox>().ok())
+            .expect("the tab strip leads the panel");
+        let titles: Vec<String> = tab_toggles(&switcher)
+            .iter()
+            .filter_map(|toggle| toggle.tooltip_text().map(|text| text.to_string()))
+            .collect();
+
+        assert_eq!(titles, ["Edit", "Annotate", "Comments", "Fill & Sign"]);
+        assert_eq!(stack.visible_child_name().as_deref(), Some(ANNOTATE_PAGE));
+        assert!(tab_toggles(&switcher)[1].is_active());
     }
 
     #[gtk::test]

@@ -18,7 +18,7 @@ public sealed partial class MainWindow
         var entries = new[]
         {
             ("Edit", "Retype text and replace images", "\uE70F", 0x6b4effu),
-            ("Annotate", "Highlight, draw, and add notes", "\uE70F", 0x14b8a6u),
+            ("Annotate", "Highlight, draw, and add notes", "\uE7E6", 0x14b8a6u),
             ("Sign", "Sign with a certificate, card, or token", "\uE77F", 0xec4899u),
             ("Organize", "Reorder and delete pages", "\uE8A9", 0x22c55eu),
             ("Compress", "Write a smaller copy of the file", "\uE8B1", 0xf59e0bu),

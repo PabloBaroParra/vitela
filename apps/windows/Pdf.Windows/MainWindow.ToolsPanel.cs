@@ -14,9 +14,10 @@ public sealed partial class MainWindow
     {
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_toolsTabStrip, "Tools pages");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_toolsTabStrip, "ToolsTabStrip");
+        // Edit leads, matching the rail and Home's Tools card; Annotate stays the page that opens.
         foreach (var (key, label, glyph) in new[]
         {
-            ("Annotate", "Annotate", "\uE70F"), ("Edit", "Edit", "\uE70F"),
+            ("Edit", "Edit", "\uE70F"), ("Annotate", "Annotate", "\uE7E6"),
             ("Comments", "Comments", "\uE90A"), ("Sign", "Fill & Sign", "\uE77F"),
         })
         {

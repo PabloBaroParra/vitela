@@ -41,10 +41,11 @@
                 <ToggleButton x:Name="RecentRailButton" Style="{StaticResource RailItemStyle}" Content="Recent" Tag="Recent" Click="RailButton_Click" />
                 <ToggleButton Style="{StaticResource RailItemStyle}" Content="My files" Tag="Files" Click="RailButton_Click" />
                 <Border Style="{StaticResource RailSeparatorStyle}" />
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Annotate" Tag="Annotate" Click="RailButton_Click" />
+                <!-- Same order as Home's Tools card and the Linux rail. -->
                 <ToggleButton Style="{StaticResource RailItemStyle}" Content="Edit PDF" Tag="Edit" Click="RailButton_Click" />
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Organize pages" Tag="Organize" Click="RailButton_Click" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Annotate" Tag="Annotate" Click="RailButton_Click" />
                 <ToggleButton Style="{StaticResource RailItemStyle}" Content="Sign" Tag="Sign" Click="RailButton_Click" />
+                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Organize pages" Tag="Organize" Click="RailButton_Click" />
                 <ToggleButton Style="{StaticResource RailItemStyle}" Content="Protect" Tag="Protect" Click="RailButton_Click" />
             </StackPanel>
         </ScrollViewer>

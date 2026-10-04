@@ -23,7 +23,7 @@ public sealed partial class MainWindow
             var glyph = (string)button.Tag switch
             {
                 "Home" => "\uE80F", "Recent" => "\uE823", "Files" => "\uE8B7",
-                "Annotate" => "\uE70F", "Edit" => "\uE70F", "Organize" => "\uE8A9",
+                "Annotate" => "\uE7E6", "Edit" => "\uE70F", "Organize" => "\uE8A9",
                 "Sign" => "\uE77F", _ => "\uE72E",
             };
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };

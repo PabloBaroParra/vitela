@@ -2,7 +2,7 @@
 //!
 //! The rail is split into two groups. The first navigates — Home, Recent,
 //! My files — and is what the Home view added; the second acts on the open
-//! document — Annotate, Edit, Organize pages, Sign, Protect. The rail itself
+//! document — Edit, Annotate, Sign, Organize pages, Protect. The rail itself
 //! sits outside the window's view `Stack`, so it stays on screen for Home and
 //! the editor alike.
 //!
@@ -360,14 +360,16 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     separator.add_css_class("app-rail-separator");
     rail.append(&separator);
 
-    // Act on the open document.
-    let annotate = rail_item(&rail, "Annotate", Icon::Annotate);
+    // Act on the open document. Same order as Home's Tools card
+    // (`home::tools`) and the Windows rail, so a section sits in the
+    // same slot whichever screen or device the user is looking at.
     let edit_pdf = rail_item(&rail, "Edit PDF", Icon::Edit);
-    let organize = rail_item(&rail, "Organize pages", Icon::Organize);
+    let annotate = rail_item(&rail, "Annotate", Icon::Annotate);
     // T-186: Batch B23's signing flow (Fases 1-4) is wired end to end, so
     // this is no longer a "nothing behind it yet" section like its Protect
     // neighbor.
     let sign = rail_item(&rail, "Sign", Icon::Sign);
+    let organize = rail_item(&rail, "Organize pages", Icon::Organize);
     let protect = rail_item(&rail, "Protect", Icon::Protect);
 
     (
@@ -500,6 +502,34 @@ mod tests {
             .filter_map(|child| child.downcast::<Button>().ok())
             .find(|button| rail_label(button).as_deref() == Some(label))
             .unwrap_or_else(|| panic!("the rail must offer a {label} button"))
+    }
+
+    /// The rail lists its sections in the same order as Home's Tools card,
+    /// and as the Windows rail does: Annotate once sat first here
+    /// and second on Home, so the same tool moved slot between screens.
+    #[gtk::test]
+    fn gtk_ui_the_rail_orders_sections_like_home_tools() {
+        let (_app_rail, rail_box) = build_app_rail();
+
+        let labels: Vec<String> =
+            std::iter::successors(rail_box.first_child(), |child| child.next_sibling())
+                .filter_map(|child| child.downcast::<Button>().ok())
+                .filter_map(|button| rail_label(&button))
+                .collect();
+
+        assert_eq!(
+            labels,
+            [
+                "Home",
+                "Recent",
+                "My files",
+                "Edit PDF",
+                "Annotate",
+                "Sign",
+                "Organize pages",
+                "Protect",
+            ]
+        );
     }
 
     /// The same regression lock as its Sign and Organize neighbours, for the
