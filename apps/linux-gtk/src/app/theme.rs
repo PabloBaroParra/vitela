@@ -22,13 +22,13 @@
 //! * the CSS provider is reloaded with the other scheme's `@define-color`s;
 //! * rasterised icons (tinted at raster time, so CSS cannot reach them) are
 //!   redrawn through [`super::icons::retint_all`];
-//! * the brand mark picks its own variant and listens to the same settings
-//!   (see `brand`), so it is not driven from here.
+//! * anything else that draws per scheme (the brand mark) registers through
+//!   [`connect_scheme_changed`].
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 
 use gtk::prelude::*;
-use gtk::{style_context_add_provider_for_display, CssProvider, Settings};
+use gtk::{gio, glib, style_context_add_provider_for_display, CssProvider, Settings};
 
 /// Which half of the palette is live.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,10 +151,11 @@ pub(crate) fn current_tint(light_hex: &str) -> String {
     tint_for(light_hex, current_scheme())
 }
 
-/// The pure half of [`prefers_dark`].
-fn scheme_for(prefer_dark_setting: bool, theme_name: Option<&str>) -> Scheme {
+/// The pure half of [`prefers_dark`]. `portal` is the portal's
+/// `color-scheme`: 0 no preference, 1 prefer dark, 2 prefer light.
+fn scheme_for(portal: Option<u32>, prefer_dark_setting: bool, theme_name: Option<&str>) -> Scheme {
     let named_dark = theme_name.is_some_and(|name| name.to_lowercase().contains("dark"));
-    if prefer_dark_setting || named_dark {
+    if portal == Some(PORTAL_PREFER_DARK) || prefer_dark_setting || named_dark {
         Scheme::Dark
     } else {
         Scheme::Light
@@ -164,17 +165,121 @@ fn scheme_for(prefer_dark_setting: bool, theme_name: Option<&str>) -> Scheme {
 /// The scheme the desktop is asking for right now.
 ///
 /// Plain GTK4 has no equivalent of libadwaita's `AdwStyleManager`, so this
-/// reads the two settings that actually carry the preference: the portal maps
-/// a dark colour scheme onto `gtk-application-prefer-dark-theme`, while a user
-/// who picked a dark theme outright gets it in the theme name.
+/// reads every place the preference actually lives. GNOME's dark style sets
+/// only the portal's `color-scheme` — the theme stays `Adwaita` and plain
+/// GTK4 (before 4.20) never maps it onto `gtk-application-prefer-dark-theme`
+/// — so the portal comes first. The two GTK settings cover a desktop without
+/// a portal and a user who picked a dark theme outright.
 fn desktop_scheme() -> Scheme {
+    let portal = portal_color_scheme();
     let Some(settings) = Settings::default() else {
-        return Scheme::Light;
+        return scheme_for(portal, false, None);
     };
     scheme_for(
-        settings.is_gtk_application_prefer_dark_theme(),
+        portal,
+        initial_prefer_dark(&settings),
         settings.gtk_theme_name().as_deref(),
     )
+}
+
+/// `gtk-application-prefer-dark-theme` as the user configured it
+/// (`settings.ini`), read once before [`paint_widgets`] first writes it. After
+/// that write the setting is ours, so reading it live would latch dark: a
+/// switch back to light would find the `true` we wrote and stay dark.
+fn initial_prefer_dark(settings: &Settings) -> bool {
+    INITIAL_PREFER_DARK
+        .with(|cell| *cell.get_or_init(|| settings.is_gtk_application_prefer_dark_theme()))
+}
+
+/// Puts GTK's own theme on the same side as the palette. The sheets only
+/// colour what they style; every other surface — a resting button, an entry,
+/// a scrollbar, a popover — is drawn by the theme, and `Adwaita` stays light
+/// under GNOME's dark style unless the application asks for its dark variant.
+fn paint_widgets(scheme: Scheme) {
+    let Some(settings) = Settings::default() else {
+        return;
+    };
+    initial_prefer_dark(&settings);
+    settings.set_gtk_application_prefer_dark_theme(scheme == Scheme::Dark);
+}
+
+const PORTAL_BUS_NAME: &str = "org.freedesktop.portal.Desktop";
+const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
+const PORTAL_SETTINGS: &str = "org.freedesktop.portal.Settings";
+const APPEARANCE: &str = "org.freedesktop.appearance";
+const COLOR_SCHEME: &str = "color-scheme";
+const PORTAL_PREFER_DARK: u32 = 1;
+/// Read once, synchronously, at startup: long enough for D-Bus to activate
+/// the portal, short enough that a broken session bus cannot stall launch.
+const PORTAL_TIMEOUT_MS: i32 = 1000;
+
+/// The portal's `color-scheme`, read on first use and kept current by
+/// [`watch_portal`]. `None` when there is no portal to ask.
+fn portal_color_scheme() -> Option<u32> {
+    PORTAL.with(|cell| cell.get_or_init(|| Cell::new(read_portal())).get())
+}
+
+fn read_portal() -> Option<u32> {
+    let bus = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE).ok()?;
+    // `ReadOne` is the current method; portals older than v2 only have the
+    // deprecated `Read`.
+    ["ReadOne", "Read"].into_iter().find_map(|method| {
+        bus.call_sync(
+            Some(PORTAL_BUS_NAME),
+            PORTAL_PATH,
+            PORTAL_SETTINGS,
+            method,
+            Some(&(APPEARANCE, COLOR_SCHEME).to_variant()),
+            None,
+            gio::DBusCallFlags::NONE,
+            PORTAL_TIMEOUT_MS,
+            gio::Cancellable::NONE,
+        )
+        .ok()
+        .and_then(|reply| reply.try_child_value(0))
+        .and_then(|value| color_scheme_value(&value))
+    })
+}
+
+/// Unwraps a portal value down to the `color-scheme` number. `ReadOne`
+/// boxes it in one `v`, the older `Read` in two, so peel every layer.
+fn color_scheme_value(value: &glib::Variant) -> Option<u32> {
+    let mut value = value.clone();
+    while value.is::<glib::Variant>() {
+        value = value.as_variant()?;
+    }
+    value.get::<u32>()
+}
+
+/// Follows the portal's `SettingChanged` so a switch made while the app is
+/// open repaints it, like the GTK settings in [`watch_desktop`] do.
+fn watch_portal() {
+    let Ok(bus) = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE) else {
+        return;
+    };
+    // The subscription lives as long as the shared session connection — the
+    // whole process — so its id is never needed to unsubscribe.
+    let _ = bus.signal_subscribe(
+        Some(PORTAL_BUS_NAME),
+        Some(PORTAL_SETTINGS),
+        Some("SettingChanged"),
+        Some(PORTAL_PATH),
+        Some(APPEARANCE),
+        gio::DBusSignalFlags::NONE,
+        |_, _, _, _, _, parameters| {
+            let key = parameters
+                .try_child_value(1)
+                .and_then(|key| key.get::<String>());
+            if key.as_deref() != Some(COLOR_SCHEME) {
+                return;
+            }
+            let value = parameters
+                .try_child_value(2)
+                .and_then(|value| color_scheme_value(&value));
+            PORTAL.with(|cell| cell.get_or_init(|| Cell::new(None)).set(value));
+            refresh();
+        },
+    );
 }
 
 /// Whether the current theme is a dark one.
@@ -185,6 +290,15 @@ pub(crate) fn prefers_dark() -> bool {
 thread_local! {
     static LIVE: Cell<Scheme> = const { Cell::new(Scheme::Light) };
     static PROVIDER: RefCell<Option<Installed>> = const { RefCell::new(None) };
+    static PORTAL: OnceCell<Cell<Option<u32>>> = const { OnceCell::new() };
+    static INITIAL_PREFER_DARK: OnceCell<bool> = const { OnceCell::new() };
+    static LISTENERS: RefCell<Vec<Box<dyn Fn()>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Runs `listener` after every switch of the live scheme, once the palette
+/// and the icons have moved.
+pub(crate) fn connect_scheme_changed(listener: impl Fn() + 'static) {
+    LISTENERS.with_borrow_mut(|listeners| listeners.push(Box::new(listener)));
 }
 
 /// The one provider and the sheet text it is built from, kept so a scheme
@@ -208,6 +322,7 @@ pub(crate) fn install(sheets: String) {
     };
     let scheme = desktop_scheme();
     LIVE.set(scheme);
+    paint_widgets(scheme);
 
     let first_install = PROVIDER.with_borrow_mut(|slot| match slot {
         Some(installed) => {
@@ -238,15 +353,15 @@ pub(crate) fn install(sheets: String) {
     }
 }
 
-/// Re-applies the palette when either setting behind [`desktop_scheme`]
-/// changes.
+/// Re-applies the palette when any input behind [`desktop_scheme`] changes.
+/// `gtk-application-prefer-dark-theme` is not one of them: [`paint_widgets`]
+/// writes it, and only its value at startup is an input.
 fn watch_desktop() {
+    watch_portal();
     let Some(settings) = Settings::default() else {
         return;
     };
-    for property in ["gtk-application-prefer-dark-theme", "gtk-theme-name"] {
-        settings.connect_notify_local(Some(property), |_, _| refresh());
-    }
+    settings.connect_notify_local(Some("gtk-theme-name"), |_, _| refresh());
 }
 
 /// Moves the shell to whatever [`desktop_scheme`] says now, if that differs
@@ -257,6 +372,7 @@ fn refresh() {
         return;
     }
     LIVE.set(scheme);
+    paint_widgets(scheme);
     PROVIDER.with_borrow(|slot| {
         if let Some(installed) = slot {
             installed
@@ -265,6 +381,7 @@ fn refresh() {
         }
     });
     super::icons::retint_all();
+    LISTENERS.with_borrow(|listeners| listeners.iter().for_each(|listener| listener()));
 }
 
 #[cfg(test)]
@@ -433,11 +550,61 @@ mod tests {
 
     #[test]
     fn dark_is_chosen_by_the_preference_or_by_a_dark_theme_name() {
-        assert_eq!(scheme_for(false, None), Scheme::Light);
-        assert_eq!(scheme_for(false, Some("Adwaita")), Scheme::Light);
-        assert_eq!(scheme_for(true, Some("Adwaita")), Scheme::Dark);
-        assert_eq!(scheme_for(false, Some("Adwaita-dark")), Scheme::Dark);
-        assert_eq!(scheme_for(false, Some("Yaru-DARK")), Scheme::Dark);
+        assert_eq!(scheme_for(None, false, None), Scheme::Light);
+        assert_eq!(scheme_for(None, false, Some("Adwaita")), Scheme::Light);
+        assert_eq!(scheme_for(None, true, Some("Adwaita")), Scheme::Dark);
+        assert_eq!(scheme_for(None, false, Some("Adwaita-dark")), Scheme::Dark);
+        assert_eq!(scheme_for(None, false, Some("Yaru-DARK")), Scheme::Dark);
+    }
+
+    /// GNOME's dark style sets the portal's `color-scheme` and leaves the
+    /// theme called `Adwaita` — the case that kept the shell light.
+    #[test]
+    fn the_portal_preference_alone_chooses_dark() {
+        assert_eq!(scheme_for(Some(1), false, Some("Adwaita")), Scheme::Dark);
+        assert_eq!(scheme_for(Some(0), false, Some("Adwaita")), Scheme::Light);
+        assert_eq!(scheme_for(Some(2), false, Some("Adwaita")), Scheme::Light);
+        // No preference from the portal leaves the GTK signals in charge.
+        assert_eq!(
+            scheme_for(Some(0), false, Some("Adwaita-dark")),
+            Scheme::Dark
+        );
+    }
+
+    /// Writing the widget theme must never feed back into the scheme: the
+    /// startup value stays the input, so dark can still switch back to light.
+    #[gtk::test]
+    fn gtk_ui_the_widget_theme_follows_the_scheme_without_latching() {
+        // GTK tests share one thread and one `Settings`; leave it light.
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                paint_widgets(Scheme::Light);
+            }
+        }
+        let _restore = Restore;
+        let settings = Settings::default().expect("a display");
+        let startup = initial_prefer_dark(&settings);
+
+        paint_widgets(Scheme::Dark);
+        assert!(settings.is_gtk_application_prefer_dark_theme());
+        assert_eq!(initial_prefer_dark(&settings), startup);
+
+        paint_widgets(Scheme::Light);
+        assert!(!settings.is_gtk_application_prefer_dark_theme());
+    }
+
+    #[test]
+    fn the_color_scheme_is_read_through_every_variant_layer() {
+        use gtk::glib::Variant;
+
+        let bare = 1u32.to_variant();
+        let boxed = Variant::from_variant(&bare);
+        let double_boxed = Variant::from_variant(&boxed);
+        assert_eq!(color_scheme_value(&bare), Some(1));
+        assert_eq!(color_scheme_value(&boxed), Some(1));
+        assert_eq!(color_scheme_value(&double_boxed), Some(1));
+        assert_eq!(color_scheme_value(&"dark".to_variant()), None);
     }
 
     #[test]
