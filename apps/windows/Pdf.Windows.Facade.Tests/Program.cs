@@ -6,6 +6,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shell lifecycle conservatively guards full Undo without changing the default", DocumentStatesParityTests.RunAsync),
     ("lifecycle query follows pending edits, successful writes and stale sessions", QueriesLifecycleChangesAsync),
     ("document block snapshots, single commands and stale guards", OrganizeParityTests.RunAsync),
+    ("imports another PDF's pages as one undo step per file", ImportParityTests.RunAsync),
     ("edits metadata dates and individual properties without losing offsets", MetadataParityTests.RunAsync),
     ("guards annotation color choices against stale targets and permissions", AnnotationStyleParityTests.RunAsync),
     ("refuses document search before matching when extraction is forbidden", SearchParityTests.RunAsync),
@@ -3982,6 +3983,23 @@ sealed class FakeCore : IPdfCore
     public string? SigningRefusal(IPdfCoreDocument document) => SignRefusal ?? (document.PageCount == 0 ? "the document has no pages to sign" : null);
     public ISigningCertificate OpenSigningCertificate(byte[] bytes, string password) => new FakeSigningCertificate();
     public byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId) => [1, 2, 3];
+    public IReadOnlyList<string> ImportWarnings { get; init; } = [];
+    public string? ImportPassword { get; init; }
+    public string? ImportRefusal { get; init; }
+    /// <summary>Every import the core accepted: where it landed and the password it was given.</summary>
+    public List<(uint Index, string? Password)> Imports { get; } = [];
+    private ulong _nextImportedSourceId;
+    public PdfCoreImportReport ImportPdf(IPdfCoreDocument document, byte[] bytes, string? password, uint index)
+    {
+        // The same order as `pdf-ffi`'s import_pdf: the document's own gates,
+        // then the source's password.
+        if (ImportRefusal is { } refusal) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "import refused", refusal);
+        if (ImportPassword is { } required && password != required)
+            throw new PdfCoreException(password is null ? PdfCoreError.PasswordRequired : PdfCoreError.WrongPassword, "sensitive diagnostic");
+        Imports.Add((index, password));
+        ((FakeDocument)document).InsertImportedPages(index, 2);
+        return new PdfCoreImportReport(2, ImportWarnings, _nextImportedSourceId++);
+    }
     public uint PageCount { get; init; } = 1;
     public double PageWidthPt { get; init; } = 595;
     public double PageHeightPt { get; init; } = 842;
