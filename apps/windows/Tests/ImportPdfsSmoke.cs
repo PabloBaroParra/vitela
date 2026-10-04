@@ -25,7 +25,8 @@ public partial class App : Application
             File.WriteAllText(Path.Combine(output, "import-pdfs-smoke.log"),
                 "PASS real-core multi-file import; one undo/redo for the whole batch; cancelled and failed preparation preserve history; "
                 + "warning confirmation defaults to Cancel; blocks named after their files; imported pages render; "
-                + "encrypted source password cancel/retry; save round-trips every imported page.");
+                + "encrypted source password cancel/retry; save round-trips every imported page; "
+                + "empty destination recovery with one undo/redo; real encrypted destination refusal before picker preserves pages and history.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "import-pdfs-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -163,5 +164,76 @@ public sealed partial class MainWindow
         Check(save.IsSuccess && saved is not null, "Saving with imported pages must succeed: " + save.Error?.Message);
         var reopened = await _facade.OpenAsync(new DocumentSource("saved.pdf", saved!), discardPendingEdits: true);
         Check(reopened.IsSuccess && reopened.Value!.PageCount == expected, "The saved file must hold every imported page");
+
+        // Start from a real zero-page session, not a shell-only PageCount override.
+        ShowOpenedDocument(reopened.Value!);
+        await EnterOrganizeViewAsync();
+        id = _session!.SessionId;
+        var savedBlocks = (await _facade.DocumentBlocksAsync(id)).Value!;
+        Check(savedBlocks.Blocks.Count == 1, "Reopened pages must form one base block");
+        await EditOrganizeBlockAsync(savedBlocks, 0, DocumentBlockAction.Delete, 0, id, _organizeDocumentsGeneration);
+        var empty = (await _facade.DocumentBlocksAsync(id)).Value!;
+        Check(_session!.PageCount == 0 && empty.Blocks.Count == 0 && _organizeDocumentActions.Count == 0,
+            "Deleting the final block must leave a real empty Organize view");
+        Check(OrganizeAddPdfsButton.IsEnabled && OrganizeUndoButton.IsEnabled && !OrganizeSaveButton.IsEnabled,
+            "An empty destination must permit import and recovery Undo, but not Save");
+        Check((await _facade.ImportRefusalAsync(id)) is { IsSuccess: true, Value: null },
+            "Zero pages must not itself refuse importing");
+
+        // No files is cancellation, even when the destination has no pages.
+        await ImportPdfsAsync(id, []);
+        Check(_session.PageCount == 0 && AnnotationStatus.Text == ImportCancelled
+            && (await _facade.DocumentBlocksAsync(id)).Value!.Revision == empty.Revision
+            && OrganizeAddPdfsButton.IsEnabled && ImportProgressPanel.Visibility == Visibility.Collapsed,
+            "An empty pick must preserve the empty destination and restore import controls");
+        importing = ImportPdfsAsync(id, [sample, sample]);
+        if (sampleSource.Warnings.Count > 0) Click(await Dialog("Some document-level information will stay behind"), "PrimaryButton");
+        await importing;
+        var recovered = (await _facade.DocumentBlocksAsync(id)).Value!;
+        Check(_session.PageCount == original * 2 && recovered.Blocks.Count == 2
+            && recovered.Blocks.All(block => block.Source == DocumentBlockSource.Imported)
+            && recovered.Revision == empty.Revision + 1 && OrganizeSaveButton.IsEnabled,
+            "One batch must recover all picked pages from an empty destination in one revision");
+        await RunOrganizeHistoryAsync(undo: true);
+        Check(_session.PageCount == 0 && (await _facade.DocumentBlocksAsync(id)).Value!.Blocks.Count == 0
+            && OrganizeRedoButton.IsEnabled && OrganizeAddPdfsButton.IsEnabled && !OrganizeSaveButton.IsEnabled,
+            "One Undo must restore the empty destination and its recovery controls");
+        await RunOrganizeHistoryAsync(undo: false);
+        Check(_session.PageCount == original * 2
+            && (await _facade.DocumentBlocksAsync(id)).Value!.Blocks.SequenceEqual(recovered.Blocks)
+            && OrganizeSaveButton.IsEnabled && ImportProgressPanel.Visibility == Visibility.Collapsed,
+            "One Redo must restore the complete imported batch and Save availability");
+
+        // This shipped fixture grants copying but denies content changes and
+        // page assembly when opened with its user password. Use the real core.
+        var restricted = await _facade.OpenAsync(new DocumentSource("restricted.pdf", aes), "user-aes-pass", discardPendingEdits: true);
+        Check(restricted.IsSuccess, "The restricted destination must open with its user password");
+        ShowOpenedDocument(restricted.Value!);
+        await EnterOrganizeViewAsync();
+        id = _session!.SessionId;
+        var restrictedBlocks = (await _facade.DocumentBlocksAsync(id)).Value!;
+        var refusal = await _facade.ImportRefusalAsync(id);
+        Check(refusal.IsSuccess && refusal.Value == "This document does not permit changing its content.",
+            "The real encrypted fixture must refuse content changes, not merely fail a rewrite");
+        Check(OrganizeAddPdfsButton.IsEnabled && !OrganizeUndoButton.IsEnabled && !OrganizeRedoButton.IsEnabled,
+            "The import action must remain available to explain the core's refusal");
+        OrganizeAddPdfsButton_Click(OrganizeAddPdfsButton, new RoutedEventArgs());
+        for (var attempt = 0; _organizeBusy && attempt < 200; attempt++) await Task.Delay(25);
+        var afterRefusal = (await _facade.DocumentBlocksAsync(id)).Value!;
+        Check(!_organizeBusy && !_isBusy && AnnotationStatus.Text == refusal.Value,
+            "A refused import must report the core's reason before opening a picker and release busy ownership");
+        Check(_session.SessionId == id && _session.PageCount == restricted.Value!.PageCount
+            && afterRefusal.Revision == restrictedBlocks.Revision && afterRefusal.Blocks.SequenceEqual(restrictedBlocks.Blocks)
+            && !OrganizeUndoButton.IsEnabled && !OrganizeRedoButton.IsEnabled
+            && !(await _facade.HasUnsavedChangesAsync(id)).Value,
+            "Refusal must preserve the restricted destination's pages, revision and clean history");
+        Check(OrganizeAddPdfsButton.IsEnabled && OrganizeReturnButton.IsEnabled
+            && ImportProgressPanel.Visibility == Visibility.Collapsed && !_dialogOpen,
+            "Refusal must leave no progress/modal and restore usable Organize controls");
+        using var permittedSource = (await _facade.PrepareImportAsync(await File.ReadAllBytesAsync(SamplePath), null)).Value!;
+        var refusedApply = await _facade.ImportPreparedAsync(id, [permittedSource], _session.PageCount);
+        Check(!refusedApply.IsSuccess && refusedApply.Error!.Message == refusal.Value
+            && (await _facade.DocumentBlocksAsync(id)).Value!.Revision == restrictedBlocks.Revision,
+            "The mutation boundary must enforce the same permission refusal if called directly");
     }
 }

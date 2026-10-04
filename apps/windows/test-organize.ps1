@@ -65,8 +65,11 @@ foreach ($id in @('EditorToolbar', 'DocumentSidebar', 'PagesSidebar', 'PageScrol
     $element = Find-Element $id
     if ($null -ne $element -and -not $element.Current.IsOffscreen) { throw "Editor chrome leaked into dedicated Organize screen: $id" }
 }
-foreach ($id in @('OrganizeUndoButton', 'OrganizeRedoButton', 'OrganizeAddPdfsButton')) {
-    if ((Find-Element $id).Current.IsEnabled) { throw "Empty history/unsupported import must be disabled: $id" }
+foreach ($id in @('OrganizeUndoButton', 'OrganizeRedoButton')) {
+    if ((Find-Element $id).Current.IsEnabled) { throw "Empty history must be disabled: $id" }
+}
+if (-not (Find-Element 'OrganizeAddPdfsButton').Current.IsEnabled) {
+    throw 'Add PDFs must be available for the editable sample.'
 }
 if (-not (Find-Element 'OrganizeExtractButton').Current.IsEnabled -or
     -not (Find-Element 'OrganizeSaveButton').Current.IsEnabled) { throw 'Extract/Save must be available for the sample.' }
