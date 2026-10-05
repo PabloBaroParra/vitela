@@ -152,7 +152,7 @@ if ($null -eq $certificate -or $certificate.Current.IsOffscreen -or -not $certif
     $certificate.Current.Name -ne ('Choose signing certificate (.pfx)' + [char]0x2026)) { throw 'PFX signing command is missing or disabled for the sample.' }
 foreach ($id in @('ChooseCardCertificate', 'ChooseComputerCertificate')) {
     $source = Find-Element $id
-    if ($null -eq $source -or $source.Current.IsOffscreen -or $source.Current.IsEnabled) { throw "Unsupported signing source is missing or enabled: $id" }
+    if ($null -eq $source -or $source.Current.IsOffscreen -or -not $source.Current.IsEnabled) { throw "Signing source is missing or disabled: $id" }
 }
 $indicator = Find-Element 'SignedIndicator'
 if ($null -ne $indicator -and -not $indicator.Current.IsOffscreen) { throw 'Unsigned sample must not claim a signature.' }
@@ -170,7 +170,7 @@ for ($attempt = 0; $attempt -lt 40 -and -not $certificate.Current.IsEnabled; $at
 if (-not $certificate.Current.IsEnabled -or (Find-Element 'DocumentTitle').Current.Name -ne 'Vitela sample.pdf' -or
     (Find-Element 'UndoButton').Current.IsEnabled) { throw 'Signing picker cancellation did not preserve the sample and command state.' }
 (Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-'PASS Signing panel, unsupported-source gates, unsigned indicator, native picker and cancellation'
+'PASS Signing panel, source eligibility gates, unsigned indicator, native picker and cancellation'
 
 $find = Find-Element 'FindDocumentButton'
 $find.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()

@@ -19,7 +19,10 @@ internal interface IPdfCore
     IReadOnlyList<DocumentBlock> DocumentBlocks(IPdfCoreDocument document);
     string? SigningRefusal(IPdfCoreDocument document);
     ISigningCertificate OpenSigningCertificate(byte[] bytes, string password);
+    ISigningCertificate OpenTokenSigningSource(string modulePath, string? pin);
+    ISigningCertificate OpenSystemSigningSource();
     byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId);
+    IPdfCoreDocument ReopenSignedDocument(IPdfCoreDocument source, byte[] bytes);
 
     /// <summary>
     /// Opens one PDF as an import source (decrypt, copy permission, graft

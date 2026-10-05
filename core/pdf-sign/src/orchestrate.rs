@@ -309,6 +309,104 @@ mod tests {
     }
 
     #[test]
+    fn signs_an_encrypted_document_without_removing_protection() {
+        assert_encrypted_signing(pdf_document::SecurityHandler::Aes128);
+    }
+
+    #[test]
+    fn signs_an_rc4_document_without_removing_protection() {
+        assert_encrypted_signing(pdf_document::SecurityHandler::Rc4_128);
+    }
+
+    fn assert_encrypted_signing(handler: pdf_document::SecurityHandler) {
+        use pdf_document::{Credential, EncryptionCredentials, Permissions, SecurityContext};
+        let source = FakeCertificateSource::new();
+        let (base, _) = pdf_manip::open_document_from_bytes(&blank_document_bytes(), None).unwrap();
+        let mut document = base.into_lopdf();
+        let file_id = Object::string_literal("encrypted-sign-test");
+        document.trailer.set("ID", vec![file_id.clone(), file_id]);
+        let security = SecurityContext {
+            handler,
+            credential: Credential::Owner,
+            credentials: EncryptionCredentials::both("user-test", "owner-test"),
+            permissions: Permissions(0xFFFF_FFFC),
+        };
+        pdf_save::apply_encryption_for_full_rewrite(
+            &mut document,
+            Some(&security),
+            pdf_save::SaveIntent::ApplyProtection,
+        )
+        .unwrap();
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        let signed = sign_document(
+            bytes.clone(),
+            Some("owner-test"),
+            1,
+            "Signature_1",
+            &source,
+            &source.identity.id,
+        )
+        .expect("encrypted signing must succeed");
+        assert!(signed.starts_with(&bytes));
+        assert!(pdf_manip::open_document_from_bytes(&signed, None).is_err());
+        let (reopened, reopened_security) =
+            pdf_manip::open_document_from_bytes(&signed, Some("user-test")).unwrap();
+        assert!(reopened_security.is_some());
+        let (original, _) =
+            pdf_manip::open_document_from_bytes(&bytes, Some("owner-test")).unwrap();
+        assert!(
+            original
+                .as_lopdf()
+                .encryption_state
+                .as_ref()
+                .unwrap()
+                .file_encryption_key()
+                == reopened
+                    .as_lopdf()
+                    .encryption_state
+                    .as_ref()
+                    .unwrap()
+                    .file_encryption_key(),
+            "file key preserved"
+        );
+        let signature = reopened
+            .as_lopdf()
+            .objects
+            .values()
+            .filter_map(|o| o.as_dict().ok())
+            .find(|dict| dict.has_type(b"Sig"))
+            .expect("signature dictionary");
+        assert_eq!(
+            signature.get(b"Contents").unwrap().as_str().unwrap()[0],
+            0x30,
+            "CMS remains cleartext DER"
+        );
+        assert!(
+            signature
+                .get(b"M")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .starts_with(b"D:"),
+            "Other signature strings decrypt normally: {:?}",
+            signature.get(b"M")
+        );
+        let twice = sign_document(
+            signed.clone(),
+            Some("user-test"),
+            1,
+            "Signature_2",
+            &source,
+            &source.identity.id,
+        )
+        .expect("encrypted re-signing must succeed");
+        assert!(twice.starts_with(&signed));
+        pdf_manip::open_document_from_bytes(&twice, Some("owner-test"))
+            .expect("owner can reopen second signature");
+    }
+
+    #[test]
     fn signs_a_document_with_no_prior_acroform() {
         let source = FakeCertificateSource::new();
         let bytes = blank_document_bytes();

@@ -26,6 +26,20 @@ public sealed partial class PdfDocumentFacade
         catch (Exception error) { return OperationResult<ISigningCertificate>.Failure(MapUnexpected(error, "certificate", null, null)); }
     }
 
+    public async Task<OperationResult<ISigningCertificate>> OpenTokenSigningSourceAsync(string modulePath, string? pin)
+    {
+        try { return OperationResult<ISigningCertificate>.Success(await Task.Run(() => _core.OpenTokenSigningSource(modulePath, pin)).ConfigureAwait(false)); }
+        catch (PdfCoreException error) { return OperationResult<ISigningCertificate>.Failure(MapError(error, "token_certificate", null, null)); }
+        catch (Exception error) { return OperationResult<ISigningCertificate>.Failure(MapUnexpected(error, "token_certificate", null, null)); }
+    }
+
+    public async Task<OperationResult<ISigningCertificate>> OpenSystemSigningSourceAsync()
+    {
+        try { return OperationResult<ISigningCertificate>.Success(await Task.Run(_core.OpenSystemSigningSource).ConfigureAwait(false)); }
+        catch (PdfCoreException error) { return OperationResult<ISigningCertificate>.Failure(MapError(error, "system_certificate", null, null)); }
+        catch (Exception error) { return OperationResult<ISigningCertificate>.Failure(MapUnexpected(error, "system_certificate", null, null)); }
+    }
+
     /// <summary>Write and reopen under one document gate. A failed write never retires the live session.</summary>
     public async Task<OperationResult<DocumentSession>> SignToDestinationAsync(string sessionId, ISigningCertificate certificate,
         string identityId, string displayName, Func<byte[], Task> replaceDestination)
@@ -42,7 +56,7 @@ public sealed partial class PdfDocumentFacade
                 return OperationResult<DocumentSession>.Failure(CreateError(Sentence(refusal), PdfCoreError.UnsupportedOperation, "sign", sessionId, null));
             var bytes = await Task.Run(() => _core.SignToBytes(session.Document, certificate, identityId)).ConfigureAwait(false);
             await replaceDestination(bytes).ConfigureAwait(false);
-            var document = await Task.Run(() => _core.OpenFromBytes(bytes, null)).ConfigureAwait(false);
+            var document = await Task.Run(() => _core.ReopenSignedDocument(session.Document, bytes)).ConfigureAwait(false);
             var reopened = new SessionEntry(Guid.NewGuid().ToString("N"), displayName, document, _core.ContentEditingAllowed(document), (ulong)bytes.LongLength);
             lock (_gate)
             {

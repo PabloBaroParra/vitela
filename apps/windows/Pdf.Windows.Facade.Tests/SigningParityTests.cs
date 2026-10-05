@@ -43,6 +43,13 @@ internal static class SigningParityTests
         using var empty = new PdfDocumentFacade(new FakeCore { PageCount = 0 }, new RecordingLogger());
         var blank = (await empty.OpenAsync(new("empty.pdf", [1]))).Value!;
         Check((await empty.SigningStateAsync(blank.SessionId)).Value!.Refusal is not null, "Zero-page state must refuse signing");
+
+        var protectedCore = new FakeCore { RequiredPassword = "test-password" };
+        using var protectedFacade = new PdfDocumentFacade(protectedCore, new RecordingLogger());
+        var protectedSession = (await protectedFacade.OpenAsync(new("protected.pdf", [1]), "test-password")).Value!;
+        var protectedDocument = protectedCore.LastDocument;
+        var protectedSigned = await protectedFacade.SignToDestinationAsync(protectedSession.SessionId, certificate, "test", "protected-signed.pdf", _ => Task.CompletedTask);
+        Check(protectedSigned.IsSuccess && ReferenceEquals(protectedCore.SignedReopenSource, protectedDocument), "Signing must delegate credential-preserving reopen to the source handle, not open without a password");
     }
 }
 

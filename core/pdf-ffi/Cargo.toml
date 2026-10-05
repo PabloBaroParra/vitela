@@ -35,10 +35,11 @@ pdf-edit = { path = "../pdf-edit" }
 pdf-compress = { path = "../pdf-compress" }
 # Signing with a `.pfx`/`.p12` file: `pdf-sign` owns the signature, the PFX
 # adapter holds the private key in-process. Both are pure Rust, so every
-# target the shells build for can sign; the card/token and NSS adapters stay
-# Linux-only, in the GTK shell.
+# target the shells build for can sign. PKCS#11 also crosses FFI; native
+# system stores provide public certificates and a digest-signing callback.
 pdf-sign = { path = "../pdf-sign" }
 pdf-sign-pfx = { path = "../pdf-sign-pfx" }
+pdf-sign-pkcs11 = { path = "../pdf-sign-pkcs11" }
 
 [features]
 # Enables the `uniffi-bindgen` CLI binary below (T-042). Off by default so

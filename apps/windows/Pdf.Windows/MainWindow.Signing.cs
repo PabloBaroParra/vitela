@@ -12,6 +12,8 @@ namespace Pdf.Windows;
 public sealed partial class MainWindow
 {
     private readonly Button _chooseSigningCertificate = new();
+    private readonly Button _chooseCardCertificate = new();
+    private readonly Button _chooseComputerCertificate = new();
     private readonly TextBlock _signedIndicator = new() { Text = "✓ This document is digitally signed.", TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
     private SigningState? _signingState;
     private long _signingGeneration;
@@ -30,16 +32,15 @@ public sealed partial class MainWindow
         AutomationProperties.SetAutomationId(_chooseSigningCertificate, "ChooseSigningCertificate");
         _chooseSigningCertificate.Click += ChooseSigningCertificate_Click;
         panel.Children.Add(_chooseSigningCertificate);
-        foreach (var (label, id) in new[] { ("Use card or token…", "ChooseCardCertificate"), ("Use a certificate from this computer…", "ChooseComputerCertificate") })
+        foreach (var (button, label, id) in new[] { (_chooseCardCertificate, "Use card or token…", "ChooseCardCertificate"), (_chooseComputerCertificate, "Use a certificate from this computer…", "ChooseComputerCertificate") })
         {
-            var button = new Button { Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap }, IsEnabled = false, HorizontalAlignment = HorizontalAlignment.Stretch };
+            button.Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap };
+            button.HorizontalAlignment = HorizontalAlignment.Stretch;
             AutomationProperties.SetName(button, label);
             AutomationProperties.SetAutomationId(button, id);
-            ToolTipService.SetToolTip(button, "Unavailable: the shared signing API currently supports only .pfx/.p12 files.");
+            button.Click += ChooseSigningCertificate_Click;
             panel.Children.Add(button);
         }
-        panel.Children.Add(new TextBlock { Text = "Card/token and computer certificates are not available in this build. Use a .pfx or .p12 file.", TextWrapping = TextWrapping.Wrap,
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
         _toolPages["Sign"].Children.Insert(0, panel);
         UpdateSigningControls();
     }
@@ -48,6 +49,8 @@ public sealed partial class MainWindow
     {
         var current = _session is not null && _signingState?.SessionId == _session.SessionId;
         _chooseSigningCertificate.IsEnabled = current && _session!.PageCount > 0 && _signingState!.Refusal is null && !_isBusy && !_organizing && !_signingFlowActive;
+        _chooseCardCertificate.IsEnabled = _chooseSigningCertificate.IsEnabled;
+        _chooseComputerCertificate.IsEnabled = _chooseSigningCertificate.IsEnabled;
         _signedIndicator.Visibility = current && _signingState!.IsSigned ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(_chooseSigningCertificate, current && _signingState!.Refusal is { } refusal ? refusal : "Choose a PKCS#12 signing certificate (.pfx or .p12).");
     }
@@ -74,27 +77,17 @@ public sealed partial class MainWindow
         _signingFlowActive = true;
         SetBusy(true);
         StorageFile? temporary = null;
-        byte[]? bytes = null;
         try
         {
             if (!await PrepareDocumentLifecycleAsync()) return;
             if (_session?.SessionId != sessionId) return;
             SetBusy(true);
-            var picker = new FileOpenPicker();
-            picker.FileTypeFilter.Add(".pfx");
-            picker.FileTypeFilter.Add(".p12");
-            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-            var file = await picker.PickSingleFileAsync();
-            if (file is null) { AnnotationStatus.Text = "Certificate selection cancelled."; return; }
-            if (_session?.SessionId != sessionId) return;
-            bytes = await File.ReadAllBytesAsync(file.Path);
-            using var certificate = await AskSigningCertificateAsync(bytes);
-            Array.Clear(bytes);
+            using var certificate = await ChooseSigningSourceAsync(sender);
             if (certificate is null || _session?.SessionId != sessionId) return;
             var identities = certificate.Identities;
             if (identities.Count == 0)
             {
-                AnnotationStatus.Text = "This certificate file has no usable signing identities.";
+                AnnotationStatus.Text = "This certificate source has no usable signing identities.";
                 return;
             }
             var selected = await AskSigningIdentityAsync(identities);
@@ -122,7 +115,6 @@ public sealed partial class MainWindow
         catch (Exception error) { AnnotationStatus.Text = _facade.SaveWriteFailure(error).Error!.Message; }
         finally
         {
-            if (bytes is not null) Array.Clear(bytes);
             if (temporary is not null) { try { await temporary.DeleteAsync(); } catch { } }
             _signingFlowActive = false;
             SetBusy(false);

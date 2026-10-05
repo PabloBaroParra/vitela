@@ -19,10 +19,30 @@ internal sealed partial class GeneratedPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
-    private sealed class Certificate(SigningCertificate handle) : ISigningCertificate
+    public IPdfCoreDocument ReopenSignedDocument(IPdfCoreDocument source, byte[] bytes)
+    {
+        try { return new GeneratedDocument(PdfFfiMethods.ReopenSignedDocument(((GeneratedDocument)source).Handle, bytes)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public ISigningCertificate OpenTokenSigningSource(string modulePath, string? pin)
+    {
+        try { return new Certificate(PdfFfiMethods.OpenTokenSigningSource(modulePath, pin)); }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    public ISigningCertificate OpenSystemSigningSource()
+    {
+        var source = WindowsSigningStore.Open();
+        try { return new Certificate(PdfFfiMethods.OpenPlatformSigningSource(source), source); }
+        catch (FfiException error) { source.Dispose(); throw Translate(error); }
+        catch { source.Dispose(); throw; }
+    }
+
+    private sealed class Certificate(SigningCertificate handle, IDisposable? owner = null) : ISigningCertificate
     {
         internal SigningCertificate Handle { get; } = handle;
         public IReadOnlyList<SigningIdentity> Identities => Handle.Identities().Select(identity => new SigningIdentity(identity.Id, identity.DisplayName)).ToArray();
-        public void Dispose() => Handle.Dispose();
+        public void Dispose() { Handle.Dispose(); owner?.Dispose(); }
     }
 }

@@ -20,6 +20,73 @@ use pdf_ffi::{
     FfiSignatureAcknowledgement, SigningCertificate,
 };
 
+#[test]
+fn encrypted_signing_reopens_with_both_credentials_and_preserves_protection() {
+    let handle = open_from_bytes(two_page_pdf(), None).expect("open");
+    let original_text = handle
+        .read_page_content(0)
+        .expect("source content")
+        .text_runs;
+    assert!(
+        !original_text.is_empty(),
+        "fixture must exercise encrypted text"
+    );
+    let protected = pdf_ffi::protect_to_bytes(
+        &handle,
+        "sign-user".into(),
+        "sign-owner".into(),
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .expect("protect");
+    let handle = pdf_ffi::open_with_passwords_from_bytes(
+        protected.clone(),
+        "sign-user".into(),
+        "sign-owner".into(),
+    )
+    .expect("dual-password open");
+    let (certificate, id) = certificate();
+    let signed = sign_to_bytes(&handle, certificate, id).expect("encrypted sign");
+    assert!(signed.starts_with(&protected));
+    assert!(matches!(
+        open_from_bytes(signed.clone(), None),
+        Err(FfiError::PasswordRequired)
+    ));
+    assert!(open_from_bytes(signed.clone(), Some("sign-user".into())).is_ok());
+    let reopened =
+        pdf_ffi::reopen_signed_document(&handle, signed).expect("reopen with session credentials");
+    assert_eq!(reopened.page_count(), 2);
+    assert!(pdf_ffi::extract_source_is_signed(&reopened));
+    assert_eq!(
+        reopened
+            .read_page_content(0)
+            .expect("signed content")
+            .text_runs,
+        original_text
+    );
+    // A structural rewrite still needs both credentials after signed reopen.
+    apply_edit(
+        &reopened,
+        FfiEditCommand::InsertBlankPage {
+            index: 2,
+            size: pdf_ffi::FfiPageSize::A4,
+            orientation: pdf_ffi::FfiOrientation::Portrait,
+        },
+    )
+    .expect("structural edit");
+    let rewritten = save_to_bytes(
+        &reopened,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::ProceedAndInvalidate,
+    )
+    .expect("retain both password roles");
+    assert!(pdf_ffi::open_with_passwords_from_bytes(
+        rewritten,
+        "sign-user".into(),
+        "sign-owner".into()
+    )
+    .is_ok());
+}
+
 fn two_page_pdf() -> Vec<u8> {
     let mut doc = gen_fixtures::build_multi_page_document(2, "sign");
     let mut bytes = Vec::new();
