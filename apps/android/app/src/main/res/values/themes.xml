@@ -1,3 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.Vitela" parent="android:style/Theme.Material.Light.NoActionBar" />
+    <!-- The window paints before Compose does; match VitelaTheme so a cold start does not flash. -->
+    <style name="Theme.Vitela" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/vitela_background</item>
+    </style>
 </resources>

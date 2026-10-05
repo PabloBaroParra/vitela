@@ -42,6 +42,7 @@ class ViewerViewModel(
     private var sourceBytes: ByteArray? = null
     /** The save target of [sourceBytes], kept beside it so a password retry opens with it. */
     private var sourceTarget: String? = null
+    private var sourceStartTool: DocumentStartTool? = null
     /**
      * Whether the reader already agreed to discard unsaved changes to open
      * [sourceBytes]. An encrypted replacement fails its first open and asks
@@ -79,20 +80,21 @@ class ViewerViewModel(
      * [saveTarget] is where **Save** may later write this document back to;
      * omit it for bytes with no writable origin, such as the packaged sample.
      */
-    fun open(displayName: String, bytes: ByteArray, password: String? = null, saveTarget: String? = null) {
+    fun open(displayName: String, bytes: ByteArray, password: String? = null, saveTarget: String? = null, startTool: DocumentStartTool? = null) {
+        cancelClose()
         if (_state.value.isDirty && session.document != null) {
-            pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget)
+            pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget, startTool)
             _state.value = _state.value.copy(pendingReplacementTitle = displayName)
             return
         }
-        replaceDocument(displayName, bytes, password, saveTarget)
+        replaceDocument(displayName, bytes, password, saveTarget, startTool = startTool)
     }
 
     fun confirmReplacement() {
         val replacement = pendingReplacement ?: return
         pendingReplacement = null
         _state.value = _state.value.copy(pendingReplacementTitle = null)
-        replaceDocument(replacement.displayName, replacement.bytes, replacement.password, replacement.saveTarget, discardUnsaved = true)
+        replaceDocument(replacement.displayName, replacement.bytes, replacement.password, replacement.saveTarget, discardUnsaved = true, startTool = replacement.startTool)
     }
 
     fun cancelReplacement() {
@@ -100,7 +102,47 @@ class ViewerViewModel(
         if (_state.value.pendingReplacementTitle != null) _state.value = _state.value.copy(pendingReplacementTitle = null)
     }
 
-    private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, saveTarget: String?, discardUnsaved: Boolean = false) {
+    fun closeDocument() = closeDocument(_state.value.documentId, discardRevision = null)
+
+    fun confirmClose() {
+        val request = _state.value.pendingClose ?: return
+        closeDocument(request.documentId, request.revision)
+    }
+
+    fun cancelClose() {
+        _state.value = _state.value.copy(pendingClose = null)
+    }
+
+    private fun closeDocument(documentId: Long, discardRevision: Long?) {
+        viewModelScope.launch {
+            session.documentLane.withLock {
+                val current = _state.value
+                if (current.documentId != documentId || !documentCloseEnabled(current)) return@withLock
+                if (discardRevision != null && current.pendingClose != DocumentCloseRequest(documentId, discardRevision)) return@withLock
+                val document = session.document ?: return@withLock
+                if (current.isDirty && discardRevision != current.revision) {
+                    _state.value = current.copy(pendingClose = DocumentCloseRequest(documentId, current.revision))
+                    return@withLock
+                }
+                reader.retireRenders()
+                reader.reset()
+                selection.closeDrag()
+                // Detach before yielding: a final viewport callback must not
+                // schedule a new native render while this handle is closing.
+                session.document = null
+                _state.value = current.copy(isLoading = true, pendingClose = null)
+                withContext(session.compute) { document.close() }
+                sourceBytes = null
+                sourceTarget = null
+                sourceStartTool = null
+                sourceDiscardConfirmed = false
+                pendingReplacement = null
+                _state.value = ViewerState(canOpen = core != null, status = "Select a PDF to begin.")
+            }
+        }
+    }
+
+    private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, saveTarget: String?, discardUnsaved: Boolean = false, startTool: DocumentStartTool? = null) {
         val availableCore = core ?: return
         // Retain the selected bytes and the shell's opaque save target while
         // the session is active. Passwords are never retained after this call.
@@ -109,16 +151,17 @@ class ViewerViewModel(
             // An edit may have acquired this lane after open() checked state.
             // Check again before replacing the document it just modified.
             if (!discardUnsaved && _state.value.isDirty && session.document != null) {
-                pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget)
+                pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget, startTool)
                 _state.value = _state.value.copy(pendingReplacementTitle = displayName)
                 return@withLock
             }
             sourceBytes = bytes
             sourceTarget = saveTarget
+            sourceStartTool = startTool
             sourceDiscardConfirmed = discardUnsaved
             _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
             when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, password) }) {
-                is PdfCoreResult.Success -> install(displayName, result.value, saveTarget)
+                is PdfCoreResult.Success -> install(displayName, result.value, saveTarget, startTool)
                 is PdfCoreResult.Failure -> handleOpenFailure(result.error)
             }
             }
@@ -126,8 +169,9 @@ class ViewerViewModel(
     }
 
     /** Makes [document] the open one. Called with the document lane held. */
-    private suspend fun install(displayName: String, document: PdfDocument, saveTarget: String?) {
+    private suspend fun install(displayName: String, document: PdfDocument, saveTarget: String?, startTool: DocumentStartTool? = null) {
         sourceDiscardConfirmed = false
+        sourceStartTool = null
         session.document?.close()
         session.document = document
         selection.closeDrag()
@@ -148,12 +192,21 @@ class ViewerViewModel(
             canPrint = pageCount > 0,
             canOpen = true,
             documentId = nextDocumentId++,
+            startTool = startTool,
             // Published only on success: a failed open leaves the
             // previous document in place, and its target with it.
             saveTarget = saveTarget,
         )
         annotations.refresh(document)
         reader.showFirstWindow(pageCount)
+        if (pageCount > 0) when (startTool) {
+            DocumentStartTool.EditText -> openContentEdit()
+            DocumentStartTool.Highlight -> setAnnotationTool(AnnotationTool.Highlight)
+            DocumentStartTool.Sign -> openSign()
+            DocumentStartTool.Organize -> openOrganize()
+            DocumentStartTool.Compress -> openCompress()
+            null -> Unit
+        }
     }
 
     /**
@@ -205,7 +258,7 @@ class ViewerViewModel(
 
     fun retryPassword(password: String) {
         val bytes = sourceBytes ?: return
-        replaceDocument(_state.value.title, bytes, password, sourceTarget, discardUnsaved = sourceDiscardConfirmed)
+        replaceDocument(_state.value.title, bytes, password, sourceTarget, discardUnsaved = sourceDiscardConfirmed, startTool = sourceStartTool)
     }
 
     /**
@@ -218,6 +271,7 @@ class ViewerViewModel(
         if (!_state.value.needsPassword) return
         sourceBytes = null
         sourceTarget = null
+        sourceStartTool = null
         sourceDiscardConfirmed = false
         _state.value = _state.value.copy(
             isLoading = false,
@@ -234,18 +288,21 @@ class ViewerViewModel(
     fun search(query: String) {
         val openDocument = session.document ?: return
         viewModelScope.launch {
-            _state.value = _state.value.copy(searchQuery = query, status = "Searching...")
-            when (val result = withContext(session.compute) { openDocument.search(query) }) {
-                is PdfCoreResult.Success -> {
-                    val hit = result.value.firstOrNull()
-                    _state.value = _state.value.copy(
-                        searchHits = result.value,
-                        searchIndex = 0,
-                        scrollTarget = hit?.pageIndex,
-                        status = if (result.value.isEmpty()) "No matches." else "Match 1 of ${result.value.size}.",
-                    )
+            session.documentLane.withLock {
+                if (session.document !== openDocument) return@withLock
+                _state.value = _state.value.copy(searchQuery = query, status = "Searching...")
+                when (val result = withContext(session.compute) { openDocument.search(query) }) {
+                    is PdfCoreResult.Success -> {
+                        val hit = result.value.firstOrNull()
+                        _state.value = _state.value.copy(
+                            searchHits = result.value,
+                            searchIndex = 0,
+                            scrollTarget = hit?.pageIndex,
+                            status = if (result.value.isEmpty()) "No matches." else "Match 1 of ${result.value.size}.",
+                        )
+                    }
+                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
                 }
-                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
             }
         }
     }
@@ -457,6 +514,7 @@ class ViewerViewModel(
     fun clearTextSelection() = selection.clear()
 
     private fun handleOpenFailure(error: PdfCoreError) {
+        if (error !is PdfCoreError.PasswordRequired && error !is PdfCoreError.WrongPassword) sourceStartTool = null
         _state.value = _state.value.copy(isLoading = false, needsPassword = error is PdfCoreError.PasswordRequired || error is PdfCoreError.WrongPassword, passwordMessage = if (error is PdfCoreError.WrongPassword) "The password is incorrect. Try again." else null, status = userMessage(error))
     }
 
@@ -467,7 +525,7 @@ class ViewerViewModel(
         super.onCleared()
     }
 
-    private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?)
+    private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?, val startTool: DocumentStartTool?)
 }
 
 private fun availabilityMessage(core: PdfCore?): String = if (core == null) "Native PDF support is not packaged. Build with scripts/package-android.sh and externally supplied PDFium libraries." else "Select a PDF to begin."

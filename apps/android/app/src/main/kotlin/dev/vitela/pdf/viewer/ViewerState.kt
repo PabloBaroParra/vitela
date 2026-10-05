@@ -60,6 +60,8 @@ data class ViewerState(
     val isDirty: Boolean = false,
     /** Identifies the active document so an older save can never clear newer work. */
     val documentId: Long = 0,
+    /** The initial reader tab for this document's Home shortcut; not a live tool selection. */
+    val startTool: DocumentStartTool? = null,
     val revision: Long = 0,
     /**
      * Where **Save** writes back to: an opaque token the shell minted for the
@@ -114,7 +116,16 @@ data class ViewerState(
     val annotationPositioner: AnnotationPositioner? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
+    /** Consent to discard belongs only to the document revision shown in the prompt. */
+    val pendingClose: DocumentCloseRequest? = null,
 )
+
+data class DocumentCloseRequest(val documentId: Long, val revision: Long)
+
+internal fun documentCloseEnabled(state: ViewerState): Boolean =
+    state.documentId != 0L && !state.isLoading && !state.imageExportRunning &&
+        !state.pageSplitRunning && !state.compressRunning && !state.protectRunning && !state.signRunning &&
+        !state.needsPassword && state.pendingReplacementTitle == null
 
 /**
  * What the reader reports back as it scrolls.

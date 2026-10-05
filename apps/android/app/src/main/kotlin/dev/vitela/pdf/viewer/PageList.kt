@@ -13,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,7 +62,7 @@ private const val HANDLE_DRAW_DP = 20
  * The continuous reader: every page of the document is a slot in one scrolling
  * list, rasterized only while it is near the viewport.
  *
- * Two invariants make this work on a phone. Slots are laid out from the page's
+ * Rows contain one page or a two-page spread. Slots are laid out from the page's
  * media box *before* anything is rendered, so the list never resizes under the
  * user's thumb when a render lands. And [onPositionChanged] is the only thing
  * that triggers rendering, which is what keeps the resident bitmap set
@@ -78,8 +80,11 @@ internal fun PageList(
     onFormFieldTap: (Int, AnnotationPoint) -> Unit,
     onPinch: (zoomFactor: Double) -> Unit,
     modifier: Modifier = Modifier,
+    columns: Int = 1,
 ) {
     val listState = rememberLazyListState()
+    val rows = remember(state.pageCount, columns) { PageRows(state.pageCount, columns) }
+    var preferredPage by remember(state.documentId) { mutableStateOf(state.pageIndex) }
     val horizontalScrollState = rememberScrollState()
     val pinch = remember { PinchState() }
     // The pinch detector outlives recompositions, so it reads these rather than the parameters.
@@ -91,11 +96,23 @@ internal fun PageList(
     BoxWithConstraints(modifier = modifier) {
         val viewportWidthPx = with(LocalDensity.current) { maxWidth.roundToPx() }
         val viewportHeightPx = with(LocalDensity.current) { maxHeight.roundToPx() }
-        val pageWidth = maxWidth * state.zoomFactor.toFloat()
+        val slotWidth = (maxWidth - PAGE_GAP * (columns - 1)) / columns
+        val slotWidthPx = with(LocalDensity.current) { slotWidth.roundToPx() }
+        val pageWidth = slotWidth * state.zoomFactor.toFloat()
+        val rowWidth = pageWidth * columns + PAGE_GAP * (columns - 1)
+        val pageStepPx = with(LocalDensity.current) { (pageWidth + PAGE_GAP).roundToPx() }
 
-        LaunchedEffect(listState, viewportWidthPx, viewportHeightPx, state.zoomFactor) {
-            snapshotFlow { listState.layoutInfo }
-                .map { info ->
+        LaunchedEffect(columns, state.documentId) {
+            preferredPage = state.pageIndex
+            pinchAnchor = null
+            pinch.target = null
+            horizontalScrollState.scrollTo(0)
+            if (rows.count > 0) listState.scrollToItem(rows.row(preferredPage))
+        }
+
+        LaunchedEffect(listState, slotWidthPx, viewportHeightPx, state.zoomFactor, rows) {
+            snapshotFlow { listState.layoutInfo to preferredPage }
+                .map { (info, preferred) ->
                     val visible = info.visibleItemsInfo
                     // Null exactly when nothing is laid out yet, which is what
                     // makes first()/last() below safe.
@@ -106,10 +123,10 @@ internal fun PageList(
                     )
                     current?.let {
                         ReaderPosition(
-                            first = visible.first().index,
-                            last = visible.last().index,
-                            current = it,
-                            viewportWidthPx = viewportWidthPx,
+                            first = rows.first(visible.first().index),
+                            last = rows.last(visible.last().index),
+                            current = rows.current(it, preferred),
+                            viewportWidthPx = slotWidthPx,
                             zoomFactor = state.zoomFactor,
                             viewportHeightPx = viewportHeightPx,
                         )
@@ -121,15 +138,22 @@ internal fun PageList(
 
         LaunchedEffect(state.scrollTarget) {
             val target = state.scrollTarget ?: return@LaunchedEffect
-            listState.animateScrollToItem(target)
+            preferredPage = target
+            listState.animateScrollToItem(rows.row(target))
+            if (columns == 2) {
+                val offset = pageStepPx * (target % columns)
+                horizontalScrollState.animateScrollTo(offset)
+            }
             onScrollTargetConsumed()
         }
 
         val pageWidthPx = with(LocalDensity.current) { pageWidth.roundToPx() }
         LaunchedEffect(state.annotationReveal) {
             val reveal = state.annotationReveal ?: return@LaunchedEffect
+            preferredPage = reveal.pageIndex
             val viewport = RevealViewport(pageWidthPx, viewportWidthPx, viewportHeightPx)
-            revealAnnotation(reveal, state.pageSizes.getOrNull(reveal.pageIndex), viewport, listState, horizontalScrollState)
+            val offset = pageStepPx * (reveal.pageIndex % columns)
+            revealAnnotation(reveal, state.pageSizes.getOrNull(reveal.pageIndex), viewport, listState, horizontalScrollState, rows.row(reveal.pageIndex), offset)
             onAnnotationRevealConsumed()
         }
 
@@ -168,21 +192,28 @@ internal fun PageList(
         ) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.width(pageWidth).fillMaxHeight(),
+                modifier = Modifier.width(rowWidth).fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(PAGE_GAP),
             ) {
-                items(count = state.pageCount, key = { index -> index }) { index ->
-                    PageSlot(
-                        pageNumber = index + 1,
-                        page = state.pages[index],
-                        bridge = state.bridgePages[index],
-                        size = state.pageSizes.getOrNull(index),
-                        state = state,
-                        onAnnotationGesture = onAnnotationGesture,
-                        textSelection = textSelection,
-                        contentEdit = contentEdit,
-                        onFormFieldTap = onFormFieldTap,
-                    )
+                items(count = rows.count, key = { index -> rows.first(index) }) { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(PAGE_GAP), verticalAlignment = Alignment.Top) {
+                        for (index in rows.first(row)..rows.last(row)) {
+                            Box(Modifier.width(pageWidth)) {
+                                PageSlot(
+                                    pageNumber = index + 1,
+                                    page = state.pages[index],
+                                    bridge = state.bridgePages[index],
+                                    size = state.pageSizes.getOrNull(index),
+                                    state = state,
+                                    onAnnotationGesture = onAnnotationGesture,
+                                    textSelection = textSelection,
+                                    contentEdit = contentEdit,
+                                    onFormFieldTap = onFormFieldTap,
+                                )
+                            }
+                        }
+                        if (rows.last(row) - rows.first(row) + 1 < columns) Spacer(Modifier.width(pageWidth))
+                    }
                 }
             }
         }

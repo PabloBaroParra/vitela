@@ -40,6 +40,10 @@ on:
       - "scripts/package-android.sh"
       - "scripts/fetch-android-pdfium.sh"
       - "scripts/tests/test-fetch-android-pdfium.sh"
+      # res/drawable/ic_shell_*.xml are generated from these and checked below.
+      - "assets/icons/**"
+      - "scripts/android-icons.py"
+      - "scripts/tests/test_android_icons.py"
       - ".github/workflows/android.yml"
 
 permissions:
@@ -51,6 +55,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Fails when an icon in assets/icons changed and its drawable was not regenerated.
+      - name: Shared icon drawables are current
+        run: python3 -m unittest discover -s scripts/tests -p "test_android_icons.py"
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
