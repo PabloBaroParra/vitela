@@ -18,6 +18,7 @@ public partial class App : Application
         var output = Environment.GetEnvironmentVariable("VITELA_SMOKE_OUTPUT")
             ?? throw new InvalidOperationException("Set VITELA_SMOKE_OUTPUT to an existing output directory.");
         var log = Path.Combine(output, "page-navigation-smoke.log");
+        File.WriteAllText(log, "");
         UnhandledException += (_, error) => File.AppendAllText(log, "\nUNHANDLED " + error.Exception);
         _window = new MainWindow();
         _window.Activate();
@@ -36,9 +37,9 @@ public sealed partial class MainWindow
     internal async Task PageNavigationSmokeAsync()
     {
         await WaitForNavigationAsync(() => Content.XamlRoot is not null);
-        // Harness activation can precede the XAML tree becoming ready. Complete
-        // the viewer's activation setup before driving layout and closing it.
-        MainWindow_Activated(this, null!);
+        // Exercise the actual WinUI event rather than calling its handler with fabricated arguments.
+        Activate();
+        await WaitForNavigationAsync(() => _xamlRoot is not null);
         if (GoToPageButton.IsEnabled || PreviousPageButton.IsEnabled || NextPageButton.IsEnabled
             || FirstPageButton.IsEnabled || LastPageButton.IsEnabled)
             throw new Exception("Navigation enabled without a document.");
