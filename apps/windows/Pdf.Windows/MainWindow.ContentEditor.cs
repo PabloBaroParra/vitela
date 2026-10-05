@@ -66,6 +66,14 @@ public sealed partial class MainWindow
             return;
         }
 
+        var eligibility = await _facade.CanRetypeTextRunAsync(sessionId, run);
+        if (!IsCurrent()) return;
+        if (!eligibility.IsSuccess)
+        {
+            AnnotationStatus.Text = eligibility.Error!.Message;
+            return;
+        }
+
         if (run.RequiresFontSubstitution
             && _pump.WrittenFor(pageIndex, run.Id) is null
             && !await ConfirmFontSubstitutionAsync())

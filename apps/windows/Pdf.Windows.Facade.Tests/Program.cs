@@ -27,6 +27,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("keeps image insertion undoable after preview failure", KeepsImageInsertionAfterPreviewFailureAsync),
     ("deletes text without font substitution through preview and history", DeletesContentTextAsync),
     ("moves text preserving its source and shared history", MovesContentTextAsync),
+    ("checks live pending movement before retyping without rejecting cached revisions", ChecksRetypeEligibilityAsync),
     ("rejects invalid and stale text movement", RefusesInvalidTextMovementAsync),
     ("keeps text movement undoable after preview failure", KeepsTextMovementAfterPreviewFailureAsync),
     ("rejects stale and forbidden text deletion", RefusesInvalidTextDeletionAsync),
@@ -3287,6 +3288,31 @@ static async Task MovesContentTextAsync()
     }
 }
 
+static async Task ChecksRetypeEligibilityAsync()
+{
+    var pending = false;
+    var queries = 0;
+    var core = new FakeCore { PendingTextMoveOverride = (page, id) => { queries++; return pending; } };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("text.pdf", [1]))).Value!;
+    var cached = (await facade.PageContentAsync(session.SessionId, 0)).Value!.TextRuns[0];
+    Assert((await facade.CanRetypeTextRunAsync(session.SessionId, cached)).IsSuccess, "inline cache must be eligible before moving");
+    await facade.ReplaceTextRunAsync(session.SessionId, cached, "Changed");
+    Assert((await facade.CanRetypeTextRunAsync(session.SessionId, cached)).IsSuccess, "a typing revision must not retire the cached run");
+    pending = true;
+    var refused = await facade.CanRetypeTextRunAsync(session.SessionId, cached);
+    Assert(!refused.IsSuccess && refused.Error!.Message.Contains("save and reopen before retyping"), "pending move must explain recovery");
+    Assert(core.RefreshPreviewCalls == 1, "eligibility must not rebuild preview or mutate history");
+    var bound = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
+    var replacement = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
+    var before = queries;
+    Assert(!(await facade.CanRetypeTextRunAsync(session.SessionId, cached)).IsSuccess, "retired session must refuse the query");
+    Assert(!(await facade.CanRetypeTextRunAsync(replacement.SessionId, bound)).IsSuccess, "bound run must not cross sessions");
+    core.LastDocument!.ContentEditingAllowed = false;
+    Assert(!(await facade.CanRetypeTextRunAsync(replacement.SessionId, cached)).IsSuccess, "permission must be checked before core query");
+    Assert(queries == before, "refused session and permission gates must not query the core");
+}
+
 static async Task RefusesInvalidTextMovementAsync()
 {
     var core = new FakeCore();
@@ -4522,6 +4548,9 @@ sealed class FakeCore : IPdfCore
     public System.Collections.Concurrent.ConcurrentQueue<(uint Page, uint Dpi, PdfCoreImageFormat Format)> ExportedPages { get; } = new();
 
     public bool TextExtractionAllowed(IPdfCoreDocument document) => ExtractionPermissionOverride?.Invoke() ?? ExtractionPermitted;
+
+    public Func<uint, ulong, bool>? PendingTextMoveOverride { get; init; }
+    public bool TextRunHasPendingMove(IPdfCoreDocument document, uint pageIndex, ulong id) => PendingTextMoveOverride?.Invoke(pageIndex, id) ?? false;
 
     public IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages)
     {

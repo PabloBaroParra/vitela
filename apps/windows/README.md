@@ -266,7 +266,9 @@ Escape cancels only that retyping and keeps the insertion. Deleting a pending
 insertion remains disabled, matching Linux. Repeated moves of existing runs amend
 one movement command. Moving newly inserted text updates that insertion, including
 after retyping; one Undo removes it and Redo restores its latest text and position.
-Retyping an already moved existing run remains a separate parity gap.
+Existing text with a pending movement is refused before opening the inline
+editor, with the same save-and-reopen guidance as Linux. Newly inserted text
+remains retypable after movement because both edits amend its insertion.
 
 Home starts with **Search recent files and tools** and **Open file**; its separate
 search filters tool labels without running a document text search. Ctrl+O works
@@ -743,7 +745,8 @@ Set `VITELA_SMOKE_OUTPUT` to an existing directory, build with
 `-p:CustomAfterMicrosoftCommonTargets=<absolute path to TextMoveSmoke.targets>`,
 then launch the app. `text-move-smoke.log` must start with `PASS`. It drives the
 real Move text dialog twice, including native preview refresh, stale-target
-refusal, cancel/no-op, one-step Undo/Redo and final-coordinate save/reopen. It also
+refusal, cancel/no-op, Linux-compatible refusal to reopen a moved existing run
+for retyping, one-step Undo/Redo and final-coordinate save/reopen. It also
 click-inserts text, moves it, reopens it through canvas hit-testing to retype it,
 moves it again and verifies one insertion Undo/Redo and final save/reopen.
 Rebuild without that property before normal use. Physical pointer gestures are

@@ -1089,6 +1089,23 @@ impl DocumentHandle {
         content_editing_is_allowed(&self.lock().document)
     }
 
+    /// Whether an existing run has an unsaved movement. Shells must refuse
+    /// reopening it for retyping until save/reopen; synthetic insertions move
+    /// by amending their insertion instead and remain editable.
+    pub fn text_run_has_pending_move(&self, page: u32, id: u64) -> Result<bool, FfiError> {
+        let state = self.lock();
+        let page = state.page_id(page)?;
+        Ok(state
+            .document
+            .pending_edits
+            .entries()
+            .iter()
+            .any(|command| {
+                matches!(command, Command::MoveTextRun { item, .. }
+                if item.page == page && item.id.0 == id)
+            }))
+    }
+
     /// Parses `page`'s content stream on demand and returns its text runs
     /// and images (T-158, Batch 21 decision 2 — never cached on the
     /// document, unlike annotations), **as the reader sees them**: every
@@ -1813,6 +1830,18 @@ fn pending_text_amendment_index(
         }
         return Err(FfiError::UnsupportedOperation {
             detail: "this pending insertion cannot be edited with that text target".to_string(),
+        });
+    }
+    if matches!(
+        command,
+        Command::ReplaceTextRunContent { .. } | Command::ReplaceTextRunWithInsertedFont { .. }
+    ) && document.pending_edits.entries().iter().any(|queued| {
+        matches!(queued, Command::MoveTextRun { item: target, .. }
+                if target.id == item.id && target.page == item.page)
+    }) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "This text was moved and not yet saved — save and reopen before retyping it."
+                .to_string(),
         });
     }
     Ok(document.pending_edits.entries().iter().position(|queued| {
