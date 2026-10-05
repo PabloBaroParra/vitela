@@ -14,7 +14,7 @@ use std::sync::Arc;
 use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
 use lopdf::xref::XrefType;
 use lopdf::{EncryptionState, EncryptionVersion, Object, Permissions};
-use rand::{rngs::OsRng, RngCore};
+use rand::{rngs::SysRng, TryRng};
 
 use pdf_ffi::{
     extract_pages_to_pdf, extract_source_is_signed, open_from_bytes,
@@ -63,9 +63,15 @@ fn no_copy_pdf(user_password: &str, owner_password: &str) -> Vec<u8> {
 /// Keep test credentials local to each generated fixture rather than
 /// embedding password values in calls across the FFI boundary.
 fn no_copy_fixture() -> (Vec<u8>, String, String) {
-    let mut rng = OsRng;
-    let user_password = format!("user-{:016x}", rng.next_u64());
-    let owner_password = format!("owner-{:016x}", rng.next_u64());
+    let mut rng = SysRng;
+    let user_password = format!(
+        "user-{:016x}",
+        rng.try_next_u64().expect("generate fixture user password")
+    );
+    let owner_password = format!(
+        "owner-{:016x}",
+        rng.try_next_u64().expect("generate fixture owner password")
+    );
     let bytes = no_copy_pdf(&user_password, &owner_password);
     (bytes, user_password, owner_password)
 }
