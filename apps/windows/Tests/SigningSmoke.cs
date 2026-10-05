@@ -19,7 +19,7 @@ public partial class App : Application
         try
         {
             await _window.SigningSmokeAsync();
-            File.WriteAllText(Path.Combine(output, "signing-smoke.log"), "PASS signing source gates; wrong-password retry; real PFX identity; signed save/reopen; second signature; preserved encrypted source; Windows RSA/ECDSA digest verification and native callback encrypted sign/reopen; current-user store discovery; invalid token-module refusal.");
+            File.WriteAllText(Path.Combine(output, "signing-smoke.log"), "PASS signing source gates; wrong-password retry; real PFX identity; signed save/reopen; second signature; preserved encrypted source; Windows RSA/ECDSA digest verification and native callback encrypted sign/reopen; empty/public-only store, unavailable identity, invalid digest and provider-error mapping; current-user store discovery; invalid token-module refusal.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "signing-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -33,6 +33,16 @@ public sealed partial class MainWindow
         static void Check(bool value, string message)
         {
             if (!value) throw new InvalidOperationException(message);
+        }
+        static void Refuses(Action action, string message)
+        {
+            try { action(); }
+            catch (uniffi.pdf_ffi.FfiException.UnsupportedOperation error)
+            {
+                Check(error.Message.Contains(message, StringComparison.Ordinal), "Incorrect source refusal: " + error.Message);
+                return;
+            }
+            throw new InvalidOperationException("Signing source accepted invalid input.");
         }
         for (var attempt = 0; Content.XamlRoot is null && attempt < 100; attempt++) await Task.Delay(50);
         Check(Content.XamlRoot is not null, "Window did not load");
@@ -107,6 +117,14 @@ public sealed partial class MainWindow
             using var ecCertificate = ecRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
             using var storeSource = WindowsSigningStore.FromCertificates([new X509Certificate2(testCertificate), new X509Certificate2(ecCertificate)]);
             var digest = SHA256.HashData("native-store-smoke"u8);
+            using var emptySource = WindowsSigningStore.FromCertificates([]);
+            Check(emptySource.Identities().Length == 0, "Empty store must not invent identities");
+            using var publicSource = WindowsSigningStore.FromCertificates([X509CertificateLoader.LoadCertificate(testCertificate.RawData)]);
+            Check(publicSource.Identities().Length == 0, "Public-only certificate must not offer signing");
+            Refuses(() => storeSource.SignDigest("missing", digest, uniffi.pdf_ffi.FfiSigningAlgorithm.RsaSha256), "The signing identity is no longer available.");
+            Refuses(() => storeSource.SignDigest(testCertificate.Thumbprint, new byte[31], uniffi.pdf_ffi.FfiSigningAlgorithm.RsaSha256), "The signing identity is no longer available.");
+            // A mismatched key exercises the real adapter's cryptographic error path, not a fabricated provider prompt.
+            Refuses(() => storeSource.SignDigest(testCertificate.Thumbprint, digest, uniffi.pdf_ffi.FfiSigningAlgorithm.EcdsaSha256), "Windows could not use this signing key, or authentication was cancelled.");
             Check(rsa.VerifyHash(digest, storeSource.SignDigest(testCertificate.Thumbprint, digest, uniffi.pdf_ffi.FfiSigningAlgorithm.RsaSha256), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1), "Native RSA digest signature");
             Check(ec.VerifyHash(digest, storeSource.SignDigest(ecCertificate.Thumbprint, digest, uniffi.pdf_ffi.FfiSigningAlgorithm.EcdsaSha256), DSASignatureFormat.Rfc3279DerSequence), "Native ECDSA DER digest signature");
             using var storeHandle = uniffi.pdf_ffi.PdfFfiMethods.OpenPlatformSigningSource(storeSource);

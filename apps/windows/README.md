@@ -79,7 +79,16 @@ driver DLL and a PIN (empty for the token's own authentication prompt). Computer
 certificates come from the current user's Windows personal store; keys stay in
 their providers and any provider authentication is handled by Windows.
 `Tests/SigningDialogsSmoke.targets` checks these dialogs with an ephemeral key,
-independently of the encrypted-signing and native-source regressions.
+independently of the encrypted-signing and native-source regressions. It also
+checks token PIN cancellation (Cancel is the default), secret clearing, and
+missing-module refusal with empty and nonempty PINs. `test-editor-chrome.ps1`
+cancels the actual PFX and token-module pickers and verifies unchanged sample
+history and restored source controls. Physical token authentication and Windows
+provider prompts still require hardware/runtime verification. The optional
+`-TestComputerSigning` switch checks real personal-store identity discovery and
+cancellation without signing with a user's key; it requires a usable installed
+certificate. See [the Windows verification checkpoint](VERIFICATION.md) for
+current runtime evidence and deferred checks.
 
 ## Native printing flow
 

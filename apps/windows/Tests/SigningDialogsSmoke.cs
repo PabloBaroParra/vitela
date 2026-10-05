@@ -23,7 +23,7 @@ public partial class App : Application
         {
             await _window.SigningDialogsSmokeAsync();
             File.WriteAllText(Path.Combine(output, "signing-dialogs-smoke.log"),
-                "PASS ephemeral PFX wrong password/same-modal retry/cleared secret/real unlock and Cancel; identity labels/radio exclusivity/default/empty correction/Sign/Cancel.");
+                "PASS ephemeral PFX wrong password/same-modal retry/cleared secret/real unlock and Cancel; identity labels/radio exclusivity/default/empty correction/Sign/Cancel; token PIN Cancel/default/secret clearing and invalid-module refusal with empty/nonempty PIN.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "signing-dialogs-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -107,6 +107,30 @@ public sealed partial class MainWindow
             dialog = await Dialog("Choose a signing identity");
             Click(dialog, "CloseButton");
             Check(await choosing is null && AnnotationStatus.Text == "Signing cancelled.", "Identity Cancel");
+
+            var missingModule = Path.Combine(Path.GetTempPath(), $"vitela-missing-token-{Guid.NewGuid():N}.dll");
+            var authenticating = AskTokenSigningCertificateAsync(missingModule);
+            dialog = await Dialog("Card or token authentication");
+            panel = (StackPanel)dialog.Content;
+            password = (PasswordBox)panel.Children[1];
+            Check(dialog.PrimaryButtonText == "Continue" && dialog.CloseButtonText == "Cancel" &&
+                dialog.DefaultButton == ContentDialogButton.Close, "Token actions/Cancel default");
+            Check(((TextBlock)panel.Children[0]).Text == "Enter the token PIN, or leave it empty to use the token's own authentication prompt.", "Token authentication guidance");
+            password.Password = "secret to clear";
+            Click(dialog, "CloseButton");
+            Check(await authenticating is null && password.Password == "" &&
+                AnnotationStatus.Text == "Certificate selection cancelled.", "Token Cancel/secret clearing");
+            foreach (var pin in new[] { "", "smoke-only" })
+            {
+                authenticating = AskTokenSigningCertificateAsync(missingModule);
+                dialog = await Dialog("Card or token authentication");
+                password = (PasswordBox)((StackPanel)dialog.Content).Children[1];
+                password.Password = pin;
+                AnnotationStatus.Text = "";
+                Click(dialog, "PrimaryButton");
+                Check(await authenticating is null && password.Password == "" && AnnotationStatus.Text.Length > 0 &&
+                    AnnotationStatus.Text != "Certificate selection cancelled.", "Invalid token module must refuse and clear PIN");
+            }
         }
         finally { Array.Clear(bytes); }
     }
