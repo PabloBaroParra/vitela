@@ -311,15 +311,21 @@ mod common {
     use lopdf::encryption::crypt_filters::{Aes128CryptFilter, CryptFilter};
     use lopdf::xref::XrefType;
     use lopdf::{EncryptionState, EncryptionVersion, Object, Permissions};
-    use rand::{rngs::OsRng, RngCore};
+    use rand::{rngs::SysRng, TryRng};
 
     /// A two-page `label_prefix` document, AES-128 encrypted under freshly
     /// generated passwords with `permissions`. Returns the bytes and the user
     /// password.
     pub(super) fn encrypted_pdf(label_prefix: &str, permissions: Permissions) -> (Vec<u8>, String) {
-        let mut rng = OsRng;
-        let user_password = format!("user-{:016x}", rng.next_u64());
-        let owner_password = format!("owner-{:016x}", rng.next_u64());
+        let mut rng = SysRng;
+        let user_password = format!(
+            "user-{:016x}",
+            rng.try_next_u64().expect("generate fixture user password")
+        );
+        let owner_password = format!(
+            "owner-{:016x}",
+            rng.try_next_u64().expect("generate fixture owner password")
+        );
 
         let mut doc = gen_fixtures::build_multi_page_document(2, label_prefix);
         doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
