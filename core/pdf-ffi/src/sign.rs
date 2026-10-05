@@ -6,7 +6,7 @@
 //! `pdf_sign_pfx` directly; a shell on the other side of this boundary
 //! cannot hold a `CertificateSourcePort`, so the unlocked certificate
 //! crosses as an opaque [`SigningCertificate`] and only its identities'
-//! names come back out. The private key never leaves this crate.
+//! names come back out. Private keys stay in their source adapters.
 //!
 //! ## What is signed
 //!
@@ -16,12 +16,9 @@
 //! page, exactly as `pdf_sign::sign_document` places it for the Linux shell
 //! (batch decision 4 in `docs/batch-digital-signature.md`).
 //!
-//! ## Only PKCS#12 files
-//!
-//! Smart cards and system certificate stores are platform adapters the
-//! Linux shell reaches through PKCS#11 and NSS; neither exists on the other
-//! side of this boundary yet. A `.pfx`/`.p12` file is read in-process and
-//! works everywhere the core runs.
+//! PKCS#12 and PKCS#11 sources retain keys in their adapters. Native system
+//! stores provide public identities and a digest-signing callback; no private
+//! key is exported to Rust or to another shell.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -42,17 +39,29 @@ pub struct FfiSigningIdentity {
     pub display_name: String,
 }
 
-/// An unlocked PKCS#12 certificate file, holding its private keys for as
-/// long as the shell keeps it. Opaque on purpose: the shell reads which
+/// A signing source, retaining its adapter for as long as the shell keeps it.
+/// Opaque on purpose: the shell reads which
 /// identities it holds and hands it back to [`sign_to_bytes`], nothing else.
-#[derive(Debug, uniffi::Object)]
+#[derive(uniffi::Object)]
 pub struct SigningCertificate {
-    source: PfxCertificateSource,
+    source: Box<dyn CertificateSourcePort>,
+}
+
+impl std::fmt::Debug for SigningCertificate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SigningCertificate").finish_non_exhaustive()
+    }
+}
+
+impl SigningCertificate {
+    pub(crate) fn from_source(source: Box<dyn CertificateSourcePort>) -> Arc<Self> {
+        Arc::new(Self { source })
+    }
 }
 
 #[uniffi::export]
 impl SigningCertificate {
-    /// Every identity in the file that can sign — a certificate paired with
+    /// Every identity in the source that can sign — a certificate paired with
     /// its private key. Empty for a file that holds only certificates.
     pub fn identities(&self) -> Vec<FfiSigningIdentity> {
         self.source
@@ -80,7 +89,7 @@ pub fn open_signing_certificate(
     password: String,
 ) -> Result<Arc<SigningCertificate>, FfiError> {
     PfxCertificateSource::from_pkcs12(&bytes, &password)
-        .map(|source| Arc::new(SigningCertificate { source }))
+        .map(|source| SigningCertificate::from_source(Box::new(source)))
         .map_err(|_| FfiError::WrongPassword)
 }
 
@@ -130,7 +139,7 @@ pub fn sign_to_bytes(
         password.as_deref(),
         1,
         field_name,
-        &certificate.source,
+        certificate.source.as_ref(),
         &identity_id,
     )
     .map_err(sign_error)
@@ -156,6 +165,34 @@ fn next_signature_field_name(base: &pdf_manip::LopdfDocument) -> String {
         .map(|n| format!("Signature_{n}"))
         .find(|name| !taken.contains(name))
         .expect("an unbounded range always finds an unused name")
+}
+
+/// Reopens signed output with the source session's credentials, without
+/// returning passwords to the shell. Retains both roles when both were known.
+///
+/// # Errors
+/// Returns the same opening errors as [`crate::open_from_bytes`].
+#[uniffi::export]
+pub fn reopen_signed_document(
+    handle: &DocumentHandle,
+    bytes: Vec<u8>,
+) -> Result<Arc<DocumentHandle>, FfiError> {
+    let (password, credentials) = {
+        let state = handle.lock();
+        (
+            state.render_password().map(str::to_owned),
+            state
+                .document()
+                .security
+                .as_ref()
+                .map(|s| s.credentials.clone()),
+        )
+    };
+    if let Some((user, owner)) = credentials.as_ref().and_then(|c| c.complete()) {
+        crate::open_with_passwords_from_bytes(bytes, user.to_owned(), owner.to_owned())
+    } else {
+        crate::open_from_bytes(bytes, password)
+    }
 }
 
 /// A signing failure as the boundary's error: the clause a reader can act

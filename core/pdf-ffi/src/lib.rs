@@ -72,6 +72,7 @@ mod output;
 mod placement;
 mod selection;
 mod sign;
+mod sign_sources;
 mod split;
 mod types;
 
@@ -108,8 +109,12 @@ pub use placement::{
 };
 pub use selection::FfiPageCharacters;
 pub use sign::{
-    open_signing_certificate, sign_to_bytes, signing_refusal, FfiSigningIdentity,
-    SigningCertificate,
+    open_signing_certificate, reopen_signed_document, sign_to_bytes, signing_refusal,
+    FfiSigningIdentity, SigningCertificate,
+};
+pub use sign_sources::{
+    open_platform_signing_source, open_token_signing_source, FfiPlatformSigningIdentity,
+    FfiSigningAlgorithm, PlatformSigningSource,
 };
 pub use split::{plan_split, FfiSplitPart};
 pub use types::{
