@@ -1,7 +1,6 @@
 package dev.vitela.pdf.viewer
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,13 +48,19 @@ internal fun ReaderTopBar(
     onSave: () -> Unit,
     menu: DocumentMenuActions,
     onOrganizeDone: () -> Unit,
+    onClose: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(painterResource(R.drawable.ic_app_mark), contentDescription = null, modifier = Modifier.size(28.dp))
+        IconButton(
+            onClick = if (state.organize != null) onOrganizeDone else onClose,
+            enabled = documentCloseEnabled(state),
+        ) {
+            Icon(painterResource(R.drawable.ic_shell_previous), contentDescription = if (state.organize != null) "Back to reader" else "Back to Home")
+        }
         Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
             Text(
                 if (state.organize != null) "Organize pages" else state.title,

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"
+ role="img" aria-label="Draw">
+<title>Draw</title>
+<g fill="none" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path d="m13 10 6-6 2 2-6 6-3 1ZM18 5l2 2"/>
+<path d="M3 8c4-5 8-3 5 1s-7 7-4 9 8-4 10-1-2 4-2 4"/>
+</g>
+</svg>

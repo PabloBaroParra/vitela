@@ -83,14 +83,17 @@ internal suspend fun revealAnnotation(
     viewport: RevealViewport,
     listState: LazyListState,
     horizontalScrollState: ScrollState,
+    itemIndex: Int = reveal.pageIndex,
+    pageOffsetPx: Int = 0,
 ) {
     if (size == null || viewport.pageWidthPx <= 0) {
-        listState.animateScrollToItem(reveal.pageIndex)
+        listState.animateScrollToItem(itemIndex)
+        horizontalScrollState.animateScrollTo(pageOffsetPx)
         return
     }
     // The slot fills the column, so the column's width is the page's drawn width.
     val placed = PagePlacement(size, viewport.pageWidthPx.toDouble() / size.widthPt).placeRect(reveal.bounds)
-    val scroll = revealScroll(placed, viewport.widthPx, viewport.heightPx)
-    listState.animateScrollToItem(reveal.pageIndex, scroll.itemOffsetPx)
+    val scroll = revealScroll(placed.copy(left = placed.left + pageOffsetPx), viewport.widthPx, viewport.heightPx)
+    listState.animateScrollToItem(itemIndex, scroll.itemOffsetPx)
     horizontalScrollState.animateScrollTo(scroll.scrollXPx)
 }

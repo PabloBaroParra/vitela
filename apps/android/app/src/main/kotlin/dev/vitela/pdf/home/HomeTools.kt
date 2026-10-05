@@ -28,7 +28,7 @@ internal fun HomeTools(enabled: Boolean, onOpenTool: (DocumentStartTool) -> Unit
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             ToolTile("Edit text", R.drawable.ic_shell_text, MaterialTheme.colorScheme.primary, { onOpenTool(DocumentStartTool.EditText) }, enabled = enabled)
-            ToolTile("Highlight", R.drawable.ic_shell_annotate, ToolHue.Annotate, { onOpenTool(DocumentStartTool.Highlight) }, enabled = enabled)
+            ToolTile("Highlight", R.drawable.ic_shell_highlight, ToolHue.Annotate, { onOpenTool(DocumentStartTool.Highlight) }, enabled = enabled)
             ToolTile("Sign", R.drawable.ic_shell_sign, ToolHue.Sign, { onOpenTool(DocumentStartTool.Sign) }, enabled = enabled)
             ToolTile("Organize pages", R.drawable.ic_shell_organize, ToolHue.Organize, { onOpenTool(DocumentStartTool.Organize) }, enabled = enabled)
             ToolTile("Compress", R.drawable.ic_shell_compress, ToolHue.Compress, { onOpenTool(DocumentStartTool.Compress) }, enabled = enabled)

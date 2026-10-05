@@ -22,6 +22,8 @@ internal data class DialogActions(
     val onPasswordCancel: () -> Unit,
     val onReplacementConfirmed: () -> Unit,
     val onReplacementCancelled: () -> Unit,
+    val onCloseConfirmed: () -> Unit,
+    val onCloseCancelled: () -> Unit,
     val onNoteAdd: (Long, String) -> Unit,
     val onNoteCancel: () -> Unit,
     val onNoteReadingClose: () -> Unit,
@@ -52,6 +54,15 @@ internal data class DialogActions(
 
 @Composable
 internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
+    if (state.pendingClose != null) {
+        AlertDialog(
+            onDismissRequest = actions.onCloseCancelled,
+            title = { Text("Discard unsaved changes?") },
+            text = { Text("Closing this PDF will discard your unsaved changes and return to Home.") },
+            confirmButton = { Button(onClick = actions.onCloseConfirmed) { Text("Discard and close") } },
+            dismissButton = { TextButton(onClick = actions.onCloseCancelled) { Text("Keep editing") } },
+        )
+    }
     if (state.needsPassword) PasswordDialog(state.passwordMessage, actions.onPassword, actions.onPasswordCancel)
     state.contentEdit?.editor?.let { TextRunEditorDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.resizer?.let { ImageResizerDialog(it, state.documentId, actions.contentEdit) }

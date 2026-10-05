@@ -116,7 +116,16 @@ data class ViewerState(
     val annotationPositioner: AnnotationPositioner? = null,
     /** A loaded replacement held in the ViewModel pending user confirmation. */
     val pendingReplacementTitle: String? = null,
+    /** Consent to discard belongs only to the document revision shown in the prompt. */
+    val pendingClose: DocumentCloseRequest? = null,
 )
+
+data class DocumentCloseRequest(val documentId: Long, val revision: Long)
+
+internal fun documentCloseEnabled(state: ViewerState): Boolean =
+    state.documentId != 0L && !state.isLoading && !state.imageExportRunning &&
+        !state.pageSplitRunning && !state.compressRunning && !state.protectRunning && !state.signRunning &&
+        !state.needsPassword && state.pendingReplacementTitle == null
 
 /**
  * What the reader reports back as it scrolls.

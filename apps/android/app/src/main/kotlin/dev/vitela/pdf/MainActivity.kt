@@ -176,6 +176,9 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
     }
     ViewerScreen(
         state = state,
+        onClose = viewModel::closeDocument,
+        onCloseConfirmed = viewModel::confirmClose,
+        onCloseCancelled = viewModel::cancelClose,
         onOpen = { pickedTool = null; openPdf.launch(arrayOf("application/pdf")) },
         onOpenTool = { tool -> pickedTool = tool; openPdf.launch(arrayOf("application/pdf")) },
         onOpenSample = { assetName, displayName ->

@@ -81,6 +81,7 @@ class ViewerViewModel(
      * omit it for bytes with no writable origin, such as the packaged sample.
      */
     fun open(displayName: String, bytes: ByteArray, password: String? = null, saveTarget: String? = null, startTool: DocumentStartTool? = null) {
+        cancelClose()
         if (_state.value.isDirty && session.document != null) {
             pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget, startTool)
             _state.value = _state.value.copy(pendingReplacementTitle = displayName)
@@ -99,6 +100,46 @@ class ViewerViewModel(
     fun cancelReplacement() {
         pendingReplacement = null
         if (_state.value.pendingReplacementTitle != null) _state.value = _state.value.copy(pendingReplacementTitle = null)
+    }
+
+    fun closeDocument() = closeDocument(_state.value.documentId, discardRevision = null)
+
+    fun confirmClose() {
+        val request = _state.value.pendingClose ?: return
+        closeDocument(request.documentId, request.revision)
+    }
+
+    fun cancelClose() {
+        _state.value = _state.value.copy(pendingClose = null)
+    }
+
+    private fun closeDocument(documentId: Long, discardRevision: Long?) {
+        viewModelScope.launch {
+            session.documentLane.withLock {
+                val current = _state.value
+                if (current.documentId != documentId || !documentCloseEnabled(current)) return@withLock
+                if (discardRevision != null && current.pendingClose != DocumentCloseRequest(documentId, discardRevision)) return@withLock
+                val document = session.document ?: return@withLock
+                if (current.isDirty && discardRevision != current.revision) {
+                    _state.value = current.copy(pendingClose = DocumentCloseRequest(documentId, current.revision))
+                    return@withLock
+                }
+                reader.retireRenders()
+                reader.reset()
+                selection.closeDrag()
+                // Detach before yielding: a final viewport callback must not
+                // schedule a new native render while this handle is closing.
+                session.document = null
+                _state.value = current.copy(isLoading = true, pendingClose = null)
+                withContext(session.compute) { document.close() }
+                sourceBytes = null
+                sourceTarget = null
+                sourceStartTool = null
+                sourceDiscardConfirmed = false
+                pendingReplacement = null
+                _state.value = ViewerState(canOpen = core != null, status = "Select a PDF to begin.")
+            }
+        }
     }
 
     private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, saveTarget: String?, discardUnsaved: Boolean = false, startTool: DocumentStartTool? = null) {
@@ -247,18 +288,21 @@ class ViewerViewModel(
     fun search(query: String) {
         val openDocument = session.document ?: return
         viewModelScope.launch {
-            _state.value = _state.value.copy(searchQuery = query, status = "Searching...")
-            when (val result = withContext(session.compute) { openDocument.search(query) }) {
-                is PdfCoreResult.Success -> {
-                    val hit = result.value.firstOrNull()
-                    _state.value = _state.value.copy(
-                        searchHits = result.value,
-                        searchIndex = 0,
-                        scrollTarget = hit?.pageIndex,
-                        status = if (result.value.isEmpty()) "No matches." else "Match 1 of ${result.value.size}.",
-                    )
+            session.documentLane.withLock {
+                if (session.document !== openDocument) return@withLock
+                _state.value = _state.value.copy(searchQuery = query, status = "Searching...")
+                when (val result = withContext(session.compute) { openDocument.search(query) }) {
+                    is PdfCoreResult.Success -> {
+                        val hit = result.value.firstOrNull()
+                        _state.value = _state.value.copy(
+                            searchHits = result.value,
+                            searchIndex = 0,
+                            scrollTarget = hit?.pageIndex,
+                            status = if (result.value.isEmpty()) "No matches." else "Match 1 of ${result.value.size}.",
+                        )
+                    }
+                    is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
                 }
-                is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
             }
         }
     }

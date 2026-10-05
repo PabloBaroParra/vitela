@@ -16,6 +16,7 @@ class ReaderMenuTest {
                 DocumentMenuItem.Compress, DocumentMenuItem.Protect, DocumentMenuItem.ExportImages,
                 DocumentMenuItem.ExtractPages, DocumentMenuItem.Split,
                 DocumentMenuItem.PreviousAnnotation, DocumentMenuItem.NextAnnotation, DocumentMenuItem.Properties,
+                DocumentMenuItem.Close,
             ),
             DocumentMenuItem.entries,
         )
@@ -49,9 +50,22 @@ class ReaderMenuTest {
     }
 
     @Test
+    fun closingNeedsAnInstalledIdleDocument() {
+        val installed = open.copy(documentId = 1)
+        assertTrue(DocumentMenuItem.Close.enabled(installed))
+        assertFalse(DocumentMenuItem.Close.enabled(open))
+        listOf(
+            installed.copy(isLoading = true), installed.copy(imageExportRunning = true),
+            installed.copy(pageSplitRunning = true), installed.copy(compressRunning = true),
+            installed.copy(protectRunning = true), installed.copy(signRunning = true),
+            installed.copy(needsPassword = true), installed.copy(pendingReplacementTitle = "other.pdf"),
+        ).forEach { assertFalse(DocumentMenuItem.Close.enabled(it)) }
+    }
+
+    @Test
     fun groupsStartAtCompressAndAtTheAnnotationSteps() {
         assertEquals(
-            listOf(DocumentMenuItem.Compress, DocumentMenuItem.PreviousAnnotation),
+            listOf(DocumentMenuItem.Compress, DocumentMenuItem.PreviousAnnotation, DocumentMenuItem.Close),
             DocumentMenuItem.entries.filter { it.startsGroup },
         )
     }

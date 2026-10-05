@@ -37,6 +37,7 @@ internal enum class DocumentMenuItem(
     PreviousAnnotation("Previous annotation", R.drawable.ic_shell_previous, startsGroup = true, enabled = ::annotationNavigationEnabled),
     NextAnnotation("Next annotation", R.drawable.ic_shell_next, enabled = ::annotationNavigationEnabled),
     Properties("Properties", null, enabled = { it.pageCount > 0 }),
+    Close("Close PDF", null, startsGroup = true, enabled = ::documentCloseEnabled),
 }
 
 internal data class DocumentMenuActions(
@@ -51,6 +52,7 @@ internal data class DocumentMenuActions(
     val onCompress: () -> Unit,
     val onProtect: () -> Unit,
     val onAnnotationStep: (forward: Boolean) -> Unit,
+    val onClose: () -> Unit,
 ) {
     fun run(item: DocumentMenuItem) = when (item) {
         DocumentMenuItem.Open -> onOpen()
@@ -65,6 +67,7 @@ internal data class DocumentMenuActions(
         DocumentMenuItem.PreviousAnnotation -> onAnnotationStep(false)
         DocumentMenuItem.NextAnnotation -> onAnnotationStep(true)
         DocumentMenuItem.Properties -> onProperties()
+        DocumentMenuItem.Close -> onClose()
     }
 }
 
