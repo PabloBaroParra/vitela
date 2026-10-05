@@ -112,6 +112,10 @@ Require-File $vswhere 'vswhere'
 $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 if (-not $msbuild) { Fail 'MSBuild not found via vswhere' }
 
+# AppxPackageName names the .msix file instead of the project name. It replaces
+# the whole base name, so the version and architecture are spelled out here to
+# keep the usual Vitela.Windows_<version>_x64.msix shape. Only the file name
+# changes: the Store reads the package identity from the manifest.
 # Own bin/obj under BuildRoot: the zip packager copies the shared
 # bin\x64\Release\<tfm>\win-x64 directory wholesale, and packaged and
 # unpackaged builds must not leave artifacts in each other's output.
@@ -122,7 +126,8 @@ if (-not $msbuild) { Fail 'MSBuild not found via vswhere' }
     "-p:VitelaAppxManifest=$manifestCopy" `
     "-p:VitelaPdfiumDll=$($pdfium.Dll)" `
     "-p:VitelaLicensesDir=$licenseDir" `
-    "-p:AppxPackageDir=$packagesDir\"
+    "-p:AppxPackageDir=$packagesDir\" `
+    "-p:AppxPackageName=Vitela.Windows_$($packageVersion)_x64"
 if ($LASTEXITCODE -ne 0) { Fail "MSBuild failed with exit code $LASTEXITCODE" }
 
 # Exact extension match: the build also leaves a .msixsym beside the package,
