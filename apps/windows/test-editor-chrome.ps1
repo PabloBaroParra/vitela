@@ -1,4 +1,4 @@
-param()
+param([switch]$TestComputerSigning)
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
@@ -156,21 +156,61 @@ foreach ($id in @('ChooseCardCertificate', 'ChooseComputerCertificate')) {
 }
 $indicator = Find-Element 'SignedIndicator'
 if ($null -ne $indicator -and -not $indicator.Current.IsOffscreen) { throw 'Unsigned sample must not claim a signature.' }
-$certificate.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
-$picker = $null
-for ($attempt = 0; $attempt -lt 20 -and $null -eq $picker; $attempt++) {
-    Start-Sleep -Milliseconds 250
-    $picker = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
-        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::Window))
+foreach ($sourceId in @('ChooseSigningCertificate', 'ChooseCardCertificate')) {
+    $certificate = Find-Element $sourceId
+    $certificate.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $picker = $null
+    for ($attempt = 0; $attempt -lt 20 -and $null -eq $picker; $attempt++) {
+        Start-Sleep -Milliseconds 250
+        $picker = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+            [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+                [System.Windows.Automation.ControlType]::Window))
+    }
+    if ($null -eq $picker) { throw 'Signing certificate command did not open a native picker.' }
+    $picker.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
+    for ($attempt = 0; $attempt -lt 40 -and -not $certificate.Current.IsEnabled; $attempt++) { Start-Sleep -Milliseconds 100 }
+    if (-not $certificate.Current.IsEnabled -or (Find-Element 'DocumentTitle').Current.Name -ne 'Vitela sample.pdf' -or
+        (Find-Element 'UndoButton').Current.IsEnabled -or (Find-Element 'RedoButton').Current.IsEnabled) {
+        throw "$sourceId picker cancellation did not preserve the sample and command state."
+    }
+    foreach ($id in @('ChooseSigningCertificate', 'ChooseCardCertificate', 'ChooseComputerCertificate')) {
+        if (-not (Find-Element $id).Current.IsEnabled) { throw "Signing source did not recover after cancellation: $id" }
+    }
 }
-if ($null -eq $picker) { throw 'Signing certificate command did not open a native picker.' }
-$picker.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern).Close()
-for ($attempt = 0; $attempt -lt 40 -and -not $certificate.Current.IsEnabled; $attempt++) { Start-Sleep -Milliseconds 100 }
-if (-not $certificate.Current.IsEnabled -or (Find-Element 'DocumentTitle').Current.Name -ne 'Vitela sample.pdf' -or
-    (Find-Element 'UndoButton').Current.IsEnabled) { throw 'Signing picker cancellation did not preserve the sample and command state.' }
 (Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-'PASS Signing panel, source eligibility gates, unsigned indicator, native picker and cancellation'
+'PASS Signing panel, source eligibility gates, unsigned indicator, native PFX/token module pickers and cancellation'
+
+if ($TestComputerSigning) {
+    # Opt-in: requires at least one usable certificate in CurrentUser/My; never signs with a user's key.
+    (Find-Element 'ToolsTab_Sign').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+    (Find-Element 'ChooseComputerCertificate').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $cancel = $null
+    for ($attempt = 0; $attempt -lt 100 -and $null -eq $cancel; $attempt++) {
+        Start-Sleep -Milliseconds 100
+        $cancel = Find-Element 'CloseButton'
+    }
+    if ($null -eq $cancel) { throw 'Computer signing requires a usable personal-store certificate and an identity dialog.' }
+    $identity = $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::NameProperty, 'Signing identity'))
+    if ($null -eq $identity) { throw 'Computer source did not show the signing identity choices.' }
+    foreach ($id in @('ChooseSigningCertificate', 'ChooseCardCertificate', 'ChooseComputerCertificate')) {
+        if ((Find-Element $id).Current.IsEnabled) { throw "Signing source stayed enabled during identity selection: $id" }
+    }
+    $cancel.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+    for ($attempt = 0; $attempt -lt 100 -and -not (Find-Element 'ChooseComputerCertificate').Current.IsEnabled; $attempt++) {
+        Start-Sleep -Milliseconds 100
+    }
+    foreach ($id in @('ChooseSigningCertificate', 'ChooseCardCertificate', 'ChooseComputerCertificate')) {
+        if (-not (Find-Element $id).Current.IsEnabled) { throw "Computer identity Cancel did not restore $id" }
+    }
+    if ((Find-Element 'DocumentTitle').Current.Name -ne 'Vitela sample.pdf' -or
+        (Find-Element 'UndoButton').Current.IsEnabled -or (Find-Element 'RedoButton').Current.IsEnabled -or
+        (Find-Element 'AnnotationStatus').Current.Name -ne 'Signing cancelled.') {
+        throw 'Computer identity Cancel changed the sample, history or cancellation status.'
+    }
+    (Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+    'PASS Actual Windows personal-store discovery, identity selection gates and cancellation without private-key use'
+}
 
 $find = Find-Element 'FindDocumentButton'
 $find.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()

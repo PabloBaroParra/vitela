@@ -1,6 +1,3 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
-using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -27,25 +24,7 @@ public sealed partial class MainWindow
         var file = await picker.PickSingleFileAsync();
         if (file is null) { AnnotationStatus.Text = "Certificate selection cancelled."; return null; }
         if (token)
-        {
-            var password = new PasswordBox { PasswordRevealMode = PasswordRevealMode.Peek };
-            AutomationProperties.SetName(password, "Token PIN");
-            var content = new StackPanel { Spacing = 8 };
-            content.Children.Add(new TextBlock { Text = "Enter the token PIN, or leave it empty to use the token's own authentication prompt.", TextWrapping = TextWrapping.Wrap });
-            content.Children.Add(password);
-            var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Card or token authentication", Content = content,
-                PrimaryButtonText = "Continue", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
-            try
-            {
-                if (await ShowModalAsync(dialog) != ContentDialogResult.Primary) { AnnotationStatus.Text = "Certificate selection cancelled."; return null; }
-                var pin = password.Password;
-                password.Password = "";
-                var result = await _facade.OpenTokenSigningSourceAsync(file.Path, pin.Length == 0 ? null : pin);
-                if (!result.IsSuccess) AnnotationStatus.Text = result.Error!.Message;
-                return result.Value;
-            }
-            finally { password.Password = ""; }
-        }
+            return await AskTokenSigningCertificateAsync(file.Path);
 
         var bytes = await File.ReadAllBytesAsync(file.Path);
         try { return await AskSigningCertificateAsync(bytes); }

@@ -8,6 +8,27 @@ namespace Pdf.Windows;
 /// <summary>Certificate unlock and identity selection, separate from output orchestration.</summary>
 public sealed partial class MainWindow
 {
+    private async Task<ISigningCertificate?> AskTokenSigningCertificateAsync(string modulePath)
+    {
+        var password = new PasswordBox { PasswordRevealMode = PasswordRevealMode.Peek };
+        AutomationProperties.SetName(password, "Token PIN");
+        var content = new StackPanel { Spacing = 8 };
+        content.Children.Add(new TextBlock { Text = "Enter the token PIN, or leave it empty to use the token's own authentication prompt.", TextWrapping = TextWrapping.Wrap });
+        content.Children.Add(password);
+        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Card or token authentication", Content = content,
+            PrimaryButtonText = "Continue", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        try
+        {
+            if (await ShowModalAsync(dialog) != ContentDialogResult.Primary) { AnnotationStatus.Text = "Certificate selection cancelled."; return null; }
+            var pin = password.Password;
+            password.Password = "";
+            var result = await _facade.OpenTokenSigningSourceAsync(modulePath, pin.Length == 0 ? null : pin);
+            if (!result.IsSuccess) AnnotationStatus.Text = result.Error!.Message;
+            return result.Value;
+        }
+        finally { password.Password = ""; }
+    }
+
     private async Task<ISigningCertificate?> AskSigningCertificateAsync(byte[] bytes)
     {
         var password = new PasswordBox { PasswordRevealMode = PasswordRevealMode.Peek };
