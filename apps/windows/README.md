@@ -74,10 +74,12 @@ PKCS#12 cannot distinguish a wrong password from an invalid file. Unlock retries
 in place; Cancel clears the secret without opening a destination. **Choose a
 signing identity** lists mutually exclusive identities with the first selected;
 Sign requires a selection and Cancel is the default. Pending inline/form edits
-settle before certificate selection. Card/token and computer-store dialogs remain
-blocked by the absent shared signing adapters; they are not simulated.
+settle before certificate selection. Card/token selection asks for a PKCS#11
+driver DLL and a PIN (empty for the token's own authentication prompt). Computer
+certificates come from the current user's Windows personal store; keys stay in
+their providers and any provider authentication is handled by Windows.
 `Tests/SigningDialogsSmoke.targets` checks these dialogs with an ephemeral key,
-independently of the retained encrypted-signing regression (still blocked in core).
+independently of the encrypted-signing and native-source regressions.
 
 ## Native printing flow
 
@@ -179,14 +181,21 @@ Signing writes through a temporary sibling file, then reopens the signed PDF;
 the panel shows **✓ This document is digitally signed.** This indicator detects
 signature structure, not certificate trust or cryptographic validity. Signing
 follows the core's signature-field permissions and is disabled while busy or
-organizing. **Use card or token…** and **Use a certificate from this computer…**
-are visibly disabled with an explanation: the shared FFI exposes PKCS#12 only.
-Full source parity remains blocked in `.opencode/state/windows-parity.md`.
-Encrypted-source signing also remains blocked: the native signing smoke exposes
-a shared-core malformed `/Contents` placeholder error. No encryption is stripped
-as a workaround; signing failure leaves the live document unchanged. The opt-in
-`SigningSmoke.targets` harness retains its failing encrypted-signature assertion
-so that limitation is not silently accepted as parity.
+organizing. **Use card or token…** loads a PKCS#11 module; **Use a certificate from
+this computer…** discovers RSA and ECDSA identities in `CurrentUser/My`. All three
+sources share identity selection, signed destination and serialized reopen.
+The native store signs SHA-256 digests without exporting private keys; its public
+certificate chain is built offline with downloads and revocation retrieval disabled.
+
+Encrypted signing retains protection. The core excludes only signature `/Contents`
+from encryption and uses the same file key for user and owner opens. Reopening
+delegates to the source handle, keeping both password roles when available.
+`SigningSmoke.targets` checks the original encrypted-success assertion, password
+protection, RSA/ECDSA provider signatures and generated native-source callbacks.
+Core regressions additionally cover RC4, second signatures, retained text and a
+structural rewrite after dual-password reopen. Physical token authentication and
+vendor-driver integration still require hardware verification; this run does not
+claim full source parity. Evidence is recorded in `.opencode/state/windows-parity.md`.
 
 Annotate shows **Annotations** followed by Highlight, Underline, Strikeout, Ink,
 Note, Shape and Stamp, then Previous annotation, Nudge, Grow, Restyle and Delete.
