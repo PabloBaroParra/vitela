@@ -2,6 +2,32 @@ namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
 {
+    /// <summary>Checks the live edit log before opening an inline text editor.</summary>
+    public async Task<OperationResult<bool>> CanRetypeTextRunAsync(string sessionId, ContentTextRun run)
+    {
+        await _documentChangeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                if (!TryGetCurrentSession(sessionId, out var session))
+                    return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "retype_target", sessionId, run.PageIndex));
+                // Inline content caches survive typing and unrelated edits. Read
+                // current movement from the core rather than rejecting their old revision.
+                if (run.SessionId is not null && run.SessionId != sessionId)
+                    return OperationResult<bool>.Failure(CreateError("The document changed. Click the text again.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
+                if (!_core.ContentEditingAllowed(session.Document))
+                    return OperationResult<bool>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
+                if (_core.TextRunHasPendingMove(session.Document, run.PageIndex, run.Id))
+                    return OperationResult<bool>.Failure(CreateError("This text was moved and not yet saved — save and reopen before retyping it.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
+                return OperationResult<bool>.Success(true);
+            }
+        }
+        catch (PdfCoreException error) { return OperationResult<bool>.Failure(MapError(error, "retype_target", sessionId, run.PageIndex)); }
+        catch (Exception error) { return OperationResult<bool>.Failure(MapUnexpected(error, "retype_target", sessionId, run.PageIndex)); }
+        finally { _documentChangeGate.Release(); }
+    }
+
     /// <summary>Reads revision-bound text targets for deletion or movement, serialized against document changes.</summary>
     public async Task<OperationResult<IReadOnlyList<ContentTextRun>>> PageTextEditTargetsAsync(string sessionId, uint pageIndex)
     {

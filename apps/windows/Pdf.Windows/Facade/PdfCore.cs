@@ -135,6 +135,9 @@ internal interface IPdfCore
     /// </summary>
     bool ContentEditingAllowed(IPdfCoreDocument document);
 
+    /// <summary>Whether an existing run must be saved and reopened before retyping after movement.</summary>
+    bool TextRunHasPendingMove(IPdfCoreDocument document, uint pageIndex, ulong id);
+
     /// <summary>
     /// Whether this document permits creating or restructuring a form field —
     /// placing, moving, renaming or restyling one. Filling an existing field

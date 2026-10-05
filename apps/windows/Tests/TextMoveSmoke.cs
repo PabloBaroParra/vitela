@@ -23,7 +23,7 @@ public partial class App : Application
         {
             await _window.TextMoveSmokeAsync();
             File.WriteAllText(Path.Combine(output, "text-move-smoke.log"),
-                "PASS native Move text dialog; repeated moves and preview; stale-target refusal; cancel/no-op history; one Undo/Redo; final position save/reopen; click-insert then move/retype/move with one insertion Undo/Redo and final save/reopen.");
+                "PASS native Move text dialog; repeated moves and preview; stale-target refusal; cancel/no-op history; Linux-compatible moved-run inline retype refusal; one Undo/Redo; final position save/reopen; click-insert then move/retype/move with one insertion Undo/Redo and final save/reopen.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "text-move-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -54,6 +54,14 @@ public sealed partial class MainWindow
         await DriveTextMoveAsync(180, 190, cancel: true);
         var unchanged = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![0];
         if (unchanged.Bounds != current.Bounds) throw new Exception("Cancel/no-op changed position.");
+        SetContentEditMode(true);
+        await BeginContentGestureAsync(_slots[0], 0,
+            new AnnotationPoint(current.Bounds.X + 2, current.Bounds.Y + current.Bounds.Height / 2), null!);
+        if (_pump.Box is not null || !AnnotationStatus.Text.Contains("save and reopen before retyping"))
+            throw new Exception("Moved existing text must be refused before opening its inline editor, like Linux.");
+        var afterRefusal = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![0];
+        if (afterRefusal.Text != current.Text || afterRefusal.Bounds != current.Bounds)
+            throw new Exception("Refused retyping changed the moved text.");
         await ApplyHistoryAsync(true);
         var restored = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![0];
         if (restored.Bounds != original.Bounds || _annotationState!.CanUndo || !_annotationState.CanRedo)

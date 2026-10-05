@@ -204,6 +204,59 @@ fn repeated_moves_save_the_final_position_and_share_one_undo_step() {
 }
 
 #[test]
+fn moved_text_refuses_retyping_with_actionable_guidance_and_preserves_history() {
+    let handle = open_single_line("Original text");
+    let original = only_run(&handle);
+    assert!(!handle.text_run_has_pending_move(0, original.id).unwrap());
+    move_run(&handle, original.clone(), 80.0, 90.0);
+    let moved = only_run(&handle);
+    assert!(handle.text_run_has_pending_move(0, moved.id).unwrap());
+    let error = apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: moved.clone(),
+            after: "Refused change".to_string(),
+        },
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("save and reopen before retyping"),
+        "{error}"
+    );
+    assert_eq!(only_run(&handle), moved);
+    assert!(undo(&handle));
+    assert!(!handle.text_run_has_pending_move(0, original.id).unwrap());
+    assert_eq!(only_run(&handle), original);
+    assert!(!undo(&handle));
+    assert!(redo(&handle));
+    assert!(handle.text_run_has_pending_move(0, moved.id).unwrap());
+    let saved = save_to_bytes(
+        &handle,
+        FfiSaveIntent::Default,
+        FfiSignatureAcknowledgement::Unacknowledged,
+    )
+    .unwrap();
+    let reopened = open_from_bytes(saved, None).unwrap();
+    assert!(!reopened
+        .text_run_has_pending_move(0, only_run(&reopened).id)
+        .unwrap());
+    retype(&reopened, only_run(&reopened), "Allowed after reopen");
+}
+
+#[test]
+fn moved_insertion_remains_eligible_for_retyping() {
+    let handle = open_single_line("Original text");
+    let inserted = insert(&handle, "InsertedFont");
+    move_run(&handle, inserted.clone(), 80.0, 90.0);
+    assert!(!handle.text_run_has_pending_move(0, inserted.id).unwrap());
+    let current = handle.read_page_content(0).unwrap().text_runs.remove(1);
+    retype(&handle, current, "Changed insertion");
+    assert!(handle.text_run_has_pending_move(1, inserted.id).is_err());
+}
+
+#[test]
 fn repeated_move_does_not_consume_another_runs_later_edit() {
     let mut document = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
     let mut bytes = Vec::new();
