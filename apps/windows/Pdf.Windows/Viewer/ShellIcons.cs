@@ -4,8 +4,8 @@ namespace Pdf.Windows.Viewer;
 
 /// <summary>
 /// One drawing from the shared assets/icons set — the same files the GTK shell
-/// draws through apps/linux-gtk/src/app/icons.rs. The last five exist for the
-/// Windows-only page-navigation and document-tool groups, authored on the same grid.
+/// draws through apps/linux-gtk/src/app/icons.rs. It also includes the Windows
+/// navigation and Android annotation drawings, authored on the same grid.
 /// </summary>
 public enum ShellIcon
 {
@@ -14,6 +14,7 @@ public enum ShellIcon
     ZoomOut, ZoomIn, FitWidth, FitPage, PanelLeft, PanelRight, Previous, Next,
     Search, Comments, MoveUp, MoveDown, RotateLeft, RotateRight,
     FirstPage, LastPage, GoToPage, ExtractPages, SplitPages,
+    Select, Highlight, Underline, Strikeout, Ink, Shape,
 }
 
 /// <summary>
