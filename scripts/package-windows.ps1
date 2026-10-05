@@ -138,6 +138,8 @@ foreach ($entry in $requiredEntries) {
 }
 Assert-PortableExecutableIsX64 (Join-Path $stageDir 'Pdf.Windows.exe') 'packaged shell executable'
 Assert-PortableExecutableIsX64 (Join-Path $stageDir 'pdf_ffi.dll') 'packaged FFI library'
+Assert-NoVisualCRuntimeImports (Join-Path $stageDir 'pdf_ffi.dll') 'packaged FFI library'
+Assert-NoVisualCRuntimeImports (Join-Path $stageDir 'pdfium.dll') 'packaged PDFium'
 
 if (-not $SkipSigning) {
     & (Join-Path $PSScriptRoot 'sign-windows-binaries.ps1') `

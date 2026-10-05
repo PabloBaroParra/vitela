@@ -44,6 +44,53 @@ function Assert-PortableExecutableIsX64([string]$path, [string]$what) {
     if ($machine -ne 0x8664) { Fail ("{0} is not an x64 image (COFF machine 0x{1:X4})" -f $what, $machine) }
 }
 
+# Names of the DLLs a PE image imports (its import directory; delay-loaded
+# imports are not listed). Parsed by hand for the same reason as above: no
+# dumpbin on a bare runner.
+function Get-PortableExecutableImports([string]$path) {
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    $pe = [System.BitConverter]::ToInt32($bytes, 0x3C)
+    $sectionCount = [System.BitConverter]::ToUInt16($bytes, $pe + 6)
+    $optional = $pe + 24
+    $optionalSize = [System.BitConverter]::ToUInt16($bytes, $pe + 20)
+    if ([System.BitConverter]::ToUInt16($bytes, $optional) -ne 0x20B) { Fail "$path is not a PE32+ image" }
+    $sections = $optional + $optionalSize
+    $toOffset = {
+        param([uint32]$rva)
+        for ($i = 0; $i -lt $sectionCount; $i++) {
+            $s = $sections + 40 * $i
+            $va = [System.BitConverter]::ToUInt32($bytes, $s + 12)
+            $size = [Math]::Max([System.BitConverter]::ToUInt32($bytes, $s + 8), [System.BitConverter]::ToUInt32($bytes, $s + 16))
+            if ($rva -ge $va -and $rva -lt $va + $size) { return [int]($rva - $va + [System.BitConverter]::ToUInt32($bytes, $s + 20)) }
+        }
+        Fail "$path has an import RVA outside every section"
+    }
+    $importRva = [System.BitConverter]::ToUInt32($bytes, $optional + 112 + 8)
+    if ($importRva -eq 0) { return @() }
+    $names = @()
+    for ($d = & $toOffset $importRva; ; $d += 20) {
+        $nameRva = [System.BitConverter]::ToUInt32($bytes, $d + 12)
+        if ($nameRva -eq 0) { break }
+        $start = & $toOffset $nameRva
+        $end = [Array]::IndexOf($bytes, [byte]0, $start)
+        $names += [System.Text.Encoding]::ASCII.GetString($bytes, $start, $end - $start)
+    }
+    $names
+}
+
+# A packaged native library must link the C runtime statically. Windows ships
+# the Universal CRT (the api-ms-win-crt-* sets) but not VCRUNTIME140.dll. The
+# MSIX declares no VCLibs dependency, and a developer machine or CI runner
+# always has it from Visual Studio, so the gap stays hidden right up to a clean
+# install. There, the app starts, and the first core call (opening a PDF) fails
+# to load pdf_ffi.dll. Store certification rejected 0.1.101.0 for exactly that.
+# The core is built with +crt-static (apps/windows/build.ps1), which removes every
+# CRT import, so any CRT import at all means that build setting was lost.
+function Assert-NoVisualCRuntimeImports([string]$path, [string]$what) {
+    $runtime = @(Get-PortableExecutableImports $path | Where-Object { $_ -match '^(vcruntime|msvcp|ucrtbase|api-ms-win-crt-)' })
+    if ($runtime) { Fail "$what imports the C runtime dynamically (VCRUNTIME140.dll is not part of Windows; build with +crt-static): $($runtime -join ', ')" }
+}
+
 # Expands -Archive into -Destination (which must exist and be empty) and fails
 # closed unless every fact about it matches the pin. Returns the paths the
 # packagers copy from.

@@ -168,6 +168,8 @@ foreach ($xbf in @('App.xbf', 'MainWindow.xbf')) {
 
 Assert-PortableExecutableIsX64 (Join-Path $layoutDir 'Pdf.Windows.exe') 'packaged shell executable'
 Assert-PortableExecutableIsX64 (Join-Path $layoutDir 'pdf_ffi.dll') 'packaged FFI library'
+Assert-NoVisualCRuntimeImports (Join-Path $layoutDir 'pdf_ffi.dll') 'packaged FFI library'
+Assert-NoVisualCRuntimeImports (Join-Path $layoutDir 'pdfium.dll') 'packaged PDFium'
 if ((Get-Sha256 (Join-Path $layoutDir 'pdfium.dll')) -ne $PDFIUM_DLL_SHA256) { Fail 'packaged PDFium is not the pinned library' }
 
 $packaged = [xml](Get-Content -LiteralPath (Join-Path $layoutDir 'AppxManifest.xml') -Raw)
