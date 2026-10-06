@@ -39,6 +39,7 @@ public sealed partial class MainWindow
         SidebarContent.Children.Remove(FormFieldsPanel);
         _toolPages["Sign"].Children.Add(FormFieldsPanel);
         BuildSigningPanel();
+        BuildDrawSignaturePanel();
         var comments = new TextBlock
         {
             Text = "Comments aren't available in this shell yet.", TextWrapping = TextWrapping.Wrap,
@@ -70,6 +71,7 @@ public sealed partial class MainWindow
     private void SelectToolPage(string key)
     {
         if (!_toolPages.ContainsKey(key)) return;
+        DisarmSignatureOutsideSign(key);
         foreach (var (name, page) in _toolPages)
             page.Visibility = name == key ? Visibility.Visible : Visibility.Collapsed;
         foreach (var tab in _toolsTabStrip.Children.OfType<ToggleButton>())
