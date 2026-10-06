@@ -141,7 +141,7 @@ those screens list the Windows Recent items, so they show the user's own files.
 
 ## Packages
 
-Upload `Pdf.Windows_0.1.101.0_x64.msix` from
+Upload `Vitela.Windows_<version>_x64.msix` from
 `build/windows-store/packages/` (produced by
 `scripts/package-windows-store.ps1 -Version 0.1.101.0` with the Partner Center
 identity). Device family availability: **Windows 10/11 Desktop** only.

@@ -149,7 +149,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       # The positional path must be the WinUI project (the CLI recognises it by
       # Package.appxmanifest) and -i is a *directory*: msstore-cli takes the
-      # packages exactly one level below it, which is Pdf.Windows_<v>_x64_Test\
+      # packages exactly one level below it, which is Vitela.Windows_<v>_x64_Test\
       # and leaves out the Windows App SDK runtime under Dependencies\<arch>\.
       # Read from the CLI source; its docs still call -i an input file.
       - name: Submit to the Store
