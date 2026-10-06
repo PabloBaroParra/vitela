@@ -1313,6 +1313,19 @@ Windows/C#). Paralelo con B9 y B10.
       la desarma. Verificado en emulador: guardado y re-renderizado, la firma queda con
       `/SMask`. Antes de guardar se ve solo el contorno, como todo stamp de sesión en Android.
       Pendiente aparte: el core escribe el stream de imagen sin compresión.)**
+      **(2026-10-06 — Linux GTK, segundo shell con firma dibujada. "Draw signature…" en la
+      sección Signing de la pestaña Fill & Sign abre un pad blanco modal (ratón o lápiz,
+      `GestureDrag`); Use queda deshabilitado hasta que hay un trazo y Clear lo borra.
+      Los trazos se rasterizan en el shell con las mismas reglas que Android (PNG
+      transparente, tinta negra, recortado a la tinta más medio trazo, lado largo ≤ 1200 px;
+      geometría pura en `apps/linux-gtk/src/app/signature/ink.rs`) y arman el mismo stamp de
+      imagen que Ctrl+V: el siguiente clic en una página lo coloca con `stamp_placement`.
+      "Remember on this computer" (marcado por defecto) guarda el PNG en
+      `$XDG_DATA_HOME/vitela/signature.png` (escritura a `.partial` + rename, modo 0600); el
+      siguiente "Draw signature…" ofrece Use / Draw new / Delete. Armarla suelta cualquier
+      herramienta o modo armado y salir de la pestaña Fill & Sign la desarma. Linux ya pinta
+      la imagen del stamp antes de guardar (`selection::stamp_surface`), así que no necesita el
+      equivalente del PR #352. Sin cambios en el core.)**
 - [x] T-089 Undo/redo vía botones táctiles → EditLog. [ui-android, UndoRedo]
       **(2026-10-06 — hecho: botones Undo/Redo sobre el EditLog del core; organize, import y
       edición de contenido usan el mismo historial)**

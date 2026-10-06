@@ -99,6 +99,10 @@ pub(crate) fn update_sign_controls(viewer: &Viewer) {
     viewer
         .signed_indicator
         .set_visible(document_is_signed(viewer));
+    // The drawn-signature entry lives in the same section and follows the same
+    // open/close/reload lifecycle, but asks the annotation question: its
+    // result is a stamp, not a signed field.
+    crate::app::signature::update_draw_signature_control(viewer);
 }
 
 /// Whether the open document (if any) already carries a signature —

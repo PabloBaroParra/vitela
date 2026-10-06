@@ -153,6 +153,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Export to images | ✅ | ✅ | — | 🚧 | — |
 | Compress to a smaller PDF | ✅ | ✅ | — | 🚧 | — |
 | Sign | ✅ | — | — | 🚧 | — |
+| Draw a signature | ✅ | — | — | 🚧 | — |
 | Fillable forms | ✅ | 🚧 | — | 🚧 | — |
 
 Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
