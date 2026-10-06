@@ -221,13 +221,16 @@ jobs:
             Write-Host "::warning::No code-signing secret available; signing with a development certificate. This build is not distributable."
             ./scripts/package-windows.ps1 -DevelopmentSigningCertificate
           }
-      - name: Verify the package (contents, signature, offline render)
+      # -CleanMachine renders with the Visual C++ runtime hidden. This runner
+      # has it from Visual Studio, and a user's machine may not: that gap is how
+      # 0.1.101.0 passed here and failed Store certification on "Open PDF".
+      - name: Verify the package (contents, signature, offline render on a clean machine)
         shell: powershell
         run: |
           if ("${{ steps.package.outputs.release-signed }}" -eq "true") {
-            ./scripts/verify-windows-package.ps1
+            ./scripts/verify-windows-package.ps1 -CleanMachine
           } else {
-            ./scripts/verify-windows-package.ps1 -AllowUntrustedSignature
+            ./scripts/verify-windows-package.ps1 -AllowUntrustedSignature -CleanMachine
           }
       # The Microsoft Store MSIX, built on every change so a break surfaces in
       # the pull request rather than on release day (windows-store.yml).
@@ -237,13 +240,22 @@ jobs:
       # bin/obj under build/windows-store, apart from the zip's.
       - name: Build and check the Store MSIX (development identity)
         run: ./scripts/package-windows-store.ps1
+      # Runs what was just built. Its own native files render the sample with
+      # the Visual C++ runtime hidden, and a test-signed copy is installed and
+      # launched by package identity. It must still be running 20 s later.
+      # The same step gates every Store submission (windows-store.yml).
+      - name: Run the Store MSIX (clean-machine render, install, launch)
+        shell: powershell
+        run: ./scripts/verify-windows-store-package.ps1 -CleanMachine -InstallAndLaunch
       - name: Publish the verification evidence to the job log
         if: always()
         run: |
-          foreach ($file in @("signatures.txt", "package-smoke.txt", "artifact-sha256.txt", "result.txt")) {
-            $path = "build/windows/evidence/$file"
-            if (Test-Path -LiteralPath $path) {
-              Write-Host "--- $file"
-              Get-Content -LiteralPath $path -Encoding UTF8 | Write-Host
+          foreach ($evidence in @("build/windows/evidence", "build/windows-store/evidence")) {
+            foreach ($file in @("identity.txt", "signatures.txt", "package-smoke.txt", "launch.txt", "artifact-sha256.txt", "result.txt")) {
+              $path = "$evidence/$file"
+              if (Test-Path -LiteralPath $path) {
+                Write-Host "--- $path"
+                Get-Content -LiteralPath $path -Encoding UTF8 | Write-Host
+              }
             }
           }

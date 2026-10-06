@@ -35,7 +35,10 @@ param(
     [switch]$AllowUntrustedSignature,
     # Contents and signature only. Used where no .NET runtime is available to
     # host the smoke harness.
-    [switch]$InspectOnly
+    [switch]$InspectOnly,
+    # Render with the Visual C++ runtime hidden from the machine, as on a clean
+    # install. GitHub-hosted runners only (scripts/windows-package-smoke.ps1).
+    [switch]$CleanMachine
 )
 
 Set-StrictMode -Version Latest
@@ -48,6 +51,8 @@ $ErrorActionPreference = 'Stop'
 $PDFIUM_VERSION = '148.0.7763.0'
 
 function Fail([string]$message) { throw "verify-windows-package: $message" }
+
+. (Join-Path $PSScriptRoot 'windows-package-smoke.ps1')
 
 function Assert-PortableExecutableIsX64([string]$path, [string]$what) {
     $bytes = [System.IO.File]::ReadAllBytes($path)
@@ -91,8 +96,7 @@ if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) { Fail "package archi
 
 if (Test-Path -LiteralPath $EvidenceDir) { Remove-Item -LiteralPath $EvidenceDir -Recurse -Force }
 $extractDir = Join-Path $EvidenceDir 'package'
-$smokeDir = Join-Path $EvidenceDir 'smoke'
-New-Item -ItemType Directory -Force -Path $extractDir, $smokeDir | Out-Null
+New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
 
 Expand-Archive -LiteralPath $zipPath -DestinationPath $extractDir -Force
 $installDir = Join-Path $extractDir 'Vitela'
@@ -163,46 +167,7 @@ if ($InspectOnly) {
     return
 }
 
-& dotnet publish $SmokeProject -c Release -o $smokeDir --nologo | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail 'the package smoke harness failed to build' }
-
-# The harness runs on the packaged files, not on its own build's inputs.
-foreach ($runtimeFile in @('pdfium.dll', 'pdf_ffi.dll')) {
-    Copy-Item -LiteralPath (Join-Path $installDir $runtimeFile) -Destination $smokeDir -Force
-}
-New-Item -ItemType Directory -Force -Path (Join-Path $smokeDir 'Assets') | Out-Null
-Copy-Item -LiteralPath (Join-Path $installDir 'Assets\vitela-sample.pdf') -Destination (Join-Path $smokeDir 'Assets') -Force
-
-# Without this the check proves nothing: an override in the environment is the
-# first thing the core honours, so a package missing PDFium entirely would
-# still render.
-$inheritedOverride = $env:PDFIUM_DYNAMIC_LIB_PATH
-$env:PDFIUM_DYNAMIC_LIB_PATH = $null
-$receiptPath = Join-Path $EvidenceDir 'package-smoke.txt'
-try {
-    & (Join-Path $smokeDir 'Pdf.Windows.PackageSmoke.exe') $receiptPath
-    if ($LASTEXITCODE -ne 0) { Fail 'the packaged files did not render the sample document' }
-}
-finally {
-    $env:PDFIUM_DYNAMIC_LIB_PATH = $inheritedOverride
-}
-
-$receipt = @{}
-# UTF-8 explicitly: the harness writes the resolved library path, and Windows
-# PowerShell otherwise reads the file in the console's ANSI codepage, which
-# mangles any non-ASCII character in the install path.
-foreach ($line in (Get-Content -LiteralPath $receiptPath -Encoding UTF8)) {
-    if ($line -match '^([a-z_0-9]+)=(.*)$') { $receipt[$Matches[1]] = $Matches[2] }
-}
-foreach ($field in @('pdfium', 'width', 'height', 'pixels', 'ink', 'pixels_sha256')) {
-    if (-not $receipt.ContainsKey($field)) { Fail "smoke receipt lacks $field" }
-}
-$expectedLibrary = (Join-Path $smokeDir 'pdfium.dll')
-if (-not [string]::Equals($receipt['pdfium'], $expectedLibrary, [StringComparison]::OrdinalIgnoreCase)) {
-    Fail "the smoke loaded $($receipt['pdfium']), not the packaged PDFium at $expectedLibrary"
-}
-if ([int]$receipt['width'] -le 0 -or [int]$receipt['height'] -le 0) { Fail 'smoke receipt has an empty page raster' }
-if ([long]$receipt['ink'] -le 0) { Fail 'the packaged PDFium rendered a blank page' }
+Invoke-PackageSmoke -InstallDir $installDir -EvidenceDir $EvidenceDir -SmokeProject $SmokeProject -CleanMachine:$CleanMachine
 
 'verified Windows x64 package' | Set-Content -LiteralPath (Join-Path $EvidenceDir 'result.txt')
 Write-Host "verify-windows-package: verified $zipPath"
