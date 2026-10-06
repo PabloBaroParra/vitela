@@ -1313,6 +1313,11 @@ Windows/C#). Paralelo con B9 y B10.
       la desarma. Verificado en emulador: guardado y re-renderizado, la firma queda con
       `/SMask`. Antes de guardar se ve solo el contorno, como todo stamp de sesión en Android.
       Pendiente aparte: el core escribe el stream de imagen sin compresión.)**
+      **(2026-10-06 — Windows: "Draw signature" en la página Fill & Sign. Pad con ratón/lápiz/
+      táctil → PNG transparente (rasterizado y codificado en el shell, sin tipos de UI, con
+      tests) → arma el mismo stamp de imagen; el siguiente clic lo coloca con `stamp_placement`.
+      "Remember on this PC" guarda `%LOCALAPPDATA%\Vitela\signature.png` (local, no roaming,
+      `.partial` + move). Sin verificar a mano el dibujo con ratón en la app en ejecución.)**
       **(2026-10-06 — Linux GTK, segundo shell con firma dibujada. "Draw signature…" en la
       sección Signing de la pestaña Fill & Sign abre un pad blanco modal (ratón o lápiz,
       `GestureDrag`); Use queda deshabilitado hasta que hay un trazo y Clear lo borra.

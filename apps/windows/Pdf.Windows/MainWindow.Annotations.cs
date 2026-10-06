@@ -107,6 +107,7 @@ public sealed partial class MainWindow
         // editing, exactly as arming content editing disarms the tools.
         SetContentEditMode(false);
         _armedAnnotation = kind;
+        _armedStampImage = null; // choosing a tool by hand replaces an armed drawn signature
         SyncAnnotationToolButtons();
         AnnotationStatus.Text = kind is null ? "Pointer mode." : $"{kind} armed. Drag on a page to place it.";
     }
@@ -118,6 +119,7 @@ public sealed partial class MainWindow
     /// </summary>
     private void SyncAnnotationToolButtons()
     {
+        if (_armedAnnotation != AnnotationKind.Stamp) _armedStampImage = null;
         HighlightButton.IsChecked = _armedAnnotation == AnnotationKind.Highlight;
         UnderlineButton.IsChecked = _armedAnnotation == AnnotationKind.Underline;
         StrikeoutButton.IsChecked = _armedAnnotation == AnnotationKind.Strikeout;
@@ -329,7 +331,9 @@ public sealed partial class MainWindow
         var rect = NormalizedRect(completed.Origin, completed.Current, tool);
         if (tool == AnnotationKind.Stamp)
         {
-            await PlaceImageStampAsync((uint)pageIndex, rect);
+            // A drawn signature is placed where the click landed; otherwise the reader picks a file.
+            if (_armedStampImage is { } signature) await PlaceArmedStampAsync((uint)pageIndex, completed.Origin, signature);
+            else await PlaceImageStampAsync((uint)pageIndex, rect);
             return;
         }
         if (tool == AnnotationKind.TextNote)
@@ -505,6 +509,7 @@ public sealed partial class MainWindow
         AnnotationColorButton.IsEnabled = restyleEnabled;
         UpdateFormToolbar();
         UpdateSigningControls();
+        UpdateDrawSignatureControls();
     }
 
     /// <summary>Mirrors the Linux shell's <c>supports_restyle</c>: only kinds carrying a color field can be restyled.</summary>

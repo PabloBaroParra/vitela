@@ -49,6 +49,9 @@
     <Compile Include="..\Pdf.Windows\Viewer\ViewportTilePlan.cs" Link="Viewer\ViewportTilePlan.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\StampPreviewCache.cs" Link="Viewer\StampPreviewCache.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ImageStampInput.cs" Link="Viewer\ImageStampInput.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\DrawnSignature.cs" Link="Viewer\DrawnSignature.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\SignaturePng.cs" Link="Viewer\SignaturePng.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\SignatureStore.cs" Link="Facade\SignatureStore.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\AnnotationSelection.cs" Link="Viewer\AnnotationSelection.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\InkPointerTrace.cs" Link="Viewer\InkPointerTrace.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\SearchSelection.cs" Link="Viewer\SearchSelection.cs" />

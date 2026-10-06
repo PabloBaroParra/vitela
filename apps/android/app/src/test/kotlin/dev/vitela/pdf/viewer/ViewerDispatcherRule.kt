@@ -33,5 +33,5 @@ class ViewerDispatcherRule : TestWatcher() {
 
     override fun finished(description: Description) = Dispatchers.resetMain()
 
-    fun viewModel(core: PdfCore?) = ViewerViewModel(core, compute = work, io = work)
+    fun viewModel(core: PdfCore?, signatures: SignatureStore = MemorySignatureStore()) = ViewerViewModel(core, compute = work, io = work, signatures = signatures)
 }

@@ -44,6 +44,7 @@ import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.SignActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.pastableImageUri
+import dev.vitela.pdf.viewer.SavedSignatureActions
 import dev.vitela.pdf.viewer.signaturePng
 import dev.vitela.pdf.viewer.ViewerViewModel
 import dev.vitela.pdf.viewer.ZoomActions
@@ -70,7 +71,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun VitelaApp(
     incoming: Uri?,
-    viewModel: ViewerViewModel = viewModel(factory = ViewerViewModelFactory(PdfCoreProvider.create())),
+    viewModel: ViewerViewModel = viewModel(factory = ViewerViewModelFactory(PdfCoreProvider.create(), LocalContext.current.filesDir)),
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -344,13 +345,19 @@ private fun VitelaApp(
         drawnSignature = remember(viewModel) {
             DrawnSignatureActions(
                 onOpen = viewModel::openSignaturePad,
-                onUse = { documentId, strokes, strokeWidth ->
+                onUse = { documentId, strokes, strokeWidth, remember ->
                     scope.launch {
                         val png = withContext(Dispatchers.Default) { runCatching { signaturePng(strokes, strokeWidth) }.getOrNull() }
-                        viewModel.useDrawnSignature(documentId, png)
+                        viewModel.useDrawnSignature(documentId, png, remember)
                     }
                 },
                 onCancel = viewModel::closeSignaturePad,
+                saved = SavedSignatureActions(
+                    onUse = viewModel::useSavedSignature,
+                    onDrawNew = viewModel::drawNewSignature,
+                    onDelete = viewModel::deleteSavedSignature,
+                    onCancel = viewModel::closeSignatureChoice,
+                ),
             )
         },
         organize = remember(viewModel) {

@@ -30,11 +30,14 @@ import kotlinx.coroutines.withContext
  *
  * [compute] runs the core's work and [io] the shell's file writes; the
  * defaults are the production ones, and tests pass their own scheduler.
+ * [signatures] keeps the drawn signature the user asked to be remembered;
+ * the default remembers nothing.
  */
 class ViewerViewModel(
     private val core: PdfCore?,
     compute: CoroutineDispatcher = Dispatchers.Default,
     io: CoroutineDispatcher = Dispatchers.IO,
+    signatures: SignatureStore = NoSignatureStore,
 ) : ViewModel() {
     private val session = ViewerSession({ viewModelScope }, ViewerState(status = availabilityMessage(core), canOpen = core != null), compute, io)
     private val _state = session.state
@@ -73,6 +76,12 @@ class ViewerViewModel(
     private val pageSplitting = PageSplitting(session)
     private val compressing = Compressing(session)
     private val protecting = Protecting(session, ::reopenProtected)
+    private val signatureDrawing = SignatureDrawing(session, signatures) { png ->
+        // One mode claims a page tap at a time, as with any other tool.
+        contentEditing.close()
+        formAuthoring.disarm()
+        annotations.selectImageStamp(png, SIGNATURE_STAMP_PROMPT, SIGNATURE_PLACED)
+    }
     private val signing = Signing(session, { bytes, password -> openSigningCertificate(bytes, password) }, ::reopenSigned)
     private val saving = DocumentSaving(session)
 
@@ -498,32 +507,14 @@ class ViewerViewModel(
         _state.value = _state.value.copy(status = reason)
     }
 
-    /** **Draw signature** (T-088): the pad only opens where a stamp could be placed. */
-    fun openSignaturePad() {
-        if (_state.value.annotationEditingAllowed) _state.value = _state.value.copy(signaturePadOpen = true)
-    }
-    fun closeSignaturePad() {
-        _state.value = _state.value.copy(signaturePadOpen = false)
-    }
-
-    /**
-     * Arms the image stamp with the drawn signature's [png], the way Paste
-     * does. [documentId] is the document the pad was drawn over: the PNG is
-     * rendered off the main thread, and a document opened meanwhile must not
-     * receive it — nor may a pad the user cancelled while it rendered.
-     */
-    fun useDrawnSignature(documentId: Long, png: ByteArray?) {
-        if (documentId != _state.value.documentId || !_state.value.signaturePadOpen) return
-        _state.value = _state.value.copy(signaturePadOpen = false)
-        if (png == null) {
-            _state.value = _state.value.copy(status = SIGNATURE_UNRENDERABLE)
-            return
-        }
-        // One mode claims a page tap at a time, as with any other tool.
-        contentEditing.close()
-        formAuthoring.disarm()
-        annotations.selectImageStamp(png, SIGNATURE_STAMP_PROMPT, SIGNATURE_PLACED)
-    }
+    /** **Draw signature** (T-088): the remembered signature, or the pad — only where a stamp could be placed. */
+    fun openSignaturePad() = signatureDrawing.open()
+    fun closeSignaturePad() = signatureDrawing.closePad()
+    fun useDrawnSignature(documentId: Long, png: ByteArray?, remember: Boolean = false) = signatureDrawing.useDrawn(documentId, png, remember)
+    fun useSavedSignature(documentId: Long) = signatureDrawing.useSaved(documentId)
+    fun drawNewSignature() = signatureDrawing.drawNew()
+    fun deleteSavedSignature() = signatureDrawing.deleteSaved()
+    fun closeSignatureChoice() = signatureDrawing.closeChoice()
     fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) = annotations.moveSelected(origin, current)
     fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) = annotations.resizeSelected(corner, point)
     fun growSelected() = annotations.growSelected()

@@ -115,6 +115,8 @@ data class ViewerState(
     val contentEdit: ContentEditState? = null,
     /** True while the Draw signature pad is open. */
     val signaturePadOpen: Boolean = false,
+    /** The signature remembered on this phone, offered before the pad; null while that offer is closed. */
+    val signatureChoice: ByteArray? = null,
     /** The Note prompt, holding the rectangle the user chose, or null while it is closed. */
     val notePlacement: NotePlacement? = null,
     /** The Read note dialog, holding the selected note's text as the core gave it, or null while it is closed. */

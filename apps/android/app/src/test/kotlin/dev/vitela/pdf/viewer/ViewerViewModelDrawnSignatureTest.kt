@@ -29,6 +29,7 @@ class ViewerViewModelDrawnSignatureTest {
     fun usingTheDrawingClosesThePadAndArmsTheStamp() = runTest {
         val viewModel = opened()
         viewModel.openSignaturePad()
+        advanceUntilIdle()
         assertTrue(viewModel.state.value.signaturePadOpen)
 
         viewModel.useDrawnSignature(viewModel.state.value.documentId, byteArrayOf(1, 2, 3))
@@ -45,6 +46,7 @@ class ViewerViewModelDrawnSignatureTest {
         advanceUntilIdle()
         viewModel.armFormField(FormFieldTap.Place(NewFormField.Text))
         viewModel.openSignaturePad()
+        advanceUntilIdle()
 
         viewModel.useDrawnSignature(viewModel.state.value.documentId, byteArrayOf(1))
 
@@ -56,6 +58,7 @@ class ViewerViewModelDrawnSignatureTest {
     fun cancellingArmsNothing() = runTest {
         val viewModel = opened()
         viewModel.openSignaturePad()
+        advanceUntilIdle()
         viewModel.closeSignaturePad()
 
         assertFalse(viewModel.state.value.signaturePadOpen)
@@ -66,6 +69,7 @@ class ViewerViewModelDrawnSignatureTest {
     fun aSignatureRenderedAfterThePadWasCancelledArmsNothing() = runTest {
         val viewModel = opened()
         viewModel.openSignaturePad()
+        advanceUntilIdle()
         viewModel.closeSignaturePad()
 
         viewModel.useDrawnSignature(viewModel.state.value.documentId, byteArrayOf(1))
@@ -77,6 +81,7 @@ class ViewerViewModelDrawnSignatureTest {
     fun aSignatureThatCouldNotBeRenderedArmsNothing() = runTest {
         val viewModel = opened()
         viewModel.openSignaturePad()
+        advanceUntilIdle()
         viewModel.useDrawnSignature(viewModel.state.value.documentId, null)
 
         assertFalse(viewModel.state.value.signaturePadOpen)
@@ -89,6 +94,7 @@ class ViewerViewModelDrawnSignatureTest {
         val viewModel = opened()
         val drawnFor = viewModel.state.value.documentId
         viewModel.openSignaturePad()
+        advanceUntilIdle()
         viewModel.open("b.pdf", byteArrayOf(2))
         viewModel.state.first { it.title == "b.pdf" && !it.isLoading }
         advanceUntilIdle()
@@ -105,6 +111,8 @@ class ViewerViewModelDrawnSignatureTest {
         assertFalse(viewModel.state.value.annotationEditingAllowed)
 
         viewModel.openSignaturePad()
+
+        advanceUntilIdle()
 
         assertFalse(viewModel.state.value.signaturePadOpen)
     }

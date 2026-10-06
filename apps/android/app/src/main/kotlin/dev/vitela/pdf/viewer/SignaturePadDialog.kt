@@ -6,6 +6,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Checkbox
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
@@ -15,7 +17,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -30,8 +36,9 @@ import androidx.compose.ui.unit.dp
 /** What the Sign tab and the pad hand back; the activity turns strokes into a PNG off the main thread. */
 internal data class DrawnSignatureActions(
     val onOpen: () -> Unit,
-    val onUse: (documentId: Long, strokes: List<List<PadPoint>>, strokeWidth: Float) -> Unit,
+    val onUse: (documentId: Long, strokes: List<List<PadPoint>>, strokeWidth: Float, remember: Boolean) -> Unit,
     val onCancel: () -> Unit,
+    val saved: SavedSignatureActions,
 )
 
 /** Pen width on the pad; the PNG keeps it, so the signature looks as drawn. */
@@ -42,11 +49,14 @@ private val SIGNATURE_STROKE = 3.dp
  * stays disabled until a line exists and hands the strokes, with the pen
  * width in the same pad pixels, to [onUse]. [documentId] travels with the
  * answer so a pad left over from a replaced document cannot arm on the new one.
+ * **Remember** — ticked by default — keeps the signature on this phone for the
+ * next time; untick it to sign once.
  *
  * The pad is white whatever the theme — ink is always black, as on paper.
  */
 @Composable
-internal fun SignaturePadDialog(documentId: Long, onUse: (Long, List<List<PadPoint>>, Float) -> Unit, onCancel: () -> Unit) {
+internal fun SignaturePadDialog(documentId: Long, onUse: (Long, List<List<PadPoint>>, Float, Boolean) -> Unit, onCancel: () -> Unit) {
+    var remember by remember { mutableStateOf(true) }
     val strokes = remember { mutableStateListOf<List<PadPoint>>() }
     val current = remember { mutableStateListOf<PadPoint>() }
     val strokeWidth = with(LocalDensity.current) { SIGNATURE_STROKE.toPx() }
@@ -80,10 +90,14 @@ internal fun SignaturePadDialog(documentId: Long, onUse: (Long, List<List<PadPoi
                         drawPath(path, Color.Black, style = pen)
                     }
                 }
+                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = remember, onCheckedChange = { remember = it })
+                    Text("Remember on this phone")
+                }
             }
         },
         confirmButton = {
-            Button(onClick = { onUse(documentId, strokes.toList(), strokeWidth) }, enabled = hasSignatureInk(strokes)) { Text("Use") }
+            Button(onClick = { onUse(documentId, strokes.toList(), strokeWidth, remember) }, enabled = hasSignatureInk(strokes)) { Text("Use") }
         },
         dismissButton = {
             Row {
