@@ -136,6 +136,15 @@ jobs:
             -Publisher $env:STORE_PUBLISHER `
             -PublisherDisplayName $env:STORE_PUBLISHER_DISPLAY_NAME
 
+      # Nothing is submitted until the package has run: its native files render
+      # the sample with the Visual C++ runtime hidden, and a test-signed copy is
+      # installed and launched. 0.1.101.0 passed every static check and still
+      # failed certification on "Open PDF". The .msix sent below stays unsigned;
+      # only a copy is signed for the test.
+      - name: Run the MSIX before submitting it (clean-machine render, install, launch)
+        shell: powershell
+        run: ./scripts/verify-windows-store-package.ps1 -CleanMachine -InstallAndLaunch
+
       - name: Set up the Microsoft Store Developer CLI
         uses: microsoft/microsoft-store-apppublisher@cc9910a8d59f2eb55cbb83df0a3800cf3b5300e0 # v1.4
       - name: Sign in to Partner Center
