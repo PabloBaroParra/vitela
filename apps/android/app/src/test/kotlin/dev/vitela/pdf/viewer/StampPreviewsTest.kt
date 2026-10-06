@@ -65,6 +65,35 @@ class StampPreviewsTest {
     }
 
     @Test
+    fun placingTheSignatureRetiresItsPrompt() = runTest {
+        val viewModel = opened()
+
+        place(viewModel, byteArrayOf(1))
+
+        assertEquals(SIGNATURE_PLACED, viewModel.state.value.status)
+    }
+
+    @Test
+    fun placingAPastedImageSaysSoInItsOwnWords() = runTest {
+        val viewModel = opened()
+        viewModel.pasteImageStamp(byteArrayOf(1))
+
+        viewModel.placeAnnotation(0, AnnotationPoint(20.0, 100.0), AnnotationPoint(20.0, 100.0))
+        advanceUntilIdle()
+
+        assertEquals(IMAGE_STAMP_PLACED, viewModel.state.value.status)
+    }
+
+    @Test
+    fun aRefusedStampReportsTheRefusalNotThePlacement() = runTest {
+        val viewModel = opened(StampingDocument(refuse = true))
+
+        place(viewModel, byteArrayOf(1))
+
+        assertEquals("Refused.", viewModel.state.value.status)
+    }
+
+    @Test
     fun eachStampKeepsItsOwnPicture() = runTest {
         val viewModel = opened()
 

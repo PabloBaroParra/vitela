@@ -11,6 +11,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+internal const val IMAGE_STAMP_PLACED = "Image stamp placed. Save to keep it."
+
 /**
  * The annotation toolbar and its gestures, plus undo/redo of the shared edit
  * log. A text selection is an input here: the markup tools turn it into
@@ -28,6 +30,8 @@ internal class AnnotationEditing(
 ) {
     private val state = session.state
     private var stampBytes: ByteArray? = null
+    /** What the status line says once the armed stamp lands — the prompt that armed it is spent by then. */
+    private var stampPlaced = IMAGE_STAMP_PLACED
 
     fun setTool(tool: AnnotationTool) {
         if (!state.value.annotationEditingAllowed) return
@@ -95,7 +99,7 @@ internal class AnnotationEditing(
                 state.value = state.value.copy(status = "Choose an image before placing a stamp.")
                 return
             }
-            insertImageStamp(pageIndex, image, origin)
+            insertImageStamp(pageIndex, image, origin, stampPlaced)
         } else if (tool == AnnotationTool.TextNote) {
             // Nothing reaches the core yet: the prompt asks for the text first.
             val rect = requireNotNull(placementAnnotation(tool, pageIndex, origin, current).rect)
@@ -140,9 +144,10 @@ internal class AnnotationEditing(
         state.value = state.value.copy(notePlacement = null, status = NOTE_PLACEMENT_CANCELED)
     }
 
-    fun selectImageStamp(bytes: ByteArray, prompt: String = "Tap a page to place the image stamp.") {
+    fun selectImageStamp(bytes: ByteArray, prompt: String = "Tap a page to place the image stamp.", placed: String = IMAGE_STAMP_PLACED) {
         if (!state.value.annotationEditingAllowed) return
         stampBytes = bytes
+        stampPlaced = placed
         state.value = state.value.copy(activeAnnotationTool = AnnotationTool.Stamp, status = prompt)
     }
 
@@ -335,7 +340,7 @@ internal class AnnotationEditing(
         }
     }
 
-    private fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, anchor: AnnotationPoint) {
+    private fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, anchor: AnnotationPoint, placed: String) {
         val openDocument = session.document ?: return
         session.scope.launch {
             session.documentLane.withLock {
@@ -344,7 +349,7 @@ internal class AnnotationEditing(
                     is PdfCoreResult.Success -> when (val result = withContext(session.compute) { openDocument.insertImageStamp(pageIndex, imageBytes, placement.value) }) {
                         is PdfCoreResult.Success -> {
                             val before = state.value.annotations
-                            state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
+                            state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1, status = placed)
                             refresh(openDocument)
                             // The core names the stamp; the picture is only the shell's to keep.
                             insertedStampId(before, state.value.annotations)?.let { id ->
