@@ -1786,10 +1786,24 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
 /// replacement. The original snapshot is retained for validation and save.
 /// Repeated moves retain their original snapshot and only change destination.
 /// Synthetic insertion targets amend the insertion itself when retyping or moving.
+/// An image moved again folds into its queued move the same way: what the
+/// caller holds is the image already at its new place, which the untouched
+/// bytes a save replays against do not contain.
 fn pending_text_amendment_index(
     document: &Document,
     command: &Command,
 ) -> Result<Option<usize>, FfiError> {
+    if let Command::MoveImage { item, to } = command {
+        if !to.x.is_finite() || !to.y.is_finite() {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "Image coordinates must be finite.".to_string(),
+            });
+        }
+        return Ok(document.pending_edits.entries().iter().position(|queued| {
+            matches!(queued, Command::MoveImage { item: target, .. }
+                if target.id == item.id && target.page == item.page)
+        }));
+    }
     if let Command::MoveTextRun { item, to } = command {
         if !to.x.is_finite() || !to.y.is_finite() {
             return Err(FfiError::UnsupportedOperation {
@@ -1883,7 +1897,7 @@ fn pending_insertion_amendment_index(
 ///
 /// Only called for a pair [`pending_text_amendment_index`] matched: retyping
 /// an insertion, replacing/removing a run with a queued replacement, or moving
-/// a run with a queued move.
+/// a run or an image with a queued move.
 fn with_queued_item(queued: &Command, command: Command) -> Command {
     if let (Command::InsertTextRun(run), Command::MoveTextRun { to, .. }) = (queued, &command) {
         return Command::InsertTextRun(TextRun {
@@ -1898,6 +1912,12 @@ fn with_queued_item(queued: &Command, command: Command) -> Command {
     if let (Command::MoveTextRun { item, .. }, Command::MoveTextRun { to, .. }) = (queued, &command)
     {
         return Command::MoveTextRun {
+            item: item.clone(),
+            to: *to,
+        };
+    }
+    if let (Command::MoveImage { item, .. }, Command::MoveImage { to, .. }) = (queued, &command) {
+        return Command::MoveImage {
             item: item.clone(),
             to: *to,
         };
