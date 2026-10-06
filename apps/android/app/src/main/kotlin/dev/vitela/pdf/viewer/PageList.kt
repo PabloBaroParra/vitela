@@ -95,6 +95,7 @@ internal fun PageList(
     val currentOnPinch by rememberUpdatedState(onPinch)
     // Where the list stood when the fingers lifted, to scroll back under them once the new zoom is laid out.
     var pinchAnchor by remember { mutableStateOf<PinchAnchor?>(null) }
+    val stampBitmaps = rememberStampBitmaps(state.stampImages)
 
     BoxWithConstraints(modifier = modifier) {
         val viewportWidthPx = with(LocalDensity.current) { maxWidth.roundToPx() }
@@ -208,6 +209,7 @@ internal fun PageList(
                                     bridge = state.bridgePages[index],
                                     size = state.pageSizes.getOrNull(index),
                                     state = state,
+                                    stampBitmaps = stampBitmaps,
                                     onAnnotationGesture = onAnnotationGesture,
                                     textSelection = textSelection,
                                     contentEdit = contentEdit,
@@ -230,6 +232,7 @@ private fun PageSlot(
     bridge: ImageBitmap?,
     size: PageSize?,
     state: ViewerState,
+    stampBitmaps: Map<Long, ImageBitmap>,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
     contentEdit: ContentEditActions,
@@ -435,7 +438,7 @@ private fun PageSlot(
                 } else null
                 state.annotations.filter { it.pageIndex == pageIndex }.forEach { annotation ->
                     val shown = if (annotation.id == draggedAnnotation?.id) draggedAnnotation else annotation
-                    drawAnnotationShape(shown, placement, selected = annotation.id == state.selectedAnnotationId)
+                    drawAnnotationShape(shown, placement, selected = annotation.id == state.selectedAnnotationId, stampBitmaps[annotation.id])
                 }
                 // Live preview of the annotation being placed: without this, a
                 // highlight/underline/strikeout/ink stroke was invisible until
@@ -496,6 +499,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationShape
     annotation: dev.vitela.pdf.core.Annotation,
     placement: PagePlacement,
     selected: Boolean,
+    stamp: ImageBitmap? = null,
 ) {
     val color = annotation.color?.let { Color(it.red, it.green, it.blue) } ?: Color(0xFF3366CC)
     annotation.rect?.let { rect ->
@@ -506,6 +510,11 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationShape
             dev.vitela.pdf.core.AnnotationKind.Highlight -> drawRect(color.copy(alpha = if (selected) .65f else .4f), placed.topLeft, placed.size)
             dev.vitela.pdf.core.AnnotationKind.Underline -> drawLine(color, placement.offset(rect.x, rect.y), placement.offset(right, rect.y), 2f)
             dev.vitela.pdf.core.AnnotationKind.Strikeout -> drawLine(color, placement.offset(rect.x, rect.y + rect.height / 2), placement.offset(right, rect.y + rect.height / 2), 2f)
+            dev.vitela.pdf.core.AnnotationKind.Stamp -> {
+                stamp?.let { drawStampImage(it, rect, placement) }
+                // The picture alone is the stamp; the outline only marks it while selected or still undecoded.
+                if (stamp == null || selected) drawRect(color, placed.topLeft, placed.size, style = Stroke(if (selected) 3f else 2f))
+            }
             else -> drawRect(color, placed.topLeft, placed.size, style = Stroke(if (selected) 3f else 2f))
         }
         if (selected && annotation.supportsResize) {

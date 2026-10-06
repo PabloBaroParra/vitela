@@ -343,8 +343,13 @@ internal class AnnotationEditing(
                 when (val placement = withContext(session.compute) { openDocument.stampPlacement(imageBytes, anchor) }) {
                     is PdfCoreResult.Success -> when (val result = withContext(session.compute) { openDocument.insertImageStamp(pageIndex, imageBytes, placement.value) }) {
                         is PdfCoreResult.Success -> {
+                            val before = state.value.annotations
                             state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
                             refresh(openDocument)
+                            // The core names the stamp; the picture is only the shell's to keep.
+                            insertedStampId(before, state.value.annotations)?.let { id ->
+                                state.value = state.value.copy(stampImages = state.value.stampImages + (id to imageBytes))
+                            }
                         }
                         is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                     }
