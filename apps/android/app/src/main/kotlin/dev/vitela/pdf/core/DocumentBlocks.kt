@@ -8,7 +8,7 @@ sealed interface BlockSource {
     /** Pages that were never in a PDF: inserted blank pages. */
     data object Blank : BlockSource
 
-    /** A PDF added from Organize; [id] is its [ImportReport.sourceId]. */
+    /** A PDF added from Organize; [id] is its entry in [BatchImportReport.sourceIds]. */
     data class Imported(val id: Long) : BlockSource
 }
 

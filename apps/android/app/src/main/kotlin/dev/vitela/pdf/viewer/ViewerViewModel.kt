@@ -66,7 +66,7 @@ class ViewerViewModel(
     private val contentEditing: ContentEditing = ContentEditing(session, annotations, pageLayout, selection)
     private val formAuthoring: FormAuthoring = FormAuthoring(session, annotations, pageLayout, formFilling, selection)
     private val organizing = PageOrganizing(session, annotations, pageLayout, selection)
-    private val importing = PageImporting(session, annotations, pageLayout)
+    private val importing = PageImporting(core, session, annotations, pageLayout)
     private val metadata = MetadataEditing(session, annotations)
     private val imageExporting = ImageExporting(session)
     private val pageExtracting = PageExtracting(session)
@@ -127,6 +127,7 @@ class ViewerViewModel(
                 reader.retireRenders()
                 reader.reset()
                 selection.closeDrag()
+                importing.abandon()
                 // Detach before yielding: a final viewport callback must not
                 // schedule a new native render while this handle is closing.
                 session.document = null
@@ -172,6 +173,7 @@ class ViewerViewModel(
     private suspend fun install(displayName: String, document: PdfDocument, saveTarget: String?, startTool: DocumentStartTool? = null) {
         sourceDiscardConfirmed = false
         sourceStartTool = null
+        importing.abandon()
         session.document?.close()
         session.document = document
         selection.closeDrag()
@@ -396,7 +398,10 @@ class ViewerViewModel(
 
     // Organize pages
     fun openOrganize() = organizing.open()
-    fun closeOrganize() = organizing.close()
+    fun closeOrganize() {
+        importing.abandon()
+        organizing.close()
+    }
     /** Moves the page at [index] one step toward the front ([delta] -1) or back (+1). */
     fun organizeMove(index: Int, delta: Int) = organizing.move(index, delta)
     /** Turns the page at [index] a quarter: [delta] is 90 or -90. */
@@ -417,6 +422,7 @@ class ViewerViewModel(
     fun importPdfs(sources: List<ImportSource>) = importing.start(sources)
     fun retryImportPassword(password: String) = importing.retryWithPassword(password)
     fun cancelImportPassword() = importing.cancelPassword()
+    fun acceptImportWarnings() = importing.acceptWarnings()
     fun dismissImportWarnings() = importing.dismissWarnings()
 
     // Form fields
@@ -520,6 +526,7 @@ class ViewerViewModel(
 
     override fun onCleared() {
         selection.closeDrag()
+        importing.abandon()
         session.document?.close()
         session.document = null
         super.onCleared()

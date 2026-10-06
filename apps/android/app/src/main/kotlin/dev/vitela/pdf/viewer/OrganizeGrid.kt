@@ -50,6 +50,7 @@ internal class OrganizeActions(
     val onAddPdfs: () -> Unit,
     val onImportPassword: (String) -> Unit,
     val onImportPasswordCancel: () -> Unit,
+    val onImportWarningsAccept: () -> Unit,
     val onImportWarningsDismiss: () -> Unit,
     val onShow: (OrganizeView) -> Unit,
     val onMoveBlock: (block: DocumentBlock, delta: Int) -> Unit,
