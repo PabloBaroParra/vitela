@@ -507,6 +507,12 @@ class ViewerViewModel(
         _state.value = _state.value.copy(status = reason)
     }
 
+    /** A file dropped from another app (T-092): an image on a page stamps there. */
+    fun dropImageStamp(pageIndex: Int, point: AnnotationPoint, bytes: ByteArray) = annotations.dropImageStamp(pageIndex, point, bytes)
+    fun refuseDrop(reason: String) {
+        _state.value = _state.value.copy(status = reason)
+    }
+
     /** **Draw signature** (T-088): the remembered signature, or the pad — only where a stamp could be placed. */
     fun openSignaturePad() = signatureDrawing.open()
     fun closeSignaturePad() = signatureDrawing.closePad()

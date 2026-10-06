@@ -151,6 +151,19 @@ internal class AnnotationEditing(
         state.value = state.value.copy(activeAnnotationTool = AnnotationTool.Stamp, status = prompt)
     }
 
+    /**
+     * An image dropped on a page (T-092) lands where it was let go: [point] is
+     * its top-left corner, sized by the core as any stamp. No tool is armed or
+     * disarmed — the drop is a whole gesture of its own, not a second tap.
+     */
+    fun dropImageStamp(pageIndex: Int, point: AnnotationPoint, bytes: ByteArray) {
+        if (!state.value.annotationEditingAllowed) {
+            state.value = state.value.copy(status = DROP_NOT_ANNOTATABLE)
+            return
+        }
+        insertImageStamp(pageIndex, bytes, point, IMAGE_DROPPED_PLACED)
+    }
+
     fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) {
         val selected = selectedAnnotation() ?: return
         if (origin == current) return
