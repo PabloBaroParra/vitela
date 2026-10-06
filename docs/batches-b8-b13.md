@@ -1354,8 +1354,18 @@ Windows/C#). Paralelo con B9 y B10.
       URL copiada no dispara ninguna descarga. A diferencia de Linux/Windows (Ctrl+V coloca en
       el centro de la página visible) el paste arma el stamp y el siguiente tap lo coloca,
       igual que el botón Stamp — touch-first. Sin verificar en dispositivo)**
-- [ ] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
+- [x] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
       arrastre en split-screen. [ui-android, ShortcutsDnD]
+      **(2026-10-06 — share-sheet y "Open with" hechos en PR #347; el selector SAF ya existía)**
+      **(2026-10-06 — hecho: arrastre desde otra app (split-screen, ventanas libres) con
+      `dragAndDropTarget` de Compose. Mismas reglas que Linux/Windows: un PDF se abre por el
+      mismo guard de cambios sin guardar que el picker; una imagen soltada sobre una página
+      queda como stamp con su esquina superior izquierda en el punto soltado (`stamp_placement`,
+      sin armar herramienta); fuera de una página, la imagen se rechaza con un mensaje. Solo
+      URIs `content:`, como paste y "Open with"; se pide `requestDragAndDropPermissions` en el
+      drop, se lee una vez y se suelta el permiso — nunca es persistible, así que Save sobre un
+      PDF soltado cae a Save a copy. Sin verificar en dispositivo: `adb input` no genera un
+      drag entre apps)**
 - [x] T-093 .apk firmado + android.yml CI completo (bindings Kotlin + cross-compile por ABI +
       Gradle + firma). [ui-android, infra]
       **(2026-07-26 — parcial: android.yml existe y corre `:app:testDebugUnitTest` (tests JVM

@@ -412,5 +412,6 @@ private fun VitelaApp(
                 onDismissInserter = viewModel::dismissTextInserter,
             )
         },
+        fileDrop = rememberFileDropActions(viewModel, scope),
     )
 }

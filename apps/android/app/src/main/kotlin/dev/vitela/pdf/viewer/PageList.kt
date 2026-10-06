@@ -45,6 +45,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -82,6 +85,7 @@ internal fun PageList(
     contentEdit: ContentEditActions,
     onFormFieldTap: (Int, AnnotationPoint) -> Unit,
     onPinch: (zoomFactor: Double) -> Unit,
+    onFileDrop: (Int, AnnotationPoint, DragAndDropEvent) -> Boolean,
     modifier: Modifier = Modifier,
     columns: Int = 1,
 ) {
@@ -214,6 +218,7 @@ internal fun PageList(
                                     textSelection = textSelection,
                                     contentEdit = contentEdit,
                                     onFormFieldTap = onFormFieldTap,
+                                    onFileDrop = onFileDrop,
                                 )
                             }
                         }
@@ -237,12 +242,14 @@ private fun PageSlot(
     textSelection: TextSelectionGestures,
     contentEdit: ContentEditActions,
     onFormFieldTap: (Int, AnnotationPoint) -> Unit,
+    onFileDrop: (Int, AnnotationPoint, DragAndDropEvent) -> Boolean,
 ) {
     val haptics = LocalHapticFeedback.current
     var origin by remember { mutableStateOf<AnnotationPoint?>(null) }
     var current by remember { mutableStateOf<AnnotationPoint?>(null) }
     var stroke by remember { mutableStateOf(emptyList<AnnotationPoint>()) }
     var pageWidthPx by remember { mutableStateOf(0) }
+    var pageCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var moveDrag by remember { mutableStateOf<MoveDrag?>(null) }
         val density = LocalDensity.current.density.toDouble()
         val pageIndex = pageNumber - 1
@@ -290,6 +297,13 @@ private fun PageSlot(
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { pageWidthPx = it.width }
+                    .onGloballyPositioned { pageCoordinates = it }
+                    // A file dropped on this page: an image stamps at the drop point, through the same turn as a tap.
+                    .fileDropTarget { event ->
+                        val coordinates = pageCoordinates ?: return@fileDropTarget false
+                        val at = dropPosition(event, coordinates)
+                        onFileDrop(pageIndex, point(at), event)
+                    }
                     .pointerInput(pageNumber, placement, state.activeAnnotationTool, state.selectedAnnotationId, contentMode, formMode) {
                         detectTapGestures(
                             // In pointer mode a long-press belongs to text

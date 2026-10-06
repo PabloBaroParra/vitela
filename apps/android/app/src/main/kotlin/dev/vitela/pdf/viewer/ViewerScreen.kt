@@ -119,166 +119,171 @@ internal fun ViewerScreen(
     organize: OrganizeActions,
     formFields: FormFieldActions,
     contentEdit: ContentEditActions,
+    fileDrop: FileDropActions,
 ) {
-    if (showsHome(state)) {
-        HomeScreen(canOpen = state.canOpen && !state.isLoading && !state.needsPassword, isLoading = state.isLoading, status = state.status, onOpen = onOpen, onOpenTool = onOpenTool, onOpenSample = onOpenSample)
-    } else {
-        var mode by rememberSaveable(state.documentId) { mutableStateOf(initialReaderMode(state.startTool)) }
-        var searchOpen by rememberSaveable { mutableStateOf(false) }
-        var pageListOpen by remember { mutableStateOf(false) }
-        var spread by rememberSaveable(state.documentId) { mutableStateOf(true) }
-        val switchMode: (ReaderMode) -> Unit = { to ->
-            val exit = modeExit(mode, to, state)
-            if (exit.disarmTool) onAnnotationTool(AnnotationTool.Pointer)
-            if (exit.closeContentEdit) contentEdit.onToggle()
-            if (exit.closeFormFields) formFields.onToggle()
-            mode = to
-        }
-        val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
-        BackHandler {
-            if (documentCloseEnabled(state)) when {
-                searchOpen -> searchOpen = false
-                state.organize != null -> organize.onToggle()
-                state.contentEdit != null -> contentEdit.onToggle()
-                state.formFields != null -> formFields.onToggle()
-                else -> onClose()
+    // Files dragged in from another app: whatever missed every page lands here, Home included.
+    Box(Modifier.fillMaxSize().fileDropTarget(fileDrop.onScreen)) {
+        if (showsHome(state)) {
+            HomeScreen(canOpen = state.canOpen && !state.isLoading && !state.needsPassword, isLoading = state.isLoading, status = state.status, onOpen = onOpen, onOpenTool = onOpenTool, onOpenSample = onOpenSample)
+        } else {
+            var mode by rememberSaveable(state.documentId) { mutableStateOf(initialReaderMode(state.startTool)) }
+            var searchOpen by rememberSaveable { mutableStateOf(false) }
+            var pageListOpen by remember { mutableStateOf(false) }
+            var spread by rememberSaveable(state.documentId) { mutableStateOf(true) }
+            val switchMode: (ReaderMode) -> Unit = { to ->
+                val exit = modeExit(mode, to, state)
+                if (exit.disarmTool) onAnnotationTool(AnnotationTool.Pointer)
+                if (exit.closeContentEdit) contentEdit.onToggle()
+                if (exit.closeFormFields) formFields.onToggle()
+                mode = to
             }
-        }
-        val controls = annotationControls(state.annotationEditingAllowed, selected, state.canUndoAnnotations, state.canRedoAnnotations)
-            .let { if (state.organize != null) it.whileOrganizing() else it }
-        BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            val layout = readerLayout(maxWidth.value)
-            val columns = if (layout.canShowSpread && spread) 2 else 1
-            val tools: @Composable () -> Unit = {
-                when (mode) {
-                    ReaderMode.Read -> QuickTools(state, controls, QuickToolActions(
-                        onEditText = {
-                            switchMode(ReaderMode.Edit)
-                            if (state.contentEdit == null) contentEdit.onToggle()
-                        },
-                        onHighlight = {
-                            switchMode(ReaderMode.Edit)
-                            onAnnotationTool(AnnotationTool.Highlight)
-                        },
-                        onSign = {
-                            switchMode(ReaderMode.Sign)
-                            sign.onOpen()
-                        },
-                        onOrganize = organize.onToggle,
-                        onCompress = onOpenCompress,
-                    ), sidePanel = layout.sideTools)
-                    ReaderMode.Edit -> EditTools(state, controls, EditToolActions(
-                        onTool = onAnnotationTool, onChooseStamp = onChooseStamp, onPasteStamp = onPasteStamp,
-                        onUndo = onAnnotationUndo, onRedo = onAnnotationRedo, onOrganize = organize.onToggle, contentEdit = contentEdit,
-                    ), sidePanel = layout.sideTools)
-                    ReaderMode.Sign -> SignTools(state, controls, onFormFields = formFields.onToggle, onDrawSignature = drawnSignature.onOpen, onSign = sign.onOpen, sidePanel = layout.sideTools)
+            val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
+            BackHandler {
+                if (documentCloseEnabled(state)) when {
+                    searchOpen -> searchOpen = false
+                    state.organize != null -> organize.onToggle()
+                    state.contentEdit != null -> contentEdit.onToggle()
+                    state.formFields != null -> formFields.onToggle()
+                    else -> onClose()
                 }
             }
-            Column(Modifier.fillMaxSize()) {
-                ReaderTopBar(
-                    state = state,
-                    searchOpen = searchOpen,
-                    onSearchToggle = { searchOpen = !searchOpen },
-                    onSave = if (state.saveTarget != null) onSave else onSaveCopy,
-                    menu = DocumentMenuActions(
-                        onOpen = onOpen, onSave = onSave, onSaveCopy = onSaveCopy, onPrint = onPrint, onProperties = onOpenMetadata,
-                        onExportImages = onOpenImageExport, onExtractPages = onOpenPageExtract, onSplit = onOpenPageSplit,
-                        onCompress = onOpenCompress, onProtect = onOpenProtect, onAnnotationStep = onAnnotationStep,
+            val controls = annotationControls(state.annotationEditingAllowed, selected, state.canUndoAnnotations, state.canRedoAnnotations)
+                .let { if (state.organize != null) it.whileOrganizing() else it }
+            BoxWithConstraints(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+                val layout = readerLayout(maxWidth.value)
+                val columns = if (layout.canShowSpread && spread) 2 else 1
+                val tools: @Composable () -> Unit = {
+                    when (mode) {
+                        ReaderMode.Read -> QuickTools(state, controls, QuickToolActions(
+                            onEditText = {
+                                switchMode(ReaderMode.Edit)
+                                if (state.contentEdit == null) contentEdit.onToggle()
+                            },
+                            onHighlight = {
+                                switchMode(ReaderMode.Edit)
+                                onAnnotationTool(AnnotationTool.Highlight)
+                            },
+                            onSign = {
+                                switchMode(ReaderMode.Sign)
+                                sign.onOpen()
+                            },
+                            onOrganize = organize.onToggle,
+                            onCompress = onOpenCompress,
+                        ), sidePanel = layout.sideTools)
+                        ReaderMode.Edit -> EditTools(state, controls, EditToolActions(
+                            onTool = onAnnotationTool, onChooseStamp = onChooseStamp, onPasteStamp = onPasteStamp,
+                            onUndo = onAnnotationUndo, onRedo = onAnnotationRedo, onOrganize = organize.onToggle, contentEdit = contentEdit,
+                        ), sidePanel = layout.sideTools)
+                        ReaderMode.Sign -> SignTools(state, controls, onFormFields = formFields.onToggle, onDrawSignature = drawnSignature.onOpen, onSign = sign.onOpen, sidePanel = layout.sideTools)
+                    }
+                }
+                Column(Modifier.fillMaxSize()) {
+                    ReaderTopBar(
+                        state = state,
+                        searchOpen = searchOpen,
+                        onSearchToggle = { searchOpen = !searchOpen },
+                        onSave = if (state.saveTarget != null) onSave else onSaveCopy,
+                        menu = DocumentMenuActions(
+                            onOpen = onOpen, onSave = onSave, onSaveCopy = onSaveCopy, onPrint = onPrint, onProperties = onOpenMetadata,
+                            onExportImages = onOpenImageExport, onExtractPages = onOpenPageExtract, onSplit = onOpenPageSplit,
+                            onCompress = onOpenCompress, onProtect = onOpenProtect, onAnnotationStep = onAnnotationStep,
+                            onClose = onClose,
+                        ),
+                        onOrganizeDone = organize.onToggle,
                         onClose = onClose,
-                    ),
-                    onOrganizeDone = organize.onToggle,
-                    onClose = onClose,
-                )
-                if (state.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Row(Modifier.fillMaxWidth().weight(1f).then(if (layout.sideTools) Modifier.navigationBarsPadding() else Modifier)) {
-                    Column(Modifier.weight(1f).fillMaxHeight()) {
-                        if (modeBarVisible(state) && !layout.sideTools) ModeTabs(mode, switchMode)
-                        if (layout.canShowSpread && state.organize == null) {
-                            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Page layout", style = MaterialTheme.typography.labelLarge)
-                                FilterChip(selected = !spread, onClick = { spread = false }, label = { Text("One page") })
-                                FilterChip(selected = spread, onClick = { spread = true }, label = { Text("Two pages") })
+                    )
+                    if (state.isLoading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    Row(Modifier.fillMaxWidth().weight(1f).then(if (layout.sideTools) Modifier.navigationBarsPadding() else Modifier)) {
+                        Column(Modifier.weight(1f).fillMaxHeight()) {
+                            if (modeBarVisible(state) && !layout.sideTools) ModeTabs(mode, switchMode)
+                            if (layout.canShowSpread && state.organize == null) {
+                                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Page layout", style = MaterialTheme.typography.labelLarge)
+                                    FilterChip(selected = !spread, onClick = { spread = false }, label = { Text("One page") })
+                                    FilterChip(selected = spread, onClick = { spread = true }, label = { Text("Two pages") })
+                                }
                             }
+                            if (searchOpen && state.organize == null) {
+                                SearchRow(state, onSearch, onPreviousMatch, onNextMatch, onClose = { searchOpen = false })
+                            }
+                            ContextChips(
+                                state, controls,
+                                ContextActions(
+                                    onCopy = onCopySelection, onReadNote = onNoteRead, onGrow = onAnnotationGrow, onResize = onAnnotationResize,
+                                    onPosition = onAnnotationPosition, onDelete = onAnnotationDelete, onColor = onAnnotationColor,
+                                    onCancelMove = contentEdit.onCancelMove, onCancelInsert = contentEdit.onCancelInsert,
+                                ),
+                            )
+                            Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Vitela.colors.canvas)) {
+                                val organizeState = state.organize
+                                if (organizeState != null) {
+                                    OrganizeGrid(state, organizeState, organize, modifier = Modifier.fillMaxSize())
+                                } else {
+                                    PageList(
+                                        state = state,
+                                        onPositionChanged = onPositionChanged,
+                                        onScrollTargetConsumed = onScrollTargetConsumed,
+                                        onAnnotationRevealConsumed = onAnnotationRevealConsumed,
+                                        onAnnotationGesture = onAnnotationGesture,
+                                        textSelection = remember(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd) {
+                                            TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd)
+                                        },
+                                        contentEdit = contentEdit,
+                                        onFormFieldTap = formFields.onPageTap,
+                                        onPinch = zoom.onPinch,
+                                    onFileDrop = fileDrop.onPage,
+                                        modifier = Modifier.fillMaxSize().padding(if (layout.sideTools) 20.dp else 0.dp),
+                                        columns = columns,
+                                    )
+                                    Row(
+                                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        PageStepper(state, onPrevious, onNext, onPageList = { pageListOpen = true })
+                                        ZoomPill(state, zoom)
+                                    }
+                                }
+                            }
+                            state.formFields?.let { panel ->
+                                FormFieldsPanel(panel, state.documentId, formFields, modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp))
+                            }
+                            Text(
+                                state.status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            )
+                            if (state.organize != null) {
+                                Spacer(Modifier.navigationBarsPadding())
+                            } else if (!layout.sideTools) tools()
                         }
-                        if (searchOpen && state.organize == null) {
-                            SearchRow(state, onSearch, onPreviousMatch, onNextMatch, onClose = { searchOpen = false })
-                        }
-                        ContextChips(
-                            state, controls,
-                            ContextActions(
-                                onCopy = onCopySelection, onReadNote = onNoteRead, onGrow = onAnnotationGrow, onResize = onAnnotationResize,
-                                onPosition = onAnnotationPosition, onDelete = onAnnotationDelete, onColor = onAnnotationColor,
-                                onCancelMove = contentEdit.onCancelMove, onCancelInsert = contentEdit.onCancelInsert,
-                            ),
-                        )
-                        Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Vitela.colors.canvas)) {
-                            val organizeState = state.organize
-                            if (organizeState != null) {
-                                OrganizeGrid(state, organizeState, organize, modifier = Modifier.fillMaxSize())
-                            } else {
-                                PageList(
-                                    state = state,
-                                    onPositionChanged = onPositionChanged,
-                                    onScrollTargetConsumed = onScrollTargetConsumed,
-                                    onAnnotationRevealConsumed = onAnnotationRevealConsumed,
-                                    onAnnotationGesture = onAnnotationGesture,
-                                    textSelection = remember(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd) {
-                                        TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd)
-                                    },
-                                    contentEdit = contentEdit,
-                                    onFormFieldTap = formFields.onPageTap,
-                                    onPinch = zoom.onPinch,
-                                    modifier = Modifier.fillMaxSize().padding(if (layout.sideTools) 20.dp else 0.dp),
-                                    columns = columns,
-                                )
-                                Row(
-                                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    PageStepper(state, onPrevious, onNext, onPageList = { pageListOpen = true })
-                                    ZoomPill(state, zoom)
+                        if (layout.sideTools && state.organize == null) {
+                            Surface(modifier = Modifier.width(280.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
+                                Column {
+                                    if (modeBarVisible(state)) ModeTabs(mode, switchMode)
+                                    tools()
                                 }
                             }
                         }
-                        state.formFields?.let { panel ->
-                            FormFieldsPanel(panel, state.documentId, formFields, modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp))
-                        }
-                        Text(
-                            state.status,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                        )
-                        if (state.organize != null) {
-                            Spacer(Modifier.navigationBarsPadding())
-                        } else if (!layout.sideTools) tools()
-                    }
-                    if (layout.sideTools && state.organize == null) {
-                        Surface(modifier = Modifier.width(280.dp).fillMaxHeight(), color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
-                            Column {
-                                if (modeBarVisible(state)) ModeTabs(mode, switchMode)
-                                tools()
-                            }
-                        }
                     }
                 }
             }
-        }
-        // Closed, not just hidden, once navigation is disabled: a load or the
-        // grid would otherwise reopen it over pages the reader no longer shows.
-        val navigationEnabled = pageNavigationEnabled(state)
-        LaunchedEffect(navigationEnabled) { if (!navigationEnabled) pageListOpen = false }
-        if (pageListOpen && navigationEnabled) {
-            PageNavigationDialog(
-                pageCount = state.pageCount,
-                currentPage = state.pageIndex,
-                onSelect = { pageIndex ->
-                    pageListOpen = false
-                    onGoToPage(pageIndex)
-                },
-                onDismiss = { pageListOpen = false },
-            )
+            // Closed, not just hidden, once navigation is disabled: a load or the
+            // grid would otherwise reopen it over pages the reader no longer shows.
+            val navigationEnabled = pageNavigationEnabled(state)
+            LaunchedEffect(navigationEnabled) { if (!navigationEnabled) pageListOpen = false }
+            if (pageListOpen && navigationEnabled) {
+                PageNavigationDialog(
+                    pageCount = state.pageCount,
+                    currentPage = state.pageIndex,
+                    onSelect = { pageIndex ->
+                        pageListOpen = false
+                        onGoToPage(pageIndex)
+                    },
+                    onDismiss = { pageListOpen = false },
+                )
+            }
         }
     }
     ViewerDialogs(
