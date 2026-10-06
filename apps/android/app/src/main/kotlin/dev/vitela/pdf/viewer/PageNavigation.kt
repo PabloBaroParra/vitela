@@ -1,7 +1,9 @@
 package dev.vitela.pdf.viewer
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -52,11 +54,24 @@ internal fun typedPageIndex(text: String, pageCount: Int): Int? {
 }
 
 /**
+ * Where First page jumps, or null when the reader is already there (parity
+ * with Windows, whose First button is disabled on the first page). A stale
+ * [currentPage] is bounded first: the counter can lag a page removal.
+ */
+internal fun firstPageTarget(currentPage: Int, pageCount: Int): Int? =
+    0.takeIf { pageCount > 0 && boundedPageIndex(currentPage, pageCount) > 0 }
+
+/** Where Last page jumps, or null when the reader is already there. */
+internal fun lastPageTarget(currentPage: Int, pageCount: Int): Int? =
+    (pageCount - 1).takeIf { pageCount > 0 && boundedPageIndex(currentPage, pageCount) < pageCount - 1 }
+
+/**
  * The numbered page list (parity with the Linux and Windows page lists):
  * picking a row scrolls the reader there. Above it, a page number can be typed
  * (parity with Windows Go to page), prefilled and selected with the current
- * page so typing replaces it. It opens on the page counter's page (the one
- * covering most of the viewport) and is never a document edit.
+ * page so typing replaces it, and First page / Last page jump to either end.
+ * It opens on the page counter's page (the one covering most of the viewport)
+ * and is never a document edit.
  */
 @Composable
 internal fun PageNavigationDialog(
@@ -89,6 +104,12 @@ internal fun PageNavigationDialog(
                     keyboardActions = KeyboardActions(onGo = { typed?.let(onSelect) }),
                     modifier = Modifier.fillMaxWidth().focusRequester(focus),
                 )
+                val first = firstPageTarget(currentPage, pageCount)
+                val last = lastPageTarget(currentPage, pageCount)
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TextButton(onClick = { first?.let(onSelect) }, enabled = first != null) { Text("First page") }
+                    TextButton(onClick = { last?.let(onSelect) }, enabled = last != null) { Text("Last page") }
+                }
                 LazyColumn(state = listState, modifier = Modifier.heightIn(max = 360.dp).padding(top = 8.dp)) {
                     items(pageCount) { pageIndex ->
                         val current = pageIndex == currentPage
