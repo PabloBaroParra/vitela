@@ -122,6 +122,24 @@ class ContentEditTest {
     }
 
     @Test
+    fun aDragCarriesTheTopLeftCornerByTheFingersTravel() {
+        // Grabbed mid-box: the corner keeps its distance from the finger, it does not jump to it.
+        val corner = draggedCorner(AnnotationRect(10.0, 20.0, 30.0, 12.0), from = AnnotationPoint(25.0, 26.0), to = AnnotationPoint(65.0, 6.0))
+
+        assertEquals(AnnotationPoint(50.0, 12.0), corner)
+        assertEquals(AnnotationRect(50.0, 0.0, 30.0, 12.0), movedRect(AnnotationRect(10.0, 20.0, 30.0, 12.0), corner))
+    }
+
+    @Test
+    fun aDragGrabsTheArmedBoxOnlyWithinReach() {
+        val bounds = AnnotationRect(10.0, 20.0, 30.0, 12.0)
+
+        assertTrue(grabs(bounds, AnnotationPoint(20.0, 25.0), reach = 0.0))
+        assertTrue(grabs(bounds, AnnotationPoint(45.0, 25.0), reach = 6.0))
+        assertFalse(grabs(bounds, AnnotationPoint(80.0, 25.0), reach = 6.0))
+    }
+
+    @Test
     fun aMovedImageMayHangOffThePage() {
         assertEquals(AnnotationRect(-5.0, -25.0, 30.0, 30.0), movedRect(AnnotationRect(10.0, 20.0, 30.0, 30.0), AnnotationPoint(-5.0, 5.0)))
     }

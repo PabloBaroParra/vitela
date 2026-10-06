@@ -390,7 +390,11 @@ Move: the run's top-left corner lands on the tap and its text, font and size
 are kept (`MoveTextRun`) — the core re-places the original show operands
 rather than re-encoding them, so a composite-font run keeps its font too, and
 the other runs on the line stay where they were. The armed run's outline is
-drawn heavier and **Cancel move** disarms it; one move, of a run or an image,
+drawn heavier and **Cancel move** disarms it. Instead of tapping, the armed
+outline can be dragged: the run's pixels, lifted off the rendered page, follow
+the finger, and lifting it sends the same edit a tap on the new corner would — a
+drag that starts off the outline still scrolls. The same goes for an armed
+image. One move, of a run or an image,
 is armed at a time, and arming an insert drops it. A tap on another page moves
 nothing and leaves the move armed; a tap on the corner the run already has
 queues nothing ("Text position unchanged."). The move is spent before the core
@@ -421,8 +425,10 @@ resize, it is not kept on the page. The tap spends the move before the core
 answers, so a double tap queues one edit; a refusal is reported in the status
 line. **Cancel move** next to Done editing disarms it, and an undo or redo
 disarms it too, since the image it held may have moved back. A move is one
-undoable entry and redraws the page like a resize. The core may refuse a second
-geometry edit on the same image while the first is pending; save first.
+undoable entry and redraws the page like a resize. Moving it again before a
+save amends the queued move, so all the moves stay one undo step; a resize
+after a pending move (or a move after a pending resize) may still be refused
+until saved.
 
 **Delete** in that dialog takes the image off its page (`RemoveImage`, resource
 and inline alike) at once, with no second question: it is one undoable entry,

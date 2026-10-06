@@ -49,7 +49,10 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.AnnotationPoint
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -237,10 +240,13 @@ private fun PageSlot(
     var current by remember { mutableStateOf<AnnotationPoint?>(null) }
     var stroke by remember { mutableStateOf(emptyList<AnnotationPoint>()) }
     var pageWidthPx by remember { mutableStateOf(0) }
+    var moveDrag by remember { mutableStateOf<MoveDrag?>(null) }
         val density = LocalDensity.current.density.toDouble()
         val pageIndex = pageNumber - 1
-        // Edit content claims every tap on the page, and nothing else: no drag-select, no annotation drag.
+        // Edit content claims every tap on the page, and nothing else: no drag-select, no annotation drag —
+        // except dragging the box of an armed move on this page.
         val contentMode = state.contentEdit != null
+        val movingHere = state.contentEdit?.moving?.takeIf { it.pageIndex == pageIndex }
         // So does a field placement or move the Form fields panel armed.
         val formMode = state.formFields?.armed != null
         val tapMode = contentMode || formMode
@@ -298,6 +304,27 @@ private fun PageSlot(
                             }
                         }
                     }
+                    .pointerInput(pageNumber, placement, movingHere) {
+                        // An armed move: grabbing the run's or image's box drags it, its pixels following
+                        // the finger, and lifting places it — the same edit a tap at the new corner sends.
+                        // A drag anywhere else stays the list's scroll.
+                        val target = movingHere ?: return@pointerInput
+                        val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val from = point(down.position)
+                            if (!grabs(target.bounds, from, reach)) return@awaitEachGesture
+                            val slopChange = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() } ?: return@awaitEachGesture
+                            moveDrag = MoveDrag(from, point(slopChange.position))
+                            val completed = drag(slopChange.id) { change ->
+                                change.consume()
+                                moveDrag = MoveDrag(from, point(change.position))
+                            }
+                            val end = moveDrag?.to
+                            moveDrag = null
+                            if (completed && end != null) contentEdit.onTap(pageIndex, draggedCorner(target.bounds, from, end), reach)
+                        }
+                    }
                     .pointerInput(pageNumber, placement, state.activeAnnotationTool, tapMode) {
                         // Long-press, then drag: the Android text-selection
                         // gesture. A plain drag stays the list's scroll — it
@@ -351,11 +378,15 @@ private fun PageSlot(
                         }
                     },
             ) {
+                // While an armed move is dragged, where its box would land now.
+                val dragged = movingHere?.let { target -> moveDrag?.let { drag -> movedRect(target.bounds, draggedCorner(target.bounds, drag.from, drag.to)) } }
+                // Only the renderer paints the words or the picture, so the drag lifts them off the page's own bitmap.
+                if (movingHere != null && dragged != null) (page ?: bridge)?.let { bitmap -> drawLifted(bitmap, placement.placeRect(movingHere.bounds), placement.placeRect(dragged)) }
                 // Images first, so a caption's outline sits on top of the photo it is printed over.
                 // The run or image an armed move will place is drawn heavier, so the reader sees what the next tap moves.
                 state.contentEdit?.images?.get(pageIndex)?.forEach { image ->
-                    val bounds = image.bounds
                     val moving = state.contentEdit.movingImage?.id == image.id
+                    val bounds = if (moving && dragged != null) dragged else image.bounds
                     val placed = placement.placeRect(bounds)
                     drawRect(
                         if (moving) Color(0xFF20A060) else Color(0x9920A060),
@@ -367,8 +398,8 @@ private fun PageSlot(
                 // Solid where the run keeps its font, dashed where a retype swaps in a standard one:
                 // otherwise nothing tells the two apart before the reader has typed.
                 state.contentEdit?.runs?.get(pageIndex)?.forEach { run ->
-                    val bounds = run.bounds
                     val moving = state.contentEdit.movingText?.id == run.id
+                    val bounds = if (moving && dragged != null) dragged else run.bounds
                     val placed = placement.placeRect(bounds)
                     drawRect(
                         if (run.substitutesFont) Color(if (moving) 0xFFAA5ADC else 0x99AA5ADC) else Color(if (moving) 0xFF2878EB else 0x992878EB),
@@ -415,6 +446,38 @@ private fun PageSlot(
             }
         }
     }
+}
+
+/** An armed move's drag, from where the finger grabbed the box to where it is now, in PDF points. */
+private class MoveDrag(val from: AnnotationPoint, val to: AnnotationPoint)
+
+/**
+ * Copies the part of [bitmap] under [from] — the page as drawn, so a run's own
+ * glyphs or an image's own pixels — to [to]. Clipped to the page: a box that
+ * hangs off it has no pixels there to lift.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLifted(bitmap: ImageBitmap, from: PlacedRect, to: PlacedRect) {
+    val left = from.left.coerceAtLeast(0.0)
+    val top = from.top.coerceAtLeast(0.0)
+    val right = (from.left + from.width).coerceAtMost(size.width.toDouble())
+    val bottom = (from.top + from.height).coerceAtMost(size.height.toDouble())
+    if (right <= left || bottom <= top) return
+    val sx = bitmap.width / size.width.toDouble()
+    val sy = bitmap.height / size.height.toDouble()
+    val srcX = (left * sx).roundToInt().coerceIn(0, bitmap.width - 1)
+    val srcY = (top * sy).roundToInt().coerceIn(0, bitmap.height - 1)
+    val srcSize = IntSize(
+        ((right - left) * sx).roundToInt().coerceIn(1, bitmap.width - srcX),
+        ((bottom - top) * sy).roundToInt().coerceIn(1, bitmap.height - srcY),
+    )
+    drawImage(
+        bitmap,
+        srcOffset = IntOffset(srcX, srcY),
+        srcSize = srcSize,
+        dstOffset = IntOffset((to.left + left - from.left).roundToInt(), (to.top + top - from.top).roundToInt()),
+        dstSize = IntSize((right - left).roundToInt().coerceAtLeast(1), (bottom - top).roundToInt().coerceAtLeast(1)),
+        alpha = 0.85f,
+    )
 }
 
 /** The list's position, in the zoom it was taken at, when a pinch lifted. */
