@@ -330,7 +330,7 @@ mod tests {
         drop(context);
         let mut opaque = false;
         surface
-            .with_data(|data| opaque = data.chunks_exact(4).all(|pixel| pixel[3] == 255))
+            .with_data(|data| opaque = data.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255))
             .expect("the pixels are readable");
         assert!(opaque, "the pad is an opaque white sheet");
     }
