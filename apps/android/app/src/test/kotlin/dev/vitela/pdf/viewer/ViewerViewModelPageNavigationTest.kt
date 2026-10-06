@@ -64,6 +64,29 @@ class ViewerViewModelPageNavigationTest {
     }
 
     @Test
+    fun previousAndNextStepFromTheCurrentPage() = runTest {
+        val viewModel = openedWith(OrganizableDocument(pageCount = 5))
+        viewModel.consumeScrollTarget()
+        viewModel.onReaderPositionChanged(ReaderPosition(first = 2, last = 2, current = 2, viewportWidthPx = 1000, zoomFactor = 1.0))
+
+        viewModel.navigate(1)
+        assertEquals(3, viewModel.state.value.scrollTarget)
+        viewModel.navigate(-1)
+        assertEquals(1, viewModel.state.value.scrollTarget)
+    }
+
+    @Test
+    fun theGridIgnoresPreviousAndNextSoNoTargetIsLeftForTheReader() = runTest {
+        val viewModel = openedWith(OrganizableDocument(pageCount = 5))
+        viewModel.consumeScrollTarget()
+        viewModel.openOrganize()
+
+        viewModel.navigate(1)
+
+        assertNull(viewModel.state.value.scrollTarget)
+    }
+
+    @Test
     fun navigationNeedsPagesAndAnIdleReader() {
         assertFalse(pageNavigationEnabled(ViewerState(pageCount = 0)))
         assertFalse(pageNavigationEnabled(ViewerState(pageCount = 3, isLoading = true)))
