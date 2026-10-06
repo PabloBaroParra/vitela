@@ -22,6 +22,7 @@ use pdf_render::{
 use super::annotations;
 use super::content_edit;
 use super::forms;
+use super::signature;
 use super::state::{DocumentSession, PageSlot, Selection, Viewer};
 
 /// Selection fill. Alpha rather than an opaque box because the glyphs have to
@@ -1078,6 +1079,12 @@ fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
     // below, because placing an annotation extracts nothing — a document may
     // forbid copying its text and still permit being annotated.
     if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
+        // A drawn signature waiting for its page (T-088) claims the press the
+        // same way, and is mutually exclusive with an armed tool, so the
+        // order between the two is immaterial.
+        if signature::place_armed(viewer, page_index, point) {
+            return;
+        }
         if annotations::begin_placement(viewer, page_index, point) {
             return;
         }

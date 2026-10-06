@@ -9,6 +9,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use crate::app::organize::Thumbnails;
+use crate::app::signature::SignatureStore;
 use gtk::prelude::*;
 use gtk::{
     cairo, gio, ApplicationWindow, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Fixed,
@@ -142,6 +143,12 @@ pub(crate) struct Viewer {
     /// by `sign::update_sign_controls`, same lifecycle as the three buttons
     /// above.
     pub(crate) signed_indicator: Label,
+    /// Opens the drawn-signature flow (T-088): the remembered signature when
+    /// there is one, a blank pad otherwise. Lives in the Sign section beside
+    /// the certificate buttons but is its own field — a drawn signature is a
+    /// picture stamped on a page, not a cryptographic identity. Sensitivity is
+    /// owned by `signature::update_draw_signature_control`.
+    pub(crate) draw_signature: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
 }
 
@@ -373,6 +380,40 @@ pub(crate) struct ViewerState {
     /// earlier on Home. A cancelled file chooser leaves it set until the next
     /// open, which is the behaviour the user asked for by clicking the tile.
     pub(crate) pending_tool: Option<HomeTool>,
+    /// The drawn-signature flow's shell state (T-088) — see
+    /// [`SignatureState`].
+    pub(crate) signature: SignatureState,
+}
+
+/// Shell state of the drawn-signature flow.
+///
+/// Shell mode rather than document state, like `active_tool`: the armed PNG
+/// is released explicitly (another tool, another mode, leaving the Sign tab),
+/// and `signature::arm` refuses a PNG that was drawn over a document that has
+/// since been replaced.
+pub(crate) struct SignatureState {
+    /// Where the remembered signature lives. Behind a trait so the flow is
+    /// testable without touching the real home directory.
+    pub(crate) store: Arc<dyn SignatureStore>,
+    /// The pad or the saved-signature offer currently open, if any. Tracked
+    /// so a PNG that finishes rendering after the user cancelled (or after a
+    /// second dialog replaced this one) arms nothing — the same
+    /// supersede/dismiss pattern as `pfx_dialog`.
+    pub(crate) dialog: Option<Window>,
+    /// The signature the next page click places as an image stamp. At most
+    /// one armed thing claims a page click, so arming a tool, a content-edit
+    /// mode or a forms mode clears this, and arming this clears them.
+    pub(crate) armed: Option<ArmedSignature>,
+}
+
+/// A drawn signature waiting for the page click that places it.
+pub(crate) struct ArmedSignature {
+    /// The PNG the pad produced — transparent background, black ink.
+    pub(crate) png: Vec<u8>,
+    /// The document it was armed over. A click on a different document finds
+    /// it stale and places nothing, so a signature can never land on a file
+    /// the user did not mean it for.
+    pub(crate) session_id: u64,
 }
 
 /// A tool the Home view can send the user to.

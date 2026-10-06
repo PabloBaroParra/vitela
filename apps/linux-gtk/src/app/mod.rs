@@ -27,6 +27,7 @@ mod selection;
 mod shell;
 mod side_panel;
 mod sign;
+mod signature;
 mod state;
 mod theme;
 mod tools_panel;
@@ -215,6 +216,8 @@ fn build_ui(application: &Application) -> BuiltUi {
         signed_indicator,
         sign_content,
     ) = build_sign_content();
+    // The drawn-signature entry joins the same section (T-088).
+    let draw_signature = signature::build_draw_signature_button(&sign_content);
 
     let pages = GtkBox::new(Orientation::Vertical, PAGE_GAP);
     pages.set_halign(gtk::Align::Center);
@@ -408,6 +411,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         choose_pkcs11_certificate,
         choose_nss_certificate,
         signed_indicator,
+        draw_signature,
         state: Rc::new(RefCell::new(ViewerState {
             generation: 0,
             session_id: 0,
@@ -427,6 +431,11 @@ fn build_ui(application: &Application) -> BuiltUi {
             nss_dialog: None,
             sign_picker_dialog: None,
             pending_tool: None,
+            signature: state::SignatureState {
+                store: signature::default_store(),
+                dialog: None,
+                armed: None,
+            },
         })),
     };
 
@@ -443,6 +452,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     content_edit::connect_insert_toggles(&viewer);
     forms::connect_forms_toolbar(&viewer);
     connect_sign_toolbar(&window, &viewer);
+    signature::connect_signature(&viewer);
     metadata::connect_metadata_panel(&viewer);
     organize::connect_organize_panel(&window, &viewer);
     viewer.delete_text_button.connect_clicked({

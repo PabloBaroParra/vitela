@@ -190,6 +190,9 @@ fn arm_tool(viewer: &Viewer, tool: Tool, active: bool) {
         let mut state = viewer.state.borrow_mut();
         if active {
             state.active_tool = Some(tool);
+            // One armed thing claims a page click: a waiting drawn signature
+            // gives way to the tool just chosen.
+            state.signature.armed = None;
         } else if state.active_tool == Some(tool) {
             state.active_tool = None;
         } else {
@@ -269,7 +272,15 @@ fn text_rect_to_pdf(rect: TextRect) -> Rect {
 /// `pub(crate)`, not `pub(super)`: `content_edit::set_mode` also calls this,
 /// to keep an armed creation tool and content-edit mode mutually exclusive.
 pub(crate) fn disarm(viewer: &Viewer) {
-    viewer.state.borrow_mut().active_tool = None;
+    {
+        let mut state = viewer.state.borrow_mut();
+        state.active_tool = None;
+        // A waiting drawn signature claims the next page click exactly as an
+        // armed tool does, so releasing "whatever is armed" releases it too —
+        // which is what keeps content-edit and forms-edit mode (both call
+        // this when they arm) mutually exclusive with it.
+        state.signature.armed = None;
+    }
     for (_, button) in &viewer.annotation_buttons.create {
         button.set_active(false);
     }
