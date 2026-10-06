@@ -109,7 +109,7 @@ pub fn build_stamp_appearance(annotation: &Annotation) -> Result<StampAppearance
         smask_dict.set("Height", height);
         smask_dict.set("ColorSpace", "DeviceGray");
         smask_dict.set("BitsPerComponent", 8);
-        Some(Stream::new(smask_dict, alpha))
+        Some(flate(Stream::new(smask_dict, alpha)))
     } else {
         None
     };
@@ -128,9 +128,21 @@ pub fn build_stamp_appearance(annotation: &Annotation) -> Result<StampAppearance
     }
 
     Ok(StampAppearance {
-        image_xobject: Stream::new(image_dict, rgb),
+        image_xobject: flate(Stream::new(image_dict, rgb)),
         smask_xobject,
     })
+}
+
+/// `/FlateDecode`s a stamp's raw samples. Nothing downstream compresses them:
+/// the writers serialize streams as given, so without this a 528x258 drawn
+/// signature cost ~540 KB on disk.
+///
+/// `Stream::compress` only sets `/Filter` once the deflate has succeeded and
+/// actually saves bytes, so a failure (impossible into a `Vec`) or a tiny
+/// image leaves a valid unfiltered stream behind.
+fn flate(mut stream: Stream) -> Stream {
+    let _ = stream.compress();
+    stream
 }
 
 #[cfg(test)]
@@ -276,6 +288,88 @@ mod tests {
             &Object::Integer(2)
         );
         assert_eq!(appearance.image_xobject.content.len(), 2 * 2 * 3); // RGB8
+    }
+
+    /// A drawn signature is mostly transparent background with a few dark
+    /// strokes — the shape that made a 528x258 stamp cost ~540 KB raw.
+    fn signature_like_stamp(width: u32, height: u32) -> Annotation {
+        use image::{DynamicImage, ImageFormat, RgbaImage};
+        use std::io::Cursor;
+
+        let canvas = RgbaImage::from_fn(width, height, |x, y| {
+            let wave = (f64::from(x) / 20.0).sin() * f64::from(height) / 4.0;
+            let stroke_y = f64::from(height) / 2.0 + wave;
+            if (f64::from(y) - stroke_y).abs() < 3.0 {
+                image::Rgba([20, 20, 60, 255])
+            } else {
+                image::Rgba([255, 255, 255, 0])
+            }
+        });
+        let mut buf = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(canvas)
+            .write_to(&mut buf, ImageFormat::Png)
+            .expect("encode png fixture");
+
+        Annotation {
+            id: AnnotationId(5),
+            page: PageId(0),
+            kind: AnnotationKind::Stamp {
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: f64::from(width),
+                    height: f64::from(height),
+                },
+                image_bytes: buf.into_inner(),
+                has_alpha: true,
+            },
+        }
+    }
+
+    fn filter_of(stream: &Stream) -> &[u8] {
+        stream
+            .dict
+            .get(b"Filter")
+            .and_then(Object::as_name)
+            .expect("stream must carry a /Filter")
+    }
+
+    #[test]
+    fn stamp_image_and_smask_are_flate_compressed() {
+        let appearance = build_stamp_appearance(&signature_like_stamp(528, 258)).expect("valid");
+        let smask = appearance
+            .smask_xobject
+            .expect("alpha source keeps its mask");
+
+        assert_eq!(filter_of(&appearance.image_xobject), b"FlateDecode");
+        assert_eq!(filter_of(&smask), b"FlateDecode");
+        assert!(appearance.image_xobject.content.len() < 528 * 258 * 3 / 10);
+        assert!(smask.content.len() < 528 * 258 / 10);
+    }
+
+    #[test]
+    fn compressed_stamp_streams_inflate_back_to_the_raw_samples() {
+        let annotation = signature_like_stamp(64, 32);
+        let appearance = build_stamp_appearance(&annotation).expect("valid");
+        let AnnotationKind::Stamp { image_bytes, .. } = &annotation.kind else {
+            unreachable!()
+        };
+        let rgba = image::load_from_memory(image_bytes).unwrap().to_rgba8();
+        let (rgb, alpha): (Vec<_>, Vec<_>) =
+            rgba.pixels().map(|p| ([p[0], p[1], p[2]], p[3])).unzip();
+
+        assert_eq!(
+            appearance.image_xobject.decompressed_content().unwrap(),
+            rgb.concat()
+        );
+        assert_eq!(
+            appearance
+                .smask_xobject
+                .unwrap()
+                .decompressed_content()
+                .unwrap(),
+            alpha
+        );
     }
 
     #[test]
