@@ -135,10 +135,10 @@ internal const val IMAGE_INSERTED = "Image inserted. Save to keep the change."
 internal const val DEFAULT_INSERTED_TEXT_SIZE = 14.0
 
 /** What an armed move asks for; the image stays on its own page. */
-internal fun imageMovePrompt(pageIndex: Int) = "Tap page ${pageIndex + 1} where the image's top-left corner should go."
+internal fun imageMovePrompt(pageIndex: Int) = "Drag the image, or tap page ${pageIndex + 1} where its top-left corner should go."
 
 /** What an armed text move asks for; the run stays on its own page. */
-internal fun textMovePrompt(pageIndex: Int) = "Tap page ${pageIndex + 1} where the text's top-left corner should go."
+internal fun textMovePrompt(pageIndex: Int) = "Drag the text, or tap page ${pageIndex + 1} where its top-left corner should go."
 internal const val FONT_SUBSTITUTED = "This text's font cannot be kept. What you type will use a standard font."
 
 /**
@@ -196,6 +196,31 @@ internal fun resizedImageRect(bounds: AnnotationRect, width: Double, height: Dou
  */
 internal fun movedRect(bounds: AnnotationRect, tap: AnnotationPoint): AnnotationRect =
     AnnotationRect(tap.x, tap.y - bounds.height, bounds.width, bounds.height)
+
+/**
+ * Where a drag from [from] to [to] carries the top-left corner of a box at
+ * [bounds]: by the finger's travel, so a box grabbed mid-way keeps its distance
+ * from the finger instead of jumping to it. Sent as the tap [movedRect] reads.
+ */
+internal fun draggedCorner(bounds: AnnotationRect, from: AnnotationPoint, to: AnnotationPoint): AnnotationPoint =
+    AnnotationPoint(bounds.x + to.x - from.x, bounds.y + bounds.height + to.y - from.y)
+
+/** Whether a finger down at [point] grabs the box at [bounds]: inside it, or within [reach] points. */
+internal fun grabs(bounds: AnnotationRect, point: AnnotationPoint, reach: Double): Boolean = distance(bounds, point) <= reach
+
+/** The box a run or an image now fills. */
+internal val ContentTarget.bounds: AnnotationRect
+    get() = when (this) {
+        is ContentTarget.Run -> run.bounds
+        is ContentTarget.Image -> image.bounds
+    }
+
+/** The page a run or an image is on. */
+internal val ContentTarget.pageIndex: Int
+    get() = when (this) {
+        is ContentTarget.Run -> run.pageIndex
+        is ContentTarget.Image -> image.pageIndex
+    }
 
 /**
  * The box a new line of [size] points gets when its top-left corner is at

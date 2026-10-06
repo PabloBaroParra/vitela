@@ -74,7 +74,7 @@ internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, action
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (editor.run.substitutesFont) Text(FONT_SUBSTITUTED, style = MaterialTheme.typography.bodySmall)
-                Text("Move places this text where you tap next, keeping its font and size; save first if it already has a pending edit. Delete takes it off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
+                Text("Move lets you drag this text, or tap where it should go, keeping its font and size; save first if it already has a pending edit. Delete takes it off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -114,7 +114,7 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
         title = { Text("Edit image") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The image keeps its top-left corner and is stretched to the size you enter. Move places it where you tap next, keeping its size. Replace swaps its picture for a PNG or JPEG, stretched to the same box; save first if the image already has a pending edit. Delete takes it off the page; Undo puts it back.", style = MaterialTheme.typography.bodySmall)
+                Text("The image keeps its top-left corner and is stretched to the size you enter. Move lets you drag it, or tap where it should go, keeping its size. Replace swaps its picture for a PNG or JPEG, stretched to the same box; save first if the image already has a pending edit. Delete takes it off the page; Undo puts it back.", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
                     PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
