@@ -130,6 +130,7 @@ class StampPreviewsTest {
 
     private fun TestScope.place(viewModel: ViewerViewModel, png: ByteArray) {
         viewModel.openSignaturePad()
+        advanceUntilIdle()
         viewModel.useDrawnSignature(viewModel.state.value.documentId, png)
         viewModel.placeAnnotation(0, AnnotationPoint(20.0, 100.0), AnnotationPoint(20.0, 100.0))
         advanceUntilIdle()
