@@ -1,6 +1,10 @@
 package dev.vitela.pdf.generated
 
+import android.util.Log
 import java.util.UUID
+import dev.vitela.pdf.core.CoreFailure
+import dev.vitela.pdf.core.NOT_AN_IMAGE
+import dev.vitela.pdf.core.toPdfCoreError
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreFactory
@@ -797,15 +801,38 @@ private fun AnnotationRect.toFfi() = FfiRect(x, y, width, height)
 private fun FfiColor.toColor() = AnnotationColor(r.toInt(), g.toInt(), b.toInt())
 private fun AnnotationColor.toFfi() = FfiColor(red.toUByte(), green.toUByte(), blue.toUByte())
 
-/** Only PNG and JPEG decode; the picker cannot be narrowed to them on every device. */
-private const val NOT_AN_IMAGE = "This file is not a PNG or JPEG image."
+private const val LOG_TAG = "VitelaCore"
 
-private fun Throwable.toPdfCoreError(): PdfCoreError = when (this) {
-    is FfiException.PasswordRequired -> PdfCoreError.PasswordRequired
-    is FfiException.WrongPassword -> PdfCoreError.WrongPassword
-    is FfiException.SignaturesWouldBeInvalidated -> PdfCoreError.Failed("Saving would invalidate this document's signature, so it was not saved.")
-    is FfiException.RenderFailed -> PdfCoreError.Failed("PDFium is unavailable. This package must include externally supplied compatible PDFium libraries.")
-    else -> PdfCoreError.Failed("The document could not be processed.")
+/**
+ * Names the variant and hands its wording to [CoreFailure]. The diagnostic
+ * detail never reaches the reader, so it goes to logcat — the only place a
+ * generic sentence can still be traced back to what the core said.
+ */
+private fun Throwable.toPdfCoreError(): PdfCoreError {
+    val (failure, detail) = when (this) {
+        is FfiException.PasswordRequired -> CoreFailure.PasswordRequired to ""
+        is FfiException.WrongPassword -> CoreFailure.WrongPassword to ""
+        is FfiException.UnsupportedSecurityHandler -> CoreFailure.UnsupportedSecurityHandler to ""
+        is FfiException.DocumentNotFound -> CoreFailure.DocumentNotFound to ""
+        is FfiException.BitmapNotFound -> CoreFailure.BitmapNotFound to ""
+        is FfiException.PageIndexOutOfBounds -> CoreFailure.PageIndexOutOfBounds to "page ${index}"
+        is FfiException.AnnotationNotFound -> CoreFailure.AnnotationNotFound to "annotation ${annotationId}"
+        is FfiException.FormFieldNotFound -> CoreFailure.FormFieldNotFound to "field ${fieldId}"
+        is FfiException.InvalidImage -> CoreFailure.InvalidImage to detail
+        is FfiException.InvalidSaveRequest -> CoreFailure.InvalidSaveRequest to detail
+        is FfiException.SignaturesWouldBeInvalidated -> CoreFailure.SignaturesWouldBeInvalidated to ""
+        is FfiException.UnsupportedOperation -> CoreFailure.UnsupportedOperation to detail
+        is FfiException.EncodingGap -> CoreFailure.EncodingGap to character
+        is FfiException.InvalidPageSelection -> CoreFailure.InvalidPageSelection to detail
+        is FfiException.RenderFailed -> CoreFailure.RenderFailed to detail
+        is FfiException.Io -> CoreFailure.Io to detail
+        is FfiException.Internal -> CoreFailure.Internal to detail
+        else -> CoreFailure.Unexpected to ""
+    }
+    // A panic or a bug on this side carries its stack; a typed refusal does not need one.
+    if (failure == CoreFailure.Unexpected) Log.e(LOG_TAG, "Unexpected core failure", this)
+    else Log.w(LOG_TAG, "$failure: $detail")
+    return failure.toPdfCoreError(detail)
 }
 
 private fun FfiPageRotation.toRotation() = when (this) {
