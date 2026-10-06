@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  allowBackup="false" already keeps app data out of cloud backups, but from
+  Android 12 it does not stop a device-to-device transfer. The remembered
+  signature stays on this phone only, so both paths exclude it by name
+  (SignatureStore.kt, SIGNATURE_FILE_NAME).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="signature.png" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="signature.png" />
+    </device-transfer>
+</data-extraction-rules>

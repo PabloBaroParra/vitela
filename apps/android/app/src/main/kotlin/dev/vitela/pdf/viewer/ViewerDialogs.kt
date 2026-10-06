@@ -90,6 +90,7 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
     state.protect?.let { ProtectDialog(it, onProtect = actions.onProtectConfirm, onDismiss = actions.onProtectDismiss) }
     state.sign?.let { SignDialog(it, actions.sign) }
     if (state.signaturePadOpen) SignaturePadDialog(state.documentId, onUse = actions.drawnSignature.onUse, onCancel = actions.drawnSignature.onCancel)
+    state.signatureChoice?.let { png -> SavedSignatureDialog(state.documentId, png, actions.drawnSignature.saved) }
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(
             onDismissRequest = actions.onReplacementCancelled,
