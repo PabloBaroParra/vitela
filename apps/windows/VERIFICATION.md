@@ -21,7 +21,7 @@ contained PASS, with no FAIL or UNHANDLED entry.
 | Organization | ImportPdfsSmoke, OrganizeDocumentsSmoke, OrganizePagesSmoke |
 | Output and lifecycle | LifecycleDialogsSmoke, OutputDialogsSmoke, PrintSmoke, DocumentStatesSmoke |
 | Navigation and search | PageNavigationSmoke, SearchSmoke |
-| Annotations | AnnotationPositionSmoke, AnnotationSizeSmoke, NotePlacementSmoke, StampPlacementSmoke |
+| Annotations | AnnotationPositionSmoke, AnnotationSizeSmoke, NotePlacementSmoke, StampPlacementSmoke, DrawnSignatureSmoke |
 
 Builds used `Tests/<target>.targets` via `CustomAfterMicrosoftCommonTargets`,
 isolated output directories under `C:/Users/nexty/AppData/Local/Temp/opencode/`

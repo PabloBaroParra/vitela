@@ -675,6 +675,25 @@ placement selects the stamp and displays its image, with move, resize and undo/r
 available. Save to keep it. Dropping an image or pasting a clipboard bitmap keeps
 its existing proportional default placement.
 
+**Draw signature** (Fill & Sign page, T-088) opens a white pad you sign on with the
+mouse, a pen or a finger. **Use** stays disabled until there is a line; **Clear**
+wipes the pad; Cancel arms nothing. The strokes become a transparent PNG with black
+round-capped ink, cropped to the ink plus half a stroke (long side at most 1200 px),
+and arm the same image Stamp the picker uses: the next click on a page places it
+through the core's stamp placement, which keeps the proportions, and it lands
+selected with its picture. Arming releases any other armed tool, form-field
+placement or content editing; choosing a tool by hand, or leaving the Fill & Sign
+page, disarms it. A PNG that is ready after another document opened arms nothing.
+The stroke → PNG step is shell-side (no WinUI render target, so it is unit-tested)
+because the core's stamp builder takes encoded image bytes, as on Android.
+**Remember on this PC** is ticked by default and keeps the PNG at
+`%LOCALAPPDATA%\Vitela\signature.png` — local, never roaming — written to a
+`.partial` sibling and moved over. Unticked, the signature is used once and any
+saved one is kept. With a saved signature, **Draw signature** first offers it:
+**Use**, **Draw new** or **Delete** (no confirmation). `Tests/DrawnSignatureSmoke.targets`
+runs the arming, placement and disarming rules in real WinUI; the pad's pointer
+drawing and the dialogs are not automated.
+
 Select a note created in the current session with **Previous annotation** or
 **Next annotation**, then choose
 **Read note** to view its multiline text in a read-only dialog. Reading also works
