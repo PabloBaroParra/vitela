@@ -28,6 +28,15 @@
 # Windows 10 and later, so it stays.
 $VC_RUNTIME_PATTERNS = @('vcruntime140*.dll', 'msvcp140*.dll', 'concrt140.dll', 'vccorlib140.dll', 'vcomp140.dll')
 
+# The patterns also match the .NET Framework's private copies
+# (vcruntime140_clr0400.dll, msvcp140_clr0400.dll and so on). Windows itself
+# installs those, so a clean machine has them, and Windows PowerShell cannot
+# start without them. Hiding them failed CI with ".NET Framework v4.0.30319 is
+# not installed".
+function Test-IsVisualCRedistributableFile([System.IO.FileInfo]$file) {
+    $file.Name -notlike '*_clr0400.dll'
+}
+
 # Changing System32 or the machine's certificate trust is only acceptable on
 # a VM that is destroyed when the job ends.
 function Assert-DisposableRunner([string]$what) {
@@ -49,7 +58,7 @@ function Hide-VisualCRuntime {
     $hidden = @()
     try {
         foreach ($pattern in $VC_RUNTIME_PATTERNS) {
-            foreach ($file in @(Get-ChildItem -LiteralPath $system32 -Filter $pattern -File)) {
+            foreach ($file in @(Get-ChildItem -LiteralPath $system32 -Filter $pattern -File | Where-Object { Test-IsVisualCRedistributableFile $_ })) {
                 # TrustedInstaller owns these. Renaming a DLL that a running
                 # process has mapped is allowed; deleting it would not be.
                 & takeown.exe /f $file.FullName | Out-Null
