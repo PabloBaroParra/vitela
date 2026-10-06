@@ -1253,19 +1253,29 @@ arquitectura, no un atajo.
 Windows/C#). Paralelo con B9 y B10.
 
 ### Tareas
-- [ ] T-081 Scaffold Kotlin/Compose + generación de bindings UniFFI Kotlin en android.yml. [infra]
+- [x] T-081 Scaffold Kotlin/Compose + generación de bindings UniFFI Kotlin en android.yml. [infra]
       **(2026-07-26 — parcial: scaffold Gradle/Compose + `scripts/package-android.sh` genera los
       bindings Kotlin desde el `libpdf_ffi.so` construido; android.yml solo corre los unit tests
       JVM, no genera bindings)**
-- [ ] T-082 Cross-compile pdfium .so por ABI (arm64-v8a, armeabi-v7a, x86_64) + empaquetado. [pdfium dist]
+      **(2026-10-06 — hecho: android.yml genera los bindings desde un build host de pdf-ffi y
+      compila el adapter contra ellos (ver nota 2026-09-29 de T-093))**
+- [x] T-082 Cross-compile pdfium .so por ABI (arm64-v8a, armeabi-v7a, x86_64) + empaquetado. [pdfium dist]
       **(2026-07-26 — parcial: cross-compile de pdf-ffi vía cargo-ndk para arm64-v8a y x86_64;
       armeabi-v7a pendiente. PDFium sigue siendo un input externo — el repo no lo vendorea ni
       lo descarga, ver apps/android/README.md)**
-- [ ] T-083 SAF: `ContentResolver.openInputStream()` → `open_from_bytes`; guardar vía
+      **(2026-10-06 — cerrada con alcance reducido: PDFium Android pineado (bblanchon
+      `chromium/7763`, `scripts/fetch-android-pdfium.sh`, PR #308) y empaquetado para arm64-v8a
+      y x86_64. armeabi-v7a queda fuera POR DECISIÓN: `abiFilters` se limita a esas dos ABIs
+      porque sin el filtro JNA/androidx hacían que el bundle declarara ABIs de 32 bits sin core
+      nativo. Reabrir solo si se decide soportar dispositivos de 32 bits)**
+- [x] T-083 SAF: `ContentResolver.openInputStream()` → `open_from_bytes`; guardar vía
       `OutputStream` del mismo Uri → `save_to_bytes`. [ui-android, FileAccessPort]
       **(2026-07-26 — parcial: apertura vía SAF (`OpenDocument`) → `open_from_bytes` hecha;
       el guardado no existe todavía porque no hay edición en el shell)**
-- [ ] T-084 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [ui-android, OpenPDF, NavZoom]
+      **(2026-10-06 — hecho: Save escribe sobre el mismo Uri con permiso persistible (modo "wt",
+      `SafDocuments.writeBack`, PR #183) y Save a copy usa `CreateDocument`. Sin permiso de
+      escritura del provider, Save cae a copia)**
+- [x] T-084 Abrir/render página 1, scroll continuo, zoom fit-width/page/custom. [ui-android, OpenPDF, NavZoom]
       **(2026-07-26 — parcial: lector de scroll continuo con ventana de render/caché,
       placeholders dimensionados por media box y fit-to-width con techo de píxeles por
       página + invalidación por rotación; zoom custom por botones, con escalera discreta,
@@ -1287,10 +1297,17 @@ Windows/C#). Paralelo con B9 y B10.
       intersección de rectángulos que el shell había reimplementado en Kotlin. Pendiente:
       selección de palabra con long-press sin arrastre (el core no expone límites de palabra)
       y selección que cruce páginas.)**
-- [ ] T-087 Toolbar táctil wired a pdf-annotate (7 tipos incl. image stamp). [ui-android, AnnoCreate, AnnoEditDelete]
+- [x] T-087 Toolbar táctil wired a pdf-annotate (7 tipos incl. image stamp). [ui-android, AnnoCreate, AnnoEditDelete]
+      **(2026-10-06 — hecho: Highlight, Underline, Strikeout, Ink, Shape, TextNote e image
+      Stamp (`AnnotationKind`), con selección, recolor, resize, posición precisa y borrado
+      (PRs #38, #52, #292, #304, #310). Sin verificar en dispositivo)**
 - [ ] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
       el placement_rect. [FirmaDibujada]
-- [ ] T-089 Undo/redo vía botones táctiles → EditLog. [ui-android, UndoRedo]
+      **(2026-10-06 — pendiente. No confundir con la firma digital `.pfx` (PR #252), que sí
+      está hecha)**
+- [x] T-089 Undo/redo vía botones táctiles → EditLog. [ui-android, UndoRedo]
+      **(2026-10-06 — hecho: botones Undo/Redo sobre el EditLog del core; organize, import y
+      edición de contenido usan el mismo historial)**
 - [x] T-090 Android PrintManager usando render_page a DPI de impresión. [ui-android, Print]
       **(2026-07-26 — parcial: `PrintDocumentAdapter` wired a PrintManager, pero entrega los
       bytes originales del PDF al spooler en vez de rasterizar con `render_page` a DPI de
@@ -1313,7 +1330,7 @@ Windows/C#). Paralelo con B9 y B10.
       igual que el botón Stamp — touch-first. Sin verificar en dispositivo)**
 - [ ] T-092 Equivalentes táctiles de drag-and-drop: share-sheet nativo / selector SAF /
       arrastre en split-screen. [ui-android, ShortcutsDnD]
-- [ ] T-093 .apk firmado + android.yml CI completo (bindings Kotlin + cross-compile por ABI +
+- [x] T-093 .apk firmado + android.yml CI completo (bindings Kotlin + cross-compile por ABI +
       Gradle + firma). [ui-android, infra]
       **(2026-07-26 — parcial: android.yml existe y corre `:app:testDebugUnitTest` (tests JVM
       puros, sin PDFium); falta build del .apk, cross-compile por ABI y firma. OJO: el CI
@@ -1324,6 +1341,10 @@ Windows/C#). Paralelo con B9 y B10.
       job ahora genera los bindings Kotlin de UniFFI desde un build host de pdf-ffi y compila
       `GeneratedPdfCore.kt.template` contra ellos, sin PDFium ni libs nativas. Sigue faltando
       build del .apk, cross-compile por ABI y firma)**
+      **(2026-10-06 — hecho, como .aab en vez de .apk (lo que pide Play): el job
+      `release-bundle` de android.yml cross-compila por ABI con cargo-ndk, chequea alineación
+      16-KB y arma el bundle; `android-release.yml` lo firma con la upload key y lo sube a Play
+      (PR #308))**
 
 ### Criterios de aceptación (spec delta)
 - Acceso a archivos EXCLUSIVAMENTE vía Storage Access Framework: el core recibe
