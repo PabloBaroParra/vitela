@@ -50,6 +50,13 @@ data class ViewerState(
      */
     val canOpen: Boolean = false,
     val annotations: List<Annotation> = emptyList(),
+    /**
+     * The image each stamp placed this session was made from, by annotation id.
+     * The page raster leaves annotations out, and the snapshot carries no
+     * picture, so without these the overlay can only outline a stamp. Never
+     * pruned: an undone stamp's redo brings back the same id.
+     */
+    val stampImages: Map<Long, ByteArray> = emptyMap(),
     val annotationEditingAllowed: Boolean = false,
     val selectedAnnotationId: Long? = null,
     val activeAnnotationTool: AnnotationTool = AnnotationTool.Pointer,

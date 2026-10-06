@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream
 import kotlin.math.ceil
 
 internal const val SIGNATURE_STAMP_PROMPT = "Tap a page to place your signature."
+internal const val SIGNATURE_PLACED = "Signature placed. Save to keep it."
 internal const val SIGNATURE_UNRENDERABLE = "The signature could not be turned into an image."
 
 /** Longest side of the PNG: the core places a stamp at most 144 pt long, so this is already ~600 DPI. */

@@ -522,7 +522,7 @@ class ViewerViewModel(
         // One mode claims a page tap at a time, as with any other tool.
         contentEditing.close()
         formAuthoring.disarm()
-        annotations.selectImageStamp(png, SIGNATURE_STAMP_PROMPT)
+        annotations.selectImageStamp(png, SIGNATURE_STAMP_PROMPT, SIGNATURE_PLACED)
     }
     fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) = annotations.moveSelected(origin, current)
     fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) = annotations.resizeSelected(corner, point)
