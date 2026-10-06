@@ -43,3 +43,43 @@ class PageBoundaryTest {
         assertEquals(0, firstPageTarget(currentPage = 9, pageCount = 5))
     }
 }
+
+/** Previous and Next page step one page and stop at either end rather than wrap (parity with Windows). */
+class PageStepTest {
+    @Test
+    fun previousStepsBackOnePage() {
+        assertEquals(2, previousPageTarget(currentPage = 3, pageCount = 5))
+        assertEquals(0, previousPageTarget(currentPage = 1, pageCount = 5))
+    }
+
+    @Test
+    fun nextStepsForwardOnePage() {
+        assertEquals(1, nextPageTarget(currentPage = 0, pageCount = 5))
+        assertEquals(4, nextPageTarget(currentPage = 3, pageCount = 5))
+    }
+
+    @Test
+    fun neitherWrapsPastAnEnd() {
+        assertNull(previousPageTarget(currentPage = 0, pageCount = 5))
+        assertNull(nextPageTarget(currentPage = 4, pageCount = 5))
+    }
+
+    @Test
+    fun aSinglePageDocumentHasNowhereToStep() {
+        assertNull(previousPageTarget(currentPage = 0, pageCount = 1))
+        assertNull(nextPageTarget(currentPage = 0, pageCount = 1))
+    }
+
+    @Test
+    fun anEmptyDocumentHasNowhereToStep() {
+        assertNull(previousPageTarget(currentPage = 0, pageCount = 0))
+        assertNull(nextPageTarget(currentPage = 0, pageCount = 0))
+    }
+
+    @Test
+    fun aStaleCurrentPageIsBoundedBeforeStepping() {
+        // The page counter can lag a page removal: step from the last real page.
+        assertNull(nextPageTarget(currentPage = 9, pageCount = 5))
+        assertEquals(3, previousPageTarget(currentPage = 9, pageCount = 5))
+    }
+}

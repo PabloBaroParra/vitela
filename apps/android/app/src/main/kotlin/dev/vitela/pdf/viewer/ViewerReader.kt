@@ -145,8 +145,9 @@ internal class ViewerReader(private val session: ViewerSession) {
         if (state.value.scrollTarget != null) state.value = state.value.copy(scrollTarget = null)
     }
 
+    /** Previous/Next page: the same guard as [goTo], so the grid never leaves a target behind. */
     fun navigate(delta: Int) {
-        if (state.value.pageCount == 0) return
+        if (!pageNavigationEnabled(state.value)) return
         scrollTo(state.value.pageIndex + delta)
     }
 

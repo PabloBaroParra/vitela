@@ -6,10 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -18,10 +20,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationColor
 
 /** What can be done to the current selection — an annotation, a text run being moved, copied text. */
@@ -89,7 +94,19 @@ internal fun ContextChips(state: ViewerState, controls: AnnotationControls, acti
 
 /** A small rounded label floating over the pages: the page counter and the zoom level. */
 @Composable
-private fun Pill(text: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+private fun Pill(text: String, description: String, enabled: Boolean, onClick: () -> Unit) =
+    Pill(description, enabled, onClick) {
+        Text(text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+    }
+
+@Composable
+private fun IconPill(icon: Int, description: String, enabled: Boolean, onClick: () -> Unit) =
+    Pill(description, enabled, onClick) {
+        Icon(painterResource(icon), contentDescription = null, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp).size(18.dp))
+    }
+
+@Composable
+private fun Pill(description: String, enabled: Boolean, onClick: () -> Unit, content: @Composable () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -99,13 +116,27 @@ private fun Pill(text: String, description: String, enabled: Boolean, onClick: (
         shadowElevation = 2.dp,
         modifier = Modifier.semantics { contentDescription = description },
     ) {
-        Text(text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+        content()
     }
 }
 
 @Composable
 internal fun PagePill(state: ViewerState, enabled: Boolean, onClick: () -> Unit) =
     Pill(pageLabel(state), "Page ${pageLabel(state)}. Go to page", enabled, onClick)
+
+/**
+ * Previous page / Next page on either side of the page counter (parity with
+ * Windows). Each is disabled at its end of the document rather than wrapping.
+ */
+@Composable
+internal fun PageStepper(state: ViewerState, onPrevious: () -> Unit, onNext: () -> Unit, onPageList: () -> Unit) {
+    val enabled = pageNavigationEnabled(state)
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconPill(R.drawable.ic_shell_previous, "Previous page", enabled && previousPageTarget(state.pageIndex, state.pageCount) != null, onPrevious)
+        PagePill(state, enabled, onPageList)
+        IconPill(R.drawable.ic_shell_next, "Next page", enabled && nextPageTarget(state.pageIndex, state.pageCount) != null, onNext)
+    }
+}
 
 @Composable
 internal fun ZoomPill(state: ViewerState, zoom: ZoomActions) {

@@ -234,7 +234,7 @@ internal fun ViewerScreen(
                                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    PagePill(state, enabled = pageNavigationEnabled(state)) { pageListOpen = true }
+                                    PageStepper(state, onPrevious, onNext, onPageList = { pageListOpen = true })
                                     ZoomPill(state, zoom)
                                 }
                             }

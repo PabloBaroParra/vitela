@@ -66,6 +66,18 @@ internal fun lastPageTarget(currentPage: Int, pageCount: Int): Int? =
     (pageCount - 1).takeIf { pageCount > 0 && boundedPageIndex(currentPage, pageCount) < pageCount - 1 }
 
 /**
+ * Where Previous page steps, or null on the first page: it stops there rather
+ * than wrap to the end (parity with Windows). A stale [currentPage] is bounded
+ * first, as for [firstPageTarget].
+ */
+internal fun previousPageTarget(currentPage: Int, pageCount: Int): Int? =
+    (boundedPageIndex(currentPage, pageCount) - 1).takeIf { pageCount > 0 && it >= 0 }
+
+/** Where Next page steps, or null on the last page. */
+internal fun nextPageTarget(currentPage: Int, pageCount: Int): Int? =
+    (boundedPageIndex(currentPage, pageCount) + 1).takeIf { pageCount > 0 && it < pageCount }
+
+/**
  * The numbered page list (parity with the Linux and Windows page lists):
  * picking a row scrolls the reader there. Above it, a page number can be typed
  * (parity with Windows Go to page), prefilled and selected with the current
