@@ -1301,10 +1301,18 @@ Windows/C#). Paralelo con B9 y B10.
       **(2026-10-06 — hecho: Highlight, Underline, Strikeout, Ink, Shape, TextNote e image
       Stamp (`AnnotationKind`), con selección, recolor, resize, posición precisa y borrado
       (PRs #38, #52, #292, #304, #310). Sin verificar en dispositivo)**
-- [ ] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
+- [x] T-088 Firma dibujada: trazo táctil → PNG con canal alfa → `stamp_from_image_bytes` en
       el placement_rect. [FirmaDibujada]
       **(2026-10-06 — pendiente. No confundir con la firma digital `.pfx` (PR #252), que sí
       está hecha)**
+      **(2026-10-06 — hecho, primer shell con firma dibujada. "Draw signature" en la pestaña
+      Sign abre un pad blanco; el trazo se rasteriza a un PNG transparente recortado a la tinta
+      (más medio trazo, lado largo ≤ 1200 px) y arma el mismo stamp de imagen que Paste: el
+      siguiente tap lo coloca con `stamp_placement`, que conserva la proporción. Armar la firma
+      desarma un campo de formulario armado (si no, ese tap se lo come el panel) y salir de Sign
+      la desarma. Verificado en emulador: guardado y re-renderizado, la firma queda con
+      `/SMask`. Antes de guardar se ve solo el contorno, como todo stamp de sesión en Android.
+      Pendiente aparte: el core escribe el stream de imagen sin compresión.)**
 - [x] T-089 Undo/redo vía botones táctiles → EditLog. [ui-android, UndoRedo]
       **(2026-10-06 — hecho: botones Undo/Redo sobre el EditLog del core; organize, import y
       edición de contenido usan el mismo historial)**

@@ -30,10 +30,17 @@ class ReaderModesTest {
     }
 
     @Test
-    fun leavingSignClosesTheFormFieldsPanelOnly() {
-        val state = ViewerState(activeAnnotationTool = AnnotationTool.Ink, formFields = FormFieldsState())
+    fun leavingSignClosesTheFormFieldsPanel() {
+        val state = ViewerState(formFields = FormFieldsState())
 
         assertEquals(ModeExit(disarmTool = false, closeContentEdit = false, closeFormFields = true), modeExit(ReaderMode.Sign, ReaderMode.Edit, state))
+    }
+
+    @Test
+    fun leavingSignDisarmsADrawnSignatureWaitingForItsTap() {
+        val state = ViewerState(activeAnnotationTool = AnnotationTool.Stamp)
+
+        assertEquals(ModeExit(disarmTool = true, closeContentEdit = false, closeFormFields = false), modeExit(ReaderMode.Sign, ReaderMode.Read, state))
     }
 
     @Test

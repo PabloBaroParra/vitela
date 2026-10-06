@@ -497,6 +497,33 @@ class ViewerViewModel(
     fun refusePaste(reason: String = CLIPBOARD_HAS_NO_IMAGE) {
         _state.value = _state.value.copy(status = reason)
     }
+
+    /** **Draw signature** (T-088): the pad only opens where a stamp could be placed. */
+    fun openSignaturePad() {
+        if (_state.value.annotationEditingAllowed) _state.value = _state.value.copy(signaturePadOpen = true)
+    }
+    fun closeSignaturePad() {
+        _state.value = _state.value.copy(signaturePadOpen = false)
+    }
+
+    /**
+     * Arms the image stamp with the drawn signature's [png], the way Paste
+     * does. [documentId] is the document the pad was drawn over: the PNG is
+     * rendered off the main thread, and a document opened meanwhile must not
+     * receive it — nor may a pad the user cancelled while it rendered.
+     */
+    fun useDrawnSignature(documentId: Long, png: ByteArray?) {
+        if (documentId != _state.value.documentId || !_state.value.signaturePadOpen) return
+        _state.value = _state.value.copy(signaturePadOpen = false)
+        if (png == null) {
+            _state.value = _state.value.copy(status = SIGNATURE_UNRENDERABLE)
+            return
+        }
+        // One mode claims a page tap at a time, as with any other tool.
+        contentEditing.close()
+        formAuthoring.disarm()
+        annotations.selectImageStamp(png, SIGNATURE_STAMP_PROMPT)
+    }
     fun moveSelected(origin: AnnotationPoint, current: AnnotationPoint) = annotations.moveSelected(origin, current)
     fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) = annotations.resizeSelected(corner, point)
     fun growSelected() = annotations.growSelected()
