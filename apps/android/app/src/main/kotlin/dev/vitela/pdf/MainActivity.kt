@@ -3,6 +3,7 @@ package dev.vitela.pdf
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.print.PrintManager
@@ -12,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -20,10 +22,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.vitela.pdf.core.PdfCoreProvider
 import dev.vitela.pdf.document.SafDocuments
 import dev.vitela.pdf.document.SafExport
+import dev.vitela.pdf.document.openablePdfUri
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.ui.theme.VitelaTheme
@@ -49,15 +53,33 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { VitelaTheme { VitelaApp() } }
+        // Only a fresh launch opens what it was handed: a recreation (rotation) already has it open.
+        val incoming = if (savedInstanceState == null) incomingPdf(intent) else null
+        setContent { VitelaTheme { VitelaApp(incoming) } }
+    }
+
+    private fun incomingPdf(intent: Intent): Uri? {
+        // The activity is exported: a malformed extra from another app must not crash the launch.
+        val stream = runCatching { IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) }.getOrNull()
+        return openablePdfUri(intent.action, intent.data?.toString(), stream?.toString())?.let(Uri::parse)
     }
 }
 
 @Composable
-private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerViewModelFactory(PdfCoreProvider.create()))) {
+private fun VitelaApp(
+    incoming: Uri?,
+    viewModel: ViewerViewModel = viewModel(factory = ViewerViewModelFactory(PdfCoreProvider.create())),
+) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    if (incoming != null) {
+        LaunchedEffect(incoming) {
+            // Same path as the picker: Save writes back only when the sender granted a persistable write.
+            val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, incoming) }
+            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget)
+        }
+    }
     var pickedTool by rememberSaveable { mutableStateOf<DocumentStartTool?>(null) }
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult

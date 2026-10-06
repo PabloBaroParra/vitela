@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 
 /** A picked PDF: its bytes, and where **Save** may write it back to (null when it may not). */
 class OpenedDocument(val displayName: String, val bytes: ByteArray, val saveTarget: String?)
@@ -30,17 +31,29 @@ object SafDocuments {
      */
     fun read(resolver: ContentResolver, uri: Uri): OpenedDocument? {
         val bytes = runCatching { resolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull() ?: return null
-        return OpenedDocument(displayName(uri), bytes, saveTarget = null)
+        return OpenedDocument(displayName(resolver, uri), bytes, saveTarget = null)
     }
 
-    private fun displayName(uri: Uri): String = uri.lastPathSegment?.substringAfterLast('/') ?: "Document.pdf"
+    /**
+     * The provider's own name for the document, falling back to the URI's last
+     * segment. Documents handed over by another app (a mail attachment, say)
+     * often end their URI in an opaque id rather than a file name.
+     */
+    private fun displayName(resolver: ContentResolver, uri: Uri): String {
+        val provided = runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+        return provided?.takeIf { it.isNotBlank() } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Document.pdf"
+    }
 
     /**
      * Describes a URI picked with `CreateDocument` as a document the app is
      * about to reopen, keeping access so **Save** can write back to it.
      */
     fun created(resolver: ContentResolver, uri: Uri): CreatedDocument =
-        CreatedDocument(displayName(uri), persistAccess(resolver, uri))
+        CreatedDocument(displayName(resolver, uri), persistAccess(resolver, uri))
 
     /** Writes [bytes] to a URI the user picked with `CreateDocument`. */
     fun writeCopy(resolver: ContentResolver, uri: Uri, bytes: ByteArray): Boolean = write(resolver, uri, bytes)
