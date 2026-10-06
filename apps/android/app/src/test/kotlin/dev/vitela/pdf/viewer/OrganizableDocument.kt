@@ -4,13 +4,14 @@ import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.DocumentBlock
-import dev.vitela.pdf.core.ImportReport
+import dev.vitela.pdf.core.BatchImportReport
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.core.PreparedImport
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 
@@ -116,24 +117,26 @@ internal class OrganizableDocument(
         )
     }
 
-    /** Every import asked of the core: the position it was asked at, and the password it came with. */
-    val imports = mutableListOf<Pair<Int, String?>>()
+    /** Every batch import asked of the core: the position it was asked at, and how many sources it carried. */
+    val imports = mutableListOf<Pair<Int, Int>>()
 
-    /** Reads a [fakePdf]: its pages go in as new ids, one undo step for the whole file. */
-    override fun importPdf(bytes: ByteArray, password: String?, index: Int): PdfCoreResult<ImportReport> {
-        imports += index to password
-        when (bytes[0]) {
-            FAKE_LOCKED -> if (password != FAKE_PASSWORD) return PdfCoreResult.Failure(if (password == null) PdfCoreError.PasswordRequired else PdfCoreError.WrongPassword)
-            FAKE_REFUSED -> return PdfCoreResult.Failure(PdfCoreError.Failed("The PDF does not permit copying its pages."))
-        }
+    /** Set to refuse every batch the way the core's own gates do, before anything is added. */
+    var importRefusal: String? = null
+
+    /** Adds every [FakePreparedImport]'s pages as new ids, one block per source and ONE undo step for the batch. */
+    override fun importPrepared(sources: List<PreparedImport>, index: Int): PdfCoreResult<BatchImportReport> {
+        imports += index to sources.size
+        importRefusal?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        val fakes = sources.map { it as FakePreparedImport }
+        check(fakes.none { it.closed }) { "a closed source reached the core" }
         val before = pages.toList()
-        val sourceId = nextSourceId++
-        val after = before.toMutableList().also { list -> list.addAll(index, List(bytes[1].toInt()) { Page(nextId++, source = BlockSource.Imported(sourceId)) }) }
+        val sourceIds = fakes.map { nextSourceId++ }
+        val added = fakes.zip(sourceIds).flatMap { (source, id) -> List(source.pageCount) { Page(nextId++, source = BlockSource.Imported(id)) } }
+        val after = before.toMutableList().also { it.addAll(index, added) }
         pages = after
         undoable.addLast(({ pages = before.toMutableList() }) to ({ pages = after.toMutableList() }))
         redoable.clear()
-        val warnings = if (bytes[0] == FAKE_WARNS) listOf("a form field was renamed") else emptyList()
-        return PdfCoreResult.Success(ImportReport(bytes[1].toInt(), warnings, sourceId))
+        return PdfCoreResult.Success(BatchImportReport(added.size, sourceIds))
     }
 
     /** An edit that is not a page edit, so undo has something to undo. */
@@ -164,10 +167,37 @@ internal const val FAKE_REFUSED: Byte = 2
 internal const val FAKE_WARNS: Byte = 3
 internal const val FAKE_PASSWORD = "fixture-secret"
 
-/** The bytes [OrganizableDocument.importPdf] reads as a PDF of [pages] pages of [kind]. */
+/** The bytes [OrganizeQueueCore.prepareImport] reads as a PDF of [pages] pages of [kind]. */
 internal fun fakePdf(pages: Int, kind: Byte = FAKE_PLAIN) = byteArrayOf(kind, pages.toByte())
+
+/** A source [OrganizeQueueCore.prepareImport] opened; [closed] once the shell let go of it. */
+internal class FakePreparedImport(override val pageCount: Int, override val warnings: List<String>) : PreparedImport {
+    var closed = false
+        private set
+
+    override fun close() {
+        closed = true
+    }
+}
 
 internal class OrganizeQueueCore(vararg documents: PdfDocument) : PdfCore {
     private val queue = ArrayDeque(documents.toList())
     override fun openFromBytes(bytes: ByteArray, password: String?): PdfCoreResult<PdfDocument> = PdfCoreResult.Success(queue.removeFirst())
+
+    /** Every source prepared, in order — to check that each one is closed. */
+    val prepared = mutableListOf<FakePreparedImport>()
+
+    /** Every preparation asked of the core: the bytes' page count and the password it came with. */
+    val preparations = mutableListOf<Pair<Int, String?>>()
+
+    /** Reads a [fakePdf]: the source's own gates, its password, and what its pages would lose. */
+    override fun prepareImport(bytes: ByteArray, password: String?): PdfCoreResult<PreparedImport> {
+        preparations += bytes[1].toInt() to password
+        when (bytes[0]) {
+            FAKE_LOCKED -> if (password != FAKE_PASSWORD) return PdfCoreResult.Failure(if (password == null) PdfCoreError.PasswordRequired else PdfCoreError.WrongPassword)
+            FAKE_REFUSED -> return PdfCoreResult.Failure(PdfCoreError.Failed("The PDF does not permit copying its pages."))
+        }
+        val warnings = if (bytes[0] == FAKE_WARNS) listOf("a form field was renamed") else emptyList()
+        return PdfCoreResult.Success(FakePreparedImport(bytes[1].toInt(), warnings).also { prepared += it })
+    }
 }

@@ -72,7 +72,7 @@ data class ViewerState(
     val saveTarget: String? = null,
     /**
      * The file name of every PDF added from Organize, by the id the core gave
-     * its pages ([dev.vitela.pdf.core.ImportReport.sourceId]) — the core knows
+     * its pages ([dev.vitela.pdf.core.BatchImportReport.sourceIds]) — the core knows
      * which pages came from which file, only the shell knows what it was called.
      */
     val importedSourceNames: Map<Long, String> = emptyMap(),

@@ -256,6 +256,18 @@ whether the file survives the full rewrite a reorder forces); a refusal comes
 back as the sentence to show, as on Windows. The one refusal the shell makes
 itself is deleting the last page.
 
+**Add PDFs** appends every page of each picked file
+([`viewer/PageImporting.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/PageImporting.kt))
+in the core's two phases, as on Linux and Windows: each file is first prepared
+on its own (`prepare_import`) without touching the document — a locked file
+asks for its own password, a refused one names itself — and then the whole
+pick goes in after the last page as one undo step (`import_prepared`). What
+the pages would not bring across exactly (a renamed form field, a link out of
+the imported pages) is asked before anything is added, with Cancel as the
+prominent answer. It is all or nothing: a cancel or a refusal adds no page,
+and every source prepared so far is closed, which frees its decrypted copy in
+the core; so is leaving Organize or replacing the document mid-pick.
+
 A **Pages | Documents** selector above the grid switches to one card per
 document instead
 ([`viewer/OrganizeDocumentList.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/OrganizeDocumentList.kt)):

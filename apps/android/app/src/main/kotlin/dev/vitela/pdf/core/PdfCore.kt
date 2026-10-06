@@ -82,13 +82,13 @@ interface PdfDocument : AutoCloseable {
      */
     fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Organizing pages is unavailable in this PDF core."))
     /**
-     * Adds every page of the PDF in [bytes] at [index] (the page count appends)
-     * as one undoable step, like [applyPageEdit]; [refreshPreview] must run
-     * before the new pages render. An encrypted source comes back as
-     * [PdfCoreError.PasswordRequired] or [PdfCoreError.WrongPassword] — both
-     * mean "ask for its password and try again".
+     * Adds every page of every source in [sources] — each from
+     * [PdfCore.prepareImport] — in that order, at [index]
+     * (the page count appends) as ONE undoable step, like [applyPageEdit];
+     * [refreshPreview] must run before the new pages render. All or nothing:
+     * a refusal leaves the document and every source as they were.
      */
-    fun importPdf(bytes: ByteArray, password: String?, index: Int): PdfCoreResult<ImportReport> =
+    fun importPrepared(sources: List<PreparedImport>, index: Int): PdfCoreResult<BatchImportReport> =
         PdfCoreResult.Failure(PdfCoreError.Failed("Adding PDFs is unavailable in this PDF core."))
     /**
      * The pages grouped into one block per contiguous run from the same PDF,
@@ -306,6 +306,16 @@ interface PdfCore {
      */
     fun openSigningCertificate(bytes: ByteArray, password: String): PdfCoreResult<SigningCertificate> =
         PdfCoreResult.Failure(PdfCoreError.Failed("Signing is unavailable in this PDF core."))
+    /**
+     * Opens the PDF in [bytes] as an import source and checks every page can
+     * come in — the first of the two import phases; nothing open changes until
+     * [PdfDocument.importPrepared]. An encrypted source comes back as
+     * [PdfCoreError.PasswordRequired] or [PdfCoreError.WrongPassword]; both
+     * mean "ask for its password and try again". The caller owns the result
+     * and must close it.
+     */
+    fun prepareImport(bytes: ByteArray, password: String?): PdfCoreResult<PreparedImport> =
+        PdfCoreResult.Failure(PdfCoreError.Failed("Adding PDFs is unavailable in this PDF core."))
 }
 
 /** Implemented by generated packaging sources when native bindings are present. */

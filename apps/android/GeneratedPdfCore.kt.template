@@ -33,7 +33,8 @@ import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.ImageExportFormat
-import dev.vitela.pdf.core.ImportReport
+import dev.vitela.pdf.core.BatchImportReport
+import dev.vitela.pdf.core.PreparedImport
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.PageContent
@@ -96,7 +97,9 @@ import dev.vitela.pdf.uniffi.openWithPasswordsFromBytes as ffiOpenWithPasswordsF
 import dev.vitela.pdf.uniffi.protectToBytes as ffiProtectToBytes
 import dev.vitela.pdf.uniffi.protectionWillInvalidateSignatures as ffiProtectionWillInvalidateSignatures
 import dev.vitela.pdf.uniffi.documentBlocks as ffiDocumentBlocks
-import dev.vitela.pdf.uniffi.importPdf as ffiImportPdf
+import dev.vitela.pdf.uniffi.PreparedImport as FfiPreparedImport
+import dev.vitela.pdf.uniffi.importPrepared as ffiImportPrepared
+import dev.vitela.pdf.uniffi.prepareImport as ffiPrepareImport
 import dev.vitela.pdf.uniffi.openSigningCertificate as ffiOpenSigningCertificate
 import dev.vitela.pdf.uniffi.signToBytes as ffiSignToBytes
 import dev.vitela.pdf.uniffi.signingRefusal as ffiSigningRefusal
@@ -123,6 +126,17 @@ private class GeneratedPdfCore : PdfCore {
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
+
+    // The core asks the source's own gates here — its copy bit, its pages, what
+    // it carries — and names what refused in `detail`, a lower-case clause. The
+    // open document's gates are asked by `importPrepared`.
+    override fun prepareImport(bytes: ByteArray, password: String?): PdfCoreResult<PreparedImport> = try {
+        PdfCoreResult.Success(GeneratedPreparedImport(ffiPrepareImport(bytes, password)))
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercase() }.trimEnd('.')}."))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
 }
 
 /** The unlocked file crosses as an opaque object; closing it drops its private keys on the Rust side. */
@@ -130,6 +144,14 @@ private class GeneratedSigningCertificate(val certificate: FfiSigningCertificate
     override val identities: List<SigningIdentity> = certificate.identities().map { SigningIdentity(it.id, it.displayName) }
 
     override fun close() = certificate.close()
+}
+
+/** The decrypted source stays on the Rust side; closing it drops it there, unless an import already took it over. */
+private class GeneratedPreparedImport(val prepared: FfiPreparedImport) : PreparedImport {
+    override val pageCount: Int = prepared.pageCount().toInt()
+    override val warnings: List<String> = prepared.warnings()
+
+    override fun close() = prepared.close()
 }
 
 private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocument {
@@ -183,11 +205,13 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     // The core asks every gate — the document's content and assembly bits, the
-    // rewrite a new page forces, the source's copy bit and what it carries — and
-    // names what refused in `detail`, a lower-case clause.
-    override fun importPdf(bytes: ByteArray, password: String?, index: Int): PdfCoreResult<ImportReport> = try {
-        val report = ffiImportPdf(handle, bytes, password, index.toUInt())
-        PdfCoreResult.Success(ImportReport(report.pageCount.toInt(), report.warnings, report.sourceId.toLong()))
+    // rewrite a new page forces — and names what refused in `detail`, a
+    // lower-case clause. Only sources this adapter prepared can be imported:
+    // the core holds the decrypted document behind the UniFFI object, not
+    // behind its Kotlin face.
+    override fun importPrepared(sources: List<PreparedImport>, index: Int): PdfCoreResult<BatchImportReport> = try {
+        val report = ffiImportPrepared(handle, sources.map { (it as GeneratedPreparedImport).prepared }, index.toUInt())
+        PdfCoreResult.Success(BatchImportReport(report.pageCount.toInt(), report.sourceIds.map { it.toLong() }))
     } catch (error: FfiException.UnsupportedOperation) {
         PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercase() }.trimEnd('.')}."))
     } catch (error: Throwable) {

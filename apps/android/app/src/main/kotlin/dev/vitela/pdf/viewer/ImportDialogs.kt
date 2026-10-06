@@ -19,21 +19,27 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
-/** The two questions an import can raise: an added PDF's password, and what its pages lost on the way in. */
+/**
+ * The two questions an import can raise, both before any page goes in: an
+ * added PDF's password, and whether to accept what the pages would lose.
+ * Cancel is the prominent answer to the second, as on Windows: accepting is
+ * the deliberate one.
+ */
 @Composable
 internal fun ImportDialogs(organize: OrganizeState, actions: OrganizeActions) {
     organize.importPassword?.let { ImportPasswordDialog(it, actions) }
     if (organize.importWarnings.isNotEmpty() && organize.importPassword == null) {
         AlertDialog(
             onDismissRequest = actions.onImportWarningsDismiss,
-            title = { Text("Some content changed on the way in") },
+            title = { Text("Some content will change on the way in") },
             text = {
                 Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                     organize.importWarnings.forEach { Text("• $it") }
-                    Text("The pages were added. Undo removes them.")
+                    Text("No pages have been added yet. Import anyway to add every selected PDF as one undo step.")
                 }
             },
-            confirmButton = { Button(onClick = actions.onImportWarningsDismiss) { Text("OK") } },
+            confirmButton = { TextButton(onClick = actions.onImportWarningsAccept) { Text("Import anyway") } },
+            dismissButton = { Button(onClick = actions.onImportWarningsDismiss) { Text("Cancel") } },
         )
     }
 }

@@ -1,10 +1,22 @@
 package dev.vitela.pdf.core
 
 /**
- * What adding a PDF did — pdf-ffi's `FfiImportReport`. [warnings] are the core's
- * lines for what the pages could not bring across exactly as they were (a form
- * field renamed on arrival, a link that pointed elsewhere in the source); the
- * pages are already in the document, and Undo takes them back out. [sourceId]
- * is the id the pages' block carries ([BlockSource.Imported]).
+ * One PDF opened and checked for import — pdf-ffi's `PreparedImport`. Holding
+ * it changes nothing about the open document; it holds the decrypted source
+ * until [PdfDocument.importPrepared] takes it over or [close] drops it, which
+ * is how an import is abandoned. [warnings] are the core's lines for what the
+ * pages will not bring across exactly as they are (a form field renamed on
+ * arrival, a link that points elsewhere in the source), known before anything
+ * is added.
  */
-data class ImportReport(val pageCount: Int, val warnings: List<String>, val sourceId: Long)
+interface PreparedImport : AutoCloseable {
+    val pageCount: Int
+    val warnings: List<String>
+}
+
+/**
+ * What [PdfDocument.importPrepared] did — pdf-ffi's `FfiBatchImportReport`.
+ * [sourceIds] are the ids the added blocks carry ([BlockSource.Imported]), one
+ * per source, in the order the sources were given.
+ */
+data class BatchImportReport(val pageCount: Int, val sourceIds: List<Long>)

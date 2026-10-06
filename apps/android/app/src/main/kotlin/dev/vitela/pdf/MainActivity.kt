@@ -328,6 +328,7 @@ private fun VitelaApp(viewModel: ViewerViewModel = viewModel(factory = ViewerVie
                 onAddPdfs = { addPdfs.launch(arrayOf("application/pdf")) },
                 onImportPassword = viewModel::retryImportPassword,
                 onImportPasswordCancel = viewModel::cancelImportPassword,
+                onImportWarningsAccept = viewModel::acceptImportWarnings,
                 onImportWarningsDismiss = viewModel::dismissImportWarnings,
                 onShow = viewModel::organizeShow,
                 onMoveBlock = viewModel::organizeMoveBlock,
