@@ -166,7 +166,9 @@ fn compressing_the_stamp_leaves_the_rendered_page_unchanged() {
 
     assert!(
         compressed_pixels
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .any(|p| p[0] < 128 && p[1] < 128),
         "the stamp must actually paint, or the comparison proves nothing"
     );
