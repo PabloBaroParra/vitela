@@ -106,6 +106,8 @@ data class ViewerState(
     val formFields: FormFieldsState? = null,
     /** Edit text mode, or null while page taps belong to the annotation tools. */
     val contentEdit: ContentEditState? = null,
+    /** True while the Draw signature pad is open. */
+    val signaturePadOpen: Boolean = false,
     /** The Note prompt, holding the rectangle the user chose, or null while it is closed. */
     val notePlacement: NotePlacement? = null,
     /** The Read note dialog, holding the selected note's text as the core gave it, or null while it is closed. */

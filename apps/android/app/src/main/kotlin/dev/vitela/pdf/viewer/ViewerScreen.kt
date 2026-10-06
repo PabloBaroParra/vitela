@@ -115,6 +115,7 @@ internal fun ViewerScreen(
     onProtectConfirm: (openPassword: String, permissionsPassword: String) -> Unit,
     onProtectDismiss: () -> Unit,
     sign: SignActions,
+    drawnSignature: DrawnSignatureActions,
     organize: OrganizeActions,
     formFields: FormFieldActions,
     contentEdit: ContentEditActions,
@@ -170,7 +171,7 @@ internal fun ViewerScreen(
                         onTool = onAnnotationTool, onChooseStamp = onChooseStamp, onPasteStamp = onPasteStamp,
                         onUndo = onAnnotationUndo, onRedo = onAnnotationRedo, onOrganize = organize.onToggle, contentEdit = contentEdit,
                     ), sidePanel = layout.sideTools)
-                    ReaderMode.Sign -> SignTools(state, onFormFields = formFields.onToggle, onSign = sign.onOpen, sidePanel = layout.sideTools)
+                    ReaderMode.Sign -> SignTools(state, controls, onFormFields = formFields.onToggle, onDrawSignature = drawnSignature.onOpen, onSign = sign.onOpen, sidePanel = layout.sideTools)
                 }
             }
             Column(Modifier.fillMaxSize()) {
@@ -295,7 +296,7 @@ internal fun ViewerScreen(
             onPageSplitChange = onPageSplitChange, onPageSplitConfirm = onPageSplitConfirm, onPageSplitDismiss = onPageSplitDismiss,
             onCompressSelect = onCompressSelect, onCompressConfirm = onCompressConfirm, onCompressDismiss = onCompressDismiss,
             onProtectConfirm = onProtectConfirm, onProtectDismiss = onProtectDismiss,
-            sign = sign, contentEdit = contentEdit,
+            sign = sign, drawnSignature = drawnSignature, contentEdit = contentEdit,
         ),
     )
 }

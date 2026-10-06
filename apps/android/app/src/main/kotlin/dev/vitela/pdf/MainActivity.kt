@@ -35,6 +35,7 @@ import dev.vitela.pdf.viewer.CERTIFICATE_MIME_TYPES
 import dev.vitela.pdf.viewer.CLIPBOARD_IMAGE_UNREADABLE
 import dev.vitela.pdf.viewer.ContentEditActions
 import dev.vitela.pdf.viewer.DocumentStartTool
+import dev.vitela.pdf.viewer.DrawnSignatureActions
 import dev.vitela.pdf.viewer.FormFieldActions
 import dev.vitela.pdf.viewer.IMAGE_REPLACE_CANCELLED
 import dev.vitela.pdf.viewer.IMAGE_UNREADABLE
@@ -43,6 +44,7 @@ import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.SignActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.pastableImageUri
+import dev.vitela.pdf.viewer.signaturePng
 import dev.vitela.pdf.viewer.ViewerViewModel
 import dev.vitela.pdf.viewer.ZoomActions
 import kotlinx.coroutines.Dispatchers
@@ -337,6 +339,18 @@ private fun VitelaApp(
                 // Who signs first, then where to write; the signed file is reopened once written.
                 onSign = { viewModel.confirmSign()?.let(saveSigned::launch) },
                 onDismiss = viewModel::dismissSign,
+            )
+        },
+        drawnSignature = remember(viewModel) {
+            DrawnSignatureActions(
+                onOpen = viewModel::openSignaturePad,
+                onUse = { documentId, strokes, strokeWidth ->
+                    scope.launch {
+                        val png = withContext(Dispatchers.Default) { runCatching { signaturePng(strokes, strokeWidth) }.getOrNull() }
+                        viewModel.useDrawnSignature(documentId, png)
+                    }
+                },
+                onCancel = viewModel::closeSignaturePad,
             )
         },
         organize = remember(viewModel) {

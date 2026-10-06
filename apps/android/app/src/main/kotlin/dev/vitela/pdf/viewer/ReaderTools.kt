@@ -112,11 +112,12 @@ private val ANNOTATION_TOOLS = listOf(
     Triple(AnnotationTool.TextNote, "Note", R.drawable.ic_shell_comments),
 )
 
-/** Sign mode: fill the document's form, then sign it with a certificate. */
+/** Sign mode: fill the document's form, draw a signature onto a page, or sign it with a certificate. */
 @Composable
-internal fun SignTools(state: ViewerState, onFormFields: () -> Unit, onSign: () -> Unit, sidePanel: Boolean = false) {
+internal fun SignTools(state: ViewerState, controls: AnnotationControls, onFormFields: () -> Unit, onDrawSignature: () -> Unit, onSign: () -> Unit, sidePanel: Boolean = false) {
     ToolTray("Fill & sign", sidePanel) {
         ToolTile("Fill forms", R.drawable.ic_shell_edit, MaterialTheme.colorScheme.primary, onFormFields, selected = state.formFields != null)
+        ToolTile("Draw signature", R.drawable.ic_shell_ink, ToolHue.Sign, onDrawSignature, enabled = controls.canCreate, selected = state.activeAnnotationTool == AnnotationTool.Stamp)
         ToolTile("Sign with certificate", R.drawable.ic_shell_sign, ToolHue.Sign, onSign, enabled = !state.signRunning)
     }
 }

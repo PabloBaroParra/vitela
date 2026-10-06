@@ -21,7 +21,8 @@ internal data class ModeExit(val disarmTool: Boolean, val closeContentEdit: Bool
 internal fun modeExit(from: ReaderMode, to: ReaderMode, state: ViewerState): ModeExit {
     if (from == to) return ModeExit.None
     return ModeExit(
-        disarmTool = from == ReaderMode.Edit && state.activeAnnotationTool != AnnotationTool.Pointer,
+        // Sign arms a tool too: a drawn signature waits for its tap as an image stamp.
+        disarmTool = from != ReaderMode.Read && state.activeAnnotationTool != AnnotationTool.Pointer,
         closeContentEdit = from == ReaderMode.Edit && state.contentEdit != null,
         closeFormFields = from == ReaderMode.Sign && state.formFields != null,
     )

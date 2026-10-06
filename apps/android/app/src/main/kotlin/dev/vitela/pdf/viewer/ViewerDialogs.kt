@@ -49,6 +49,7 @@ internal data class DialogActions(
     val onProtectConfirm: (openPassword: String, permissionsPassword: String) -> Unit,
     val onProtectDismiss: () -> Unit,
     val sign: SignActions,
+    val drawnSignature: DrawnSignatureActions,
     val contentEdit: ContentEditActions,
 )
 
@@ -88,6 +89,7 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
     state.compress?.let { CompressDialog(it, onSelect = actions.onCompressSelect, onCompress = actions.onCompressConfirm, onDismiss = actions.onCompressDismiss) }
     state.protect?.let { ProtectDialog(it, onProtect = actions.onProtectConfirm, onDismiss = actions.onProtectDismiss) }
     state.sign?.let { SignDialog(it, actions.sign) }
+    if (state.signaturePadOpen) SignaturePadDialog(state.documentId, onUse = actions.drawnSignature.onUse, onCancel = actions.drawnSignature.onCancel)
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(
             onDismissRequest = actions.onReplacementCancelled,
