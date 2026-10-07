@@ -18,6 +18,8 @@
 //! - [`geometry`] is the pointer maths — pure functions over rects and points,
 //!   with no GTK and no session state.
 //! - [`gesture`] runs the press/move/release lifecycles.
+//! - [`note`] asks for a sticky note's text before it is recorded, and
+//!   [`tooltip`] shows that text again when the pointer rests on the note.
 //! - [`edit`] and [`style`] implement the operations on an existing selection.
 
 mod builder;
@@ -25,8 +27,10 @@ mod command;
 mod edit;
 mod geometry;
 mod gesture;
+mod note;
 mod style;
 mod toolbar;
+mod tooltip;
 
 #[cfg(test)]
 mod test_support;
@@ -42,6 +46,7 @@ pub(crate) use toolbar::{
     add_annotation_toolbar, connect_annotation_toolbar, connect_delete_shortcut, disarm,
     update_annotation_controls,
 };
+pub(crate) use tooltip::note_tooltip;
 
 /// Reported when the selected annotation is gone by the time the operation
 /// acting on it runs.

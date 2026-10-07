@@ -85,6 +85,27 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         move |_, context, _, _| draw_highlights(&viewer, page_index, context)
     });
 
+    // A text note is drawn only as an outline, so resting the pointer on one
+    // shows what it says. The hit-test is `annotations::note_tooltip`'s, which
+    // goes through the page placement and so holds on rotated pages.
+    area.set_has_tooltip(true);
+    area.connect_query_tooltip({
+        let viewer = viewer.clone();
+        move |_, x, y, keyboard_mode, tooltip| {
+            // Keyboard-triggered tooltips carry no pointer position.
+            if keyboard_mode {
+                return false;
+            }
+            match annotations::note_tooltip(&viewer, page_index, f64::from(x), f64::from(y)) {
+                Some(text) => {
+                    tooltip.set_text(Some(&text));
+                    true
+                }
+                None => false,
+            }
+        }
+    });
+
     let drag = GestureDrag::new();
     drag.connect_drag_begin({
         let viewer = viewer.clone();
