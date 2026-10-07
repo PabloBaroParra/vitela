@@ -12,8 +12,12 @@ import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SaveSnapshot
 import dev.vitela.pdf.core.SigningCertificate
+import dev.vitela.pdf.home.NoRecentStore
+import dev.vitela.pdf.home.RecentDocument
+import dev.vitela.pdf.home.RecentStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
@@ -31,13 +35,18 @@ import kotlinx.coroutines.withContext
  * [compute] runs the core's work and [io] the shell's file writes; the
  * defaults are the production ones, and tests pass their own scheduler.
  * [signatures] keeps the drawn signature the user asked to be remembered;
- * the default remembers nothing.
+ * the default remembers nothing. [recents] keeps Home's Recent list, with
+ * [encodePreview] making each card's first-page PNG and [clock] stamping when
+ * it was opened; the default store remembers nothing.
  */
 class ViewerViewModel(
     private val core: PdfCore?,
     compute: CoroutineDispatcher = Dispatchers.Default,
     io: CoroutineDispatcher = Dispatchers.IO,
     signatures: SignatureStore = NoSignatureStore,
+    recents: RecentStore = NoRecentStore,
+    encodePreview: (RenderedPage) -> ByteArray? = { it.toPng() },
+    private val clock: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
     private val session = ViewerSession({ viewModelScope }, ViewerState(status = availabilityMessage(core), canOpen = core != null), compute, io)
     private val _state = session.state
@@ -46,6 +55,8 @@ class ViewerViewModel(
     /** The save target of [sourceBytes], kept beside it so a password retry opens with it. */
     private var sourceTarget: String? = null
     private var sourceStartTool: DocumentStartTool? = null
+    /** The Recent entry [sourceBytes] will become once opened, kept beside it for a password retry. */
+    private var sourceRecent: String? = null
     /**
      * Whether the reader already agreed to discard unsaved changes to open
      * [sourceBytes]. An encrypted replacement fails its first open and asks
@@ -84,26 +95,29 @@ class ViewerViewModel(
     }
     private val signing = Signing(session, { bytes, password -> openSigningCertificate(bytes, password) }, ::reopenSigned)
     private val saving = DocumentSaving(session)
+    private val recentRemembering = RecentRemembering(session, recents, encodePreview)
 
     /**
      * [saveTarget] is where **Save** may later write this document back to;
      * omit it for bytes with no writable origin, such as the packaged sample.
+     * [recent] is the opaque key Home's Recent list will remember it under
+     * once it opens; omit it for bytes the app could not reopen later.
      */
-    fun open(displayName: String, bytes: ByteArray, password: String? = null, saveTarget: String? = null, startTool: DocumentStartTool? = null) {
+    fun open(displayName: String, bytes: ByteArray, password: String? = null, saveTarget: String? = null, startTool: DocumentStartTool? = null, recent: String? = null) {
         cancelClose()
         if (_state.value.isDirty && session.document != null) {
-            pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget, startTool)
+            pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget, startTool, recent)
             _state.value = _state.value.copy(pendingReplacementTitle = displayName)
             return
         }
-        replaceDocument(displayName, bytes, password, saveTarget, startTool = startTool)
+        replaceDocument(displayName, bytes, password, saveTarget, startTool = startTool, recent = recent)
     }
 
     fun confirmReplacement() {
         val replacement = pendingReplacement ?: return
         pendingReplacement = null
         _state.value = _state.value.copy(pendingReplacementTitle = null)
-        replaceDocument(replacement.displayName, replacement.bytes, replacement.password, replacement.saveTarget, discardUnsaved = true, startTool = replacement.startTool)
+        replaceDocument(replacement.displayName, replacement.bytes, replacement.password, replacement.saveTarget, discardUnsaved = true, startTool = replacement.startTool, recent = replacement.recent)
     }
 
     fun cancelReplacement() {
@@ -145,6 +159,7 @@ class ViewerViewModel(
                 sourceBytes = null
                 sourceTarget = null
                 sourceStartTool = null
+                sourceRecent = null
                 sourceDiscardConfirmed = false
                 pendingReplacement = null
                 _state.value = ViewerState(canOpen = core != null, status = "Select a PDF to begin.")
@@ -152,7 +167,7 @@ class ViewerViewModel(
         }
     }
 
-    private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, saveTarget: String?, discardUnsaved: Boolean = false, startTool: DocumentStartTool? = null) {
+    private fun replaceDocument(displayName: String, bytes: ByteArray, password: String?, saveTarget: String?, discardUnsaved: Boolean = false, startTool: DocumentStartTool? = null, recent: String? = null) {
         val availableCore = core ?: return
         // Retain the selected bytes and the shell's opaque save target while
         // the session is active. Passwords are never retained after this call.
@@ -161,17 +176,22 @@ class ViewerViewModel(
             // An edit may have acquired this lane after open() checked state.
             // Check again before replacing the document it just modified.
             if (!discardUnsaved && _state.value.isDirty && session.document != null) {
-                pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget, startTool)
+                pendingReplacement = PendingReplacement(displayName, bytes, password, saveTarget, startTool, recent)
                 _state.value = _state.value.copy(pendingReplacementTitle = displayName)
                 return@withLock
             }
             sourceBytes = bytes
             sourceTarget = saveTarget
             sourceStartTool = startTool
+            sourceRecent = recent
             sourceDiscardConfirmed = discardUnsaved
             _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
             when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, password) }) {
-                is PdfCoreResult.Success -> install(displayName, result.value, saveTarget, startTool)
+                is PdfCoreResult.Success -> {
+                    install(displayName, result.value, saveTarget, startTool)
+                    // Opened with a password: its first page must not be written to disk as a preview.
+                    if (recent != null) rememberRecent(recent, displayName, result.value, preview = password == null)
+                }
                 is PdfCoreResult.Failure -> handleOpenFailure(result.error)
             }
             }
@@ -220,6 +240,19 @@ class ViewerViewModel(
         }
     }
 
+    /** Puts the document just installed first on Home's Recent list. Called with the document lane held. */
+    private suspend fun rememberRecent(recent: String, displayName: String, document: PdfDocument, preview: Boolean) {
+        sourceRecent = null
+        val pageCount = document.pageCount
+        val firstPage = if (preview && pageCount > 0) {
+            val dpi = thumbnailDpi(_state.value.pageSizes.firstOrNull(), RECENT_PREVIEW_PX)
+            withContext(session.compute) { (document.renderPage(0, dpi) as? PdfCoreResult.Success)?.value }
+        } else {
+            null
+        }
+        recentRemembering.remember(RecentDocument(recent, displayName, clock(), pageCount), firstPage)
+    }
+
     /**
      * Protect's reopen: the file just written, opened under both passwords.
      * No dirty check — the protected bytes carry every pending edit — and the
@@ -233,6 +266,7 @@ class ViewerViewModel(
             is PdfCoreResult.Success -> {
                 sourceBytes = bytes
                 sourceTarget = saveTarget
+                sourceRecent = null
                 install(displayName, result.value, saveTarget)
                 null
             }
@@ -253,6 +287,7 @@ class ViewerViewModel(
             is PdfCoreResult.Success -> {
                 sourceBytes = bytes
                 sourceTarget = saveTarget
+                sourceRecent = null
                 install(displayName, result.value, saveTarget)
                 null
             }
@@ -260,6 +295,7 @@ class ViewerViewModel(
                 if (result.error is PdfCoreError.PasswordRequired) {
                     sourceBytes = bytes
                     sourceTarget = saveTarget
+                    sourceRecent = null
                     _state.value = _state.value.copy(title = displayName, needsPassword = true, passwordMessage = null)
                 }
                 result.error
@@ -269,7 +305,7 @@ class ViewerViewModel(
 
     fun retryPassword(password: String) {
         val bytes = sourceBytes ?: return
-        replaceDocument(_state.value.title, bytes, password, sourceTarget, discardUnsaved = sourceDiscardConfirmed, startTool = sourceStartTool)
+        replaceDocument(_state.value.title, bytes, password, sourceTarget, discardUnsaved = sourceDiscardConfirmed, startTool = sourceStartTool, recent = sourceRecent)
     }
 
     /**
@@ -283,6 +319,7 @@ class ViewerViewModel(
         sourceBytes = null
         sourceTarget = null
         sourceStartTool = null
+        sourceRecent = null
         sourceDiscardConfirmed = false
         _state.value = _state.value.copy(
             isLoading = false,
@@ -294,6 +331,19 @@ class ViewerViewModel(
 
     fun reportReadFailure() {
         _state.value = _state.value.copy(status = "Could not read the selected PDF.")
+    }
+
+    // Home's Recent list
+    val recentDocuments: StateFlow<List<RecentDocument>> get() = recentRemembering.entries
+    fun loadRecents() = recentRemembering.load()
+    fun removeRecent(uri: String) = recentRemembering.remove(uri)
+    suspend fun recentThumbnail(uri: String): ByteArray? = recentRemembering.thumbnail(uri)
+
+    /** A Recent card whose document could not be read: its file is gone, or its provider is unreachable. */
+    fun reportRecentUnavailable(displayName: String, removed: Boolean) {
+        _state.value = _state.value.copy(
+            status = if (removed) "$displayName is no longer available and was removed from Recent." else "Could not open $displayName.",
+        )
     }
 
     fun search(query: String) {
@@ -556,7 +606,7 @@ class ViewerViewModel(
         super.onCleared()
     }
 
-    private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?, val startTool: DocumentStartTool?)
+    private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?, val startTool: DocumentStartTool?, val recent: String?)
 }
 
 private fun availabilityMessage(core: PdfCore?): String = if (core == null) "Native PDF support is not packaged. Build with scripts/package-android.sh and externally supplied PDFium libraries." else "Select a PDF to begin."

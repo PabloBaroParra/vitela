@@ -1,6 +1,9 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PdfCore
+import dev.vitela.pdf.core.RenderedPage
+import dev.vitela.pdf.home.NoRecentStore
+import dev.vitela.pdf.home.RecentStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -33,5 +36,11 @@ class ViewerDispatcherRule : TestWatcher() {
 
     override fun finished(description: Description) = Dispatchers.resetMain()
 
-    fun viewModel(core: PdfCore?, signatures: SignatureStore = MemorySignatureStore()) = ViewerViewModel(core, compute = work, io = work, signatures = signatures)
+    fun viewModel(
+        core: PdfCore?,
+        signatures: SignatureStore = MemorySignatureStore(),
+        recents: RecentStore = NoRecentStore,
+        encodePreview: (RenderedPage) -> ByteArray? = { null },
+        clock: () -> Long = { 0L },
+    ) = ViewerViewModel(core, compute = work, io = work, signatures = signatures, recents = recents, encodePreview = encodePreview, clock = clock)
 }

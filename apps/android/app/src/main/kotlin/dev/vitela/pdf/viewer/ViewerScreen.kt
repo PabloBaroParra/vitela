@@ -32,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.home.HomeScreen
+import dev.vitela.pdf.home.RecentActions
+import dev.vitela.pdf.home.RecentDocument
 import dev.vitela.pdf.ui.theme.Vitela
 
 /**
@@ -50,6 +52,8 @@ internal fun ViewerScreen(
     onCloseCancelled: () -> Unit,
     onOpenTool: (DocumentStartTool) -> Unit,
     onOpenSample: (assetName: String, displayName: String) -> Unit,
+    recents: List<RecentDocument>,
+    recentActions: RecentActions,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onGoToPage: (Int) -> Unit,
@@ -124,7 +128,7 @@ internal fun ViewerScreen(
     // Files dragged in from another app: whatever missed every page lands here, Home included.
     Box(Modifier.fillMaxSize().fileDropTarget(fileDrop.onScreen)) {
         if (showsHome(state)) {
-            HomeScreen(canOpen = state.canOpen && !state.isLoading && !state.needsPassword, isLoading = state.isLoading, status = state.status, onOpen = onOpen, onOpenTool = onOpenTool, onOpenSample = onOpenSample)
+            HomeScreen(canOpen = state.canOpen && !state.isLoading && !state.needsPassword, isLoading = state.isLoading, status = state.status, onOpen = onOpen, onOpenTool = onOpenTool, onOpenSample = onOpenSample, recents = recents, recentActions = recentActions)
         } else {
             var mode by rememberSaveable(state.documentId) { mutableStateOf(initialReaderMode(state.startTool)) }
             var searchOpen by rememberSaveable { mutableStateOf(false) }

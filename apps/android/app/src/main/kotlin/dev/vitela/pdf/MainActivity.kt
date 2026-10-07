@@ -14,6 +14,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -23,11 +25,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.IntentCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.vitela.pdf.core.PdfCoreProvider
 import dev.vitela.pdf.document.SafDocuments
 import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.document.openablePdfUri
+import dev.vitela.pdf.home.RecentActions
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.ui.theme.VitelaTheme
@@ -44,6 +50,7 @@ import dev.vitela.pdf.viewer.OrganizeActions
 import dev.vitela.pdf.viewer.SignActions
 import dev.vitela.pdf.viewer.ViewerScreen
 import dev.vitela.pdf.viewer.pastableImageUri
+import dev.vitela.pdf.viewer.showsHome
 import dev.vitela.pdf.viewer.SavedSignatureActions
 import dev.vitela.pdf.viewer.signaturePng
 import dev.vitela.pdf.viewer.ViewerViewModel
@@ -74,13 +81,33 @@ private fun VitelaApp(
     viewModel: ViewerViewModel = viewModel(factory = ViewerViewModelFactory(PdfCoreProvider.create(), LocalContext.current.filesDir)),
 ) {
     val state by viewModel.state.collectAsState()
+    val recents by viewModel.recentDocuments.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    LaunchedEffect(viewModel) { viewModel.loadRecents() }
+    // Whenever Home shows, drop the cards whose document is gone — deleted, or its grant revoked — as the desktop drops missing files.
+    // Also on every return to the app: a file deleted from the file manager meanwhile changes neither key otherwise.
+    val homeShowing = showsHome(state)
+    var resumes by remember { mutableIntStateOf(0) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) resumes++ }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    LaunchedEffect(homeShowing, recents, resumes) {
+        if (!homeShowing) return@LaunchedEffect
+        val gone = withContext(Dispatchers.IO) { recents.filterNot { SafDocuments.isAvailable(context.contentResolver, it.uri) } }
+        gone.forEach { entry ->
+            viewModel.removeRecent(entry.uri)
+            withContext(Dispatchers.IO) { SafDocuments.forget(context.contentResolver, entry.uri) }
+        }
+    }
     if (incoming != null) {
         LaunchedEffect(incoming) {
             // Same path as the picker: Save writes back only when the sender granted a persistable write.
             val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, incoming) }
-            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget)
+            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget, recent = opened.recent)
         }
     }
     var pickedTool by rememberSaveable { mutableStateOf<DocumentStartTool?>(null) }
@@ -128,7 +155,7 @@ private fun VitelaApp(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, uri) }
-            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget, startTool = startTool)
+            if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget, startTool = startTool, recent = opened.recent)
         }
     }
     val addPdfs = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -215,6 +242,32 @@ private fun VitelaApp(
                 }
                 viewModel.open(displayName, bytes)
             }
+        },
+        recents = recents,
+        recentActions = remember(viewModel) {
+            RecentActions(
+                onOpen = { entry ->
+                    scope.launch {
+                        val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, Uri.parse(entry.uri)) }
+                        if (opened != null) {
+                            viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget, recent = opened.recent)
+                            return@launch
+                        }
+                        // Gone for good (deleted, grant revoked) leaves the list; unreachable for now stays on it.
+                        val gone = withContext(Dispatchers.IO) { !SafDocuments.isAvailable(context.contentResolver, entry.uri) }
+                        if (gone) {
+                            viewModel.removeRecent(entry.uri)
+                            withContext(Dispatchers.IO) { SafDocuments.forget(context.contentResolver, entry.uri) }
+                        }
+                        viewModel.reportRecentUnavailable(entry.displayName, removed = gone)
+                    }
+                },
+                onRemove = { entry ->
+                    viewModel.removeRecent(entry.uri)
+                    scope.launch(Dispatchers.IO) { SafDocuments.forget(context.contentResolver, entry.uri) }
+                },
+                thumbnail = viewModel::recentThumbnail,
+            )
         },
         onPrevious = { viewModel.navigate(-1) },
         onNext = { viewModel.navigate(1) },

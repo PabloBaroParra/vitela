@@ -55,6 +55,8 @@ internal fun HomeScreen(
     onOpen: () -> Unit,
     onOpenTool: (DocumentStartTool) -> Unit,
     onOpenSample: (assetName: String, displayName: String) -> Unit,
+    recents: List<RecentDocument>,
+    recentActions: RecentActions,
 ) {
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
@@ -72,6 +74,7 @@ internal fun HomeScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                             OpenCard(canOpen, isLoading, onOpen)
+                            HomeRecents(recents, canOpen, recentActions)
                             SampleCard(canOpen, onOpenSample)
                         }
                         Surface(Modifier.weight(1f), shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface) {
@@ -80,6 +83,7 @@ internal fun HomeScreen(
                     }
                 } else {
                     OpenCard(canOpen, isLoading, onOpen)
+                    HomeRecents(recents, canOpen, recentActions)
                     HomeTools(canOpen, onOpenTool)
                     SampleCard(canOpen, onOpenSample)
                 }

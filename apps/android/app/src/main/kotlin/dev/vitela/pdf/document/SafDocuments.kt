@@ -6,8 +6,12 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 
-/** A picked PDF: its bytes, and where **Save** may write it back to (null when it may not). */
-class OpenedDocument(val displayName: String, val bytes: ByteArray, val saveTarget: String?)
+/**
+ * A picked PDF: its bytes, where **Save** may write it back to (null when it
+ * may not), and the key Home's Recent list may reopen it by — null when the
+ * grant was not persistable, as with "Open with", a share or a drop.
+ */
+class OpenedDocument(val displayName: String, val bytes: ByteArray, val saveTarget: String?, val recent: String? = null)
 
 /** A document made with `CreateDocument` that the app will reopen: its name, and its save target. */
 class CreatedDocument(val displayName: String, val saveTarget: String?)
@@ -21,7 +25,42 @@ object SafDocuments {
     /** Reads a document picked with `OpenDocument`, or null if it could not be read. */
     fun open(resolver: ContentResolver, uri: Uri): OpenedDocument? {
         val read = read(resolver, uri) ?: return null
-        return OpenedDocument(read.displayName, read.bytes, persistAccess(resolver, uri))
+        val access = persistAccess(resolver, uri)
+        return OpenedDocument(read.displayName, read.bytes, access.saveTarget, uri.toString().takeIf { access.readable })
+    }
+
+    /**
+     * Gives back every grant the app holds on a Recent entry's document. The
+     * list is how the user sees what the app can still reach; a removed card
+     * must not leave that access behind.
+     */
+    fun forget(resolver: ContentResolver, recent: String) {
+        val uri = Uri.parse(recent)
+        resolver.persistedUriPermissions.filter { it.uri == uri }.forEach { permission ->
+            val flags = (if (permission.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                (if (permission.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+            runCatching { resolver.releasePersistableUriPermission(uri, flags) }
+        }
+    }
+
+    /**
+     * Whether a Recent entry's document can still be reached: the grant is
+     * still held and its provider still knows the document. A provider
+     * answers a deleted document with no row (DocumentsProvider turns its
+     * FileNotFoundException into a null cursor); any other failure — an
+     * unreachable cloud provider, say — counts as still there, so a card is
+     * never dropped for being offline.
+     */
+    fun isAvailable(resolver: ContentResolver, recent: String): Boolean {
+        val uri = Uri.parse(recent)
+        if (resolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) return false
+        return try {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { it.moveToFirst() } ?: false
+        } catch (_: SecurityException) {
+            false
+        } catch (_: RuntimeException) {
+            true
+        }
     }
 
     /**
@@ -53,7 +92,7 @@ object SafDocuments {
      * about to reopen, keeping access so **Save** can write back to it.
      */
     fun created(resolver: ContentResolver, uri: Uri): CreatedDocument =
-        CreatedDocument(displayName(resolver, uri), persistAccess(resolver, uri))
+        CreatedDocument(displayName(resolver, uri), persistAccess(resolver, uri).saveTarget)
 
     /** Writes [bytes] to a URI the user picked with `CreateDocument`. */
     fun writeCopy(resolver: ContentResolver, uri: Uri, bytes: ByteArray): Boolean = write(resolver, uri, bytes)
@@ -61,18 +100,21 @@ object SafDocuments {
     /** Writes [bytes] back over the document a save target came from. */
     fun writeBack(resolver: ContentResolver, saveTarget: String, bytes: ByteArray): Boolean = write(resolver, Uri.parse(saveTarget), bytes)
 
+    /** What [persistAccess] kept: a save target when a write grant persisted, and whether a read grant did. */
+    private class PersistedAccess(val saveTarget: String?, val readable: Boolean)
+
     /**
      * Keeps access to [uri] across process death and returns it as a save
      * target when the provider will accept a write. Write access is only
      * requested when the provider advertises it: asking for a flag the picker
      * never granted throws, and would cost us the read grant too.
      */
-    private fun persistAccess(resolver: ContentResolver, uri: Uri): String? {
+    private fun persistAccess(resolver: ContentResolver, uri: Uri): PersistedAccess {
         val writable = supportsWrite(resolver, uri)
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or if (writable) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0
         val persisted = runCatching { resolver.takePersistableUriPermission(uri, flags) }.isSuccess
-        if (!persisted) runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        return uri.toString().takeIf { writable && persisted }
+        val readable = persisted || runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }.isSuccess
+        return PersistedAccess(uri.toString().takeIf { writable && persisted }, readable)
     }
 
     private fun supportsWrite(resolver: ContentResolver, uri: Uri): Boolean = runCatching {
