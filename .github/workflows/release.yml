@@ -106,6 +106,7 @@ jobs:
     with:
       # Empty on a rehearsal: built and verified, but not uploaded.
       package-version: ${{ needs.version.outputs.debian }}
+      app-version: ${{ needs.version.outputs.semver }}
 
   linux-gtk-ui:
     name: Linux UI
@@ -160,6 +161,7 @@ jobs:
     uses: ./.github/workflows/windows-store.yml
     with:
       msix-version: ${{ needs.version.outputs.msix }}
+      app-version: ${{ needs.version.outputs.semver }}
     secrets: inherit
 
   publish-android:
