@@ -99,10 +99,11 @@ jobs:
         # that is sometimes unreachable or very slow. apt falls back to
         # archive.ubuntu.com for the InRelease files but has been observed
         # hanging for 15+ minutes retrying the package indexes against the
-        # dead mirror instead of moving on. Rewriting the mirror list to the
-        # reliable host directly avoids the wait rather than just timing out
-        # faster.
-        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
+        # dead mirror instead of moving on. Dropping the Azure entry leaves
+        # only the https://archive.ubuntu.com entries. Rewriting it to
+        # http://archive.ubuntu.com instead was tried and also hung: that
+        # endpoint stalled ~30s per request before apt fell back to https.
+        run: sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
       - name: Install packaging and GTK4 build dependencies
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev dpkg-dev file binutils libfuse2
       # The same pinned chromium/7763 Linux/x64 input core.yml's test job
@@ -173,7 +174,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
-        run: sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/' /etc/apt/apt-mirrors.txt
+        run: sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
       - name: Install apt-ftparchive
         run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y apt-utils
       - name: Release tooling shell tests
