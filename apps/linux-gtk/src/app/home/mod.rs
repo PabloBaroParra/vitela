@@ -27,6 +27,7 @@
 
 mod header;
 mod hero;
+mod hidden_recents;
 pub(crate) mod recents;
 pub(crate) mod tools;
 

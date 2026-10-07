@@ -16,6 +16,12 @@
 //! whoever registered them supplied. [`recent_pdfs`] filters on all three
 //! counts before anything reaches the screen.
 //!
+//! ## Removing a card
+//!
+//! Right-click, long-press or Delete takes a card off this list without
+//! touching the shared store — see [`super::hidden_recents`] for why, and for
+//! the rule that brings it back once the document is opened again.
+//!
 //! ## Why the previews are rendered here rather than read from a cache
 //!
 //! The freedesktop thumbnail spec would let us read `~/.cache/thumbnails`,
@@ -30,8 +36,9 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gdk_pixbuf, gio, glib, Align, Box as GtkBox, Button, FlowBox, Label, Orientation, Picture,
-    RecentManager, SelectionMode,
+    gdk, gdk_pixbuf, gio, glib, Align, Box as GtkBox, Button, EventControllerKey, FlowBox,
+    GestureClick, GestureLongPress, Label, Orientation, Picture, Popover, RecentManager,
+    SelectionMode,
 };
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError, RenderOptions};
 
@@ -39,6 +46,7 @@ use crate::app::document::open_file;
 use crate::app::render::render_result;
 use crate::app::state::{RenderedPage, Viewer};
 
+use super::hidden_recents::{hides, Hidden, HiddenRecents};
 use super::is_pdf_path;
 
 /// How many documents the list shows. The recent store holds far more; this
@@ -128,6 +136,9 @@ pub(crate) struct RecentsSection {
     /// started with and stops as soon as it no longer matches, so previews
     /// from a superseded list can never paint into the current one.
     generation: Rc<Cell<u64>>,
+    /// The cards the user removed. Read on every rebuild, written by a card's
+    /// remove action.
+    hidden: HiddenRecents,
 }
 
 /// Builds the section and fills it from the recent store, then keeps it in
@@ -162,6 +173,7 @@ pub(crate) fn build_recents_section(viewer: &Viewer) -> RecentsSection {
         query: Rc::new(RefCell::new(String::new())),
         empty,
         generation: Rc::new(Cell::new(0)),
+        hidden: HiddenRecents::in_user_data_dir(),
     };
     section.rebuild(viewer);
 
@@ -176,7 +188,7 @@ pub(crate) fn build_recents_section(viewer: &Viewer) -> RecentsSection {
 
 impl RecentsSection {
     fn rebuild(&self, viewer: &Viewer) {
-        self.rebuild_from(recent_pdfs(MAX_RECENTS), viewer);
+        self.rebuild_from(recent_pdfs(MAX_RECENTS, &self.hidden.load()), viewer);
     }
 
     /// Replaces the list with `entries`. Separated from [`Self::rebuild`] so
@@ -222,7 +234,7 @@ impl RecentsSection {
 
             let cards = matching
                 .into_iter()
-                .map(|entry| build_card(&flow, entry, &now, viewer))
+                .map(|entry| build_card(self, &flow, entry, &now, viewer))
                 .collect();
             groups.push(Group { container, cards });
         }
@@ -247,6 +259,38 @@ impl RecentsSection {
             .find(|card| card.button.is_visible())
             .map(|card| card.button.grab_focus())
             .unwrap_or(false)
+    }
+
+    /// Takes `path` off the list until it is opened again, then rebuilds.
+    ///
+    /// `refocus` is for the keyboard path: the card that had focus is about
+    /// to be destroyed, and focus would otherwise fall back to the window.
+    fn remove(&self, path: PathBuf, viewer: &Viewer, refocus: bool) {
+        let section = self.clone();
+        let viewer = viewer.clone();
+        let store = self.hidden.clone();
+        glib::spawn_future_local(async move {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let now = glib::DateTime::now_utc()
+                .map(|now| now.to_unix())
+                .unwrap_or(i64::MAX);
+            let hidden = gio::spawn_blocking(move || store.hide(&path, now))
+                .await
+                .unwrap_or(false);
+            if !hidden {
+                viewer
+                    .status
+                    .set_text(&format!("Could not remove {name} from Recent."));
+                return;
+            }
+            section.rebuild(&viewer);
+            if refocus {
+                section.focus_first_card();
+            }
+        });
     }
 
     /// Hides every card whose filename does not contain `query`, then hides
@@ -333,7 +377,13 @@ impl RecentsSection {
     }
 }
 
-fn build_card(flow: &FlowBox, entry: &RecentPdf, now: &glib::DateTime, viewer: &Viewer) -> Card {
+fn build_card(
+    section: &RecentsSection,
+    flow: &FlowBox,
+    entry: &RecentPdf,
+    now: &glib::DateTime,
+    viewer: &Viewer,
+) -> Card {
     let thumb = Picture::new();
     thumb.add_css_class("recent-thumb");
     thumb.set_can_shrink(true);
@@ -372,6 +422,7 @@ fn build_card(flow: &FlowBox, entry: &RecentPdf, now: &glib::DateTime, viewer: &
         let path = entry.path.clone();
         move |_| open_file(&viewer, path.clone())
     });
+    connect_remove(section, &button, &entry.path, viewer);
     flow.append(&button);
 
     Card {
@@ -384,17 +435,117 @@ fn build_card(flow: &FlowBox, entry: &RecentPdf, now: &glib::DateTime, viewer: &
     }
 }
 
+/// Wires a card's three ways to be removed: a right-click or a long-press
+/// opens a one-item menu, and Delete removes the focused card outright.
+///
+/// The menu's popover is built per opening and unparented once closed, so a
+/// rebuild never destroys a card that still has a popover attached to it.
+fn connect_remove(section: &RecentsSection, button: &Button, path: &Path, viewer: &Viewer) {
+    let open_menu = {
+        let section = section.clone();
+        let viewer = viewer.clone();
+        let path = path.to_path_buf();
+        move |button: &Button, x: f64, y: f64| {
+            let remove = Button::with_label("Remove from Recent");
+            remove.add_css_class("flat");
+            let popover = Popover::new();
+            popover.set_child(Some(&remove));
+            popover.set_parent(button);
+            popover.set_has_arrow(false);
+            popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.connect_closed(|popover| {
+                // Deferred: unparenting inside `closed` can run before the
+                // click that caused the close has finished.
+                let popover = popover.clone();
+                glib::idle_add_local_once(move || popover.unparent());
+            });
+            remove.connect_clicked({
+                let section = section.clone();
+                let viewer = viewer.clone();
+                let path = path.clone();
+                // Weak: the popover owns this button, so a strong reference
+                // here would keep every menu ever opened alive.
+                let popover = popover.downgrade();
+                move |_| {
+                    let Some(popover) = popover.upgrade() else {
+                        return;
+                    };
+                    // Off the card *before* the removal can rebuild the list
+                    // and destroy that card — not left to the `closed` idle,
+                    // whose order against the rebuild is not guaranteed.
+                    // Outside this click's own emission; unparenting twice is
+                    // a no-op.
+                    popover.popdown();
+                    let section = section.clone();
+                    let viewer = viewer.clone();
+                    let path = path.clone();
+                    let popover = popover.clone();
+                    glib::idle_add_local_once(move || {
+                        popover.unparent();
+                        section.remove(path, &viewer, false);
+                    });
+                }
+            });
+            popover.popup();
+        }
+    };
+
+    let right_click = GestureClick::new();
+    right_click.set_button(gdk::BUTTON_SECONDARY);
+    right_click.connect_pressed({
+        let button = button.clone();
+        let open_menu = open_menu.clone();
+        move |gesture, _, x, y| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            open_menu(&button, x, y);
+        }
+    });
+    button.add_controller(right_click);
+
+    let long_press = GestureLongPress::new();
+    long_press.set_touch_only(true);
+    long_press.connect_pressed({
+        let button = button.clone();
+        move |gesture, x, y| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            open_menu(&button, x, y);
+        }
+    });
+    button.add_controller(long_press);
+
+    let keys = EventControllerKey::new();
+    keys.connect_key_pressed({
+        let section = section.clone();
+        let viewer = viewer.clone();
+        let path = path.to_path_buf();
+        move |_, key, _, _| {
+            if key != gdk::Key::Delete && key != gdk::Key::KP_Delete {
+                return glib::Propagation::Proceed;
+            }
+            section.remove(path.clone(), &viewer, true);
+            glib::Propagation::Stop
+        }
+    });
+    button.add_controller(keys);
+}
+
 /// Registers `path` with the desktop's recent store, so it appears in this
 /// list — and in every other application's — next time.
 ///
 /// Called from `document.rs` once an open has actually succeeded. Registering
 /// on *attempt* would fill the list with files that turned out unreadable.
+///
+/// Also forgets a removal of `path`: the store's own timestamp already brings
+/// a reopened card back, except within the second it was removed in. Done
+/// before `add_item`, whose `changed` signal is what rebuilds the list.
 pub(crate) fn remember(path: &Path) {
+    HiddenRecents::in_user_data_dir().unhide(path);
     RecentManager::default().add_item(&gio::File::for_path(path).uri());
 }
 
-/// The recent store's PDF entries, newest first, capped at `limit`.
-fn recent_pdfs(limit: usize) -> Vec<RecentPdf> {
+/// The recent store's PDF entries, newest first, capped at `limit`, leaving
+/// out the ones the user removed.
+fn recent_pdfs(limit: usize, hidden: &Hidden) -> Vec<RecentPdf> {
     let mut entries: Vec<RecentPdf> = RecentManager::default()
         .items()
         .into_iter()
@@ -408,6 +559,13 @@ fn recent_pdfs(limit: usize) -> Vec<RecentPdf> {
             // files they point at, and a card that cannot open is worse than
             // no card.
             if !looks_like_pdf || !path.exists() {
+                return None;
+            }
+            // The later of the two: which one a re-registration bumps is the
+            // store's business, and either means "used again".
+            let used = info.visited().to_unix().max(info.modified().to_unix());
+            // Before the cap, so a hidden card does not cost the list a slot.
+            if hides(hidden, &path, used) {
                 return None;
             }
             let name = path
