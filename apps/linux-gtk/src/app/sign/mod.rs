@@ -1024,7 +1024,7 @@ fn begin_sign_from_picker(
                 generation: state.generation,
                 edit_revision: session.edit_revision,
             },
-            bytes: backing.original_bytes.clone(),
+            bytes: backing.original_bytes.to_vec(),
             password: backing.password.clone(),
             page_number: 1,
             field_name: next_signature_field_name(&backing.base),

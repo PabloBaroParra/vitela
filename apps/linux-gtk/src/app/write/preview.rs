@@ -13,18 +13,20 @@
 //! disk save is.
 
 mod edits;
+mod swap;
 mod view;
 
 use gtk::{gio, glib};
 use pdf_document::Document;
-use pdf_render::PdfiumRenderer;
+use pdf_render::{PdfiumRenderer, Priority};
 
 use edits::{restore_edit_state, take_edit_state};
 use view::{restore_screen, restore_view_state, take_screen, take_view_state};
 
-use super::super::document::{close_document_in_background, open_document, show_document};
+use super::super::document::{close_document_in_background, show_document};
 use super::super::state::{
-    DocumentSource, ImportedSource, OpenedDocument, SaveBacking, SessionToken, Viewer,
+    AnnotationAccess, ContentEditAccess, ImportedSource, OpenedDocument, PageAssemblyAccess,
+    SaveBacking, SessionToken, TextAccess, Viewer,
 };
 use super::imported_sources;
 use super::worker::{
@@ -87,7 +89,7 @@ use super::worker::{
 /// The file on disk is still behind, which is what `unsaved_to_disk` tracks.
 pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
     let message = message.into();
-    let (token, document, backing, sources) = {
+    let (token, document, backing, sources, carried) = {
         let mut state = viewer.state.borrow_mut();
         // Two independent sites can each ask for a refresh off the same
         // click — `content_edit::editor::commit` (retyping a run) and
@@ -115,8 +117,15 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
             edit_revision: session.edit_revision,
         };
         let sources = session.imported_sources.clone();
+        let carried = CarriedSession {
+            name: session.base_name.clone(),
+            text_access: session.text_access,
+            annotation_access: session.annotation_access,
+            content_edit_access: session.content_edit_access,
+            page_assembly_access: session.page_assembly_access,
+        };
         state.preview_refresh_in_flight = true;
-        (token, document, backing, sources)
+        (token, document, backing, sources, carried)
     };
 
     viewer.status.set_text("Refreshing preview...");
@@ -124,7 +133,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
         let viewer = viewer.clone();
         async move {
             let result = gio::spawn_blocking(move || {
-                refresh_snapshot_and_reopen(&document, &backing, &sources)
+                refresh_snapshot_and_reopen(document, &backing, &sources, carried)
             })
             .await;
             let result = save_worker_result(result);
@@ -132,17 +141,33 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                 Ok((reopened, warnings))
                     if let Some(generation) = prepare_reopened_session(&viewer, token) =>
                 {
-                    // Lifted out *before* `show_document` drops the session
-                    // it belongs to, and put back after — see this function's
-                    // own doc for why a preview refresh must not let a
-                    // document-open path reset either half.
-                    let preserved_edits = take_edit_state(&viewer);
-                    let preserved_view = take_view_state(&viewer);
-                    let preserved_screen = take_screen(&viewer);
-                    show_document(&viewer, generation, reopened);
-                    let still_editing = restore_edit_state(&viewer, preserved_edits);
-                    restore_view_state(&viewer, generation, preserved_view);
-                    restore_screen(&viewer, preserved_screen);
+                    // The common case — every page still the size it was —
+                    // keeps the page widgets and only swaps the handle under
+                    // them; see `swap` for why a full rebuild froze large
+                    // documents. A page op that changed the layout falls
+                    // through to the rebuild.
+                    let still_editing = match swap::swap_in_place(&viewer, reopened) {
+                        None => crate::app::content_edit::mode_is_active(&viewer),
+                        Some(reopened) => {
+                            // Lifted out *before* `show_document` drops the
+                            // session it belongs to, and put back after — see
+                            // this function's own doc for why a preview
+                            // refresh must not let a document-open path reset
+                            // either half.
+                            let preserved_edits = take_edit_state(&viewer);
+                            let preserved_view = take_view_state(&viewer);
+                            let preserved_screen = take_screen(&viewer);
+                            show_document(&viewer, generation, reopened);
+                            let still_editing = restore_edit_state(&viewer, preserved_edits);
+                            // `show_document` filled the metadata panel while
+                            // the session had no backing yet (the reopen
+                            // carries none); read it again now it does.
+                            crate::app::metadata::refresh(&viewer);
+                            restore_view_state(&viewer, generation, preserved_view);
+                            restore_screen(&viewer, preserved_screen);
+                            still_editing
+                        }
+                    };
                     // The reopen replaced the handle every thumbnail on the
                     // Organize screen was rendered against, and with it the
                     // backend page order those cards were indexed by. Usually
@@ -159,7 +184,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                     // so it re-parses the base the restored model's commands
                     // are actually keyed to.
                     if still_editing {
-                        crate::app::content_edit::load_all_page_content(&viewer);
+                        crate::app::content_edit::load_visible_page_content(&viewer);
                         crate::app::selection::redraw(&viewer);
                     }
                     viewer
@@ -219,14 +244,23 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
 /// untouched, which is exactly what the overlay assumes it is drawing on top
 /// of. The real disk save (`save_current_to`) still calls `save_document`, so
 /// nothing the user keeps loses that layer.
+///
+/// The reopen is pdfium only. A document open also parses the bytes with
+/// lopdf twice (permissions, then the editable model), and on a large file
+/// that was most of a refresh — for a model the refresh then throws away,
+/// since the session keeps the one it already had. What the reopened session
+/// does need from it is carried over instead ([`CarriedSession`]), and the
+/// model this preview was *written from* stands in for the one it would have
+/// read back: it is the record of what those bytes hold.
 fn refresh_snapshot_and_reopen(
-    document: &Document,
+    document: Document,
     backing: &SaveBacking,
     sources: &[ImportedSource],
+    carried: CarriedSession,
 ) -> Result<(OpenedDocument, Vec<pdf_manip::GraftWarning>), String> {
     let source_refs = imported_sources(sources);
     let outcome = pdf_save::save_preview_with_report(pdf_save::SaveInput {
-        document,
+        document: &document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
@@ -234,18 +268,51 @@ fn refresh_snapshot_and_reopen(
         imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
-    let reopened = open_document(
-        &DocumentSource::Bytes(outcome.bytes),
-        backing.password.as_deref(),
-    )
-    .map_err(|error| error.to_string())?;
-    if let Err(error) = reopened_matches_model(document, reopened.page_geometry.len()) {
+    let renderer = PdfiumRenderer::new();
+    let handle = renderer
+        .open_document_from_bytes(outcome.bytes, backing.password.as_deref())
+        .map_err(|error| error.to_string())?;
+    let page_geometry = match renderer.page_geometry(handle, Priority::Visible).wait() {
+        Ok(page_geometry) => page_geometry,
+        Err(error) => {
+            let _ = renderer.close_document(handle);
+            return Err(error.to_string());
+        }
+    };
+    if let Err(error) = reopened_matches_model(&document, page_geometry.len()) {
         // Nothing has installed this handle yet, so closing it is this
         // function's job — the caller only ever closes one it was handed.
-        let _ = PdfiumRenderer::new().close_document(reopened.document);
+        let _ = renderer.close_document(handle);
         return Err(error);
     }
+    let reopened = OpenedDocument {
+        document: handle,
+        name: carried.name,
+        page_geometry,
+        text_access: carried.text_access,
+        annotation_access: carried.annotation_access,
+        content_edit_access: carried.content_edit_access,
+        page_assembly_access: carried.page_assembly_access,
+        document_model: Some(document),
+        // Restored from the session by every path that installs this handle
+        // (`swap` never replaces it, `restore_edit_state` puts it back).
+        save_backing: None,
+    };
     Ok((reopened, outcome.graft_warnings))
+}
+
+/// What a preview reopen takes from the session instead of re-reading it out
+/// of the bytes it just wrote — see [`refresh_snapshot_and_reopen`].
+///
+/// The permissions in particular *must* come from here:
+/// `document::read_security_context` documents why they are only ever read
+/// from the file the user opened, and the session's are exactly those.
+struct CarriedSession {
+    name: String,
+    text_access: TextAccess,
+    annotation_access: AnnotationAccess,
+    content_edit_access: ContentEditAccess,
+    page_assembly_access: PageAssemblyAccess,
 }
 
 fn refresh_status(

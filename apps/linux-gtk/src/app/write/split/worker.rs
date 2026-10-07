@@ -196,8 +196,8 @@ mod tests {
         let request = SplitRequest {
             document,
             backing: SaveBacking {
-                base,
-                original_bytes: fs::read(&source).expect("read the sample back"),
+                base: base.into(),
+                original_bytes: fs::read(&source).expect("read the sample back").into(),
                 password: None,
             },
             sources: Vec::new(),

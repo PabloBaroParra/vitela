@@ -254,8 +254,8 @@ mod tests {
             },
             document,
             backing: SaveBacking {
-                base,
-                original_bytes: fs::read(&source).expect("read the sample back"),
+                base: base.into(),
+                original_bytes: fs::read(&source).expect("read the sample back").into(),
                 // The session opened an unprotected file: there is no old
                 // password to fall back on, which is exactly the case that
                 // would silently paper over the bug this test is about if the

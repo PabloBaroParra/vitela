@@ -313,8 +313,9 @@ mod tests {
         session.save_backing = Some(crate::app::state::SaveBacking {
             base: pdf_manip::LopdfDocument::from_lopdf(gen_fixtures::build_multi_page_document(
                 2, "compress",
-            )),
-            original_bytes: Vec::new(),
+            ))
+            .into(),
+            original_bytes: Vec::new().into(),
             password: None,
         });
         built.viewer.state.borrow_mut().session = Some(session);
