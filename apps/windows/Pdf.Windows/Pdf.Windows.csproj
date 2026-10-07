@@ -10,6 +10,17 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Exe icon (Explorer, pinned taskbar button). Regenerate: python scripts/windows-app-icon.py -->
     <ApplicationIcon>vitela.ico</ApplicationIcon>
+    <!--
+      The version Home's footer shows (Viewer/AppVersion.cs). A release passes
+      the tag's semver with -p:VitelaVersion (package-windows-store.ps1); any
+      other build is "dev". No commit hash appended: the footer shows the tag.
+      Derived rather than defaulted in place: a -p:VitelaVersion= with an empty
+      value is a global property, which no assignment in this file can change.
+    -->
+    <VitelaDisplayVersion>$(VitelaVersion)</VitelaDisplayVersion>
+    <VitelaDisplayVersion Condition="'$(VitelaDisplayVersion)' == ''">dev</VitelaDisplayVersion>
+    <InformationalVersion>$(VitelaDisplayVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <!--

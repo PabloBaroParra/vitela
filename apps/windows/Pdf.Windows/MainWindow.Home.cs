@@ -42,6 +42,7 @@ public sealed partial class MainWindow
             grid.Children.Add(tile);
             _homeToolTiles.Add(tile);
         }
+        HomeVersionText.Text = AppVersion.FooterText;
         _homeToolsCard = HomeCard("Tools", grid);
         HomeToolsColumn.Children.Add(_homeToolsCard);
         BuildHomeQuickActions();

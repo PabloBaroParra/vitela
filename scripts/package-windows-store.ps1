@@ -24,6 +24,13 @@
     Without it the package is a development build, versioned 0.0.1.0: the
     release tag, not Cargo.toml, is the source of truth for real versions.
 
+.PARAMETER DisplayVersion
+    The version Home's footer shows, the tag's semver:
+        bash scripts/release-version.sh v0.2.0-beta.1 semver  ->  0.2.0-beta.1
+    The MSIX version cannot be shown instead: 0.2.101.0 is the Store's
+    encoding of that beta, not a name anyone would recognise. Without it the
+    footer says "dev".
+
 .PARAMETER IdentityName
     Package/Identity/Name from Partner Center (Product identity page).
     Defaults to the development placeholder in Package.appxmanifest.
@@ -37,6 +44,7 @@
 [CmdletBinding()]
 param(
     [string]$Version,
+    [string]$DisplayVersion,
     [string]$IdentityName,
     [string]$Publisher,
     [string]$PublisherDisplayName,
@@ -127,7 +135,8 @@ if (-not $msbuild) { Fail 'MSBuild not found via vswhere' }
     "-p:VitelaPdfiumDll=$($pdfium.Dll)" `
     "-p:VitelaLicensesDir=$licenseDir" `
     "-p:AppxPackageDir=$packagesDir\" `
-    "-p:AppxPackageName=Vitela.Windows_$($packageVersion)_x64"
+    "-p:AppxPackageName=Vitela.Windows_$($packageVersion)_x64" `
+    "-p:VitelaVersion=$DisplayVersion"
 if ($LASTEXITCODE -ne 0) { Fail "MSBuild failed with exit code $LASTEXITCODE" }
 
 # Exact extension match: the build also leaves a .msixsym beside the package,

@@ -3,7 +3,7 @@ using Pdf.Windows.Viewer;
 
 /// <summary>
 /// The shell's theme contract: one palette file, the same roles in both
-/// variants, the user-approved values, and Home's two-column breakpoint.
+/// variants, the user-approved values, and Home's two-column breakpoint and footer.
 /// </summary>
 internal static class ThemeParityTests
 {
@@ -55,6 +55,10 @@ internal static class ThemeParityTests
         Check(!HomeLayout.IsStacked(HomeLayout.StackBelowWidth), "Home keeps two columns at the breakpoint");
         Check(!HomeLayout.IsStacked(1200), "Home keeps two columns in a wide window");
         Check(HomeLayout.IsStacked(0), "An unmeasured body must not claim to have room for two columns");
+
+        Check(AppVersion.Label("0.1.0-beta.3") == "Vitela 0.1.0-beta.3", "Home's footer shows a release build's tag version");
+        Check(AppVersion.Label("0.1.0-beta.3+0fecf15") == "Vitela 0.1.0-beta.3", "Home's footer drops a source-revision suffix");
+        Check(AppVersion.Label(null) == "Vitela dev" && AppVersion.Label(" ") == "Vitela dev", "A build without a version says it is a development one");
 
         // The caption is drawn by the OS from AppWindow.TitleBar colours, which cannot
         // reference XAML resources, so TitleBarColors repeats four palette roles.
