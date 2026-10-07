@@ -62,8 +62,13 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
                 continue;
             }
             if page.state == PageState::Rendered {
-                page.picture.set_pixbuf(None);
                 page.state = PageState::Idle;
+            }
+            // Not keyed on `Rendered` alone: a preview refresh marks pages
+            // `Idle` but leaves their old bitmap up until the re-render lands
+            // (`write::preview::swap`), and that bitmap must leave too.
+            if page.picture.paintable().is_some() {
+                page.picture.set_pixbuf(None);
             }
             // Tiles are the deep-zoom surfaces: each full one pins
             // `TILE_EDGE_PX` squared pixels of RGBA. They leave with the page
@@ -193,6 +198,11 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
     }
     for (document, page_index, dpi, priority, zoom_generation) in jobs {
         schedule_render(viewer, document, page_index, dpi, priority, zoom_generation);
+    }
+    // Content-edit outlines are parsed per page as it scrolls into view, not
+    // all at once when the mode arms — see `load_visible_page_content`.
+    if super::content_edit::mode_is_active(viewer) {
+        super::content_edit::load_visible_page_content(viewer);
     }
 }
 

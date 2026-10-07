@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Per-monitor DPI awareness. Without it Windows runs the process DPI-unaware:
+  XAML lays out at scale 1.0 and DWM stretches the bitmap, so on a 125%
+  display the page renders blurry and mouse-wheel input reaches XAML with
+  unscaled coordinates — past roughly three quarters of the canvas width the
+  wheel scrolled the tools panel instead of the document.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="Vitela.app" />
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+    </windowsSettings>
+  </application>
+</assembly>

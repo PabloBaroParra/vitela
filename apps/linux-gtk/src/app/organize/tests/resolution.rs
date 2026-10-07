@@ -14,8 +14,9 @@ fn base_backing() -> crate::app::state::SaveBacking {
     crate::app::state::SaveBacking {
         base: pdf_manip::LopdfDocument::from_lopdf(gen_fixtures::build_multi_page_document(
             3, "base",
-        )),
-        original_bytes: Vec::new(),
+        ))
+        .into(),
+        original_bytes: Vec::new().into(),
         password: None,
     }
 }

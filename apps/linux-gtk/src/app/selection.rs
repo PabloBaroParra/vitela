@@ -260,8 +260,8 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
 /// Paints one outline per text run on `page`, while content-edit mode is on.
 ///
 /// A no-op until the page's content has been parsed at least once
-/// (`content_edit::load_all_page_content` does this eagerly the moment the
-/// mode turns on) — draw funcs must not have side effects, so this never
+/// (`content_edit::load_visible_page_content` does this for the pages in view
+/// while the mode is on) — draw funcs must not have side effects, so this never
 /// triggers the parse itself.
 fn draw_content_run_outlines(
     context: &cairo::Context,

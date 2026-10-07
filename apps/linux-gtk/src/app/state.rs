@@ -449,10 +449,16 @@ pub(crate) enum HomeTool {
 }
 
 /// Inputs that must remain paired with the editable model for a valid save.
+///
+/// The two big halves are shared, not owned: every save, preview refresh and
+/// export hands a copy of this to a worker thread, and a deep clone of the
+/// parsed tree plus the file bytes — done on the main thread, per commit —
+/// was a visible stall on a large document. Neither half is ever mutated
+/// once opened; a new base arrives as a new `SaveBacking`.
 #[derive(Clone)]
 pub(crate) struct SaveBacking {
-    pub(crate) base: LopdfDocument,
-    pub(crate) original_bytes: Vec<u8>,
+    pub(crate) base: Arc<LopdfDocument>,
+    pub(crate) original_bytes: Arc<Vec<u8>>,
     pub(crate) password: Option<String>,
 }
 

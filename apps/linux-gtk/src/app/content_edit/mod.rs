@@ -277,6 +277,10 @@ pub(crate) fn image_controls(
 /// PDF space because `GestureDrag` reports its offset in the former.
 const CLICK_EPSILON_PX: f64 = 4.0;
 
+/// Pages either side of the viewport whose content `load_visible_page_content`
+/// parses ahead of a scroll, so outlines are already there when they arrive.
+const CONTENT_PREFETCH_PAGES: usize = 1;
+
 pub(crate) fn connect_toggle(viewer: &Viewer) {
     viewer.content_edit_button.connect_toggled({
         let viewer = viewer.clone();
@@ -395,7 +399,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         // on. `selection::extend_selection` refuses to touch it either way;
         // this is what stops it being *shown*.
         clear_text_selection(viewer);
-        load_all_page_content(viewer);
+        load_visible_page_content(viewer);
         viewer
             .status
             .set_text("Edit content armed — click a text run to retype it.");
@@ -553,17 +557,13 @@ pub(crate) fn rearm_for_session(viewer: &Viewer) {
     if !mode_is_active(viewer) {
         return;
     }
-    load_all_page_content(viewer);
+    load_visible_page_content(viewer);
     redraw(viewer);
 }
 
-/// Eagerly parses every page's content once content-edit mode turns on, so
-/// the composite-font outline (`selection::draw_highlights`) is visible on
-/// first paint rather than only after the first click.
-///
-/// Every `PageSlot` already exists for the whole document the moment it
-/// opens — rendering is virtualized separately, the slots are not — so this
-/// is a bounded loop over pages already in memory, not a search. A page this
+/// Parses the content of the pages in view once content-edit mode turns on,
+/// so the composite-font outline (`selection::draw_highlights`) is visible on
+/// first paint rather than only after the first click. A page this
 /// build cannot parse is silently left without outlines; the real refusal
 /// still surfaces the moment its content is actually clicked
 /// (`handle_drag_end`), so nothing is silently lost, only the proactive
@@ -595,39 +595,75 @@ pub(crate) fn rearm_for_session(viewer: &Viewer) {
 /// followed by a resize is two operations against two different geometries,
 /// and the second would need a fresh bbox no live re-render exists to
 /// re-read.
-pub(crate) fn load_all_page_content(viewer: &Viewer) {
-    let mut state = viewer.state.borrow_mut();
-    let Some(session) = state.session.as_mut() else {
-        return;
-    };
-    let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
-        return;
-    };
-    let Some(document) = session.document_model.as_ref() else {
-        return;
-    };
-    let pending = Some(&document.pending_edits);
-    // Resolved for every slot up front: the loop below borrows `pages`
-    // mutably, and `content_page` reads the whole session. A slot with no
-    // parsable page (a blank one, or one whose source is not registered) is
-    // skipped — there is nothing to parse for it.
-    let probes: Vec<Option<(pdf_document::PageId, PageProbe<'_>)>> = (0..session.pages.len())
-        .map(|index| content_page(session, index))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .map(|page_id| {
-            let page_id = page_id?;
-            Some((
-                page_id,
-                page_probe(document, base, &session.imported_sources, page_id)?,
-            ))
-        })
-        .collect();
-    for (index, page) in session.pages.iter_mut().enumerate() {
-        let Some((page_id, probe)) = probes[index] else {
-            continue;
+///
+/// **Only the pages on screen (plus one either side) are parsed**, not the
+/// whole document. Parsing every page's content stream on the main thread
+/// froze a 1619-page PDF for seconds on arming, and again after *every*
+/// commit (this runs at the tail of each preview refresh) — long enough for
+/// GNOME to offer "Force Quit". `render::update_viewport` calls this on every
+/// scroll tick while the mode is armed, so pages are parsed as they come into
+/// view; a page already cached costs nothing. A click on a page outside the
+/// window still parses it on demand (`ensure_page_content` at every hit-test
+/// site), so laziness never makes a page unclickable.
+pub(crate) fn load_visible_page_content(viewer: &Viewer) {
+    let adjustment = viewer.scroll.vadjustment();
+    let parsed = {
+        let mut state = viewer.state.borrow_mut();
+        let Some(session) = state.session.as_mut() else {
+            return;
         };
-        let _ = model::ensure_page_content(&mut page.content, probe, page_id, pending);
+        let Some((first, last)) = crate::app::layout::visible_range(
+            &session.page_heights,
+            adjustment.value(),
+            adjustment.page_size(),
+        ) else {
+            return;
+        };
+        let range = crate::app::layout::nearby_range(
+            first,
+            last,
+            session.pages.len(),
+            CONTENT_PREFETCH_PAGES,
+        );
+        if range
+            .clone()
+            .all(|index| session.pages[index].content.is_some())
+        {
+            return;
+        }
+        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
+            return;
+        };
+        let Some(document) = session.document_model.as_ref() else {
+            return;
+        };
+        let pending = Some(&document.pending_edits);
+        // Resolved up front: the loop below borrows `pages` mutably, and
+        // `content_page` reads the whole session. A slot with no parsable
+        // page (a blank one, or one whose source is not registered) is
+        // skipped — there is nothing to parse for it.
+        let probes: Vec<(usize, pdf_document::PageId, PageProbe<'_>)> = range
+            .filter(|&index| session.pages[index].content.is_none())
+            .filter_map(|index| Some((index, content_page(session, index)?)))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter_map(|(index, page_id)| {
+                let probe = page_probe(document, base, &session.imported_sources, page_id)?;
+                Some((index, page_id, probe))
+            })
+            .collect();
+        let mut parsed = Vec::with_capacity(probes.len());
+        for (index, page_id, probe) in probes {
+            let page = &mut session.pages[index];
+            if model::ensure_page_content(&mut page.content, probe, page_id, pending).is_ok() {
+                parsed.push(page.highlights.clone());
+            }
+        }
+        parsed
+    };
+    // Only the pages that just gained outlines need repainting.
+    for highlights in parsed {
+        highlights.queue_draw();
     }
 }
 
@@ -794,8 +830,9 @@ mod tests {
             session.save_backing = Some(SaveBacking {
                 base: pdf_manip::LopdfDocument::from_lopdf(
                     gen_fixtures::content_edit::build_image_page_document(),
-                ),
-                original_bytes: Vec::new(),
+                )
+                .into(),
+                original_bytes: Vec::new().into(),
                 password: None,
             });
             session
@@ -1132,8 +1169,8 @@ mod tests {
             Rotation::None,
         )]));
         session.save_backing = Some(SaveBacking {
-            base: pdf_manip::LopdfDocument::from_lopdf(base),
-            original_bytes: Vec::new(),
+            base: pdf_manip::LopdfDocument::from_lopdf(base).into(),
+            original_bytes: Vec::new().into(),
             password: None,
         });
         session.selected_image = Some(SelectedImage {
@@ -1209,8 +1246,8 @@ mod tests {
             Rotation::None,
         )]));
         session.save_backing = Some(SaveBacking {
-            base: pdf_manip::LopdfDocument::from_lopdf(base),
-            original_bytes: Vec::new(),
+            base: pdf_manip::LopdfDocument::from_lopdf(base).into(),
+            original_bytes: Vec::new().into(),
             password: None,
         });
         command::apply_command(

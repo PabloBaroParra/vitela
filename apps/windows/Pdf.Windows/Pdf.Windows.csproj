@@ -21,6 +21,8 @@
     <VitelaDisplayVersion Condition="'$(VitelaDisplayVersion)' == ''">dev</VitelaDisplayVersion>
     <InformationalVersion>$(VitelaDisplayVersion)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- PerMonitorV2; see the comment in app.manifest for the bug it fixes. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <!--
