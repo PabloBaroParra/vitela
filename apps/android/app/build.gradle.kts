@@ -8,12 +8,12 @@ plugins {
 
 android {
     namespace = "dev.vitela.pdf"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "dev.vitela.pdf"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         // A release takes both from its tag (scripts/release-version.sh
         // android-code / semver), passed in by android.yml when release.yml
         // calls it; every other build keeps these development values.
