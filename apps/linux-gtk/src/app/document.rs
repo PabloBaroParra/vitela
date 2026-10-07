@@ -110,7 +110,7 @@ pub(crate) fn backend_page_order(model: Option<&Document>) -> Vec<pdf_document::
 /// why a preview refresh must not restore it from the preserved model.
 ///
 /// [`DocumentSession::rendered_field_values`]: super::state::DocumentSession::rendered_field_values
-fn rendered_field_values(model: Option<&Document>) -> HashMap<String, FieldValue> {
+pub(crate) fn rendered_field_values(model: Option<&Document>) -> HashMap<String, FieldValue> {
     model
         .map(|model| {
             model
@@ -557,8 +557,8 @@ fn read_editable_model(
     Some((
         model,
         super::state::SaveBacking {
-            base,
-            original_bytes,
+            base: base.into(),
+            original_bytes: original_bytes.into(),
             password: password.map(str::to_owned),
         },
     ))

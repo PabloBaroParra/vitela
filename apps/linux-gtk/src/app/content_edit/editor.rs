@@ -1441,8 +1441,8 @@ mod tests {
             Rotation::None,
         )]));
         session.save_backing = Some(SaveBacking {
-            base: pdf_manip::LopdfDocument::from_lopdf(base),
-            original_bytes: Vec::new(),
+            base: pdf_manip::LopdfDocument::from_lopdf(base).into(),
+            original_bytes: Vec::new().into(),
             password: None,
         });
         let overlay = Overlay::new();
