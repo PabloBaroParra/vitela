@@ -128,12 +128,19 @@ Vitela is open source and built on a shared Rust core with a native Jetpack Comp
 
 ### Graphics
 
-| Asset | Requirement | Status |
-|---|---|---|
-| App icon | 512 × 512 PNG, 32-bit, up to 1 MB | To make from the launcher icon |
-| Feature graphic | 1024 × 500 PNG or JPEG, no transparency | To make |
-| Phone screenshots | 2–8, PNG or JPEG, 16:9 or 9:16, each side 320–3840 px | To capture |
-| Tablet screenshots (7" and 10") | Optional, but needed to be featured on tablets | Optional |
+Everything is in [`play/`](play/). The icon and the feature graphic are
+generated from `assets/brand` by `python scripts/play-store-images.py`.
 
-As on Windows, screenshots must show a fictional document. Never capture a
-screen that lists the tester's real files.
+| Asset | Requirement | File |
+|---|---|---|
+| App icon | 512 × 512 PNG, 32-bit, up to 1 MB | `play/icon-512.png` |
+| Feature graphic | 1024 × 500 PNG or JPEG, no transparency | `play/feature-graphic-1024x500.png` |
+| Phone screenshots | 2–8, JPEG or 24-bit PNG with no alpha, 16:9 or 9:16, each side 320–3840 px | `play/screenshots/01-home.png` … `05-sign.png`, 1080 × 1920, in upload order |
+| Tablet screenshots (7" and 10") | Optional, but needed to be featured on tablets | Not made yet |
+
+The screenshots show a fictional document, *Northwind Annual Report*, on the
+`Medium_Phone` emulator, with the display forced to 1080 × 1920
+(`adb shell wm size`) and the system UI demo mode on, for a clean status bar.
+The emulator's native 1080 × 2400 is 2.22:1, and Play refuses a screenshot
+whose long side is more than twice the short one. Never capture a screen that
+lists the tester's real files.
