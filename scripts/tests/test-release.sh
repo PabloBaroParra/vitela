@@ -98,11 +98,12 @@ test_android_version_codes_encode_the_release_order() {
 }
 
 # Which Google Play track a tag ships to: alpha to internal testing, beta and
-# rc to open testing, a final release to production.
+# rc to closed testing (the Play API calls that track "alpha"), a final release
+# to production.
 test_play_tracks_follow_the_prerelease_word() {
     [ "$(version v0.2.0-alpha.3 play-track)" = 'internal' ] || fail 'alpha track'
-    [ "$(version v0.2.0-beta.1 play-track)" = 'beta' ] || fail 'beta track'
-    [ "$(version v0.2.0-rc.1 play-track)" = 'beta' ] || fail 'rc track'
+    [ "$(version v0.2.0-beta.1 play-track)" = 'alpha' ] || fail 'beta track'
+    [ "$(version v0.2.0-rc.1 play-track)" = 'alpha' ] || fail 'rc track'
     [ "$(version v0.2.0 play-track)" = 'production' ] || fail 'final track'
     if version v0.2 play-track >/dev/null 2>&1; then fail 'play-track accepted a malformed tag'; fi
 }

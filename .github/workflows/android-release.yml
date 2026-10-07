@@ -3,7 +3,8 @@
 # Signs the release bundle that android.yml built and checked on the tagged
 # commit (artifact `android-bundle`, same run) with the Play upload key, and
 # uploads it to the track the tag maps to (scripts/release-version.sh
-# play-track: alpha -> internal, beta/rc -> beta, final -> production).
+# play-track: alpha -> internal, beta/rc -> alpha, final -> production; the
+# Play API's "alpha" track is closed testing, "beta" is open testing).
 # release.yml calls it, and only after every platform's tests passed; it has
 # no trigger of its own, so a release tag can never publish around that gate.
 #

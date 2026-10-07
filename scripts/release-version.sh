@@ -7,7 +7,7 @@
 #   release-version.sh v0.2.0-beta.1 debian   ->  0.2.0~beta.1
 #   release-version.sh v0.2.0-beta.1 msix     ->  0.2.101.0
 #   release-version.sh v0.2.0-beta.1 android-code  ->  200101
-#   release-version.sh v0.2.0-beta.1 play-track    ->  beta
+#   release-version.sh v0.2.0-beta.1 play-track    ->  alpha
 #   release-version.sh v0.2.0 newer-than v0.2.0-rc.1   (exit 0 if newer)
 #
 # Tag grammar: vMAJOR.MINOR.PATCH, optionally -alpha.N, -beta.N or -rc.N
@@ -91,12 +91,16 @@ case "$FORMAT" in
         ;;
     play-track)
         # Where a release lands on Google Play: alpha in internal testing,
-        # beta and rc in open testing, a final release in production.
+        # beta and rc in closed testing, a final release in production. The
+        # Play API names closed testing "alpha" and open testing "beta"; betas
+        # go to closed testing because a new personal developer account must
+        # run a closed test (12 testers, 14 days) before it may use open
+        # testing or production.
         [ "$#" -eq 2 ] || fail "$FORMAT takes no further arguments"
         parse "$TAG"
         case "$word" in
             alpha) printf 'internal\n' ;;
-            beta|rc) printf 'beta\n' ;;
+            beta|rc) printf 'alpha\n' ;;
             '') printf 'production\n' ;;
         esac
         ;;
