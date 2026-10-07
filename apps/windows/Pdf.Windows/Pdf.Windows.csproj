@@ -10,6 +10,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Exe icon (Explorer, pinned taskbar button). Regenerate: python scripts/windows-app-icon.py -->
     <ApplicationIcon>vitela.ico</ApplicationIcon>
+    <!-- PerMonitorV2; see the comment in app.manifest for the bug it fixes. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <!--
