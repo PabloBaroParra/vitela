@@ -141,14 +141,21 @@ those screens list the Windows Recent items, so they show the user's own files.
 
 ### Store logos
 
-Optional, but without them the Store falls back to the package's own logo
-assets. The files are in [`docs/store/windows/`](windows/):
+Optional for a desktop-only app (they are required only on Xbox). The files
+are in [`docs/store/windows/`](windows/):
 
 | Partner Center slot  | File                       | Size      |
 | -------------------- | -------------------------- | --------- |
-| 1:1 Box art          | `box-art-2160x2160.png`    | 2160×2160 |
-| 2:3 Poster art       | `poster-art-1440x2160.png` | 1440×2160 |
 | 1:1 App tile icon    | `app-tile-icon-300.png`    | 300×300   |
+| 2:3 Poster art       | `poster-art-1440x2160.png` | 1440×2160 |
+| 1:1 Box art          | `box-art-2160x2160.png`    | 2160×2160 |
+
+The app tile icon is the one that matters for an app: the Store shows it on
+its pages and prefers it over the logo in the package, which it falls back to
+when the slot is empty. Poster and box art are the main logo for *games* only
+(Microsoft: "This does not apply to apps"); upload them anyway, since search
+results and curated collections may still use the poster. Source:
+[Screenshots, images, and trailers for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/screenshots-and-images#store-logos).
 
 ## Packages
 
