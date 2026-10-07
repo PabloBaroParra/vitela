@@ -74,11 +74,11 @@ mod tests {
         document
     }
 
-    fn note(id: u64, page: u64, text: &str) -> pdf_document::Annotation {
+    fn note(id: u64, page: u32, text: &str) -> pdf_document::Annotation {
         pdf_annotate::text_note(AnnotationId(id), PageId(page), AREA, text)
     }
 
-    fn highlight(id: u64, page: u64) -> pdf_document::Annotation {
+    fn highlight(id: u64, page: u32) -> pdf_document::Annotation {
         pdf_annotate::highlight(
             AnnotationId(id),
             PageId(page),
