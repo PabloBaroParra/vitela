@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.CaretRange
 import dev.vitela.pdf.core.TextRect
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -36,9 +37,29 @@ class TextSelectionDragTest {
     }
 
     @Test
-    fun aDragThatHasNotMovedSelectsNothing() {
-        val drag = TextSelectionDrag(0, AnnotationPoint(20.0, 705.0))
-        drag.attach(LineCharacters("Hello"))
+    fun aLongPressThatHasNotMovedSelectsTheWordUnderIt() {
+        // "say hello": the press lands inside "hello", characters 4..9.
+        val drag = TextSelectionDrag(0, AnnotationPoint(62.0, 705.0))
+        drag.attach(LineCharacters("say hello"))
+
+        assertEquals(TextSelection(0, listOf(TextRect(40.0, 700.0, 50.0, 12.0)), "hello"), drag.selection())
+    }
+
+    @Test
+    fun aDragThatReturnsToItsAnchorShowsTheWordAgain() {
+        val drag = TextSelectionDrag(0, AnnotationPoint(62.0, 705.0))
+        drag.attach(LineCharacters("say hello"))
+        drag.extend(AnnotationPoint(90.0, 705.0))
+
+        drag.extend(AnnotationPoint(62.0, 705.0))
+
+        assertEquals("hello", drag.selection()?.text)
+    }
+
+    @Test
+    fun aLongPressOnWhitespaceSelectsNothing() {
+        val drag = TextSelectionDrag(0, AnnotationPoint(35.0, 705.0))
+        drag.attach(LineCharacters("say hello"))
 
         assertNull(drag.selection())
     }
@@ -103,6 +124,15 @@ internal class LineCharacters(private val text: String) : dev.vitela.pdf.core.Pa
 
     override fun caretAt(point: AnnotationPoint): Int? =
         if (text.isEmpty()) null else Math.round(point.x / 10.0).toInt().coerceIn(0, text.length)
+
+    /** Words are the space-separated stretches; the core's real rule lives in `PageCharacters::word_at`. */
+    override fun wordAt(point: AnnotationPoint): CaretRange? {
+        val hit = (point.x / 10.0).toInt()
+        if (hit !in text.indices || text[hit] == ' ') return null
+        val start = text.lastIndexOf(' ', hit) + 1
+        val end = text.indexOf(' ', hit).let { if (it < 0) text.length else it }
+        return CaretRange(start, end)
+    }
 
     override fun textIn(anchor: Int, focus: Int): String = text.substring(minOf(anchor, focus), maxOf(anchor, focus))
 

@@ -1297,6 +1297,12 @@ Windows/C#). Paralelo con B9 y B10.
       intersección de rectángulos que el shell había reimplementado en Kotlin. Pendiente:
       selección de palabra con long-press sin arrastre (el core no expone límites de palabra)
       y selección que cruce páginas.)**
+      **(2026-10-06 — palabra hecha: `PageCharacters::word_at` en `pdf_render::selection`
+      (letras/dígitos, apóstrofo interno; puntuación = ese carácter; espacio = nada; nunca
+      cruza de línea) expuesto como `FfiPageCharacters::word_at` → `FfiCaretRange`. En Android
+      un long-press que aún no salió del caret del ancla muestra la palabra; arrastrar vuelve
+      al rango de carets. Verificado en emulador. Linux/Windows pueden usarlo para doble clic.
+      Pendiente: selección que cruce páginas.)**
 - [x] T-087 Toolbar táctil wired a pdf-annotate (7 tipos incl. image stamp). [ui-android, AnnoCreate, AnnoEditDelete]
       **(2026-10-06 — hecho: Highlight, Underline, Strikeout, Ink, Shape, TextNote e image
       Stamp (`AnnotationKind`), con selección, recolor, resize, posición precisa y borrado

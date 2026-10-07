@@ -107,7 +107,7 @@ pub use output::output_snapshot;
 pub use placement::{
     place_point, place_rect, point_to_pdf, FfiPagePlacement, FfiPageRotation, FfiPlacedRect,
 };
-pub use selection::FfiPageCharacters;
+pub use selection::{FfiCaretRange, FfiPageCharacters};
 pub use sign::{
     open_signing_certificate, reopen_signed_document, sign_to_bytes, signing_refusal,
     FfiSigningIdentity, SigningCertificate,

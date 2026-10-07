@@ -18,9 +18,19 @@ interface PageCharacters : AutoCloseable {
     /** The caret nearest a PDF-space point (bottom-left origin), or null on a page with no positioned text. */
     fun caretAt(point: AnnotationPoint): Int?
 
+    /**
+     * The carets around the word under a PDF-space point, for a long-press
+     * that selects without dragging; null on whitespace or a page with no
+     * positioned text. The core decides what a word is.
+     */
+    fun wordAt(point: AnnotationPoint): CaretRange?
+
     /** The text between two carets, for the clipboard. */
     fun textIn(anchor: Int, focus: Int): String
 
     /** What to paint between two carets: one rect per visual line, in PDF points. */
     fun rectsIn(anchor: Int, focus: Int): List<TextRect>
 }
+
+/** Two carets as the core ordered them: [start] is never after [end]. */
+data class CaretRange(val start: Int, val end: Int)

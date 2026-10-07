@@ -77,6 +77,59 @@ impl PageCharacters {
         Some(self.caret_in_line(line, x_pt))
     }
 
+    /// The caret range of the word under a point in PDF space, for a
+    /// long-press or double-click that selects without dragging.
+    ///
+    /// The word never leaves its line: reading order puts the last word of
+    /// one line right before the first word of the next, often with no
+    /// whitespace character between them, so expanding across lines would
+    /// glue the two together. A point on punctuation selects just that mark,
+    /// and a point on whitespace selects nothing — there is no word there.
+    pub fn word_at(&self, x_pt: f32, y_pt: f32) -> Option<Range<Caret>> {
+        let line = self.line_at(y_pt)?;
+        let hit = line
+            .clone()
+            .filter(|index| !is_degenerate(&self.bounds[*index]))
+            .min_by(|left, right| {
+                horizontal_gap(&self.bounds[*left], x_pt)
+                    .total_cmp(&horizontal_gap(&self.bounds[*right], x_pt))
+            })?;
+        let character = self.characters[hit];
+        if character.is_whitespace() {
+            return None;
+        }
+        if !character.is_alphanumeric() {
+            return Some(hit..hit + 1);
+        }
+        let in_word = |index: usize| self.is_word_character(index, line.clone());
+        let start = (line.start..hit)
+            .rev()
+            .take_while(|index| in_word(*index))
+            .last()
+            .unwrap_or(hit);
+        let end = (hit + 1..line.end)
+            .take_while(|index| in_word(*index))
+            .last()
+            .map_or(hit + 1, |last| last + 1);
+        Some(start..end)
+    }
+
+    /// Whether a character belongs to a word: a letter or digit, or an
+    /// apostrophe with a letter or digit on both sides ("it's", "don’t"), so
+    /// a quote that opens or closes a phrase is not swallowed into it.
+    fn is_word_character(&self, index: usize, line: Range<usize>) -> bool {
+        let character = self.characters[index];
+        if character.is_alphanumeric() {
+            return true;
+        }
+        let alphanumeric_at =
+            |at: usize| line.contains(&at) && self.characters[at].is_alphanumeric();
+        matches!(character, '\'' | '\u{2019}')
+            && index > 0
+            && alphanumeric_at(index - 1)
+            && alphanumeric_at(index + 1)
+    }
+
     /// The text covered by a caret range, for the clipboard.
     pub fn text_in(&self, range: Range<Caret>) -> String {
         self.clamp(range)
@@ -480,6 +533,50 @@ mod tests {
     #[test]
     fn caret_at_returns_none_on_a_page_without_positioned_text() {
         assert_eq!(PageCharacters::default().caret_at(10.0, 10.0), None);
+    }
+
+    #[test]
+    fn word_at_spans_the_whole_word_under_the_point() {
+        // "say hello there": "hello" is characters 4..9, x 40..90.
+        let page = PageCharacters::from_runs(&[line("say hello there", 0.0, 100.0)]);
+
+        assert_eq!(page.word_at(62.0, 105.0), Some(4..9));
+        assert_eq!(page.text_in(4..9), "hello");
+    }
+
+    #[test]
+    fn word_at_stops_at_the_line_so_a_wrapped_word_is_not_joined_to_the_next() {
+        // "ab" ends the upper line and "cd" starts the lower one, with no
+        // whitespace between them in reading order.
+        assert_eq!(two_lines().word_at(15.0, 105.0), Some(0..2));
+        assert_eq!(two_lines().word_at(5.0, 55.0), Some(2..4));
+    }
+
+    #[test]
+    fn word_at_keeps_an_apostrophe_inside_a_word_but_not_trailing_punctuation() {
+        let page = PageCharacters::from_runs(&[line("it's done.", 0.0, 100.0)]);
+
+        assert_eq!(page.word_at(5.0, 105.0), Some(0..4));
+        assert_eq!(page.word_at(75.0, 105.0), Some(5..9));
+    }
+
+    #[test]
+    fn word_at_on_punctuation_selects_just_that_character() {
+        let page = PageCharacters::from_runs(&[line("a, b", 0.0, 100.0)]);
+
+        assert_eq!(page.word_at(15.0, 105.0), Some(1..2));
+    }
+
+    #[test]
+    fn word_at_on_whitespace_selects_nothing() {
+        let page = PageCharacters::from_runs(&[line("a b", 0.0, 100.0)]);
+
+        assert_eq!(page.word_at(15.0, 105.0), None);
+    }
+
+    #[test]
+    fn word_at_returns_none_on_a_page_without_positioned_text() {
+        assert_eq!(PageCharacters::default().word_at(10.0, 10.0), None);
     }
 
     #[test]

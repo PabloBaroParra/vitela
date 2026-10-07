@@ -15,6 +15,13 @@
 
 use crate::types::FfiTextRect;
 
+/// A caret range — `start` before `end` — as the core resolved it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct FfiCaretRange {
+    pub start: u32,
+    pub end: u32,
+}
+
 /// One page's characters, flattened for repeated caret/selection queries.
 /// Obtained via `DocumentHandle::page_characters` and held by the shell for
 /// the life of a drag-select.
@@ -46,6 +53,16 @@ impl FfiPageCharacters {
         self.inner.caret_at(x_pt, y_pt).map(|caret| caret as u32)
     }
 
+    /// The carets around the word under a PDF-space point, for a long-press
+    /// that selects without dragging; `None` on whitespace or a page with no
+    /// positioned text. See `PageCharacters::word_at` for what a word is.
+    pub fn word_at(&self, x_pt: f32, y_pt: f32) -> Option<FfiCaretRange> {
+        self.inner.word_at(x_pt, y_pt).map(|word| FfiCaretRange {
+            start: word.start as u32,
+            end: word.end as u32,
+        })
+    }
+
     /// The text between two carets, for the clipboard. `anchor`/`focus`
     /// need not be ordered — a drag started rightward or leftward reports
     /// the same text either way, matching `PageCharacters::text_in`.
@@ -62,5 +79,35 @@ impl FfiPageCharacters {
             .into_iter()
             .map(Into::into)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pdf_render::{TextRect, TextRun};
+
+    #[test]
+    fn word_at_crosses_as_an_ordered_caret_range() {
+        let run = TextRun {
+            text: "say hello".to_string(),
+            font_name: "Test".to_string(),
+            font_size_pt: 10.0,
+            character_bounds: (0..9)
+                .map(|offset| TextRect {
+                    x_pt: offset as f32 * 10.0,
+                    y_pt: 100.0,
+                    width_pt: 10.0,
+                    height_pt: 10.0,
+                })
+                .collect(),
+        };
+        let page = FfiPageCharacters::new(pdf_render::PageCharacters::from_runs(&[run]));
+
+        assert_eq!(
+            page.word_at(62.0, 105.0),
+            Some(FfiCaretRange { start: 4, end: 9 })
+        );
+        assert_eq!(page.word_at(35.0, 105.0), None);
     }
 }
