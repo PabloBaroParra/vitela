@@ -8,5 +8,6 @@ publish = false
 
 [dependencies]
 pdf-document = { path = "../pdf-document" }
+pdf-manip = { path = "../pdf-manip" }
 lopdf = "0.45"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

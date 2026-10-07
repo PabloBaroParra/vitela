@@ -30,6 +30,7 @@ mod page_tree;
 mod report;
 mod security;
 mod signatures;
+mod text_string;
 
 pub use create_blank::{create_blank_document, insert_blank_page, remove_page};
 pub use document::{DocumentInfo, LopdfDocument, PageDimensions};
@@ -49,3 +50,4 @@ pub use security::{
     text_extraction_is_allowed,
 };
 pub use signatures::document_has_signatures;
+pub use text_string::{encode_pdf_text_string, pdf_text_string_object};
