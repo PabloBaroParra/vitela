@@ -23,13 +23,15 @@
 //! assembly and view switching only. Each region is built by its own
 //! neighbour: [`header`] (brand lockup, search, open), [`hero`] (welcome and
 //! the drop zone), [`recents`] (the recently-opened documents), [`tools`]
-//! (the tool grid, quick actions and the shortcut reference).
+//! (the tool grid, quick actions and the shortcut reference), [`version`]
+//! (the footer naming the running build).
 
 mod header;
 mod hero;
 mod hidden_recents;
 pub(crate) mod recents;
 pub(crate) mod tools;
+mod version;
 
 use gtk::prelude::*;
 use gtk::{Align, ApplicationWindow, Box as GtkBox, Orientation, ScrolledWindow};
@@ -221,6 +223,12 @@ pub(crate) const HOME_CSS: &str = r#"
 .home-view flowboxchild {
   padding: 0;
 }
+
+.home-version {
+  font-size: 0.8em;
+  color: @vitela_text_muted;
+  padding: 0 24px 16px;
+}
 "#;
 
 /// Builds the Home page.
@@ -274,6 +282,11 @@ pub(crate) fn build_home(window: &ApplicationWindow, viewer: &Viewer) -> Home {
         }
     });
 
+    // The footer scrolls with the body: it sits under the content, not over it.
+    let content = GtkBox::new(Orientation::Vertical, 0);
+    content.append(&body);
+    content.append(&version::build_version_footer());
+
     // Both axes scroll, and neither policy is `Never`.
     //
     // `Never` was here first, with a comment claiming it stopped the body
@@ -292,7 +305,7 @@ pub(crate) fn build_home(window: &ApplicationWindow, viewer: &Viewer) -> Home {
     let scroll = ScrolledWindow::builder()
         .hexpand(true)
         .vexpand(true)
-        .child(&body)
+        .child(&content)
         .build();
 
     let root = GtkBox::new(Orientation::Vertical, 0);
