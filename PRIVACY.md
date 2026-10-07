@@ -30,7 +30,8 @@ permissions at all, including internet access.
 - **Windows Recent items** (Windows only). Vitela adds the PDFs you open to
   the Windows *Recent* list and reads that list back to show them on its
   Recent screen. That list belongs to Windows, and you can clear it in the
-  Windows settings.
+  Windows settings. Removing a document from Vitela's Recent screen does not
+  change the Windows list; see below.
 
 ## What the app stores
 
@@ -39,6 +40,19 @@ permissions at all, including internet access.
   and random identifiers. They never contain file paths, document content or
   passwords. The log is capped at 256 KB and is removed when you uninstall
   the app.
+- **The documents you removed from Recent** (Windows only). So that a
+  removed document stays off Vitela's Recent screen without editing the
+  Windows *Recent* list, Vitela keeps the path of each one and the time you
+  removed it, on your device, in the same local folder as the diagnostic log.
+  An entry is dropped once its file no longer exists, the list is capped at
+  256 entries, and it is removed when you uninstall the app.
+- **Your recent documents** (Android only). For the Recent list on the home
+  screen, Vitela keeps up to eight entries in the app's private storage: each
+  document's name, the system's reference to it, when you opened it, its page
+  count and a small picture of its first page. No picture is kept for a
+  password-protected document. The list is excluded from cloud backups and
+  from device-to-device transfers. Removing a document from the list deletes
+  its entry and picture and gives back Vitela's access to that file.
 - **Your drawn signature** (Android only), and only if you choose to remember
   it. It is kept as an image in the app's private storage on that phone. It
   is excluded from cloud backups and from device-to-device transfers, so it
