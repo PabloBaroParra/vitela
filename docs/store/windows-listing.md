@@ -139,6 +139,17 @@ At least one is required; up to ten are allowed. PNG, 1920×1080 recommended
 Annual Report*. Never capture the Home or Recent screens from a real machine:
 those screens list the Windows Recent items, so they show the user's own files.
 
+### Store logos
+
+Optional, but without them the Store falls back to the package's own logo
+assets. The files are in [`docs/store/windows/`](windows/):
+
+| Partner Center slot  | File                       | Size      |
+| -------------------- | -------------------------- | --------- |
+| 1:1 Box art          | `box-art-2160x2160.png`    | 2160×2160 |
+| 2:3 Poster art       | `poster-art-1440x2160.png` | 1440×2160 |
+| 1:1 App tile icon    | `app-tile-icon-300.png`    | 300×300   |
+
 ## Packages
 
 Upload `Vitela.Windows_<version>_x64.msix` from
