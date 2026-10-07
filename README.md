@@ -11,7 +11,8 @@ existing signatures survive your edits.
 **Status: pre-release, under active development.** The core engine (rendering,
 page operations, annotations, encrypted save, FFI surface) is complete and
 tested; the platform shells (Linux, macOS, Windows, Android, iOS) are in
-progress. There are no releases yet.
+progress. The only release so far is the Windows build on the
+[Microsoft Store](https://apps.microsoft.com/detail/9n5cxsh1t5dm).
 
 ## Built with AI
 
@@ -200,6 +201,9 @@ width and height in PDF points.
 
 ## Installing on Debian / Ubuntu (beta)
 
+> **Not published yet.** The APT repository and GitHub Releases go live with
+> the first tagged release; until then the commands below will fail.
+
 The Linux build is published to a signed APT repository (x86_64). It is a
 beta: expect rough edges.
 
@@ -216,6 +220,12 @@ sudo apt-get install vitela
 `apt upgrade` then follows new releases. Each release also attaches the
 `.deb` and an `.AppImage` to its
 [GitHub Release](https://github.com/PabloBaroParra/vitela/releases).
+
+## Installing on Windows
+
+Vitela is on the
+[Microsoft Store](https://apps.microsoft.com/detail/9n5cxsh1t5dm). The Store
+installs it and keeps it up to date.
 
 ### Releasing (maintainers)
 
