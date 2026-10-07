@@ -116,6 +116,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("keeps stationary ink gestures as one sample and preserves real strokes", InkPointerTraceTests.RunAsync)
     ,("crops a drawn signature to its ink as a transparent PNG", DrawnSignatureTests.RunAsync)
     ,("remembers one signature atomically on this PC", SignatureStoreTests.RunAsync)
+    ,("hides removed recent cards until they are reopened", HiddenRecentsTests.RunAsync)
     ,("publishes restyled annotation colors", PublishesRestyledAnnotationColorAsync)
     ,("steps backward through annotations without changing the document", StepsBackwardThroughAnnotations)
     ,("steps forward through annotations across pages without changing the document", StepsForwardThroughAnnotations)

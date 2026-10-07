@@ -351,6 +351,12 @@ govern it. The shortcut update time supplies the opened date. Cards render their
 first page independently of the editor session; encrypted/unreadable thumbnails
 leave a placeholder and never prompt for a password. Search filters file names
 and hides empty groups. The rail's Recent action focuses the first matching card.
+A card's context menu (right-click, Shift+F10) or the Delete key offers **Remove
+from Recent**. That never edits the shared OS history, which Explorer reads too:
+Vitela records the path and time in `%LOCALAPPDATA%\Vitela\hidden-recents.txt`
+and skips an entry whose shortcut is no newer than its removal, so the card stays
+gone across restarts and returns only once the document is opened again, here or
+in any other app.
 
 With the app showing Home, run
 `powershell -File apps/windows/test-home.ps1 -TestPicker` from the repository root

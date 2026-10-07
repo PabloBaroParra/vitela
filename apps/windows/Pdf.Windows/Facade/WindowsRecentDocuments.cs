@@ -12,19 +12,22 @@ public static class WindowsRecentDocuments
 
     public static string DirectoryPath => Environment.GetFolderPath(Environment.SpecialFolder.Recent);
 
-    public static void Remember(string path)
+    /// <summary>Records a successful open, and brings the document back if the reader had hidden it.</summary>
+    public static void Remember(string path, HiddenRecents hidden)
     {
         if (string.IsNullOrWhiteSpace(path)) return;
         // SHARD_PATHW. The OS owns shortcut creation, privacy policy and eviction.
         SHAddToRecentDocs(3, path);
+        hidden.Unhide(path);
     }
 
-    public static Task<IReadOnlyList<WindowsRecentPdf>> ReadAsync()
+    /// <summary>Up to eight existing local PDFs, newest first, leaving out the ones the reader hid.</summary>
+    public static Task<IReadOnlyList<WindowsRecentPdf>> ReadAsync(HiddenRecents hidden)
     {
         var completion = new TaskCompletionSource<IReadOnlyList<WindowsRecentPdf>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
         {
-            try { completion.SetResult(ReadOnSta()); }
+            try { completion.SetResult(ReadOnSta(hidden.Load())); }
             catch { completion.SetResult(Array.Empty<WindowsRecentPdf>()); }
         }) { IsBackground = true, Name = "Vitela desktop recents" };
         thread.SetApartmentState(ApartmentState.STA);
@@ -32,7 +35,7 @@ public static class WindowsRecentDocuments
         return completion.Task;
     }
 
-    private static IReadOnlyList<WindowsRecentPdf> ReadOnSta()
+    private static IReadOnlyList<WindowsRecentPdf> ReadOnSta(IReadOnlyDictionary<string, DateTime> hidden)
     {
         var results = new List<WindowsRecentPdf>();
         object? shell = null, folder = null;
@@ -59,7 +62,10 @@ public static class WindowsRecentDocuments
                     if (path.StartsWith("\\\\", StringComparison.Ordinal)) continue;
                     if (!System.IO.Path.GetExtension(path).Equals(".pdf", StringComparison.OrdinalIgnoreCase) || !File.Exists(path)) continue;
                     if (results.Any(entry => entry.Path.Equals(path, StringComparison.OrdinalIgnoreCase))) continue;
-                    results.Add(new WindowsRecentPdf(path, File.GetLastWriteTimeUtc(shortcut)));
+                    var opened = File.GetLastWriteTimeUtc(shortcut);
+                    // Before the cap, so a hidden document does not cost the list one of its eight cards.
+                    if (HiddenRecents.Hides(hidden, path, opened)) continue;
+                    results.Add(new WindowsRecentPdf(path, opened));
                     if (results.Count == 8) break;
                 }
                 catch { /* A stale or inaccessible shortcut is not a usable card. */ }
