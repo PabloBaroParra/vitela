@@ -681,6 +681,7 @@ public sealed partial class MainWindow
         var brush = new SolidColorBrush(global::Windows.UI.Color.FromArgb(220, color.R, color.G, color.B));
         var shape = new Rectangle { Stroke = isRule ? null : brush, Fill = annotation.Kind == AnnotationKind.Highlight ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(100, color.R, color.G, color.B)) : isRule ? brush : null, StrokeThickness = selected ? 3 : 2 };
         PlaceOverPage(shape, slot, (int)pageIndex, rect, minSide: 2);
+        AttachNoteTooltip(shape, annotation);
         slot.Annotations.Children.Add(shape);
     }
 

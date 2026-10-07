@@ -709,6 +709,10 @@ keeps session notes available to read. After closing and reopening a PDF, existi
 annotations are preserved in the file but are not yet listed by the core's session
 snapshot, so this control cannot select those notes.
 
+Resting the pointer on a note with text also shows that text in a tooltip, without
+selecting it. Notes with blank text show none, and no tooltip appears while organizing,
+busy, dragging, or behind a dialog.
+
 If Windows cancels a page gesture or the page loses pointer capture, its pending
 annotation drag or form-field placement is discarded without an undo step. An
 armed tool stays available for another attempt. Text selection stops extending
