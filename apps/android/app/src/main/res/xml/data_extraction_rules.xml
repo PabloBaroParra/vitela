@@ -3,13 +3,17 @@
   allowBackup="false" already keeps app data out of cloud backups, but from
   Android 12 it does not stop a device-to-device transfer. The remembered
   signature stays on this phone only, so both paths exclude it by name
-  (SignatureStore.kt, SIGNATURE_FILE_NAME).
+  (SignatureStore.kt, SIGNATURE_FILE_NAME). Home's Recent list goes nowhere
+  either (RecentDocuments.kt, RECENTS_DIRECTORY_NAME): its entries are grants
+  that do not exist on another phone, and its previews are document pages.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="signature.png" />
+        <exclude domain="file" path="recents" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="signature.png" />
+        <exclude domain="file" path="recents" />
     </device-transfer>
 </data-extraction-rules>

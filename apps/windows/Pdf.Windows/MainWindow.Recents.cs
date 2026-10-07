@@ -14,6 +14,7 @@ public sealed partial class MainWindow
     private FileSystemWatcher? _recentWatcher;
     private readonly DispatcherTimer _recentRefreshTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly List<(StackPanel Panel, List<Button> Cards)> _recentGroups = [];
+    private readonly HiddenRecents _hiddenRecents = new(HiddenRecents.DefaultPath);
 
     private void InitializeRecents()
     {
@@ -56,7 +57,7 @@ public sealed partial class MainWindow
     {
         if (_recentsClosed) return;
         var generation = ++_recentGeneration;
-        var entries = await WindowsRecentDocuments.ReadAsync();
+        var entries = await WindowsRecentDocuments.ReadAsync(_hiddenRecents);
         if (generation != _recentGeneration) return;
         RecentFilesList.Items.Clear();
         _recentGroups.Clear();
@@ -87,6 +88,17 @@ public sealed partial class MainWindow
                 Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Open {name}");
                 ToolTipService.SetToolTip(button, entry.Path);
                 button.Click += async (_, _) => await OpenRecentFileAsync(entry.Path);
+                var remove = new MenuFlyoutItem { Text = "Remove from Recent" };
+                remove.Click += async (_, _) => await HideRecentFileAsync(entry.Path, refocus: false);
+                var menu = new MenuFlyout();
+                menu.Items.Add(remove);
+                button.ContextFlyout = menu;
+                button.KeyDown += async (_, args) =>
+                {
+                    if (args.Key != global::Windows.System.VirtualKey.Delete) return;
+                    args.Handled = true;
+                    await HideRecentFileAsync(entry.Path, refocus: true);
+                };
                 flow.Children.Add(button);
                 cards.Add(button);
                 previews.Add((entry, image, meta, opened));
@@ -149,6 +161,25 @@ public sealed partial class MainWindow
         var card = _recentGroups.SelectMany(group => group.Cards).FirstOrDefault(card => card.Visibility == Visibility.Visible);
         if (card is not null) card.Focus(FocusState.Programmatic);
         else RecentFilesList.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>
+    /// Takes a card off Vitela's Recent list without touching the desktop's
+    /// shared history (see <see cref="HiddenRecents"/>). It comes back only once
+    /// the document is opened again.
+    /// </summary>
+    private async Task HideRecentFileAsync(string path, bool refocus)
+    {
+        if (_recentsClosed) return;
+        var hidden = await Task.Run(() => _hiddenRecents.Hide(path, DateTime.UtcNow));
+        if (!hidden)
+        {
+            AnnotationStatus.Text = $"Could not remove {Path.GetFileName(path)} from Recent.";
+            return;
+        }
+        await RefreshRecentFilesAsync();
+        // The removed card had the keyboard; hand it to the newest card left rather than dropping it on the window.
+        if (refocus && HomeView.Visibility == Visibility.Visible) FocusFirstRecentCard();
     }
 
     private async Task OpenRecentFileAsync(string path)

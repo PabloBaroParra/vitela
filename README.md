@@ -138,6 +138,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
 | Open a PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Built-in sample document | ✅ | ✅ | 🚧 | ✅ | 🚧 |
+| Recent documents (removable) | ✅ | ✅ | — | 🚧 | — |
 | Password-protected PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |

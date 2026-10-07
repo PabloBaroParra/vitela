@@ -27,7 +27,7 @@ public sealed partial class MainWindow
 
         var previous = _session;
         await OpenDocumentAsync(file.Name, bytes);
-        if (_session is not null && !ReferenceEquals(previous, _session)) WindowsRecentDocuments.Remember(file.Path);
+        if (_session is not null && !ReferenceEquals(previous, _session)) WindowsRecentDocuments.Remember(file.Path, _hiddenRecents);
     }
 
     private void ShowOpenedDocument(DocumentSession session)
