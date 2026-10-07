@@ -12,6 +12,7 @@ data class TextSelection(val pageIndex: Int, val rects: List<TextRect>, val text
 
 /**
  * One drag-select, from the long-press that starts it until the finger lifts.
+ * A long-press that never moves selects the word under it.
  *
  * The page's [PageCharacters] load off the main thread, and by the time they
  * arrive the finger has usually moved. So the session records *points*, not
@@ -54,14 +55,22 @@ internal class TextSelectionDrag(val pageIndex: Int, private val anchorPoint: An
 
     /**
      * The selection between the anchor and the latest focus, or null when
-     * there is nothing to show: the characters have not loaded, the page has
-     * no positioned text, or the drag has not left the anchor's caret.
+     * there is nothing to show: the characters have not loaded, or the page
+     * has no positioned text.
+     *
+     * While the drag has not left the anchor's caret — a long-press that has
+     * not moved yet — the selection is the word under the anchor instead, as
+     * the core bounds it; a press on whitespace still selects nothing.
      */
     fun selection(): TextSelection? {
         val page = characters ?: return null
-        val anchor = page.caretAt(anchorPoint) ?: return null
-        val focus = page.caretAt(focusPoint) ?: return null
-        if (anchor == focus) return null
+        var anchor = page.caretAt(anchorPoint) ?: return null
+        var focus = page.caretAt(focusPoint) ?: return null
+        if (anchor == focus) {
+            val word = page.wordAt(anchorPoint) ?: return null
+            anchor = word.start
+            focus = word.end
+        }
         val rects = page.rectsIn(anchor, focus)
         if (rects.isEmpty()) return null
         return TextSelection(pageIndex, rects, page.textIn(anchor, focus))

@@ -41,6 +41,7 @@ import dev.vitela.pdf.core.BatchImportReport
 import dev.vitela.pdf.core.PreparedImport
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageCharacters
+import dev.vitela.pdf.core.CaretRange
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.TextRect
 import dev.vitela.pdf.uniffi.DocumentHandle
@@ -684,6 +685,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
 /** Carets cross as `u32`; the core clamps an out-of-range caret, so the casts cannot panic it. */
 private class GeneratedPageCharacters(private val characters: FfiPageCharacters) : PageCharacters {
     override fun caretAt(point: AnnotationPoint): Int? = characters.caretAt(point.x.toFloat(), point.y.toFloat())?.toInt()
+
+    override fun wordAt(point: AnnotationPoint): CaretRange? =
+        characters.wordAt(point.x.toFloat(), point.y.toFloat())?.let { CaretRange(it.start.toInt(), it.end.toInt()) }
 
     override fun textIn(anchor: Int, focus: Int): String = characters.textIn(anchor.toUInt(), focus.toUInt())
 
