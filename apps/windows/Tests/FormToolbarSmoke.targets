@@ -3,5 +3,6 @@
     <Compile Remove="App.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)FormToolbarSmoke.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)FormToolbarSmoke.Delete.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)FormToolbarSmoke.Geometry.cs" />
   </ItemGroup>
 </Project>

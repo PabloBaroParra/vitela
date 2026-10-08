@@ -189,7 +189,8 @@ import — one undo step for the whole pick, matching Linux and Android. Windows
 rename and delete existing fields, and place text fields, checkboxes, radio groups and
 dropdowns by clicking or dragging on a page; font family and size can be
 changed in Windows, as can text color and an existing field's X/Y position,
-width and height in PDF points.
+width and height in PDF points — typed, or by dragging the field and its corner
+handles on the page.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the
