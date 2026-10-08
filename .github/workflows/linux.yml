@@ -52,6 +52,11 @@ on:
         required: false
         default: ''
         type: string
+      app-version:
+        description: Version Home's footer shows (release-version.sh <tag> semver); empty shows "dev"
+        required: false
+        default: ''
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -131,6 +136,9 @@ jobs:
             -o build/linux/tools/appimagetool
           chmod +x build/linux/tools/linuxdeploy build/linux/tools/appimagetool
       - name: Build linux-gtk (release)
+        env:
+          # Read by option_env! in app/home/version.rs; empty means a dev build.
+          VITELA_VERSION: ${{ inputs.app-version }}
         run: cargo build --release --locked -p linux-gtk
       # package-linux.sh re-verifies the archive's checksum, version and
       # args.gn itself before trusting it (PDFIUM_SHA256_DEFAULT) — this step

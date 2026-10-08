@@ -69,6 +69,7 @@
                 </Grid>
             </Border>
             <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                <StackPanel>
                 <Grid x:Name="HomeBody" Padding="24" ColumnSpacing="20" RowSpacing="0" RowDefinitions="Auto,Auto" ColumnDefinitions="*,268" SizeChanged="HomeBody_SizeChanged">
                     <StackPanel x:Name="HomeMainColumn" Spacing="20">
                         <Button x:Name="ReturnToDocumentButton" Content="Return to document" Click="ReturnToDocument_Click" Visibility="Collapsed" Style="{StaticResource HomePrimaryButtonStyle}" HorizontalAlignment="Left" />
@@ -104,6 +105,10 @@
                     </StackPanel>
                     <StackPanel x:Name="HomeToolsColumn" Grid.Column="1" Spacing="16" VerticalAlignment="Top" />
                 </Grid>
+                <!-- .home-version: which build is running (Viewer/AppVersion.cs); scrolls with the body. -->
+                <TextBlock x:Name="HomeVersionText" Style="{StaticResource HomeMetaStyle}" HorizontalAlignment="Right"
+                           Margin="24,0,24,16" IsTextSelectionEnabled="True" />
+                </StackPanel>
             </ScrollViewer>
         </Grid>
         </UserControl>

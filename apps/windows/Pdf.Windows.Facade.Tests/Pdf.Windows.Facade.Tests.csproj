@@ -65,6 +65,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\FormFieldText.cs" Link="Viewer\FormFieldText.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormPlacementRect.cs" Link="Viewer\FormPlacementRect.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\HomeLayout.cs" Link="Viewer\HomeLayout.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\AppVersion.cs" Link="Viewer\AppVersion.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\TitleBarColors.cs" Link="Viewer\TitleBarColors.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ShellIcons.cs" Link="Viewer\ShellIcons.cs" />
   </ItemGroup>

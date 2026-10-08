@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.BuildConfig
 import dev.vitela.pdf.R
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.ui.theme.Vitela
@@ -88,6 +89,12 @@ internal fun HomeScreen(
                     SampleCard(canOpen, onOpenSample)
                 }
                 Text(status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    homeVersionLabel(BuildConfig.VERSION_NAME),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.End),
+                )
             }
         }
     }

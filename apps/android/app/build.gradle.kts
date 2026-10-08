@@ -16,9 +16,11 @@ android {
         targetSdk = 36
         // A release takes both from its tag (scripts/release-version.sh
         // android-code / semver), passed in by android.yml when release.yml
-        // calls it; every other build keeps these development values.
+        // calls it; every other build keeps these development values. Home's
+        // footer shows versionName, so a development build says "dev" rather
+        // than a 0.1.0 that no release was ever called.
         versionCode = providers.gradleProperty("vitela.versionCode").orNull?.toInt() ?: 1
-        versionName = providers.gradleProperty("vitela.versionName").orNull ?: "0.1.0"
+        versionName = providers.gradleProperty("vitela.versionName").orNull ?: "dev"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Only the ABIs scripts/package-android.sh builds the native core for.
