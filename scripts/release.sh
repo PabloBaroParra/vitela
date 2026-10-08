@@ -4,6 +4,11 @@
 #
 #   scripts/release.sh 0.2.0-beta.1      (asks before pushing)
 #   scripts/release.sh v0.2.0 --yes
+#   scripts/release.sh 0.2.0 --notes notes.txt
+#
+# --notes puts the file in the tag's body: those are the "what's new" lines
+# Google Play shows users (scripts/release-notes.sh), at most 500 characters.
+# Without it, Play gets a list built from the commit subjects.
 #
 # It tags origin/main as fetched right now, never the local checkout, so
 # unpushed commits or another checked-out branch cannot end up in a release.
@@ -15,15 +20,28 @@ readonly VERSION_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-v
 
 fail() { printf 'release: %s\n' "$*" >&2; exit 1; }
 
-version_arg='' assume_yes=0
-for arg in "$@"; do
-    case "$arg" in
+readonly NOTES_LIMIT=500
+
+version_arg='' assume_yes=0 notes_file='' notes=''
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         --yes|-y) assume_yes=1 ;;
-        -*) fail "unknown option: $arg" ;;
-        *) [ -z "$version_arg" ] || fail 'more than one version given'; version_arg="$arg" ;;
+        --notes)
+            [ "$#" -ge 2 ] || fail '--notes needs a file'
+            notes_file="$2"; shift ;;
+        -*) fail "unknown option: $1" ;;
+        *) [ -z "$version_arg" ] || fail 'more than one version given'; version_arg="$1" ;;
     esac
+    shift
 done
-[ -n "$version_arg" ] || fail 'usage: release.sh <version> [--yes]   e.g. release.sh 0.2.0-beta.1'
+[ -n "$version_arg" ] || fail 'usage: release.sh <version> [--yes] [--notes <file>]   e.g. release.sh 0.2.0-beta.1'
+
+if [ -n "$notes_file" ]; then
+    [ -f "$notes_file" ] || fail "no such notes file: $notes_file"
+    notes="$(tr -d '\r' < "$notes_file")"
+    [ -n "${notes//[[:space:]]/}" ] || fail "the notes file is empty: $notes_file"
+    (( ${#notes} <= NOTES_LIMIT )) || fail "the notes are ${#notes} characters; Google Play allows $NOTES_LIMIT"
+fi
 
 readonly TAG="v${version_arg#v}"
 bash "$VERSION_SCRIPT" "$TAG" semver >/dev/null || exit 1
@@ -50,12 +68,21 @@ fi
 printf 'Release %s\n' "$TAG"
 printf '  commit:   %s\n' "$(git log -1 --format='%h %s' "$target")"
 printf '  previous: %s\n' "${latest:-none}"
+if [ -n "$notes" ]; then
+    printf '  notes:\n%s\n' "$(sed 's/^/    /' <<< "$notes")"
+else
+    printf '  notes:    none, Google Play gets the commit list (scripts/release-notes.sh)\n'
+fi
 if [ "$assume_yes" -ne 1 ]; then
     read -r -p 'Tag origin/main and push? [y/N] ' answer || answer=''
     case "$answer" in y|Y|yes|YES) ;; *) fail 'aborted, nothing was tagged' ;; esac
 fi
 
-git tag -a "$TAG" -m "Vitela $TAG" "$target"
+if [ -n "$notes" ]; then
+    git tag -a "$TAG" -m "Vitela $TAG" -m "$notes" "$target"
+else
+    git tag -a "$TAG" -m "Vitela $TAG" "$target"
+fi
 if ! git push --quiet origin "refs/tags/$TAG"; then
     git tag -d "$TAG" >/dev/null
     fail "push failed; the local tag $TAG was removed"
