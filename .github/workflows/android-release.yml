@@ -72,6 +72,21 @@ jobs:
           for name in "${missing[@]}"; do echo "::error::google-play environment is missing secret $name"; done
           [ "${#missing[@]}" -eq 0 ]
 
+      # Full history and tags: the release notes are the tag's body, or the
+      # commits since the previous tag (scripts/release-notes.sh).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Write the release notes
+        # checkout can leave the triggering tag as a lightweight ref, which
+        # has no body; fetching the tags again restores the annotated one.
+        run: |
+          git fetch --quiet --force --tags origin
+          mkdir -p whatsnew
+          bash scripts/release-notes.sh "$GITHUB_REF_NAME" > whatsnew/whatsnew-en-US
+          cat whatsnew/whatsnew-en-US
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: android-bundle
@@ -110,3 +125,4 @@ jobs:
           releaseFiles: bundle/app-release.aab
           track: ${{ inputs.play-track }}
           status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}
+          whatsNewDirectory: whatsnew

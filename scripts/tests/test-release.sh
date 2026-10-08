@@ -2,6 +2,7 @@
 # Shell tests for the release tooling every platform shares:
 #   scripts/release-version.sh  tag grammar + per-platform version formats
 #   scripts/release.sh          the one command a maintainer runs to release
+#   scripts/release-notes.sh    the Google Play "what's new" text of a tag
 #
 # release.sh cases run against a throwaway clone of a throwaway bare
 # "origin", so nothing here can push anywhere real.
@@ -10,6 +11,7 @@ set -euo pipefail
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly VERSION_SCRIPT="$REPO_ROOT/scripts/release-version.sh"
 readonly RELEASE_SCRIPT="$REPO_ROOT/scripts/release.sh"
+readonly NOTES_SCRIPT="$REPO_ROOT/scripts/release-notes.sh"
 
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 assert_file() { [ -f "$1" ] || fail "expected file: $1"; }
@@ -194,9 +196,106 @@ test_release_asks_before_pushing() {
     remote_tag_commit v0.2.0 >/dev/null || fail 'did not push after consent'
 }
 
+# --- release-notes.sh -------------------------------------------------------
+
+notes() { (cd "$sandbox/clone" && bash "$NOTES_SCRIPT" "$@"); }
+commit() { git -C "$sandbox/clone" commit -q --allow-empty -m "$1"; }
+tag() { git -C "$sandbox/clone" tag -a "$1" -m "$1"; }
+
+test_notes_list_android_facing_changes_since_the_previous_tag() {
+    make_sandbox
+    tag v0.2.0-beta.1
+    commit 'feat(android): read saved comments (#12)'
+    commit 'feat(windows): share sheet (#13)'
+    commit 'fix(form): accented text in form fields (#14)'
+    commit 'feat: show the version in Home (#15)'
+    commit 'feat(core): expose comments through FFI (#16)'
+    commit 'fix(ci): drop a mirror (#17)'
+    commit 'docs(store): add art (#18)'
+    tag v0.2.0-beta.2
+    commit 'feat(android): not released yet (#19)'
+    local expected
+    expected="$(printf '%s\n' '• Read saved comments' '• Accented text in form fields' '• Show the version in Home')"
+    [ "$(notes v0.2.0-beta.2)" = "$expected" ] || fail "notes were: $(notes v0.2.0-beta.2)"
+}
+
+test_notes_fall_back_when_nothing_android_facing_changed() {
+    make_sandbox
+    tag v0.2.0-beta.1
+    commit 'feat(linux): something (#1)'
+    tag v0.2.0-beta.2
+    [ "$(notes v0.2.0-beta.2)" = 'Bug fixes and improvements.' ] || fail 'no fallback note'
+}
+
+test_notes_of_the_first_tag_cover_all_history() {
+    make_sandbox
+    commit 'feat(android): first feature (#1)'
+    tag v0.1.0
+    [ "$(notes v0.1.0)" = '• First feature' ] || fail "notes were: $(notes v0.1.0)"
+}
+
+# Google Play refuses release notes over 500 characters per language.
+test_notes_fit_the_play_limit_on_whole_lines() {
+    make_sandbox
+    tag v0.2.0-beta.1
+    local i
+    for ((i = 1; i <= 40; i++)); do commit "feat(android): a reasonably long feature description number $i"; done
+    tag v0.2.0-beta.2
+    local out
+    out="$(notes v0.2.0-beta.2)"
+    (( ${#out} <= 500 )) || fail "notes are ${#out} characters"
+    [ "$(printf '%s\n' "$out" | head -n1)" = '• A reasonably long feature description number 1' ] || fail 'lost the first line'
+    printf '%s\n' "$out" | grep -qvx '• A reasonably long feature description number [0-9]*' && fail 'cut a line in half'
+    return 0
+}
+
+test_notes_refuse_an_unknown_tag() {
+    make_sandbox
+    if notes v9.9.9 >/dev/null 2>&1; then fail 'wrote notes for a tag that does not exist'; fi
+}
+
+# Notes a maintainer wrote for users win over the commit list.
+test_notes_prefer_the_tag_body() {
+    make_sandbox
+    commit 'feat(android): read saved PDF comments from shared FFI (#1)'
+    local written=$'• See the comments saved in a PDF\n• Type accents in form fields'
+    git -C "$sandbox/clone" tag -a v0.1.0 -m 'Vitela v0.1.0' -m "$written"
+    [ "$(notes v0.1.0)" = "$written" ] || fail "notes were: $(notes v0.1.0)"
+}
+
+# A hand-written body is never cut: Play would show half a sentence.
+test_notes_refuse_a_tag_body_over_the_play_limit() {
+    make_sandbox
+    git -C "$sandbox/clone" tag -a v0.1.0 -m 'Vitela v0.1.0' -m "$(printf 'x%.0s' {1..501})"
+    if notes v0.1.0 >/dev/null 2>&1; then fail 'accepted a tag body over 500 characters'; fi
+}
+
+test_release_writes_the_notes_into_the_tag() {
+    make_sandbox
+    # CRLF, as an editor on Windows writes it: the tag must not keep the \r.
+    printf '%s\r\n' '• See the comments saved in a PDF' > "$sandbox/notes.txt"
+    release 0.2.0 --yes --notes "$sandbox/notes.txt" >/dev/null
+    [ "$(git -C "$sandbox/origin.git" tag -l --format='%(contents:subject)' v0.2.0)" = 'Vitela v0.2.0' ] \
+        || fail 'the tag subject changed'
+    git -C "$sandbox/clone" fetch -q --tags origin
+    [ "$(notes v0.2.0)" = '• See the comments saved in a PDF' ] || fail "notes were: $(notes v0.2.0)"
+}
+
+test_release_refuses_unusable_notes() {
+    make_sandbox
+    : > "$sandbox/empty.txt"
+    printf 'x%.0s' {1..501} > "$sandbox/long.txt"
+    if release 0.2.0 --yes --notes "$sandbox/empty.txt" >/dev/null 2>&1; then fail 'released with empty notes'; fi
+    if release 0.2.0 --yes --notes "$sandbox/long.txt" >/dev/null 2>&1; then fail 'released with notes over 500 characters'; fi
+    if release 0.2.0 --yes --notes "$sandbox/missing.txt" >/dev/null 2>&1; then fail 'released with a missing notes file'; fi
+    if release 0.2.0 --yes --notes >/dev/null 2>&1; then fail 'accepted --notes without a file'; fi
+    [ -z "$(git -C "$sandbox/origin.git" tag)" ] || fail 'a refused release still pushed a tag'
+}
+
 test_required_assets_exist() {
     assert_file "$VERSION_SCRIPT"
     assert_file "$RELEASE_SCRIPT"
+    assert_file "$NOTES_SCRIPT"
 }
 
 test_tag_maps_to_each_format
@@ -211,5 +310,14 @@ test_release_ignores_local_commits_and_branches
 test_release_refuses_existing_or_older_versions
 test_release_refuses_malformed_versions
 test_release_asks_before_pushing
+test_notes_list_android_facing_changes_since_the_previous_tag
+test_notes_fall_back_when_nothing_android_facing_changed
+test_notes_of_the_first_tag_cover_all_history
+test_notes_fit_the_play_limit_on_whole_lines
+test_notes_refuse_an_unknown_tag
+test_notes_prefer_the_tag_body
+test_notes_refuse_a_tag_body_over_the_play_limit
+test_release_writes_the_notes_into_the_tag
+test_release_refuses_unusable_notes
 test_required_assets_exist
-printf 'release tooling shell tests: %d passed, %d skipped\n' $((13 - skipped)) "$skipped"
+printf 'release tooling shell tests: %d passed, %d skipped\n' $((22 - skipped)) "$skipped"
