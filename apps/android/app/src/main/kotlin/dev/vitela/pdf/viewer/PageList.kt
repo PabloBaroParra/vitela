@@ -32,7 +32,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
@@ -113,7 +112,7 @@ internal fun PageList(
         LaunchedEffect(columns, state.documentId) {
             preferredPage = state.pageIndex
             pinchAnchor = null
-            pinch.target = null
+            pinch.clear()
             horizontalScrollState.scrollTo(0)
             if (rows.count > 0) listState.scrollToItem(rows.row(preferredPage))
         }
@@ -165,16 +164,10 @@ internal fun PageList(
             onAnnotationRevealConsumed()
         }
 
-        LaunchedEffect(state.zoomFactor) {
-            val anchor = pinchAnchor ?: return@LaunchedEffect
-            pinchAnchor = null
-            // The list only knows the new page sizes once it has laid them out.
-            withFrameNanos { }
-            val ratio = state.zoomFactor / anchor.fromZoom
-            listState.scrollToItem(anchor.firstItem, anchoredScroll(anchor.firstItemOffset, anchor.focus.y, ratio))
-            horizontalScrollState.scrollTo(anchoredScroll(anchor.scrollX, anchor.focus.x, ratio))
-            pinch.target = null
-        }
+        // Read through state for the same reason as laidOutZoom: the pinch detector outlives this composition.
+        val rowWidthPx by rememberUpdatedState(with(LocalDensity.current) { rowWidth.toPx() })
+        // A column narrower than the screen is centred, so its content starts this far in.
+        val rowLead by rememberUpdatedState(((viewportWidthPx - rowWidthPx) / 2).coerceAtLeast(0f))
 
         // Keep one horizontal position for the entire page column. Geometry,
         // rather than bitmap scaling, changes with zoom so each page re-renders
@@ -182,21 +175,37 @@ internal fun PageList(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pinchToZoom(enabled = state.pageCount > 0, laidOutZoom = { laidOutZoom }, pinch = pinch) { target, focus ->
-                    if (target == laidOutZoom) {
-                        pinch.target = null
-                    } else {
-                        pinchAnchor = PinchAnchor(
-                            fromZoom = laidOutZoom,
-                            firstItem = listState.firstVisibleItemIndex,
-                            firstItemOffset = listState.firstVisibleItemScrollOffset,
-                            scrollX = horizontalScrollState.value,
-                            focus = focus,
+                .pinchToZoom(
+                    enabled = state.pageCount > 0,
+                    laidOutZoom = { laidOutZoom },
+                    edges = {
+                        PinchEdges(
+                            left = rowLead - horizontalScrollState.value,
+                            width = rowWidthPx,
+                            // Only the first page's top is known; further down the list has no fixed edge.
+                            top = if (listState.firstVisibleItemIndex == 0) -listState.firstVisibleItemScrollOffset.toFloat() else null,
                         )
-                        currentOnPinch(target)
-                    }
+                    },
+                    pinch = pinch,
+                ) { target, from, to ->
+                    pinchAnchor = PinchAnchor(
+                        fromZoom = laidOutZoom,
+                        toZoom = target,
+                        firstItem = listState.firstVisibleItemIndex,
+                        firstItemOffset = listState.firstVisibleItemScrollOffset,
+                        scrollX = horizontalScrollState.value,
+                        leadX = rowLead,
+                        from = from,
+                        to = to,
+                    )
+                    if (target != laidOutZoom) currentOnPinch(target)
+                }
+                .landPinch(anchor = { pinchAnchor }, laidOutZoom = { laidOutZoom }, list = listState, horizontal = horizontalScrollState) {
+                    pinchAnchor = null
+                    pinch.clear()
                 }
                 .horizontalScroll(horizontalScrollState),
+            contentAlignment = Alignment.TopCenter,
         ) {
             LazyColumn(
                 state = listState,
@@ -497,8 +506,6 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLifted(bitmap: 
     )
 }
 
-/** The list's position, in the zoom it was taken at, when a pinch lifted. */
-private class PinchAnchor(val fromZoom: Double, val firstItem: Int, val firstItemOffset: Int, val scrollX: Int, val focus: Offset)
 
 private val PlacedRect.topLeft get() = Offset(left.toFloat(), top.toFloat())
 private val PlacedRect.size get() = androidx.compose.ui.geometry.Size(width.toFloat(), height.toFloat())
