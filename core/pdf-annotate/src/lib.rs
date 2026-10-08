@@ -20,7 +20,10 @@ pub mod freetext;
 pub mod ops;
 pub mod placement;
 
-pub use appearance::{build_stamp_appearance, build_text_note_dicts, StampAppearance};
+pub use appearance::{
+    build_free_text_appearance, build_stamp_appearance, build_text_note_dicts, FreeTextAppearance,
+    StampAppearance,
+};
 pub use builders::{
     free_text, highlight, ink, shape, stamp_from_image_bytes, strikeout, text_note, underline,
 };
