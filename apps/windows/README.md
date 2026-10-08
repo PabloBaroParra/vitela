@@ -190,7 +190,7 @@ The persistent application rail separates Home/Recent/My files from document
 destinations. Home preserves the open document and offers a **Return to document**
 button; document destinations request a PDF first when none is open. The tools
 column has Annotate, Edit, Comments and Fill & Sign pages. Existing controls retain
-their handlers and permissions; Comments explicitly states that it is unavailable.
+their handlers and permissions; Comments lists saved comments and pending session notes.
 The icon-and-label tab strip wraps within the tools column. Clicking the active
 tab keeps it active; rail and Home destinations select that same page, never a
 second independently tracked view. Inactive pages take no layout space.
@@ -271,9 +271,13 @@ unsupported/empty/permission/busy/stale-row states against the built-in sample.
 These harnesses never save a user PDF. Rebuild normally after any replacement-entry-point harness before
 launching the app for use.
 
-The **Comments** tab explicitly says “Comments aren't available in this shell
-yet.” in secondary text, matching Linux; it is not an empty or working comments
-list. Switching tabs hides that placeholder without affecting the document.
+The **Comments** tab lists saved PDF comments and pending session notes by page.
+Click an entry to reveal its rectangle and read its full text, author and PDF date.
+Reading works without annotation-edit permission. Saved entries are read-only and
+stay outside the editable annotation set: Save already preserves their `/Annots`.
+New notes are written into the PDF itself, so their text remains readable after
+save, download and reopening in another shell. Linux's comments panel is deferred;
+the shared reader and FFI contract are available for it.
 
 Edit now shows an **Edit PDF** heading, an availability notice and separate
 **Text** and **Images** cards with wrapping icon-and-label controls. The notice

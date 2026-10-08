@@ -40,14 +40,7 @@ public sealed partial class MainWindow
         _toolPages["Sign"].Children.Add(FormFieldsPanel);
         BuildSigningPanel();
         BuildDrawSignaturePanel();
-        var comments = new TextBlock
-        {
-            Text = "Comments aren't available in this shell yet.", TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Top,
-            Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-        };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(comments, "CommentsPlaceholder");
-        _toolPages["Comments"].Children.Add(comments);
+        BuildCommentsPanel();
 
         // Reuse the same named controls and handlers, including Windows-only operations.
         // Presentation changes must not create a second edit state or command implementation.

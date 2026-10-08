@@ -480,6 +480,7 @@ public sealed partial class MainWindow
 
     private void UpdateAnnotationControls(AnnotationState? state)
     {
+        UpdateCommentsPanel(state);
         SyncAnnotationToolButtons();
         // Organizing hides the pages these tools draw on; only history stays live.
         var enabled = state?.EditingAllowed == true && _session is { PageCount: > 0 } && !_organizing && !_isBusy;

@@ -199,6 +199,11 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public IReadOnlyList<Comment> Comments(IPdfCoreDocument document) =>
+        [.. ((GeneratedDocument)document).Handle.Comments().Select(comment => new Comment(
+            comment.Page, new AnnotationRect(comment.Rect.X, comment.Rect.Y, comment.Rect.Width, comment.Rect.Height),
+            comment.Contents, comment.Author, comment.Date, comment.AnnotationId))];
+
     public PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document)
     {
         var info = ((GeneratedDocument)document).Handle.ReadDocumentInfo();

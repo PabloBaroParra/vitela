@@ -81,6 +81,8 @@ internal interface IPdfCore
 
     IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document);
 
+    IReadOnlyList<Comment> Comments(IPdfCoreDocument document);
+
     PdfCoreDocumentInfo ReadDocumentInfo(IPdfCoreDocument document);
 
     /// <summary>
