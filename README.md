@@ -144,6 +144,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | — | 🚧 | — |
+| Share to another device | — | ✅ | — | — | — |
 | Annotate | ✅ | ✅ | — | 🚧 | — |
 | Edit page content | 🚧 | 🚧 | — | 🚧 | — |
 | Edit metadata | ✅ | ✅ | — | 🚧 | — |

@@ -10,7 +10,7 @@ namespace Pdf.Windows.Viewer;
 public enum ShellIcon
 {
     Home, Recent, Files, Edit, Annotate, Sign, Organize, Compress, Protect,
-    NewFile, Sample, Delete, Text, Image, Save, Print, ExportImages, Undo, Redo,
+    NewFile, Sample, Delete, Text, Image, Save, Print, Share, ExportImages, Undo, Redo,
     ZoomOut, ZoomIn, FitWidth, FitPage, PanelLeft, PanelRight, Previous, Next,
     Search, Comments, MoveUp, MoveDown, RotateLeft, RotateRight,
     FirstPage, LastPage, GoToPage, ExtractPages, SplitPages,

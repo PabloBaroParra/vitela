@@ -13,6 +13,8 @@
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.AnnotationStyle.cs" Link="Facade\PdfDocumentFacade.AnnotationStyle.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.FreeText.cs" Link="Facade\PdfDocumentFacade.FreeText.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Lifecycle.cs" Link="Facade\PdfDocumentFacade.Lifecycle.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Share.cs" Link="Facade\PdfDocumentFacade.Share.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\ShareFileName.cs" Link="Viewer\ShareFileName.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\DragEdgeScroll.cs" Link="Viewer\DragEdgeScroll.cs" />
     <Compile Include="..\Pdf.Windows\Facade\DocumentBlocks.cs" Link="Facade\DocumentBlocks.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Organize.cs" Link="Facade\PdfDocumentFacade.Organize.cs" />
