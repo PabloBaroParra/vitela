@@ -10,7 +10,7 @@
 //! stamps. The AP converts to PDF's bottom-left space itself.
 
 use crate::error::AnnotateError;
-use pdf_document::TextStyle;
+use pdf_document::{Color, FontFamily, Rect, TextStyle};
 use pdf_edit::encoding::winansi::char_width_thousandths;
 use pdf_edit::encoding::wrap::wrap_greedy;
 
@@ -23,6 +23,56 @@ pub const FREE_TEXT_LEADING: f64 = 1.15;
 pub const FREE_TEXT_ASCENT: f64 = 0.718;
 /// Helvetica's descender (AFM `Descender -207`), as a multiple of the size.
 const DESCENT: f64 = 0.207;
+
+/// The style every new text box gets: Helvetica 12pt black. The model
+/// carries a [`TextStyle`] so a styling UI can land later without touching
+/// every constructor, but v1 offers no way to change it.
+pub fn default_free_text_style() -> TextStyle {
+    TextStyle {
+        font: FontFamily::Helvetica,
+        size_pt: 12.0,
+        color: Color { r: 0, g: 0, b: 0 },
+    }
+}
+
+/// Validates text for a free-text box and returns it with line breaks
+/// normalized to `\n`.
+///
+/// Blank text is refused (deleting the annotation is how you remove it),
+/// and so is any character WinAnsi cannot show — the same rule the layout
+/// and the saved appearance apply, enforced here so the model can never
+/// hold text that would fail at save time.
+pub(crate) fn checked_contents(contents: &str) -> Result<String, AnnotateError> {
+    if contents.trim().is_empty() {
+        return Err(AnnotateError::UnsupportedOperation("empty free text"));
+    }
+    let normalized = contents.replace("\r\n", "\n").replace('\r', "\n");
+    for character in normalized.chars().filter(|c| *c != '\n') {
+        if char_width_thousandths(character).is_none() {
+            return Err(AnnotateError::EncodingGap { character });
+        }
+    }
+    Ok(normalized)
+}
+
+/// The smallest box a resize may produce: one glyph wide and one line high,
+/// plus the padding on both sides of each. Returns `(width, height)`.
+pub fn min_free_text_size(style: &TextStyle) -> (f64, f64) {
+    (
+        style.size_pt + 2.0 * FREE_TEXT_PADDING_PT,
+        FREE_TEXT_LEADING * style.size_pt + 2.0 * FREE_TEXT_PADDING_PT,
+    )
+}
+
+/// A rect a box can be drawn into: finite and strictly positive in both
+/// dimensions.
+pub(crate) fn is_drawable(rect: &Rect) -> bool {
+    [rect.x, rect.y, rect.width, rect.height]
+        .iter()
+        .all(|v| v.is_finite())
+        && rect.width > 0.0
+        && rect.height > 0.0
+}
 
 /// One laid-out line, in the rect's top-left, y-down frame.
 #[derive(Debug, Clone, PartialEq)]

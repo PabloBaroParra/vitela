@@ -7,6 +7,7 @@
 //! `MoveAnnotation`) can be added later without a breaking change.
 
 use crate::error::AnnotateError;
+use crate::freetext::{checked_contents, is_drawable, min_free_text_size};
 use pdf_document::{Annotation, AnnotationId, AnnotationKind, AnnotationSet, Color, Rect};
 
 /// Translates a rect-based annotation by `(dx, dy)`, or shifts every point
@@ -22,6 +23,7 @@ pub fn move_annotation(annotation: &mut Annotation, dx: f64, dy: f64) -> Result<
         | AnnotationKind::Strikeout { rect, .. }
         | AnnotationKind::Shape { rect, .. }
         | AnnotationKind::TextNote { rect, .. }
+        | AnnotationKind::FreeText { rect, .. }
         | AnnotationKind::Stamp { rect, .. } => {
             rect.x += dx;
             rect.y += dy;
@@ -54,6 +56,17 @@ pub fn resize_annotation(annotation: &mut Annotation, new_rect: Rect) -> Result<
             *rect = new_rect;
             Ok(())
         }
+        AnnotationKind::FreeText { rect, style, .. } => {
+            // A box too small to hold one line would clip every glyph, so
+            // the floor is refused here rather than left to each shell.
+            let (min_width, min_height) = min_free_text_size(style);
+            if !is_drawable(&new_rect) || new_rect.width < min_width || new_rect.height < min_height
+            {
+                return Err(AnnotateError::InvalidRect);
+            }
+            *rect = new_rect;
+            Ok(())
+        }
         _ => Err(AnnotateError::UnsupportedOperation("resize")),
     }
 }
@@ -78,6 +91,25 @@ pub fn restyle_annotation(
         }
         _ => Err(AnnotateError::UnsupportedOperation("restyle")),
     }
+}
+
+/// Replaces the text of a `FreeText` annotation.
+///
+/// Runs the same validation as [`crate::builders::free_text`] — blank text
+/// and characters WinAnsi cannot show are refused with the annotation left
+/// untouched. Setting the text it already has is accepted and changes
+/// nothing; callers that record undo entries compare before and after to
+/// avoid logging an edit that edited nothing. Any other kind is
+/// `UnsupportedOperation`.
+pub fn set_annotation_contents(
+    annotation: &mut Annotation,
+    new_contents: &str,
+) -> Result<(), AnnotateError> {
+    let AnnotationKind::FreeText { contents, .. } = &mut annotation.kind else {
+        return Err(AnnotateError::UnsupportedOperation("set contents"));
+    };
+    *contents = checked_contents(new_contents)?;
+    Ok(())
 }
 
 /// Removes and returns the annotation with the given id from `set`.
@@ -252,5 +284,157 @@ mod tests {
     fn delete_missing_id_returns_none() {
         let mut set = AnnotationSet::new();
         assert!(delete_annotation(&mut set, AnnotationId(999)).is_none());
+    }
+
+    fn free_text_annotation(contents: &str) -> Annotation {
+        Annotation {
+            id: AnnotationId(5),
+            page: PageId(0),
+            kind: AnnotationKind::FreeText {
+                rect: Rect {
+                    x: 100.0,
+                    y: 100.0,
+                    width: 200.0,
+                    height: 50.0,
+                },
+                contents: contents.to_string(),
+                style: crate::freetext::default_free_text_style(),
+            },
+        }
+    }
+
+    fn free_text_rect(annotation: &Annotation) -> Rect {
+        match &annotation.kind {
+            AnnotationKind::FreeText { rect, .. } => *rect,
+            other => panic!("expected FreeText, got {other:?}"),
+        }
+    }
+
+    fn free_text_contents(annotation: &Annotation) -> &str {
+        match &annotation.kind {
+            AnnotationKind::FreeText { contents, .. } => contents,
+            other => panic!("expected FreeText, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn move_translates_a_free_text_box_and_keeps_its_size() {
+        let mut annotation = free_text_annotation("hola");
+        move_annotation(&mut annotation, 10.0, -20.0).expect("free text supports move");
+        let rect = free_text_rect(&annotation);
+        assert_eq!((rect.x, rect.y), (110.0, 80.0));
+        assert_eq!((rect.width, rect.height), (200.0, 50.0));
+    }
+
+    #[test]
+    fn resize_replaces_a_free_text_rect() {
+        let mut annotation = free_text_annotation("hola");
+        let narrower = Rect {
+            x: 100.0,
+            y: 100.0,
+            width: 80.0,
+            height: 50.0,
+        };
+        resize_annotation(&mut annotation, narrower).expect("free text supports resize");
+        assert_eq!(free_text_rect(&annotation), narrower);
+    }
+
+    #[test]
+    fn resize_refuses_a_degenerate_free_text_rect_and_changes_nothing() {
+        for (width, height) in [(0.0, 50.0), (-10.0, 50.0), (80.0, 0.0), (80.0, -1.0)] {
+            let mut annotation = free_text_annotation("hola");
+            let before = annotation.clone();
+            let bad = Rect {
+                x: 100.0,
+                y: 100.0,
+                width,
+                height,
+            };
+            assert_eq!(
+                resize_annotation(&mut annotation, bad),
+                Err(AnnotateError::InvalidRect),
+                "{width}x{height}"
+            );
+            assert_eq!(annotation, before);
+        }
+    }
+
+    #[test]
+    fn resize_refuses_a_free_text_rect_below_one_glyph_line() {
+        let min = crate::freetext::min_free_text_size(&crate::freetext::default_free_text_style());
+        let mut annotation = free_text_annotation("hola");
+        let too_small = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: min.0 - 0.5,
+            height: 50.0,
+        };
+        assert_eq!(
+            resize_annotation(&mut annotation, too_small),
+            Err(AnnotateError::InvalidRect)
+        );
+        let just_enough = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: min.0,
+            height: min.1,
+        };
+        resize_annotation(&mut annotation, just_enough).expect("the minimum itself is allowed");
+        assert_eq!(free_text_rect(&annotation), just_enough);
+    }
+
+    #[test]
+    fn restyle_free_text_stays_unsupported() {
+        let mut annotation = free_text_annotation("hola");
+        assert!(matches!(
+            restyle_annotation(&mut annotation, color()),
+            Err(AnnotateError::UnsupportedOperation(_))
+        ));
+    }
+
+    #[test]
+    fn set_contents_replaces_the_text() {
+        let mut annotation = free_text_annotation("uno");
+        set_annotation_contents(&mut annotation, "dos").expect("free text takes new text");
+        assert_eq!(free_text_contents(&annotation), "dos");
+    }
+
+    #[test]
+    fn set_contents_accepts_accents_and_normalizes_line_breaks() {
+        let mut annotation = free_text_annotation("uno");
+        set_annotation_contents(&mut annotation, "ñandú\r\nÁrbol").unwrap();
+        assert_eq!(free_text_contents(&annotation), "ñandú\nÁrbol");
+    }
+
+    #[test]
+    fn set_contents_refuses_blank_and_unencodable_text_and_changes_nothing() {
+        let mut annotation = free_text_annotation("uno");
+        let before = annotation.clone();
+        assert!(matches!(
+            set_annotation_contents(&mut annotation, "  \n"),
+            Err(AnnotateError::UnsupportedOperation(_))
+        ));
+        assert_eq!(
+            set_annotation_contents(&mut annotation, "uno 日"),
+            Err(AnnotateError::EncodingGap { character: '日' })
+        );
+        assert_eq!(annotation, before);
+    }
+
+    #[test]
+    fn set_contents_on_a_text_note_is_unsupported() {
+        let mut annotation = text_note_annotation();
+        assert!(matches!(
+            set_annotation_contents(&mut annotation, "dos"),
+            Err(AnnotateError::UnsupportedOperation(_))
+        ));
+    }
+
+    #[test]
+    fn set_contents_to_the_same_text_is_an_accepted_no_op() {
+        let mut annotation = free_text_annotation("uno");
+        let before = annotation.clone();
+        set_annotation_contents(&mut annotation, "uno").expect("same text is not an error");
+        assert_eq!(annotation, before);
     }
 }
