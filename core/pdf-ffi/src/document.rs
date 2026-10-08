@@ -1043,6 +1043,55 @@ impl DocumentHandle {
             .collect()
     }
 
+    /// Saved comments and pending notes in page order. Reading never adds base
+    /// annotations to AnnotationSet, and remains available without edit permission.
+    pub fn comments(&self) -> Vec<crate::FfiComment> {
+        let state = self.lock();
+        let base = state.base.comments();
+        let imported: HashMap<_, _> = state
+            .imported
+            .iter()
+            .map(|(id, source)| (*id, source.comments()))
+            .collect();
+        let mut result = Vec::new();
+        for (position, page) in state.document.pages.iter().enumerate() {
+            let source = match page.origin {
+                PageOrigin::Base { page_index } => base.get(page_index as usize),
+                PageOrigin::Imported { source, page_index } => imported
+                    .get(&source)
+                    .and_then(|pages| pages.get(page_index as usize)),
+                _ => None,
+            };
+            if let Some(comments) = source {
+                result.extend(comments.iter().map(|comment| crate::FfiComment {
+                    page: position as u32,
+                    rect: comment.rect.into(),
+                    contents: comment.contents.clone(),
+                    author: comment.author.clone(),
+                    date: comment.date.clone(),
+                    annotation_id: None,
+                }));
+            }
+            result.extend(state.document.annotations.iter().filter_map(|annotation| {
+                if annotation.page != page.id {
+                    return None;
+                }
+                let AnnotationKind::TextNote { rect, contents, .. } = &annotation.kind else {
+                    return None;
+                };
+                Some(crate::FfiComment {
+                    page: position as u32,
+                    rect: (*rect).into(),
+                    contents: contents.clone(),
+                    author: None,
+                    date: None,
+                    annotation_id: Some(annotation.id.0),
+                })
+            }));
+        }
+        result
+    }
+
     /// Reports whether a new annotation edit would be allowed by the PDF's
     /// security context.
     pub fn annotation_editing_allowed(&self) -> bool {
