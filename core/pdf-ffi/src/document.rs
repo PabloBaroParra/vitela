@@ -343,6 +343,21 @@ impl DocumentState {
                 let id = self.allocate_annotation_id();
                 Command::AddAnnotation(pdf_annotate::text_note(id, page, rect.into(), contents))
             }
+            FfiEditCommand::AddFreeText {
+                page,
+                rect,
+                contents,
+            } => {
+                let page = self.page_id(page)?;
+                let id = self.allocate_annotation_id();
+                Command::AddAnnotation(pdf_annotate::free_text(id, page, rect.into(), &contents)?)
+            }
+            FfiEditCommand::SetAnnotationContents {
+                annotation_id,
+                contents,
+            } => self.replace_annotation(annotation_id, |annotation| {
+                pdf_annotate::set_annotation_contents(annotation, &contents)
+            })?,
             FfiEditCommand::RemoveAnnotation { annotation_id } => {
                 let id = AnnotationId(annotation_id);
                 let annotation = self
@@ -859,7 +874,14 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
     )
 }
 
-fn ffi_annotation(annotation: &Annotation) -> FfiAnnotation {
+/// The shell-facing snapshot of `annotation`, or `None` for a kind this API
+/// has no shape for.
+///
+/// `None` rather than a stand-in: an unknown kind used to come out as an
+/// empty `TextNote` at (0, 0), which a shell would happily list, select and
+/// draw. Skipping it is the honest answer — it stays in the document and in
+/// the saved file, it is just not offered for editing.
+fn ffi_annotation(annotation: &Annotation) -> Option<FfiAnnotation> {
     let kind = match &annotation.kind {
         AnnotationKind::Highlight { rect, color } => FfiAnnotationKind::Highlight {
             rect: (*rect).into(),
@@ -888,22 +910,27 @@ fn ffi_annotation(annotation: &Annotation) -> FfiAnnotation {
         AnnotationKind::Stamp { rect, .. } => FfiAnnotationKind::Stamp {
             rect: (*rect).into(),
         },
-        _ => FfiAnnotationKind::TextNote {
-            rect: pdf_document::Rect {
-                x: 0.0,
-                y: 0.0,
-                width: 0.0,
-                height: 0.0,
+        AnnotationKind::FreeText {
+            rect,
+            contents,
+            style,
+        } => {
+            let layout =
+                pdf_annotate::layout_free_text(contents, style, rect.width, rect.height).ok()?;
+            FfiAnnotationKind::FreeText {
+                rect: (*rect).into(),
+                contents: contents.clone(),
+                font_size_pt: layout.font_size_pt,
+                lines: layout.lines.into_iter().map(Into::into).collect(),
             }
-            .into(),
-            contents: String::new(),
-        },
+        }
+        _ => return None,
     };
-    FfiAnnotation {
+    Some(FfiAnnotation {
         id: annotation.id.0,
         page: annotation.page.0,
         kind,
-    }
+    })
 }
 
 #[uniffi::export]
@@ -1010,7 +1037,7 @@ impl DocumentHandle {
             .filter_map(|annotation| {
                 Some(FfiAnnotation {
                     page: state.page_position(annotation.page)?,
-                    ..ffi_annotation(annotation)
+                    ..ffi_annotation(annotation)?
                 })
             })
             .collect()
@@ -1738,7 +1765,17 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         }
     }
 
+    let is_set_contents = matches!(command, FfiEditCommand::SetAnnotationContents { .. });
     let mut core_command = state.build_core_command(command)?;
+    if is_set_contents {
+        // Retyping a box to the text it already has edited nothing, so it
+        // must not become an undo step the user has to step over.
+        if let Command::ReplaceAnnotation { before, after } = &core_command {
+            if before == after {
+                return Ok(());
+            }
+        }
+    }
     if is_content {
         let queued = pending_text_amendment_index(&state.document, &core_command)?;
         if let Some(index) = queued {

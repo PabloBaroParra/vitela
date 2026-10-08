@@ -67,6 +67,7 @@ mod error;
 mod export;
 mod extract;
 mod form;
+mod freetext;
 mod import;
 mod output;
 mod placement;
@@ -99,6 +100,7 @@ pub use form::{
     FfiFieldOrigin, FfiFieldValue, FfiFontFamily, FfiFormField, FfiFormFieldKind, FfiRadioOption,
     FfiTextStyle,
 };
+pub use freetext::freetext_layout;
 pub use import::{
     import_pdf, import_prepared, import_refusal, prepare_import, FfiBatchImportReport,
     FfiImportReport, PreparedImport,
@@ -119,10 +121,10 @@ pub use sign_sources::{
 pub use split::{plan_split, FfiSplitPart};
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,
-    FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiOrientation, FfiPageContent,
-    FfiPageDimensions, FfiPageSize, FfiPdfDate, FfiPdfDateOffset, FfiPoint, FfiRect,
-    FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement,
-    FfiTextRect, FfiTextRun,
+    FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiFreeTextLayout, FfiFreeTextLine,
+    FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPdfDate, FfiPdfDateOffset,
+    FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult,
+    FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun,
 };
 
 uniffi::setup_scaffolding!();

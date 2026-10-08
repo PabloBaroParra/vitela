@@ -183,6 +183,17 @@ impl From<pdf_annotate::AnnotateError> for FfiError {
             E::UnsupportedOperation(op) => FfiError::UnsupportedOperation {
                 detail: op.to_string(),
             },
+            // The shells already turn this into "'日' can't be shown"; the
+            // free-text font is always Helvetica.
+            E::EncodingGap { character } => FfiError::EncodingGap {
+                character: character.to_string(),
+                resource_font_name: "Helvetica".to_string(),
+            },
+            // A refusal of the request, like the other box-shape errors: the
+            // shell shows it, the document is intact.
+            E::InvalidRect => FfiError::UnsupportedOperation {
+                detail: err.to_string(),
+            },
             other => FfiError::Internal {
                 detail: other.to_string(),
             },
