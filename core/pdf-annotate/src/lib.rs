@@ -16,13 +16,24 @@
 pub mod appearance;
 pub mod builders;
 pub mod error;
+pub mod freetext;
 pub mod ops;
 pub mod placement;
 
-pub use appearance::{build_stamp_appearance, build_text_note_dicts, StampAppearance};
+pub use appearance::{
+    build_free_text_appearance, build_stamp_appearance, build_text_note_dicts, FreeTextAppearance,
+    StampAppearance,
+};
 pub use builders::{
-    highlight, ink, shape, stamp_from_image_bytes, strikeout, text_note, underline,
+    free_text, highlight, ink, shape, stamp_from_image_bytes, strikeout, text_note, underline,
 };
 pub use error::AnnotateError;
-pub use ops::{delete_annotation, move_annotation, resize_annotation, restyle_annotation};
+pub use freetext::{
+    default_free_text_style, layout as layout_free_text, min_free_text_size, FreeTextLayout,
+    FreeTextLine, FREE_TEXT_ASCENT, FREE_TEXT_LEADING, FREE_TEXT_PADDING_PT,
+};
+pub use ops::{
+    delete_annotation, move_annotation, resize_annotation, restyle_annotation,
+    set_annotation_contents,
+};
 pub use placement::{stamp_placement, DEFAULT_STAMP_MAX_SIDE_PT};

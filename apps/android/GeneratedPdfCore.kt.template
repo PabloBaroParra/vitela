@@ -184,7 +184,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     override fun annotations(): PdfCoreResult<AnnotationSnapshot> = try {
-        PdfCoreResult.Success(AnnotationSnapshot(handle.annotations().map { it.toAnnotation() }, handle.annotationEditingAllowed(), handle.canUndo(), handle.canRedo()))
+        PdfCoreResult.Success(AnnotationSnapshot(handle.annotations().mapNotNull { it.toAnnotation() }, handle.annotationEditingAllowed(), handle.canUndo(), handle.canRedo()))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -697,7 +697,7 @@ private class GeneratedPageCharacters(private val characters: FfiPageCharacters)
     override fun close() = characters.close()
 }
 
-private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation = when (val value = kind) {
+private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation? = when (val value = kind) {
     is FfiAnnotationKind.Highlight -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Highlight, value.rect.toRect(), value.color.toColor())
     is FfiAnnotationKind.Underline -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Underline, value.rect.toRect(), value.color.toColor())
     is FfiAnnotationKind.Strikeout -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Strikeout, value.rect.toRect(), value.color.toColor())
@@ -705,6 +705,8 @@ private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation = whe
     is FfiAnnotationKind.Shape -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Shape, value.rect.toRect(), value.color.toColor())
     is FfiAnnotationKind.TextNote -> Annotation(id.toLong(), page.toInt(), AnnotationKind.TextNote, value.rect.toRect(), null, contents = value.contents)
     is FfiAnnotationKind.Stamp -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Stamp, value.rect.toRect(), null)
+    // The Android shell has no text-box support yet; pdfium still paints the box.
+    is FfiAnnotationKind.FreeText -> null
 }
 
 private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {

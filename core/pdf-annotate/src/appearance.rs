@@ -22,6 +22,127 @@ pub struct StampAppearance {
     pub smask_xobject: Option<Stream>,
 }
 
+/// What `pdf-save` needs to write a `FreeText` annotation visibly: the
+/// `/AP /N` form XObject and the `/DA` default-appearance string that
+/// matches it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FreeTextAppearance {
+    pub form: Stream,
+    pub da: String,
+}
+
+/// Builds the appearance of a `FreeText` annotation from its current rect
+/// and contents.
+///
+/// The text comes from [`crate::freetext::layout`] — the same function the
+/// shells draw from — so the saved file wraps exactly where the editor did.
+/// The form's `/BBox` is the rect's size with its origin at 0,0 (the `/AP`
+/// is mapped onto `/Rect` by the viewer), the lines are clipped to it, and
+/// nothing is stroked or filled: no border, no background. Text is written
+/// as WinAnsi bytes under `/Encoding /WinAnsiEncoding`, octal-escaped so the
+/// stream stays printable ASCII whatever the contents.
+pub fn build_free_text_appearance(
+    annotation: &Annotation,
+) -> Result<FreeTextAppearance, AnnotateError> {
+    let AnnotationKind::FreeText {
+        rect,
+        contents,
+        style,
+    } = &annotation.kind
+    else {
+        return Err(AnnotateError::UnsupportedOperation(
+            "build_free_text_appearance: not a FreeText",
+        ));
+    };
+    let laid_out = crate::freetext::layout(contents, style, rect.width, rect.height)?;
+
+    let colour = format!(
+        "{} {} {} rg",
+        channel(style.color.r),
+        channel(style.color.g),
+        channel(style.color.b)
+    );
+    let size = number(style.size_pt);
+    let mut content = format!(
+        "q\n0 0 {} {} re W n\nBT\n{colour}\n/Helv {size} Tf\n",
+        number(rect.width),
+        number(rect.height)
+    );
+    for line in laid_out.lines.iter().filter(|l| !l.text.is_empty()) {
+        let bytes = pdf_edit::encoding::winansi::encode_winansi(&line.text)
+            .map_err(|character| AnnotateError::EncodingGap { character })?;
+        content.push_str(&format!(
+            "1 0 0 1 {} {} Tm\n({}) Tj\n",
+            number(line.x_pt),
+            number(rect.height - line.baseline_from_top_pt),
+            escape_literal(&bytes)
+        ));
+    }
+    content.push_str("ET\nQ\n");
+
+    let mut helvetica = Dictionary::new();
+    helvetica.set("Type", "Font");
+    helvetica.set("Subtype", "Type1");
+    helvetica.set("BaseFont", "Helvetica");
+    helvetica.set("Encoding", "WinAnsiEncoding");
+    let mut fonts = Dictionary::new();
+    fonts.set("Helv", Object::Dictionary(helvetica));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+
+    let mut dict = Dictionary::new();
+    dict.set("Type", "XObject");
+    dict.set("Subtype", "Form");
+    dict.set(
+        "BBox",
+        Object::Array(vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(rect.width as f32),
+            Object::Real(rect.height as f32),
+        ]),
+    );
+    dict.set("Resources", Object::Dictionary(resources));
+
+    Ok(FreeTextAppearance {
+        form: Stream::new(dict, content.into_bytes()),
+        da: format!("{colour} /Helv {size} Tf"),
+    })
+}
+
+/// A number as PDF content-stream text: at most three decimals, no
+/// trailing zeros, never `-0`.
+fn number(value: f64) -> String {
+    let text = format!("{value:.3}");
+    let text = text.trim_end_matches('0').trim_end_matches('.');
+    if text == "-0" || text.is_empty() {
+        "0".to_string()
+    } else {
+        text.to_string()
+    }
+}
+
+fn channel(value: u8) -> String {
+    number(f64::from(value) / 255.0)
+}
+
+/// The inside of a PDF literal string for `bytes`: delimiters and
+/// backslashes escaped, anything outside printable ASCII as `\ooo`.
+fn escape_literal(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for &byte in bytes {
+        match byte {
+            b'(' | b')' | b'\\' => {
+                out.push('\\');
+                out.push(char::from(byte));
+            }
+            0x20..=0x7E => out.push(char::from(byte)),
+            _ => out.push_str(&format!("\\{byte:03o}")),
+        }
+    }
+    out
+}
+
 /// Builds the `/Popup` + `/Parent` linked pair of PDF annotation
 /// dictionaries for a `TextNote` (spec "Text Note Popup Linking"): the
 /// markup (icon) dict carries a `/Popup` entry; the returned popup dict
@@ -438,5 +559,199 @@ mod tests {
         };
         let result = build_stamp_appearance(&annotation);
         assert!(matches!(result, Err(AnnotateError::InvalidImage(_))));
+    }
+
+    fn free_text(contents: &str, width: f64, height: f64) -> Annotation {
+        crate::builders::free_text(
+            AnnotationId(9),
+            PageId(0),
+            Rect {
+                x: 50.0,
+                y: 60.0,
+                width,
+                height,
+            },
+            contents,
+        )
+        .expect("valid free text")
+    }
+
+    fn content_text(appearance: &FreeTextAppearance) -> String {
+        String::from_utf8(appearance.form.content.clone()).expect("ASCII-only content stream")
+    }
+
+    /// Reads back `x y Tm` / `(literal) Tj` pairs, undoing the literal's
+    /// escapes into raw WinAnsi bytes.
+    fn painted_lines(content: &str) -> Vec<(Vec<u8>, f64, f64)> {
+        let mut out = Vec::new();
+        let mut at = (0.0, 0.0);
+        for line in content.lines() {
+            if let Some(rest) = line.strip_suffix(" Tm") {
+                let n: Vec<f64> = rest.split(' ').map(|t| t.parse().unwrap()).collect();
+                at = (n[4], n[5]);
+            } else if let Some(literal) = line.strip_suffix(") Tj") {
+                let body = literal.strip_prefix('(').expect("literal opens with (");
+                out.push((unescape(body), at.0, at.1));
+            }
+        }
+        out
+    }
+
+    fn unescape(body: &str) -> Vec<u8> {
+        let bytes = body.as_bytes();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] != b'\\' {
+                out.push(bytes[i]);
+                i += 1;
+            } else if bytes[i + 1].is_ascii_digit() {
+                let octal = std::str::from_utf8(&bytes[i + 1..i + 4]).unwrap();
+                out.push(u8::from_str_radix(octal, 8).unwrap());
+                i += 4;
+            } else {
+                out.push(bytes[i + 1]);
+                i += 2;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn free_text_form_has_a_bbox_of_the_rect_size() {
+        let appearance = build_free_text_appearance(&free_text("Hola", 200.0, 50.0)).unwrap();
+        let bbox = appearance
+            .form
+            .dict
+            .get(b"BBox")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let numbers: Vec<f32> = bbox.iter().map(|o| o.as_float().unwrap()).collect();
+        assert_eq!(numbers, [0.0, 0.0, 200.0, 50.0]);
+        assert_eq!(
+            appearance
+                .form
+                .dict
+                .get(b"Subtype")
+                .unwrap()
+                .as_name()
+                .unwrap(),
+            b"Form"
+        );
+    }
+
+    #[test]
+    fn free_text_form_carries_helvetica_winansi_resources() {
+        let appearance = build_free_text_appearance(&free_text("Hola", 200.0, 50.0)).unwrap();
+        let resources = appearance
+            .form
+            .dict
+            .get(b"Resources")
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let fonts = resources.get(b"Font").unwrap().as_dict().unwrap();
+        let helv = fonts.get(b"Helv").unwrap().as_dict().unwrap();
+        assert_eq!(helv.get(b"Subtype").unwrap().as_name().unwrap(), b"Type1");
+        assert_eq!(
+            helv.get(b"BaseFont").unwrap().as_name().unwrap(),
+            b"Helvetica"
+        );
+        assert_eq!(
+            helv.get(b"Encoding").unwrap().as_name().unwrap(),
+            b"WinAnsiEncoding"
+        );
+    }
+
+    #[test]
+    fn free_text_da_names_helv_size_and_colour() {
+        let appearance = build_free_text_appearance(&free_text("Hola", 200.0, 50.0)).unwrap();
+        assert_eq!(appearance.da, "0 0 0 rg /Helv 12 Tf");
+    }
+
+    #[test]
+    fn accented_letters_are_written_as_winansi_octal_not_utf8() {
+        let appearance = build_free_text_appearance(&free_text("Canción", 200.0, 50.0)).unwrap();
+        let content = content_text(&appearance);
+        assert!(content.contains(r"(Canci\363n)"), "{content}");
+        let painted = painted_lines(&content);
+        assert_eq!(painted[0].0, [b'C', b'a', b'n', b'c', b'i', 0xF3, b'n']);
+        assert!(!painted[0].0.contains(&0xC3), "no UTF-8 lead byte");
+    }
+
+    #[test]
+    fn parentheses_and_backslashes_are_escaped_and_round_trip() {
+        let appearance = build_free_text_appearance(&free_text(r"a(b)\c", 200.0, 50.0)).unwrap();
+        let content = content_text(&appearance);
+        assert!(content.contains(r"(a\(b\)\\c) Tj"), "{content}");
+        assert_eq!(painted_lines(&content)[0].0, br"a(b)\c");
+    }
+
+    #[test]
+    fn free_text_paints_no_border_and_no_background() {
+        let appearance = build_free_text_appearance(&free_text("Hola", 200.0, 50.0)).unwrap();
+        let content = content_text(&appearance);
+        for painting in ["S", "s", "f", "F", "f*", "B", "B*", "b", "b*"] {
+            assert!(
+                !content.split_whitespace().any(|t| t == painting),
+                "{painting} would draw a border or fill:\n{content}"
+            );
+        }
+        assert!(content.contains("re W n"), "text is clipped to the box");
+    }
+
+    #[test]
+    fn free_text_appearance_matches_the_layout_line_for_line() {
+        let fixtures = [
+            ("aaa bbb ccc ddd", 60.0, 100.0),
+            ("Año ¿cómo está?\nsegunda línea", 120.0, 80.0),
+            ("WWWWWWWWWW", 50.0, 200.0),
+            ("Hola", 200.0, 50.0),
+        ];
+        for (text, width, height) in fixtures {
+            let annotation = free_text(text, width, height);
+            let AnnotationKind::FreeText {
+                style, contents, ..
+            } = &annotation.kind
+            else {
+                unreachable!()
+            };
+            let layout = crate::freetext::layout(contents, style, width, height).unwrap();
+            let appearance = build_free_text_appearance(&annotation).unwrap();
+            let painted = painted_lines(&content_text(&appearance));
+
+            let expected: Vec<(Vec<u8>, f64, f64)> = layout
+                .lines
+                .iter()
+                .map(|l| {
+                    (
+                        pdf_edit::encoding::winansi::encode_winansi(&l.text).unwrap(),
+                        l.x_pt,
+                        height - l.baseline_from_top_pt,
+                    )
+                })
+                .collect();
+            assert_eq!(painted.len(), expected.len(), "{text:?}");
+            for (got, want) in painted.iter().zip(&expected) {
+                assert_eq!(got.0, want.0, "{text:?}");
+                assert!((got.1 - want.1).abs() < 1e-3, "{text:?} x");
+                assert!((got.2 - want.2).abs() < 1e-3, "{text:?} y");
+            }
+        }
+    }
+
+    #[test]
+    fn free_text_with_two_paragraphs_paints_two_lines() {
+        let appearance = build_free_text_appearance(&free_text("a\nb", 200.0, 50.0)).unwrap();
+        assert_eq!(painted_lines(&content_text(&appearance)).len(), 2);
+    }
+
+    #[test]
+    fn free_text_appearance_refuses_other_kinds() {
+        assert!(matches!(
+            build_free_text_appearance(&highlight_annotation()),
+            Err(AnnotateError::UnsupportedOperation(_))
+        ));
     }
 }

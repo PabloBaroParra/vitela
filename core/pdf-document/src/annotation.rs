@@ -82,6 +82,16 @@ pub enum AnnotationKind {
         image_bytes: Vec<u8>,
         has_alpha: bool,
     },
+    /// A visible text box (`/Subtype /FreeText`). `contents` is the text the
+    /// user typed, a newline separating paragraphs; the wrapping into lines is
+    /// derived from `rect` and `style` by `pdf-annotate`'s layout and is
+    /// never stored. Only WinAnsi text is accepted (the builder refuses the
+    /// rest), so what the model holds can always be painted.
+    FreeText {
+        rect: Rect,
+        contents: String,
+        style: crate::form::TextStyle,
+    },
 }
 
 /// A single annotation attached to a page.
@@ -331,5 +341,36 @@ mod tests {
             set, before,
             "take_page followed by restore must be an identity on the set"
         );
+    }
+
+    #[test]
+    fn a_free_text_annotation_keeps_its_text_and_style_through_replace() {
+        use crate::form::{FontFamily, TextStyle};
+
+        let free_text = |contents: &str| Annotation {
+            id: AnnotationId(5),
+            page: PageId(0),
+            kind: AnnotationKind::FreeText {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 50.0,
+                },
+                contents: contents.to_string(),
+                style: TextStyle {
+                    font: FontFamily::Helvetica,
+                    size_pt: 12.0,
+                    color: Color { r: 0, g: 0, b: 0 },
+                },
+            },
+        };
+        let mut set = AnnotationSet::new();
+        set.insert(free_text("uno"));
+
+        let previous = set.replace(free_text("dos")).expect("id 5 is present");
+
+        assert_eq!(previous, free_text("uno"));
+        assert_eq!(set.get(AnnotationId(5)), Some(&free_text("dos")));
     }
 }

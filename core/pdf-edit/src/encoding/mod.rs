@@ -12,6 +12,8 @@
 //! rejects `日本語`.
 
 pub mod tables;
+pub mod winansi;
+pub mod wrap;
 
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object};

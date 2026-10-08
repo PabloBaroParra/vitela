@@ -237,6 +237,39 @@ pub enum FfiAnnotationKind {
     Stamp {
         rect: FfiRect,
     },
+    /// A visible text box. `lines` is the core's layout of `contents` in the
+    /// box (see [`FfiFreeTextLine`]), carried in the snapshot so a shell
+    /// draws from it without a call per frame.
+    FreeText {
+        rect: FfiRect,
+        contents: String,
+        font_size_pt: f64,
+        lines: Vec<FfiFreeTextLine>,
+    },
+}
+
+/// One laid-out line of a free-text box, in the box's own frame: origin at
+/// its top-left corner, y growing downwards, in points. Shells place it
+/// with the same upright-frame transform they use for stamps, so rotation
+/// is handled once, by the page placement.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiFreeTextLine {
+    pub text: String,
+    /// Left edge of the line.
+    pub x_pt: f64,
+    /// Distance from the box's top edge down to this line's baseline.
+    pub baseline_from_top_pt: f64,
+}
+
+/// The core's layout of a free-text box: what the saved file will paint, and
+/// therefore what every shell must draw while editing.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiFreeTextLayout {
+    pub font_size_pt: f64,
+    pub lines: Vec<FfiFreeTextLine>,
+    /// The lines do not all fit in the height. They are all returned; draw
+    /// them clipped to the box.
+    pub overflow: bool,
 }
 
 /// Mirrors `pdf_render::RenderOptions`.
@@ -665,6 +698,20 @@ pub enum FfiEditCommand {
     AddTextNote {
         page: u32,
         rect: FfiRect,
+        contents: String,
+    },
+    /// A visible text box at `rect`. Refused for blank text, an unusable
+    /// rect, or a character Helvetica (WinAnsi) cannot show
+    /// ([`FfiError::EncodingGap`]).
+    AddFreeText {
+        page: u32,
+        rect: FfiRect,
+        contents: String,
+    },
+    /// Retypes a free-text box, under the same rules as `AddFreeText`.
+    /// Setting the text it already has is accepted and records nothing.
+    SetAnnotationContents {
+        annotation_id: u64,
         contents: String,
     },
     RemoveAnnotation {

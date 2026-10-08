@@ -6,6 +6,7 @@
 //! change) supply already-in-memory data and get an `Annotation` back.
 
 use crate::error::AnnotateError;
+use crate::freetext::default_free_text_style;
 use pdf_document::{Annotation, AnnotationId, AnnotationKind, Color, PageId, Popup, Rect};
 
 /// Builds a `Highlight` annotation over `rect`.
@@ -82,6 +83,33 @@ pub fn text_note(
             },
         },
     }
+}
+
+/// Builds a `FreeText` annotation: a visible text box over `rect`.
+///
+/// Refuses blank text, a rect that cannot hold a box, and any character
+/// WinAnsi cannot show ([`AnnotateError::EncodingGap`]) — all before an
+/// annotation exists, so a refusal changes nothing. Line breaks are stored
+/// as a bare newline. The style is the v1 default ([`default_free_text_style`]).
+pub fn free_text(
+    id: AnnotationId,
+    page: PageId,
+    rect: Rect,
+    contents: &str,
+) -> Result<Annotation, AnnotateError> {
+    if !crate::freetext::is_drawable(&rect) {
+        return Err(AnnotateError::InvalidRect);
+    }
+    let contents = crate::freetext::checked_contents(contents)?;
+    Ok(Annotation {
+        id,
+        page,
+        kind: AnnotationKind::FreeText {
+            rect,
+            contents,
+            style: default_free_text_style(),
+        },
+    })
 }
 
 /// Builds a `Stamp` annotation from raw image bytes (spec "Insert Image from
@@ -278,5 +306,72 @@ mod tests {
     fn stamp_from_image_bytes_rejects_garbage() {
         let result = stamp_from_image_bytes(AnnotationId(9), PageId(0), b"not an image", rect());
         assert!(matches!(result, Err(AnnotateError::InvalidImage(_))));
+    }
+
+    #[test]
+    fn free_text_builds_a_helvetica_12_black_text_box() {
+        let annotation = free_text(AnnotationId(10), PageId(0), rect(), "Hola").unwrap();
+        match annotation.kind {
+            AnnotationKind::FreeText {
+                rect: r,
+                contents,
+                style,
+            } => {
+                assert_eq!(r, rect());
+                assert_eq!(contents, "Hola");
+                assert_eq!(style, default_free_text_style());
+                assert_eq!(style.font, pdf_document::FontFamily::Helvetica);
+                assert_eq!(style.size_pt, 12.0);
+                assert_eq!(style.color, Color { r: 0, g: 0, b: 0 });
+            }
+            other => panic!("expected FreeText, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn free_text_accepts_spanish_text_and_normalizes_line_breaks() {
+        let annotation = free_text(
+            AnnotationId(10),
+            PageId(0),
+            rect(),
+            "Canción, años, ¿qué? Ü € ñ\r\nsegunda",
+        )
+        .unwrap();
+        match annotation.kind {
+            AnnotationKind::FreeText { contents, .. } => {
+                assert_eq!(contents, "Canción, años, ¿qué? Ü € ñ\nsegunda");
+            }
+            other => panic!("expected FreeText, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn free_text_refuses_blank_contents() {
+        for blank in ["", "   ", "\n \t\n"] {
+            let result = free_text(AnnotationId(10), PageId(0), rect(), blank);
+            assert!(
+                matches!(result, Err(AnnotateError::UnsupportedOperation(_))),
+                "{blank:?} must be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn free_text_refuses_a_degenerate_rect() {
+        for (width, height) in [(0.0, 50.0), (100.0, 0.0), (-5.0, 50.0), (f64::NAN, 50.0)] {
+            let bad = Rect {
+                width,
+                height,
+                ..rect()
+            };
+            let result = free_text(AnnotationId(10), PageId(0), bad, "Hola");
+            assert_eq!(result, Err(AnnotateError::InvalidRect), "{width}x{height}");
+        }
+    }
+
+    #[test]
+    fn free_text_names_the_first_character_winansi_lacks() {
+        let result = free_text(AnnotationId(10), PageId(0), rect(), "Hola 日本");
+        assert_eq!(result, Err(AnnotateError::EncodingGap { character: '日' }));
     }
 }

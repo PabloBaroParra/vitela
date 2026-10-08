@@ -20,6 +20,13 @@ pub enum AnnotateError {
     /// Image bytes passed to an image-based builder or appearance-stream
     /// function could not be decoded as a supported format (PNG/JPEG).
     InvalidImage(String),
+    /// Free text contains a character WinAnsi (and so Helvetica) cannot
+    /// show. Refused rather than substituted: a `?` the user never typed
+    /// is worse than being told.
+    EncodingGap { character: char },
+    /// The rect is not a usable box (zero, negative or non-finite size, or
+    /// smaller than the minimum a text box may shrink to).
+    InvalidRect,
 }
 
 impl fmt::Display for AnnotateError {
@@ -29,6 +36,10 @@ impl fmt::Display for AnnotateError {
                 write!(f, "unsupported operation for this annotation kind: {op}")
             }
             AnnotateError::InvalidImage(msg) => write!(f, "invalid image bytes: {msg}"),
+            AnnotateError::InvalidRect => write!(f, "the rectangle is not a usable size"),
+            AnnotateError::EncodingGap { character } => {
+                write!(f, "'{character}' cannot be shown in Helvetica (WinAnsi)")
+            }
         }
     }
 }
