@@ -217,25 +217,9 @@ fn wrap_lines(
     size_pt: f64,
     max_width_pt: f64,
 ) -> Result<Vec<String>, FormError> {
-    let mut lines = Vec::new();
-    for paragraph in text.split('\n') {
-        let mut current = String::new();
-        for word in paragraph.split(' ').filter(|w| !w.is_empty()) {
-            let candidate = if current.is_empty() {
-                word.to_string()
-            } else {
-                format!("{current} {word}")
-            };
-            if current.is_empty() || text_width_pt(&candidate, font, size_pt)? <= max_width_pt {
-                current = candidate;
-            } else {
-                lines.push(std::mem::take(&mut current));
-                current = word.to_string();
-            }
-        }
-        lines.push(current);
-    }
-    Ok(lines)
+    pdf_edit::encoding::wrap::wrap_greedy(text, max_width_pt, |line| {
+        text_width_pt(line, font, size_pt)
+    })
 }
 
 fn text_value(field: &FormField) -> String {
