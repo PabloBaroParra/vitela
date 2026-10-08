@@ -12,6 +12,7 @@
 //! The Batch 0 port traits were intentionally retired before B7 because their
 //! placeholder signatures did not match these operations' real contracts.
 
+mod comments;
 mod create_blank;
 mod destinations;
 mod document;
@@ -32,6 +33,7 @@ mod security;
 mod signatures;
 mod text_string;
 
+pub use comments::PdfComment;
 pub use create_blank::{create_blank_document, insert_blank_page, remove_page};
 pub use document::{DocumentInfo, LopdfDocument, PageDimensions};
 pub use error::ManipError;

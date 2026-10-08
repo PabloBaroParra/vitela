@@ -61,6 +61,7 @@
 
 mod bitmap;
 mod blocks;
+mod comments;
 mod compress;
 mod document;
 mod error;
@@ -79,6 +80,7 @@ mod types;
 
 pub use bitmap::BitmapHandle;
 pub use blocks::{document_blocks, FfiBlockSource, FfiDocumentBlock};
+pub use comments::FfiComment;
 pub use compress::{
     compress_presets, compressed_save_will_invalidate_signatures, compression_refusal,
     save_compressed_to_bytes, save_compressed_to_path, FfiCompressOutcome, FfiCompressPreset,
