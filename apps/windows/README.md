@@ -90,6 +90,18 @@ cancellation without signing with a user's key; it requires a usable installed
 certificate. See [the Windows verification checkpoint](VERIFICATION.md) for
 current runtime evidence and deferred checks.
 
+## Share
+
+**Share** opens the Windows share sheet (Nearby Sharing, Phone Link, mail and
+any installed share target) for documents with pages. The copy is the session
+as a save would write it, pending edits included, but sharing is not saving:
+the session keeps its unsaved state and closing still asks. A signed source
+gets the save warning reworded for sharing. Each copy goes to its own folder
+under `%TEMP%\Vitela\Share`, named after the document; folders older than an
+hour are swept on the next share, because a target may still be reading the
+file after the sheet closes. The window has no CoreWindow, so the sheet is
+reached through `DataTransferManagerInterop` by window handle.
+
 ## Native printing flow
 
 Print and Ctrl+P open the Windows print UI for documents with pages. Pending

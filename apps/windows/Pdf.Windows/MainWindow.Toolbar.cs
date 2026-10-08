@@ -22,7 +22,7 @@ public sealed partial class MainWindow
         // Unparent the named controls before regrouping: no command or enabled-state owner changes.
         foreach (var control in new FrameworkElement[]
         {
-            OpenButton, OpenSampleButton, SaveButton, PrintButton, ExportImagesButton,
+            OpenButton, OpenSampleButton, SaveButton, PrintButton, ShareButton, ExportImagesButton,
             UndoButton, RedoButton, DocumentTitle, PageCounter, FirstPageButton,
             PreviousPageButton, NextPageButton, LastPageButton, GoToPageButton,
             ZoomOutButton, ZoomLevel, ZoomInButton, FitWidthButton, FitPageButton,
@@ -39,6 +39,7 @@ public sealed partial class MainWindow
         ToolbarIcon(OpenSampleButton, ShellIcon.Sample, "Open sample");
         ToolbarIcon(SaveButton, ShellIcon.Save, "Save as", "Save as (Ctrl+S)");
         ToolbarIcon(PrintButton, ShellIcon.Print, "Print", "Print (Ctrl+P)");
+        ToolbarIcon(ShareButton, ShellIcon.Share, "Share", "Send a copy with Nearby Sharing, Phone Link or another app");
         ToolbarIcon(ExportImagesButton, ShellIcon.ExportImages, "Export images", "Export pages as images");
         ToolbarIcon(UndoButton, ShellIcon.Undo, "Undo", "Undo (Ctrl+Z)");
         ToolbarIcon(RedoButton, ShellIcon.Redo, "Redo", "Redo (Ctrl+Y)");
@@ -55,7 +56,7 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(PageCounter, "Current page / total pages");
         AutomationProperties.SetName(PageCounter, "Current page / total pages");
         AddToolbarGroup("Document", OpenButton, OpenSampleButton);
-        AddToolbarGroup("Output", SaveButton, PrintButton, ExportImagesButton);
+        AddToolbarGroup("Output", SaveButton, PrintButton, ShareButton, ExportImagesButton);
         AddToolbarGroup("History", UndoButton, RedoButton);
         AddToolbarGroup("Position", PageCounter);
         AddToolbarGroup("Zoom", ZoomOutButton, ZoomLevel, ZoomInButton);

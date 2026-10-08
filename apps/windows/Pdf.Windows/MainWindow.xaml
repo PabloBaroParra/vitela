@@ -130,6 +130,7 @@
             <Button x:Name="PrintButton" Click="PrintButton_Click" ToolTipService.ToolTip="Print (Ctrl+P)">
                 Print
             </Button>
+            <Button x:Name="ShareButton" Content="Share" Click="ShareButton_Click" ToolTipService.ToolTip="Send a copy with Nearby Sharing, Phone Link or another app" />
             <Button x:Name="SaveButton" Click="SaveButton_Click" ToolTipService.ToolTip="Save as (Ctrl+S)">
                 Save
             </Button>

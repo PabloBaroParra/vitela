@@ -51,6 +51,7 @@ public sealed partial class MainWindow
         FitWidthButton.IsEnabled = hasPages;
         FitPageButton.IsEnabled = hasPages;
         PrintButton.IsEnabled = hasPages;
+        ShareButton.IsEnabled = hasPages && !_sharingDocument;
         UpdateSearchControls();
         SaveButton.IsEnabled = hasPages;
         ProtectButton.IsEnabled = !_isBusy && _session?.ContentEditingAllowed == true;
