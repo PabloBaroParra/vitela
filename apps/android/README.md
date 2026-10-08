@@ -156,6 +156,25 @@ dirty state. The text is shown exactly as the core holds it, including a blank
 note. Like Windows, only notes in the core's session snapshot can be selected:
 annotations already in a reopened file are kept but not yet listed by it.
 
+**Text box** is the visible counterpart of a note: text printed on the page
+itself, with no border or background. A tap places a 200 by 50 pt box with its
+top-left corner on the tap, slid back onto the page if it would hang off, and
+asks for the text before anything reaches the core. The dialog has the Note's
+rules (multi-line, **Add** disabled while blank, Cancel records nothing, an
+answer for a replaced document is dropped) and one more: text Helvetica cannot
+show (anything outside WinAnsi, such as CJK) is refused by the core, and the
+dialog stays open with the reader's text and a message naming the character.
+The overlay draws the lines the core wrapped, carried in the annotation
+snapshot, so what is on screen breaks where the saved file will; it never
+wraps on its own. Roboto stands in for Helvetica, which can move a line's end
+a few points but never where it breaks. The text is placed through the same
+turn as every other overlay, so it lies on its side on a rotated page, and it
+is clipped to the box. Select a box and choose **Edit text** to retype it in
+the same dialog, prefilled: each change is one undo step, unchanged text
+records nothing. A box moves, resizes (re-wrapped by the core once the drag
+ends, never below one line) and deletes like any other annotation, and cannot
+be recoloured. The tool needs annotation-edit permission, like the others.
+
 **Resize** sets the selected annotation's width and height in PDF points, like
 the Windows shell, beyond corner dragging and the fixed **Grow** step. The
 bottom-left PDF-space origin stays put; dimensions must be finite and positive,
