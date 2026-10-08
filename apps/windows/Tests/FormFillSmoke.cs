@@ -19,7 +19,7 @@ public partial class App : Application
         {
             await _window.FormFillSmokeAsync();
             File.WriteAllText(Path.Combine(output, "form-fill-smoke.log"),
-                "PASS immediate ordered text writes; focus/row preservation; rename F2/Enter/Escape; checkbox/radio/dropdown; editable choice; unsupported/empty/permission/busy/stale-row gates; undo/redo.");
+                "PASS immediate ordered text writes; focus/row preservation; rename type/Enter/Escape; checkbox/radio/dropdown; editable choice; unsupported/empty/permission/busy/stale-row gates; undo/redo.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "form-fill-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -92,15 +92,15 @@ public sealed partial class MainWindow
 
         var row = (StackPanel)FormFieldRows.Children.Last();
         var name = (TextBox)row.Children[0];
-        check(name.IsReadOnly, "Name not initially read-only");
+        check(!name.IsReadOnly, "Name not directly editable");
         await wait(() => name.Focus(FocusState.Programmatic), "Name not focusable");
-        await key(0x71); // F2
-        await wait(() => !name.IsReadOnly, "F2 did not enter name editing");
         name.Text = "Cancelled name";
         await key(0x1B); // Escape
-        check(name.IsReadOnly && name.Text == field.Name, "Escape did not cancel rename");
-        await key(0x71);
-        await wait(() => !name.IsReadOnly, "Second F2 did not enter name editing");
+        check(name.Text == field.Name, "Escape did not cancel rename");
+        check(EditFormsButton.Focus(FocusState.Programmatic), "Cannot leave cancelled name");
+        await _formFillTail;
+        check(_formFieldState!.Fields.Single(candidate => candidate.Id == id).Name == field.Name, "Cancelled rename committed on focus loss");
+        await wait(() => name.Focus(FocusState.Programmatic), "Name not refocusable");
         name.Text = "Customer name";
         await key(0x0D); // Enter
         await wait(() => _formFieldState!.Fields.Any(candidate => candidate.Id == id && candidate.Name == "Customer name"), "Enter did not commit rename");
@@ -111,8 +111,6 @@ public sealed partial class MainWindow
         row = (StackPanel)FormFieldRows.Children.Last();
         name = (TextBox)row.Children[0];
         await wait(() => name.Focus(FocusState.Programmatic), "Cannot focus renamed field");
-        await key(0x71);
-        await wait(() => !name.IsReadOnly, "F2 did not reopen name editing");
         name.Text = "Focus loss name";
         check(EditFormsButton.Focus(FocusState.Programmatic), "Cannot leave name editor");
         await wait(() => _formFieldState!.Fields.Any(candidate => candidate.Id == id && candidate.Name == "Focus loss name"), "Focus loss did not commit rename");

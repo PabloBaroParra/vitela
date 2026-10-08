@@ -242,8 +242,8 @@ editing or an annotation tool disarms Edit forms.
 **Fill fields** records text and editable-dropdown values as they change, without
 replacing the row or its keyboard focus. Checkboxes, radio export values and
 fixed dropdowns use native controls; dropdowns include `(none)`. Field names are
-read-only until double-clicked or F2 is pressed. Enter or focus loss accepts a
-rename; Escape cancels it. Filling and renaming retain the core's distinct
+edited in place: click and type. Enter or focus loss accepts a rename; Escape
+restores the original name. Filling and renaming retain the core's distinct
 permission checks. Unsupported kinds explicitly say **Unsupported field**, and
 empty documents explain how to open or place fields. Clicking a field on the
 canvas in Edit forms focuses its fill control. Undo/Redo refreshes the rows.
