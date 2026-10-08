@@ -553,6 +553,7 @@ class ViewerViewModel(
     fun confirmFreeText(documentId: Long, text: String) = annotations.confirmFreeText(documentId, text)
     fun cancelFreeText() = annotations.cancelFreeText()
     fun readNote() = annotations.readNote()
+    fun readComment(comment: dev.vitela.pdf.core.PdfComment) = annotations.readComment(comment)
     fun closeNoteReading() = annotations.closeNoteReading()
     fun selectImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes)
     fun pasteImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes, PASTE_STAMP_PROMPT)

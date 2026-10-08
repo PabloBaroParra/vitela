@@ -81,6 +81,7 @@ internal fun ViewerScreen(
     onNoteAdd: (Long, String) -> Unit,
     onNoteCancel: () -> Unit,
     onNoteRead: () -> Unit,
+    onCommentRead: (dev.vitela.pdf.core.PdfComment) -> Unit,
     onNoteReadingClose: () -> Unit,
     onAnnotationGesture: (Int, dev.vitela.pdf.core.AnnotationPoint, dev.vitela.pdf.core.AnnotationPoint, List<dev.vitela.pdf.core.AnnotationPoint>, Double) -> Unit,
     onAnnotationColor: (dev.vitela.pdf.core.AnnotationColor) -> Unit,
@@ -136,6 +137,11 @@ internal fun ViewerScreen(
             var mode by rememberSaveable(state.documentId) { mutableStateOf(initialReaderMode(state.startTool)) }
             var searchOpen by rememberSaveable { mutableStateOf(false) }
             var pageListOpen by remember { mutableStateOf(false) }
+            var commentsOpen by remember(state.documentId) { mutableStateOf(false) }
+            if (commentsOpen) CommentsDialog(state.comments, onClose = { commentsOpen = false }, onRead = {
+                commentsOpen = false
+                onCommentRead(it)
+            })
             var spread by rememberSaveable(state.documentId) { mutableStateOf(true) }
             val switchMode: (ReaderMode) -> Unit = { to ->
                 val exit = modeExit(mode, to, state)
@@ -176,6 +182,7 @@ internal fun ViewerScreen(
                             },
                             onOrganize = organize.onToggle,
                             onCompress = onOpenCompress,
+                            onComments = { commentsOpen = true },
                         ), sidePanel = layout.sideTools)
                         ReaderMode.Edit -> EditTools(state, controls, EditToolActions(
                             onTool = onAnnotationTool, onChooseStamp = onChooseStamp, onPasteStamp = onPasteStamp,

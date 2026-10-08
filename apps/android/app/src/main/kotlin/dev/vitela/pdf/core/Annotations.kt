@@ -48,4 +48,9 @@ data class AnnotationSnapshot(
     val editingAllowed: Boolean,
     val canUndo: Boolean,
     val canRedo: Boolean,
+    val comments: List<PdfComment> = emptyList(),
 )
+
+/** Saved comments are read-only; only pending notes carry an editable id. */
+data class PdfComment(val pageIndex: Int, val rect: AnnotationRect, val contents: String,
+    val author: String?, val date: String?, val annotationId: Long?)

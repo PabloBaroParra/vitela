@@ -55,6 +55,7 @@ internal data class QuickToolActions(
     val onSign: () -> Unit,
     val onOrganize: () -> Unit,
     val onCompress: () -> Unit,
+    val onComments: () -> Unit,
 )
 
 @Composable
@@ -66,6 +67,7 @@ internal fun QuickTools(state: ViewerState, controls: AnnotationControls, action
         ToolTile("Sign", R.drawable.ic_shell_sign, ToolHue.Sign, actions.onSign, enabled = !state.signRunning)
         ToolTile("Organize pages", R.drawable.ic_shell_organize, ToolHue.Organize, actions.onOrganize)
         ToolTile("Compress", R.drawable.ic_shell_compress, ToolHue.Compress, actions.onCompress, enabled = !state.compressRunning)
+        ToolTile("Comments", R.drawable.ic_shell_comments, accent, actions.onComments)
     }
 }
 

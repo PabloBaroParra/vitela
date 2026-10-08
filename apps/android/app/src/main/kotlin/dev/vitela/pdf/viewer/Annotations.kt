@@ -22,7 +22,7 @@ enum class AnnotationTool(val kind: AnnotationKind) {
 data class NotePlacement(val pageIndex: Int, val rect: AnnotationRect)
 
 /** What **Read note** shows: a snapshot of the note's page and its core-owned text. */
-data class NoteReading(val pageIndex: Int, val contents: String)
+data class NoteReading(val pageIndex: Int, val contents: String, val author: String? = null, val date: String? = null)
 
 internal const val NOTE_PLACEMENT_CANCELED = "Note placement canceled."
 
