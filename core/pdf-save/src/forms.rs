@@ -35,7 +35,8 @@ use std::collections::HashMap;
 
 use lopdf::{Dictionary, Object, ObjectId};
 use pdf_document::{
-    FieldOrigin, FieldValue, FontFamily, FormField, FormFieldKind, FormFieldSet, PageId,
+    Command, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldKind, FormFieldSet,
+    PageId,
 };
 use pdf_form::FieldAppearance;
 use pdf_manip::pdf_text_string_object;
@@ -456,6 +457,217 @@ fn update_existing_radio_group<S: ObjectSink>(
         );
     }
     Ok(())
+}
+
+/// The object ids of the fields this file came with that the session has
+/// deleted, in the order they were deleted.
+///
+/// Read from the applied `RemoveFormField` commands, **not** from a diff of
+/// the file's fields against `document.form_fields`: the model only holds
+/// what `pdf_form::read_form_fields` can read, so a diff would also "delete"
+/// every field it skips — a signature, an unmodelled kind. An undone delete
+/// is no longer among the applied entries, and a field that is back in the
+/// set (redo after undo cannot do that, but the guard is cheap) is kept.
+pub fn removed_existing_fields(document: &Document) -> Vec<ObjectId> {
+    let mut removed = Vec::new();
+    for command in document.pending_edits.entries() {
+        let Command::RemoveFormField(field) = command else {
+            continue;
+        };
+        let FieldOrigin::Existing(id) = field.origin else {
+            continue;
+        };
+        let still_there = document
+            .form_fields
+            .iter()
+            .any(|kept| kept.origin == field.origin);
+        if !still_there && !removed.contains(&id) {
+            removed.push(id);
+        }
+    }
+    removed
+}
+
+/// Takes each of `removed` (see [`removed_existing_fields`]) out of the file:
+/// off every page's `/Annots` its widgets sit on, out of `/AcroForm /Fields`,
+/// and out of its parent's `/Kids` — pruning a parent that this leaves
+/// childless the same way, so no empty naming node outlives its last field.
+///
+/// Forgetting a field in the model is not enough on its own: the
+/// [`write_form_fields`] pass only visits the fields that remain, so a
+/// deleted one would come back on reopen. The objects themselves are left
+/// unreferenced rather than freed — the incremental writer cannot free an
+/// object of a prior revision anyway.
+///
+/// Looks before it touches: an array is only rewritten when it actually
+/// holds the reference, so an incremental save does not carry every page
+/// into the new revision just to find the one widget it removes.
+pub fn remove_form_fields<S: ObjectSink>(
+    sink: &mut S,
+    catalog_id: ObjectId,
+    page_object_ids: &HashMap<PageId, ObjectId>,
+    removed: &[ObjectId],
+) -> Result<(), SaveError> {
+    if removed.is_empty() {
+        return Ok(());
+    }
+    let mut pages: Vec<ObjectId> = page_object_ids.values().copied().collect();
+    pages.sort_unstable();
+    for &field_id in removed {
+        for widget in widgets_of(sink, field_id) {
+            for &page in &pages {
+                remove_reference(sink, page, "Annots", widget)?;
+            }
+        }
+        unhook_field(sink, catalog_id, field_id)?;
+    }
+    Ok(())
+}
+
+/// The widget annotations that draw `field_id`: its `/Kids` when it has any
+/// (a radio group, or a field with several widgets), itself otherwise (a
+/// field merged with its one widget). A modelled field's kids are always
+/// widgets — `pdf_form::read` walks a node with named kids as a naming
+/// group instead of reading it as a field.
+fn widgets_of<S: ObjectSink>(sink: &S, field_id: ObjectId) -> Vec<ObjectId> {
+    let kids = dict(sink, field_id)
+        .and_then(|field| field.get(b"Kids").ok())
+        .and_then(|kids| array(sink, kids))
+        .map(|kids| references(&kids))
+        .unwrap_or_default();
+    if kids.is_empty() {
+        vec![field_id]
+    } else {
+        kids
+    }
+}
+
+/// Removes `field_id` from wherever it hangs in the field tree: its
+/// parent's `/Kids` when it has a parent, `/AcroForm /Fields` otherwise. A
+/// parent left with no kids is removed in turn.
+fn unhook_field<S: ObjectSink>(
+    sink: &mut S,
+    catalog_id: ObjectId,
+    field_id: ObjectId,
+) -> Result<(), SaveError> {
+    let parent = dict(sink, field_id)
+        .and_then(|field| field.get(b"Parent").ok())
+        .and_then(|parent| parent.as_reference().ok());
+    // Also tried against `/Fields` even with a parent: a malformed file can
+    // list a kid there too, and a dangling entry is what this exists to stop.
+    remove_from_fields(sink, catalog_id, field_id)?;
+    let Some(parent_id) = parent else {
+        return Ok(());
+    };
+    remove_reference(sink, parent_id, "Kids", field_id)?;
+    let childless = dict(sink, parent_id)
+        .and_then(|parent| parent.get(b"Kids").ok())
+        .and_then(|kids| array(sink, kids))
+        .is_none_or(|kids| kids.is_empty());
+    if childless {
+        unhook_field(sink, catalog_id, parent_id)?;
+    }
+    Ok(())
+}
+
+/// `/AcroForm /Fields`, whether `/AcroForm` is its own object (what
+/// [`ensure_acroform`] writes) or a dictionary inline in the catalog (what
+/// some producers write).
+fn remove_from_fields<S: ObjectSink>(
+    sink: &mut S,
+    catalog_id: ObjectId,
+    field_id: ObjectId,
+) -> Result<(), SaveError> {
+    let Some(acroform) = dict(sink, catalog_id).and_then(|catalog| catalog.get(b"AcroForm").ok())
+    else {
+        return Ok(());
+    };
+    if let Ok(acroform_id) = acroform.as_reference() {
+        return remove_reference(sink, acroform_id, "Fields", field_id);
+    }
+    let Some(fields) = acroform
+        .as_dict()
+        .ok()
+        .and_then(|acroform| acroform.get(b"Fields").ok())
+        .and_then(|fields| array(sink, fields))
+    else {
+        return Ok(());
+    };
+    let Some(kept) = without(&fields, field_id) else {
+        return Ok(());
+    };
+    // An inline `/AcroForm` whose `/Fields` is itself indirect: rewrite that
+    // array object and leave the catalog alone.
+    if let Some(Ok(fields_id)) = dict(sink, catalog_id)
+        .and_then(|catalog| catalog.get(b"AcroForm").ok())
+        .and_then(|acroform| acroform.as_dict().ok())
+        .and_then(|acroform| acroform.get(b"Fields").ok())
+        .map(Object::as_reference)
+    {
+        sink.set_object(fields_id, Object::Array(kept));
+        return Ok(());
+    }
+    if let Ok(acroform) = sink
+        .page_dict_mut(catalog_id)?
+        .get_mut(b"AcroForm")
+        .and_then(Object::as_dict_mut)
+    {
+        acroform.set("Fields", kept);
+    }
+    Ok(())
+}
+
+/// Drops `target` from `holder_id`'s array-valued `key` — a direct array or
+/// a reference to one. A no-op, touching nothing, when it is not there.
+fn remove_reference<S: ObjectSink>(
+    sink: &mut S,
+    holder_id: ObjectId,
+    key: &str,
+    target: ObjectId,
+) -> Result<(), SaveError> {
+    let Some(value) = dict(sink, holder_id).and_then(|holder| holder.get(key.as_bytes()).ok())
+    else {
+        return Ok(());
+    };
+    let indirect = value.as_reference().ok();
+    let Some(kept) = array(sink, value).and_then(|entries| without(&entries, target)) else {
+        return Ok(());
+    };
+    match indirect {
+        Some(array_id) => sink.set_object(array_id, Object::Array(kept)),
+        None => sink.page_dict_mut(holder_id)?.set(key, kept),
+    }
+    Ok(())
+}
+
+/// `entries` without any reference to `target`, or `None` when there was
+/// none to take out — the caller's signal not to write anything.
+fn without(entries: &[Object], target: ObjectId) -> Option<Vec<Object>> {
+    let kept: Vec<Object> = entries
+        .iter()
+        .filter(|entry| entry.as_reference().ok() != Some(target))
+        .cloned()
+        .collect();
+    (kept.len() != entries.len()).then_some(kept)
+}
+
+fn dict<S: ObjectSink>(sink: &S, id: ObjectId) -> Option<&Dictionary> {
+    sink.object(id).and_then(|object| object.as_dict().ok())
+}
+
+/// An array value, following one reference if the value is indirect.
+fn array<S: ObjectSink>(sink: &S, value: &Object) -> Option<Vec<Object>> {
+    match value {
+        Object::Reference(id) => sink.object(*id)?.as_array().ok().cloned(),
+        other => other.as_array().ok().cloned(),
+    }
+}
+
+fn references(entries: &[Object]) -> Vec<ObjectId> {
+    entries
+        .iter()
+        .filter_map(|entry| entry.as_reference().ok())
+        .collect()
 }
 
 /// Writes every field in `form_fields` into `sink`: a `New` field gets a
@@ -1030,5 +1242,165 @@ mod tests {
             b"Name",
             "T is never touched when updating an existing field"
         );
+    }
+
+    /// A page with one hierarchical field `address.street`: a naming parent
+    /// listed in `/Fields`, and a terminal kid merged with its widget. The
+    /// page's `/Annots` and the inline `/AcroForm`'s `/Fields` are both
+    /// *indirect* arrays — the two shapes `append_to_array` never meets
+    /// because this crate never writes them, and a delete must still handle.
+    fn hierarchical_doc() -> (
+        lopdf::Document,
+        ObjectId,
+        ObjectId,
+        ObjectId,
+        ObjectId,
+        ObjectId,
+    ) {
+        use lopdf::dictionary;
+
+        let mut doc = one_page_doc();
+        let page_object_id = *doc.get_pages().get(&1).unwrap();
+        let parent_id = doc.new_object_id();
+        let street_id = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Widget",
+            "FT" => "Tx",
+            "T" => Object::string_literal("street"),
+            "Parent" => parent_id,
+            "Rect" => vec![0.into(), 0.into(), 10.into(), 10.into()],
+        });
+        doc.objects.insert(
+            parent_id,
+            Object::Dictionary(dictionary! {
+                "T" => Object::string_literal("address"),
+                "Kids" => vec![Object::Reference(street_id)],
+            }),
+        );
+        let other_id = doc.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Widget",
+            "FT" => "Tx",
+            "T" => Object::string_literal("other"),
+            "Rect" => vec![0.into(), 20.into(), 10.into(), 30.into()],
+        });
+        let annots_id = doc.add_object(Object::Array(vec![
+            Object::Reference(street_id),
+            Object::Reference(other_id),
+        ]));
+        doc.get_dictionary_mut(page_object_id)
+            .unwrap()
+            .set("Annots", annots_id);
+        let fields_id = doc.add_object(Object::Array(vec![
+            Object::Reference(parent_id),
+            Object::Reference(other_id),
+        ]));
+        let catalog_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        doc.get_dictionary_mut(catalog_id)
+            .unwrap()
+            .set("AcroForm", dictionary! { "Fields" => fields_id });
+        (
+            doc,
+            catalog_id,
+            page_object_id,
+            street_id,
+            annots_id,
+            fields_id,
+        )
+    }
+
+    fn references_in(doc: &lopdf::Document, array_id: ObjectId) -> Vec<ObjectId> {
+        references(doc.get_object(array_id).unwrap().as_array().unwrap())
+    }
+
+    #[test]
+    fn removing_a_kid_prunes_its_childless_parent_through_indirect_arrays() {
+        let (mut doc, catalog_id, page_object_id, street_id, annots_id, fields_id) =
+            hierarchical_doc();
+        let parent_id = doc
+            .get_dictionary(street_id)
+            .unwrap()
+            .get(b"Parent")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let other_id = references_in(&doc, annots_id)[1];
+        let page_ids = HashMap::from([(PageId(0), page_object_id)]);
+
+        remove_form_fields(&mut doc, catalog_id, &page_ids, &[street_id]).expect("should remove");
+
+        assert_eq!(
+            references_in(&doc, annots_id),
+            [other_id],
+            "widget off the page"
+        );
+        assert_eq!(
+            references_in(&doc, fields_id),
+            [other_id],
+            "the childless parent is out of /Fields"
+        );
+        assert!(
+            doc.get_dictionary(parent_id)
+                .unwrap()
+                .get(b"Kids")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "and the kid is out of its parent"
+        );
+        assert!(
+            doc.get_dictionary(page_object_id)
+                .unwrap()
+                .get(b"Annots")
+                .unwrap()
+                .as_reference()
+                .is_ok(),
+            "an indirect /Annots stays indirect"
+        );
+    }
+
+    #[test]
+    fn removing_nothing_touches_nothing() {
+        let (mut doc, catalog_id, page_object_id, _, annots_id, fields_id) = hierarchical_doc();
+        let before = doc.objects.clone();
+        let page_ids = HashMap::from([(PageId(0), page_object_id)]);
+
+        remove_form_fields(&mut doc, catalog_id, &page_ids, &[]).expect("should no-op");
+
+        assert_eq!(doc.objects, before);
+        assert_eq!(references_in(&doc, annots_id).len(), 2);
+        assert_eq!(references_in(&doc, fields_id).len(), 2);
+    }
+
+    #[test]
+    fn an_undone_delete_is_not_a_removed_field() {
+        let mut document = Document::default();
+        let mut field = text_field(rect());
+        field.origin = FieldOrigin::Existing((7, 0));
+        document.form_fields.insert(field.clone());
+        let mut log = std::mem::take(&mut document.pending_edits);
+        assert!(log.apply(&mut document, Command::RemoveFormField(field)));
+        document.pending_edits = log;
+        assert_eq!(removed_existing_fields(&document), [(7, 0)]);
+
+        let mut log = std::mem::take(&mut document.pending_edits);
+        assert!(log.undo(&mut document));
+        document.pending_edits = log;
+
+        assert!(removed_existing_fields(&document).is_empty());
+    }
+
+    #[test]
+    fn deleting_a_new_field_removes_nothing_from_the_file() {
+        let mut document = Document::default();
+        let field = text_field(rect());
+        assert_eq!(field.origin, FieldOrigin::New);
+        document.form_fields.insert(field.clone());
+        let mut log = std::mem::take(&mut document.pending_edits);
+        assert!(log.apply(&mut document, Command::RemoveFormField(field)));
+        document.pending_edits = log;
+
+        assert!(removed_existing_fields(&document).is_empty());
     }
 }

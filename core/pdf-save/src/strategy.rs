@@ -463,6 +463,12 @@ fn save_full_rewrite(
     // Written either way: a preview exists to show what pdfium will draw, and
     // a form field is one of the things pdfium draws.
     let catalog_id = catalog_object_id(working.as_lopdf())?;
+    crate::forms::remove_form_fields(
+        working.as_lopdf_mut(),
+        catalog_id,
+        &page_ids,
+        &crate::forms::removed_existing_fields(input.document),
+    )?;
     crate::forms::write_form_fields(
         working.as_lopdf_mut(),
         catalog_id,
@@ -593,6 +599,12 @@ fn save_incremental(
             )?;
         }
 
+        crate::forms::remove_form_fields(
+            incremental,
+            catalog_id,
+            &page_ids,
+            &crate::forms::removed_existing_fields(input.document),
+        )?;
         crate::forms::write_form_fields(
             incremental,
             catalog_id,

@@ -68,7 +68,7 @@ pub use export::{
     document_file_stem, export_page_as_image, page_image_file_name, parse_page_selection,
     resolve_split_cuts, split_part_file_name, split_parts, ExportFormat, PageSelectionError,
 };
-pub use forms::{ensure_acroform, write_form_fields};
+pub use forms::{ensure_acroform, remove_form_fields, removed_existing_fields, write_form_fields};
 pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
 pub use origin::{

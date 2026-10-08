@@ -40,6 +40,10 @@ pub trait ObjectSink {
     fn add_object(&mut self, object: Object) -> ObjectId;
     fn set_object(&mut self, id: ObjectId, object: Object);
     fn page_dict_mut(&mut self, page_object_id: ObjectId) -> Result<&mut Dictionary, SaveError>;
+    /// Reads an object as the save currently sees it, without claiming it
+    /// for the new revision — so a caller can look before it touches, and an
+    /// incremental save only carries the objects that actually changed.
+    fn object(&self, id: ObjectId) -> Option<&Object>;
     fn trailer(&self) -> &Dictionary;
     fn trailer_mut(&mut self) -> &mut Dictionary;
 }
@@ -55,6 +59,10 @@ impl ObjectSink for lopdf::Document {
 
     fn page_dict_mut(&mut self, page_object_id: ObjectId) -> Result<&mut Dictionary, SaveError> {
         self.get_dictionary_mut(page_object_id).map_err(Into::into)
+    }
+
+    fn object(&self, id: ObjectId) -> Option<&Object> {
+        self.objects.get(&id)
     }
 
     fn trailer(&self) -> &Dictionary {
@@ -81,6 +89,13 @@ impl ObjectSink for lopdf::IncrementalDocument {
             .get_object_mut(page_object_id)
             .and_then(Object::as_dict_mut)
             .map_err(Into::into)
+    }
+
+    fn object(&self, id: ObjectId) -> Option<&Object> {
+        self.new_document
+            .objects
+            .get(&id)
+            .or_else(|| self.get_prev_documents().objects.get(&id))
     }
 
     fn trailer(&self) -> &Dictionary {
