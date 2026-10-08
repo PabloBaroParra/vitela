@@ -110,6 +110,7 @@ private val ANNOTATION_TOOLS = listOf(
     Triple(AnnotationTool.Ink, "Draw", R.drawable.ic_shell_ink),
     Triple(AnnotationTool.Shape, "Shape", R.drawable.ic_shell_shape),
     Triple(AnnotationTool.TextNote, "Note", R.drawable.ic_shell_comments),
+    Triple(AnnotationTool.FreeText, "Text box", R.drawable.ic_shell_text),
 )
 
 /** Sign mode: fill the document's form, draw a signature onto a page, or sign it with a certificate. */

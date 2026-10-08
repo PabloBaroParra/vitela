@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationEdit
 import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import kotlinx.coroutines.launch
@@ -100,6 +101,12 @@ internal class AnnotationEditing(
                 return
             }
             insertImageStamp(pageIndex, image, origin, stampPlaced)
+        } else if (tool == AnnotationTool.FreeText) {
+            // Like a Note, nothing reaches the core until the text is entered; the tap only
+            // chooses where the box goes, wholly on the page.
+            val page = state.value.pageSizes.getOrNull(pageIndex)
+            val rect = if (page != null) freeTextPlacementRect(origin, page) else AnnotationRect(origin.x, origin.y - FREE_TEXT_HEIGHT_PT, FREE_TEXT_WIDTH_PT, FREE_TEXT_HEIGHT_PT)
+            state.value = state.value.copy(freeText = FreeTextDraft(pageIndex, FreeTextTarget.Place(rect)))
         } else if (tool == AnnotationTool.TextNote) {
             // Nothing reaches the core yet: the prompt asks for the text first.
             val rect = requireNotNull(placementAnnotation(tool, pageIndex, origin, current).rect)
@@ -144,6 +151,68 @@ internal class AnnotationEditing(
         state.value = state.value.copy(notePlacement = null, status = NOTE_PLACEMENT_CANCELED)
     }
 
+    /**
+     * **Edit text**: opens the text dialog on the selected text box, prefilled
+     * with its text. Never on another kind, over the grid, or where the
+     * document forbids annotating.
+     */
+    fun openFreeTextEditor() {
+        val current = state.value
+        if (!current.annotationEditingAllowed || current.organize != null || current.freeText != null) return
+        val selected = selectedAnnotation()?.takeIf { it.kind == AnnotationKind.FreeText } ?: return
+        state.value = current.copy(freeText = FreeTextDraft(selected.pageIndex, FreeTextTarget.Retype(selected.id, selected.contents.orEmpty())))
+    }
+
+    /** The text dialog's **Cancel**: no annotation, no undo step. Ignored while the core is answering — that edit is already on its way. */
+    fun cancelFreeText() {
+        val draft = state.value.freeText ?: return
+        if (draft.busy) return
+        state.value = state.value.copy(freeText = null, status = if (draft.target is FreeTextTarget.Place) FREE_TEXT_CANCELED else state.value.status)
+    }
+
+    /**
+     * The text dialog's **Add** / **Save**, for the document [documentId] it
+     * was built for. Blank text keeps the dialog open; a dialog left over from
+     * a replaced document does nothing. The edit is sent as typed — and if the
+     * core refuses it (a character Helvetica cannot show), the dialog stays
+     * open with the refusal and the text, so the reader can fix it.
+     */
+    fun confirmFreeText(documentId: Long, text: String) {
+        val current = state.value
+        val draft = current.freeText ?: return
+        if (current.documentId != documentId || draft.busy || text.isBlank()) return
+        when (val target = draft.target) {
+            is FreeTextTarget.Place -> commitFreeText(draft, AnnotationEdit.Add(Annotation(0, draft.pageIndex, AnnotationKind.FreeText, target.rect, null, contents = text)), FREE_TEXT_ADDED)
+            is FreeTextTarget.Retype -> {
+                val selected = current.annotations.lastOrNull { it.id == target.annotationId }
+                when {
+                    !current.annotationEditingAllowed || selected == null || selected.kind != AnnotationKind.FreeText ->
+                        state.value = current.copy(freeText = null, status = ANNOTATION_CHANGED_UNDER_EDITOR)
+                    // The core would accept it and record nothing; not asking keeps the message honest.
+                    text == selected.contents -> state.value = current.copy(freeText = null, status = FREE_TEXT_UNCHANGED)
+                    else -> commitFreeText(draft, AnnotationEdit.SetContents(target.annotationId, text), FREE_TEXT_EDITED)
+                }
+            }
+        }
+    }
+
+    private fun commitFreeText(draft: FreeTextDraft, edit: AnnotationEdit, done: String) {
+        val openDocument = session.document ?: return
+        state.value = state.value.copy(freeText = draft.copy(busy = true, error = null))
+        session.scope.launch {
+            session.documentLane.withLock {
+                if (session.document !== openDocument) return@withLock
+                when (val result = withContext(session.compute) { openDocument.applyAnnotationEdit(edit) }) {
+                    is PdfCoreResult.Success -> {
+                        state.value = state.value.copy(freeText = null, isDirty = true, revision = state.value.revision + 1, status = done)
+                        refresh(openDocument)
+                    }
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(freeText = draft.copy(busy = false, error = userMessage(result.error)))
+                }
+            }
+        }
+    }
+
     fun selectImageStamp(bytes: ByteArray, prompt: String = "Tap a page to place the image stamp.", placed: String = IMAGE_STAMP_PLACED) {
         if (!state.value.annotationEditingAllowed) return
         stampBytes = bytes
@@ -173,7 +242,7 @@ internal class AnnotationEditing(
     fun resizeSelected(corner: HandleCorner, point: AnnotationPoint) {
         val selected = selectedAnnotation() ?: return
         val rect = selected.rect ?: return
-        applyEdit(AnnotationEdit.Resize(selected.id, resizedRect(rect, corner, point)))
+        applyEdit(AnnotationEdit.Resize(selected.id, annotationResizedRect(selected, corner, point) ?: return))
     }
 
     fun growSelected() {

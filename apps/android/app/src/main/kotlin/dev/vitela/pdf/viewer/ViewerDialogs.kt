@@ -24,6 +24,8 @@ internal data class DialogActions(
     val onReplacementCancelled: () -> Unit,
     val onCloseConfirmed: () -> Unit,
     val onCloseCancelled: () -> Unit,
+    val onFreeTextConfirm: (Long, String) -> Unit,
+    val onFreeTextCancel: () -> Unit,
     val onNoteAdd: (Long, String) -> Unit,
     val onNoteCancel: () -> Unit,
     val onNoteReadingClose: () -> Unit,
@@ -68,6 +70,7 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
     state.contentEdit?.editor?.let { TextRunEditorDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.resizer?.let { ImageResizerDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.inserter?.let { TextInserterDialog(it, state.documentId, actions.contentEdit) }
+    state.freeText?.let { FreeTextDialog(it, state.documentId, onConfirm = actions.onFreeTextConfirm, onCancel = actions.onFreeTextCancel) }
     state.notePlacement?.let { NoteDialog(it, state.documentId, onAdd = actions.onNoteAdd, onCancel = actions.onNoteCancel) }
     state.noteReading?.let { NoteReadingDialog(it, onClose = actions.onNoteReadingClose) }
     state.annotationResizer?.let {
