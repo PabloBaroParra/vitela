@@ -1760,7 +1760,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 annotation.Layout))],
             core.AnnotationEditingAllowed(Document),
             core.CanUndo(Document),
-            core.CanRedo(Document));
+            core.CanRedo(Document)) { Comments = core.Comments(Document) };
 
         /// <summary>Closes every released snapshot once no print render can still be reading one.</summary>
         public void DisposeReleasedPrintSnapshotsIfIdle()

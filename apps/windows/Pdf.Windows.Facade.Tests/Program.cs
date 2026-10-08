@@ -1228,6 +1228,7 @@ static async Task PreservesNoteContentsAsync()
     var session = (await facade.OpenAsync(new DocumentSource("notes.pdf", [1]))).Value!;
     var document = core.LastDocument!;
     document.EditingAllowed = false;
+    document.Comments.Add(new Comment(0, new AnnotationRect(10, 20, 30, 40), "Saved — 日本語", "Zoë", "D:20261008", null));
     document.Annotations.Add(new PdfCoreAnnotation(7, 0, PdfCoreAnnotationKind.TextNote,
         new PdfCoreRect(10, 20, 30, 40), null, [], "  First line\rSecond line — 日本語  "));
     document.Annotations.Add(new PdfCoreAnnotation(8, 0, PdfCoreAnnotationKind.TextNote,
@@ -1240,6 +1241,7 @@ static async Task PreservesNoteContentsAsync()
     Assert(state.Annotations[1].Contents == string.Empty, "an empty note must remain distinguishable from a non-note");
     Assert(state.Annotations[2].Contents is null, "non-note annotations must not acquire note text");
     Assert(!state.EditingAllowed && !state.CanUndo && !state.CanRedo, "reading a restricted document must not require editing or create history");
+    Assert(state.Comments.SequenceEqual(document.Comments), "saved comments must retain text, metadata and read-only identity in the facade snapshot");
 }
 
 static async Task RecordsAnnotationEditsInCoreHistoryAsync()
@@ -4160,6 +4162,7 @@ sealed partial class FakeCore : IPdfCore
     }
 
     public IReadOnlyList<PdfCoreAnnotation> Annotations(IPdfCoreDocument document) => ((FakeDocument)document).Annotations;
+    public IReadOnlyList<Comment> Comments(IPdfCoreDocument document) => ((FakeDocument)document).Comments;
 
     /// <summary>The runs <see cref="ReadPageContent"/> reports, on every page.</summary>
     public IReadOnlyList<PdfCoreContentTextRun> PageTextRuns { get; init; } =
@@ -4680,6 +4683,7 @@ sealed partial class FakeDocument(uint pageCount, double widthPt = 595, double h
     /// </summary>
     public bool FullRewriteAllowed { get; set; } = true;
     public List<PdfCoreAnnotation> Annotations { get; } = [];
+    public List<Comment> Comments { get; } = [];
     public bool CanUndo { get; private set; }
     public bool CanRedo { get; private set; }
     private ulong _nextAnnotationId;

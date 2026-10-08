@@ -63,13 +63,13 @@ foreach ($key in $keys) {
                 else { [System.Windows.Automation.ToggleState]::Off }
             if ($pattern.Current.ToggleState -ne $expected) { throw "Tools tab selection disagrees at $key / $other" }
         }
-        $comments = Find-Element 'CommentsPlaceholder'
+        $comments = Find-Element 'CommentsList'
         if ($key -eq 'Comments') {
-            if ($null -eq $comments -or $comments.Current.IsOffscreen -or $comments.Current.Name -ne "Comments aren't available in this shell yet.") {
-                throw 'Comments tab must explicitly explain that comments are unavailable.'
+            if ($null -eq $comments -or $comments.Current.IsOffscreen) {
+                throw 'Comments tab must show the comment list.'
             }
         } elseif ($null -ne $comments -and -not $comments.Current.IsOffscreen) {
-            throw 'Comments placeholder leaked into another tools page.'
+            throw 'Comments list leaked into another tools page.'
         }
     }
 }

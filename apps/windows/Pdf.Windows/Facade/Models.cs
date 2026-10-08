@@ -266,7 +266,12 @@ public sealed record FreeTextLine(string Text, double XPt, double BaselineFromTo
 public sealed record FreeTextLayout(double FontSizePt, IReadOnlyList<FreeTextLine> Lines, bool Overflow);
 
 public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points, string? Contents = null, FreeTextLayout? Layout = null);
-public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo);
+public sealed record Comment(uint PageIndex, AnnotationRect Rect, string Contents, string? Author, string? Date, ulong? AnnotationId);
+
+public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo)
+{
+    public IReadOnlyList<Comment> Comments { get; init; } = [];
+}
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer,
     MetadataDate? CreationDate = null, MetadataDate? ModDate = null);
 

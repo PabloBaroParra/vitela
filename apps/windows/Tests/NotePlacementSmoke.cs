@@ -22,7 +22,7 @@ public partial class App : Application
         try
         {
             await _window.NotePlacementSmokeAsync(output);
-            File.WriteAllText(Path.Combine(output, "note-smoke.log"), "PASS blank validation; cancel without history; multiline placement; undo/redo; saved PDF; read pending/saved/empty/restricted session notes without history; reading guards; stale session; forbidden/busy/organize guards.");
+            File.WriteAllText(Path.Combine(output, "note-smoke.log"), "PASS blank validation; cancel without history; multiline placement; undo/redo; saved PDF; read pending/saved/empty/restricted session notes without history; reading guards; stale session; forbidden/busy/organize guards; reopened saved Comments list and native read-only dialog without history.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "note-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -130,6 +130,27 @@ public sealed partial class MainWindow
         await PlaceTextNoteAsync(0, new PdfCoreRect(40, 80, 100, 40));
         _organizing = false;
         if (_dialogOpen || _annotationState.CanUndo) throw new Exception("Guard opened a prompt or edited history.");
+
+        await OpenDocumentAsync("Saved comments", await File.ReadAllBytesAsync(Path.Combine(output, "note-history-fixture.pdf")));
+        await RefreshAnnotationStateAsync();
+        SelectToolPage("Comments");
+        var savedComment = _annotationState!.Comments.Single(comment => comment.Contents == "  First line\rSecond line  ");
+        if (savedComment.AnnotationId is not null || _annotationState.Annotations.Count != 0)
+            throw new Exception("Saved comment became an editable session annotation.");
+        var commentButton = _commentsList.Children.OfType<Button>().Single(button => Equals(button.Tag, savedComment));
+        if (!commentButton.IsEnabled) throw new Exception("Saved comment list entry disabled.");
+        var invoke = (IInvokeProvider)new ButtonAutomationPeer(commentButton).GetPattern(PatternInterface.Invoke);
+        invoke.Invoke();
+        dialog = await WaitForNoteDialogAsync(title: $"Comment — page {savedComment.PageIndex + 1}");
+        if (dialog.Content is not TextBox { IsReadOnly: true } commentText)
+            throw new Exception("Saved comment dialog is not read-only.");
+        if (commentText.Text != savedComment.Contents)
+            throw new Exception($"Saved comment text mismatch: actual=[{string.Join(',', commentText.Text.Select(c => (int)c))}], expected=[{string.Join(',', savedComment.Contents.Select(c => (int)c))}].");
+        dialog.Hide();
+        await WaitForAsync(() => !_dialogOpen);
+        var commentsAfter = (await _facade.AnnotationStateAsync(_session!.SessionId)).Value!;
+        if (commentsAfter.CanUndo || commentsAfter.CanRedo || _selectedAnnotationId is not null)
+            throw new Exception("Reading saved comments changed history or enabled editing.");
     }
 
     private async Task CheckNoteReadingAsync(Annotation note, string expected)
