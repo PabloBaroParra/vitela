@@ -216,6 +216,7 @@ pub(super) fn contains(rect: Rect, point: (f64, f64)) -> bool {
 /// The rect a resize drag produces: the grabbed corner follows the pointer,
 /// the opposite corner stays put, and the result is normalised so dragging a
 /// corner past its opposite flips the rect rather than inverting it.
+#[cfg(test)]
 fn resized_rect(rect: Rect, corner: Corner, point: (f64, f64)) -> Rect {
     resized_rect_at_least(rect, corner, point, (MIN_TRACED_PT, MIN_TRACED_PT))
 }
