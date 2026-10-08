@@ -249,6 +249,33 @@ fn write_annotation_object<S: ObjectSink>(
             let dict = stamp_annotation_dict(sink, rect, image_id);
             Ok(sink.add_object(Object::Dictionary(dict)))
         }
+        AnnotationKind::FreeText { rect, contents, .. } => {
+            // Rebuilt from the model on every save, so a resize or retype
+            // since the box was created is what lands in the file.
+            let appearance = pdf_annotate::build_free_text_appearance(annotation)?;
+            let form_id = sink.add_object(Object::Stream(appearance.form));
+            let mut dict = Dictionary::new();
+            dict.set("Type", "Annot");
+            dict.set("Subtype", "FreeText");
+            dict.set("Rect", rect_array(rect));
+            dict.set("Contents", pdf_manip::pdf_text_string_object(contents));
+            dict.set(
+                "DA",
+                Object::String(appearance.da.into_bytes(), lopdf::StringFormat::Literal),
+            );
+            dict.set("Q", 0);
+            // Print flag: the text is content, not a screen-only mark.
+            dict.set("F", 4);
+            // No border: the box is invisible, only its text paints.
+            dict.set(
+                "Border",
+                vec![Object::Integer(0), Object::Integer(0), Object::Integer(0)],
+            );
+            let mut ap = Dictionary::new();
+            ap.set("N", Object::Reference(form_id));
+            dict.set("AP", ap);
+            Ok(sink.add_object(Object::Dictionary(dict)))
+        }
         AnnotationKind::Highlight { rect, color } => Ok(sink.add_object(Object::Dictionary(
             text_markup_dict("Highlight", rect, *color),
         ))),
@@ -475,6 +502,152 @@ mod tests {
             form_stream.dict.get(b"Subtype").unwrap().as_name().unwrap(),
             b"Form"
         );
+    }
+
+    /// Attaches `annotation` to a one-page document and returns the doc plus
+    /// the written annotation dictionary's object id.
+    fn attach_one(annotation: Annotation) -> (lopdf::Document, ObjectId) {
+        let mut doc = one_page_doc();
+        let page_object_id = *doc.get_pages().get(&1).unwrap();
+        let page_ids = HashMap::from([(PageId(0), page_object_id)]);
+        let mut set = AnnotationSet::new();
+        set.insert(annotation);
+        attach_annotations(&mut doc, &page_ids, &HashMap::new(), &set).expect("attach");
+        let annot_id = doc
+            .get_dictionary(page_object_id)
+            .unwrap()
+            .get(b"Annots")
+            .and_then(Object::as_array)
+            .unwrap()[0]
+            .as_reference()
+            .unwrap();
+        (doc, annot_id)
+    }
+
+    fn free_text(contents: &str, width: f64) -> Annotation {
+        pdf_annotate::free_text(
+            AnnotationId(7),
+            PageId(0),
+            Rect {
+                x: 10.0,
+                y: 20.0,
+                width,
+                height: 80.0,
+            },
+            contents,
+        )
+        .expect("valid free text")
+    }
+
+    fn ap_content(doc: &lopdf::Document, annot_id: ObjectId) -> Vec<u8> {
+        let ap = doc
+            .get_dictionary(annot_id)
+            .unwrap()
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let form_id = ap.get(b"N").unwrap().as_reference().unwrap();
+        doc.get_object(form_id)
+            .unwrap()
+            .as_stream()
+            .unwrap()
+            .content
+            .clone()
+    }
+
+    #[test]
+    fn attach_free_text_writes_subtype_flags_da_and_a_normal_appearance() {
+        let (doc, annot_id) = attach_one(free_text("Hola", 200.0));
+        let annot = doc.get_dictionary(annot_id).unwrap();
+
+        assert_eq!(
+            annot.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"FreeText"
+        );
+        assert_eq!(annot.get(b"F").unwrap().as_i64().unwrap(), 4);
+        assert_eq!(
+            annot.get(b"DA").unwrap().as_str().unwrap(),
+            b"0 0 0 rg /Helv 12 Tf"
+        );
+        let ap = annot.get(b"AP").unwrap().as_dict().unwrap();
+        let form_id = ap.get(b"N").unwrap().as_reference().unwrap();
+        let form = doc.get_object(form_id).unwrap().as_stream().unwrap();
+        assert_eq!(
+            form.dict.get(b"Subtype").unwrap().as_name().unwrap(),
+            b"Form"
+        );
+        assert!(!form.content.is_empty());
+    }
+
+    #[test]
+    fn attach_free_text_writes_no_border_colour_or_interior() {
+        let (doc, annot_id) = attach_one(free_text("Hola", 200.0));
+        let annot = doc.get_dictionary(annot_id).unwrap();
+        assert!(!annot.has(b"C"));
+        assert!(!annot.has(b"IC"));
+        let border: Vec<i64> = annot
+            .get(b"Border")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| n.as_float().unwrap() as i64)
+            .collect();
+        assert_eq!(border, [0, 0, 0]);
+    }
+
+    #[test]
+    fn attach_free_text_contents_is_a_pdf_text_string() {
+        let (doc, annot_id) = attach_one(free_text("Canción\nsegunda", 200.0));
+        let contents = doc
+            .get_dictionary(annot_id)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap();
+        assert_eq!(
+            lopdf::decode_text_string(contents).unwrap(),
+            "Canción\nsegunda"
+        );
+    }
+
+    #[test]
+    fn attach_free_text_appearance_is_rebuilt_from_the_final_state() {
+        let mut annotation = free_text("uno dos tres cuatro cinco", 400.0);
+        pdf_annotate::resize_annotation(
+            &mut annotation,
+            Rect {
+                x: 10.0,
+                y: 20.0,
+                width: 60.0,
+                height: 80.0,
+            },
+        )
+        .unwrap();
+        pdf_annotate::set_annotation_contents(&mut annotation, "seis siete ocho nueve").unwrap();
+
+        let expected = pdf_annotate::build_free_text_appearance(&annotation)
+            .unwrap()
+            .form
+            .content;
+        let (doc, annot_id) = attach_one(annotation);
+
+        assert_eq!(ap_content(&doc, annot_id), expected);
+        let narrow_lines = String::from_utf8(expected).unwrap().matches(" Tj").count();
+        assert!(narrow_lines > 1, "60pt must have wrapped the text");
+    }
+
+    #[test]
+    fn attach_highlight_still_writes_no_appearance() {
+        let (doc, annot_id) = attach_one(Annotation {
+            id: AnnotationId(8),
+            page: PageId(0),
+            kind: AnnotationKind::Highlight {
+                rect: rect(),
+                color: color(),
+            },
+        });
+        assert!(!doc.get_dictionary(annot_id).unwrap().has(b"AP"));
     }
 
     #[test]
