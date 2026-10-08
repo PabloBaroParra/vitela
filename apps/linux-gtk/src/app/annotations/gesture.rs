@@ -7,12 +7,13 @@
 use pdf_document::{AnnotationId, Command};
 
 use crate::app::selection;
-use crate::app::state::{AnnotationDrag, AnnotationDragMode, Placement, Viewer};
+use crate::app::state::{AnnotationDrag, AnnotationDragMode, Placement, Tool, Viewer};
 
 use super::builder::annotation_at;
 use super::command::{apply_command, command, model};
 use super::edit::supports_resize;
 use super::geometry::{bounds, committed_rect, contains, corner_at, dragged};
+use super::note::prompt_for_note;
 use super::toolbar::{disarm, update_annotation_controls};
 use super::SELECTION_GONE;
 
@@ -84,6 +85,11 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
         }
     };
     disarm(viewer);
+    // A note needs its text first: ask, and let the dialog's Add record it.
+    if placement.tool == Tool::TextNote {
+        prompt_for_note(viewer, placement.page_index, committed_rect(&placement));
+        return;
+    }
     command(viewer, move |session| {
         let id = AnnotationId(session.next_annotation_id);
         // See `DocumentSession::backend_pages`: a canvas index is pdfium's,

@@ -18,6 +18,7 @@ const DEFAULT_COLOR: Color = Color {
 };
 
 const INK_NEEDS_A_DRAG: &str = "Drag to draw an ink annotation.";
+const NOTE_NEEDS_TEXT: &str = "Type the note's text before adding it.";
 
 /// A 1×1 opaque PNG, inlined so the Stamp button has something valid to stamp
 /// without reaching for a file. `stamp_from_image_bytes` decodes it to read the
@@ -58,11 +59,38 @@ pub(super) fn annotation_at(
                 DEFAULT_COLOR,
             ))
         }
-        Tool::TextNote => Ok(pdf_annotate::text_note(id, page, rect, "Note")),
+        // A draft: it only exists so the placement preview can outline the
+        // note while the pointer is down. The note that lands in the document
+        // is built by `note_annotation` once the user has typed its text —
+        // `gesture::finish_placement` diverts this tool to the note dialog
+        // before it ever reaches here.
+        Tool::TextNote => Ok(pdf_annotate::text_note(id, page, rect, "")),
         Tool::Shape => Ok(pdf_annotate::shape(id, page, rect, DEFAULT_COLOR)),
         Tool::Stamp => pdf_annotate::stamp_from_image_bytes(id, page, PLACEHOLDER_STAMP_PNG, rect)
             .map_err(|error| error.to_string()),
     }
+}
+
+/// Whether `text` says nothing: empty or only whitespace.
+///
+/// The one rule shared by the dialog's Add button and [`note_annotation`], so
+/// the button cannot be enabled for text the builder will then refuse.
+pub(super) fn is_blank_note(text: &str) -> bool {
+    text.trim().is_empty()
+}
+
+/// Builds the sticky note a user finished typing. The text is stored exactly
+/// as typed; a blank one is refused rather than recorded as an empty note.
+pub(super) fn note_annotation(
+    id: AnnotationId,
+    page: PageId,
+    rect: Rect,
+    text: &str,
+) -> Result<Annotation, String> {
+    if is_blank_note(text) {
+        return Err(NOTE_NEEDS_TEXT.to_string());
+    }
+    Ok(pdf_annotate::text_note(id, page, rect, text))
 }
 
 /// Builds one text-markup annotation over `rect`.
@@ -314,5 +342,48 @@ mod tests {
         let stamp = drag(Tool::Stamp, (10.0, 10.0), (100.0, 100.0));
 
         assert!(annotation_at(&stamp, AnnotationId(1), PageId(0), committed_rect(&stamp)).is_ok());
+    }
+
+    #[test]
+    fn a_note_keeps_the_text_the_user_typed() {
+        let rect = committed_rect(&drag(Tool::TextNote, (10.0, 10.0), (100.0, 60.0)));
+
+        let note = note_annotation(AnnotationId(1), PageId(0), rect, "Call back on Friday")
+            .expect("typed text builds a note");
+
+        match note.kind {
+            AnnotationKind::TextNote {
+                contents, popup, ..
+            } => {
+                assert_eq!(contents, "Call back on Friday");
+                assert_eq!(popup.contents, "Call back on Friday");
+            }
+            other => panic!("expected a text note, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_blank_note_is_refused_rather_than_recorded() {
+        let rect = committed_rect(&click(Tool::TextNote, (10.0, 10.0)));
+
+        for blank in [
+            "", "   ", "
+	 ",
+        ] {
+            assert_eq!(
+                note_annotation(AnnotationId(1), PageId(0), rect, blank),
+                Err(NOTE_NEEDS_TEXT.to_string()),
+                "{blank:?} must not become a note"
+            );
+        }
+    }
+
+    #[test]
+    fn blankness_is_judged_the_way_the_add_button_judges_it() {
+        assert!(is_blank_note(
+            "  
+"
+        ));
+        assert!(!is_blank_note(" a "));
     }
 }
