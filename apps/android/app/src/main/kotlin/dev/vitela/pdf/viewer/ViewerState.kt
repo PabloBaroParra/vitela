@@ -119,6 +119,8 @@ data class ViewerState(
     val signatureChoice: ByteArray? = null,
     /** The Note prompt, holding the rectangle the user chose, or null while it is closed. */
     val notePlacement: NotePlacement? = null,
+    /** The text-box dialog (a box to place, or the text of one to edit), or null while it is closed. */
+    val freeText: FreeTextDraft? = null,
     /** The Read note dialog, holding the selected note's text as the core gave it, or null while it is closed. */
     val noteReading: NoteReading? = null,
     /** The Resize annotation dialog, holding the selected annotation's rect as it opened, or null while it is closed. */

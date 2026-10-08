@@ -446,7 +446,7 @@ private fun PageSlot(
                 val draggedAnnotation = if (state.activeAnnotationTool == AnnotationTool.Pointer && selectedAnnotation != null && previewOrigin != null && previewCurrent != null) {
                     when (val mode = dragModeAt(selectedAnnotation, previewOrigin, handleReachPoints(HANDLE_REACH_DP, density, scale))) {
                         DragMode.Move -> selectedAnnotation.translated(previewCurrent.x - previewOrigin.x, previewCurrent.y - previewOrigin.y)
-                        is DragMode.Resize -> selectedAnnotation.rect?.let { rect -> selectedAnnotation.copy(rect = resizedRect(rect, mode.corner, previewCurrent)) }
+                        is DragMode.Resize -> annotationResizedRect(selectedAnnotation, mode.corner, previewCurrent)?.let { rect -> selectedAnnotation.copy(rect = rect) }
                         null -> null
                     }
                 } else null
@@ -528,6 +528,12 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationShape
                 stamp?.let { drawStampImage(it, rect, placement) }
                 // The picture alone is the stamp; the outline only marks it while selected or still undecoded.
                 if (stamp == null || selected) drawRect(color, placed.topLeft, placed.size, style = Stroke(if (selected) 3f else 2f))
+            }
+            dev.vitela.pdf.core.AnnotationKind.FreeText -> {
+                // The box has no border in the saved file: its text is drawn from the core's lines,
+                // and an outline only marks it while selected, so there is something to grab.
+                freeTextDrawing(annotation, placement)?.let { drawFreeText(it) }
+                if (selected) drawRect(color, placed.topLeft, placed.size, style = Stroke(3f))
             }
             else -> drawRect(color, placed.topLeft, placed.size, style = Stroke(if (selected) 3f else 2f))
         }

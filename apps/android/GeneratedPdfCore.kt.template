@@ -36,6 +36,8 @@ import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
+import dev.vitela.pdf.core.FreeTextLayout
+import dev.vitela.pdf.core.FreeTextLine
 import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.BatchImportReport
 import dev.vitela.pdf.core.PreparedImport
@@ -184,7 +186,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     override fun annotations(): PdfCoreResult<AnnotationSnapshot> = try {
-        PdfCoreResult.Success(AnnotationSnapshot(handle.annotations().mapNotNull { it.toAnnotation() }, handle.annotationEditingAllowed(), handle.canUndo(), handle.canRedo()))
+        PdfCoreResult.Success(AnnotationSnapshot(handle.annotations().map { it.toAnnotation() }, handle.annotationEditingAllowed(), handle.canUndo(), handle.canRedo()))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -697,7 +699,7 @@ private class GeneratedPageCharacters(private val characters: FfiPageCharacters)
     override fun close() = characters.close()
 }
 
-private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation? = when (val value = kind) {
+private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation = when (val value = kind) {
     is FfiAnnotationKind.Highlight -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Highlight, value.rect.toRect(), value.color.toColor())
     is FfiAnnotationKind.Underline -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Underline, value.rect.toRect(), value.color.toColor())
     is FfiAnnotationKind.Strikeout -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Strikeout, value.rect.toRect(), value.color.toColor())
@@ -705,8 +707,11 @@ private fun dev.vitela.pdf.uniffi.FfiAnnotation.toAnnotation(): Annotation? = wh
     is FfiAnnotationKind.Shape -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Shape, value.rect.toRect(), value.color.toColor())
     is FfiAnnotationKind.TextNote -> Annotation(id.toLong(), page.toInt(), AnnotationKind.TextNote, value.rect.toRect(), null, contents = value.contents)
     is FfiAnnotationKind.Stamp -> Annotation(id.toLong(), page.toInt(), AnnotationKind.Stamp, value.rect.toRect(), null)
-    // The Android shell has no text-box support yet; pdfium still paints the box.
-    is FfiAnnotationKind.FreeText -> null
+    is FfiAnnotationKind.FreeText -> Annotation(
+        id.toLong(), page.toInt(), AnnotationKind.FreeText, value.rect.toRect(), null,
+        contents = value.contents,
+        layout = FreeTextLayout(value.fontSizePt, value.lines.map { FreeTextLine(it.text, it.xPt, it.baselineFromTopPt) }),
+    )
 }
 
 private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
@@ -718,11 +723,13 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
         AnnotationKind.Shape -> FfiEditCommand.AddShape(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.color).toFfi())
         AnnotationKind.TextNote -> FfiEditCommand.AddTextNote(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.contents))
         AnnotationKind.Stamp -> error("Use insertImageStamp for image-backed stamps")
+        AnnotationKind.FreeText -> FfiEditCommand.AddFreeText(annotation.pageIndex.toUInt(), requireNotNull(annotation.rect).toFfi(), requireNotNull(annotation.contents))
     }
     is AnnotationEdit.Move -> FfiEditCommand.MoveAnnotation(id.toULong(), dx, dy)
     is AnnotationEdit.Resize -> FfiEditCommand.ResizeAnnotation(id.toULong(), rect.toFfi())
     is AnnotationEdit.Restyle -> FfiEditCommand.RestyleAnnotation(id.toULong(), color.toFfi())
     is AnnotationEdit.Remove -> FfiEditCommand.RemoveAnnotation(id.toULong())
+    is AnnotationEdit.SetContents -> FfiEditCommand.SetAnnotationContents(id.toULong(), contents)
 }
 
 // A move is one page: the block form the core takes is Windows' `MovePages(from, 1, to)`.

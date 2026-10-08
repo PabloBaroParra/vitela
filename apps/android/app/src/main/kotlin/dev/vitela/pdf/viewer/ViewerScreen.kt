@@ -75,6 +75,9 @@ internal fun ViewerScreen(
     onAnnotationRevealConsumed: () -> Unit,
     onAnnotationStep: (forward: Boolean) -> Unit,
     onAnnotationTool: (AnnotationTool) -> Unit,
+    onFreeTextConfirm: (Long, String) -> Unit,
+    onFreeTextCancel: () -> Unit,
+    onEditText: () -> Unit,
     onNoteAdd: (Long, String) -> Unit,
     onNoteCancel: () -> Unit,
     onNoteRead: () -> Unit,
@@ -213,7 +216,7 @@ internal fun ViewerScreen(
                             ContextChips(
                                 state, controls,
                                 ContextActions(
-                                    onCopy = onCopySelection, onReadNote = onNoteRead, onGrow = onAnnotationGrow, onResize = onAnnotationResize,
+                                    onCopy = onCopySelection, onReadNote = onNoteRead, onEditText = onEditText, onGrow = onAnnotationGrow, onResize = onAnnotationResize,
                                     onPosition = onAnnotationPosition, onDelete = onAnnotationDelete, onColor = onAnnotationColor,
                                     onCancelMove = contentEdit.onCancelMove, onCancelInsert = contentEdit.onCancelInsert,
                                 ),
@@ -296,6 +299,7 @@ internal fun ViewerScreen(
             onPassword = onPassword, onPasswordCancel = onPasswordCancel,
             onReplacementConfirmed = onReplacementConfirmed, onReplacementCancelled = onReplacementCancelled,
             onCloseConfirmed = onCloseConfirmed, onCloseCancelled = onCloseCancelled,
+            onFreeTextConfirm = onFreeTextConfirm, onFreeTextCancel = onFreeTextCancel,
             onNoteAdd = onNoteAdd, onNoteCancel = onNoteCancel, onNoteReadingClose = onNoteReadingClose,
             onAnnotationResizeConfirm = onAnnotationResizeConfirm, onAnnotationResizeCancel = onAnnotationResizeCancel,
             onAnnotationPositionConfirm = onAnnotationPositionConfirm, onAnnotationPositionCancel = onAnnotationPositionCancel,

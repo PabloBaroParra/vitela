@@ -15,7 +15,7 @@ internal const val HANDLE_REACH_DP = 24.0
 enum class AnnotationTool(val kind: AnnotationKind) {
     Pointer(AnnotationKind.Highlight), Highlight(AnnotationKind.Highlight), Underline(AnnotationKind.Underline),
     Strikeout(AnnotationKind.Strikeout), Ink(AnnotationKind.Ink), Shape(AnnotationKind.Shape),
-    TextNote(AnnotationKind.TextNote), Stamp(AnnotationKind.Stamp),
+    TextNote(AnnotationKind.TextNote), Stamp(AnnotationKind.Stamp), FreeText(AnnotationKind.FreeText),
 }
 
 /** Where a Note will go once its text is entered: the page and the rectangle the tap or drag chose. */
@@ -135,9 +135,15 @@ internal fun dragModeAt(annotation: Annotation, point: AnnotationPoint, reach: D
     return if (point.x in rect.x..(rect.x + rect.width) && point.y in rect.y..(rect.y + rect.height)) DragMode.Move else null
 }
 
-internal fun resizedRect(rect: AnnotationRect, corner: HandleCorner, point: AnnotationPoint): AnnotationRect {
+internal fun resizedRect(rect: AnnotationRect, corner: HandleCorner, point: AnnotationPoint, minWidth: Double = MIN_RECT_PT, minHeight: Double = MIN_RECT_PT): AnnotationRect {
     val anchor = cornerPoint(rect, opposite(corner))
-    return AnnotationRect(minOf(anchor.x, point.x), minOf(anchor.y, point.y), maxOf(MIN_RECT_PT, kotlin.math.abs(point.x - anchor.x)), maxOf(MIN_RECT_PT, kotlin.math.abs(point.y - anchor.y)))
+    return AnnotationRect(minOf(anchor.x, point.x), minOf(anchor.y, point.y), maxOf(minWidth, kotlin.math.abs(point.x - anchor.x)), maxOf(minHeight, kotlin.math.abs(point.y - anchor.y)))
+}
+
+/** [resizedRect] for [annotation]'s own floor: a text box may not shrink below the core's one-line minimum. */
+internal fun annotationResizedRect(annotation: Annotation, corner: HandleCorner, point: AnnotationPoint): AnnotationRect? {
+    val rect = annotation.rect ?: return null
+    return if (annotation.kind == AnnotationKind.FreeText) resizedRect(rect, corner, point, FREE_TEXT_MIN_WIDTH_PT, FREE_TEXT_MIN_HEIGHT_PT) else resizedRect(rect, corner, point)
 }
 
 internal fun grownRect(rect: AnnotationRect) = rect.copy(width = rect.width * GROW_FACTOR, height = rect.height * GROW_FACTOR)
