@@ -12,6 +12,7 @@ use crate::app::state::{AnnotationDrag, AnnotationDragMode, Placement, Tool, Vie
 use super::builder::annotation_at;
 use super::command::{apply_command, command, model};
 use super::edit::supports_resize;
+use super::freetext::prompt_for_free_text;
 use super::geometry::{bounds, committed_rect, contains, corner_at, dragged};
 use super::note::prompt_for_note;
 use super::toolbar::{disarm, update_annotation_controls};
@@ -88,6 +89,11 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
     // A note needs its text first: ask, and let the dialog's Add record it.
     if placement.tool == Tool::TextNote {
         prompt_for_note(viewer, placement.page_index, committed_rect(&placement));
+        return;
+    }
+    // So does a text box: it is never recorded blank.
+    if placement.tool == Tool::FreeText {
+        prompt_for_free_text(viewer, placement.page_index, committed_rect(&placement));
         return;
     }
     command(viewer, move |session| {

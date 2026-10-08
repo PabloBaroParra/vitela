@@ -127,6 +127,7 @@ fn resize_rect(annotation: &Annotation) -> Option<Rect> {
         | AnnotationKind::Strikeout { rect, .. }
         | AnnotationKind::Shape { rect, .. }
         | AnnotationKind::TextNote { rect, .. }
+        | AnnotationKind::FreeText { rect, .. }
         | AnnotationKind::Stamp { rect, .. } => rect,
         _ => return None,
     };
@@ -203,6 +204,30 @@ mod tests {
         assert!(supports_restyle(&ink));
         assert!(supports_resize(&note));
         assert!(!supports_restyle(&note));
+    }
+
+    #[test]
+    fn a_text_box_can_be_grown_like_any_other_rect_kind() {
+        let text_box = pdf_annotate::free_text(
+            AnnotationId(1),
+            pdf_document::PageId(0),
+            Rect {
+                x: 100.0,
+                y: 100.0,
+                width: 200.0,
+                height: 50.0,
+            },
+            "Hello",
+        )
+        .expect("valid text box");
+
+        let rect = resize_rect(&text_box).expect("a text box has a rect");
+
+        assert_eq!(
+            (rect.width, rect.height),
+            (200.0 * RESIZE_FACTOR, 50.0 * RESIZE_FACTOR)
+        );
+        assert!(supports_resize(&text_box));
     }
 
     #[test]

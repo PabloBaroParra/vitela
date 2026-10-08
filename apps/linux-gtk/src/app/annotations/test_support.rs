@@ -56,6 +56,7 @@ pub(super) fn rect_of(annotation: &Annotation) -> Rect {
         | AnnotationKind::Strikeout { rect, .. }
         | AnnotationKind::Shape { rect, .. }
         | AnnotationKind::TextNote { rect, .. }
+        | AnnotationKind::FreeText { rect, .. }
         | AnnotationKind::Stamp { rect, .. } => *rect,
         _ => panic!("kind has no rect"),
     }

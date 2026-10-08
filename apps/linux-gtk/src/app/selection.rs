@@ -22,6 +22,7 @@ use pdf_render::{
 use super::annotations;
 use super::content_edit;
 use super::forms;
+use super::freetext_overlay;
 use super::signature;
 use super::state::{DocumentSession, PageSlot, Selection, Viewer};
 
@@ -512,9 +513,9 @@ fn enter_upright_frame(context: &cairo::Context, rect: Rect, page: PagePlacement
     // The PDF-space top-left corner — `y + height`, since PDF y grows upwards
     // — is the corner the content's own frame starts at, whichever way the
     // page is turned.
-    let (x, y) = place_point((rect.x, rect.y + rect.height), page);
-    context.translate(x, y);
-    context.rotate(page.rotation.radians());
+    let pose = freetext_overlay::upright_pose(rect, page);
+    context.translate(pose.x, pose.y);
+    context.rotate(pose.radians);
     PlacedRect {
         left: 0.0,
         top: 0.0,
@@ -527,7 +528,7 @@ fn enter_upright_frame(context: &cairo::Context, rect: Rect, page: PagePlacement
 /// resolve on any system — no embedded font backs these (decision 3,
 /// `docs/batch-forms.md`), so a generic family stands in the same way it
 /// does for `pdf-form::appearance`'s own `/AP` streams.
-fn cairo_font_family(font: FontFamily) -> &'static str {
+pub(super) fn cairo_font_family(font: FontFamily) -> &'static str {
     match font {
         FontFamily::Helvetica => "sans-serif",
         FontFamily::TimesRoman => "serif",
@@ -882,6 +883,19 @@ fn draw_annotation(
             match stamp {
                 Some(surface) => draw_stamp_surface(context, surface, upright, alpha),
                 None => draw_annotation_outline(context, upright, alpha),
+            }
+            let _ = context.restore();
+        }
+        AnnotationKind::FreeText { rect, .. } => {
+            // Text with an orientation, so the same upright frame the stamp
+            // uses. The lines come from the core's layout; nothing here wraps.
+            // Opaque and unfaded, like the `/AP` it previews — only the
+            // selection outline takes the annotation alpha.
+            let _ = context.save();
+            let upright = enter_upright_frame(context, *rect, page);
+            freetext_overlay::paint_text(context, annotation, page.scale);
+            if selected {
+                draw_annotation_outline(context, upright, alpha);
             }
             let _ = context.restore();
         }

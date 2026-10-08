@@ -13,6 +13,7 @@ mod document;
 mod editor_toolbar;
 mod export;
 mod forms;
+mod freetext_overlay;
 mod home;
 mod icons;
 mod input;

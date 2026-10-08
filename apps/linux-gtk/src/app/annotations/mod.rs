@@ -20,11 +20,14 @@
 //! - [`gesture`] runs the press/move/release lifecycles.
 //! - [`note`] asks for a sticky note's text before it is recorded, and
 //!   [`tooltip`] shows that text again when the pointer rests on the note.
+//! - [`freetext`] asks for a text box's text (and retypes one later), and
+//!   refuses what Helvetica cannot show.
 //! - [`edit`] and [`style`] implement the operations on an existing selection.
 
 mod builder;
 mod command;
 mod edit;
+mod freetext;
 mod geometry;
 mod gesture;
 mod note;

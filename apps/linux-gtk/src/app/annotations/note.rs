@@ -161,7 +161,7 @@ fn commit_note(viewer: &Viewer, session_id: u64, page_index: usize, rect: Rect, 
 }
 
 /// Which document session is open, or `None` with nothing open.
-fn current_session_id(viewer: &Viewer) -> Option<u64> {
+pub(super) fn current_session_id(viewer: &Viewer) -> Option<u64> {
     let state = viewer.state.borrow();
     state.session.as_ref().map(|_| state.session_id)
 }

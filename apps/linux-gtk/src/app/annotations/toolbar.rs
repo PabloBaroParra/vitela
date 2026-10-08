@@ -13,6 +13,7 @@ use crate::app::state::{AnnotationToolbar, Tool, Viewer};
 use super::builder::markup_annotation;
 use super::command::{apply_command, command, model};
 use super::edit::{delete, edit_move, edit_resize, select_previous, supports_resize};
+use super::freetext::{edit_selected_text, is_text_box};
 use super::style::{choose_restyle_color, supports_restyle};
 
 /// Builds the annotation toolbar and the row that carries it.
@@ -72,6 +73,7 @@ pub(crate) fn add_annotation_toolbar() -> (AnnotationToolbar, ScrolledWindow) {
         move_selection: button("Nudge"),
         resize_selection: button("Grow"),
         restyle_selection: button("Restyle"),
+        edit_text_selection: button("Edit text"),
         delete_selection: button("Delete"),
         delete_action: gio::SimpleAction::new("delete-annotation", None),
     };
@@ -99,6 +101,7 @@ pub(crate) fn connect_annotation_toolbar(viewer: &Viewer) {
     connect(viewer, &buttons.move_selection, edit_move);
     connect(viewer, &buttons.resize_selection, edit_resize);
     connect(viewer, &buttons.restyle_selection, choose_restyle_color);
+    connect(viewer, &buttons.edit_text_selection, edit_selected_text);
     connect(viewer, &buttons.delete_selection, delete);
 }
 
@@ -309,6 +312,9 @@ pub(crate) fn update_annotation_controls(viewer: &Viewer) {
     buttons
         .restyle_selection
         .set_sensitive(enabled && selected.is_some_and(supports_restyle));
+    buttons
+        .edit_text_selection
+        .set_sensitive(enabled && selected.is_some_and(is_text_box));
     buttons.delete_selection.set_sensitive(has_selection);
     // The key and the button delete the same thing, so they light up together
     // — except while the search entry has focus, where Delete belongs to the
@@ -337,9 +343,9 @@ mod tests {
 
     #[test]
     fn the_toolbar_offers_one_button_per_annotation_type() {
-        // The spec calls for seven annotation types; the buttons and the
+        // Seven annotation types plus the text box; the buttons and the
         // handler wiring both read from `Tool::ALL`, so this pins the count.
-        assert_eq!(Tool::ALL.len(), 7);
+        assert_eq!(Tool::ALL.len(), 8);
     }
 
     #[test]
@@ -380,5 +386,56 @@ mod tests {
             (converted.x, converted.y, converted.width, converted.height),
             (12.5, 700.25, 88.0, 11.5)
         );
+    }
+
+    #[test]
+    fn the_text_box_has_its_own_toolbar_button() {
+        assert!(Tool::ALL.contains(&Tool::FreeText));
+        assert_eq!(Tool::FreeText.label(), "Text box");
+    }
+
+    #[gtk::test]
+    fn gtk_ui_edit_text_is_offered_only_for_a_selected_text_box() {
+        use crate::app::signature::test_support::{open_document, Built};
+        use pdf_document::PageId;
+
+        let built = Built::new();
+        let viewer = built.viewer();
+        open_document(viewer);
+        let area = Rect {
+            x: 100.0,
+            y: 600.0,
+            width: 200.0,
+            height: 50.0,
+        };
+        {
+            let mut state = viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("a document is open");
+            let document = session.document_model.as_mut().expect("a model");
+            document.annotations.insert(
+                pdf_annotate::free_text(AnnotationId(1), PageId(0), area, "Hello")
+                    .expect("valid text box"),
+            );
+            document.annotations.insert(pdf_annotate::text_note(
+                AnnotationId(2),
+                PageId(0),
+                area,
+                "n",
+            ));
+            session.selected_annotation = Some(AnnotationId(2));
+        }
+        update_annotation_controls(viewer);
+        assert!(!viewer.annotation_buttons.edit_text_selection.is_sensitive());
+
+        viewer
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .expect("a document is open")
+            .selected_annotation = Some(AnnotationId(1));
+        update_annotation_controls(viewer);
+
+        assert!(viewer.annotation_buttons.edit_text_selection.is_sensitive());
     }
 }
