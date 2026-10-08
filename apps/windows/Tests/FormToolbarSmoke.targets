@@ -2,5 +2,6 @@
   <ItemGroup>
     <Compile Remove="App.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)FormToolbarSmoke.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)FormToolbarSmoke.Delete.cs" />
   </ItemGroup>
 </Project>

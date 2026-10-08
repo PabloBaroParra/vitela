@@ -219,6 +219,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("resizes a field with valid dimensions and structural permission", ResizesAFormFieldAsync)
     ,("restyles a field without losing its other style attributes", RestylesAFormFieldAsync)
     ,("refuses a stale or forbidden field rename", RefusesInvalidFormRenameAsync)
+    ,("removes a field and refreshes its page", RemovesAFormFieldAsync)
+    ,("refuses a stale or forbidden field removal", RefusesInvalidFormRemovalAsync)
     ,("edits form fields when only a full rewrite is refused", EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync)
     ,("refuses a fill for a field that is no longer there", RefusesAFillForAMissingFieldAsync)
     ,("refreshes the preview on history after a fill", RefreshesThePreviewOnHistoryAfterAFillAsync)
@@ -3018,6 +3020,42 @@ static async Task RestylesAFormFieldAsync()
     Assert(core.RefreshPreviewCalls == 4, "undoing a color change must refresh the preview");
 }
 
+static async Task RemovesAFormFieldAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+
+    var result = await facade.RemoveFormFieldAsync(session.SessionId, 1, "agree");
+
+    Assert(result.IsSuccess && result.Value!.CanUndo, "a removal must join shared history");
+    Assert(core.FormFields.All(field => field.Id != 1) && core.RefreshPreviewCalls == 1, "the removal must reach the core and preview");
+    Assert((await facade.FormFieldsAsync(session.SessionId)).Value!.Fields.All(field => field.Id != 1), "the panel must lose the field");
+    await facade.UndoAsync(session.SessionId);
+    Assert(core.RefreshPreviewCalls == 2, "undoing a removal must refresh the preview");
+}
+
+static async Task RefusesInvalidFormRemovalAsync()
+{
+    var core = new FakeCore { FormFields = SampleFormFields() };
+    using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+    var session = (await facade.OpenAsync(new DocumentSource("form.pdf", [1]))).Value!;
+    var count = core.FormFields.Count;
+
+    var stale = await facade.RemoveFormFieldAsync(session.SessionId, 1, "old name");
+    Assert(!stale.IsSuccess && !core.LastDocument!.CanUndo, "a row with a stale name must not remove another field");
+    var missing = await facade.RemoveFormFieldAsync(session.SessionId, 99, "missing");
+    Assert(!missing.IsSuccess, "a missing field must be refused");
+    var document = core.LastDocument!;
+    document.EditingAllowed = false;
+    var forbidden = await facade.RemoveFormFieldAsync(session.SessionId, 1, "agree");
+    Assert(!forbidden.IsSuccess && core.RefreshPreviewCalls == 0, "removing requires the annotation permission");
+    document.EditingAllowed = true;
+    document.ContentEditingAllowed = false;
+    forbidden = await facade.RemoveFormFieldAsync(session.SessionId, 1, "agree");
+    Assert(!forbidden.IsSuccess && core.FormFields.Count == count, "fill-only permissions must not allow removal");
+}
+
 static async Task RefusesInvalidFormRenameAsync()
 {
     var core = new FakeCore { FormFields = SampleFormFields() };
@@ -3067,6 +3105,8 @@ static async Task EditsFormFieldsWhenOnlyAFullRewriteIsRefusedAsync()
     Assert(restyled.IsSuccess, "restyling must not borrow the full-rewrite refusal");
     var created = await facade.AddTextFieldAsync(session.SessionId, 0, new PdfCoreRect(0, 0, 144, 36));
     Assert(created.IsSuccess && core.FormFields.Count == 2, "creating must not borrow the full-rewrite refusal");
+    var removed = await facade.RemoveFormFieldAsync(session.SessionId, 7, "full_name");
+    Assert(removed.IsSuccess && core.FormFields.Count == 1, "removing must not borrow the full-rewrite refusal");
 }
 
 static async Task InsertsContentImageAsync()
@@ -4392,6 +4432,17 @@ sealed partial class FakeCore : IPdfCore
             var index = FormFields.FindIndex(field => field.Id == rename.FieldId);
             if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
             FormFields[index] = FormFields[index] with { Name = rename.Name };
+            fake.Apply(edit);
+            return;
+        }
+
+        if (edit is PdfCoreEdit.RemoveFormField remove)
+        {
+            if (!fake.EditingAllowed || !fake.ContentEditingAllowed)
+                throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "form removal is not permitted");
+            var index = FormFields.FindIndex(field => field.Id == remove.FieldId);
+            if (index < 0) throw new PdfCoreException(PdfCoreError.FormFieldNotFound, "form field not found");
+            FormFields.RemoveAt(index);
             fake.Apply(edit);
             return;
         }

@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Selection.cs" Link="Facade\PdfDocumentFacade.Selection.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.FormGeometry.cs" Link="Facade\PdfDocumentFacade.FormGeometry.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.FormRemoval.cs" Link="Facade\PdfDocumentFacade.FormRemoval.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Search.cs" Link="Facade\PdfDocumentFacade.Search.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.AnnotationStyle.cs" Link="Facade\PdfDocumentFacade.AnnotationStyle.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.FreeText.cs" Link="Facade\PdfDocumentFacade.FreeText.cs" />

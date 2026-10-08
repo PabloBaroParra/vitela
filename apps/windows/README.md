@@ -251,6 +251,13 @@ selection control availability. Existing numeric position/size controls remain
 in the field rows; canvas move/resize parity is still pending. Arming content
 editing or an annotation tool disarms Edit forms.
 
+**Delete field** (or the Delete key) removes the selected field and its widgets
+as one undoable step; Undo brings it back with its name, style and value. A
+field the file already had is taken out of the saved PDF too, not just the
+panel. Selecting a field on the page focuses its fill box, where Delete edits
+the value instead — use the button there. Deleting needs the same structural
+permission as placing a field.
+
 **Fill fields** records text and editable-dropdown values as they change, without
 replacing the row or its keyboard focus. Checkboxes, radio export values and
 fixed dropdowns use native controls; dropdowns include `(none)`. Field names are
@@ -264,8 +271,8 @@ Native regression checks: after opening the unchanged built-in sample, run
 `powershell -File apps/windows/test-metadata.ps1` to exercise Properties text,
 date normalization/rejection and Undo/Redo. The opt-in
 `Tests/FormToolbarSmoke.targets` entry point exercises mode/type exclusivity,
-the shared inspector with real-core font/size changes, history and permission
-gates. `Tests/FormFillSmoke.targets` verifies immediate ordered typing, row/focus
+the shared inspector with real-core font/size changes, field delete with undo,
+history and permission gates. `Tests/FormFillSmoke.targets` verifies immediate ordered typing, row/focus
 preservation, native name accept/cancel, checkbox/radio/dropdown changes and
 unsupported/empty/permission/busy/stale-row states against the built-in sample.
 These harnesses never save a user PDF. Rebuild normally after any replacement-entry-point harness before

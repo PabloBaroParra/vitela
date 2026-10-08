@@ -295,6 +295,9 @@
                                 </ComboBox>
                                 <NumberBox x:Name="FormStyleSize" Header="Size (pt)" Width="110" Minimum="4" Maximum="400" SmallChange="1" LargeChange="10" Value="12" IsEnabled="False" SpinButtonPlacementMode="Compact" ValueChanged="FormStyleSize_ValueChanged" />
                                 <Button x:Name="FormStyleColor" Content="Color" IsEnabled="False" Click="FormStyleColor_Click" />
+                                <Button x:Name="DeleteFormFieldButton" Content="Delete field" IsEnabled="False" Click="DeleteFormFieldButton_Click" ToolTipService.ToolTip="Delete the selected field (Delete)">
+                                    <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteFormField_Invoked" /></Button.KeyboardAccelerators>
+                                </Button>
                             </viewer:ToolbarPanel>
                             <TextBlock Text="Fill fields" FontWeight="SemiBold" />
                             <TextBlock x:Name="FormFieldsStatus" Text="Open a PDF with form fields to fill them in, or place one in Edit forms mode." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
