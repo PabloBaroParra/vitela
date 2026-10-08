@@ -145,6 +145,16 @@ internal class AnnotationEditing(
         if (state.value.noteReading != null) state.value = state.value.copy(noteReading = null)
     }
 
+    fun readComment(comment: dev.vitela.pdf.core.PdfComment) {
+        val current = state.value
+        if (current.isLoading || current.organize != null || current.contentEdit != null || comment !in current.comments) return
+        state.value = current.copy(
+            selectedAnnotationId = comment.annotationId,
+            annotationReveal = AnnotationReveal(comment.pageIndex, comment.rect),
+            noteReading = NoteReading(comment.pageIndex, comment.contents, comment.author, comment.date),
+        )
+    }
+
     /** The Note prompt's **Cancel**: no annotation, no undo step. */
     fun cancelNote() {
         if (state.value.notePlacement == null) return
@@ -361,6 +371,7 @@ internal class AnnotationEditing(
         when (val result = withContext(session.compute) { openDocument.annotations() }) {
             is PdfCoreResult.Success -> state.value = state.value.copy(
                 annotations = result.value.annotations,
+                comments = result.value.comments,
                 annotationEditingAllowed = result.value.editingAllowed,
                 canUndoAnnotations = result.value.canUndo,
                 canRedoAnnotations = result.value.canRedo,

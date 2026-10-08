@@ -153,8 +153,10 @@ then choose **Read note** to see its text in a read-only, multi-line dialog,
 like the Windows shell. Reading is not an edit: it works when annotation
 editing is forbidden and changes neither the PDF, its undo history, nor the
 dirty state. The text is shown exactly as the core holds it, including a blank
-note. Like Windows, only notes in the core's session snapshot can be selected:
-annotations already in a reopened file are kept but not yet listed by it.
+note. **Quick tools → Comments** lists saved PDF comments and pending notes by
+page. Tap an entry to reveal it and read its full text, author and PDF date,
+including comments saved by other shells. Saved comments remain read-only and
+are separate from the editable session annotations, preventing duplicates on save.
 
 **Text box** is the visible counterpart of a note: text printed on the page
 itself, with no border or background. A tap places a 200 by 50 pt box with its

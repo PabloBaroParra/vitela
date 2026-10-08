@@ -26,6 +26,7 @@ import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.PdfComment
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.ContentImage
@@ -186,7 +187,8 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     override fun annotations(): PdfCoreResult<AnnotationSnapshot> = try {
-        PdfCoreResult.Success(AnnotationSnapshot(handle.annotations().map { it.toAnnotation() }, handle.annotationEditingAllowed(), handle.canUndo(), handle.canRedo()))
+        PdfCoreResult.Success(AnnotationSnapshot(handle.annotations().map { it.toAnnotation() }, handle.annotationEditingAllowed(), handle.canUndo(), handle.canRedo(),
+            handle.comments().map { PdfComment(it.page.toInt(), AnnotationRect(it.rect.x, it.rect.y, it.rect.width, it.rect.height), it.contents, it.author, it.date, it.annotationId?.toLong()) }))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }

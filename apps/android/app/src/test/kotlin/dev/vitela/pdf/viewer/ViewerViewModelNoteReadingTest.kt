@@ -108,6 +108,26 @@ class ViewerViewModelNoteReadingTest {
         advanceUntilIdle()
         return viewModel to document
     }
+
+    @Test
+    fun savedCommentReadsAndRevealsWithoutMakingItEditable() = runTest {
+        val (viewModel, document) = opened()
+        val comment = viewModel.state.value.comments.single()
+        viewModel.readComment(comment)
+
+        assertEquals(NoteReading(1, "External — 日本語", "Author", "D:20261008"), viewModel.state.value.noteReading)
+        assertEquals(AnnotationReveal(1, comment.rect), viewModel.state.value.annotationReveal)
+        assertNull(viewModel.state.value.selectedAnnotationId)
+        assertFalse(viewModel.state.value.isDirty)
+        assertTrue(document.edits.isEmpty())
+    }
+
+    @Test
+    fun staleCommentDoesNotOpenInAnotherDocument() = runTest {
+        val (viewModel, _) = opened()
+        viewModel.readComment(viewModel.state.value.comments.single().copy(contents = "stale"))
+        assertNull(viewModel.state.value.noteReading)
+    }
 }
 
 /** A restricted document with two session notes (one blank) and a shape; edits are recorded, never expected. */
@@ -119,7 +139,8 @@ private class NotesDocument(private val base: PdfDocument = RetypableDocument())
         Annotation(9, 0, AnnotationKind.Shape, AnnotationRect(90.0, 20.0, 30.0, 40.0), AnnotationColor(255, 220, 0)),
     )
 
-    override fun annotations() = PdfCoreResult.Success(AnnotationSnapshot(notes, false, false, false))
+    override fun annotations() = PdfCoreResult.Success(AnnotationSnapshot(notes, false, false, false,
+        listOf(dev.vitela.pdf.core.PdfComment(1, AnnotationRect(10.0, 20.0, 30.0, 40.0), "External — 日本語", "Author", "D:20261008", null))))
 
     override fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> {
         edits += edit

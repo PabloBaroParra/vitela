@@ -55,7 +55,7 @@ internal fun NoteReadingDialog(reading: NoteReading, onClose: () -> Unit) {
                 value = reading.contents,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Note text") },
+                label = { Text(listOfNotNull(reading.author, reading.date).joinToString(" · ").ifEmpty { "Note text" }) },
                 minLines = 4,
                 maxLines = 10,
                 modifier = Modifier.heightIn(min = 120.dp),
