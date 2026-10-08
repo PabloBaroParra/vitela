@@ -20,6 +20,10 @@ pub enum AnnotateError {
     /// Image bytes passed to an image-based builder or appearance-stream
     /// function could not be decoded as a supported format (PNG/JPEG).
     InvalidImage(String),
+    /// Free text contains a character WinAnsi (and so Helvetica) cannot
+    /// show. Refused rather than substituted: a `?` the user never typed
+    /// is worse than being told.
+    EncodingGap { character: char },
 }
 
 impl fmt::Display for AnnotateError {
@@ -29,6 +33,9 @@ impl fmt::Display for AnnotateError {
                 write!(f, "unsupported operation for this annotation kind: {op}")
             }
             AnnotateError::InvalidImage(msg) => write!(f, "invalid image bytes: {msg}"),
+            AnnotateError::EncodingGap { character } => {
+                write!(f, "'{character}' cannot be shown in Helvetica (WinAnsi)")
+            }
         }
     }
 }

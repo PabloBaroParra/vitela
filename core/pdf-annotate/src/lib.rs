@@ -16,6 +16,7 @@
 pub mod appearance;
 pub mod builders;
 pub mod error;
+pub mod freetext;
 pub mod ops;
 pub mod placement;
 
