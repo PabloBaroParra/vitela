@@ -14,8 +14,8 @@
 //! Decision 2 ("Generar `/AP` siempre") means every field gets one of these,
 //! never relying on `/NeedAppearances`. Decision 3 (Standard-14 only, no
 //! embedded fonts) is why word-wrap measurement can reuse
-//! `pdf_edit::encoding::tables` — every font this crate ever draws with has
-//! a full ASCII AFM table already in that crate.
+//! `pdf_edit::encoding::winansi` — every font this crate ever draws with has
+//! a full WinAnsi AFM table already in that crate.
 
 use crate::da::{base_font_name, format_number};
 use crate::error::FormError;
@@ -71,11 +71,12 @@ pub struct RadioButtonAppearance {
 
 /// Builds the appearance for `field`, dispatching on its `FormFieldKind`.
 ///
-/// Fails only for `Text`/`Dropdown` content containing a character outside
-/// printable ASCII (32-126) — the only range `pdf_edit`'s AFM tables cover
-/// (decision 3 does not embed a font, so there is no fallback glyph source).
-/// This is the form-field analogue of `pdf-edit`'s `EncodingGap`: reject
-/// before writing anything, never silently drop or mis-render a character.
+/// Fails only for `Text`/`Dropdown` content containing a character
+/// WinAnsiEncoding cannot show (CJK, emoji, ...) — decision 3 does not embed
+/// a font, so there is no fallback glyph source. Accented Latin-1 text
+/// (`José`, `año`) is fine. This is the form-field analogue of `pdf-edit`'s
+/// `EncodingGap`: reject before writing anything, never silently drop or
+/// mis-render a character.
 pub fn build_field_appearance(field: &FormField) -> Result<FieldAppearance, FormError> {
     match &field.kind {
         FormFieldKind::Text { multiline, .. } => Ok(FieldAppearance::Single(build_text_stream(
@@ -170,20 +171,21 @@ fn literal_string_byte(byte: u8) -> String {
     }
 }
 
-/// Escapes ASCII text as a PDF literal string operand for `Tj`. Rejects any
-/// character outside 32-126 — see [`build_field_appearance`]'s doc for why.
+/// Encodes text as WinAnsi bytes and wraps them as a PDF literal string
+/// operand for `Tj`. Bytes above 0x7E are octal-escaped so the stream stays
+/// printable ASCII. Rejects any character WinAnsi cannot show — see
+/// [`build_field_appearance`]'s doc for why.
 fn literal_string_text(text: &str) -> Result<String, FormError> {
+    let bytes = pdf_edit::encoding::winansi::encode_winansi(text).map_err(unencodable)?;
     let mut out = String::from("(");
-    for ch in text.chars() {
-        match ch {
-            '(' | ')' | '\\' => {
+    for byte in bytes {
+        match byte {
+            b'(' | b')' | b'\\' => {
                 out.push('\\');
-                out.push(ch);
+                out.push(byte as char);
             }
-            ' '..='~' => out.push(ch),
-            other => return Err(FormError::InvalidValue(format!(
-                "'{other}' cannot be encoded in a Standard-14 font (only printable ASCII is supported)"
-            ))),
+            0x20..=0x7E => out.push(byte as char),
+            other => out.push_str(&format!("\\{other:03o}")),
         }
     }
     out.push(')');
@@ -191,19 +193,37 @@ fn literal_string_text(text: &str) -> Result<String, FormError> {
 }
 
 fn text_width_pt(text: &str, font: FontFamily, size_pt: f64) -> Result<f64, FormError> {
-    let widths = pdf_edit::encoding::tables::standard_14_ascii_widths(base_font_name(font))
-        .expect("every FontFamily maps to a name pdf-edit's AFM table recognizes");
     let mut total_thousandths = 0u32;
     for ch in text.chars() {
-        let code = ch as u32;
-        if !(0x20..=0x7E).contains(&code) {
-            return Err(FormError::InvalidValue(format!(
-                "'{ch}' cannot be encoded in a Standard-14 font (only printable ASCII is supported)"
-            )));
-        }
-        total_thousandths += widths[(code - 0x20) as usize] as u32;
+        let width = pdf_edit::encoding::winansi::standard_14_char_width(base_font_name(font), ch)
+            .ok_or_else(|| unencodable(ch))?;
+        total_thousandths += width as u32;
     }
     Ok(total_thousandths as f64 / 1000.0 * size_pt)
+}
+
+fn unencodable(character: char) -> FormError {
+    FormError::InvalidValue(format!(
+        "'{character}' cannot be encoded in a Standard-14 font (WinAnsi only)"
+    ))
+}
+
+/// The text stream's own `/Resources`: the field's font under the same name
+/// its `/DA` uses, declared `/WinAnsiEncoding`. Without it the name resolves
+/// against the form's `/DR`, and an existing form's `/DR` may define that
+/// font with no `/Encoding` — which draws the 0xE9 byte as something other
+/// than 'é'.
+fn text_font_resources(font: FontFamily) -> Dictionary {
+    let mut entry = Dictionary::new();
+    entry.set("Type", "Font");
+    entry.set("Subtype", "Type1");
+    entry.set("BaseFont", base_font_name(font));
+    entry.set("Encoding", "WinAnsiEncoding");
+    let mut fonts = Dictionary::new();
+    fonts.set(base_font_name_resource(font), Object::Dictionary(entry));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+    resources
 }
 
 /// Greedily wraps `text` to lines no wider than `max_width_pt`, one
@@ -270,7 +290,12 @@ fn build_text_stream(field: &FormField, multiline: bool) -> Result<Stream, FormE
     }
     body.push_str("ET\nQ\nEMC");
 
-    Ok(Stream::new(stream_dict(width, height), body.into_bytes()))
+    let mut dict = stream_dict(width, height);
+    dict.set(
+        "Resources",
+        Object::Dictionary(text_font_resources(style.font)),
+    );
+    Ok(Stream::new(dict, body.into_bytes()))
 }
 
 fn base_font_name_resource(font: FontFamily) -> &'static str {
@@ -425,8 +450,80 @@ mod tests {
     }
 
     #[test]
-    fn rejects_text_outside_printable_ascii() {
-        let field = text_field(false, "café", wide_rect());
+    fn accented_text_is_written_as_octal_escaped_winansi() {
+        let field = text_field(false, "José Ñandú", wide_rect());
+        let FieldAppearance::Single(stream) = build_field_appearance(&field).expect("Latin-1")
+        else {
+            panic!("expected Single");
+        };
+        let content = String::from_utf8(stream.content).expect("stream stays ASCII");
+        // é = 0xE9, Ñ = 0xD1, ú = 0xFA — single WinAnsi bytes, not UTF-8 pairs.
+        assert!(
+            content.contains("(Jos\\351 \\321and\\372) Tj"),
+            "content: {content}"
+        );
+    }
+
+    #[test]
+    fn text_stream_carries_its_own_winansi_font() {
+        // An existing form's `/DR` may define the font without an
+        // `/Encoding`, which would draw 0xE9 as something other than 'é'.
+        for (font, resource, base) in [
+            (FontFamily::Helvetica, "Helv", "Helvetica"),
+            (FontFamily::TimesRoman, "TiRo", "Times-Roman"),
+            (FontFamily::Courier, "Cour", "Courier"),
+        ] {
+            let mut field = text_field(false, "año", wide_rect());
+            field.style.font = font;
+            let FieldAppearance::Single(stream) = build_field_appearance(&field).expect("valid")
+            else {
+                panic!("expected Single");
+            };
+            let fonts = stream
+                .dict
+                .get(b"Resources")
+                .and_then(Object::as_dict)
+                .and_then(|resources| resources.get(b"Font"))
+                .and_then(Object::as_dict)
+                .expect("own /Resources /Font");
+            let entry = fonts
+                .get(resource.as_bytes())
+                .and_then(Object::as_dict)
+                .unwrap_or_else(|_| panic!("/{resource} missing"));
+            assert_eq!(entry.get(b"BaseFont").unwrap(), &Object::Name(base.into()));
+            assert_eq!(
+                entry.get(b"Encoding").unwrap(),
+                &Object::Name(b"WinAnsiEncoding".to_vec())
+            );
+        }
+    }
+
+    #[test]
+    fn multiline_accented_text_wraps_in_times() {
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 60.0,
+            height: 100.0,
+        };
+        let mut field = FormField {
+            kind: FormFieldKind::Text {
+                multiline: true,
+                max_len: None,
+            },
+            ..text_field(true, "camión árbol canción éxito", rect)
+        };
+        field.style.font = FontFamily::TimesRoman;
+        let FieldAppearance::Single(stream) = build_field_appearance(&field).expect("valid") else {
+            panic!("expected Single");
+        };
+        let content = String::from_utf8(stream.content).unwrap();
+        assert!(content.matches(" Tj").count() > 1, "content: {content}");
+    }
+
+    #[test]
+    fn rejects_text_winansi_cannot_show() {
+        let field = text_field(false, "東京", wide_rect());
         let result = build_field_appearance(&field);
         assert!(matches!(result, Err(FormError::InvalidValue(_))));
     }

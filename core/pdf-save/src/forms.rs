@@ -38,6 +38,7 @@ use pdf_document::{
     FieldOrigin, FieldValue, FontFamily, FormField, FormFieldKind, FormFieldSet, PageId,
 };
 use pdf_form::FieldAppearance;
+use pdf_manip::pdf_text_string_object;
 
 use crate::annotations::ObjectSink;
 use crate::error::SaveError;
@@ -187,7 +188,7 @@ fn build_single_field_appearance<S: ObjectSink>(
             };
             Ok(SingleFieldAppearance {
                 ap: Object::Dictionary(ap),
-                value: Object::string_literal(text),
+                value: pdf_text_string_object(&text),
                 as_state: None,
             })
         }
@@ -254,7 +255,7 @@ fn write_new_single_field<S: ObjectSink>(
     dict.set("Type", "Annot");
     dict.set("Subtype", "Widget");
     dict.set("FT", ft_name(&field.kind));
-    dict.set("T", Object::string_literal(field.name.clone()));
+    dict.set("T", pdf_text_string_object(&field.name));
     dict.set("Rect", rect_array(&field.rect));
     dict.set("DA", Object::string_literal(field_da(field)));
 
@@ -277,7 +278,7 @@ fn write_new_single_field<S: ObjectSink>(
                 "Opt",
                 options
                     .iter()
-                    .map(|option| Object::string_literal(option.clone()))
+                    .map(|option| pdf_text_string_object(option))
                     .collect::<Vec<_>>(),
             );
         }
@@ -373,7 +374,7 @@ fn write_new_radio_group<S: ObjectSink>(
 
     let mut parent = Dictionary::new();
     parent.set("FT", "Btn");
-    parent.set("T", Object::string_literal(field.name.clone()));
+    parent.set("T", pdf_text_string_object(&field.name));
     parent.set("Ff", flag_bit(FF_BTN_RADIO));
     // On the parent, next to `/FT` and `/T`: a kid is a widget, not a field,
     // and `/DA` is inheritable (ISO 32000-1 table 220).
@@ -656,6 +657,49 @@ mod tests {
         }
         assert!(dict.has(b"AP"));
         assert!(dict.has(b"DA"));
+    }
+
+    #[test]
+    fn accented_name_value_and_options_round_trip() {
+        let mut doc = one_page_doc();
+        let page_object_id = *doc.get_pages().get(&1).unwrap();
+        let page_ids = HashMap::from([(PageId(0), page_object_id)]);
+        let catalog_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+
+        let mut set = FormFieldSet::new();
+        set.insert(FormField {
+            name: "Teléfono".to_string(),
+            value: FieldValue::Text("José Ñandú".to_string()),
+            ..text_field(rect())
+        });
+        set.insert(FormField {
+            id: FormFieldId(2),
+            name: "Opción".to_string(),
+            value: FieldValue::Choice(Some("Sí".to_string())),
+            kind: FormFieldKind::Dropdown {
+                options: vec!["Sí".to_string(), "No".to_string()],
+                editable: false,
+            },
+            ..text_field(rect())
+        });
+
+        write_form_fields(&mut doc, catalog_id, &page_ids, &set).expect("should write");
+
+        // Written as UTF-8, "é" used to read back as "Ã©".
+        let read = pdf_form::read_form_fields(&doc);
+        let text = read
+            .iter()
+            .find(|f| f.name == "Teléfono")
+            .expect("text field");
+        assert_eq!(text.value, FieldValue::Text("José Ñandú".to_string()));
+        let dropdown = read.iter().find(|f| f.name == "Opción").expect("dropdown");
+        assert_eq!(dropdown.value, FieldValue::Choice(Some("Sí".to_string())));
+        match &dropdown.kind {
+            FormFieldKind::Dropdown { options, .. } => {
+                assert_eq!(options, &vec!["Sí".to_string(), "No".to_string()])
+            }
+            other => panic!("expected Dropdown, got {other:?}"),
+        }
     }
 
     #[test]
