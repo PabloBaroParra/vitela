@@ -63,6 +63,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\CompressionWording.cs" Link="Viewer\CompressionWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormFieldChoices.cs" Link="Viewer\FormFieldChoices.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormFieldText.cs" Link="Viewer\FormFieldText.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\NoteHover.cs" Link="Viewer\NoteHover.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormPlacementRect.cs" Link="Viewer\FormPlacementRect.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\HomeLayout.cs" Link="Viewer\HomeLayout.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\AppVersion.cs" Link="Viewer\AppVersion.cs" />

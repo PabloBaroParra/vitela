@@ -114,6 +114,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("discards a tile batch after the document session changes", DiscardsTileBatchAfterSessionSwapAsync)
     ,("records annotation edits in core history", RecordsAnnotationEditsInCoreHistoryAsync)
     ,("keeps stationary ink gestures as one sample and preserves real strokes", InkPointerTraceTests.RunAsync)
+    ,("shows a note's text on hover only when it has some and the viewer is idle", NoteHoverTests.RunAsync)
     ,("crops a drawn signature to its ink as a transparent PNG", DrawnSignatureTests.RunAsync)
     ,("remembers one signature atomically on this PC", SignatureStoreTests.RunAsync)
     ,("hides removed recent cards until they are reopened", HiddenRecentsTests.RunAsync)
