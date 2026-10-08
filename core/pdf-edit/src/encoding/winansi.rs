@@ -131,8 +131,7 @@ mod tests {
     #[test]
     fn every_defined_code_has_a_width() {
         let undefined = [0x7F, 0x81, 0x8D, 0x8F, 0x90, 0x9D];
-        for code in 0x20..=0xFFusize {
-            let width = HELVETICA_WINANSI_WIDTHS[code];
+        for (code, &width) in HELVETICA_WINANSI_WIDTHS.iter().enumerate().skip(0x20) {
             if undefined.contains(&code) {
                 assert_eq!(width, 0, "code {code:#04X} is undefined");
             } else {
