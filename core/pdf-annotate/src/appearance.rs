@@ -54,7 +54,7 @@ pub fn build_text_note_dicts(
             Object::Real((rect.y + rect.height) as f32),
         ]),
     );
-    markup.set("Contents", Object::string_literal(contents.clone()));
+    markup.set("Contents", pdf_manip::pdf_text_string_object(contents));
     // Placeholder indirect reference — pdf-save assigns the real object id
     // for the popup dict and rewrites this to point at it.
     markup.set("Popup", Object::Reference((0, 0)));
@@ -63,7 +63,10 @@ pub fn build_text_note_dicts(
     popup_dict.set("Type", "Annot");
     popup_dict.set("Subtype", "Popup");
     popup_dict.set("Open", popup.is_open);
-    popup_dict.set("Contents", Object::string_literal(popup.contents.clone()));
+    popup_dict.set(
+        "Contents",
+        pdf_manip::pdf_text_string_object(&popup.contents),
+    );
     // Back-reference to the markup annotation — `/Parent`, never `/IRT`.
     popup_dict.set("Parent", Object::Reference((0, 0)));
 
@@ -244,6 +247,42 @@ mod tests {
         assert!(!popup.has(b"IRT"));
         assert_eq!(popup.get(b"Subtype").unwrap().as_name().unwrap(), b"Popup");
         assert_eq!(popup.get(b"Open").unwrap(), &Object::Boolean(true));
+    }
+
+    fn note_with(contents: &str, popup_contents: &str) -> Annotation {
+        let mut annotation = text_note_annotation();
+        if let AnnotationKind::TextNote {
+            contents: c, popup, ..
+        } = &mut annotation.kind
+        {
+            *c = contents.to_string();
+            popup.contents = popup_contents.to_string();
+        }
+        annotation
+    }
+
+    fn utf16_be_with_bom(text: &str) -> Vec<u8> {
+        let mut bytes = vec![0xFE, 0xFF];
+        for unit in text.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_be_bytes());
+        }
+        bytes
+    }
+
+    #[test]
+    fn non_ascii_note_contents_are_utf16_be_with_a_bom() {
+        let (markup, popup) =
+            build_text_note_dicts(&note_with("Ñandú €", "Ñandú €")).expect("valid");
+        let expected = utf16_be_with_bom("Ñandú €");
+        assert_eq!(markup.get(b"Contents").unwrap().as_str().unwrap(), expected);
+        assert_eq!(popup.get(b"Contents").unwrap().as_str().unwrap(), expected);
+    }
+
+    #[test]
+    fn ascii_note_contents_stay_plain_bytes() {
+        let (markup, popup) = build_text_note_dicts(&note_with("plain", "body")).expect("valid");
+        assert_eq!(markup.get(b"Contents").unwrap().as_str().unwrap(), b"plain");
+        assert_eq!(popup.get(b"Contents").unwrap().as_str().unwrap(), b"body");
     }
 
     #[test]
