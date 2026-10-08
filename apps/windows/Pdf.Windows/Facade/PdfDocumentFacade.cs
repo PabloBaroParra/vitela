@@ -1756,7 +1756,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 annotation.Rect is null ? null : new AnnotationRect(annotation.Rect.X, annotation.Rect.Y, annotation.Rect.Width, annotation.Rect.Height),
                 annotation.Color is null ? null : new AnnotationColor(annotation.Color.R, annotation.Color.G, annotation.Color.B),
                 [.. annotation.Points.Select(point => new AnnotationPoint(point.X, point.Y))],
-                annotation.Contents))],
+                annotation.Contents,
+                annotation.Layout))],
             core.AnnotationEditingAllowed(Document),
             core.CanUndo(Document),
             core.CanRedo(Document));

@@ -12,7 +12,7 @@ public sealed partial class MainWindow
         var primary = new UIElement[]
         {
             HighlightButton, UnderlineButton, StrikeoutButton, InkButton, NoteButton,
-            ShapeButton, StampButton, PreviousAnnotationButton, NudgeButton,
+            FreeTextButton, ShapeButton, StampButton, PreviousAnnotationButton, NudgeButton,
             GrowButton, AnnotationColorButton, DeleteAnnotationButton,
         };
         foreach (var control in primary) row.Children.Remove(control);

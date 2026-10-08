@@ -115,6 +115,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("records annotation edits in core history", RecordsAnnotationEditsInCoreHistoryAsync)
     ,("keeps stationary ink gestures as one sample and preserves real strokes", InkPointerTraceTests.RunAsync)
     ,("shows a note's text on hover only when it has some and the viewer is idle", NoteHoverTests.RunAsync)
+    ,("decides FreeText dialog, placement, resize and drawing rules without a window", FreeTextInputTests.RunAsync)
+    ,("carries FreeText contents and core layout, retypes in one undo step and names unshowable characters", FreeTextFacadeTests.RunAsync)
     ,("crops a drawn signature to its ink as a transparent PNG", DrawnSignatureTests.RunAsync)
     ,("remembers one signature atomically on this PC", SignatureStoreTests.RunAsync)
     ,("hides removed recent cards until they are reopened", HiddenRecentsTests.RunAsync)
@@ -4004,7 +4006,7 @@ static Task CommittingStopsThePauseBeforeItWaits()
     return Task.CompletedTask;
 }
 
-sealed class FakeCore : IPdfCore
+sealed partial class FakeCore : IPdfCore
 {
     public System.Collections.Concurrent.ConcurrentQueue<string> SearchQueries { get; } = new();
     public IReadOnlyList<DocumentBlock> Blocks { get; set; } = [];
@@ -4442,6 +4444,8 @@ sealed class FakeCore : IPdfCore
             fake.Apply(edit);
             return;
         }
+
+        if (TryApplyFreeText(fake, edit)) return;
 
         if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "annotation editing is not permitted");
         fake.Apply(edit);

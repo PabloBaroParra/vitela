@@ -251,11 +251,21 @@ public sealed class ContentImage
     public AnnotationRect Bounds => new(Source.Bbox.X, Source.Bbox.Y, Source.Bbox.Width, Source.Bbox.Height);
 }
 
-public enum AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
+public enum AnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp, FreeText }
 public sealed record AnnotationRect(double X, double Y, double Width, double Height);
 public sealed record AnnotationColor(byte R, byte G, byte B);
 public sealed record AnnotationPoint(double X, double Y);
-public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points, string? Contents = null);
+/// <summary>
+/// One laid-out line of a FreeText box, in the box's own upright frame: origin
+/// at its top-left corner, y growing downwards, in points. The core wraps; the
+/// shell only draws.
+/// </summary>
+public sealed record FreeTextLine(string Text, double XPt, double BaselineFromTopPt);
+
+/// <summary>The core's layout of a FreeText box — what the saved file will paint.</summary>
+public sealed record FreeTextLayout(double FontSizePt, IReadOnlyList<FreeTextLine> Lines, bool Overflow);
+
+public sealed record Annotation(ulong Id, uint PageIndex, AnnotationKind Kind, AnnotationRect? Rect, AnnotationColor? Color, IReadOnlyList<AnnotationPoint> Points, string? Contents = null, FreeTextLayout? Layout = null);
 public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo);
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer,
     MetadataDate? CreationDate = null, MetadataDate? ModDate = null);
