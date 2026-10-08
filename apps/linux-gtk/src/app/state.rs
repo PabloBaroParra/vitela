@@ -531,6 +531,7 @@ pub(crate) enum Tool {
     Strikeout,
     Ink,
     TextNote,
+    FreeText,
     Shape,
     Stamp,
 }
@@ -538,12 +539,13 @@ pub(crate) enum Tool {
 impl Tool {
     /// Every creation tool — the single source of truth for the buttons that
     /// get built and the handlers wired to them, so the two cannot drift.
-    pub(crate) const ALL: [Tool; 7] = [
+    pub(crate) const ALL: [Tool; 8] = [
         Tool::Highlight,
         Tool::Underline,
         Tool::Strikeout,
         Tool::Ink,
         Tool::TextNote,
+        Tool::FreeText,
         Tool::Shape,
         Tool::Stamp,
     ];
@@ -558,6 +560,7 @@ impl Tool {
             Tool::Strikeout => "Strikeout",
             Tool::Ink => "Ink",
             Tool::TextNote => "Note",
+            Tool::FreeText => "Text box",
             Tool::Shape => "Shape",
             Tool::Stamp => "Stamp",
         }
@@ -916,6 +919,8 @@ pub(crate) struct AnnotationToolbar {
     pub(crate) move_selection: Button,
     pub(crate) resize_selection: Button,
     pub(crate) restyle_selection: Button,
+    /// Re-types the selected text box. Only sensitive for a `FreeText`.
+    pub(crate) edit_text_selection: Button,
     pub(crate) delete_selection: Button,
     /// The Delete-key half of the delete button. Kept here so the same place
     /// that decides whether the button is usable decides whether the

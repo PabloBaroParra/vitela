@@ -25,16 +25,16 @@ use super::store::SignatureStore;
 /// `window.close()` does not survive a panic; a `Drop` guard does. (The same
 /// reasoning rules out a `thread_local` fixture: it would outlive the case that
 /// made it. Everything here is owned by the guard instead.)
-pub(super) struct Built {
+pub(crate) struct Built {
     ui: BuiltUi,
 }
 
 impl Built {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { ui: built_ui() }
     }
 
-    pub(super) fn viewer(&self) -> &Viewer {
+    pub(crate) fn viewer(&self) -> &Viewer {
         &self.ui.viewer
     }
 
@@ -63,7 +63,7 @@ impl Drop for Built {
 /// Installs a one-page document as the open one. Every call is a *different*
 /// document as far as the shell can tell: it bumps the session id, which is
 /// what a real open does.
-pub(super) fn open_document(viewer: &Viewer) {
+pub(crate) fn open_document(viewer: &Viewer) {
     let mut session = model_session(Document::with_pages(vec![Page::base(
         PageId(0),
         0,
@@ -77,7 +77,7 @@ pub(super) fn open_document(viewer: &Viewer) {
     state.session = Some(session);
 }
 
-pub(super) fn the_session(viewer: &Viewer) -> u64 {
+pub(crate) fn the_session(viewer: &Viewer) -> u64 {
     current_session_id(viewer).expect("a document is open")
 }
 

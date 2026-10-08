@@ -37,7 +37,7 @@ mod png;
 mod store;
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Button};

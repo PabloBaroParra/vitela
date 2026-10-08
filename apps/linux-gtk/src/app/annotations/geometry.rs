@@ -8,11 +8,14 @@
 
 use pdf_document::{Annotation, AnnotationKind, Rect};
 
-use crate::app::state::{AnnotationDrag, AnnotationDragMode, Corner, Placement};
+use crate::app::state::{AnnotationDrag, AnnotationDragMode, Corner, Placement, Tool};
 
 /// Size given to an annotation the user placed with a click rather than a
 /// drag, in PDF points.
 pub(super) const CLICK_SIZE_PT: (f64, f64) = (144.0, 36.0);
+/// The same for a text box: wide enough for a sentence at 12pt, and tall
+/// enough for two lines before the first edit.
+pub(super) const FREE_TEXT_CLICK_SIZE_PT: (f64, f64) = (200.0, 50.0);
 /// How far the pointer must travel from the press point before the gesture
 /// counts as a drag rather than a click.
 ///
@@ -23,6 +26,28 @@ const MIN_DRAG_PT: f64 = 8.0;
 /// Floor for each side of a traced rect, so a flat sweep still leaves
 /// something visible and selectable behind.
 const MIN_TRACED_PT: f64 = 4.0;
+
+/// The size a click gives `tool`'s annotation.
+fn click_size(tool: Tool) -> (f64, f64) {
+    match tool {
+        Tool::FreeText => FREE_TEXT_CLICK_SIZE_PT,
+        _ => CLICK_SIZE_PT,
+    }
+}
+
+/// The smallest `(width, height)` a rect traced with `tool` may have.
+///
+/// A text box answers to the core's own minimum, one glyph line plus its
+/// padding, so the drag can never trace a box the core would shrink-refuse.
+/// Everything else keeps the visibility floor.
+fn traced_floor(tool: Tool) -> (f64, f64) {
+    match tool {
+        Tool::FreeText => {
+            pdf_annotate::min_free_text_size(&pdf_annotate::default_free_text_style())
+        }
+        _ => (MIN_TRACED_PT, MIN_TRACED_PT),
+    }
+}
 /// Height of the band a freehand rule occupies, in PDF points. Thin enough to
 /// read as a line, tall enough that the rect stays a real target for the edit
 /// buttons rather than a degenerate one.
@@ -39,7 +64,8 @@ const RULE_BAND_PT: f64 = 2.0;
 pub(super) fn traced_rect(placement: &Placement) -> Rect {
     let (origin_x, origin_y) = placement.origin;
     let (current_x, current_y) = placement.current;
-    let width = (current_x - origin_x).abs().max(MIN_TRACED_PT);
+    let (floor_width, floor_height) = traced_floor(placement.tool);
+    let width = (current_x - origin_x).abs().max(floor_width);
 
     if placement.tool.draws_a_rule() {
         // Pinned to the press point: the rule stays exactly where the pointer
@@ -55,7 +81,7 @@ pub(super) fn traced_rect(placement: &Placement) -> Rect {
         x: origin_x.min(current_x),
         y: origin_y.min(current_y),
         width,
-        height: (current_y - origin_y).abs().max(MIN_TRACED_PT),
+        height: (current_y - origin_y).abs().max(floor_height),
     }
 }
 
@@ -63,7 +89,7 @@ pub(super) fn traced_rect(placement: &Placement) -> Rect {
 /// has a bottom-left origin, so "top-left" is `y - height`.
 fn click_rect(placement: &Placement) -> Rect {
     let (origin_x, origin_y) = placement.origin;
-    let (width, height) = CLICK_SIZE_PT;
+    let (width, height) = click_size(placement.tool);
 
     if placement.tool.draws_a_rule() {
         // A default-length rule *on* the press point, not a box hanging below
@@ -131,6 +157,7 @@ pub(crate) fn bounds(annotation: &Annotation) -> Option<Rect> {
         | AnnotationKind::Strikeout { rect, .. }
         | AnnotationKind::Shape { rect, .. }
         | AnnotationKind::TextNote { rect, .. }
+        | AnnotationKind::FreeText { rect, .. }
         | AnnotationKind::Stamp { rect, .. } => Some(*rect),
         AnnotationKind::Ink { points, .. } => {
             let (first_x, first_y) = *points.first()?;
@@ -190,12 +217,31 @@ pub(super) fn contains(rect: Rect, point: (f64, f64)) -> bool {
 /// the opposite corner stays put, and the result is normalised so dragging a
 /// corner past its opposite flips the rect rather than inverting it.
 fn resized_rect(rect: Rect, corner: Corner, point: (f64, f64)) -> Rect {
+    resized_rect_at_least(rect, corner, point, (MIN_TRACED_PT, MIN_TRACED_PT))
+}
+
+/// [`resized_rect`] with a per-annotation floor `(width, height)`.
+///
+/// The floor clamps instead of refusing: a drag that ends below it yields the
+/// smallest legal rect on the side of the anchor the pointer is on, so the
+/// box never goes degenerate and never jumps across its own anchor.
+fn resized_rect_at_least(rect: Rect, corner: Corner, point: (f64, f64), floor: (f64, f64)) -> Rect {
     let (anchor_x, anchor_y) = corner_point(rect, opposite(corner));
+    let width = (point.0 - anchor_x).abs().max(floor.0);
+    let height = (point.1 - anchor_y).abs().max(floor.1);
     Rect {
-        x: anchor_x.min(point.0),
-        y: anchor_y.min(point.1),
-        width: (point.0 - anchor_x).abs().max(MIN_TRACED_PT),
-        height: (point.1 - anchor_y).abs().max(MIN_TRACED_PT),
+        x: if point.0 >= anchor_x {
+            anchor_x
+        } else {
+            anchor_x - width
+        },
+        y: if point.1 >= anchor_y {
+            anchor_y
+        } else {
+            anchor_y - height
+        },
+        width,
+        height,
     }
 }
 
@@ -220,11 +266,32 @@ pub(crate) fn dragged(annotation: &Annotation, drag: &AnnotationDrag) -> Option<
             pdf_annotate::move_annotation(&mut moved, dx, dy).ok()?;
         }
         AnnotationDragMode::Resize(corner) => {
-            let rect = resized_rect(bounds(annotation)?, corner, drag.current);
+            let floor = match &annotation.kind {
+                AnnotationKind::FreeText { style, .. } => pdf_annotate::min_free_text_size(style),
+                _ => (MIN_TRACED_PT, MIN_TRACED_PT),
+            };
+            let rect = resized_rect_at_least(bounds(annotation)?, corner, drag.current, floor);
             pdf_annotate::resize_annotation(&mut moved, rect).ok()?;
         }
     }
     Some(moved)
+}
+
+/// Slides `rect` back inside a `page_width` x `page_height` page, shrinking
+/// it only when it is bigger than the page. PDF space, bottom-left origin.
+///
+/// A click near an edge asks for a default-sized box that hangs off the page;
+/// the box that lands should still be all there, and still the size asked
+/// for whenever the page can hold it.
+pub(super) fn clamped_to_page(rect: Rect, page_width: f64, page_height: f64) -> Rect {
+    let width = rect.width.min(page_width);
+    let height = rect.height.min(page_height);
+    Rect {
+        x: rect.x.clamp(0.0, (page_width - width).max(0.0)),
+        y: rect.y.clamp(0.0, (page_height - height).max(0.0)),
+        width,
+        height,
+    }
 }
 
 #[cfg(test)]
@@ -500,5 +567,126 @@ mod tests {
 
         assert_eq!((rect.x, rect.y), (10.0, 10.0));
         assert_eq!((rect.width, rect.height), (50.0, 30.0));
+    }
+
+    #[test]
+    fn a_click_with_the_text_box_tool_places_a_200_by_50_box_at_the_pointer() {
+        let rect = rect_of(&built(&click(Tool::FreeText, (200.0, 500.0))));
+
+        assert_eq!((rect.width, rect.height), FREE_TEXT_CLICK_SIZE_PT);
+        assert_eq!((rect.x, rect.y), (200.0, 450.0));
+    }
+
+    #[test]
+    fn a_drag_with_the_text_box_tool_uses_the_dragged_rect() {
+        let rect = rect_of(&built(&drag(
+            Tool::FreeText,
+            (100.0, 400.0),
+            (300.0, 460.0),
+        )));
+
+        assert_eq!((rect.x, rect.y), (100.0, 400.0));
+        assert_eq!((rect.width, rect.height), (200.0, 60.0));
+    }
+
+    #[test]
+    fn a_drag_below_the_core_minimum_is_floored_at_it() {
+        let (min_width, min_height) =
+            pdf_annotate::min_free_text_size(&pdf_annotate::default_free_text_style());
+        let sliver = traced_rect(&drag(Tool::FreeText, (100.0, 400.0), (110.0, 410.0)));
+
+        assert_eq!((sliver.width, sliver.height), (min_width, min_height));
+    }
+
+    #[test]
+    fn a_text_box_reports_its_rect_as_its_bounds() {
+        let annotation = free_text_with(a_rect(100.0, 450.0, 200.0, 50.0));
+
+        assert_eq!(bounds(&annotation), Some(a_rect(100.0, 450.0, 200.0, 50.0)));
+    }
+
+    fn free_text_with(rect: Rect) -> Annotation {
+        pdf_annotate::free_text(
+            pdf_document::AnnotationId(1),
+            pdf_document::PageId(0),
+            rect,
+            "Hello there",
+        )
+        .expect("valid text box")
+    }
+
+    #[test]
+    fn a_resize_drag_that_ends_below_the_minimum_is_clamped_never_degenerate() {
+        let (min_width, min_height) =
+            pdf_annotate::min_free_text_size(&pdf_annotate::default_free_text_style());
+        let annotation = free_text_with(a_rect(100.0, 500.0, 200.0, 50.0));
+        let squeezed = dragged(
+            &annotation,
+            &AnnotationDrag {
+                id: annotation.id,
+                mode: AnnotationDragMode::Resize(Corner::TopRight),
+                origin: (300.0, 550.0),
+                current: (101.0, 501.0),
+            },
+        )
+        .expect("a text box clamps instead of refusing");
+
+        let rect = bounds(&squeezed).expect("rect");
+        assert_eq!((rect.x, rect.y), (100.0, 500.0), "anchor must not move");
+        assert_eq!((rect.width, rect.height), (min_width, min_height));
+    }
+
+    #[test]
+    fn a_clamped_resize_keeps_to_the_side_of_the_anchor_the_pointer_is_on() {
+        let rect = resized_rect_at_least(
+            a_rect(100.0, 500.0, 200.0, 50.0),
+            Corner::TopRight,
+            (95.0, 495.0),
+            (16.0, 18.0),
+        );
+
+        assert_eq!((rect.x, rect.y), (84.0, 482.0));
+        assert_eq!((rect.width, rect.height), (16.0, 18.0));
+    }
+
+    #[test]
+    fn moving_a_text_box_keeps_its_size() {
+        let annotation = free_text_with(a_rect(100.0, 500.0, 200.0, 50.0));
+        let moved = dragged(
+            &annotation,
+            &AnnotationDrag {
+                id: annotation.id,
+                mode: AnnotationDragMode::Move,
+                origin: (150.0, 520.0),
+                current: (160.0, 500.0),
+            },
+        )
+        .expect("a text box moves");
+
+        let rect = bounds(&moved).expect("rect");
+        assert_eq!((rect.x, rect.y), (110.0, 480.0));
+        assert_eq!((rect.width, rect.height), (200.0, 50.0));
+    }
+
+    #[test]
+    fn a_box_hanging_off_the_page_is_slid_back_in_at_the_same_size() {
+        let rect = clamped_to_page(a_rect(500.0, -10.0, 200.0, 50.0), 612.0, 792.0);
+
+        assert_eq!((rect.x, rect.y), (412.0, 0.0));
+        assert_eq!((rect.width, rect.height), (200.0, 50.0));
+    }
+
+    #[test]
+    fn a_box_inside_the_page_is_left_alone() {
+        let inside = a_rect(100.0, 100.0, 200.0, 50.0);
+
+        assert_eq!(clamped_to_page(inside, 612.0, 792.0), inside);
+    }
+
+    #[test]
+    fn a_box_bigger_than_the_page_shrinks_to_it() {
+        let rect = clamped_to_page(a_rect(0.0, 0.0, 900.0, 50.0), 612.0, 792.0);
+
+        assert_eq!((rect.x, rect.width), (0.0, 612.0));
     }
 }

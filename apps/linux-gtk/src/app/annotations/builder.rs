@@ -65,6 +65,11 @@ pub(super) fn annotation_at(
         // `gesture::finish_placement` diverts this tool to the note dialog
         // before it ever reaches here.
         Tool::TextNote => Ok(pdf_annotate::text_note(id, page, rect, "")),
+        // The same kind of draft, for the same reason: the text box that
+        // lands in the document is built by `freetext::free_text_annotation`
+        // once the user has typed its text, and `gesture::finish_placement`
+        // diverts this tool to that dialog before it reaches here.
+        Tool::FreeText => Ok(pdf_annotate::text_note(id, page, rect, "")),
         Tool::Shape => Ok(pdf_annotate::shape(id, page, rect, DEFAULT_COLOR)),
         Tool::Stamp => pdf_annotate::stamp_from_image_bytes(id, page, PLACEHOLDER_STAMP_PNG, rect)
             .map_err(|error| error.to_string()),
@@ -195,6 +200,9 @@ mod tests {
             (Tool::Strikeout, "Strikeout"),
             (Tool::Ink, "Ink"),
             (Tool::TextNote, "TextNote"),
+            // The text box's draft outline; the real FreeText is built from
+            // the dialog (see `freetext::tests`).
+            (Tool::FreeText, "TextNote"),
             (Tool::Shape, "Shape"),
             (Tool::Stamp, "Stamp"),
         ] {
