@@ -109,7 +109,12 @@ public sealed partial class MainWindow
         _armedAnnotation = kind;
         _armedStampImage = null; // choosing a tool by hand replaces an armed drawn signature
         SyncAnnotationToolButtons();
-        AnnotationStatus.Text = kind is null ? "Pointer mode." : $"{kind} armed. Drag on a page to place it.";
+        AnnotationStatus.Text = kind switch
+        {
+            null => "Pointer mode.",
+            AnnotationKind.FreeText => "Text box armed. Click or drag on a page to place it.",
+            _ => $"{kind} armed. Drag on a page to place it.",
+        };
     }
 
     /// <summary>
@@ -126,6 +131,7 @@ public sealed partial class MainWindow
         ShapeButton.IsChecked = _armedAnnotation == AnnotationKind.Shape;
         InkButton.IsChecked = _armedAnnotation == AnnotationKind.Ink;
         NoteButton.IsChecked = _armedAnnotation == AnnotationKind.TextNote;
+        FreeTextButton.IsChecked = _armedAnnotation == AnnotationKind.FreeText;
         StampButton.IsChecked = _armedAnnotation == AnnotationKind.Stamp;
     }
 
@@ -297,7 +303,7 @@ public sealed partial class MainWindow
         }
         else if (completed.HandleCorner is { } corner && completed.Annotation?.Rect is { } bounds)
         {
-            var resized = ResizedRect(bounds, corner, completed.Current);
+            var resized = ResizedRectOf(completed.Annotation, bounds, corner, completed.Current);
             if (resized != bounds) await ApplyEditAsync(new PdfCoreEdit.Resize(completed.Annotation.Id, new PdfCoreRect(resized.X, resized.Y, resized.Width, resized.Height)));
         }
         else if (completed.Annotation is { } annotation)
@@ -339,6 +345,12 @@ public sealed partial class MainWindow
         if (tool == AnnotationKind.TextNote)
         {
             await PlaceTextNoteAsync((uint)pageIndex, rect);
+            return;
+        }
+        if (tool == AnnotationKind.FreeText)
+        {
+            // A click and a drag both place a box; the rect is the shell's call, see FreeTextInput.
+            await PlaceFreeTextAsync((uint)pageIndex, completed.Origin, completed.Current);
             return;
         }
         await ApplyEditAsync(new PdfCoreEdit.Add((PdfCoreAnnotationKind)tool, (uint)pageIndex, rect, new PdfCoreColor(DefaultAnnotationColor.R, DefaultAnnotationColor.G, DefaultAnnotationColor.B)));
@@ -493,6 +505,8 @@ public sealed partial class MainWindow
         ShapeButton.IsEnabled = enabled;
         InkButton.IsEnabled = enabled;
         NoteButton.IsEnabled = enabled;
+        FreeTextButton.IsEnabled = enabled;
+        EditFreeTextButton.IsEnabled = enabled && selected?.Kind == AnnotationKind.FreeText;
         StampButton.IsEnabled = enabled;
         PointerButton.IsEnabled = enabled;
         PreviousAnnotationButton.IsEnabled = enabled && selected is not null;
@@ -590,6 +604,16 @@ public sealed partial class MainWindow
         return new AnnotationRect(Math.Min(anchor.X, point.X), Math.Min(anchor.Y, point.Y), width, height);
     }
 
+    /// <summary>
+    /// <see cref="ResizedRect"/> with the floor each kind needs: a text box may
+    /// not shrink below what the core accepts (one glyph, one line), anything
+    /// else keeps the traced-rect floor.
+    /// </summary>
+    private static AnnotationRect ResizedRectOf(Annotation annotation, AnnotationRect bounds, Corner corner, AnnotationPoint point) =>
+        annotation.Kind == AnnotationKind.FreeText
+            ? FreeTextInput.ResizedRect(CornerPoint(bounds, Opposite(corner)), point)
+            : ResizedRect(bounds, corner, point);
+
     private static AnnotationRect MovedRect(AnnotationRect rect, AnnotationPoint origin, AnnotationPoint current) =>
         new(rect.X + (current.X - origin.X), rect.Y + (current.Y - origin.Y), rect.Width, rect.Height);
 
@@ -624,7 +648,7 @@ public sealed partial class MainWindow
             }
             else if (dragging.Rect is { } bounds)
             {
-                var rect = move.HandleCorner is { } corner ? ResizedRect(bounds, corner, move.Current) : MovedRect(bounds, move.Origin, move.Current);
+                var rect = move.HandleCorner is { } corner ? ResizedRectOf(dragging, bounds, corner, move.Current) : MovedRect(bounds, move.Origin, move.Current);
                 DrawAnnotationShape(_slots[move.PageIndex], (uint)move.PageIndex, dragging, rect, ResolveDisplayColor(dragging), selected: true);
             }
         }
@@ -661,6 +685,11 @@ public sealed partial class MainWindow
 
     private void DrawAnnotationShape(PageSlot slot, uint pageIndex, Annotation annotation, AnnotationRect rect, AnnotationColor color, bool selected)
     {
+        if (annotation.Kind == AnnotationKind.FreeText)
+        {
+            DrawFreeText(slot, pageIndex, annotation, rect, selected);
+            return;
+        }
         // The rect arrives from the caller rather than from the annotation, so
         // a stamp being dragged or resized is painted at the geometry under the
         // pointer, and every paint re-reads slot.Scale — which is what keeps

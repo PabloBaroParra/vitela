@@ -674,6 +674,21 @@ accept multiple lines; **Add** becomes available when the text is not blank.
 Cancel closes the prompt without creating an annotation or an undo step. Adding
 records one undoable edit through the core; save to keep the note.
 
+**Text box** puts visible text on the page. Click to hang a 200 x 50 pt box from the
+click point (kept on the page), or drag to draw the box; the dialog takes multiple
+lines and **Add** is available when the text is not blank. The core wraps the text
+(Helvetica, 12 pt, black, no border) and the overlay draws the core's own lines, so
+what you see is what the saved file paints; it turns with a rotated page and clips to
+the box. A character the PDF font cannot show (CJK, for example) keeps the dialog
+open, names the character and keeps your text. Select a box to move it, resize it
+(the text rewraps; it cannot go below one glyph wide and one line high), delete it, or
+**Edit text box** to retype it in the same dialog: each edit is one undo step, and
+saving the same text records nothing. Everything needs annotation-edit permission.
+Save to keep it: the file gets a standard `/FreeText` annotation with an appearance
+stream, so other viewers show it. Text boxes in files opened from elsewhere stay as
+the PDF painted them and are not editable. Double-clicking a box to edit is not wired;
+use the button.
+
 **Stamp** asks for a PNG or JPEG after you click or drag on a page. The image
 fills the chosen rectangle; a different aspect ratio stretches to fit. Cancel,
 unreadable files and invalid images create no annotation or undo step. A successful
@@ -843,6 +858,18 @@ The saved note's `/Contents` should be exactly `  First line\rSecond line  `,
 including the carriage return and two spaces at each end; inspect it with a PDF
 parser such as pypdf. Rebuild without `CustomAfterMicrosoftCommonTargets` to
 restore the normal app before packaging.
+
+## Text box runtime smoke
+
+`Tests/FreeTextSmoke.targets` runs the Text box flow in real WinUI against the
+native core, with the same MSBuild and output-directory setup as the note smoke
+(use `FreeTextSmoke.targets`). `freetext-smoke.log` must start with `PASS`. It
+covers arming, blank validation, cancel, the encoding-gap refusal keeping the dialog
+open, click placement, the overlay drawing the core's lines, edit / unchanged save /
+undo / redo, resize rewrap and the minimum size, the saved `/FreeText` + `/AP`, a
+stale session and the guards. It also renders `freetext-smoke-upright.png` and
+`freetext-smoke-rotated.png` (the overlay on a 90-degree page) for eyeballing the
+baseline placement. Rebuild without the custom targets afterward.
 
 ## Stamp placement runtime smoke
 

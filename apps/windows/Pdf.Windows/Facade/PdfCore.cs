@@ -188,6 +188,15 @@ internal interface IPdfCore
     /// <summary><see cref="PlaceRect"/> for a bare point.</summary>
     PlacedPoint PlacePoint(AnnotationPoint point, PagePlacement page);
 
+    /// <summary>
+    /// The core's layout of <paramref name="contents"/> in a box of this size —
+    /// the same function that lays out a stored box and the saved appearance.
+    /// For the two moments no stored box exists yet: a dialog previewing what is
+    /// typed, and a resize drag. A character the font cannot show is
+    /// <see cref="PdfCoreError.EncodingGap"/>.
+    /// </summary>
+    FreeTextLayout LayoutFreeText(string contents, double widthPt, double heightPt);
+
     /// <summary>The inverse of <see cref="PlacePoint"/>: a pointer position back into page space.</summary>
     AnnotationPoint PointToPdf(PlacedPoint point, PagePlacement page);
 
@@ -396,8 +405,8 @@ internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyLi
 internal sealed record PdfCoreRect(double X, double Y, double Width, double Height);
 internal sealed record PdfCoreColor(byte R, byte G, byte B);
 internal sealed record PdfCorePoint(double X, double Y);
-internal enum PdfCoreAnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp }
-internal sealed record PdfCoreAnnotation(ulong Id, uint PageIndex, PdfCoreAnnotationKind Kind, PdfCoreRect? Rect, PdfCoreColor? Color, IReadOnlyList<PdfCorePoint> Points, string? Contents = null);
+internal enum PdfCoreAnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp, FreeText }
+internal sealed record PdfCoreAnnotation(ulong Id, uint PageIndex, PdfCoreAnnotationKind Kind, PdfCoreRect? Rect, PdfCoreColor? Color, IReadOnlyList<PdfCorePoint> Points, string? Contents = null, FreeTextLayout? Layout = null);
 internal abstract record PdfCoreEdit
 {
     public sealed record Add(PdfCoreAnnotationKind Kind, uint PageIndex, PdfCoreRect Rect, PdfCoreColor Color, IReadOnlyList<PdfCorePoint>? Points = null, string? Contents = null) : PdfCoreEdit;
@@ -405,6 +414,8 @@ internal abstract record PdfCoreEdit
     public sealed record Move(ulong AnnotationId, double Dx, double Dy) : PdfCoreEdit;
     public sealed record Resize(ulong AnnotationId, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record Restyle(ulong AnnotationId, PdfCoreColor Color) : PdfCoreEdit;
+    /// <summary>Retypes a FreeText box; the core validates the text and records one undo step.</summary>
+    public sealed record SetContents(ulong AnnotationId, string Contents) : PdfCoreEdit;
 
     public sealed record SetDocumentInfo(PdfCoreDocumentInfo After) : PdfCoreEdit;
 

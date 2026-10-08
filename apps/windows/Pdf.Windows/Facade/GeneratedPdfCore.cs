@@ -275,6 +275,17 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         return new PlacedRect(placed.Left, placed.Top, placed.Width, placed.Height);
     }
 
+    public FreeTextLayout LayoutFreeText(string contents, double widthPt, double heightPt)
+    {
+        try
+        {
+            var layout = PdfFfiMethods.FreetextLayout(contents, widthPt, heightPt);
+            return new FreeTextLayout(layout.FontSizePt,
+                [.. layout.Lines.Select(line => new FreeTextLine(line.Text, line.XPt, line.BaselineFromTopPt))], layout.Overflow);
+        }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
     public PlacedPoint PlacePoint(AnnotationPoint point, PagePlacement page)
     {
         var placed = PdfFfiMethods.PlacePoint(new FfiPoint(point.X, point.Y), Placement(page));
@@ -431,6 +442,8 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         FfiAnnotationKind.Shape value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Shape, Rect(value.Rect), Color(value.Color), []),
         FfiAnnotationKind.TextNote value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.TextNote, Rect(value.Rect), null, [], value.Contents),
         FfiAnnotationKind.Stamp value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.Stamp, Rect(value.Rect), null, []),
+        FfiAnnotationKind.FreeText value => new(annotation.Id, annotation.Page, PdfCoreAnnotationKind.FreeText, Rect(value.Rect), null, [], value.Contents,
+            new FreeTextLayout(value.FontSizePt, [.. value.Lines.Select(line => new FreeTextLine(line.Text, line.XPt, line.BaselineFromTopPt))], Overflow: false)),
         _ => throw new InvalidOperationException("Unsupported annotation kind."),
     };
 
@@ -442,6 +455,8 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.Shape } value => new FfiEditCommand.AddShape(value.PageIndex, Rect(value.Rect), Color(value.Color)),
         PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.Ink } value => new FfiEditCommand.AddInk(value.PageIndex, [.. (value.Points ?? []).Select(point => new FfiPoint(point.X, point.Y))], Color(value.Color)),
         PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.TextNote } value => new FfiEditCommand.AddTextNote(value.PageIndex, Rect(value.Rect), value.Contents ?? "Note"),
+        PdfCoreEdit.Add { Kind: PdfCoreAnnotationKind.FreeText } value => new FfiEditCommand.AddFreeText(value.PageIndex, Rect(value.Rect), value.Contents ?? ""),
+        PdfCoreEdit.SetContents value => new FfiEditCommand.SetAnnotationContents(value.AnnotationId, value.Contents),
         PdfCoreEdit.Remove value => new FfiEditCommand.RemoveAnnotation(value.AnnotationId),
         PdfCoreEdit.Move value => new FfiEditCommand.MoveAnnotation(value.AnnotationId, value.Dx, value.Dy),
         PdfCoreEdit.Resize value => new FfiEditCommand.ResizeAnnotation(value.AnnotationId, Rect(value.Rect)),
