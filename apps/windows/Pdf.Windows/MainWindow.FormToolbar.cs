@@ -37,6 +37,7 @@ public sealed partial class MainWindow
             FormStyleFont.IsEnabled = enabled && !_formStylePending && style is not null;
             FormStyleSize.IsEnabled = FormStyleFont.IsEnabled;
             FormStyleColor.IsEnabled = FormStyleFont.IsEnabled;
+            DeleteFormFieldButton.IsEnabled = enabled && !_formStylePending && SelectedFormField is not null;
         }
         finally { _formStyleSyncing = false; }
     }

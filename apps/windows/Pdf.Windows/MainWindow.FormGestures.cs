@@ -42,9 +42,17 @@ public sealed partial class MainWindow
         RedrawAnnotations();
     }
 
+    /// <summary>
+    /// A grabbed corner moves by the pointer's delta, not to the pointer: the
+    /// handle is hit anywhere within its reach, so snapping would resize on a
+    /// plain click.
+    /// </summary>
     private static AnnotationRect FormDragRect(FormGeometryDrag drag) => drag.Corner is { } corner
-        ? ResizedRect(drag.Field.Rect!, corner, drag.Current)
+        ? ResizedRect(drag.Field.Rect!, corner, MovedPoint(CornerPoint(drag.Field.Rect!, corner), drag.Origin, drag.Current))
         : MovedRect(drag.Field.Rect!, drag.Origin, drag.Current);
+
+    private static AnnotationPoint MovedPoint(AnnotationPoint point, AnnotationPoint origin, AnnotationPoint current) =>
+        new(point.X + (current.X - origin.X), point.Y + (current.Y - origin.Y));
 
     private async Task CommitFormGeometryDragAsync(FormGeometryDrag drag)
     {

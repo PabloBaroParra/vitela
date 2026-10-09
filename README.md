@@ -185,11 +185,12 @@ range of pages into a new PDF the same way, sharing the core's page-pruning
 cut (`pdf_document::prune`) rather than a second implementation. Windows can
 move, rotate and delete pages from a thumbnail grid or whole documents from the
 Documents view, and adds other PDFs' pages through the FFI's two-phase batch
-import — one undo step for the whole pick, matching Linux and Android. Windows can fill and
-rename existing fields, and place text fields, checkboxes, radio groups and
+import — one undo step for the whole pick, matching Linux and Android. Windows can fill,
+rename and delete existing fields, and place text fields, checkboxes, radio groups and
 dropdowns by clicking or dragging on a page; font family and size can be
 changed in Windows, as can text color and an existing field's X/Y position,
-width and height in PDF points.
+width and height in PDF points — typed, or by dragging the field and its corner
+handles on the page.
 
 > **Keeping this table honest (for humans and AI):** when a capability ships in
 > a shell **and its tests pass**, flip its cell from `—` (or `🚧`) to `✅` in the

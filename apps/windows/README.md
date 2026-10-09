@@ -247,9 +247,17 @@ After placement, Edit forms stays active for selection. Click an existing field
 in that mode, or focus its fill-row control while Edit forms is active, to select it for the common font,
 4–400 pt size and Color inspector. Font and size changes apply immediately;
 Color opens a native Choose/Cancel dialog. Structure permissions, busy state and
-selection control availability. Existing numeric position/size controls remain
-in the field rows; canvas move/resize parity is still pending. Arming content
-editing or an annotation tool disarms Edit forms.
+selection control availability. Drag a selected field on the page to move it,
+or drag a corner handle to resize it; each drag is one undoable step, and a
+click without movement edits nothing. The numeric position/size controls in the
+field rows remain. Arming content editing or an annotation tool disarms Edit forms.
+
+**Delete field** (or the Delete key) removes the selected field and its widgets
+as one undoable step; Undo brings it back with its name, style and value. A
+field the file already had is taken out of the saved PDF too, not just the
+panel. Selecting a field on the page focuses its fill box, where Delete edits
+the value instead — use the button there. Deleting needs the same structural
+permission as placing a field.
 
 **Fill fields** records text and editable-dropdown values as they change, without
 replacing the row or its keyboard focus. Checkboxes, radio export values and
@@ -264,8 +272,9 @@ Native regression checks: after opening the unchanged built-in sample, run
 `powershell -File apps/windows/test-metadata.ps1` to exercise Properties text,
 date normalization/rejection and Undo/Redo. The opt-in
 `Tests/FormToolbarSmoke.targets` entry point exercises mode/type exclusivity,
-the shared inspector with real-core font/size changes, history and permission
-gates. `Tests/FormFillSmoke.targets` verifies immediate ordered typing, row/focus
+the shared inspector with real-core font/size changes, canvas move/resize and
+field delete with undo,
+history and permission gates. `Tests/FormFillSmoke.targets` verifies immediate ordered typing, row/focus
 preservation, native name accept/cancel, checkbox/radio/dropdown changes and
 unsupported/empty/permission/busy/stale-row states against the built-in sample.
 These harnesses never save a user PDF. Rebuild normally after any replacement-entry-point harness before

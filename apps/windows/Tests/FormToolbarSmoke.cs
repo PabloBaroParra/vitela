@@ -19,7 +19,7 @@ public partial class App : Application
         {
             await _window.FormToolbarSmokeAsync();
             File.WriteAllText(Path.Combine(output, "form-toolbar-smoke.log"),
-                "PASS toolbar; mode/type exclusivity; common selection inspector; real-core font/size edits; undo/redo; busy/permission/no-selection gates; annotation/content cross-disarm.");
+                "PASS toolbar; mode/type exclusivity; common selection inspector; real-core font/size edits; real-core canvas move/resize; real-core field delete; undo/redo; busy/permission/no-selection gates; annotation/content cross-disarm.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "form-toolbar-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -75,13 +75,15 @@ public sealed partial class MainWindow
         check(SelectedFormField?.Style?.SizePt == 12 && FormStyleSize.Value == 12, "Undo must refresh selected style");
         await ApplyHistoryAndMetadataAsync(false);
         check(SelectedFormField?.Style?.SizePt == 24 && FormStyleSize.Value == 24, "Redo must refresh selected style");
+        await FormGeometrySmokeAsync(field.Id);
+        await FormDeleteSmokeAsync(field.Id);
         SetBusy(true);
-        check(!EditFormsButton.IsEnabled && !PlaceTextFieldButton.IsEnabled && !FormStyleColor.IsEnabled, "Busy gates");
+        check(!EditFormsButton.IsEnabled && !PlaceTextFieldButton.IsEnabled && !FormStyleColor.IsEnabled && !DeleteFormFieldButton.IsEnabled, "Busy gates");
         SetBusy(false);
         var state = _formFieldState!;
         _formFieldState = state with { StructureAllowed = false };
         UpdateFormToolbar();
-        check(!EditFormsButton.IsEnabled && !FormStyleFont.IsEnabled && !PlaceDropdownButton.IsEnabled, "Structure permission gates");
+        check(!EditFormsButton.IsEnabled && !FormStyleFont.IsEnabled && !PlaceDropdownButton.IsEnabled && !DeleteFormFieldButton.IsEnabled, "Structure permission gates");
         _formFieldState = state;
         UpdateFormToolbar();
         Arm(AnnotationKind.Highlight);
