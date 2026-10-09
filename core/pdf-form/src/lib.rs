@@ -18,6 +18,7 @@ pub mod appearance;
 pub mod builders;
 pub mod da;
 pub mod error;
+pub mod frame;
 pub mod ops;
 pub mod read;
 
@@ -28,5 +29,6 @@ pub use appearance::{
 pub use builders::{checkbox, default_radio_options, dropdown, radio_group, text_field};
 pub use da::{base_font_name, format_button_da, format_da, parse_da, resource_name};
 pub use error::FormError;
+pub use frame::{BorderStyle, FrameShape, WidgetFrame};
 pub use ops::{move_field, rename_field, resize_field, restyle_field, set_value};
 pub use read::read_form_fields;

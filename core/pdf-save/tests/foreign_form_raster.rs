@@ -154,3 +154,134 @@ fn a_preview_after_undoing_every_edit_renders_the_file_unchanged() {
     let preview = save_preview(input(&document, &base)).expect("preview");
     assert_untouched_fields_render_as_the_original(preview, "undone preview");
 }
+
+// --- Edited fields keep their frame ----------------------------------------
+
+/// Dark pixels in the band `inset` points deep along `rect`'s edges — where a
+/// `/MK` border is stroked — or, with `inset` covering the rect, in all of it.
+fn ink_near_the_edge(
+    raster: &(usize, usize, Vec<u8>),
+    rect: pdf_document::Rect,
+    inset: f64,
+) -> usize {
+    let (width, height, pixels) = raster;
+    let top = (*height as f64 - (rect.y + rect.height)).round() as usize;
+    let bottom = (*height as f64 - rect.y).round() as usize;
+    let left = rect.x.round() as usize;
+    let right = (rect.x + rect.width).round() as usize;
+    let band = inset.round() as usize;
+    let mut ink = 0;
+    for y in top..bottom {
+        for x in left..right {
+            let near = y < top + band || y >= bottom - band || x < left + band || x >= right - band;
+            let offset = (y * width + x) * 4;
+            let dark = pixels[offset] < 200 || pixels[offset + 1] < 200 || pixels[offset + 2] < 200;
+            if near && dark {
+                ink += 1;
+            }
+        }
+    }
+    ink
+}
+
+fn edited(edit: impl FnOnce(&mut Document)) -> (usize, usize, Vec<u8>) {
+    let (mut document, base) = open(&fixture_bytes());
+    edit(&mut document);
+    rasterize(save_preview(input(&document, &base)).expect("preview"))
+}
+
+fn set_value(document: &mut Document, name: &str, to: pdf_document::FieldValue) {
+    let field = field(document, name).clone();
+    apply_command(
+        document,
+        Command::SetFieldValue {
+            id: field.id,
+            from: field.value,
+            to,
+        },
+    );
+}
+
+/// Most of the original's border ink must still be there. Not exact: our
+/// stroke is the same geometry as reportlab's, but antialiasing is pdfium's.
+fn assert_frame_kept(original: usize, now: usize, what: &str) {
+    assert!(
+        original > 20,
+        "{what}: the fixture must draw a border to begin with ({original})"
+    );
+    assert!(
+        now * 10 >= original * 9,
+        "{what}: the edited field lost its /MK border ({now} dark edge pixels, the file had {original})"
+    );
+}
+
+#[test]
+fn an_edited_text_field_keeps_its_border() {
+    let bytes = fixture_bytes();
+    let rect = field(&open(&bytes).0, "full_name").rect;
+    let original = ink_near_the_edge(&rasterize(bytes), rect, 2.0);
+    let now = ink_near_the_edge(
+        &edited(|document| {
+            set_value(
+                document,
+                "full_name",
+                pdf_document::FieldValue::Text("Grace Hopper".into()),
+            )
+        }),
+        rect,
+        2.0,
+    );
+    assert_frame_kept(original, now, "full_name");
+}
+
+#[test]
+fn an_unchecked_checkbox_keeps_its_box() {
+    let bytes = fixture_bytes();
+    let rect = field(&open(&bytes).0, "subscribe").rect;
+    let original = ink_near_the_edge(&rasterize(bytes), rect, 2.0);
+    let now = ink_near_the_edge(
+        &edited(|document| {
+            set_value(
+                document,
+                "subscribe",
+                pdf_document::FieldValue::Checked(false),
+            )
+        }),
+        rect,
+        2.0,
+    );
+    assert_frame_kept(original, now, "subscribe");
+}
+
+/// Swapping the selection swaps which kid draws the dot; the circle each one
+/// is drawn in must survive. Compared kid-for-state: the kid now off against
+/// the one that was off in the file.
+#[test]
+fn a_reselected_radio_group_keeps_its_circles() {
+    let bytes = fixture_bytes();
+    let pdf_document::FormFieldKind::RadioGroup { options } =
+        field(&open(&bytes).0, "plan").kind.clone()
+    else {
+        panic!("plan is a radio group");
+    };
+    let (basic, pro) = (options[0].rect, options[1].rect);
+    let file = rasterize(bytes);
+    let now = edited(|document| {
+        set_value(
+            document,
+            "plan",
+            pdf_document::FieldValue::Choice(Some("basic".into())),
+        )
+    });
+    let whole = 100.0;
+    assert_frame_kept(
+        ink_near_the_edge(&file, basic, whole),
+        ink_near_the_edge(&now, pro, whole),
+        "plan, off",
+    );
+    assert_frame_kept(
+        ink_near_the_edge(&file, pro, whole),
+        ink_near_the_edge(&now, basic, whole),
+        "plan, on",
+    );
+}
