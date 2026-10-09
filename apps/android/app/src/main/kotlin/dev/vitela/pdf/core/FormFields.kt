@@ -12,6 +12,17 @@ data class FormField(
     val kind: FormFieldKind,
     val value: FormFieldValue,
     val rect: AnnotationRect,
+    val style: FieldTextStyle = FieldTextStyle(),
+)
+
+/** The three Standard-14 families a field's `/DA` can name: the core embeds no fonts in a field. */
+enum class FieldFont { Helvetica, TimesRoman, Courier }
+
+/** What a field's text looks like; the default is what the core gives a field the panel places. */
+data class FieldTextStyle(
+    val font: FieldFont = FieldFont.Helvetica,
+    val sizePt: Double = 12.0,
+    val color: AnnotationColor = AnnotationColor(0, 0, 0),
 )
 
 /** A field the panel can place. The core names it and gives it its first options and style. */

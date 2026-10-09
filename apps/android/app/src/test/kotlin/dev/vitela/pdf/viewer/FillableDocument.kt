@@ -2,6 +2,7 @@ package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.FieldTextStyle
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
@@ -43,6 +44,8 @@ internal class FillableDocument(
     val moves = mutableListOf<Pair<Long, AnnotationRect>>()
     val resizes = mutableListOf<Pair<Long, AnnotationRect>>()
     val removals = mutableListOf<Long>()
+    val renames = mutableListOf<Pair<Long, String>>()
+    val restyles = mutableListOf<Pair<Long, FieldTextStyle>>()
     val drawn = mutableListOf<Pair<Int, Map<Long, FormFieldValue>>>()
     private var preview = values()
     var previewRefreshes = 0
@@ -114,6 +117,20 @@ internal class FillableDocument(
         authoringRefusal?.let { return PdfCoreResult.Failure(it) }
         removals += fieldId
         record(fields.filterNot { it.id == fieldId })
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun renameFormField(fieldId: Long, name: String): PdfCoreResult<Unit> {
+        authoringRefusal?.let { return PdfCoreResult.Failure(it) }
+        renames += fieldId to name
+        record(fields.map { if (it.id == fieldId) it.copy(name = name) else it })
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> {
+        authoringRefusal?.let { return PdfCoreResult.Failure(it) }
+        restyles += fieldId to style
+        record(fields.map { if (it.id == fieldId) it.copy(style = style) else it })
         return PdfCoreResult.Success(Unit)
     }
 

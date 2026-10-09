@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.FieldTextStyle
+import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import kotlinx.coroutines.launch
@@ -8,9 +10,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Form fields: placing new fields, moving, resizing and deleting existing ones, each one
- * undoable entry in the shared edit log. The panel arms a page tap for a place
- * or a move, and the tap is the edit; a size is typed into the field's row.
+ * Form fields: placing new fields, and moving, resizing, renaming, restyling
+ * and deleting existing ones, each one undoable entry in the shared edit log.
+ * The panel arms a page tap for a place or a move, and the tap is the edit; a
+ * size, a name and a style are set in the field's row.
  *
  * A tap, never a drag: on a phone a drag is the reader's scroll, so a field is
  * placed at the Windows shell's click size and a move keeps the field's size.
@@ -86,10 +89,7 @@ internal class FormAuthoring(
      * focus after another file replaced it, and its field id means nothing there.
      */
     fun resize(documentId: Long, fieldId: Long, width: Double, height: Double) {
-        val openDocument = session.document ?: return
-        val panel = state.value.formFields ?: return
-        if (documentId != state.value.documentId || !panel.authoringAllowed) return
-        val field = panel.fields.firstOrNull { it.id == fieldId } ?: return
+        val (openDocument, field) = authorable(documentId, fieldId) ?: return
         val page = state.value.pageSizes.getOrNull(field.pageIndex) ?: return
         val to = resizedFieldRect(field.rect, width, height, page)
             ?: return run { state.value = state.value.copy(status = FIELD_SIZE_INVALID) }
@@ -103,11 +103,51 @@ internal class FormAuthoring(
      * with it: [commit] disarms first.
      */
     fun remove(documentId: Long, fieldId: Long) {
-        val openDocument = session.document ?: return
-        val panel = state.value.formFields ?: return
-        if (documentId != state.value.documentId || !panel.authoringAllowed) return
-        if (panel.fields.none { it.id == fieldId }) return
+        val (openDocument, _) = authorable(documentId, fieldId) ?: return
         commit(openDocument, FIELD_DELETED) { removeFormField(fieldId) }
+    }
+
+    /**
+     * Renames field [fieldId] to [name], trimmed. An empty name or another
+     * field's is refused here, with the reason, before the core refuses it
+     * with its own developer's sentence; the core still checks both.
+     */
+    fun rename(documentId: Long, fieldId: Long, name: String) {
+        val (openDocument, field) = authorable(documentId, fieldId) ?: return
+        val trimmed = name.trim()
+        if (trimmed == field.name) return
+        val refusal = when {
+            trimmed.isEmpty() -> FIELD_NAME_EMPTY
+            state.value.formFields?.fields.orEmpty().any { it.id != fieldId && it.name == trimmed } -> fieldNameTaken(trimmed)
+            else -> null
+        }
+        if (refusal != null) return run { state.value = state.value.copy(status = refusal) }
+        commit(openDocument, FIELD_RENAMED) { renameFormField(fieldId, trimmed) }
+    }
+
+    /**
+     * Gives field [fieldId] the font, size and text color of [style]. The core
+     * takes any size; a size outside [FIELD_FONT_SIZES] is refused here, as
+     * the Windows shell does, because a 0.5 pt or a 400 pt field is a typo.
+     */
+    fun restyle(documentId: Long, fieldId: Long, style: FieldTextStyle) {
+        val (openDocument, field) = authorable(documentId, fieldId) ?: return
+        if (style.sizePt !in FIELD_FONT_SIZES) return run { state.value = state.value.copy(status = FIELD_FONT_SIZE_INVALID) }
+        if (style == field.style) return
+        commit(openDocument, FIELD_RESTYLED) { restyleFormField(fieldId, style) }
+    }
+
+    /**
+     * The open document and field [fieldId], when a row built for document
+     * [documentId] may still change it: the same file, and fields may be
+     * changed at all.
+     */
+    private fun authorable(documentId: Long, fieldId: Long): Pair<PdfDocument, FormField>? {
+        val openDocument = session.document ?: return null
+        val panel = state.value.formFields ?: return null
+        if (documentId != state.value.documentId || !panel.authoringAllowed) return null
+        val field = panel.fields.firstOrNull { it.id == fieldId } ?: return null
+        return openDocument to field
     }
 
     /**
@@ -126,7 +166,7 @@ internal class FormAuthoring(
                         // The edit sits in the shared log: Undo must light up.
                         annotations.refresh(openDocument)
                         val redrawn = layout.redraw(openDocument)
-                        // A new row, or a row whose rect changed.
+                        // A new row, or a row whose rect, name or style changed.
                         filling.reread(openDocument)
                         if (redrawn) state.value = state.value.copy(status = done)
                     }

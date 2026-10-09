@@ -38,6 +38,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.core.FieldTextStyle
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
@@ -56,6 +57,10 @@ internal class FormFieldActions(
     val onResize: (Long, Long, Double, Double) -> Unit,
     /** documentId, fieldId: deletes the field, one undo step. */
     val onDelete: (Long, Long) -> Unit,
+    /** documentId, fieldId, name as typed: the ViewModel trims and validates it. */
+    val onRename: (Long, Long, String) -> Unit,
+    /** documentId, fieldId, the field's whole new style; NaN size for one that was not a number. */
+    val onRestyle: (Long, Long, FieldTextStyle) -> Unit,
 )
 
 /**
@@ -68,8 +73,8 @@ internal class FormFieldActions(
  *
  * When the document lets fields be created, a row of chips arms a placement and
  * each field's Move arms a move; the page tap that follows is the edit. Delete
- * removes a field at once, undoably. Each
- * field's size is typed under it, and commits like a text row.
+ * removes a field at once, undoably. Each field's name, font, size, text color
+ * and dimensions are set under it; a typed one commits when focus leaves it.
  */
 @Composable
 internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: FormFieldActions, modifier: Modifier = Modifier) {
@@ -99,6 +104,8 @@ internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: 
                         }
                     }
                     if (panel.authoringAllowed) {
+                        FieldNameBox(field.name) { actions.onRename(documentId, field.id, it) }
+                        FieldStyleRow(field.style) { actions.onRestyle(documentId, field.id, it) }
                         FieldSizeRow(field.rect) { width, height -> actions.onResize(documentId, field.id, width, height) }
                     }
                 }
