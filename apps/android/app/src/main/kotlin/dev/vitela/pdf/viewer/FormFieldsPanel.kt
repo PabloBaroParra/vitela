@@ -54,6 +54,8 @@ internal class FormFieldActions(
     val onPageTap: (Int, AnnotationPoint) -> Unit,
     /** documentId, fieldId, width, height in points; NaN for a size that was not a number. */
     val onResize: (Long, Long, Double, Double) -> Unit,
+    /** documentId, fieldId: deletes the field, one undo step. */
+    val onDelete: (Long, Long) -> Unit,
 )
 
 /**
@@ -65,7 +67,8 @@ internal class FormFieldActions(
  * fill is one undo step and one preview rebuild.
  *
  * When the document lets fields be created, a row of chips arms a placement and
- * each field's Move arms a move; the page tap that follows is the edit. Each
+ * each field's Move arms a move; the page tap that follows is the edit. Delete
+ * removes a field at once, undoably. Each
  * field's size is typed under it, and commits like a text row.
  */
 @Composable
@@ -91,6 +94,8 @@ internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: 
                             val move = FormFieldTap.Move(field.id, field.pageIndex)
                             val moving = panel.armed == move
                             TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) "Cancel" else "Move") }
+                            // No confirmation: Undo brings the field back, as with a deleted image.
+                            TextButton(onClick = { actions.onDelete(documentId, field.id) }) { Text("Delete") }
                         }
                     }
                     if (panel.authoringAllowed) {

@@ -278,6 +278,77 @@ class ViewerViewModelFormAuthoringTest {
     }
 
     @Test
+    fun deletingAFieldRemovesItsRowAndRedrawsThePage() = runTest {
+        val document = FillableDocument()
+        val viewModel = openedWithPanel(document)
+        val refreshes = document.previewRefreshes
+        viewModel.deleteFormField(viewModel.state.value.documentId, 1)
+        advanceUntilIdle()
+
+        assertEquals(listOf(1L), document.removals)
+        val state = viewModel.state.value
+        assertEquals(FIELD_DELETED, state.status)
+        assertTrue(state.formFields!!.fields.none { it.id == 1L })
+        assertTrue(state.isDirty)
+        assertTrue(state.canUndoAnnotations)
+        assertTrue("only the renderer paints a field, so the preview must be rebuilt", document.previewRefreshes > refreshes)
+    }
+
+    @Test
+    fun deletingTheFieldArmedForAMoveDisarmsIt() = runTest {
+        val viewModel = openedWithPanel(FillableDocument())
+        viewModel.armFormField(FormFieldTap.Move(1, 0))
+        viewModel.deleteFormField(viewModel.state.value.documentId, 1)
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.formFields!!.armed)
+    }
+
+    @Test
+    fun aDocumentThatForbidsChangingFieldsKeepsItsFields() = runTest {
+        val document = FillableDocument(authoringAllowed = false)
+        val viewModel = openedWithPanel(document)
+        viewModel.deleteFormField(viewModel.state.value.documentId, 1)
+        advanceUntilIdle()
+
+        assertTrue(document.removals.isEmpty())
+    }
+
+    @Test
+    fun aDeleteFromARowOfAnotherDocumentIsDropped() = runTest {
+        val document = FillableDocument()
+        val viewModel = openedWithPanel(document)
+        viewModel.deleteFormField(viewModel.state.value.documentId + 1, 1)
+        advanceUntilIdle()
+
+        assertTrue(document.removals.isEmpty())
+    }
+
+    @Test
+    fun aRefusedDeleteSaysWhyAndKeepsTheRow() = runTest {
+        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed("This document does not permit deleting form fields."))
+        val viewModel = openedWithPanel(document)
+        viewModel.deleteFormField(viewModel.state.value.documentId, 1)
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals("This document does not permit deleting form fields.", state.status)
+        assertFalse(state.isDirty)
+        assertTrue(state.formFields!!.fields.any { it.id == 1L })
+    }
+
+    @Test
+    fun undoingADeleteBringsTheFieldBack() = runTest {
+        val viewModel = openedWithPanel(FillableDocument())
+        viewModel.deleteFormField(viewModel.state.value.documentId, 1)
+        advanceUntilIdle()
+        viewModel.undoAnnotations()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.formFields!!.fields.any { it.id == 1L })
+    }
+
+    @Test
     fun undoingAResizePutsTheOldSizeBack() = runTest {
         val viewModel = openedWithPanel(FillableDocument())
         viewModel.resizeFormField(viewModel.state.value.documentId, 1, 80.0, 30.0)

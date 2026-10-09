@@ -443,6 +443,7 @@ private fun VitelaApp(
                 onArm = viewModel::armFormField,
                 onPageTap = viewModel::tapFormField,
                 onResize = viewModel::resizeFormField,
+                onDelete = viewModel::deleteFormField,
             )
         },
         contentEdit = remember(viewModel) {

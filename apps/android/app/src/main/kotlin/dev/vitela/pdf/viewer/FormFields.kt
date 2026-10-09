@@ -42,6 +42,7 @@ internal const val FORM_NO_FIELDS_ADD = "This document has no form fields yet. A
 internal const val FORM_FILL_FORBIDDEN = "This document does not permit filling in its form."
 internal const val FIELD_MOVED = "Field moved. Save to keep the change."
 internal const val FIELD_RESIZED = "Field resized. Save to keep the change."
+internal const val FIELD_DELETED = "Field deleted. Save to keep the change, or undo to bring it back."
 internal const val FIELD_SIZE_INVALID = "Enter finite, positive field dimensions."
 
 private val NewFormField.label: String get() = when (this) {
