@@ -78,6 +78,10 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
     color.set_sensitive(false);
     style_flow.append(&color);
 
+    let delete = Button::with_label("Delete field");
+    delete.set_sensitive(false);
+    style_flow.append(&delete);
+
     let style_row = ScrolledWindow::builder()
         .child(&style_flow)
         .hscrollbar_policy(PolicyType::Automatic)
@@ -126,6 +130,7 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
             font,
             size,
             color,
+            delete,
             syncing: Rc::new(Cell::new(false)),
             fill_placeholder,
             fill_rows,
@@ -163,6 +168,11 @@ pub(crate) fn connect_forms_toolbar(viewer: &Viewer) {
         });
     }
 
+    viewer.forms.delete.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| super::delete::delete_selected(&viewer)
+    });
+
     connect_style_controls(viewer);
     super::fill::connect_settle(viewer);
 }
@@ -185,6 +195,7 @@ pub(super) fn refresh_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
     let Some(session) = state.session.as_ref() else {
         drop(state);
+        viewer.forms.delete.set_sensitive(false);
         refresh_style(viewer, None, false);
         return;
     };
@@ -205,6 +216,10 @@ pub(super) fn refresh_controls(viewer: &Viewer) {
         .and_then(|id| session.document_model.as_ref()?.form_fields.get(id))
         .map(|field| field.style);
     drop(state);
+    viewer
+        .forms
+        .delete
+        .set_sensitive(enabled && selected_style.is_some());
     refresh_style(viewer, selected_style, enabled);
 }
 
@@ -249,5 +264,6 @@ mod tests {
         assert!(!toolbar.font.is_sensitive());
         assert!(!toolbar.size.is_sensitive());
         assert!(!toolbar.color.is_sensitive());
+        assert!(!toolbar.delete.is_sensitive());
     }
 }

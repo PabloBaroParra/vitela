@@ -662,6 +662,8 @@ pub(crate) struct FormFieldToolbar {
     pub(crate) font: DropDown,
     pub(crate) size: SpinButton,
     pub(crate) color: Button,
+    /// Deletes the selected field; sensitive only while one is selected.
+    pub(crate) delete: Button,
     /// True while the inspector is being written from the selected field's
     /// style, so the controls' own change handlers know not to treat that
     /// write-back as a user edit and record a spurious restyle — same guard
