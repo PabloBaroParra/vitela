@@ -285,3 +285,71 @@ fn a_reselected_radio_group_keeps_its_circles() {
         "plan, on",
     );
 }
+
+/// The dot itself: pixels dark in the selected kid but not at the same spot
+/// in the unselected one. Both kids carry the same frame, so what is left is
+/// what the "on" state adds. Returned as `(area, centre offset from the
+/// kid's centre)` in points.
+fn the_dot(
+    raster: &(usize, usize, Vec<u8>),
+    on: pdf_document::Rect,
+    off: pdf_document::Rect,
+) -> (usize, (f64, f64)) {
+    let (width, height, pixels) = raster;
+    let dark = |x: usize, y: usize| {
+        let offset = (y * width + x) * 4;
+        pixels[offset] < 128 || pixels[offset + 1] < 128 || pixels[offset + 2] < 128
+    };
+    let top = |rect: pdf_document::Rect| (*height as f64 - (rect.y + rect.height)).round() as usize;
+    let (side_x, side_y) = (on.width.round() as usize, on.height.round() as usize);
+    let (mut area, mut sum_x, mut sum_y) = (0usize, 0.0, 0.0);
+    for dy in 0..side_y {
+        for dx in 0..side_x {
+            let in_on = dark(on.x.round() as usize + dx, top(on) + dy);
+            let in_off = dark(off.x.round() as usize + dx, top(off) + dy);
+            if in_on && !in_off {
+                area += 1;
+                sum_x += dx as f64 + 0.5;
+                sum_y += dy as f64 + 0.5;
+            }
+        }
+    }
+    let n = area.max(1) as f64;
+    (
+        area,
+        (sum_x / n - on.width / 2.0, sum_y / n - on.height / 2.0),
+    )
+}
+
+/// The dot reportlab draws: a circle of radius 0.2 × the button's side,
+/// centred. Ours used to be the ZapfDingbats `l` at 0.8 × the side, placed
+/// by fixed fractions — much bigger, and off centre down and to the left.
+#[test]
+fn a_reselected_radio_draws_a_centred_dot_the_size_the_file_uses() {
+    let bytes = fixture_bytes();
+    let pdf_document::FormFieldKind::RadioGroup { options } =
+        field(&open(&bytes).0, "plan").kind.clone()
+    else {
+        panic!("plan is a radio group");
+    };
+    let (basic, pro) = (options[0].rect, options[1].rect);
+    let now = edited(|document| {
+        set_value(
+            document,
+            "plan",
+            pdf_document::FieldValue::Choice(Some("basic".into())),
+        )
+    });
+
+    let (area, (off_x, off_y)) = the_dot(&now, basic, pro);
+    let radius = 0.2 * basic.width.min(basic.height);
+    let expected = std::f64::consts::PI * radius * radius;
+    assert!(
+        (area as f64 - expected).abs() <= 0.35 * expected,
+        "the dot covers {area} px; a radius-{radius} circle covers about {expected:.0}"
+    );
+    assert!(
+        off_x.abs() <= 0.5 && off_y.abs() <= 0.5,
+        "the dot's centre is ({off_x:.2}, {off_y:.2}) pt from the button's"
+    );
+}

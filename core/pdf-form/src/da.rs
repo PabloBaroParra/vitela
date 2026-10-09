@@ -99,10 +99,11 @@ pub fn format_da(style: &TextStyle) -> String {
 
 /// Serializes a `/Btn` field's `/DA`, e.g. `"/ZaDb 0 Tf 1 0 0 rg"` (T-205).
 ///
-/// Acrobat's own shape, and deliberately not [`format_da`]'s: a button's
-/// appearance is a ZapfDingbats glyph (`appearance::glyph_stream`), so the
-/// resource named here is `/ZaDb` — the font a downstream tool regenerating
-/// that appearance has to find — and the size is `0`, "chosen by the
+/// Acrobat's own shape, and deliberately not [`format_da`]'s: a checkbox's
+/// appearance is a ZapfDingbats glyph (`appearance::glyph_stream`) and
+/// Acrobat regenerates a radio dot from that font too, so the resource named
+/// here is `/ZaDb` — the font a downstream tool regenerating that appearance
+/// has to find (our own radio dot is a path) — and the size is `0`, "chosen by the
 /// viewer", because the glyph is sized from the control's own rect and the
 /// user's point size never reaches it.
 ///

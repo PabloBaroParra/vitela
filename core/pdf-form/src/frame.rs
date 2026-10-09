@@ -180,30 +180,41 @@ fn outline(shape: FrameShape, width: f64, height: f64, inset: f64) -> String {
             w = format_number(width - 2.0 * inset),
             h = format_number(height - 2.0 * inset),
         ),
-        FrameShape::Circle => {
-            let (cx, cy) = (width / 2.0, height / 2.0);
-            let r = (width.min(height) / 2.0 - inset).max(0.0);
-            // The usual four-Bézier circle: control points 0.5523·r out.
-            let k = 0.552_284_75 * r;
-            let p = |x: f64, y: f64| format!("{} {}", format_number(x), format_number(y));
-            format!(
-                "{} m\n{} {} {} c\n{} {} {} c\n{} {} {} c\n{} {} {} c\n",
-                p(cx + r, cy),
-                p(cx + r, cy + k),
-                p(cx + k, cy + r),
-                p(cx, cy + r),
-                p(cx - k, cy + r),
-                p(cx - r, cy + k),
-                p(cx - r, cy),
-                p(cx - r, cy - k),
-                p(cx - k, cy - r),
-                p(cx, cy - r),
-                p(cx + k, cy - r),
-                p(cx + r, cy - k),
-                p(cx + r, cy),
-            )
-        }
+        FrameShape::Circle => circle_path(
+            width / 2.0,
+            height / 2.0,
+            (width.min(height) / 2.0 - inset).max(0.0),
+        ),
     }
+}
+
+/// A closed circle path of radius `r` around `(cx, cy)`: the usual four
+/// Béziers, control points 0.5523·r out. Shared with the radio dot
+/// (`appearance::dot_stream`) so the two circles are drawn the same way.
+pub(crate) fn circle_path(cx: f64, cy: f64, r: f64) -> String {
+    let k = 0.552_284_75 * r;
+    let p = |x: f64, y: f64| format!("{} {}", format_number(x), format_number(y));
+    format!(
+        "{} m
+{} {} {} c
+{} {} {} c
+{} {} {} c
+{} {} {} c
+",
+        p(cx + r, cy),
+        p(cx + r, cy + k),
+        p(cx + k, cy + r),
+        p(cx, cy + r),
+        p(cx - k, cy + r),
+        p(cx - r, cy + k),
+        p(cx - r, cy),
+        p(cx - r, cy - k),
+        p(cx - k, cy - r),
+        p(cx, cy - r),
+        p(cx + k, cy - r),
+        p(cx + r, cy - k),
+        p(cx + r, cy),
+    )
 }
 
 #[cfg(test)]
