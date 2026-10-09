@@ -31,12 +31,12 @@
 //! being non-terminal (no widget of its own), it is never added to any
 //! page's `/Annots`, only to `/Fields`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use lopdf::{Dictionary, Object, ObjectId};
 use pdf_document::{
-    Command, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldKind, FormFieldSet,
-    PageId,
+    Command, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId, FormFieldKind,
+    FormFieldSet, PageId,
 };
 use pdf_form::FieldAppearance;
 use pdf_manip::pdf_text_string_object;
@@ -486,6 +486,40 @@ pub fn removed_existing_fields(document: &Document) -> Vec<ObjectId> {
         }
     }
     removed
+}
+
+/// The fields a save has to write: every `New` one, and only those
+/// `Existing` ones an applied command edited.
+///
+/// An untouched field already has the file's own `/AP`, and ours is not a
+/// substitute for it: `pdf_form::build_field_appearance` does not paint the
+/// `/MK` border and background a foreign form draws. Regenerating every field
+/// on every save stripped each box off the page the first time anything
+/// refreshed the preview — and kept doing it after undoing back to zero
+/// edits, because the field set itself never empties. Read from the applied
+/// commands, the same way [`removed_existing_fields`] is, so an undone edit
+/// leaves its field alone again.
+pub fn fields_to_write(document: &Document) -> FormFieldSet {
+    let edited: HashSet<FormFieldId> = document
+        .pending_edits
+        .entries()
+        .iter()
+        .filter_map(|command| match command {
+            Command::MoveFormField { id, .. }
+            | Command::ResizeFormField { id, .. }
+            | Command::RestyleFormField { id, .. }
+            | Command::SetFieldValue { id, .. }
+            | Command::RenameFormField { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    let mut fields = FormFieldSet::new();
+    for field in document.form_fields.iter() {
+        if field.origin == FieldOrigin::New || edited.contains(&field.id) {
+            fields.insert(field.clone());
+        }
+    }
+    fields
 }
 
 /// Takes each of `removed` (see [`removed_existing_fields`]) out of the file:

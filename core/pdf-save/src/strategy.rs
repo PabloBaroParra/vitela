@@ -473,7 +473,7 @@ fn save_full_rewrite(
         working.as_lopdf_mut(),
         catalog_id,
         &page_ids,
-        &input.document.form_fields,
+        &crate::forms::fields_to_write(input.document),
     )?;
 
     // Decision 6: an explicit `/ModDate` from `SetDocumentInfo` must win this
@@ -609,7 +609,7 @@ fn save_incremental(
             incremental,
             catalog_id,
             &page_ids,
-            &input.document.form_fields,
+            &crate::forms::fields_to_write(input.document),
         )
     })
 }

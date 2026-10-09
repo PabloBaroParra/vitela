@@ -157,7 +157,25 @@ fn glyph_stream(width: f64, height: f64, color: Color, glyph: u8) -> Stream {
         y = format_number(y),
         glyph = literal_string_byte(glyph),
     );
-    Stream::new(stream_dict(width, height), content.into_bytes())
+    let mut dict = stream_dict(width, height);
+    dict.set("Resources", zapf_dingbats_resources());
+    Stream::new(dict, content.into_bytes())
+}
+
+/// The glyph stream's own `/Resources`: `/ZaDb` bound to ZapfDingbats. Not
+/// left to `/AcroForm /DR` — a foreign form's need not define it (reportlab's
+/// defines only `/Cour`), and pdfium then shows the raw glyph code (`4`, `l`)
+/// in a fallback font. Same reasoning as [`text_font_resources`].
+fn zapf_dingbats_resources() -> Dictionary {
+    let mut font = Dictionary::new();
+    font.set("Type", "Font");
+    font.set("Subtype", "Type1");
+    font.set("BaseFont", "ZapfDingbats");
+    let mut fonts = Dictionary::new();
+    fonts.set(ZAPF_DINGBATS_RESOURCE, Object::Dictionary(font));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+    resources
 }
 
 /// Wraps one byte as a PDF literal string operand, escaping it if it is a
@@ -526,6 +544,53 @@ mod tests {
         let field = text_field(false, "東京", wide_rect());
         let result = build_field_appearance(&field);
         assert!(matches!(result, Err(FormError::InvalidValue(_))));
+    }
+
+    /// A foreign form's `/DR` need not define `/ZaDb` — reportlab's defines
+    /// only `/Cour` — and pdfium then draws the glyph code (`4`, `l`) in a
+    /// fallback font. The mark has to name its font itself, exactly as the
+    /// text stream above does.
+    #[test]
+    fn button_glyph_streams_carry_their_own_zapf_dingbats() {
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 12.0,
+            height: 12.0,
+        };
+        let FieldAppearance::Checkbox { on: checkmark, .. } =
+            build_field_appearance(&checkbox_field(rect)).expect("valid")
+        else {
+            panic!("expected Checkbox");
+        };
+        let radio = FormField {
+            kind: FormFieldKind::RadioGroup {
+                options: vec![RadioOption {
+                    export_value: "a".into(),
+                    rect,
+                }],
+            },
+            ..checkbox_field(rect)
+        };
+        let FieldAppearance::Radio(buttons) = build_field_appearance(&radio).expect("valid") else {
+            panic!("expected Radio");
+        };
+
+        for stream in [&checkmark, &buttons[0].on] {
+            let entry = stream
+                .dict
+                .get(b"Resources")
+                .and_then(Object::as_dict)
+                .and_then(|resources| resources.get(b"Font"))
+                .and_then(Object::as_dict)
+                .and_then(|fonts| fonts.get(ZAPF_DINGBATS_RESOURCE.as_bytes()))
+                .and_then(Object::as_dict)
+                .expect("own /Resources /Font /ZaDb");
+            assert_eq!(
+                entry.get(b"BaseFont").unwrap(),
+                &Object::Name(b"ZapfDingbats".to_vec())
+            );
+        }
     }
 
     #[test]
