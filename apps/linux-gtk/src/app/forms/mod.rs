@@ -29,6 +29,7 @@
 //!   with an armed kind, and dragging an existing one by its body or a
 //!   corner handle.
 //! - [`style`] restyles the selected field's font, size, and color.
+//! - [`delete`] removes the selected field as one undo step.
 //!
 //! This module owns the mode toggle and the gesture dispatch that decides
 //! whether a page click is a form-field edit at all, and — while it is —
@@ -36,6 +37,7 @@
 
 mod builder;
 mod command;
+mod delete;
 mod fill;
 pub(crate) mod geometry;
 mod gesture;
