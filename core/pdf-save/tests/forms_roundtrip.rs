@@ -540,6 +540,151 @@ fn filling_a_checkbox_moves_both_its_value_and_its_appearance_state() {
     );
 }
 
+/// Opens the committed foreign form and removes the named fields through the
+/// edit log, the way a shell's delete does.
+fn the_foreign_form_without(names: &[&str]) -> (Document, pdf_manip::LopdfDocument, Vec<u8>) {
+    let path = external_acroform_path();
+    let original_bytes = std::fs::read(&path).expect("read the committed fixture");
+    let (base, security) = pdf_manip::open_document(&path, None).expect("open the fixture");
+    let mut document = document_from_lopdf(&base, security).expect("model");
+    for name in names {
+        let field = field_named(&document, name).clone();
+        apply_command(&mut document, Command::RemoveFormField(field));
+    }
+    (document, base, original_bytes)
+}
+
+/// Every `/T` a widget on a page answers to — its own, or its parent's when
+/// the widget is a kid. What a viewer can still click, which is the half of
+/// a delete that `/Fields` alone does not prove.
+fn widget_names_on_pages(bytes: &[u8]) -> Vec<String> {
+    let saved = lopdf::Document::load_mem(bytes).expect("parse the saved file");
+    let name_of = |dict: &lopdf::Dictionary| {
+        dict.get(b"T")
+            .and_then(lopdf::Object::as_str)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+    };
+    let mut names = Vec::new();
+    for page_id in saved.get_pages().into_values() {
+        let page = saved.get_dictionary(page_id).expect("page dict");
+        let Ok(annots) = page.get(b"Annots") else {
+            continue;
+        };
+        let annots = match annots {
+            lopdf::Object::Reference(id) => saved.get_object(*id).and_then(lopdf::Object::as_array),
+            other => other.as_array(),
+        }
+        .expect("/Annots is an array");
+        for annot in annots {
+            let Ok(id) = annot.as_reference() else {
+                continue;
+            };
+            let dict = saved.get_dictionary(id).expect("annotation dict");
+            if dict.get(b"Subtype").and_then(lopdf::Object::as_name).ok() != Some(b"Widget") {
+                continue;
+            }
+            let name = name_of(dict).or_else(|| {
+                let parent = dict
+                    .get(b"Parent")
+                    .and_then(lopdf::Object::as_reference)
+                    .ok()?;
+                name_of(saved.get_dictionary(parent).ok()?)
+            });
+            names.extend(name);
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// A field the file came with is not gone because the model forgot it: the
+/// save has to take it out of `/Fields` *and* off its page, or it reopens.
+/// `plan` is a radio group — a parent whose widgets are kids — and
+/// `full_name` a field merged with its own widget; between them they cover
+/// both shapes a delete has to unhook.
+///
+/// `languages` is a list box the model does not read, so it is never in the
+/// set — and must survive, which is why the save takes its deletions from
+/// the edit log rather than from a diff against the file.
+#[test]
+fn deleting_a_foreign_field_removes_it_from_an_incremental_save() {
+    let (document, base, original_bytes) = the_foreign_form_without(&["full_name", "plan"]);
+
+    let saved = save(&document, &base, Some(&original_bytes));
+
+    assert!(
+        saved.starts_with(&original_bytes),
+        "a delete stays on the incremental writer"
+    );
+    let names: Vec<_> = reopen(&saved)
+        .form_fields
+        .iter()
+        .map(|field| field.name.clone())
+        .collect();
+    assert_eq!(names, ["notes", "subscribe", "country"]);
+    assert_eq!(
+        widget_names_on_pages(&saved),
+        ["country", "languages", "notes", "subscribe"]
+    );
+}
+
+/// The same delete down the other writer — no `original_bytes`.
+#[test]
+fn deleting_a_foreign_field_removes_it_from_a_full_rewrite() {
+    let (document, base, _) = the_foreign_form_without(&["full_name", "plan"]);
+
+    let saved = save(&document, &base, None);
+
+    let names: Vec<_> = reopen(&saved)
+        .form_fields
+        .iter()
+        .map(|field| field.name.clone())
+        .collect();
+    assert_eq!(names, ["notes", "subscribe", "country"]);
+    assert_eq!(
+        widget_names_on_pages(&saved),
+        ["country", "languages", "notes", "subscribe"]
+    );
+}
+
+/// An empty set is not "nothing to write": deleting every field is still a
+/// change the save owes the file.
+#[test]
+fn deleting_every_foreign_field_leaves_none() {
+    let (document, base, original_bytes) =
+        the_foreign_form_without(&["full_name", "notes", "subscribe", "plan", "country"]);
+    assert!(document.form_fields.is_empty());
+
+    let saved = save(&document, &base, Some(&original_bytes));
+
+    assert!(reopen(&saved).form_fields.is_empty());
+    assert_eq!(
+        widget_names_on_pages(&saved),
+        ["languages"],
+        "only the field the model never read is left"
+    );
+}
+
+/// Undo is the other half of the contract: a delete that was stepped back
+/// leaves nothing for the save to remove.
+#[test]
+fn an_undone_delete_keeps_the_field() {
+    let (mut document, base, original_bytes) = the_foreign_form_without(&["full_name"]);
+    let mut log = std::mem::take(&mut document.pending_edits);
+    assert!(log.undo(&mut document), "undo should succeed");
+    document.pending_edits = log;
+
+    let saved = save(&document, &base, Some(&original_bytes));
+
+    assert!(reopen(&saved)
+        .form_fields
+        .iter()
+        .any(|field| field.name == "full_name"));
+    assert!(widget_names_on_pages(&saved).contains(&"full_name".to_string()));
+}
+
 #[test]
 #[ignore = "writes a caller-owned file for the standalone pypdf validator"]
 fn write_pypdf_validation_output_for_authored_form() {
