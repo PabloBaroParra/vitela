@@ -35,9 +35,9 @@ pub const CHECKBOX_ON_STATE: &str = "Yes";
 /// ZapfDingbats character code for a checkmark (Adobe/reportlab's own
 /// long-standing convention for a default-style checkbox "on" appearance).
 const CHECKMARK_GLYPH: u8 = 0x34;
-/// ZapfDingbats character code for a solid circle (the matching convention
-/// for a default-style radio button "on" appearance).
-const CIRCLE_GLYPH: u8 = 0x6C;
+/// The radio dot's radius as a fraction of the button's smaller side — what
+/// reportlab draws (3.6 in an 18pt button).
+const RADIO_DOT_RADIUS: f64 = 0.2;
 
 /// Padding, in points, kept between a text field's own box edge and its
 /// text — matches the small constant Acrobat's own generated appearances
@@ -109,7 +109,7 @@ fn build_radio_button(option: &RadioOption, color: Color) -> RadioButtonAppearan
     let (width, height) = (option.rect.width, option.rect.height);
     RadioButtonAppearance {
         export_value: option.export_value.clone(),
-        on: glyph_stream(width, height, color, CIRCLE_GLYPH),
+        on: dot_stream(width, height, color),
         off: empty_stream(width, height),
     }
 }
@@ -156,6 +156,46 @@ fn glyph_stream(width: f64, height: f64, color: Color, glyph: u8) -> Stream {
         x = format_number(x),
         y = format_number(y),
         glyph = literal_string_byte(glyph),
+    );
+    let mut dict = stream_dict(width, height);
+    dict.set("Resources", zapf_dingbats_resources());
+    Stream::new(dict, content.into_bytes())
+}
+
+/// The glyph stream's own `/Resources`: `/ZaDb` bound to ZapfDingbats. Not
+/// left to `/AcroForm /DR` — a foreign form's need not define it (reportlab's
+/// defines only `/Cour`), and pdfium then shows the raw glyph code (`4`, `l`)
+/// in a fallback font. Same reasoning as [`text_font_resources`].
+fn zapf_dingbats_resources() -> Dictionary {
+    let mut font = Dictionary::new();
+    font.set("Type", "Font");
+    font.set("Subtype", "Type1");
+    font.set("BaseFont", "ZapfDingbats");
+    let mut fonts = Dictionary::new();
+    fonts.set(ZAPF_DINGBATS_RESOURCE, Object::Dictionary(font));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+    resources
+}
+
+/// The radio button's "on" mark: a filled circle centred in the button. A
+/// path, not the ZapfDingbats `l` — the glyph's ink sits where that font's
+/// metrics put it, which this crate does not model, so it came out more than
+/// twice the area and off centre.
+fn dot_stream(width: f64, height: f64, color: Color) -> Stream {
+    let content = format!(
+        "q
+{r} {g} {b} rg
+{path}f
+Q",
+        r = format_number(color.r as f64 / 255.0),
+        g = format_number(color.g as f64 / 255.0),
+        b = format_number(color.b as f64 / 255.0),
+        path = crate::frame::circle_path(
+            width / 2.0,
+            height / 2.0,
+            RADIO_DOT_RADIUS * width.min(height),
+        ),
     );
     Stream::new(stream_dict(width, height), content.into_bytes())
 }
@@ -526,6 +566,122 @@ mod tests {
         let field = text_field(false, "東京", wide_rect());
         let result = build_field_appearance(&field);
         assert!(matches!(result, Err(FormError::InvalidValue(_))));
+    }
+
+    /// A foreign form's `/DR` need not define `/ZaDb` — reportlab's defines
+    /// only `/Cour` — and pdfium then draws the glyph code (`4`) in a
+    /// fallback font. The mark has to name its font itself, exactly as the
+    /// text stream above does.
+    #[test]
+    fn the_checkmark_stream_carries_its_own_zapf_dingbats() {
+        let FieldAppearance::Checkbox { on: checkmark, .. } =
+            build_field_appearance(&checkbox_field(square(12.0))).expect("valid")
+        else {
+            panic!("expected Checkbox");
+        };
+        let entry = checkmark
+            .dict
+            .get(b"Resources")
+            .and_then(Object::as_dict)
+            .and_then(|resources| resources.get(b"Font"))
+            .and_then(Object::as_dict)
+            .and_then(|fonts| fonts.get(ZAPF_DINGBATS_RESOURCE.as_bytes()))
+            .and_then(Object::as_dict)
+            .expect("own /Resources /Font /ZaDb");
+        assert_eq!(
+            entry.get(b"BaseFont").unwrap(),
+            &Object::Name(b"ZapfDingbats".to_vec())
+        );
+    }
+
+    fn square(side: f64) -> Rect {
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width: side,
+            height: side,
+        }
+    }
+
+    fn radio_on_stream(rect: Rect) -> String {
+        let radio = FormField {
+            kind: FormFieldKind::RadioGroup {
+                options: vec![RadioOption {
+                    export_value: "a".into(),
+                    rect,
+                }],
+            },
+            style: TextStyle {
+                color: Color { r: 255, g: 0, b: 0 },
+                ..style()
+            },
+            ..checkbox_field(rect)
+        };
+        let FieldAppearance::Radio(buttons) = build_field_appearance(&radio).expect("valid") else {
+            panic!("expected Radio");
+        };
+        String::from_utf8(buttons[0].on.content.clone()).unwrap()
+    }
+
+    /// The `x y` anchor points of every `m` and `c` in a path: for the
+    /// four-arc circle these are its east, north, west and south extremes.
+    fn anchor_extent(content: &str) -> (f64, f64, f64, f64) {
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        for line in content.lines() {
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            let anchor = match tokens.last() {
+                Some(&"m") => tokens.get(0..2),
+                Some(&"c") => tokens.get(4..6),
+                _ => None,
+            };
+            if let Some([x, y]) = anchor {
+                xs.push(x.parse::<f64>().unwrap());
+                ys.push(y.parse::<f64>().unwrap());
+            }
+        }
+        let min = |v: &[f64]| v.iter().cloned().fold(f64::INFINITY, f64::min);
+        let max = |v: &[f64]| v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        (min(&xs), max(&xs), min(&ys), max(&ys))
+    }
+
+    /// A vector circle, not the ZapfDingbats `l`: a glyph's ink is placed by
+    /// font metrics this crate does not model, so it landed big and off
+    /// centre. Radius 0.2 of the smaller side — what reportlab draws (3.6 in
+    /// an 18pt button) — centred in the button.
+    #[test]
+    fn the_radio_dot_is_a_circle_centred_in_its_button() {
+        for (rect, centre, radius) in [
+            (square(18.0), (9.0, 9.0), 3.6),
+            (
+                Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 30.0,
+                    height: 10.0,
+                },
+                (15.0, 5.0),
+                2.0,
+            ),
+        ] {
+            let content = radio_on_stream(rect);
+            assert!(!content.contains("Tj"), "no glyph: {content}");
+            assert!(
+                content.contains("1 0 0 rg"),
+                "painted in the field colour: {content}"
+            );
+            assert!(content.trim_end().ends_with("f\nQ"), "filled: {content}");
+            let (x0, x1, y0, y1) = anchor_extent(&content);
+            let near = |a: f64, b: f64| (a - b).abs() < 1e-3;
+            assert!(
+                near(x0, centre.0 - radius) && near(x1, centre.0 + radius),
+                "{content}"
+            );
+            assert!(
+                near(y0, centre.1 - radius) && near(y1, centre.1 + radius),
+                "{content}"
+            );
+        }
     }
 
     #[test]

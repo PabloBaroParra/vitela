@@ -31,14 +31,14 @@
 //! being non-terminal (no widget of its own), it is never added to any
 //! page's `/Annots`, only to `/Fields`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use lopdf::{Dictionary, Object, ObjectId};
+use lopdf::{Dictionary, Object, ObjectId, Stream};
 use pdf_document::{
-    Command, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldKind, FormFieldSet,
-    PageId,
+    Command, Document, FieldOrigin, FieldValue, FontFamily, FormField, FormFieldId, FormFieldKind,
+    FormFieldSet, PageId,
 };
-use pdf_form::FieldAppearance;
+use pdf_form::{FieldAppearance, FrameShape, WidgetFrame};
 use pdf_manip::pdf_text_string_object;
 
 use crate::annotations::ObjectSink;
@@ -175,9 +175,17 @@ struct SingleFieldAppearance {
 fn build_single_field_appearance<S: ObjectSink>(
     sink: &mut S,
     field: &FormField,
+    frame: Option<&WidgetFrame>,
 ) -> Result<SingleFieldAppearance, SaveError> {
+    let framed = |mut stream: Stream| {
+        if let Some(frame) = frame {
+            frame.paint_under(&mut stream, FrameShape::Box);
+        }
+        stream
+    };
     match pdf_form::build_field_appearance(field)? {
         FieldAppearance::Single(stream) => {
+            let stream = framed(stream);
             let stream_id = sink.add_object(Object::Stream(stream));
             let mut ap = Dictionary::new();
             ap.set("N", Object::Reference(stream_id));
@@ -194,6 +202,7 @@ fn build_single_field_appearance<S: ObjectSink>(
             })
         }
         FieldAppearance::Checkbox { on_state, on, off } => {
+            let (on, off) = (framed(on), framed(off));
             let on_id = sink.add_object(Object::Stream(on));
             let off_id = sink.add_object(Object::Stream(off));
             let mut normal = Dictionary::new();
@@ -250,7 +259,7 @@ fn write_new_single_field<S: ObjectSink>(
     page_object_id: ObjectId,
     field: &FormField,
 ) -> Result<(), SaveError> {
-    let built = build_single_field_appearance(sink, field)?;
+    let built = build_single_field_appearance(sink, field, None)?;
 
     let mut dict = Dictionary::new();
     dict.set("Type", "Annot");
@@ -303,7 +312,8 @@ fn update_existing_single_field<S: ObjectSink>(
     field: &FormField,
     object_id: ObjectId,
 ) -> Result<(), SaveError> {
-    let built = build_single_field_appearance(sink, field)?;
+    let frame = existing_frame(sink, object_id);
+    let built = build_single_field_appearance(sink, field, frame.as_ref())?;
     let da = field_da(field);
 
     let dict = sink.page_dict_mut(object_id)?;
@@ -435,8 +445,13 @@ fn update_existing_radio_group<S: ObjectSink>(
     }
 
     for ((option, button), kid_id) in options.iter().zip(buttons.iter()).zip(kid_ids.iter()) {
-        let on_id = sink.add_object(Object::Stream(button.on.clone()));
-        let off_id = sink.add_object(Object::Stream(button.off.clone()));
+        let (mut on, mut off) = (button.on.clone(), button.off.clone());
+        if let Some(frame) = existing_frame(sink, *kid_id) {
+            frame.paint_under(&mut on, FrameShape::Circle);
+            frame.paint_under(&mut off, FrameShape::Circle);
+        }
+        let on_id = sink.add_object(Object::Stream(on));
+        let off_id = sink.add_object(Object::Stream(off));
         let is_on = selected.as_deref() == Some(option.export_value.as_str());
 
         let kid = sink.page_dict_mut(*kid_id)?;
@@ -486,6 +501,40 @@ pub fn removed_existing_fields(document: &Document) -> Vec<ObjectId> {
         }
     }
     removed
+}
+
+/// The fields a save has to write: every `New` one, and only those
+/// `Existing` ones an applied command edited.
+///
+/// An untouched field already has the file's own `/AP`, and ours is not a
+/// substitute for it: `pdf_form::build_field_appearance` does not paint the
+/// `/MK` border and background a foreign form draws. Regenerating every field
+/// on every save stripped each box off the page the first time anything
+/// refreshed the preview — and kept doing it after undoing back to zero
+/// edits, because the field set itself never empties. Read from the applied
+/// commands, the same way [`removed_existing_fields`] is, so an undone edit
+/// leaves its field alone again.
+pub fn fields_to_write(document: &Document) -> FormFieldSet {
+    let edited: HashSet<FormFieldId> = document
+        .pending_edits
+        .entries()
+        .iter()
+        .filter_map(|command| match command {
+            Command::MoveFormField { id, .. }
+            | Command::ResizeFormField { id, .. }
+            | Command::RestyleFormField { id, .. }
+            | Command::SetFieldValue { id, .. }
+            | Command::RenameFormField { id, .. } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    let mut fields = FormFieldSet::new();
+    for field in document.form_fields.iter() {
+        if field.origin == FieldOrigin::New || edited.contains(&field.id) {
+            fields.insert(field.clone());
+        }
+    }
+    fields
 }
 
 /// Takes each of `removed` (see [`removed_existing_fields`]) out of the file:
@@ -649,6 +698,15 @@ fn without(entries: &[Object], target: ObjectId) -> Option<Vec<Object>> {
         .cloned()
         .collect();
     (kept.len() != entries.len()).then_some(kept)
+}
+
+/// The `/MK` frame the widget at `id` already draws, so a regenerated `/AP`
+/// keeps it — see [`WidgetFrame`].
+fn existing_frame<S: ObjectSink>(sink: &S, id: ObjectId) -> Option<WidgetFrame> {
+    WidgetFrame::from_widget(dict(sink, id)?, |object| match object {
+        Object::Reference(id) => sink.object(*id),
+        direct => Some(direct),
+    })
 }
 
 fn dict<S: ObjectSink>(sink: &S, id: ObjectId) -> Option<&Dictionary> {

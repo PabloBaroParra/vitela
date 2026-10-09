@@ -82,16 +82,15 @@ EXPECTED_DA = {
     "filled": {
         "notes": "0 0 0 rg /Helv 12 Tf",
         "country": "0 0 0 rg /Cour 12 Tf",
-        "full_name": "0 0 0 rg /Helv 12 Tf",
-        # reportlab writes no `/DA` at all on its buttons; a Vitela save
-        # gives them one. Recorded here so that stays a decision rather
-        # than a surprise — the colour is the black its own appearance was
-        # already painted in, so the file says what it always showed.
-        "subscribe": "/ZaDb 0 Tf 0 0 0 rg",
-        "plan": "/ZaDb 0 Tf 0 0 0 rg",
-        # And the listbox pdf-form never models keeps reportlab's own
-        # string, operators in reportlab's own order: untouched means
-        # untouched, down to the bytes.
+        # Every field the save did not edit keeps reportlab's own `/DA`,
+        # operators in reportlab's own order: untouched means untouched,
+        # down to the bytes. Rewriting them also replaced their `/AP` with
+        # one that drops the `/MK` border box (2026-10-09).
+        "full_name": "/Helv 12 Tf 0 0 0 rg",
+        # reportlab writes no `/DA` at all on its buttons, and an untouched
+        # one is no longer given one.
+        "subscribe": None,
+        "plan": None,
         "languages": "/Helv 12 Tf 0 0 0 rg",
     },
 }
