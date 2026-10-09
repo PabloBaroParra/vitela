@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,12 +25,15 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
@@ -80,33 +84,41 @@ internal class FormFieldActions(
 internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: FormFieldActions, modifier: Modifier = Modifier) {
     val fill = { fieldId: Long, value: FormFieldValue -> actions.onFill(documentId, fieldId, value) }
     val focusManager = LocalFocusManager.current
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Form fields", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            // Focus leaves first, so a field still being typed in commits
-            // while the panel is there to take it.
-            TextButton(onClick = { focusManager.clearFocus(); actions.onToggle() }) { Text("Close") }
-        }
-        formFieldsNotice(panel)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-        if (panel.authoringAllowed) PlaceFieldChips(panel.armed, actions.onArm)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Keyed by document too: a row's remembered draft must not survive into another file's field of the same id.
-            items(panel.fields, key = { "$documentId:${it.id}" }) { field ->
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.weight(1f)) { FormFieldRow(field, panel.fillAllowed, fill) }
-                        if (panel.authoringAllowed) {
-                            val move = FormFieldTap.Move(field.id, field.pageIndex)
-                            val moving = panel.armed == move
-                            TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) "Cancel" else "Move") }
-                            // No confirmation: Undo brings the field back, as with a deleted image.
-                            TextButton(onClick = { actions.onDelete(documentId, field.id) }) { Text("Delete") }
+    // A hardware Enter in a typed box parks focus on the title: see releaseFocusOnEnter.
+    val parking = remember { FocusRequester() }
+    CompositionLocalProvider(LocalFocusParking provides parking) {
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Form fields",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f).focusRequester(parking).focusable(),
+                )
+                // Focus leaves first, so a field still being typed in commits
+                // while the panel is there to take it.
+                TextButton(onClick = { focusManager.clearFocus(); actions.onToggle() }) { Text("Close") }
+            }
+            formFieldsNotice(panel)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            if (panel.authoringAllowed) PlaceFieldChips(panel.armed, actions.onArm)
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Keyed by document too: a row's remembered draft must not survive into another file's field of the same id.
+                items(panel.fields, key = { "$documentId:${it.id}" }) { field ->
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(modifier = Modifier.weight(1f)) { FormFieldRow(field, panel.fillAllowed, fill) }
+                            if (panel.authoringAllowed) {
+                                val move = FormFieldTap.Move(field.id, field.pageIndex)
+                                val moving = panel.armed == move
+                                TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) "Cancel" else "Move") }
+                                // No confirmation: Undo brings the field back, as with a deleted image.
+                                TextButton(onClick = { actions.onDelete(documentId, field.id) }) { Text("Delete") }
+                            }
                         }
-                    }
-                    if (panel.authoringAllowed) {
-                        FieldNameBox(field.name) { actions.onRename(documentId, field.id, it) }
-                        FieldStyleRow(field.style) { actions.onRestyle(documentId, field.id, it) }
-                        FieldSizeRow(field.rect) { width, height -> actions.onResize(documentId, field.id, width, height) }
+                        if (panel.authoringAllowed) {
+                            FieldNameBox(field.name) { actions.onRename(documentId, field.id, it) }
+                            FieldStyleRow(field.style) { actions.onRestyle(documentId, field.id, it) }
+                            FieldSizeRow(field.rect) { width, height -> actions.onResize(documentId, field.id, width, height) }
+                        }
                     }
                 }
             }
@@ -151,7 +163,7 @@ private fun SizeBox(label: String, value: String, onValueChange: (String) -> Uni
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-        modifier = modifier,
+        modifier = modifier.releaseFocusOnEnter(),
     )
 }
 

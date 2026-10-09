@@ -62,7 +62,7 @@ internal fun FieldNameBox(name: String, rename: (String) -> Unit) {
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-        modifier = Modifier.fillMaxWidth().onFocusChanged {
+        modifier = Modifier.fillMaxWidth().releaseFocusOnEnter().onFocusChanged {
             if (focused && !it.isFocused) rename(draft)
             focused = it.isFocused
         },
@@ -109,7 +109,7 @@ private fun FontSizeBox(sizePt: Double, modifier: Modifier, commit: (Double) -> 
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
-        modifier = modifier.onFocusChanged {
+        modifier = modifier.releaseFocusOnEnter().onFocusChanged {
             if (focused && !it.isFocused) commit(typedPoints(draft))
             focused = it.isFocused
         },
