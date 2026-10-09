@@ -361,6 +361,18 @@ It is clamped whole onto the page, and a size that is not a finite, positive
 number is refused before it reaches the core. Windows keeps the bottom-left
 origin instead; both send the core the same resize command.
 
+Each field can also be renamed, restyled and deleted from its row, each one
+undo step. Its name commits when focus leaves the box, and Done only lets
+focus go. A rename is not applied to the row until the core answers, so a Done
+that also committed would queue the same rename twice. The name is trimmed. An
+empty name, or one another field already uses, is refused with the reason
+before it reaches the core, which checks both again. The style row picks the
+font (one of the three Standard-14 families the core writes into `/DA`), the
+size in points and the text color (Black, Blue, Red, Green; a color another
+tool wrote shows as Custom). A size outside 1–72 pt is refused, matching the
+Windows shell; the core itself takes any size. **Delete** removes the field and
+its widgets at once, with no confirmation, because Undo brings it back whole.
+
 Nothing is drawn over the page. Only the renderer paints a field, so every
 edit rebuilds the preview and the page redraws. The permission is asked as the
 core's own question, not composed from the annotation and content answers:

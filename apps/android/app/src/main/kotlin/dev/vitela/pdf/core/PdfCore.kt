@@ -133,6 +133,10 @@ interface PdfDocument : AutoCloseable {
     fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Resizing form fields is unavailable in this PDF core."))
     /** Queues one undoable removal of field [fieldId] and its widgets; undo brings it back whole. */
     fun removeFormField(fieldId: Long): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Deleting form fields is unavailable in this PDF core."))
+    /** Queues one undoable rename of field [fieldId]; the core trims [name] and refuses an empty or taken one. */
+    fun renameFormField(fieldId: Long, name: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Renaming form fields is unavailable in this PDF core."))
+    /** Queues one undoable change of field [fieldId]'s font, size and text color to [style]. */
+    fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Styling form fields is unavailable in this PDF core."))
     /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
     fun contentEditingAllowed(): Boolean = false
     /** The text runs and images page [pageIndex] paints, pending edits included; refused when the document forbids text extraction. */

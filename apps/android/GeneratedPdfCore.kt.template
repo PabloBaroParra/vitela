@@ -33,6 +33,8 @@ import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.core.FieldFont
+import dev.vitela.pdf.core.FieldTextStyle
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.FormFieldKind
@@ -328,6 +330,18 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     override fun removeFormField(fieldId: Long): PdfCoreResult<Unit> =
         authorField("This document does not permit deleting form fields.", "This field cannot be deleted.") {
             FfiEditCommand.RemoveFormField(fieldId.toULong())
+        }
+
+    // The panel refuses an empty or taken name first; a refusal here is the
+    // core seeing a name the panel's list did not.
+    override fun renameFormField(fieldId: Long, name: String): PdfCoreResult<Unit> =
+        authorField("This document does not permit renaming form fields.", "Another field already uses that name.") {
+            FfiEditCommand.RenameFormField(fieldId.toULong(), name)
+        }
+
+    override fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> =
+        authorField("This document does not permit styling form fields.", "This field cannot take that style.") {
+            FfiEditCommand.RestyleFormField(fieldId.toULong(), style.toFfi())
         }
 
     private fun authorField(forbidden: String, refused: String, command: () -> FfiEditCommand): PdfCoreResult<Unit> = try {
@@ -740,10 +754,25 @@ private fun AnnotationEdit.toFfi(): FfiEditCommand = when (this) {
 }
 
 // A move is one page: the block form the core takes is Windows' `MovePages(from, 1, to)`.
-private fun FfiFormField.toFormField() = FormField(id.toLong(), page.toInt(), name, kind.toFormFieldKind(), value.toFormFieldValue(), rect.toRect())
+private fun FfiFormField.toFormField() = FormField(id.toLong(), page.toInt(), name, kind.toFormFieldKind(), value.toFormFieldValue(), rect.toRect(), style.toFieldTextStyle())
 
 // A new field's first style: the Windows shell's Helvetica 12 pt black.
-private val NEW_FIELD_STYLE = FfiTextStyle(FfiFontFamily.HELVETICA, 12.0, FfiColor(0u, 0u, 0u))
+private val NEW_FIELD_STYLE = FieldTextStyle().toFfi()
+
+private fun FfiTextStyle.toFieldTextStyle() = FieldTextStyle(font.toFieldFont(), sizePt, color.toColor())
+private fun FieldTextStyle.toFfi() = FfiTextStyle(font.toFfi(), sizePt, color.toFfi())
+
+private fun FfiFontFamily.toFieldFont(): FieldFont = when (this) {
+    FfiFontFamily.HELVETICA -> FieldFont.Helvetica
+    FfiFontFamily.TIMES_ROMAN -> FieldFont.TimesRoman
+    FfiFontFamily.COURIER -> FieldFont.Courier
+}
+
+private fun FieldFont.toFfi(): FfiFontFamily = when (this) {
+    FieldFont.Helvetica -> FfiFontFamily.HELVETICA
+    FieldFont.TimesRoman -> FfiFontFamily.TIMES_ROMAN
+    FieldFont.Courier -> FfiFontFamily.COURIER
+}
 
 private fun FfiFormFieldKind.toFormFieldKind(): FormFieldKind = when (this) {
     is FfiFormFieldKind.Text -> FormFieldKind.Text(multiline, maxLen?.let { minOf(it, Int.MAX_VALUE.toUInt()).toInt() })

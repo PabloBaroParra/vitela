@@ -7,6 +7,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.core.FieldTextStyle
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
@@ -496,6 +497,10 @@ class ViewerViewModel(
     fun resizeFormField(documentId: Long, fieldId: Long, width: Double, height: Double) = formAuthoring.resize(documentId, fieldId, width, height)
     /** Deletes a field and its widgets; [documentId] is the document the row was built for. */
     fun deleteFormField(documentId: Long, fieldId: Long) = formAuthoring.remove(documentId, fieldId)
+    /** Renames a field; [documentId] is the document the row was built for. */
+    fun renameFormField(documentId: Long, fieldId: Long, name: String) = formAuthoring.rename(documentId, fieldId, name)
+    /** Sets a field's font, size and text color; [documentId] is the document the row was built for. */
+    fun restyleFormField(documentId: Long, fieldId: Long, style: FieldTextStyle) = formAuthoring.restyle(documentId, fieldId, style)
 
     // Edit content
     fun openContentEdit() {

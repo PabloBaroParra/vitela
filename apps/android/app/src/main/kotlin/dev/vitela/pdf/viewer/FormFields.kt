@@ -44,6 +44,13 @@ internal const val FIELD_MOVED = "Field moved. Save to keep the change."
 internal const val FIELD_RESIZED = "Field resized. Save to keep the change."
 internal const val FIELD_DELETED = "Field deleted. Save to keep the change, or undo to bring it back."
 internal const val FIELD_SIZE_INVALID = "Enter finite, positive field dimensions."
+internal const val FIELD_RENAMED = "Field renamed. Save to keep the change."
+internal const val FIELD_RESTYLED = "Field style changed. Save to keep the change."
+internal const val FIELD_NAME_EMPTY = "Enter a field name."
+internal const val FIELD_FONT_SIZE_INVALID = "Enter a font size between 1 and 72 pt."
+
+/** The font sizes a field may be given, in points: the Windows shell's bounds. */
+internal val FIELD_FONT_SIZES = 1.0..72.0
 
 private val NewFormField.label: String get() = when (this) {
     NewFormField.Text -> "text field"
@@ -55,6 +62,7 @@ private val NewFormField.label: String get() = when (this) {
 internal fun fieldPlacementPrompt(kind: NewFormField) = "Tap a page to place a ${kind.label}."
 internal fun fieldPlacedStatus(kind: NewFormField) = "${kind.label.replaceFirstChar(Char::uppercase)} placed. Save to keep the change."
 internal fun fieldWrongPage(field: FormField) = "Tap page ${field.pageIndex + 1} to move ${field.name}."
+internal fun fieldNameTaken(name: String) = "\"$name\" is already used by another field."
 
 /** The line the panel shows above its rows, or null when the rows speak for themselves. */
 internal fun formFieldsNotice(panel: FormFieldsState): String? = when (val armed = panel.armed) {

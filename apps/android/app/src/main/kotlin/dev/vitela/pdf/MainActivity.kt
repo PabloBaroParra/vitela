@@ -444,6 +444,8 @@ private fun VitelaApp(
                 onPageTap = viewModel::tapFormField,
                 onResize = viewModel::resizeFormField,
                 onDelete = viewModel::deleteFormField,
+                onRename = viewModel::renameFormField,
+                onRestyle = viewModel::restyleFormField,
             )
         },
         contentEdit = remember(viewModel) {
