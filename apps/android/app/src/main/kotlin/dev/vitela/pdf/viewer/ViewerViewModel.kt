@@ -494,6 +494,8 @@ class ViewerViewModel(
     fun tapFormField(pageIndex: Int, point: AnnotationPoint) = formAuthoring.tap(pageIndex, point)
     /** Resizes a field in points, keeping its top-left corner; [documentId] is the document the row was built for. */
     fun resizeFormField(documentId: Long, fieldId: Long, width: Double, height: Double) = formAuthoring.resize(documentId, fieldId, width, height)
+    /** Deletes a field and its widgets; [documentId] is the document the row was built for. */
+    fun deleteFormField(documentId: Long, fieldId: Long) = formAuthoring.remove(documentId, fieldId)
 
     // Edit content
     fun openContentEdit() {

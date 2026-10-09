@@ -8,7 +8,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Form fields: placing new fields, moving and resizing existing ones, each one
+ * Form fields: placing new fields, moving, resizing and deleting existing ones, each one
  * undoable entry in the shared edit log. The panel arms a page tap for a place
  * or a move, and the tap is the edit; a size is typed into the field's row.
  *
@@ -95,6 +95,19 @@ internal class FormAuthoring(
             ?: return run { state.value = state.value.copy(status = FIELD_SIZE_INVALID) }
         if (to == field.rect) return
         commit(openDocument, FIELD_RESIZED) { resizeFormField(field.id, to) }
+    }
+
+    /**
+     * Deletes field [fieldId] and its widgets as one undo step, for the
+     * document [documentId] its row was built for. A move armed on it goes
+     * with it: [commit] disarms first.
+     */
+    fun remove(documentId: Long, fieldId: Long) {
+        val openDocument = session.document ?: return
+        val panel = state.value.formFields ?: return
+        if (documentId != state.value.documentId || !panel.authoringAllowed) return
+        if (panel.fields.none { it.id == fieldId }) return
+        commit(openDocument, FIELD_DELETED) { removeFormField(fieldId) }
     }
 
     /**

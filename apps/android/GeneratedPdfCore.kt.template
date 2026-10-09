@@ -325,6 +325,11 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
             FfiEditCommand.ResizeFormField(fieldId.toULong(), to.toFfi())
         }
 
+    override fun removeFormField(fieldId: Long): PdfCoreResult<Unit> =
+        authorField("This document does not permit deleting form fields.", "This field cannot be deleted.") {
+            FfiEditCommand.RemoveFormField(fieldId.toULong())
+        }
+
     private fun authorField(forbidden: String, refused: String, command: () -> FfiEditCommand): PdfCoreResult<Unit> = try {
         ffiApplyEdit(handle, command())
         PdfCoreResult.Success(Unit)

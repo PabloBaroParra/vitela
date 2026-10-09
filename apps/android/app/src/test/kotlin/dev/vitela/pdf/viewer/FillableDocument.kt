@@ -42,6 +42,7 @@ internal class FillableDocument(
     val placements = mutableListOf<Triple<Int, NewFormField, AnnotationRect>>()
     val moves = mutableListOf<Pair<Long, AnnotationRect>>()
     val resizes = mutableListOf<Pair<Long, AnnotationRect>>()
+    val removals = mutableListOf<Long>()
     val drawn = mutableListOf<Pair<Int, Map<Long, FormFieldValue>>>()
     private var preview = values()
     var previewRefreshes = 0
@@ -106,6 +107,13 @@ internal class FillableDocument(
         authoringRefusal?.let { return PdfCoreResult.Failure(it) }
         resizes += fieldId to to
         record(fields.map { if (it.id == fieldId) it.copy(rect = to) else it })
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun removeFormField(fieldId: Long): PdfCoreResult<Unit> {
+        authoringRefusal?.let { return PdfCoreResult.Failure(it) }
+        removals += fieldId
+        record(fields.filterNot { it.id == fieldId })
         return PdfCoreResult.Success(Unit)
     }
 
