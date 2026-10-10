@@ -21,6 +21,37 @@ protocol PdfDocument {
     var pages: [PageDimensions] { get }
 }
 
+/// A `/CreationDate` or `/ModDate` value — mirrors `FfiPdfDate`. The offset
+/// is carried along unchanged so an edited date keeps the zone it had.
+struct MetadataDate: Equatable {
+    enum Offset: Equatable {
+        case utc
+        case plus(hours: Int, minutes: Int)
+        case minus(hours: Int, minutes: Int)
+    }
+
+    var year: Int
+    var month: Int
+    var day: Int
+    var hour: Int
+    var minute: Int
+    var second: Int
+    var offset: Offset
+}
+
+/// The document's Info dictionary — mirrors `FfiDocumentInfo`. `nil` means
+/// the entry is absent; an empty text field clears it.
+struct DocumentInfo: Equatable {
+    var title: String?
+    var author: String?
+    var subject: String?
+    var keywords: String?
+    var creator: String?
+    var producer: String?
+    var creationDate: MetadataDate?
+    var modDate: MetadataDate?
+}
+
 /// A page-space rectangle in PDF points with a bottom-left origin — mirrors
 /// `FfiTextRect`. A shell converts to view space (top-left origin) with the
 /// page's height: `y_view = (pageHeight - rect.yPt - rect.heightPt) * zoom`.
@@ -77,6 +108,22 @@ protocol PdfCoreClient {
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch]
     func pageCharacters(document: any PdfDocument, page: Int) throws -> any PageCharacters
+
+    // Editing — see `ViewerStore+Editing.swift`. Every edit is applied to the
+    // open handle's in-memory model; nothing reaches disk until `save`.
+    func documentInfo(document: any PdfDocument) throws -> DocumentInfo
+    func setDocumentInfo(document: any PdfDocument, info: DocumentInfo) throws
+    func contentEditingAllowed(document: any PdfDocument) -> Bool
+    func undo(document: any PdfDocument) -> Bool
+    func redo(document: any PdfDocument) -> Bool
+    func canUndo(document: any PdfDocument) -> Bool
+    func canRedo(document: any PdfDocument) -> Bool
+    /// Whether saving would break a signature the file already carries.
+    func saveWillInvalidateSignatures(document: any PdfDocument) throws -> Bool
+    /// The complete saved PDF. `acknowledgingSignatureLoss` is how the shell
+    /// says it already warned the user; without it a signature-breaking save
+    /// is refused.
+    func save(document: any PdfDocument, acknowledgingSignatureLoss: Bool) throws -> Data
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -86,6 +133,42 @@ extension PdfCoreClient {
 
     func pageCharacters(document: any PdfDocument, page: Int) throws -> any PageCharacters {
         throw TextQueryFailure.failed("this client does not support text queries")
+    }
+
+    func documentInfo(document: any PdfDocument) throws -> DocumentInfo { DocumentInfo() }
+
+    func setDocumentInfo(document: any PdfDocument, info: DocumentInfo) throws {
+        throw EditFailure.failed("this client does not support editing")
+    }
+
+    func contentEditingAllowed(document: any PdfDocument) -> Bool { false }
+    func undo(document: any PdfDocument) -> Bool { false }
+    func redo(document: any PdfDocument) -> Bool { false }
+    func canUndo(document: any PdfDocument) -> Bool { false }
+    func canRedo(document: any PdfDocument) -> Bool { false }
+    func saveWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { false }
+
+    func save(document: any PdfDocument, acknowledgingSignatureLoss: Bool) throws -> Data {
+        throw EditFailure.failed("this client does not support saving")
+    }
+}
+
+/// An edit or save the core refused, in words a user can act on.
+enum EditFailure: Error, Equatable {
+    /// The document's permissions forbid this kind of change.
+    case notPermitted(String)
+    /// The save would break a signature and the user has not agreed to that.
+    case signaturesWouldBeInvalidated
+    case failed(String)
+}
+
+extension EditFailure: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case let .notPermitted(message): return message
+        case .signaturesWouldBeInvalidated: return "Saving would break this document's signature."
+        case let .failed(message): return message
+        }
     }
 }
 

@@ -101,7 +101,9 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
     }
 }
 
-private struct UniFfiDocument: PdfDocument {
+/// Not `private`: the `UniFfiPdfCoreClient+…` extensions in sibling files
+/// unwrap it too.
+struct UniFfiDocument: PdfDocument {
     let handle: DocumentHandle
     let pages: [PageDimensions]
 }

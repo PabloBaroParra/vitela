@@ -2,12 +2,13 @@ import SwiftUI
 
 @main
 struct VitelaApp: App {
-    @StateObject private var model = ViewerViewModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
         WindowGroup("Vitela") {
-            ViewerRootView(model: model)
+            ViewerRootView(model: appDelegate.model)
                 .frame(minWidth: 640, minHeight: 480)
         }
+        .commands { VitelaCommands(model: appDelegate.model) }
     }
 }

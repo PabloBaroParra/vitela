@@ -233,7 +233,7 @@ private struct PasswordGatedClient: PdfCoreClient {
 /// The timeout here is generous because it is now a real deadline rather than
 /// a sleep: a passing test never waits for it, so making it long costs
 /// nothing and makes a slow machine a slow run instead of a red one.
-private extension XCTestCase {
+extension XCTestCase {
     func waitUntil(
         _ condition: () -> Bool,
         _ message: @autoclosure () -> String,

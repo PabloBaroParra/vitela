@@ -17,12 +17,19 @@ Per the repository's "no monolithic shells" rule, the target is split by
 responsibility:
 
 - `Vitela/VitelaApp.swift` — entry point only, nothing else.
-- `Vitela/PdfCoreClient.swift` — the only file that touches the generated
-  UniFFI API, behind a protocol the rest of the app depends on.
-- `Vitela/ViewerStore.swift` — viewer state: page slots, zoom, render requests.
-- `Vitela/ViewerViewModel.swift` — file selection, the render queue, window
-  title, and opening the bundled sample document.
-- `Vitela/Views/` — one file per view, plus the `RenderedPage → NSImage` bridge.
+- `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
+  changes before quitting.
+- `Vitela/VitelaCommands.swift` — the menu bar (Open, Save As, Undo, Redo).
+- `Vitela/ViewerViewModel.swift` — file selection, the render queue, and
+  opening the bundled sample documents.
+- `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
+  write) and the unsaved-changes guard.
+- `Vitela/Views/` — one file per view (including the Properties panel), plus
+  the `RenderedPage → NSImage` bridge.
+- `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`
+  (protocol and value types), `UniFfiPdfCoreClient*.swift` (the only files
+  that touch the generated UniFFI API), and `ViewerStore*.swift` (viewer,
+  search, selection and editing state).
 
 `ViewerStore` is main-thread only, with one documented exception:
 `renderResult(for:)` runs on the render queue and touches nothing but the
