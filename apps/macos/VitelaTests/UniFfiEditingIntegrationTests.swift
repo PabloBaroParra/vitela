@@ -103,4 +103,20 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         }
         XCTAssertEqual(total, count)
     } }
+
+    func testExportedPagesAreRealImages() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+
+        let plan = try store.planImageExport(pages: .range("1"), dpi: 72, format: .png, documentName: "report.pdf").get()
+        XCTAssertEqual(plan.files.first?.fileName.hasSuffix(".png"), true)
+        XCTAssertTrue(plan.files.first?.fileName.hasPrefix("report") == true)
+        let request = try XCTUnwrap(store.beginImageExport(try XCTUnwrap(plan.files.first), of: plan))
+        let png = try store.imageExportResult(for: request).get()
+        XCTAssertEqual(Array(png.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+
+        let jpegPlan = try store.planImageExport(pages: .all, dpi: 72, format: .jpeg, documentName: "report.pdf").get()
+        let jpegRequest = try XCTUnwrap(store.beginImageExport(try XCTUnwrap(jpegPlan.files.first), of: jpegPlan))
+        XCTAssertEqual(Array(try store.imageExportResult(for: jpegRequest).get().prefix(2)), [0xFF, 0xD8])
+    } }
 }

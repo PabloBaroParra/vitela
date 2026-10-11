@@ -52,6 +52,14 @@ struct DocumentInfo: Equatable {
     var modDate: MetadataDate?
 }
 
+/// An exported page's encoding — mirrors `FfiExportFormat`. JPEG has no
+/// alpha: the core flattens the page onto an opaque background.
+enum ImageFormat: Equatable, CaseIterable {
+    case png, jpeg
+
+    var name: String { self == .png ? "PNG" : "JPEG" }
+}
+
 /// One file a split writes: pages `first...last` (zero-based) — mirrors
 /// `FfiSplitPart`.
 struct SplitPart: Equatable {
@@ -148,6 +156,16 @@ protocol PdfCoreClient {
     /// The parts typed cut points make, with safe file names from the
     /// document's — the Linux shell's rules, now the core's.
     func planSplit(_ cuts: String, totalPages: Int, documentName: String) throws -> [SplitPart]
+
+    // Exporting pages as images — see `ViewerStore+ImageExport.swift`. Draws
+    // what `render` draws; the encoder is the core's, shared with Linux and
+    // Windows, so the same page comes out byte-identical everywhere.
+    func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data
+    /// The first of `pages` over the core's raster ceiling at `dpi`, if any.
+    func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int?
+    /// `"report.pdf"` page 3 of 12 as JPEG → `"report-03.jpg"`; always one
+    /// path component.
+    func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -191,6 +209,16 @@ extension PdfCoreClient {
 
     func planSplit(_ cuts: String, totalPages: Int, documentName: String) throws -> [SplitPart] {
         throw EditFailure.failed("this client does not support splitting")
+    }
+
+    func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data {
+        throw EditFailure.failed("this client does not support exporting images")
+    }
+
+    func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? { nil }
+
+    func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String {
+        "page-\(page + 1).\(format == .png ? "png" : "jpg")"
     }
 }
 

@@ -39,6 +39,11 @@ final class FakePdfCoreClient: PdfCoreClient {
     var extractedPages: [[Int]] = []
     /// How many extractions succeed before `extractError` is thrown.
     var failExtractsAfter = 0
+    // Exporting images.
+    var exportedImages: [(page: Int, dpi: Int, format: ImageFormat)] = []
+    var exportError: Error?
+    var failExportsAfter = 0
+    var oversizedPage: Int?
 
     init(pages: [PageDimensions]) {
         self.pages = pages
@@ -147,6 +152,20 @@ extension FakePdfCoreClient {
         return zip(bounds, bounds.dropFirst()).enumerated().map { index, range in
             SplitPart(first: range.0, last: range.1 - 1, fileName: "\(stem)-\(index + 1).pdf")
         }
+    }
+
+    func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data {
+        exportedImages.append((page, dpi, format))
+        if let exportError, exportedImages.count > failExportsAfter { throw exportError }
+        return Data("image-\(page)".utf8)
+    }
+
+    func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? {
+        pages.first { $0 == oversizedPage }
+    }
+
+    func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String {
+        "\((documentName as NSString).deletingPathExtension)-\(page + 1).\(format == .png ? "png" : "jpg")"
     }
 
     func extractPages(document: any PdfDocument, pages: [Int]) throws -> Data {
