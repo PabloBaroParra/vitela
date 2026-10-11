@@ -133,6 +133,10 @@ private class GeneratedPdfCore : PdfCore {
 
     override fun openSigningCertificate(bytes: ByteArray, password: String): PdfCoreResult<SigningCertificate> = try {
         PdfCoreResult.Success(GeneratedSigningCertificate(ffiOpenSigningCertificate(bytes, password)))
+    } catch (error: FfiException.UnsupportedOperation) {
+        // The file opened but cannot sign; `detail` is the core's clause saying
+        // why, a lower-case clause like an import refusal's.
+        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercase() }.trimEnd('.')}."))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }

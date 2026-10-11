@@ -10,14 +10,17 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 
-use p12_keystore::{KeyStore, KeyStoreEntry, Pkcs12ImportPolicy};
+use p12_keystore::{error::Error as KeyStoreError, KeyStore, KeyStoreEntry, Pkcs12ImportPolicy};
 use p256::ecdsa::{Signature as P256Signature, SigningKey as P256SigningKey};
 use pdf_sign::{
     CertificateSourcePort, DigestAlgorithm, SignError, SigningAlgorithm, SigningIdentity,
 };
 use rsa::pkcs1v15::SigningKey as RsaSigningKey;
 use rsa::{
-    pkcs8::{AssociatedOid, DecodePrivateKey as _, EncodePublicKey as _},
+    pkcs8::{
+        der::{asn1::ObjectIdentifier, Tag, Tagged as _},
+        AssociatedOid, DecodePrivateKey as _, EncodePublicKey as _, PrivateKeyInfo,
+    },
     RsaPrivateKey,
 };
 use sha2::{Sha256, Sha384, Sha512};
@@ -37,7 +40,31 @@ pub enum PfxAdapterError {
     /// The PKCS#12 container could not be decoded with the supplied password.
     #[error("failed to parse PKCS#12 data: {0}")]
     Pkcs12(String),
+    /// The container opened, but nothing in it can sign. The payload is a
+    /// lower-case clause for the person who chose the file — what is wrong
+    /// with it and, where there is one, how to export it again — so a shell
+    /// shows it rather than asking for the password again.
+    #[error("{0}")]
+    Unusable(String),
 }
+
+/// Why an encrypted part of the container could not be read: a scheme other
+/// than RC2-40, 3DES, or PBES2 with AES or 3DES (RC4, RC2-128, Camellia, …).
+const UNSUPPORTED_ENCRYPTION: &str = "this certificate file uses an encryption scheme that is \
+    not supported; export it again with AES-256 or 3DES encryption";
+/// Why a key with a certificate cannot sign: anything but RSA or P-256.
+const UNSUPPORTED_KEY: &str = "this certificate file's private key is not an RSA or P-256 \
+    key, the only kinds that can sign";
+/// Why an elliptic-curve key cannot sign when its curve is spelled out rather
+/// than named — RFC 5480 rules that encoding out for certificates, but older
+/// OpenSSL and LibreSSL still write it unless asked for a named curve.
+const EXPLICIT_CURVE: &str = "this certificate file's elliptic-curve key lists its curve \
+    parameters instead of naming the curve; export it again with a named P-256 curve";
+/// Why a key cannot sign with the certificate stored beside it.
+const KEY_CERTIFICATE_MISMATCH: &str =
+    "this certificate file's private key does not match its certificate";
+/// Why a key cannot sign when the certificate stored beside it is not X.509.
+const CERTIFICATE_UNREADABLE: &str = "the certificate in this file could not be read";
 
 /// Certificate source backed by an in-process `.p12` or `.pfx` file.
 pub struct PfxCertificateSource {
@@ -79,25 +106,52 @@ impl PfxCertificateSource {
     ///
     /// Entries without a supported RSA or P-256 private key, or without a
     /// signer certificate, are ignored so they cannot be selected for signing.
+    /// A file that holds only certificates opens with no identities.
     ///
     /// # Errors
     ///
-    /// Returns [`PfxAdapterError::Pkcs12`] when the container cannot be parsed.
+    /// Returns [`PfxAdapterError::Pkcs12`] when the container cannot be
+    /// parsed, which includes a wrong password, and
+    /// [`PfxAdapterError::Unusable`] when it is encrypted with a scheme this
+    /// adapter cannot read or when it holds private keys and none can sign.
     pub fn from_pkcs12(bytes: &[u8], password: &str) -> Result<Self, PfxAdapterError> {
-        let store = KeyStore::from_pkcs12(bytes, password, Pkcs12ImportPolicy::Strict)
-            .map_err(|error| PfxAdapterError::Pkcs12(error.to_string()))?;
-        let identities = store
-            .entries()
-            .filter_map(|(alias, entry)| Self::stored_identity(alias, entry))
-            .map(|stored| (stored.identity.id.clone(), stored))
-            .collect();
-
-        Ok(Self { identities })
+        let store = KeyStore::from_pkcs12(bytes, password, Pkcs12ImportPolicy::Strict).map_err(
+            |error| match error {
+                KeyStoreError::UnsupportedEncryptionScheme => {
+                    PfxAdapterError::Unusable(UNSUPPORTED_ENCRYPTION.to_owned())
+                }
+                error => PfxAdapterError::Pkcs12(error.to_string()),
+            },
+        )?;
+        let mut identities = BTreeMap::new();
+        let mut first_rejection = None;
+        for (alias, entry) in store.entries() {
+            match Self::stored_identity(alias, entry) {
+                Ok(Some(stored)) => {
+                    identities.insert(stored.identity.id.clone(), stored);
+                }
+                Ok(None) => {}
+                Err(reason) => {
+                    first_rejection.get_or_insert(reason);
+                }
+            }
+        }
+        match first_rejection {
+            Some(reason) if identities.is_empty() => {
+                Err(PfxAdapterError::Unusable(reason.to_owned()))
+            }
+            _ => Ok(Self { identities }),
+        }
     }
 
-    fn stored_identity(alias: &str, entry: &KeyStoreEntry) -> Option<StoredIdentity> {
+    /// The identity `entry` signs as, `None` when it is not a private key
+    /// with a certificate, or why that key cannot sign.
+    fn stored_identity(
+        alias: &str,
+        entry: &KeyStoreEntry,
+    ) -> Result<Option<StoredIdentity>, &'static str> {
         let KeyStoreEntry::PrivateKeyChain(chain) = entry else {
-            return None;
+            return Ok(None);
         };
         let certificate_chain_der: Vec<Vec<u8>> = chain
             .certs()
@@ -105,14 +159,15 @@ impl PfxCertificateSource {
             .map(|certificate| certificate.as_der().to_vec())
             .collect();
         if certificate_chain_der.is_empty() {
-            return None;
+            return Ok(None);
         }
         let (key, supported_algorithms) = StoredKey::from_pkcs8(chain.key().as_der())?;
-        let leaf = X509Certificate::from_der(&certificate_chain_der[0]).ok()?;
+        let leaf = X509Certificate::from_der(&certificate_chain_der[0])
+            .map_err(|_| CERTIFICATE_UNREADABLE)?;
         if !key.matches_leaf_public_key(&leaf) {
-            return None;
+            return Err(KEY_CERTIFICATE_MISMATCH);
         }
-        Some(StoredIdentity {
+        Ok(Some(StoredIdentity {
             identity: SigningIdentity {
                 id: identity_id(alias),
                 display_name: alias.to_owned(),
@@ -120,7 +175,7 @@ impl PfxCertificateSource {
                 supported_algorithms,
             },
             key,
-        })
+        }))
     }
 }
 
@@ -171,13 +226,13 @@ impl StoredKey {
         public_key_der.is_ok_and(|public_key_der| public_key_der.as_bytes() == certificate_spki_der)
     }
 
-    fn from_pkcs8(der: &[u8]) -> Option<(Self, Vec<SigningAlgorithm>)> {
+    fn from_pkcs8(der: &[u8]) -> Result<(Self, Vec<SigningAlgorithm>), &'static str> {
         if let Ok(key) = RsaPrivateKey::from_pkcs8_der(der) {
-            return Some((Self::Rsa(Box::new(key)), rsa_algorithms()));
+            return Ok((Self::Rsa(Box::new(key)), rsa_algorithms()));
         }
         P256SigningKey::from_pkcs8_der(der)
-            .ok()
             .map(|key| (Self::P256(key), ecdsa_algorithms()))
+            .map_err(|_| unsupported_key_reason(der))
     }
 
     fn sign_digest(&self, digest: &[u8], algorithm: SigningAlgorithm) -> Result<Vec<u8>, String> {
@@ -234,6 +289,26 @@ fn ecdsa_algorithms() -> Vec<SigningAlgorithm> {
     .into_iter()
     .map(SigningAlgorithm::Ecdsa)
     .collect()
+}
+
+/// Why the PKCS#8 key in `der` is neither an RSA nor a P-256 key this adapter
+/// reads: an elliptic-curve key whose parameters are a `SEQUENCE` spells its
+/// curve out rather than naming it with an OID.
+fn unsupported_key_reason(der: &[u8]) -> &'static str {
+    const EC_PUBLIC_KEY: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.2.1");
+
+    let explicit_curve = PrivateKeyInfo::try_from(der).is_ok_and(|info| {
+        info.algorithm.oid == EC_PUBLIC_KEY
+            && info
+                .algorithm
+                .parameters
+                .is_some_and(|parameters| parameters.tag() == Tag::Sequence)
+    });
+    if explicit_curve {
+        EXPLICIT_CURVE
+    } else {
+        UNSUPPORTED_KEY
+    }
 }
 
 fn identity_id(alias: &str) -> String {

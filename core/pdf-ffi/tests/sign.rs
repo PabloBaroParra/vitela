@@ -143,6 +143,23 @@ fn a_wrong_password_does_not_unlock_the_certificate() {
 }
 
 #[test]
+fn a_certificate_that_cannot_sign_says_why_instead_of_asking_for_the_password() {
+    // LibreSSL's PKCS#12 export with RC4 for the certificate bag; the
+    // adapter's own tests cover the other legacy exports.
+    let pfx = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../pdf-sign-pfx/tests/fixtures/rsa-rc4-128.p12"
+    ))
+    .expect("read fixture");
+    let error = open_signing_certificate(pfx, "password".to_string())
+        .expect_err("an unreadable certificate bag must not unlock");
+    assert!(
+        matches!(&error, FfiError::UnsupportedOperation { detail } if detail.contains("AES-256 or 3DES")),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn an_unlocked_certificate_names_its_identity() {
     let (certificate, _) = certificate();
     let identities = certificate.identities();

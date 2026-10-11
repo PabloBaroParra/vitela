@@ -7,7 +7,7 @@ use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
 use pdf_sign::{CertificateSourcePort, DigestAlgorithm, DocumentDigest, SigningAlgorithm};
-use pdf_sign_pfx::PfxCertificateSource;
+use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 use rsa::rand_core::OsRng;
 use rsa::{
     pkcs1v15::{Signature, VerifyingKey},
@@ -123,7 +123,7 @@ fn pfx_identity_signs_a_sha512_digest_with_p256_as_der_ecdsa() {
 }
 
 #[test]
-fn pfx_with_mismatched_rsa_key_and_leaf_certificate_is_not_an_identity() {
+fn pfx_with_mismatched_rsa_key_and_leaf_certificate_is_refused_with_the_reason() {
     let key = RsaPrivateKey::new(&mut OsRng, 2048).expect("test key generation should succeed");
     let certificate_key = RsaPrivateKey::new(&mut OsRng, 2048)
         .expect("test certificate key generation should succeed");
@@ -140,14 +140,17 @@ fn pfx_with_mismatched_rsa_key_and_leaf_certificate_is_not_an_identity() {
         "password",
     );
 
-    let source = PfxCertificateSource::from_pkcs12(&pfx, "password")
-        .expect("a structurally valid PFX container should parse");
+    let error = PfxCertificateSource::from_pkcs12(&pfx, "password")
+        .expect_err("a key that does not match its certificate cannot sign");
 
-    assert!(source.list_identities().is_empty());
+    assert!(matches!(
+        error,
+        PfxAdapterError::Unusable(reason) if reason.contains("does not match its certificate")
+    ));
 }
 
 #[test]
-fn pfx_with_mismatched_p256_key_and_leaf_certificate_is_not_an_identity() {
+fn pfx_with_mismatched_p256_key_and_leaf_certificate_is_refused_with_the_reason() {
     let key = P256SigningKey::random(&mut OsRng);
     let certificate_key = P256SigningKey::random(&mut OsRng);
     let pfx = pfx_with_identity(
@@ -163,10 +166,13 @@ fn pfx_with_mismatched_p256_key_and_leaf_certificate_is_not_an_identity() {
         "password",
     );
 
-    let source = PfxCertificateSource::from_pkcs12(&pfx, "password")
-        .expect("a structurally valid PFX container should parse");
+    let error = PfxCertificateSource::from_pkcs12(&pfx, "password")
+        .expect_err("a key that does not match its certificate cannot sign");
 
-    assert!(source.list_identities().is_empty());
+    assert!(matches!(
+        error,
+        PfxAdapterError::Unusable(reason) if reason.contains("does not match its certificate")
+    ));
 }
 
 #[test]
