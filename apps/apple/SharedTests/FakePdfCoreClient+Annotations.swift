@@ -79,11 +79,29 @@ extension FakePdfCoreClient {
     func formFields(document: any PdfDocument) -> [FormField] {
         let values = currentFieldValues
         return fields.map { field in
-            FormField(id: field.id, page: field.page, name: field.name, rect: field.rect, kind: field.kind, value: values[field.id] ?? field.value)
+            FormField(id: field.id, page: field.page, name: field.name, rect: field.rect, kind: field.kind, value: values[field.id] ?? field.value, style: field.style)
         }
     }
 
     func formFieldEditingAllowed(document: any PdfDocument) -> Bool { fieldStructurePermitted }
+
+    func applyFieldEdit(document: any PdfDocument, edit: FieldEdit) throws {
+        if let fieldFillError { throw fieldFillError }
+        fieldEdits.append(edit)
+        func replace(_ id: UInt64, _ change: (FormField) -> FormField) {
+            fields = fields.map { $0.id == id ? change($0) : $0 }
+        }
+        switch edit {
+        case let .move(id, rect), let .resize(id, rect):
+            replace(id) { FormField(id: $0.id, page: $0.page, name: $0.name, rect: rect, kind: $0.kind, value: $0.value, style: $0.style) }
+        case let .remove(id):
+            fields.removeAll { $0.id == id }
+        case let .rename(id, name):
+            replace(id) { FormField(id: $0.id, page: $0.page, name: name, rect: $0.rect, kind: $0.kind, value: $0.value, style: $0.style) }
+        case let .restyle(id, style):
+            replace(id) { FormField(id: $0.id, page: $0.page, name: $0.name, rect: $0.rect, kind: $0.kind, value: $0.value, style: style) }
+        }
+    }
 
     func addField(document: any PdfDocument, kind: FieldToPlace, page: Int, rect: PdfRect) throws {
         if let fieldFillError { throw fieldFillError }

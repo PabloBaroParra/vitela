@@ -13,6 +13,14 @@ struct FormFieldsPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Form").font(.headline)
             if store.formStructureAllowed {
+                Toggle("Edit fields", isOn: Binding(get: { store.formEditMode }, set: store.setFormEditMode))
+                    .toggleStyle(.button)
+                    .help("Select, move, resize, rename, restyle or delete fields on the page")
+                    .disabled(store.document == nil)
+                if store.formEditMode, let selected = store.selectedField {
+                    FormFieldInspector(model: model, field: selected)
+                    Divider()
+                }
                 HStack(spacing: 4) {
                     ForEach(FieldToPlace.allCases, id: \.self) { kind in
                         Toggle(kind.name, isOn: Binding(

@@ -122,6 +122,10 @@ final class ViewerStore: ObservableObject {
     @Published var formStatus = ""
     @Published var armedField: FieldToPlace?
     @Published var fieldDraft: FieldDraft?
+    // Edit fields mode — `ViewerStore+FormEditing.swift`.
+    @Published var formEditMode = false
+    @Published var selectedFieldId: UInt64?
+    @Published var fieldGesture: FieldGesture?
     @Published var annotationEditingAllowed = false
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?

@@ -9,6 +9,7 @@ extension ViewerViewModel {
     func pageDragBegan(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
         if let point = annotationPoint(page: page, location: location, zoom: zoom),
            store.beginFieldDraft(page: page, at: point)
+           || store.beginFieldGesture(page: page, at: point, zoom: zoom)
            || store.beginAnnotationDraft(page: page, at: point)
            || store.beginAnnotationGesture(page: page, at: point, zoom: zoom) {
             return
@@ -23,6 +24,13 @@ extension ViewerViewModel {
             }
             return
         }
+        if store.fieldGesture != nil {
+            if let point = annotationPoint(page: page, location: location, zoom: zoom) {
+                store.continueFieldGesture(to: point)
+            }
+            return
+        }
+        if store.formEditMode { return }
         if store.annotationDraft != nil {
             if let point = annotationPoint(page: page, location: location, zoom: zoom) {
                 store.continueAnnotationDraft(page: page, to: point)
@@ -42,6 +50,11 @@ extension ViewerViewModel {
         if store.fieldDraft != nil {
             let point = annotationPoint(page: page, location: location, zoom: zoom)
             return enqueuePageWork(point.flatMap { store.endFieldDraft(page: page, at: $0) })
+        }
+        if store.fieldGesture != nil {
+            let point = annotationPoint(page: page, location: location, zoom: zoom)
+            if point == nil { store.fieldGesture = nil }
+            return enqueuePageWork(point.flatMap { store.endFieldGesture(at: $0) })
         }
         if store.annotationGesture != nil {
             guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
@@ -66,16 +79,20 @@ extension ViewerViewModel {
 
 extension ViewerViewModel {
     /// Delete and Backspace remove the selected annotation — Linux's
-    /// `win.delete-annotation` accel — but never while a text field is
+    /// `win.delete-annotation` accel — or, in Edit fields mode, the selected
+    /// field (Windows' `DeleteFormField_Invoked`), but never while a text field is
     /// editing, where they belong to the text (Windows' `TextInputHasFocus`).
     /// A local monitor rather than a button shortcut, which would take the
     /// key from every text field in the window.
     func installAnnotationKeyMonitor() {
         guard annotationKeyMonitor == nil else { return }
         annotationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, Self.isDeleteKey(event), self.store.selectedAnnotation != nil,
-                  !(event.window?.firstResponder is NSText)
-            else { return event }
+            guard let self, Self.isDeleteKey(event), !(event.window?.firstResponder is NSText) else { return event }
+            if self.store.formEditMode, self.store.selectedField != nil {
+                self.enqueuePageWork(self.store.beginFieldDelete())
+                return nil
+            }
+            guard self.store.selectedAnnotation != nil else { return event }
             self.store.deleteSelectedAnnotation()
             return nil
         }

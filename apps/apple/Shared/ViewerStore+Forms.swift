@@ -30,6 +30,8 @@ extension ViewerStore {
     /// an undo or a redo.
     func refreshFormFields() {
         formFields = document.map { client.formFields(document: $0) } ?? []
+        // A delete or an undo can take the selected field away.
+        if let id = selectedFieldId, !formFields.contains(where: { $0.id == id }) { selectedFieldId = nil }
         formStatus = formFields.isEmpty || formFillAllowed ? "" : "This document does not permit filling in its form."
     }
 
@@ -37,6 +39,9 @@ extension ViewerStore {
     func resetForms() {
         armedField = nil
         fieldDraft = nil
+        formEditMode = false
+        selectedFieldId = nil
+        fieldGesture = nil
         formFillAllowed = annotationEditingAllowed
         formStructureAllowed = document.map { client.formFieldEditingAllowed(document: $0) } ?? false
         refreshFormFields()
