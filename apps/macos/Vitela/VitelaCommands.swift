@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The menu bar: File ▸ Open/Save/Print and Edit ▸ Undo/Redo, with the standard
-/// shortcuts. Undo and Redo replace the system items because the document's
+/// The menu bar: File ▸ Open/Save/Print, Edit ▸ Undo/Redo and the Go menu,
+/// with the standard shortcuts. Undo and Redo replace the system items because the document's
 /// history lives in the core's EditLog, not in an `NSUndoManager`.
 struct VitelaCommands: Commands {
     @ObservedObject var model: ViewerViewModel
@@ -28,6 +28,27 @@ struct VitelaCommands: Commands {
             Button("Redo", action: model.redo)
                 .keyboardShortcut("z", modifiers: [.command, .shift])
                 .disabled(!model.store.canRedo)
+        }
+        CommandMenu("Go") {
+            // Previous/Next and Go to Page use Preview's shortcuts; First/Last
+            // map the Windows shell's Ctrl+Home/End onto Command.
+            Button("Previous Page") { model.store.stepPage(by: -1) }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .disabled(!model.store.canGoToPreviousPage)
+            Button("Next Page") { model.store.stepPage(by: 1) }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .disabled(!model.store.canGoToNextPage)
+            Divider()
+            Button("First Page", action: model.store.goToFirstPage)
+                .keyboardShortcut(.home, modifiers: .command)
+                .disabled(!model.store.canGoToPreviousPage)
+            Button("Last Page", action: model.store.goToLastPage)
+                .keyboardShortcut(.end, modifiers: .command)
+                .disabled(!model.store.canGoToNextPage)
+            Divider()
+            Button("Go to Page…", action: model.requestGoToPage)
+                .keyboardShortcut("g", modifiers: [.command, .option])
+                .disabled(model.store.pageCount == 0)
         }
     }
 }

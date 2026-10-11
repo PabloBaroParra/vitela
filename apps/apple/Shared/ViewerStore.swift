@@ -83,6 +83,15 @@ final class ViewerStore: ObservableObject {
     @Published var editingAllowed = false
     /// The last edit or save outcome, in words for a status line.
     @Published var editStatus = ""
+    // Navigation state, owned by `ViewerStore+Navigation.swift` (not
+    // `private(set)` for the same same-file reason as `search` above).
+    /// The first page visible at the top of the viewport.
+    @Published var currentPage = 0
+    /// The latest scroll request for the shell's page list to perform.
+    @Published var pageNavigation: PageNavigationRequest?
+    var navigationSerial: UInt = 0
+    /// The page the reader explicitly asked for, held until they scroll away.
+    var requestedPage: RequestedPage?
 
     /// Not `private`: `ViewerStore+Search.swift` and `ViewerStore+Selection.swift`
     /// read it to issue their own background-safe requests, the same way this
@@ -127,6 +136,7 @@ final class ViewerStore: ObservableObject {
             searchStatus = ""
             selection = nil
             resetEditing()
+            resetNavigation()
             state = .loaded
         } catch let failure as ViewerFailure {
             guard attemptedGeneration == generation else { return }
