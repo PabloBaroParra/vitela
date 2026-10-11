@@ -19,6 +19,8 @@ extension ViewerStore {
         /// A form field's new value — `ViewerStore+Forms.swift`. The value is
         /// painted by the PDF itself, so it needs the same refresh.
         case fillField(id: UInt64, value: FieldValue)
+        /// A new form field — `ViewerStore+FormPlacement.swift`.
+        case addField(kind: FieldToPlace, page: Int, rect: PdfRect)
         /// Nothing: re-derive the layout after an undo or redo.
         case refresh
     }
@@ -75,6 +77,9 @@ extension ViewerStore {
             case let .fillField(id, value):
                 try client.setFieldValue(document: request.document, fieldId: id, value: value)
                 done = "Field filled in."
+            case let .addField(kind, page, rect):
+                try client.addField(document: request.document, kind: kind, page: page, rect: rect)
+                done = "\(kind.name) placed."
             case .refresh:
                 done = nil
             }

@@ -85,7 +85,10 @@ extension ViewerStore {
         guard document != nil, annotationEditingAllowed || tool == nil else { return }
         armedTool = tool
         annotationDraft = nil
-        if tool != nil { selectedAnnotationId = nil }
+        if tool != nil {
+            selectedAnnotationId = nil
+            armedField = nil
+        }
         switch tool {
         case nil: editStatus = "Pointer mode."
         // Windows' wording: a text box can also be placed with a click.

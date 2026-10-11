@@ -54,7 +54,7 @@ responsibility:
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`
-  (protocol and value types), `UniFfiPdfCoreClient*.swift` (the only files
+  and its siblings (protocol, value types, failures), `UniFfiPdfCoreClient*.swift` (the only files
   that touch the generated UniFFI API), and `ViewerStore*.swift` (viewer,
   search, selection, editing, print, page-navigation, zoom, page-structure,
   thumbnail and annotation state).

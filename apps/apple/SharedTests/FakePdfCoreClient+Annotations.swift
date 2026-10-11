@@ -85,6 +85,20 @@ extension FakePdfCoreClient {
 
     func formFieldEditingAllowed(document: any PdfDocument) -> Bool { fieldStructurePermitted }
 
+    func addField(document: any PdfDocument, kind: FieldToPlace, page: Int, rect: PdfRect) throws {
+        if let fieldFillError { throw fieldFillError }
+        let fieldKind: FormFieldKind
+        let value: FieldValue
+        switch kind {
+        case .text: (fieldKind, value) = (.text(multiline: false, maxLength: nil), .text(""))
+        case .checkbox: (fieldKind, value) = (.checkbox, .checked(false))
+        case .radioGroup: (fieldKind, value) = (.radioGroup(options: ["Option 1", "Option 2"]), .choice(nil))
+        case .dropdown: (fieldKind, value) = (.dropdown(options: ["Option 1", "Option 2"], editable: false), .choice(nil))
+        }
+        addedFields.append(kind)
+        fields.append(FormField(id: UInt64(1000 + fields.count), page: page, name: "Field \(fields.count + 1)", rect: rect, kind: fieldKind, value: value))
+    }
+
     func setFieldValue(document: any PdfDocument, fieldId: UInt64, value: FieldValue) throws {
         if let fieldFillError { throw fieldFillError }
         fills.append((fieldId, value))

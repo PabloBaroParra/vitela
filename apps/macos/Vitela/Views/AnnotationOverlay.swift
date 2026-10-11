@@ -27,6 +27,12 @@ struct AnnotationOverlay: View {
             } else if let selected = store.selectedAnnotation, selected.page == page, let bounds = selected.bounds {
                 drawHandles(bounds, placement: placement, in: &context)
             }
+            if let draft = store.fieldDraft, draft.page == page {
+                let rect = ViewerStore.fieldPlacementRect(
+                    origin: draft.origin, end: draft.current, page: placementDimensions(placement), clickSize: draft.kind.clickSize
+                )
+                context.stroke(Path(frame(rect, placement: placement)), with: .color(Self.handleColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            }
             if let draft = store.annotationDraft, draft.page == page, draft.tool == .ink {
                 context.stroke(stroke(draft.points, placement: placement), with: .color(Self.draftColor), style: Self.inkStyle(selected: false))
             } else if let draft = store.annotationDraft, draft.page == page {
@@ -104,6 +110,10 @@ struct AnnotationOverlay: View {
                 anchor: .topLeading
             )
         }
+    }
+
+    private func placementDimensions(_ placement: PagePlacement) -> PageDimensions {
+        PageDimensions(width: placement.width, height: placement.height, rotation: placement.rotation)
     }
 
     /// A context whose origin is `rect`'s upright top-left on the drawn page,
