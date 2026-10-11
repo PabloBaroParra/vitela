@@ -71,3 +71,40 @@ final class ViewerViewModelPagesTests: XCTestCase {
         XCTAssertFalse(model.isOrganizing)
     }
 }
+
+extension ViewerViewModelPagesTests {
+    private func threePageModel() -> (FakePdfCoreClient, ViewerViewModel) {
+        let client = FakePdfCoreClient(pages: [
+            PageDimensions(width: 100, height: 200), PageDimensions(width: 300, height: 400), PageDimensions(width: 500, height: 600),
+        ])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+        return (client, model)
+    }
+
+    func testDroppingADraggedCardMovesThePageThere() {
+        let (client, model) = threePageModel()
+
+        let token = model.beginPageDrag(page: 0)
+        XCTAssertTrue(model.dropPage(token: token, on: 2))
+
+        waitUntil({ !model.store.pageWorkInFlight }, "the move never finished")
+        XCTAssertEqual(client.pageEdits, [.move(from: 0, to: 2)])
+        XCTAssertNil(model.organizePageDrag)
+    }
+
+    func testAForeignOrStaleDropMovesNothing() {
+        let (client, model) = threePageModel()
+
+        _ = model.beginPageDrag(page: 0)
+        XCTAssertFalse(model.dropPage(token: "text from another app", on: 2))
+
+        let token = model.beginPageDrag(page: 1)
+        model.store.open(bytes: Data([2]))
+        XCTAssertFalse(model.dropPage(token: token, on: 2), "a drag picked up from an older layout")
+
+        let selfDrop = model.beginPageDrag(page: 1)
+        XCTAssertFalse(model.dropPage(token: selfDrop, on: 1))
+        XCTAssertTrue(client.pageEdits.isEmpty)
+    }
+}

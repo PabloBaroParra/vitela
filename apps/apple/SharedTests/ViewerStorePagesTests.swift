@@ -254,3 +254,24 @@ extension ViewerStorePagesTests {
         XCTAssertEqual(store.editStatus, "Blank page added. Changes are pending save.")
     }
 }
+
+extension ViewerStorePagesTests {
+    func testMovingAPageLandsItAtTheTargetPosition() throws {
+        let a = PageDimensions(width: 100, height: 200)
+        let b = PageDimensions(width: 300, height: 400)
+        let c = PageDimensions(width: 500, height: 600)
+        let client = FakePdfCoreClient(pages: [a, b, c])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+
+        let later = try XCTUnwrap(store.beginPageEdit(.move(from: 0, to: 2)))
+        store.applyPageWork(store.pageWorkResult(for: later), for: later)
+        XCTAssertEqual(store.pageSlots.map(\.dimensions), [b, c, a])
+        XCTAssertEqual(store.editStatus, "Page moved. Changes are pending save.")
+
+        let earlier = try XCTUnwrap(store.beginPageEdit(.move(from: 2, to: 1)))
+        store.applyPageWork(store.pageWorkResult(for: earlier), for: earlier)
+        XCTAssertEqual(store.pageSlots.map(\.dimensions), [b, a, c])
+        XCTAssertNil(store.beginPageEdit(.move(from: 0, to: 3)), "past the last page")
+    }
+}

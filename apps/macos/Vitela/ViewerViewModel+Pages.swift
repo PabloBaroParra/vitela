@@ -27,4 +27,35 @@ extension ViewerViewModel {
             DispatchQueue.main.async { self.store.applyPageWork(outcome, for: request) }
         }
     }
+
+    // MARK: - Dragging a page to a new position
+
+    /// Starts dragging `page`'s card. The payload is a one-time token, not
+    /// the page number — Windows' `OrganizePageDrag.Token` — so text dropped
+    /// from another app, or a drag begun before the layout changed, can never
+    /// pass for a page move.
+    func beginPageDrag(page: Int) -> String {
+        let drag = OrganizePageDrag(page: page, generation: store.generation)
+        organizePageDrag = drag
+        return drag.token
+    }
+
+    /// The card at `target` received a drop carrying `token`. Moves the
+    /// dragged page so it ends up at `target`, the position the core's
+    /// `MovePages` gives `to`. Returns whether a move was issued.
+    @discardableResult
+    func dropPage(token: String, on target: Int) -> Bool {
+        guard let drag = organizePageDrag, drag.token == token else { return false }
+        organizePageDrag = nil
+        guard drag.generation == store.generation, drag.page != target else { return false }
+        editPages(.move(from: drag.page, to: target))
+        return true
+    }
+}
+
+/// A page card being dragged, and the layout it was picked up from.
+struct OrganizePageDrag {
+    let page: Int
+    let generation: UInt
+    let token = UUID().uuidString
 }
