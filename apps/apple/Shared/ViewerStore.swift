@@ -20,7 +20,7 @@ struct PageSlot: Equatable {
     let dimensions: PageDimensions
     var status: PageStatus = .idle
     /// Zoom the current `status` refers to. A slot whose `renderZoom` differs
-    /// from the store's zoom is stale and will be re-rendered when it is next
+    /// from the zoom its page is shown at (`zoom(forPage:)`) is stale and will be re-rendered when it is next
     /// on screen — the previous bitmap keeps showing meanwhile, so no flicker.
     var renderZoom: Double?
     var image: RenderedPage?
@@ -64,6 +64,10 @@ final class ViewerStore: ObservableObject {
     @Published private(set) var state: ViewerState = .empty
     @Published private(set) var pageSlots: [PageSlot] = []
     @Published private(set) var zoom = 1.0
+    // Owned by `ViewerStore+Zoom.swift` (not `private(set)` for the same
+    // same-file reason as `search` below).
+    @Published var zoomMode = ZoomMode.custom
+    @Published var viewport: ViewportSize?
     // Not `private(set)`: `private` extends only to same-file extensions, and
     // `ViewerStore+Search.swift`/`ViewerStore+Selection.swift` mutate these
     // from their own files — same reasoning as `pageCharactersCache` below.
@@ -162,8 +166,10 @@ final class ViewerStore: ObservableObject {
         state = .error(failure)
     }
 
+    /// Sets an explicit factor for every page, leaving any fit mode.
     func setZoom(_ value: Double) {
-        zoom = min(max(value, Self.minimumZoom), Self.maximumZoom)
+        zoomMode = .custom
+        zoom = Self.clampZoom(value)
     }
 
     /// Issues render work for `page`, or returns `nil` when there is nothing to
@@ -171,16 +177,17 @@ final class ViewerStore: ObservableObject {
     /// current zoom. `force` bypasses that check for an explicit retry.
     func beginRender(page: Int, force: Bool = false) -> RenderRequest? {
         guard pageSlots.indices.contains(page), let document else { return nil }
-        guard force || !isUpToDate(pageSlots[page]) else { return nil }
+        let pageZoom = zoom(forPage: page)
+        guard force || !isUpToDate(pageSlots[page], at: pageZoom) else { return nil }
 
         pageSlots[page].status = .rendering
-        pageSlots[page].renderZoom = zoom
+        pageSlots[page].renderZoom = pageZoom
         return RenderRequest(
             generation: generation,
             page: page,
             document: document,
-            dpi: dpi(for: zoom),
-            zoom: zoom
+            dpi: dpi(for: pageZoom),
+            zoom: pageZoom
         )
     }
 
@@ -226,8 +233,8 @@ final class ViewerStore: ObservableObject {
         Int((Self.baseDpi * zoom).rounded())
     }
 
-    private func isUpToDate(_ slot: PageSlot) -> Bool {
-        guard slot.renderZoom == zoom else { return false }
+    private func isUpToDate(_ slot: PageSlot, at pageZoom: Double) -> Bool {
+        guard slot.renderZoom == pageZoom else { return false }
         switch slot.status {
         case .rendering, .rendered, .failed: return true
         case .idle: return false

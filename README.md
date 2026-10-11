@@ -141,7 +141,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Recent documents (removable) | ✅ | ✅ | — | 🚧 | — |
 | Password-protected PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
+| Fit-to-width rendering | ✅ | ✅ | 🚧 | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | 🚧 | 🚧 | — |
 | Share to another device | — | ✅ | — | — | — |
