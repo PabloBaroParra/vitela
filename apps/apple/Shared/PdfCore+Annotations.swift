@@ -139,3 +139,44 @@ struct PlacedPoint: Equatable {
     let left: Double
     let top: Double
 }
+
+/// Default, harmless annotation and placement answers, so conformers that
+/// predate annotations — test doubles among them — need not grow them.
+extension PdfCoreClient {
+    func annotations(document: any PdfDocument) -> [Annotation] { [] }
+    func annotationEditingAllowed(document: any PdfDocument) -> Bool { false }
+
+    func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
+        throw EditFailure.failed("this client does not support annotations")
+    }
+
+    func freeTextLayout(contents: String, width: Double, height: Double) throws -> FreeTextLayout {
+        FreeTextLayout(fontSizePt: 12, lines: [], overflow: false)
+    }
+
+    func insertImageStamp(document: any PdfDocument, page: Int, imageBytes: Data, rect: PdfRect) throws {
+        throw EditFailure.failed("this client does not support stamps")
+    }
+
+    func stampPlacement(imageBytes: Data, anchor: PdfPoint) throws -> PdfRect {
+        throw EditFailure.failed("this client does not support stamps")
+    }
+
+    /// Unturned placement, for clients without the core's math.
+    func placeRect(_ rect: PdfRect, on page: PagePlacement) -> PlacedRect {
+        PlacedRect(
+            left: rect.x * page.scale,
+            top: (page.height - rect.y - rect.height) * page.scale,
+            width: rect.width * page.scale,
+            height: rect.height * page.scale
+        )
+    }
+
+    func placePoint(_ point: PdfPoint, on page: PagePlacement) -> PlacedPoint {
+        PlacedPoint(left: point.x * page.scale, top: (page.height - point.y) * page.scale)
+    }
+
+    func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint {
+        PdfPoint(x: x / page.scale, y: page.height - y / page.scale)
+    }
+}

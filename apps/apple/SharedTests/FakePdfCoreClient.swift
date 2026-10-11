@@ -42,6 +42,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     var annotationsPermitted = true
     var annotationEditError: Error?
     var annotationEdits: [AnnotationEdit] = []
+    var stampInserts: [(page: Int, rect: PdfRect)] = []
     private var nextAnnotationId: UInt64 = 1
     var currentAnnotations: [Annotation] {
         historyCursor == 0 ? [] : history[historyCursor - 1].annotations
@@ -274,6 +275,19 @@ extension FakePdfCoreClient {
             }
         }
         recordAnnotations(list)
+    }
+
+    func insertImageStamp(document: any PdfDocument, page: Int, imageBytes: Data, rect: PdfRect) throws {
+        if let annotationEditError { throw annotationEditError }
+        stampInserts.append((page, rect))
+        recordAnnotations(currentAnnotations + [
+            Annotation(id: takeAnnotationId(), page: page, kind: .stamp, rect: rect, points: [], color: nil, contents: nil),
+        ])
+    }
+
+    /// A 2:1 image, 100 points wide, hanging from the anchor.
+    func stampPlacement(imageBytes: Data, anchor: PdfPoint) throws -> PdfRect {
+        PdfRect(x: anchor.x, y: anchor.y - 50, width: 100, height: 50)
     }
 
     func recordAnnotations(_ list: [Annotation]) {

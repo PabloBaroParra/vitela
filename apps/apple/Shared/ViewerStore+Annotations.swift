@@ -8,7 +8,7 @@ import Foundation
 
 /// The tools a drag on a page can place.
 enum AnnotationTool: Equatable, CaseIterable {
-    case highlight, underline, strikeout, shape, ink, note, freeText
+    case highlight, underline, strikeout, shape, ink, note, freeText, stamp
 
     var kind: AnnotationKind {
         switch self {
@@ -19,6 +19,7 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .ink: return .ink
         case .note: return .textNote
         case .freeText: return .freeText
+        case .stamp: return .stamp
         }
     }
 
@@ -32,6 +33,7 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .ink: return "Ink"
         case .note: return "Note"
         case .freeText: return "Text box"
+        case .stamp: return "Stamp"
         }
     }
 }
@@ -127,6 +129,9 @@ extension ViewerStore {
         if draft.tool == .freeText {
             return beginFreeTextPlacement(page: page, origin: draft.origin, release: draft.current)
         }
+        if draft.tool == .stamp {
+            return beginStampPlacement(page: page, origin: draft.origin, release: draft.current)
+        }
         let rect = Self.tracedRect(from: draft.origin, to: draft.current, tool: draft.tool)
         if draft.tool == .note {
             pendingNote = PendingNote(page: page, rect: rect)
@@ -215,6 +220,8 @@ extension ViewerStore {
         annotationDraft = nil
         pendingNote = nil
         pendingFreeText = nil
+        pendingStamp = nil
+        stampImages = [:]
         selectedAnnotationId = nil
         annotationGesture = nil
         annotationEditingAllowed = document.map { client.annotationEditingAllowed(document: $0) } ?? false

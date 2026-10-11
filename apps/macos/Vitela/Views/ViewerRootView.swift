@@ -62,6 +62,10 @@ struct ViewerRootView: View {
             }
         }
         .modifier(ViewerSheets(model: model))
+        .onChange(of: model.store.pendingStamp) { pending in
+            // After this update, so the open panel never runs mid-gesture.
+            if pending != nil { DispatchQueue.main.async(execute: model.resolvePendingStamp) }
+        }
     }
 
     /// True while the store is waiting on a password — covers both the first
