@@ -14,6 +14,16 @@ extension UniFfiPdfCoreClient {
         (try? handle(of: document).annotationEditingAllowed()) ?? false
     }
 
+    func comments(document: any PdfDocument) -> [Comment] {
+        guard let handle = try? handle(of: document) else { return [] }
+        return handle.comments().map {
+            Comment(
+                page: Int($0.page), rect: PdfRect($0.rect), contents: $0.contents,
+                author: $0.author, date: $0.date, annotationId: $0.annotationId
+            )
+        }
+    }
+
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
         let handle = try handle(of: document)
         try Self.mapEditErrors { try applyEdit(handle: handle, command: FfiEditCommand(edit)) }

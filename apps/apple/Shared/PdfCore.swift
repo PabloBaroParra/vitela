@@ -189,6 +189,8 @@ protocol PdfCoreClient {
     // available when editing is refused.
     func annotations(document: any PdfDocument) -> [Annotation]
     func annotationEditingAllowed(document: any PdfDocument) -> Bool
+    /// Saved comments and pending notes, in page order.
+    func comments(document: any PdfDocument) -> [Comment]
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws
     /// Lays `contents` out in a box, as a stored text box would be — throws
     /// `EditFailure` naming a character the box's font cannot show.

@@ -112,6 +112,8 @@ final class ViewerStore: ObservableObject {
     var thumbnailsRequested: Set<Int> = []
     // Annotation state, owned by `ViewerStore+Annotations.swift`.
     @Published var annotations: [Annotation] = []
+    /// The file's comments and this session's notes — read-only.
+    @Published var comments: [Comment] = []
     @Published var annotationEditingAllowed = false
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?

@@ -200,14 +200,17 @@ extension ViewerStore {
         return nil
     }
 
-    /// Re-reads the core's list — after an edit, an undo or a redo.
+    /// Re-reads the core's lists — after an edit, an undo or a redo.
     func refreshAnnotations() {
         guard let document else {
             annotations = []
+            comments = []
             selectedAnnotationId = nil
             return
         }
         annotations = client.annotations(document: document)
+        // A pending note is a comment too, so the list follows every edit.
+        comments = client.comments(document: document)
         // An undo can take the selected annotation away.
         if let id = selectedAnnotationId, !annotations.contains(where: { $0.id == id }) {
             selectedAnnotationId = nil

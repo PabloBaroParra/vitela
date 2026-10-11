@@ -43,6 +43,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     var annotationEditError: Error?
     var annotationEdits: [AnnotationEdit] = []
     var stampInserts: [(page: Int, rect: PdfRect)] = []
+    var savedComments: [Comment] = []
     private var nextAnnotationId: UInt64 = 1
     var currentAnnotations: [Annotation] {
         historyCursor == 0 ? [] : history[historyCursor - 1].annotations
@@ -233,6 +234,14 @@ final class FakePdfCoreClient: PdfCoreClient {
 extension FakePdfCoreClient {
     func annotations(document: any PdfDocument) -> [Annotation] { currentAnnotations }
     func annotationEditingAllowed(document: any PdfDocument) -> Bool { annotationsPermitted }
+
+    /// The file's own comments, then this session's notes — as the core merges them.
+    func comments(document: any PdfDocument) -> [Comment] {
+        (savedComments + currentAnnotations.filter { $0.kind == .textNote }.map {
+            Comment(page: $0.page, rect: $0.rect ?? PdfRect(x: 0, y: 0, width: 0, height: 0),
+                    contents: $0.contents ?? "", author: nil, date: nil, annotationId: $0.id)
+        }).sorted { $0.page < $1.page }
+    }
 
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
         if let annotationEditError { throw annotationEditError }

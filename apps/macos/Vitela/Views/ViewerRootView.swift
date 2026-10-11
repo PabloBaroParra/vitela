@@ -7,6 +7,7 @@ struct ViewerRootView: View {
     @State private var searchQuery = ""
     @FocusState private var searchFieldFocused: Bool
     @State private var showsProperties = false
+    @State private var showsComments = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +26,11 @@ struct ViewerRootView: View {
                 if showsProperties {
                     Divider()
                     PropertiesPanel(store: model.store)
+                        .frame(width: 280)
+                }
+                if showsComments {
+                    Divider()
+                    CommentsPanel(store: model.store)
                         .frame(width: 280)
                 }
             }
@@ -111,6 +117,9 @@ struct ViewerRootView: View {
                     .help("This document carries a digital signature.")
                     .accessibilityIdentifier("signed-indicator")
             }
+            Toggle("Comments", isOn: $showsComments)
+                .toggleStyle(.button)
+                .help("The document's comments, by page")
             Toggle("Organize", isOn: $model.isOrganizing)
                 .toggleStyle(.button)
                 .help("Rotate and rearrange pages")
