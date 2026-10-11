@@ -5,16 +5,24 @@ import UniformTypeIdentifiers
 
 final class ViewerViewModel: ObservableObject {
     @Published private(set) var title = ViewerViewModel.windowTitle(for: .empty)
+    /// The open document's file name, used to suggest a name when saving.
+    @Published private(set) var documentName: String?
+    @Published var isSaving = false
     let store: ViewerStore
-    private let operationQueue: OperationQueue
+    /// Serial: renders, searches, character fetches and saves all go through
+    /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
+    let operationQueue: OperationQueue
+    let prompts: SavePrompts
     private let sampleLoader: () throws -> Data
     private var subscriptions = Set<AnyCancellable>()
 
     init(
         store: ViewerStore = ViewerStore(client: UniFfiPdfCoreClient()),
+        prompts: SavePrompts = .modal,
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
         self.store = store
+        self.prompts = prompts
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
         operationQueue.maxConcurrentOperationCount = 1
@@ -39,46 +47,61 @@ final class ViewerViewModel: ObservableObject {
     }
 
     func selectDocument() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.pdf]
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else {
-            store.selectionCancelled()
-            return
+        proceedPastUnsavedChanges { [weak self] in
+            guard let self else { return }
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.pdf]
+            panel.allowsMultipleSelection = false
+            guard panel.runModal() == .OK, let url = panel.url else {
+                self.store.selectionCancelled()
+                return
+            }
+            self.open(url: url)
         }
-        open(url: url)
     }
 
     func open(url: URL) {
-        loadAndOpen { try Data(contentsOf: url) }
+        loadAndOpen(name: url.lastPathComponent) { try Data(contentsOf: url) }
     }
 
     /// Opens the sample document bundled with the app (see the Resources
     /// build phase in `Vitela.xcodeproj`), so a fresh install has something
     /// to render without the user supplying a PDF first.
     func openSample() {
-        loadAndOpen(sampleLoader)
+        proceedPastUnsavedChanges { [weak self] in
+            guard let self else { return }
+            self.loadAndOpen(name: "vitela-sample.pdf", self.sampleLoader)
+        }
     }
 
     /// Opens the AES-128 encrypted sample bundled alongside the plain one, to
     /// exercise the password prompt. User password: `user-aes-pass` (see
     /// `tests/fixtures/README.md`).
     func openAes128Sample() {
-        loadAndOpen { try Self.loadBundledResource(named: "aes_128_user_and_owner") }
+        openBundledResource(named: "aes_128_user_and_owner")
     }
 
     /// Opens the RC4-128 encrypted sample. User password: `user-rc4-pass`.
     func openRc4128Sample() {
-        loadAndOpen { try Self.loadBundledResource(named: "rc4_128_user_and_owner") }
+        openBundledResource(named: "rc4_128_user_and_owner")
     }
 
-    private func loadAndOpen(_ load: @escaping () throws -> Data) {
+    private func openBundledResource(named name: String) {
+        proceedPastUnsavedChanges { [weak self] in
+            self?.loadAndOpen(name: "\(name).pdf") { try Self.loadBundledResource(named: name) }
+        }
+    }
+
+    private func loadAndOpen(name: String, _ load: @escaping () throws -> Data) {
         operationQueue.cancelAllOperations()
         operationQueue.addOperation { [weak self] in
             guard let self else { return }
             do {
                 let bytes = try load()
-                DispatchQueue.main.async { self.store.open(bytes: bytes) }
+                DispatchQueue.main.async {
+                    self.documentName = name
+                    self.store.open(bytes: bytes)
+                }
             } catch {
                 // A disk-read failure is not a malformed PDF. Reporting it as
                 // one used to discard the real reason (permissions, missing

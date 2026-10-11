@@ -16,6 +16,17 @@ final class FakePdfCoreClient: PdfCoreClient {
     var pageCharactersByPage: [Int: PageCharacters] = [:]
     var pageCharactersError: Error?
     var pageCharactersRequests: [Int] = []
+    // Editing: a tiny stand-in for the core's EditLog — a list of Info
+    // snapshots plus a cursor, which is all undo/redo of metadata needs.
+    var initialInfo = DocumentInfo()
+    var editingAllowed = true
+    var setInfoError: Error?
+    var infoHistory: [DocumentInfo] = []
+    var historyCursor = 0
+    var invalidatesSignatures = false
+    var savedBytes = Data("%PDF-fake".utf8)
+    var saveError: Error?
+    var saveAcknowledgements: [Bool] = []
 
     init(pages: [PageDimensions]) {
         self.pages = pages
@@ -52,6 +63,42 @@ final class FakePdfCoreClient: PdfCoreClient {
             throw TextQueryFailure.failed("no fake characters configured for page \(page)")
         }
         return characters
+    }
+
+    func documentInfo(document: any PdfDocument) throws -> DocumentInfo {
+        historyCursor == 0 ? initialInfo : infoHistory[historyCursor - 1]
+    }
+
+    func setDocumentInfo(document: any PdfDocument, info: DocumentInfo) throws {
+        if let setInfoError { throw setInfoError }
+        infoHistory = Array(infoHistory.prefix(historyCursor)) + [info]
+        historyCursor = infoHistory.count
+    }
+
+    func contentEditingAllowed(document: any PdfDocument) -> Bool { editingAllowed }
+
+    func undo(document: any PdfDocument) -> Bool {
+        guard historyCursor > 0 else { return false }
+        historyCursor -= 1
+        return true
+    }
+
+    func redo(document: any PdfDocument) -> Bool {
+        guard historyCursor < infoHistory.count else { return false }
+        historyCursor += 1
+        return true
+    }
+
+    func canUndo(document: any PdfDocument) -> Bool { historyCursor > 0 }
+    func canRedo(document: any PdfDocument) -> Bool { historyCursor < infoHistory.count }
+
+    func saveWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { invalidatesSignatures }
+
+    func save(document: any PdfDocument, acknowledgingSignatureLoss: Bool) throws -> Data {
+        saveAcknowledgements.append(acknowledgingSignatureLoss)
+        if let saveError { throw saveError }
+        if invalidatesSignatures && !acknowledgingSignatureLoss { throw EditFailure.signaturesWouldBeInvalidated }
+        return savedBytes
     }
 }
 

@@ -5,6 +5,7 @@ struct ViewerRootView: View {
     @State private var passwordInput = ""
     @State private var searchQuery = ""
     @FocusState private var searchFieldFocused: Bool
+    @State private var showsProperties = false
 
     private static let zoomStep = 0.1
 
@@ -13,10 +14,21 @@ struct ViewerRootView: View {
             toolbar
             searchBar
             Divider()
-            if model.store.pageSlots.isEmpty {
-                placeholder
-            } else {
-                pageList
+            HStack(spacing: 0) {
+                if model.store.pageSlots.isEmpty {
+                    placeholder
+                } else {
+                    pageList
+                }
+                if showsProperties {
+                    Divider()
+                    PropertiesPanel(store: model.store)
+                        .frame(width: 280)
+                }
+            }
+            if !model.store.editStatus.isEmpty {
+                Divider()
+                statusLine
             }
         }
         .accessibilityIdentifier("viewer-root")
@@ -66,9 +78,17 @@ struct ViewerRootView: View {
                 Button("AES-128 sample (user-aes-pass)", action: model.openAes128Sample)
                 Button("RC4-128 sample (user-rc4-pass)", action: model.openRc4128Sample)
             }
+            Button("Save As…") { model.saveAs() }
+                .disabled(model.store.document == nil || model.isSaving)
             Button("Copy", action: model.copySelection)
                 .keyboardShortcut("c", modifiers: .command)
                 .disabled(model.store.selectedText == nil)
+            Button("Undo", action: model.undo)
+                .disabled(!model.store.canUndo)
+            Button("Redo", action: model.redo)
+                .disabled(!model.store.canRedo)
+            Toggle("Properties", isOn: $showsProperties)
+                .toggleStyle(.button)
             Spacer()
             Button("−") { model.store.setZoom(model.store.zoom - Self.zoomStep) }
                 .accessibilityLabel("Zoom out")
@@ -102,6 +122,20 @@ struct ViewerRootView: View {
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
+    }
+
+    private var statusLine: some View {
+        HStack {
+            Text(model.store.editStatus)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("edit-status")
+            Spacer()
+            if model.store.hasUnsavedChanges {
+                Text("Unsaved changes").foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 6)
     }
 
     private var placeholder: some View {

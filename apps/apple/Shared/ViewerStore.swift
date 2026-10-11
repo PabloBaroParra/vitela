@@ -70,6 +70,19 @@ final class ViewerStore: ObservableObject {
     @Published var search: SearchSession?
     @Published var searchStatus = ""
     @Published var selection: TextSelection?
+    // Editing state, owned by `ViewerStore+Editing.swift` (not `private(set)`
+    // for the same same-file reason as `search` above).
+    /// Bumped by every edit, undo and redo; compared against `savedRevision`
+    /// to tell whether the open document has unsaved changes.
+    @Published var editRevision = 0
+    @Published var savedRevision = 0
+    @Published var canUndo = false
+    @Published var canRedo = false
+    /// `nil` until a document is open.
+    @Published var documentInfo: DocumentInfo?
+    @Published var editingAllowed = false
+    /// The last edit or save outcome, in words for a status line.
+    @Published var editStatus = ""
 
     /// Not `private`: `ViewerStore+Search.swift` and `ViewerStore+Selection.swift`
     /// read it to issue their own background-safe requests, the same way this
@@ -113,6 +126,7 @@ final class ViewerStore: ObservableObject {
             search = nil
             searchStatus = ""
             selection = nil
+            resetEditing()
             state = .loaded
         } catch let failure as ViewerFailure {
             guard attemptedGeneration == generation else { return }
