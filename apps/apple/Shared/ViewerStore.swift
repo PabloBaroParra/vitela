@@ -116,6 +116,8 @@ final class ViewerStore: ObservableObject {
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?
     @Published var pendingNote: PendingNote?
+    @Published var selectedAnnotationId: UInt64?
+    @Published var annotationGesture: AnnotationGesture?
 
     /// Not `private`: `ViewerStore+Search.swift` and `ViewerStore+Selection.swift`
     /// read it to issue their own background-safe requests, the same way this

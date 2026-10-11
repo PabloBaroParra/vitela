@@ -246,6 +246,23 @@ extension FakePdfCoreClient {
             list.append(Annotation(id: takeAnnotationId(), page: page, kind: .textNote, rect: rect, points: [], color: nil, contents: contents))
         case let .remove(id):
             list.removeAll { $0.id == id }
+        case let .move(id, dx, dy):
+            list = list.map { a in
+                guard a.id == id else { return a }
+                return Annotation(
+                    id: a.id, page: a.page, kind: a.kind,
+                    rect: a.rect.map { PdfRect(x: $0.x + dx, y: $0.y + dy, width: $0.width, height: $0.height) },
+                    points: a.points.map { PdfPoint(x: $0.x + dx, y: $0.y + dy) }, color: a.color, contents: a.contents
+                )
+            }
+        case let .resize(id, rect):
+            list = list.map { a in
+                a.id == id ? Annotation(id: a.id, page: a.page, kind: a.kind, rect: rect, points: a.points, color: a.color, contents: a.contents) : a
+            }
+        case let .restyle(id, color):
+            list = list.map { a in
+                a.id == id ? Annotation(id: a.id, page: a.page, kind: a.kind, rect: a.rect, points: a.points, color: color, contents: a.contents) : a
+            }
         }
         recordAnnotations(list)
     }

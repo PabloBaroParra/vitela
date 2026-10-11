@@ -81,6 +81,7 @@ extension ViewerStore {
         guard document != nil, annotationEditingAllowed || tool == nil else { return }
         armedTool = tool
         annotationDraft = nil
+        if tool != nil { selectedAnnotationId = nil }
         editStatus = tool.map { "\($0.name) armed. Drag on a page to place it." } ?? "Pointer mode."
     }
 
@@ -167,7 +168,7 @@ extension ViewerStore {
         return PagePlacement(width: dimensions.width, height: dimensions.height, rotation: dimensions.rotation, scale: zoom)
     }
 
-    func applyAnnotationEdit(_ edit: AnnotationEdit) {
+    func applyAnnotationEdit(_ edit: AnnotationEdit, status: String = "Annotation edited. Changes are pending save.") {
         guard let document else { return }
         do {
             try client.applyAnnotationEdit(document: document, edit: edit)
@@ -176,16 +177,21 @@ extension ViewerStore {
             return
         }
         refreshAnnotations()
-        recordEdit(status: "Annotation edited. Changes are pending save.")
+        recordEdit(status: status)
     }
 
     /// Re-reads the core's list — after an edit, an undo or a redo.
     func refreshAnnotations() {
         guard let document else {
             annotations = []
+            selectedAnnotationId = nil
             return
         }
         annotations = client.annotations(document: document)
+        // An undo can take the selected annotation away.
+        if let id = selectedAnnotationId, !annotations.contains(where: { $0.id == id }) {
+            selectedAnnotationId = nil
+        }
     }
 
     /// Called by `resetEditing` once a document has replaced the previous one.
@@ -193,6 +199,8 @@ extension ViewerStore {
         armedTool = nil
         annotationDraft = nil
         pendingNote = nil
+        selectedAnnotationId = nil
+        annotationGesture = nil
         annotationEditingAllowed = document.map { client.annotationEditingAllowed(document: $0) } ?? false
         refreshAnnotations()
     }

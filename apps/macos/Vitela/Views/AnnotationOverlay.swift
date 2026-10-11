@@ -16,8 +16,15 @@ struct AnnotationOverlay: View {
     var body: some View {
         Canvas { context, _ in
             guard let placement = store.placement(ofPage: page, zoom: zoom) else { return }
-            for annotation in store.annotations(onPage: page) {
-                draw(annotation, placement: placement, in: &context)
+            let gesture = store.annotationGesture
+            for annotation in store.annotations(onPage: page) where annotation.id != gesture?.annotation.id {
+                draw(annotation, placement: placement, selected: annotation.id == store.selectedAnnotationId, in: &context)
+            }
+            if let gesture, gesture.annotation.page == page {
+                // The annotation under the pointer, where the drag would leave it.
+                draw(moved(gesture), placement: placement, selected: true, in: &context)
+            } else if let selected = store.selectedAnnotation, selected.page == page, let bounds = selected.bounds {
+                drawHandles(bounds, placement: placement, in: &context)
             }
             if let draft = store.annotationDraft, draft.page == page, draft.tool == .ink {
                 context.stroke(stroke(draft.points, placement: placement), with: .color(Self.draftColor), style: Self.inkStyle(selected: false))
@@ -34,10 +41,11 @@ struct AnnotationOverlay: View {
         .allowsHitTesting(false)
     }
 
-    private func draw(_ annotation: Annotation, placement: PagePlacement, in context: inout GraphicsContext) {
+    private func draw(_ annotation: Annotation, placement: PagePlacement, selected: Bool, in context: inout GraphicsContext) {
         let color = Self.color(annotation.color ?? .annotationDefault)
+        let lineWidth: CGFloat = selected ? 3 : 2
         if annotation.kind == .ink {
-            context.stroke(stroke(annotation.points, placement: placement), with: .color(color.opacity(220 / 255)), style: Self.inkStyle(selected: false))
+            context.stroke(stroke(annotation.points, placement: placement), with: .color(color.opacity(220 / 255)), style: Self.inkStyle(selected: selected))
             return
         }
         guard let rect = annotation.rect else { return }
@@ -45,7 +53,7 @@ struct AnnotationOverlay: View {
         switch annotation.kind {
         case .highlight:
             context.fill(Path(box), with: .color(color.opacity(100 / 255)))
-            context.stroke(Path(box), with: .color(color.opacity(220 / 255)), lineWidth: 2)
+            context.stroke(Path(box), with: .color(color.opacity(220 / 255)), lineWidth: lineWidth)
         case .underline, .strikeout:
             context.fill(Path(box), with: .color(color.opacity(220 / 255)))
         case .textNote:
@@ -54,9 +62,35 @@ struct AnnotationOverlay: View {
             context.fill(Path(roundedRect: box, cornerRadius: 3), with: .color(color.opacity(160 / 255)))
             context.stroke(Path(roundedRect: box, cornerRadius: 3), with: .color(color.opacity(220 / 255)), lineWidth: 1)
         default:
-            context.stroke(Path(box), with: .color(color.opacity(220 / 255)), lineWidth: 2)
+            context.stroke(Path(box), with: .color(color.opacity(220 / 255)), lineWidth: lineWidth)
         }
     }
+
+    /// The gesture's annotation at its preview position: moved as a whole,
+    /// or with the grabbed corner following the pointer.
+    private func moved(_ gesture: AnnotationGesture) -> Annotation {
+        let source = gesture.annotation
+        return Annotation(
+            id: source.id, page: source.page, kind: source.kind,
+            rect: gesture.previewRect,
+            points: source.points.map { PdfPoint(x: $0.x + gesture.dx, y: $0.y + gesture.dy) },
+            color: source.color, contents: source.contents
+        )
+    }
+
+    /// Fixed-size squares at the selection's corners, sized in screen points
+    /// rather than scaled with the page so they stay grabbable at any zoom —
+    /// Linux's `draw_handles`, in Windows' handle blue.
+    private func drawHandles(_ bounds: PdfRect, placement: PagePlacement, in context: inout GraphicsContext) {
+        let reach = ViewerStore.handleReach
+        for corner in AnnotationCorner.allCases {
+            let at = store.client.placePoint(corner.point(of: bounds), on: placement)
+            let square = CGRect(x: at.left - reach / 2, y: at.top - reach / 2, width: reach, height: reach)
+            context.fill(Path(square), with: .color(Self.handleColor))
+        }
+    }
+
+    private static let handleColor = Color(red: 26 / 255, green: 89 / 255, blue: 217 / 255)
 
     /// A freehand stroke as a polyline through the placed points.
     private func stroke(_ points: [PdfPoint], placement: PagePlacement) -> Path {

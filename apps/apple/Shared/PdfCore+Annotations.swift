@@ -34,6 +34,15 @@ struct PdfColor: Equatable {
 
 enum AnnotationKind: Equatable {
     case highlight, underline, strikeout, shape, ink, textNote, stamp, freeText
+
+    /// Only kinds carrying a color can be restyled — Linux's
+    /// `supports_restyle`, Windows' `SupportsRestyle`.
+    var supportsRestyle: Bool {
+        switch self {
+        case .highlight, .underline, .strikeout, .ink, .shape: return true
+        case .textNote, .stamp, .freeText: return false
+        }
+    }
 }
 
 /// One annotation this session added, as the core reports it. Annotations
@@ -71,6 +80,11 @@ enum AnnotationEdit: Equatable {
     /// A sticky note whose icon sits at `rect`.
     case addNote(page: Int, rect: PdfRect, contents: String)
     case remove(id: UInt64)
+    /// Shifts by `dx`/`dy` page-space points.
+    case move(id: UInt64, dx: Double, dy: Double)
+    /// Replaces a rect-based annotation's rect.
+    case resize(id: UInt64, rect: PdfRect)
+    case restyle(id: UInt64, color: PdfColor)
 }
 
 /// How a page is turned as drawn — mirrors `FfiPageRotation`.

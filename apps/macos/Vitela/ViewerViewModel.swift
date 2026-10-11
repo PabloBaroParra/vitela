@@ -44,6 +44,8 @@ final class ViewerViewModel: ObservableObject {
     private var subscriptions = Set<AnyCancellable>()
     /// The pending viewport size report — see `ViewerViewModel+Zoom.swift`.
     var pendingViewport: DispatchWorkItem?
+    /// The Delete-key monitor — `ViewerViewModel+Annotations.swift`.
+    var annotationKeyMonitor: Any?
 
     init(
         store: ViewerStore = ViewerStore(client: UniFfiPdfCoreClient()),

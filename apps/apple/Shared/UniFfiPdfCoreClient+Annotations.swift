@@ -134,6 +134,12 @@ private extension FfiEditCommand {
             self = .addTextNote(page: UInt32(page), rect: FfiRect(rect), contents: contents)
         case let .remove(id):
             self = .removeAnnotation(annotationId: id)
+        case let .move(id, dx, dy):
+            self = .moveAnnotation(annotationId: id, dx: dx, dy: dy)
+        case let .resize(id, rect):
+            self = .resizeAnnotation(annotationId: id, rect: FfiRect(rect))
+        case let .restyle(id, color):
+            self = .restyleAnnotation(annotationId: id, color: FfiColor(color))
         }
     }
 }

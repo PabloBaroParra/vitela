@@ -79,4 +79,23 @@ final class UniFfiAnnotationIntegrationTests: XCTestCase {
         let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
         XCTAssertNotNil(try store.saveResult(for: save).get().range(of: Data("/Text".utf8)))
     } }
+
+    func testMovingResizingRestylingAndDeletingGoThroughTheCore() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        store.applyAnnotationEdit(.add(kind: .shape, page: 0, rect: PdfRect(x: 100, y: 100, width: 100, height: 50), color: .annotationDefault))
+        XCTAssertTrue(store.beginAnnotationGesture(page: 0, at: PdfPoint(x: 150, y: 120), zoom: 1))
+        store.endAnnotationGesture(at: PdfPoint(x: 160, y: 130))
+        XCTAssertEqual(store.selectedAnnotation?.rect, PdfRect(x: 110, y: 110, width: 100, height: 50))
+
+        store.growSelectedAnnotation()
+        XCTAssertEqual(store.selectedAnnotation?.rect, PdfRect(x: 110, y: 110, width: 125, height: 62.5))
+        store.restyleSelectedAnnotation(PdfColor(r: 0, g: 0, b: 255))
+        XCTAssertEqual(store.selectedAnnotation?.color, PdfColor(r: 0, g: 0, b: 255))
+        store.deleteSelectedAnnotation()
+        XCTAssertTrue(store.annotations.isEmpty)
+
+        store.undo()
+        XCTAssertEqual(store.annotations.first?.color, PdfColor(r: 0, g: 0, b: 255), "each edit is its own undo step")
+    } }
 }
