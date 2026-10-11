@@ -19,17 +19,21 @@ responsibility:
 - `Vitela/VitelaApp.swift` — entry point only, nothing else.
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
   changes before quitting.
-- `Vitela/VitelaCommands.swift` — the menu bar (Open, Save As, Undo, Redo).
+- `Vitela/VitelaCommands.swift` — the menu bar (Open, Save As, Print, Undo, Redo).
 - `Vitela/ViewerViewModel.swift` — file selection, the render queue, and
   opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
+- `Vitela/ViewerViewModel+Print.swift` — Print… (⌘P): the standard print
+  panel over `Views/PrintPagesView`, which paginates one paper page per PDF
+  page and renders each on demand (144 DPI for the panel's preview, 300 DPI
+  for the printer), scaled to fit the printable area.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`
   (protocol and value types), `UniFfiPdfCoreClient*.swift` (the only files
   that touch the generated UniFFI API), and `ViewerStore*.swift` (viewer,
-  search, selection and editing state).
+  search, selection, editing and print state).
 
 `ViewerStore` is main-thread only, with one documented exception:
 `renderResult(for:)` runs on the render queue and touches nothing but the

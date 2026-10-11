@@ -143,7 +143,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
 | Fit-to-width rendering | ✅ | ✅ | — | 🚧 | — |
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
-| Print | ✅ | ✅ | — | 🚧 | — |
+| Print | ✅ | ✅ | 🚧 | 🚧 | — |
 | Share to another device | — | ✅ | — | — | — |
 | Annotate | ✅ | ✅ | — | 🚧 | — |
 | Edit page content | 🚧 | 🚧 | — | 🚧 | — |
