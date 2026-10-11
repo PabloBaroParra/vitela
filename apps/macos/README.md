@@ -51,6 +51,9 @@ responsibility:
   per-source passwords and warnings, then one undoable import.
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
+- `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
+  `SignaturePng.swift` — Draw Signature: the remembered signature, the pad's
+  strokes as a PNG, and arming the stamp with it.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`

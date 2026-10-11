@@ -5,6 +5,8 @@ import SwiftUI
 /// next drag on a page place it; Escape or Pointer returns to selecting text.
 struct AnnotationToolbar: View {
     @ObservedObject var store: ViewerStore
+    /// Opens Draw Signature, which lives on the view model.
+    var drawSignature: () -> Void = {}
     /// The note being read, while its sheet is up.
     @State private var readNote: String?
 
@@ -16,6 +18,8 @@ struct AnnotationToolbar: View {
                     .toggleStyle(.button)
                     .help("\(tool.name): drag on a page to place it")
             }
+            Button("Signature…", action: drawSignature)
+                .help("Draw a signature, then click a page to place it")
             Button("Pointer") { store.armAnnotationTool(nil) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(store.armedTool == nil)
