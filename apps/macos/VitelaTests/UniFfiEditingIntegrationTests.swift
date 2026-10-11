@@ -170,4 +170,33 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         reopened.open(bytes: try store.saveResult(for: save).get())
         XCTAssertEqual(reopened.pageSlots.count, 1)
     } }
+
+    /// A page edit only reaches the pixels once the render side is
+    /// re-derived; this checks the layout the reader shows, and the saved file.
+    func testARotatedPageIsShownAndSavedTurned() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let before = try XCTUnwrap(store.pageSlots.first?.dimensions)
+
+        let request = try XCTUnwrap(store.beginPageEdit(.rotate(page: 0, degrees: 90)))
+        let outcome = store.pageWorkResult(for: request)
+        store.applyPageWork(outcome, for: request)
+
+        XCTAssertEqual(store.editStatus, "Page rotated. Changes are pending save.")
+        let turned = PageDimensions(width: before.height, height: before.width)
+        XCTAssertEqual(store.pageSlots.first?.dimensions, turned)
+        let render = try XCTUnwrap(store.beginRender(page: 0))
+        let image = try store.renderResult(for: render).get()
+        XCTAssertGreaterThan(image.width, image.height, "the preview must draw the turned page")
+
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+        reopened.open(bytes: try store.saveResult(for: save).get())
+        XCTAssertEqual(reopened.pageSlots.first?.dimensions, turned)
+
+        store.undo()
+        let refresh = try XCTUnwrap(store.beginPageRefresh())
+        store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh)
+        XCTAssertEqual(store.pageSlots.first?.dimensions, before)
+    } }
 }

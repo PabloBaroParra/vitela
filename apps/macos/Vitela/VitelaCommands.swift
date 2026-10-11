@@ -39,10 +39,10 @@ struct VitelaCommands: Commands {
         CommandGroup(replacing: .undoRedo) {
             Button("Undo", action: model.undo)
                 .keyboardShortcut("z", modifiers: .command)
-                .disabled(!model.store.canUndo)
+                .disabled(!model.store.canUndo || model.store.pageWorkInFlight)
             Button("Redo", action: model.redo)
                 .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(!model.store.canRedo)
+                .disabled(!model.store.canRedo || model.store.pageWorkInFlight)
         }
         CommandMenu("Go") {
             // Previous/Next and Go to Page use Preview's shortcuts; First/Last

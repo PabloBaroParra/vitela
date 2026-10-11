@@ -26,6 +26,9 @@ final class ViewerViewModel: ObservableObject {
     @Published var isCompressPresented = false
     /// Whether the Protect sheet is up — `ViewerViewModel+Protect.swift`.
     @Published var isProtectPresented = false
+    /// Whether the Organize grid stands in for the reader — see
+    /// `ViewerViewModel+Pages.swift`.
+    @Published var isOrganizing = false
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
@@ -139,6 +142,7 @@ final class ViewerViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self.notice = ""
                     self.documentName = name
+                    self.isOrganizing = false
                     self.store.open(bytes: bytes)
                 }
             } catch {

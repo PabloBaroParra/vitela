@@ -101,6 +101,15 @@ final class ViewerStore: ObservableObject {
     @Published var signingRefusal: String?
     /// Whether the open document carries a digital signature.
     @Published var isSigned = false
+    // Page-structure state, owned by `ViewerStore+Pages.swift`.
+    /// A page edit or preview refresh is running on the shell's queue.
+    @Published var pageWorkInFlight = false
+    /// Latched by the first page edit: from then on any undo or redo may
+    /// change the page layout, so each one re-derives it.
+    var pagesEdited = false
+    /// Organize-grid pictures by page position — `ViewerStore+Thumbnails.swift`.
+    @Published var thumbnails: [Int: RenderedPage] = [:]
+    var thumbnailsRequested: Set<Int> = []
 
     /// Not `private`: `ViewerStore+Search.swift` and `ViewerStore+Selection.swift`
     /// read it to issue their own background-safe requests, the same way this
@@ -166,14 +175,7 @@ final class ViewerStore: ObservableObject {
             document = opened
             // `nil` for a new document: Compress then says there is no file size.
             sourceByteCount = bytes?.count
-            pageSlots = opened.pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
-            // A previous document's page characters, matches and selection
-            // address pages/carets that may no longer exist or mean the same
-            // thing in the new one.
-            pageCharactersCache = [:]
-            search = nil
-            searchStatus = ""
-            selection = nil
+            showPages(opened.pages)
             resetEditing()
             resetNavigation()
             state = .loaded
@@ -184,6 +186,29 @@ final class ViewerStore: ObservableObject {
             guard attemptedGeneration == generation else { return }
             state = .error(.openFailed(String(describing: error)))
         }
+    }
+
+    /// Shows `pages` as the open document's layout: fresh slots, and nothing
+    /// kept that was addressed by page position. A previous layout's page
+    /// characters, matches and selection address pages/carets that may no
+    /// longer exist or mean the same thing. Called by `open`, and by
+    /// `ViewerStore+Pages.swift` after an edit re-laid the pages out, with
+    /// `generation` already bumped so renders of the old layout are dropped.
+    func showPages(_ pages: [PageDimensions]) {
+        pageSlots = pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
+        thumbnails = [:]
+        thumbnailsRequested = []
+        pageCharactersCache = [:]
+        search = nil
+        searchStatus = ""
+        selection = nil
+    }
+
+    /// Invalidates everything issued against the current page layout —
+    /// renders, searches, character fetches — and gives each page row a new
+    /// identity, so views re-request them.
+    func bumpGeneration() {
+        generation += 1
     }
 
     /// Retries the last `open` attempt with a password, e.g. after the user
@@ -279,7 +304,8 @@ final class ViewerStore: ObservableObject {
     /// Core Graphics reads `stride * height` bytes out of the provider without
     /// bounds-checking, so the buffer length has to be verified here — a short
     /// buffer is an out-of-bounds read, not a blank page. Not `private`:
-    /// `ViewerStore+Print.swift` checks its printer bitmaps the same way.
+    /// `ViewerStore+Print.swift` checks its printer bitmaps, and thumbnails
+    /// are checked, the same way.
     func isDisplayable(_ image: RenderedPage) -> Bool {
         image.width > 0
             && image.height > 0

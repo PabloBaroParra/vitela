@@ -55,6 +55,33 @@ extension UniFfiPdfCoreClient {
         }
     }
 
+    func applyPageEdit(document: any PdfDocument, edit: PageEdit) throws {
+        let handle = try handle(of: document)
+        do {
+            try applyEdit(handle: handle, command: FfiEditCommand(edit))
+        } catch FfiError.UnsupportedOperation {
+            // Named, as on Windows: the generic "not supported" reads like a
+            // missing feature, when it is the document's own permissions (or
+            // an encryption that cannot survive the rewrite) that said no.
+            if case .insertBlank = edit {
+                throw EditFailure.notPermitted("This document does not allow adding a blank page.")
+            }
+            throw EditFailure.notPermitted("This document does not allow its pages to be rearranged, rotated or removed.")
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
+    }
+
+    func refreshPreview(document: any PdfDocument) throws {
+        let handle = try handle(of: document)
+        try Self.mapEditErrors { try Vitela.refreshPreview(handle: handle) }
+    }
+
+    func pageDimensions(document: any PdfDocument) -> [PageDimensions] {
+        guard let handle = try? handle(of: document) else { return document.pages }
+        return handle.pageDimensions().map { PageDimensions(width: $0.widthPt, height: $0.heightPt) }
+    }
+
     func handle(of document: any PdfDocument) throws -> DocumentHandle {
         guard let document = document as? UniFfiDocument else {
             throw EditFailure.failed("document is not backed by UniFFI")
@@ -97,6 +124,28 @@ extension EditFailure {
         guard let first = detail.first else { return detail }
         let capitalized = first.uppercased() + detail.dropFirst()
         return capitalized.hasSuffix(".") ? capitalized : capitalized + "."
+    }
+}
+
+private extension FfiEditCommand {
+    /// Single-page forms of the range commands Windows' facade issues
+    /// (`PdfDocumentFacade.Organize.cs`), so both shells record the same
+    /// history steps. Positions were range-checked by the store.
+    init(_ edit: PageEdit) {
+        switch edit {
+        case let .rotate(page, degrees):
+            self = .rotatePages(from: UInt32(page), count: 1, deltaDegrees: Int32(degrees))
+        case let .remove(page):
+            self = .removePages(index: UInt32(page), count: 1)
+        case let .insertBlank(at, orientation):
+            self = .insertBlankPage(
+                index: UInt32(at),
+                size: .a4,
+                orientation: orientation == .portrait ? .portrait : .landscape
+            )
+        case let .move(from, to):
+            self = .movePages(from: UInt32(from), count: 1, to: UInt32(to))
+        }
     }
 }
 

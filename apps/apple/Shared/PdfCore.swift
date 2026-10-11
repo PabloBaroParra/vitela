@@ -85,6 +85,23 @@ struct CompressionResult: Equatable {
     let refusals: [String]
 }
 
+/// One page-structure edit — the subset of `FfiEditCommand` the Organize
+/// view issues, in page positions (0-based) of the document as it is now.
+enum PageEdit: Equatable {
+    enum Orientation: Equatable {
+        case portrait, landscape
+    }
+
+    /// Turns a page by a multiple of 90°; positive is clockwise.
+    case rotate(page: Int, degrees: Int)
+    case remove(page: Int)
+    /// An A4 blank page, as on Windows and Linux, inserted before `at`
+    /// (`at == pageCount` appends).
+    case insertBlank(at: Int, orientation: Orientation)
+    /// Moves one page so it ends up at position `to`.
+    case move(from: Int, to: Int)
+}
+
 /// A page-space rectangle in PDF points with a bottom-left origin — mirrors
 /// `FfiTextRect`. A shell converts to view space (top-left origin) with the
 /// page's height: `y_view = (pageHeight - rect.yPt - rect.heightPt) * zoom`.
@@ -196,6 +213,15 @@ protocol PdfCoreClient {
     func protect(
         document: any PdfDocument, openPassword: String, permissionsPassword: String, acknowledgingSignatureLoss: Bool
     ) throws -> Data
+
+    // Page structure — see `ViewerStore+Pages.swift`. Unlike a metadata edit,
+    // a page edit changes what is drawn, so the render side has to be
+    // re-derived (`refreshPreview`) before `pageDimensions` and renders show it.
+    func applyPageEdit(document: any PdfDocument, edit: PageEdit) throws
+    /// Rebuilds what `render` draws from the pending edits.
+    func refreshPreview(document: any PdfDocument) throws
+    /// The page sizes `render` currently draws, in page order.
+    func pageDimensions(document: any PdfDocument) -> [PageDimensions]
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -223,6 +249,14 @@ extension PdfCoreClient {
     func save(document: any PdfDocument, acknowledgingSignatureLoss: Bool) throws -> Data {
         throw EditFailure.failed("this client does not support saving")
     }
+
+    func applyPageEdit(document: any PdfDocument, edit: PageEdit) throws {
+        throw EditFailure.failed("this client does not support page editing")
+    }
+
+    func refreshPreview(document: any PdfDocument) throws {}
+
+    func pageDimensions(document: any PdfDocument) -> [PageDimensions] { document.pages }
 
     func textExtractionAllowed(document: any PdfDocument) -> Bool { false }
     func fullRewriteAllowed(document: any PdfDocument) -> Bool { false }

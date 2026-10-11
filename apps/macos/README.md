@@ -45,12 +45,15 @@ responsibility:
   signature question, and a destination only when something smaller came out.
 - `Vitela/ViewerViewModel+Protect.swift` — File ▸ Protect with Password…:
   two passwords, signature question, atomic write, reopen.
+- `Vitela/ViewerViewModel+Pages.swift` — the Organize mode and running
+  page edits on the queue.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`
   (protocol and value types), `UniFfiPdfCoreClient*.swift` (the only files
   that touch the generated UniFFI API), and `ViewerStore*.swift` (viewer,
-  search, selection, editing, print, page-navigation and zoom state).
+  search, selection, editing, print, page-navigation, zoom, page-structure
+  and thumbnail state).
 
 `ViewerStore` is main-thread only, with one documented exception:
 `renderResult(for:)` runs on the render queue and touches nothing but the
@@ -71,6 +74,16 @@ page resolve each page against the page list's size on its own
 fits too; resizing the window re-fits them once the resize settles. Zoom
 in/out steps through Windows' ladder from the factor shown and switches to
 an explicit zoom, which no resize moves.
+
+## Page edits
+
+A page edit (Organize ▸ rotate) goes through the core's edit log like any
+other edit, but it changes what is drawn: the render side is re-derived from
+the pending edits (`refresh_preview`), the page sizes re-read, and every
+page slot rebuilt under a new generation, so no render, search hit or text
+selection of the old layout survives. Once a session has edited its pages,
+every undo and redo re-derives the layout the same way. The core work runs
+on the serial queue, behind any render of the old layout.
 
 ## Building
 
