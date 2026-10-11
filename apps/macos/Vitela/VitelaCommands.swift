@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The menu bar: File ▸ Open/Save and Edit ▸ Undo/Redo, with the standard
+/// The menu bar: File ▸ Open/Save/Print and Edit ▸ Undo/Redo, with the standard
 /// shortcuts. Undo and Redo replace the system items because the document's
 /// history lives in the core's EditLog, not in an `NSUndoManager`.
 struct VitelaCommands: Commands {
@@ -15,6 +15,11 @@ struct VitelaCommands: Commands {
             Button("Save As…") { model.saveAs() }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(model.store.document == nil || model.isSaving)
+        }
+        CommandGroup(replacing: .printItem) {
+            Button("Print…", action: model.printDocument)
+                .keyboardShortcut("p", modifiers: .command)
+                .disabled(model.store.document == nil)
         }
         CommandGroup(replacing: .undoRedo) {
             Button("Undo", action: model.undo)

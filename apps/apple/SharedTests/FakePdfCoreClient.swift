@@ -9,6 +9,9 @@ final class FakePdfCoreClient: PdfCoreClient {
     var openedBytes: [Data] = []
     var openedPasswords: [String?] = []
     var requestedDpi: [Int] = []
+    var requestedPages: [Int] = []
+    var renderError: Error?
+    var renderedImage = RenderedPage.placeholder
     var openError: ViewerFailure?
     var searchResults: [String: [SearchMatch]] = [:]
     var searchError: Error?
@@ -43,7 +46,9 @@ final class FakePdfCoreClient: PdfCoreClient {
 
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage {
         requestedDpi.append(dpi)
-        return RenderedPage.placeholder
+        requestedPages.append(page)
+        if let renderError { throw renderError }
+        return renderedImage
     }
 
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch] {

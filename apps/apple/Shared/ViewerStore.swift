@@ -226,8 +226,9 @@ final class ViewerStore: ObservableObject {
 
     /// Core Graphics reads `stride * height` bytes out of the provider without
     /// bounds-checking, so the buffer length has to be verified here — a short
-    /// buffer is an out-of-bounds read, not a blank page.
-    private func isDisplayable(_ image: RenderedPage) -> Bool {
+    /// buffer is an out-of-bounds read, not a blank page. Not `private`:
+    /// `ViewerStore+Print.swift` checks its printer bitmaps the same way.
+    func isDisplayable(_ image: RenderedPage) -> Bool {
         image.width > 0
             && image.height > 0
             && image.stride >= image.width * 4

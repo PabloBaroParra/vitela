@@ -80,6 +80,8 @@ struct ViewerRootView: View {
             }
             Button("Save As…") { model.saveAs() }
                 .disabled(model.store.document == nil || model.isSaving)
+            Button("Print…", action: model.printDocument)
+                .disabled(model.store.document == nil)
             Button("Copy", action: model.copySelection)
                 .keyboardShortcut("c", modifiers: .command)
                 .disabled(model.store.selectedText == nil)
