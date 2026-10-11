@@ -163,3 +163,26 @@ private extension FfiPdfDate {
         )
     }
 }
+
+/// Protecting through the generated UniFFI API — Windows' facade
+/// `ProtectToDestinationAsync` makes the same call.
+extension UniFfiPdfCoreClient {
+    func protectionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool {
+        let handle = try handle(of: document)
+        return try Self.mapEditErrors { try Vitela.protectionWillInvalidateSignatures(handle: handle) }
+    }
+
+    func protect(
+        document: any PdfDocument, openPassword: String, permissionsPassword: String, acknowledgingSignatureLoss: Bool
+    ) throws -> Data {
+        let handle = try handle(of: document)
+        return try Self.mapEditErrors {
+            try protectToBytes(
+                handle: handle,
+                openPassword: openPassword,
+                permissionsPassword: permissionsPassword,
+                signatures: acknowledgingSignatureLoss ? .proceedAndInvalidate : .unacknowledged
+            )
+        }
+    }
+}

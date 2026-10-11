@@ -138,6 +138,8 @@ extension TextQueryFailure: LocalizedError {
 /// state and every handle it hands out is `Arc`/`Mutex`-guarded on the Rust side.
 protocol PdfCoreClient {
     func open(bytes: Data, password: String?) throws -> any PdfDocument
+    /// Opens with both passwords of a file this shell protected.
+    func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch]
     func pageCharacters(document: any PdfDocument, page: Int) throws -> any PageCharacters
@@ -192,6 +194,14 @@ protocol PdfCoreClient {
     /// `saveWillInvalidateSignatures`, which asks about a different save.
     func compressionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool
     func compress(document: any PdfDocument, preset: CompressPreset, acknowledgingSignatureLoss: Bool) throws -> CompressionResult
+
+    // Protecting — see `ViewerStore+Protect.swift`.
+    func protectionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool
+    /// The complete document, encrypted: `openPassword` to open it,
+    /// `permissionsPassword` to lift its restrictions.
+    func protect(
+        document: any PdfDocument, openPassword: String, permissionsPassword: String, acknowledgingSignatureLoss: Bool
+    ) throws -> Data
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -252,6 +262,18 @@ extension PdfCoreClient {
 
     func compress(document: any PdfDocument, preset: CompressPreset, acknowledgingSignatureLoss: Bool) throws -> CompressionResult {
         throw EditFailure.failed("this client does not support compression")
+    }
+
+    func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument {
+        try open(bytes: bytes, password: ownerPassword)
+    }
+
+    func protectionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { false }
+
+    func protect(
+        document: any PdfDocument, openPassword: String, permissionsPassword: String, acknowledgingSignatureLoss: Bool
+    ) throws -> Data {
+        throw EditFailure.failed("this client does not support protection")
     }
 }
 
