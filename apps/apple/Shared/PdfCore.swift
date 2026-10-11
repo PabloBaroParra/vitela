@@ -191,6 +191,14 @@ protocol PdfCoreClient {
     func annotationEditingAllowed(document: any PdfDocument) -> Bool
     /// Saved comments and pending notes, in page order.
     func comments(document: any PdfDocument) -> [Comment]
+
+    // Form fields — see `ViewerStore+Forms.swift`. Filling is gated by the
+    // annotation permission, as on Windows; changing a field's structure by
+    // `formFieldEditingAllowed`.
+    func formFields(document: any PdfDocument) -> [FormField]
+    func formFieldEditingAllowed(document: any PdfDocument) -> Bool
+    /// One undoable fill; the render side needs `refreshPreview` to show it.
+    func setFieldValue(document: any PdfDocument, fieldId: UInt64, value: FieldValue) throws
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws
     /// Lays `contents` out in a box, as a stored text box would be — throws
     /// `EditFailure` naming a character the box's font cannot show.

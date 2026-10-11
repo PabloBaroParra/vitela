@@ -37,6 +37,7 @@ extension ViewerStore {
         pageWorkInFlight = false
         pagesEdited = false
         resetAnnotations()
+        resetForms()
         guard let document else {
             documentInfo = nil
             editingAllowed = false
@@ -135,6 +136,7 @@ extension ViewerStore {
     private func refreshAfterHistoryStep(_ document: any PdfDocument) {
         documentInfo = try? client.documentInfo(document: document)
         refreshAnnotations()
+        refreshFormFields()
     }
 
     /// Not `private`: `ViewerStore+Pages.swift` and `ViewerStore+Annotations.swift`

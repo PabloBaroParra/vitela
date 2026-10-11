@@ -114,6 +114,12 @@ final class ViewerStore: ObservableObject {
     @Published var annotations: [Annotation] = []
     /// The file's comments and this session's notes — read-only.
     @Published var comments: [Comment] = []
+    // Form state, owned by `ViewerStore+Forms.swift`.
+    @Published var formFields: [FormField] = []
+    @Published var formFillAllowed = false
+    @Published var formStructureAllowed = false
+    /// The last form outcome, for the Form panel's own status line.
+    @Published var formStatus = ""
     @Published var annotationEditingAllowed = false
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?

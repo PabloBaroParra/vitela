@@ -8,6 +8,7 @@ struct ViewerRootView: View {
     @FocusState private var searchFieldFocused: Bool
     @State private var showsProperties = false
     @State private var showsComments = false
+    @State private var showsForm = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,6 +32,11 @@ struct ViewerRootView: View {
                 if showsComments {
                     Divider()
                     CommentsPanel(store: model.store)
+                        .frame(width: 280)
+                }
+                if showsForm {
+                    Divider()
+                    FormFieldsPanel(model: model)
                         .frame(width: 280)
                 }
             }
@@ -120,6 +126,9 @@ struct ViewerRootView: View {
             Toggle("Comments", isOn: $showsComments)
                 .toggleStyle(.button)
                 .help("The document's comments, by page")
+            Toggle("Form", isOn: $showsForm)
+                .toggleStyle(.button)
+                .help("Fill in the document's form fields")
             Toggle("Organize", isOn: $model.isOrganizing)
                 .toggleStyle(.button)
                 .help("Rotate and rearrange pages")
