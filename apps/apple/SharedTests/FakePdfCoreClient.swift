@@ -30,6 +30,13 @@ final class FakePdfCoreClient: PdfCoreClient {
     var savedBytes = Data("%PDF-fake".utf8)
     var saveError: Error?
     var saveAcknowledgements: [Bool] = []
+    // Extracting pages.
+    var textExtractionPermitted = true
+    var fullRewritePermitted = true
+    var sourceIsSigned = false
+    var extractedBytes = Data("%PDF-extract".utf8)
+    var extractError: Error?
+    var extractedPages: [[Int]] = []
 
     init(pages: [PageDimensions]) {
         self.pages = pages
@@ -104,6 +111,31 @@ final class FakePdfCoreClient: PdfCoreClient {
         if let saveError { throw saveError }
         if invalidatesSignatures && !acknowledgingSignatureLoss { throw EditFailure.signaturesWouldBeInvalidated }
         return savedBytes
+    }
+}
+
+extension FakePdfCoreClient {
+    func textExtractionAllowed(document: any PdfDocument) -> Bool { textExtractionPermitted }
+    func fullRewriteAllowed(document: any PdfDocument) -> Bool { fullRewritePermitted }
+    func extractSourceIsSigned(document: any PdfDocument) -> Bool { sourceIsSigned }
+
+    /// Enough of the core's grammar for the tests: `"1-3,7"`, one-based.
+    func parsePageSelection(_ text: String, totalPages: Int) throws -> [Int] {
+        var pages = Set<Int>()
+        for part in text.split(separator: ",") {
+            let bounds = part.split(separator: "-").map { Int($0.trimmingCharacters(in: .whitespaces)) }
+            guard let first = bounds.first ?? nil, let last = bounds.last ?? nil, bounds.count <= 2,
+                  first >= 1, first <= last, last <= totalPages
+            else { throw EditFailure.failed("\"\(part)\" is not a page range in this document.") }
+            pages.formUnion((first - 1)...(last - 1))
+        }
+        return pages.sorted()
+    }
+
+    func extractPages(document: any PdfDocument, pages: [Int]) throws -> Data {
+        extractedPages.append(pages)
+        if let extractError { throw extractError }
+        return extractedBytes
     }
 }
 

@@ -60,6 +60,9 @@ struct ViewerRootView: View {
         .sheet(isPresented: $model.isGoToPagePresented) {
             GoToPageSheet(model: model)
         }
+        .sheet(isPresented: $model.isExtractPresented) {
+            ExtractPagesSheet(model: model)
+        }
     }
 
     /// True while the store is waiting on a password — covers both the first
