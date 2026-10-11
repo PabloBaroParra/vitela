@@ -23,8 +23,8 @@ pub mod ops;
 pub mod read;
 
 pub use appearance::{
-    build_field_appearance, FieldAppearance, RadioButtonAppearance, CHECKBOX_ON_STATE,
-    ZAPF_DINGBATS_RESOURCE,
+    build_field_appearance, checkmark_ink_box, FieldAppearance, InkBox, RadioButtonAppearance,
+    CHECKBOX_ON_STATE, ZAPF_DINGBATS_RESOURCE,
 };
 pub use builders::{checkbox, default_radio_options, dropdown, radio_group, text_field};
 pub use da::{base_font_name, format_button_da, format_da, parse_da, resource_name};

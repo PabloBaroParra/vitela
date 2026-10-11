@@ -32,9 +32,31 @@ pub const ZAPF_DINGBATS_RESOURCE: &str = "ZaDb";
 /// this crate creates (matches the ficha's own example dictionary shape).
 pub const CHECKBOX_ON_STATE: &str = "Yes";
 
-/// ZapfDingbats character code for a checkmark (Adobe/reportlab's own
-/// long-standing convention for a default-style checkbox "on" appearance).
-const CHECKMARK_GLYPH: u8 = 0x34;
+/// One ZapfDingbats glyph: its character code and its ink box, in
+/// thousandths of the font size, from Adobe's `ZapfDingbats.afm` `B` entry.
+/// The ink box — not the advance width — is what has to sit centered in the
+/// control, so the placement works from these and not from fixed fractions.
+#[derive(Debug, Clone, Copy)]
+struct GlyphMetrics {
+    code: u8,
+    llx: f64,
+    lly: f64,
+    urx: f64,
+    ury: f64,
+}
+
+/// `a20`, the checkmark (Adobe/reportlab's own long-standing convention for
+/// a default-style checkbox "on" appearance).
+const CHECKMARK: GlyphMetrics = GlyphMetrics {
+    code: 0x34,
+    llx: 36.0,
+    lly: -14.0,
+    urx: 811.0,
+    ury: 705.0,
+};
+/// The share of the control's limiting dimension the glyph's ink spans —
+/// clear of the edges, close to what Acrobat paints.
+const GLYPH_FILL: f64 = 0.7;
 /// The radio dot's radius as a fraction of the button's smaller side — what
 /// reportlab draws (3.6 in an 18pt button).
 const RADIO_DOT_RADIUS: f64 = 0.2;
@@ -89,7 +111,7 @@ pub fn build_field_appearance(field: &FormField) -> Result<FieldAppearance, Form
             let (width, height) = (field.rect.width, field.rect.height);
             Ok(FieldAppearance::Checkbox {
                 on_state: CHECKBOX_ON_STATE,
-                on: glyph_stream(width, height, field.style.color, CHECKMARK_GLYPH),
+                on: glyph_stream(width, height, field.style.color, CHECKMARK),
                 off: empty_stream(width, height),
             })
         }
@@ -138,14 +160,46 @@ fn empty_stream(width: f64, height: f64) -> Stream {
     Stream::new(stream_dict(width, height), Vec::new())
 }
 
-/// A single ZapfDingbats glyph, sized to fit the smaller box dimension and
-/// centered by a fixed fraction of the box — not a font-metrics-exact
-/// centering (this crate does not model ZapfDingbats' own glyph metrics),
-/// close enough that the mark reads as inside the control.
-fn glyph_stream(width: f64, height: f64, color: Color, glyph: u8) -> Stream {
-    let size = 0.8 * width.min(height);
-    let x = 0.1 * width;
-    let y = 0.15 * height;
+/// Where a glyph's ink lands inside a control's box, in the box's own
+/// bottom-up space (origin at the box's lower-left corner).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InkBox {
+    pub left: f64,
+    pub bottom: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// The font size a glyph is drawn at, and the ink box that size produces:
+/// the ink spans [`GLYPH_FILL`] of the box's limiting dimension and sits
+/// centered on both axes. Sizing by the ink box keeps the glyph's aspect
+/// ratio in a non-square control.
+fn place_glyph(width: f64, height: f64, glyph: GlyphMetrics) -> (f64, InkBox) {
+    let ink_width = (glyph.urx - glyph.llx) / 1000.0;
+    let ink_height = (glyph.ury - glyph.lly) / 1000.0;
+    let size = GLYPH_FILL * (width / ink_width).min(height / ink_height);
+    let ink = InkBox {
+        left: (width - ink_width * size) / 2.0,
+        bottom: (height - ink_height * size) / 2.0,
+        width: ink_width * size,
+        height: ink_height * size,
+    };
+    (size, ink)
+}
+
+/// Where a checked checkbox's mark sits in a `width` × `height` box — the
+/// same box the saved `/AP` paints its glyph in, for a shell that draws its
+/// own live stand-in and must match it.
+pub fn checkmark_ink_box(width: f64, height: f64) -> InkBox {
+    place_glyph(width, height, CHECKMARK).1
+}
+
+/// A single ZapfDingbats glyph placed by [`place_glyph`]. The text origin is
+/// offset by the glyph's `llx`/`lly` so the ink, not the origin, is centered.
+fn glyph_stream(width: f64, height: f64, color: Color, glyph: GlyphMetrics) -> Stream {
+    let (size, ink) = place_glyph(width, height, glyph);
+    let x = ink.left - glyph.llx / 1000.0 * size;
+    let y = ink.bottom - glyph.lly / 1000.0 * size;
     let content = format!(
         "q {r} {g} {b} rg BT /{font} {size} Tf {x} {y} Td {glyph} Tj ET Q",
         r = format_number(color.r as f64 / 255.0),
@@ -155,7 +209,7 @@ fn glyph_stream(width: f64, height: f64, color: Color, glyph: u8) -> Stream {
         size = format_number(size),
         x = format_number(x),
         y = format_number(y),
-        glyph = literal_string_byte(glyph),
+        glyph = literal_string_byte(glyph.code),
     );
     let mut dict = stream_dict(width, height);
     dict.set("Resources", zapf_dingbats_resources());
@@ -699,6 +753,83 @@ mod tests {
         assert_eq!(on_state, "Yes");
         assert!(!on.content.is_empty());
         assert!(off.content.is_empty());
+    }
+
+    /// The glyph's ink box in the stream's own space, read back from its
+    /// `<size> Tf <x> <y> Td` operands and the glyph's AFM box.
+    fn ink_box(stream: &Stream, metrics: GlyphMetrics) -> (f64, f64, f64, f64) {
+        let content = String::from_utf8(stream.content.clone()).unwrap();
+        let tokens: Vec<&str> = content.split_whitespace().collect();
+        let number = |at: usize| tokens[at].parse::<f64>().unwrap();
+        let tf = tokens.iter().position(|token| *token == "Tf").unwrap();
+        let (size, x, y) = (number(tf - 1), number(tf + 1), number(tf + 2));
+        let scale = size / 1000.0;
+        (
+            x + metrics.llx * scale,
+            y + metrics.lly * scale,
+            x + metrics.urx * scale,
+            y + metrics.ury * scale,
+        )
+    }
+
+    fn assert_centered_inside(stream: &Stream, metrics: GlyphMetrics, width: f64, height: f64) {
+        let (left, bottom, right, top) = ink_box(stream, metrics);
+        assert!(
+            left >= 0.0 && bottom >= 0.0,
+            "ink spills out: {left} {bottom}"
+        );
+        assert!(
+            right <= width && top <= height,
+            "ink spills out: {right} {top}"
+        );
+        assert!(
+            ((left + right) / 2.0 - width / 2.0).abs() < 0.01,
+            "x off-center"
+        );
+        assert!(
+            ((bottom + top) / 2.0 - height / 2.0).abs() < 0.01,
+            "y off-center"
+        );
+        let fill = ((right - left) / width).max((top - bottom) / height);
+        assert!((fill - GLYPH_FILL).abs() < 0.01, "fill {fill}");
+    }
+
+    #[test]
+    fn checkmark_is_centered_and_sized_in_any_box() {
+        for (width, height) in [(12.0, 12.0), (40.0, 12.0), (12.0, 40.0), (8.5, 30.0)] {
+            let field = checkbox_field(Rect {
+                x: 0.0,
+                y: 0.0,
+                width,
+                height,
+            });
+            let FieldAppearance::Checkbox { on, .. } = build_field_appearance(&field).unwrap()
+            else {
+                panic!("expected Checkbox");
+            };
+            assert_centered_inside(&on, CHECKMARK, width, height);
+        }
+    }
+
+    /// The box a shell's live stand-in draws in is the box the saved glyph
+    /// actually inks, or the mark jumps the moment the field is saved.
+    #[test]
+    fn checkmark_ink_box_is_where_the_saved_glyph_inks() {
+        let (width, height) = (40.0, 12.0);
+        let field = checkbox_field(Rect {
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+        });
+        let FieldAppearance::Checkbox { on, .. } = build_field_appearance(&field).unwrap() else {
+            panic!("expected Checkbox");
+        };
+        let (left, bottom, right, top) = ink_box(&on, CHECKMARK);
+        let ink = checkmark_ink_box(width, height);
+        assert!((ink.left - left).abs() < 0.01 && (ink.bottom - bottom).abs() < 0.01);
+        assert!((ink.width - (right - left)).abs() < 0.01);
+        assert!((ink.height - (top - bottom)).abs() < 0.01);
     }
 
     #[test]

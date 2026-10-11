@@ -556,21 +556,33 @@ fn draw_field_text(context: &cairo::Context, text: &str, placed: &PlacedRect, fo
 
 /// Draws a checkmark inside `placed` for a checked checkbox — a live stand-in
 /// for the ZapfDingbats glyph `pdf-form::appearance` writes into the real
-/// `/AP /N` stream at save time, not an attempt to reproduce it exactly.
+/// `/AP /N` stream at save time. Not the glyph's outline, but the same ink
+/// box, so the mark keeps its size and place when the field is saved.
 fn draw_field_checkmark(context: &cairo::Context, placed: &PlacedRect) {
-    let side = placed.width.min(placed.height);
-    let inset = side * 0.2;
-    let PlacedRect {
-        left,
-        top,
-        width,
-        height,
-    } = *placed;
-    context.set_line_width((side * 0.15).max(1.5));
-    context.move_to(left + inset, top + height * 0.55);
-    context.line_to(left + width * 0.4, top + height - inset);
-    context.line_to(left + width - inset, top + inset);
+    let (points, line_width) = checkmark_stroke(placed);
+    context.set_line_width(line_width);
+    context.set_line_cap(cairo::LineCap::Round);
+    context.set_line_join(cairo::LineJoin::Round);
+    context.move_to(points[0].0, points[0].1);
+    for &(x, y) in &points[1..] {
+        context.line_to(x, y);
+    }
     let _ = context.stroke();
+}
+
+/// The checkmark's three stroke points (short arm, elbow, long arm) in
+/// `placed`'s top-down space, and its stroke width. The points are inset by
+/// half the width so the round-capped stroke stays inside
+/// `pdf_form::checkmark_ink_box`, which is bottom-up and is flipped here.
+fn checkmark_stroke(placed: &PlacedRect) -> ([(f64, f64); 3], f64) {
+    let ink = pdf_form::checkmark_ink_box(placed.width, placed.height);
+    let line_width = 0.15 * ink.width.min(ink.height);
+    let half = line_width / 2.0;
+    let left = placed.left + ink.left + half;
+    let top = placed.top + placed.height - ink.bottom - ink.height + half;
+    let (width, height) = (ink.width - line_width, ink.height - line_width);
+    let at = |fx: f64, fy: f64| (left + width * fx, top + height * fy);
+    ([at(0.0, 0.55), at(0.38, 1.0), at(1.0, 0.0)], line_width)
 }
 
 /// Whether a value shows nothing when drawn — an empty text field, an unset
@@ -1385,6 +1397,34 @@ mod tests {
                 max_len: None,
             },
             origin: pdf_document::FieldOrigin::Existing((7, 0)),
+        }
+    }
+
+    /// The live checkmark inks the same centered box the saved glyph does,
+    /// in a square box and in boxes far from square.
+    #[test]
+    fn the_live_checkmark_is_centered_in_the_saved_glyphs_box() {
+        for (width, height) in [(24.0, 24.0), (80.0, 24.0), (24.0, 80.0)] {
+            let placed = PlacedRect {
+                left: 10.0,
+                top: 5.0,
+                width,
+                height,
+            };
+            let (points, line_width) = checkmark_stroke(&placed);
+            let half = line_width / 2.0;
+            let xs = points.iter().map(|point| point.0);
+            let ys = points.iter().map(|point| point.1);
+            let left = xs.clone().fold(f64::MAX, f64::min) - half;
+            let right = xs.fold(f64::MIN, f64::max) + half;
+            let top = ys.clone().fold(f64::MAX, f64::min) - half;
+            let bottom = ys.fold(f64::MIN, f64::max) + half;
+
+            let ink = pdf_form::checkmark_ink_box(width, height);
+            assert!((right - left - ink.width).abs() < 1e-9);
+            assert!((bottom - top - ink.height).abs() < 1e-9);
+            assert!(((left + right) / 2.0 - (10.0 + width / 2.0)).abs() < 1e-9);
+            assert!(((top + bottom) / 2.0 - (5.0 + height / 2.0)).abs() < 1e-9);
         }
     }
 
