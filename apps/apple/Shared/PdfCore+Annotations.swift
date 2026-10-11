@@ -68,6 +68,8 @@ enum AnnotationEdit: Equatable {
     case add(kind: AnnotationKind, page: Int, rect: PdfRect, color: PdfColor)
     /// A freehand stroke through `points`, in page space.
     case addInk(page: Int, points: [PdfPoint], color: PdfColor)
+    /// A sticky note whose icon sits at `rect`.
+    case addNote(page: Int, rect: PdfRect, contents: String)
     case remove(id: UInt64)
 }
 

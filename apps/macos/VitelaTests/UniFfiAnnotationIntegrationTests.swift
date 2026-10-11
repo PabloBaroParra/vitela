@@ -63,4 +63,20 @@ final class UniFfiAnnotationIntegrationTests: XCTestCase {
         XCTAssertEqual(client.pointToPdf(x: point.left, y: point.top, on: turned).x, 10, accuracy: 0.001)
         XCTAssertEqual(client.pointToPdf(x: point.left, y: point.top, on: turned).y, 20, accuracy: 0.001)
     } }
+
+    func testANoteKeepsItsTextThroughTheCore() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        store.armAnnotationTool(.note)
+        XCTAssertTrue(store.beginAnnotationDraft(page: 0, at: PdfPoint(x: 100, y: 600)))
+        store.endAnnotationDraft(page: 0, at: PdfPoint(x: 124, y: 624))
+
+        store.commitPendingNote(text: "Revisar — ñandú")
+
+        let note = try XCTUnwrap(store.annotations.first)
+        XCTAssertEqual(note.kind, .textNote)
+        XCTAssertEqual(note.contents, "Revisar — ñandú")
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        XCTAssertNotNil(try store.saveResult(for: save).get().range(of: Data("/Text".utf8)))
+    } }
 }

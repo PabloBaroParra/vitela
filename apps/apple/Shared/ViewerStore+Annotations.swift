@@ -8,7 +8,7 @@ import Foundation
 
 /// The tools a drag on a page can place.
 enum AnnotationTool: Equatable, CaseIterable {
-    case highlight, underline, strikeout, shape, ink
+    case highlight, underline, strikeout, shape, ink, note
 
     var kind: AnnotationKind {
         switch self {
@@ -17,6 +17,7 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .strikeout: return .strikeout
         case .shape: return .shape
         case .ink: return .ink
+        case .note: return .textNote
         }
     }
 
@@ -28,8 +29,16 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .strikeout: return "Strikeout"
         case .shape: return "Shape"
         case .ink: return "Ink"
+        case .note: return "Note"
         }
     }
+}
+
+/// A note traced on a page, waiting for its text — Windows asks for the
+/// contents after the drag, and only then records the edit.
+struct PendingNote: Equatable {
+    let page: Int
+    let rect: PdfRect
 }
 
 /// A placement being traced: where the drag started and where it is now.
@@ -107,7 +116,26 @@ extension ViewerStore {
             return applyAnnotationEdit(.addInk(page: page, points: draft.points, color: .annotationDefault))
         }
         let rect = Self.tracedRect(from: draft.origin, to: draft.current, tool: draft.tool)
+        if draft.tool == .note {
+            pendingNote = PendingNote(page: page, rect: rect)
+            return
+        }
         applyAnnotationEdit(.add(kind: draft.tool.kind, page: page, rect: rect, color: .annotationDefault))
+    }
+
+    /// Records the pending note with `text`. Blank text records nothing: the
+    /// shell keeps its Add button disabled until there is some.
+    func commitPendingNote(text: String) {
+        guard let note = pendingNote, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pendingNote = nil
+        guard annotationEditingAllowed, pageSlots.indices.contains(note.page) else { return }
+        applyAnnotationEdit(.addNote(page: note.page, rect: note.rect, contents: text))
+    }
+
+    func cancelPendingNote() {
+        guard pendingNote != nil else { return }
+        pendingNote = nil
+        editStatus = "Note placement canceled."
     }
 
     func cancelAnnotationDraft() {
@@ -164,6 +192,7 @@ extension ViewerStore {
     func resetAnnotations() {
         armedTool = nil
         annotationDraft = nil
+        pendingNote = nil
         annotationEditingAllowed = document.map { client.annotationEditingAllowed(document: $0) } ?? false
         refreshAnnotations()
     }

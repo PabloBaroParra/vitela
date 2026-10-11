@@ -153,3 +153,50 @@ extension ViewerStoreAnnotationTests {
         XCTAssertFalse(store.hasUnsavedChanges)
     }
 }
+
+extension ViewerStoreAnnotationTests {
+    private func noteStore() -> (FakePdfCoreClient, ViewerStore) {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        store.armAnnotationTool(.note)
+        XCTAssertTrue(store.beginAnnotationDraft(page: 0, at: PdfPoint(x: 10, y: 10)))
+        store.endAnnotationDraft(page: 0, at: PdfPoint(x: 40, y: 40))
+        return (client, store)
+    }
+
+    func testANoteAsksForItsTextBeforeAnythingIsRecorded() {
+        let (client, store) = noteStore()
+
+        XCTAssertEqual(store.pendingNote, PendingNote(page: 0, rect: PdfRect(x: 10, y: 10, width: 30, height: 30)))
+        XCTAssertTrue(client.annotationEdits.isEmpty)
+
+        store.commitPendingNote(text: "Check this figure")
+
+        XCTAssertEqual(client.annotationEdits, [
+            .addNote(page: 0, rect: PdfRect(x: 10, y: 10, width: 30, height: 30), contents: "Check this figure"),
+        ])
+        XCTAssertNil(store.pendingNote)
+        XCTAssertEqual(store.annotations.first?.contents, "Check this figure")
+    }
+
+    func testABlankNoteIsNotRecorded() {
+        let (client, store) = noteStore()
+
+        store.commitPendingNote(text: "  \n ")
+
+        XCTAssertTrue(client.annotationEdits.isEmpty)
+        XCTAssertNotNil(store.pendingNote, "the sheet stays up until Add or Cancel")
+    }
+
+    func testCancellingANoteRecordsNothing() {
+        let (client, store) = noteStore()
+
+        store.cancelPendingNote()
+
+        XCTAssertNil(store.pendingNote)
+        XCTAssertEqual(store.editStatus, "Note placement canceled.")
+        XCTAssertTrue(client.annotationEdits.isEmpty)
+        XCTAssertFalse(store.hasUnsavedChanges)
+    }
+}
