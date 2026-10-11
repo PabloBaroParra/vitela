@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The Organize grid: every page as a card, standing in for the reader —
 /// the macOS twin of Windows' `MainWindow.Organize.cs` and the Linux
-/// `organize/grid`. Each action on a card — turn, delete — is one undoable
-/// page edit.
+/// `organize/grid`. Each action on a card — turn, delete, insert a blank
+/// page before it — and each blank page added from the header is one
+/// undoable page edit.
 struct OrganizeView: View {
     @ObservedObject var model: ViewerViewModel
     @Environment(\.displayScale) private var displayScale
@@ -37,11 +38,19 @@ struct OrganizeView: View {
         .accessibilityIdentifier("organize-grid")
     }
 
+    private func appendBlankPage(_ orientation: PageEdit.Orientation) {
+        model.editPages(.insertBlank(at: model.store.pageSlots.count, orientation: orientation))
+    }
+
     private var header: some View {
         HStack {
             Text("Organize pages").font(.headline)
             Text("Each change is one undo step.").foregroundStyle(.secondary)
             Spacer()
+            Button("Add blank A4 page") { appendBlankPage(.portrait) }
+                .disabled(!model.store.canEditPages)
+            Button("Add landscape A4 page") { appendBlankPage(.landscape) }
+                .disabled(!model.store.canEditPages)
             if model.store.pageWorkInFlight {
                 ProgressView().controlSize(.small)
             }

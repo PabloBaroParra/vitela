@@ -38,6 +38,11 @@ struct OrganizePageCard: View {
             }
             .buttonStyle(.borderless)
             .disabled(!enabled)
+            Menu("Page actions") {
+                Button("Insert portrait A4 before") { onEdit { .insertBlank(at: $0, orientation: .portrait) } }
+                Button("Insert landscape A4 before") { onEdit { .insertBlank(at: $0, orientation: .landscape) } }
+            }
+            .disabled(!enabled)
         }
         .padding(8)
         .frame(width: ViewerStore.thumbnailBox + 16)
