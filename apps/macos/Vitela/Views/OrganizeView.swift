@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// the macOS twin of Windows' `MainWindow.Organize.cs` and the Linux
 /// `organize/grid`. Each action on a card — turn, delete, move, insert a
 /// blank page before it, or drag it onto another card — and each blank page
-/// added from the header is one undoable page edit.
+/// or batch of PDFs added from the header is one undoable page edit.
 struct OrganizeView: View {
     @ObservedObject var model: ViewerViewModel
     @Environment(\.displayScale) private var displayScale
@@ -22,7 +22,7 @@ struct OrganizeView: View {
                         OrganizePageCard(
                             number: slot.index + 1,
                             thumbnail: model.store.thumbnails[slot.index],
-                            enabled: model.store.canEditPages,
+                            enabled: model.store.canEditPages && !model.isImporting,
                             canDelete: model.store.pageSlots.count > 1,
                             isLast: slot.index == model.store.pageSlots.count - 1,
                             onEdit: { model.editPages($0(slot.index)) }
@@ -54,11 +54,14 @@ struct OrganizeView: View {
             Text("Organize pages").font(.headline)
             Text("Each change is one undo step.").foregroundStyle(.secondary)
             Spacer()
+            Button("Add PDFs…", action: model.importPdfs)
+                .help("Add every page of other PDFs at the end")
+                .disabled(!model.store.canEditPages || model.isImporting)
             Button("Add blank A4 page") { appendBlankPage(.portrait) }
                 .disabled(!model.store.canEditPages)
             Button("Add landscape A4 page") { appendBlankPage(.landscape) }
                 .disabled(!model.store.canEditPages)
-            if model.store.pageWorkInFlight {
+            if model.store.pageWorkInFlight || model.isImporting {
                 ProgressView().controlSize(.small)
             }
             Button("Done") { model.isOrganizing = false }

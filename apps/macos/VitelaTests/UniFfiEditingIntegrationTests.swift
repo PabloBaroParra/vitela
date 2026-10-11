@@ -251,4 +251,38 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         XCTAssertEqual(store.pageSlots[last].dimensions, blank)
         XCTAssertNotEqual(store.pageSlots[0].dimensions, blank)
     } }
+
+    func testImportingAPdfAppendsAllItsPagesAsOneStep() throws { try offMain {
+        let client = UniFfiPdfCoreClient()
+        let store = ViewerStore(client: client)
+        store.open(bytes: try Self.sampleBytes())
+        let count = store.pageSlots.count
+        XCTAssertNil(store.importRefusal())
+
+        let source = try store.prepareImport(bytes: try Self.sampleBytes(), password: nil).get()
+        XCTAssertEqual(source.pageCount, count)
+        let request = try XCTUnwrap(store.beginImport([source]))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertEqual(store.pageSlots.count, 2 * count)
+        XCTAssertEqual(store.editStatus, "Imported \(count) \(count == 1 ? "page" : "pages") from 1 PDF. Changes are pending save.")
+        store.undo()
+        XCTAssertFalse(store.canUndo, "the import is a single history step")
+    } }
+
+    func testAnEncryptedSourceNeedsItsPassword() throws { try offMain {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "aes_128_user_and_owner", withExtension: "pdf"))
+        let bytes = try Data(contentsOf: url)
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+
+        guard case let .failure(error) = store.prepareImport(bytes: bytes, password: nil) else {
+            return XCTFail("an encrypted source must not prepare without its password")
+        }
+        XCTAssertTrue([ViewerFailure.passwordRequired, .wrongPassword].contains(error as? ViewerFailure))
+        if case let .failure(error) = store.prepareImport(bytes: bytes, password: "user-aes-pass") {
+            // The core may still refuse it for its own permissions; that is
+            // a refusal, not a password question.
+            XCTAssertNotNil(error as? EditFailure)
+        }
+    } }
 }

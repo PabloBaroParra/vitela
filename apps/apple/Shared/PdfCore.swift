@@ -52,56 +52,6 @@ struct DocumentInfo: Equatable {
     var modDate: MetadataDate?
 }
 
-/// An exported page's encoding — mirrors `FfiExportFormat`. JPEG has no
-/// alpha: the core flattens the page onto an opaque background.
-enum ImageFormat: Equatable, CaseIterable {
-    case png, jpeg
-
-    var name: String { self == .png ? "PNG" : "JPEG" }
-}
-
-/// One file a split writes: pages `first...last` (zero-based) — mirrors
-/// `FfiSplitPart`.
-struct SplitPart: Equatable {
-    let first: Int
-    let last: Int
-    let fileName: String
-}
-
-/// The compression the reader picked — mirrors `FfiCompressPreset`.
-enum CompressPreset: CaseIterable, Equatable {
-    case lossless, balanced, small
-}
-
-/// A finished compression — mirrors `FfiCompressedSave` and its report.
-/// The core guarantees the bytes are never larger, not that they are smaller.
-struct CompressionResult: Equatable {
-    let bytes: Data
-    let beforeBytes: Int
-    let afterBytes: Int
-    let savedBytes: Int
-    let reduced: Bool
-    /// What could not be done, as sentences.
-    let refusals: [String]
-}
-
-/// One page-structure edit — the subset of `FfiEditCommand` the Organize
-/// view issues, in page positions (0-based) of the document as it is now.
-enum PageEdit: Equatable {
-    enum Orientation: Equatable {
-        case portrait, landscape
-    }
-
-    /// Turns a page by a multiple of 90°; positive is clockwise.
-    case rotate(page: Int, degrees: Int)
-    case remove(page: Int)
-    /// An A4 blank page, as on Windows and Linux, inserted before `at`
-    /// (`at == pageCount` appends).
-    case insertBlank(at: Int, orientation: Orientation)
-    /// Moves one page so it ends up at position `to`.
-    case move(from: Int, to: Int)
-}
-
 /// A page-space rectangle in PDF points with a bottom-left origin — mirrors
 /// `FfiTextRect`. A shell converts to view space (top-left origin) with the
 /// page's height: `y_view = (pageHeight - rect.yPt - rect.heightPt) * zoom`.
@@ -222,6 +172,16 @@ protocol PdfCoreClient {
     func refreshPreview(document: any PdfDocument) throws
     /// The page sizes `render` currently draws, in page order.
     func pageDimensions(document: any PdfDocument) -> [PageDimensions]
+
+    // Importing other PDFs' pages — see `ViewerStore+Import.swift`.
+    /// Why this document cannot take imported pages at all, or `nil`.
+    func importRefusal(document: any PdfDocument) -> String?
+    /// Opens `bytes` as a source. Throws `ViewerFailure.passwordRequired` /
+    /// `.wrongPassword` when it needs a password, `EditFailure` otherwise.
+    func prepareImport(bytes: Data, password: String?) throws -> any ImportSource
+    /// Appends every page of `sources`, in order, as one undo step. Returns
+    /// how many pages it added. All or nothing.
+    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -257,6 +217,16 @@ extension PdfCoreClient {
     func refreshPreview(document: any PdfDocument) throws {}
 
     func pageDimensions(document: any PdfDocument) -> [PageDimensions] { document.pages }
+
+    func importRefusal(document: any PdfDocument) -> String? { "This client does not support importing PDFs." }
+
+    func prepareImport(bytes: Data, password: String?) throws -> any ImportSource {
+        throw EditFailure.failed("this client does not support importing PDFs")
+    }
+
+    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int {
+        throw EditFailure.failed("this client does not support importing PDFs")
+    }
 
     func textExtractionAllowed(document: any PdfDocument) -> Bool { false }
     func fullRewriteAllowed(document: any PdfDocument) -> Bool { false }
