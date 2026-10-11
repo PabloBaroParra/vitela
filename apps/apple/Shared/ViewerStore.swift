@@ -116,6 +116,7 @@ final class ViewerStore: ObservableObject {
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?
     @Published var pendingNote: PendingNote?
+    @Published var pendingFreeText: PendingFreeText?
     @Published var selectedAnnotationId: UInt64?
     @Published var annotationGesture: AnnotationGesture?
 
