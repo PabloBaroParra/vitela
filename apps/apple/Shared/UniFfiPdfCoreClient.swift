@@ -40,7 +40,9 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
         try Self.document { try createDocumentWithBlankPage(pageSize: .a4, orientation: .portrait) }
     }
 
-    private static func document(_ open: () throws -> DocumentHandle) throws -> any PdfDocument {
+    /// Not `private`: `UniFfiPdfCoreClient+Signing.swift` reopens signed
+    /// output the same way.
+    static func document(_ open: () throws -> DocumentHandle) throws -> any PdfDocument {
         do {
             let handle = try open()
             let pages = handle.pageDimensions().map {

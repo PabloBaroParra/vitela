@@ -31,6 +31,7 @@ final class ViewerViewModel: ObservableObject {
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
     let operationQueue: OperationQueue
     let prompts: SavePrompts
+    let signingPrompts: SigningPrompts
     private let sampleLoader: () throws -> Data
     private var subscriptions = Set<AnyCancellable>()
     /// The pending viewport size report — see `ViewerViewModel+Zoom.swift`.
@@ -39,10 +40,12 @@ final class ViewerViewModel: ObservableObject {
     init(
         store: ViewerStore = ViewerStore(client: UniFfiPdfCoreClient()),
         prompts: SavePrompts = .modal,
+        signingPrompts: SigningPrompts = .modal,
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
         self.store = store
         self.prompts = prompts
+        self.signingPrompts = signingPrompts
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
         operationQueue.maxConcurrentOperationCount = 1
