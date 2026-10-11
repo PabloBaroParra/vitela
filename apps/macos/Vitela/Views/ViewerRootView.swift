@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ViewerRootView: View {
     @ObservedObject var model: ViewerViewModel
@@ -24,12 +25,18 @@ struct ViewerRootView: View {
                         .frame(width: 280)
                 }
             }
-            if !model.store.editStatus.isEmpty {
+            if !statusText.isEmpty {
                 Divider()
                 statusLine
             }
         }
         .accessibilityIdentifier("viewer-root")
+        // The whole window takes the drop, so a PDF can be dropped with
+        // nothing open and no page to aim at.
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            Self.loadFileURLs(providers, then: model.openExternalFiles)
+            return !providers.isEmpty
+        }
         .background(
             // `.hidden()` can pull a view out of the responder chain on some
             // macOS versions, which would silently kill the shortcut;
@@ -144,9 +151,30 @@ struct ViewerRootView: View {
         .padding(.bottom, 8)
     }
 
+    /// The shell's own notice wins: it answers what the reader just did.
+    private var statusText: String {
+        model.notice.isEmpty ? model.store.editStatus : model.notice
+    }
+
+    /// Resolves the dropped items' file URLs, then hands them over on main.
+    private static func loadFileURLs(_ providers: [NSItemProvider], then deliver: @escaping ([URL]) -> Void) {
+        var urls = [URL?](repeating: nil, count: providers.count)
+        let group = DispatchGroup()
+        for (index, provider) in providers.enumerated() {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                DispatchQueue.main.async {
+                    urls[index] = url
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) { deliver(urls.compactMap { $0 }) }
+    }
+
     private var statusLine: some View {
         HStack {
-            Text(model.store.editStatus)
+            Text(statusText)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("edit-status")
             Spacer()

@@ -6,10 +6,14 @@ import UniformTypeIdentifiers
 final class ViewerViewModel: ObservableObject {
     @Published private(set) var title = ViewerViewModel.windowTitle(for: .empty)
     /// The open document's file name, used to suggest a name when saving.
-    @Published private(set) var documentName: String?
+    /// Not `private(set)`: `ViewerViewModel+FileDrop.swift` names what it opens.
+    @Published var documentName: String?
     @Published var isSaving = false
     /// Whether the Go to page sheet is up — see `ViewerViewModel+Navigation.swift`.
     @Published var isGoToPagePresented = false
+    /// A shell-level message for the status line — a drop that could not be
+    /// opened, say — as opposed to the store's edit and save outcomes.
+    @Published var notice = ""
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
@@ -105,6 +109,7 @@ final class ViewerViewModel: ObservableObject {
             do {
                 let bytes = try load()
                 DispatchQueue.main.async {
+                    self.notice = ""
                     self.documentName = name
                     self.store.open(bytes: bytes)
                 }

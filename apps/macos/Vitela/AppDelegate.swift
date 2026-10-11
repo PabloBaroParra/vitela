@@ -1,10 +1,16 @@
 import AppKit
 
-/// Owns the one `ViewerViewModel` so the scene and the quit guard share it:
-/// quitting with unsaved changes asks first, exactly like opening another
-/// document does.
+/// Owns the one `ViewerViewModel` so the scene, the quit guard and Finder's
+/// open requests share it: quitting with unsaved changes asks first, exactly
+/// like opening another document does.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = ViewerViewModel()
+
+    /// Finder's double-click and Open With, and files dropped on the Dock
+    /// icon — the PDF types are declared in `Info.plist`.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        model.openExternalFiles(urls)
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // A save in flight cannot be interrupted safely; let it land first.

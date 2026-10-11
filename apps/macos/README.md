@@ -18,7 +18,7 @@ responsibility:
 
 - `Vitela/VitelaApp.swift` — entry point only, nothing else.
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
-  changes before quitting.
+  changes before quitting, and passes on files Finder opens with Vitela.
 - `Vitela/VitelaCommands.swift` — the menu bar (Open, Save As, Print, Undo,
   Redo, the Go menu's page navigation, and View ▸ zoom).
 - `Vitela/ViewerViewModel.swift` — file selection, the render queue, and
@@ -32,6 +32,8 @@ responsibility:
 - `Vitela/ViewerViewModel+Navigation.swift` — the Go to page prompt.
 - `Vitela/ViewerViewModel+Zoom.swift` — feeds the page list's size to the
   fit-width / fit-page zoom modes, waiting for a live resize to settle.
+- `Vitela/ViewerViewModel+FileDrop.swift` — PDFs dropped on the window or
+  sent by Finder (declared in `Vitela/Info.plist`).
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`
