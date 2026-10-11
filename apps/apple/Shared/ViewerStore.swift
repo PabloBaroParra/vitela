@@ -135,7 +135,16 @@ final class ViewerStore: ObservableObject {
         open(bytes: bytes) { try $0.open(bytes: bytes, userPassword: userPassword, ownerPassword: ownerPassword) }
     }
 
-    private func open(bytes: Data, using opener: (PdfCoreClient) throws -> any PdfDocument) {
+    /// A new, unsaved document with one blank A4 page — Linux's and
+    /// Windows' Ctrl+N. Created with its first page already present, as on
+    /// Windows: inserting one into an empty document would be a pending edit
+    /// before the reader did anything.
+    func openBlank() {
+        open(bytes: nil) { try $0.createBlankDocument() }
+    }
+
+    /// `bytes` is `nil` for a document that never was a file.
+    private func open(bytes: Data?, using opener: (PdfCoreClient) throws -> any PdfDocument) {
         generation += 1
         let attemptedGeneration = generation
         pendingBytes = bytes
@@ -144,7 +153,8 @@ final class ViewerStore: ObservableObject {
             let opened = try opener(client)
             guard attemptedGeneration == generation else { return }
             document = opened
-            sourceByteCount = bytes.count
+            // `nil` for a new document: Compress then says there is no file size.
+            sourceByteCount = bytes?.count
             pageSlots = opened.pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
             // A previous document's page characters, matches and selection
             // address pages/carets that may no longer exist or mean the same

@@ -82,6 +82,19 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
+    /// File ▸ New: a blank, unsaved A4 document, after the usual question
+    /// about unsaved changes — named as Windows names it.
+    func newDocument() {
+        proceedPastUnsavedChanges { [weak self] in
+            guard let self else { return }
+            self.operationQueue.cancelAllOperations()
+            // Like every other open, a new document clears a drop's notice.
+            self.notice = ""
+            self.documentName = "Untitled"
+            self.store.openBlank()
+        }
+    }
+
     func open(url: URL) {
         loadAndOpen(name: url.lastPathComponent) { try Data(contentsOf: url) }
     }

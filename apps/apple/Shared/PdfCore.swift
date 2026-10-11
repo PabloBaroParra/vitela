@@ -140,6 +140,8 @@ protocol PdfCoreClient {
     func open(bytes: Data, password: String?) throws -> any PdfDocument
     /// Opens with both passwords of a file this shell protected.
     func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument
+    /// A new document holding one blank portrait A4 page.
+    func createBlankDocument() throws -> any PdfDocument
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch]
     func pageCharacters(document: any PdfDocument, page: Int) throws -> any PageCharacters
@@ -266,6 +268,10 @@ extension PdfCoreClient {
 
     func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument {
         try open(bytes: bytes, password: ownerPassword)
+    }
+
+    func createBlankDocument() throws -> any PdfDocument {
+        throw ViewerFailure.openFailed("this client cannot create documents")
     }
 
     func protectionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { false }

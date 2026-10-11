@@ -153,4 +153,21 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         XCTAssertEqual(store.state, .loaded)
         XCTAssertTrue(store.editingAllowed, "opened with the permissions password, the copy stays editable")
     } }
+
+    func testANewDocumentIsOneA4PageThatCanBeSaved() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.openBlank()
+
+        XCTAssertEqual(store.state, .loaded)
+        XCTAssertEqual(store.pageSlots.count, 1)
+        let page = try XCTUnwrap(store.pageSlots.first?.dimensions)
+        XCTAssertEqual(page.width, 595, accuracy: 1)
+        XCTAssertEqual(page.height, 842, accuracy: 1)
+        XCTAssertFalse(store.canUndo)
+
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+        reopened.open(bytes: try store.saveResult(for: save).get())
+        XCTAssertEqual(reopened.pageSlots.count, 1)
+    } }
 }

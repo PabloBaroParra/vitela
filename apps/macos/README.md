@@ -19,11 +19,11 @@ responsibility:
 - `Vitela/VitelaApp.swift` — entry point only, nothing else.
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
   changes before quitting, and passes on files Finder opens with Vitela.
-- `Vitela/VitelaCommands.swift` — the menu bar (Open, Save As, Protect,
+- `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Save As, Protect,
   Compress, Extract Pages, Split PDF, Export Pages as Images, Print, Undo,
   Redo, the Go menu's page navigation, and View ▸ zoom).
-- `Vitela/ViewerViewModel.swift` — file selection, the render queue, and
-  opening the bundled sample documents.
+- `Vitela/ViewerViewModel.swift` — file selection, File ▸ New, the render
+  queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
 - `Vitela/ViewerViewModel+Print.swift` — Print… (⌘P): the standard print

@@ -1,13 +1,15 @@
 import SwiftUI
 
-/// The menu bar: File ▸ Open/Save/Protect/Compress/Extract/Split/Export/Print,
-/// Edit ▸ Undo/Redo, the Go menu and View ▸ zoom, with the standard shortcuts. Undo and Redo replace the system items because the document's
+/// The menu bar: File ▸ New/Open/Save/Protect/Compress/Extract/Split/Export/
+/// Print, Edit ▸ Undo/Redo, the Go menu and View ▸ zoom, with the standard shortcuts. Undo and Redo replace the system items because the document's
 /// history lives in the core's EditLog, not in an `NSUndoManager`.
 struct VitelaCommands: Commands {
     @ObservedObject var model: ViewerViewModel
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            Button("New", action: model.newDocument)
+                .keyboardShortcut("n", modifiers: .command)
             Button("Open…", action: model.selectDocument)
                 .keyboardShortcut("o", modifiers: .command)
         }
