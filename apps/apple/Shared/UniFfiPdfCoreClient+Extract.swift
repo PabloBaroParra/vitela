@@ -2,8 +2,9 @@
 // not importing AppKit or UIKit here.
 import Foundation
 
-/// Extracting pages through the generated UniFFI API. The range grammar,
-/// both permission gates and the prune are the core's (`pdf-ffi`'s `extract`
+/// Extracting pages — and splitting, which is several extractions — through
+/// the generated UniFFI API. The range and cut grammars, both permission
+/// gates and the prune are the core's (`pdf-ffi`'s `extract`
 /// module), shared with the Linux and Windows chains.
 extension UniFfiPdfCoreClient {
     func textExtractionAllowed(document: any PdfDocument) -> Bool {
@@ -34,5 +35,17 @@ extension UniFfiPdfCoreClient {
     func extractSourceIsSigned(document: any PdfDocument) -> Bool {
         guard let handle = try? handle(of: document) else { return false }
         return Vitela.extractSourceIsSigned(handle: handle)
+    }
+
+    func planSplit(_ cuts: String, totalPages: Int, documentName: String) throws -> [SplitPart] {
+        do {
+            return try Vitela.planSplit(typed: cuts, totalPages: UInt32(totalPages), documentName: documentName).map {
+                SplitPart(first: Int($0.first), last: Int($0.last), fileName: $0.fileName)
+            }
+        } catch let FfiError.InvalidPageSelection(detail) {
+            throw EditFailure.failed(detail)
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
     }
 }

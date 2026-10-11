@@ -83,4 +83,24 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         XCTAssertEqual(extracted.pageSlots.count, 1)
         XCTAssertEqual(extracted.pageSlots.first?.dimensions, store.pageSlots.first?.dimensions)
     } }
+
+    func testSplittingMakesPartsThatTogetherHoldEveryPage() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let count = store.pageSlots.count
+        try XCTSkipIf(count < 2, "the sample needs two pages to be split")
+
+        let plan = try store.planSplit(cuts: "1", documentName: "sample.pdf").get()
+        XCTAssertEqual(plan.parts.count, 2)
+        XCTAssertNotEqual(plan.parts[0].fileName, plan.parts[1].fileName)
+
+        var total = 0
+        for part in plan.parts {
+            let request = try XCTUnwrap(store.beginSplitPart(part, of: plan))
+            let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+            reopened.open(bytes: try store.extractResult(for: request).get())
+            total += reopened.pageSlots.count
+        }
+        XCTAssertEqual(total, count)
+    } }
 }

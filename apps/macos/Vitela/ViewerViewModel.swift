@@ -16,6 +16,8 @@ final class ViewerViewModel: ObservableObject {
     @Published var notice = ""
     /// Whether the Extract pages sheet is up — `ViewerViewModel+Extract.swift`.
     @Published var isExtractPresented = false
+    /// Whether the Split PDF sheet is up — `ViewerViewModel+Split.swift`.
+    @Published var isSplitPresented = false
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
