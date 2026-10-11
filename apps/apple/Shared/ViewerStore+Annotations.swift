@@ -8,7 +8,7 @@ import Foundation
 
 /// The tools a drag on a page can place.
 enum AnnotationTool: Equatable, CaseIterable {
-    case highlight, underline, strikeout, shape
+    case highlight, underline, strikeout, shape, ink
 
     var kind: AnnotationKind {
         switch self {
@@ -16,6 +16,7 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .underline: return .underline
         case .strikeout: return .strikeout
         case .shape: return .shape
+        case .ink: return .ink
         }
     }
 
@@ -26,6 +27,7 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .underline: return "Underline"
         case .strikeout: return "Strikeout"
         case .shape: return "Shape"
+        case .ink: return "Ink"
         }
     }
 }
@@ -35,7 +37,28 @@ struct AnnotationDraft: Equatable {
     let tool: AnnotationTool
     let page: Int
     let origin: PdfPoint
-    var current: PdfPoint
+    var current: PdfPoint {
+        didSet { trace(current) }
+    }
+    /// Every distinct position an ink stroke passed through — Windows'
+    /// `InkPointerTrace`. A press and release in place stays one sample;
+    /// returning to an earlier position is kept, since a closed stroke is a
+    /// real drag.
+    private(set) var points: [PdfPoint]
+
+    init(tool: AnnotationTool, page: Int, origin: PdfPoint, current: PdfPoint) {
+        self.tool = tool
+        self.page = page
+        self.origin = origin
+        self.current = current
+        points = [origin]
+        trace(current)
+    }
+
+    private mutating func trace(_ point: PdfPoint) {
+        guard tool == .ink, points.last != point else { return }
+        points.append(point)
+    }
 }
 
 extension ViewerStore {
@@ -73,6 +96,16 @@ extension ViewerStore {
         draft.current = point
         annotationDraft = nil
         armedTool = nil
+        if draft.tool == .ink {
+            // A tap leaves a single point, which is not a stroke: say so
+            // rather than save an invisible annotation (Linux's
+            // `INK_NEEDS_A_DRAG`, Windows' `CommitPlacementAsync`).
+            guard draft.points.count >= 2 else {
+                editStatus = "Ink needs a drag, not a tap."
+                return
+            }
+            return applyAnnotationEdit(.addInk(page: page, points: draft.points, color: .annotationDefault))
+        }
         let rect = Self.tracedRect(from: draft.origin, to: draft.current, tool: draft.tool)
         applyAnnotationEdit(.add(kind: draft.tool.kind, page: page, rect: rect, color: .annotationDefault))
     }

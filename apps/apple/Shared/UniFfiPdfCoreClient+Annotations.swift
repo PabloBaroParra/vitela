@@ -24,6 +24,11 @@ extension UniFfiPdfCoreClient {
         return PlacedRect(left: placed.left, top: placed.top, width: placed.width, height: placed.height)
     }
 
+    func placePoint(_ point: PdfPoint, on page: PagePlacement) -> PlacedPoint {
+        let placed = Vitela.placePoint(point: FfiPoint(x: point.x, y: point.y), page: FfiPagePlacement(page))
+        return PlacedPoint(left: placed.x, top: placed.y)
+    }
+
     func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint {
         let point = Vitela.pointToPdf(point: FfiPoint(x: x, y: y), page: FfiPagePlacement(page))
         return PdfPoint(x: point.x, y: point.y)
@@ -123,6 +128,8 @@ private extension FfiEditCommand {
             case .shape: self = .addShape(page: page, rect: rect, color: color)
             default: self = .addHighlight(page: page, rect: rect, color: color)
             }
+        case let .addInk(page, points, color):
+            self = .addInk(page: UInt32(page), points: points.map { FfiPoint(x: $0.x, y: $0.y) }, color: FfiColor(color))
         case let .remove(id):
             self = .removeAnnotation(annotationId: id)
         }

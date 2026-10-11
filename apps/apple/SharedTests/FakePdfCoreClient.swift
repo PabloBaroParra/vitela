@@ -240,6 +240,8 @@ extension FakePdfCoreClient {
         switch edit {
         case let .add(kind, page, rect, color):
             list.append(Annotation(id: takeAnnotationId(), page: page, kind: kind, rect: rect, points: [], color: color, contents: nil))
+        case let .addInk(page, points, color):
+            list.append(Annotation(id: takeAnnotationId(), page: page, kind: .ink, rect: nil, points: points, color: color, contents: nil))
         case let .remove(id):
             list.removeAll { $0.id == id }
         }

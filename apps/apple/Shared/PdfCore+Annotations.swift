@@ -66,6 +66,8 @@ struct Annotation: Equatable {
 enum AnnotationEdit: Equatable {
     /// A rect-based mark: highlight, underline, strikeout or shape.
     case add(kind: AnnotationKind, page: Int, rect: PdfRect, color: PdfColor)
+    /// A freehand stroke through `points`, in page space.
+    case addInk(page: Int, points: [PdfPoint], color: PdfColor)
     case remove(id: UInt64)
 }
 
@@ -90,4 +92,11 @@ struct PlacedRect: Equatable {
     let top: Double
     let width: Double
     let height: Double
+}
+
+/// A page-space point placed on the drawn page — mirrors the `FfiPoint` that
+/// `place_point` returns, in display units with a top-left origin.
+struct PlacedPoint: Equatable {
+    let left: Double
+    let top: Double
 }
