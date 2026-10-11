@@ -68,6 +68,23 @@ struct SplitPart: Equatable {
     let fileName: String
 }
 
+/// The compression the reader picked — mirrors `FfiCompressPreset`.
+enum CompressPreset: CaseIterable, Equatable {
+    case lossless, balanced, small
+}
+
+/// A finished compression — mirrors `FfiCompressedSave` and its report.
+/// The core guarantees the bytes are never larger, not that they are smaller.
+struct CompressionResult: Equatable {
+    let bytes: Data
+    let beforeBytes: Int
+    let afterBytes: Int
+    let savedBytes: Int
+    let reduced: Bool
+    /// What could not be done, as sentences.
+    let refusals: [String]
+}
+
 /// A page-space rectangle in PDF points with a bottom-left origin — mirrors
 /// `FfiTextRect`. A shell converts to view space (top-left origin) with the
 /// page's height: `y_view = (pageHeight - rect.yPt - rect.heightPt) * zoom`.
@@ -166,6 +183,15 @@ protocol PdfCoreClient {
     /// `"report.pdf"` page 3 of 12 as JPEG → `"report-03.jpg"`; always one
     /// path component.
     func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String
+
+    // Compressing — see `ViewerStore+Compress.swift`. Never changes the open
+    // document; the bytes are a smaller copy for the shell to write.
+    /// Why this document cannot be compressed, as a sentence, or `nil`.
+    func compressionRefusal(document: any PdfDocument) -> String?
+    /// The compression's own signature question — not
+    /// `saveWillInvalidateSignatures`, which asks about a different save.
+    func compressionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool
+    func compress(document: any PdfDocument, preset: CompressPreset, acknowledgingSignatureLoss: Bool) throws -> CompressionResult
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -219,6 +245,13 @@ extension PdfCoreClient {
 
     func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String {
         "page-\(page + 1).\(format == .png ? "png" : "jpg")"
+    }
+
+    func compressionRefusal(document: any PdfDocument) -> String? { "This client does not support compression." }
+    func compressionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { false }
+
+    func compress(document: any PdfDocument, preset: CompressPreset, acknowledgingSignatureLoss: Bool) throws -> CompressionResult {
+        throw EditFailure.failed("this client does not support compression")
     }
 }
 

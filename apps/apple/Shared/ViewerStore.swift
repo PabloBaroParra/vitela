@@ -111,6 +111,8 @@ final class ViewerStore: ObservableObject {
     /// The bytes behind the most recent `open` attempt, kept around so a
     /// password prompt can retry without asking the user to re-pick the file.
     private var pendingBytes: Data?
+    /// How big the open document's file is — what Compress compares against.
+    private(set) var sourceByteCount: Int?
     /// One `PageCharacters` per page, populated lazily by
     /// `ViewerStore+Selection.swift` after that page's bitmap renders. Not
     /// `private` for the same reason as `client`/`document` above.
@@ -131,6 +133,7 @@ final class ViewerStore: ObservableObject {
             let opened = try client.open(bytes: bytes, password: password)
             guard attemptedGeneration == generation else { return }
             document = opened
+            sourceByteCount = bytes.count
             pageSlots = opened.pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
             // A previous document's page characters, matches and selection
             // address pages/carets that may no longer exist or mean the same

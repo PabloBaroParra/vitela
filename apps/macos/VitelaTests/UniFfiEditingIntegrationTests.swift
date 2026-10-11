@@ -119,4 +119,22 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         let jpegRequest = try XCTUnwrap(store.beginImageExport(try XCTUnwrap(jpegPlan.files.first), of: jpegPlan))
         XCTAssertEqual(Array(try store.imageExportResult(for: jpegRequest).get().prefix(2)), [0xFF, 0xD8])
     } }
+
+    func testCompressingNeverGrowsTheFile() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        XCTAssertNil(store.compressionRefusal())
+
+        let request = try XCTUnwrap(store.beginCompress(.lossless))
+        XCTAssertEqual(try store.compressionWillInvalidateSignatures(for: request).get(), false)
+        let result = try store.compressResult(for: request, acknowledgingSignatureLoss: false).get()
+
+        XCTAssertLessThanOrEqual(result.afterBytes, result.beforeBytes)
+        XCTAssertEqual(result.savedBytes, result.beforeBytes - result.afterBytes)
+        if result.reduced {
+            let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+            reopened.open(bytes: result.bytes)
+            XCTAssertEqual(reopened.pageSlots.count, store.pageSlots.count)
+        }
+    } }
 }

@@ -44,6 +44,15 @@ final class FakePdfCoreClient: PdfCoreClient {
     var exportError: Error?
     var failExportsAfter = 0
     var oversizedPage: Int?
+    // Compressing.
+    var compressRefusalText: String?
+    var compressInvalidatesSignatures = false
+    var compression = CompressionResult(
+        bytes: Data("%PDF-small".utf8), beforeBytes: 2_000_000, afterBytes: 1_005_000, savedBytes: 995_000,
+        reduced: true, refusals: []
+    )
+    var compressError: Error?
+    var compressCalls: [(preset: CompressPreset, acknowledged: Bool)] = []
 
     init(pages: [PageDimensions]) {
         self.pages = pages
@@ -172,6 +181,15 @@ extension FakePdfCoreClient {
         extractedPages.append(pages)
         if let extractError, extractedPages.count > failExtractsAfter { throw extractError }
         return extractedBytes
+    }
+
+    func compressionRefusal(document: any PdfDocument) -> String? { compressRefusalText }
+    func compressionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { compressInvalidatesSignatures }
+
+    func compress(document: any PdfDocument, preset: CompressPreset, acknowledgingSignatureLoss: Bool) throws -> CompressionResult {
+        compressCalls.append((preset, acknowledgingSignatureLoss))
+        if let compressError { throw compressError }
+        return compression
     }
 }
 

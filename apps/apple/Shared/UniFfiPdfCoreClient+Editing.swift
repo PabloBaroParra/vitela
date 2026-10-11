@@ -91,7 +91,9 @@ extension EditFailure {
 
     /// The core writes details as lower-case clauses ("annotation editing is
     /// not permitted"); a status line reads better as a sentence.
-    private static func sentence(_ detail: String) -> String {
+    /// Not `private`: refusals read straight from the core
+    /// (`compression_refusal`) are written the same way.
+    static func sentence(_ detail: String) -> String {
         guard let first = detail.first else { return detail }
         let capitalized = first.uppercased() + detail.dropFirst()
         return capitalized.hasSuffix(".") ? capitalized : capitalized + "."
