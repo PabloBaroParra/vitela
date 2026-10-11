@@ -7,6 +7,8 @@ struct OrganizePageCard: View {
     let number: Int
     let thumbnail: RenderedPage?
     let enabled: Bool
+    /// False for a document's only page: a PDF needs at least one.
+    let canDelete: Bool
     let onEdit: ((Int) -> PageEdit) -> Void
 
     var body: some View {
@@ -27,6 +29,12 @@ struct OrganizePageCard: View {
                 }
                 .help("Rotate page right")
                 .accessibilityLabel("Rotate page \(number) right")
+                Button { onEdit { .remove(page: $0) } } label: {
+                    Image(systemName: "trash")
+                }
+                .help("Delete page")
+                .accessibilityLabel("Delete page \(number)")
+                .disabled(!canDelete)
             }
             .buttonStyle(.borderless)
             .disabled(!enabled)
