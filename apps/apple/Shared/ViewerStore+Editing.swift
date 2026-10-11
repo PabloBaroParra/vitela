@@ -36,6 +36,7 @@ extension ViewerStore {
         editStatus = ""
         pageWorkInFlight = false
         pagesEdited = false
+        resetAnnotations()
         guard let document else {
             documentInfo = nil
             editingAllowed = false
@@ -133,9 +134,11 @@ extension ViewerStore {
     /// panels show rather than guess which step it was.
     private func refreshAfterHistoryStep(_ document: any PdfDocument) {
         documentInfo = try? client.documentInfo(document: document)
+        refreshAnnotations()
     }
 
-    /// Not `private`: `ViewerStore+Pages.swift` records its steps here too.
+    /// Not `private`: `ViewerStore+Pages.swift` and `ViewerStore+Annotations.swift`
+    /// record their steps here too.
     func recordEdit(status: String) {
         editRevision += 1
         editStatus = status

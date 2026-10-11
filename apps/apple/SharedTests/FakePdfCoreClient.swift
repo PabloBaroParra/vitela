@@ -25,6 +25,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     struct Snapshot {
         var info: DocumentInfo
         var pages: [PageDimensions]
+        var annotations: [Annotation] = []
     }
 
     var initialInfo = DocumentInfo()
@@ -36,6 +37,14 @@ final class FakePdfCoreClient: PdfCoreClient {
     var infoHistory: [DocumentInfo] {
         get { history.map(\.info) }
         set { history = newValue.map { Snapshot(info: $0, pages: pages) } }
+    }
+    // Annotations.
+    var annotationsPermitted = true
+    var annotationEditError: Error?
+    var annotationEdits: [AnnotationEdit] = []
+    private var nextAnnotationId: UInt64 = 1
+    var currentAnnotations: [Annotation] {
+        historyCursor == 0 ? [] : history[historyCursor - 1].annotations
     }
     // Page edits.
     var pageEdits: [PageEdit] = []
@@ -144,7 +153,11 @@ final class FakePdfCoreClient: PdfCoreClient {
     }
 
     func appendToHistory(pages: [PageDimensions]) {
-        record(Snapshot(info: (try? documentInfo(document: FakeCoreDocument(pages: pages))) ?? initialInfo, pages: pages))
+        record(Snapshot(
+            info: (try? documentInfo(document: FakeCoreDocument(pages: pages))) ?? initialInfo,
+            pages: pages,
+            annotations: currentAnnotations
+        ))
     }
 
     private func record(_ snapshot: Snapshot) {
@@ -154,7 +167,7 @@ final class FakePdfCoreClient: PdfCoreClient {
 
     func setDocumentInfo(document: any PdfDocument, info: DocumentInfo) throws {
         if let setInfoError { throw setInfoError }
-        record(Snapshot(info: info, pages: currentPages))
+        record(Snapshot(info: info, pages: currentPages, annotations: currentAnnotations))
     }
 
     func applyPageEdit(document: any PdfDocument, edit: PageEdit) throws {
@@ -176,7 +189,7 @@ final class FakePdfCoreClient: PdfCoreClient {
         case let .move(from, to):
             layout.insert(layout.remove(at: from), at: to)
         }
-        record(Snapshot(info: try documentInfo(document: document), pages: layout))
+        record(Snapshot(info: try documentInfo(document: document), pages: layout, annotations: currentAnnotations))
     }
 
     func refreshPreview(document: any PdfDocument) throws {
@@ -213,6 +226,35 @@ final class FakePdfCoreClient: PdfCoreClient {
         if let saveError { throw saveError }
         if invalidatesSignatures && !acknowledgingSignatureLoss { throw EditFailure.signaturesWouldBeInvalidated }
         return savedBytes
+    }
+}
+
+extension FakePdfCoreClient {
+    func annotations(document: any PdfDocument) -> [Annotation] { currentAnnotations }
+    func annotationEditingAllowed(document: any PdfDocument) -> Bool { annotationsPermitted }
+
+    func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
+        if let annotationEditError { throw annotationEditError }
+        annotationEdits.append(edit)
+        var list = currentAnnotations
+        switch edit {
+        case let .add(kind, page, rect, color):
+            list.append(Annotation(id: takeAnnotationId(), page: page, kind: kind, rect: rect, points: [], color: color, contents: nil))
+        case let .remove(id):
+            list.removeAll { $0.id == id }
+        }
+        recordAnnotations(list)
+    }
+
+    func recordAnnotations(_ list: [Annotation]) {
+        history = Array(history.prefix(historyCursor))
+            + [Snapshot(info: (try? documentInfo(document: FakeCoreDocument(pages: pages))) ?? initialInfo, pages: currentPages, annotations: list)]
+        historyCursor = history.count
+    }
+
+    func takeAnnotationId() -> UInt64 {
+        defer { nextAnnotationId += 1 }
+        return nextAnnotationId
     }
 }
 

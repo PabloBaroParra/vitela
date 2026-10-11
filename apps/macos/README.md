@@ -49,13 +49,15 @@ responsibility:
   page edits on the queue.
 - `Vitela/ViewerViewModel+Import.swift` — Organize ▸ Add PDFs: picking,
   per-source passwords and warnings, then one undoable import.
+- `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
+  the armed annotation tool, or else to text selection.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`
   (protocol and value types), `UniFfiPdfCoreClient*.swift` (the only files
   that touch the generated UniFFI API), and `ViewerStore*.swift` (viewer,
-  search, selection, editing, print, page-navigation, zoom, page-structure
-  and thumbnail state).
+  search, selection, editing, print, page-navigation, zoom, page-structure,
+  thumbnail and annotation state).
 
 `ViewerStore` is main-thread only, with one documented exception:
 `renderResult(for:)` runs on the render queue and touches nothing but the
@@ -86,6 +88,14 @@ page slot rebuilt under a new generation, so no render, search hit or text
 selection of the old layout survives. Once a session has edited its pages,
 every undo and redo re-derives the layout the same way. The core work runs
 on the serial queue, behind any render of the old layout.
+
+## Annotations
+
+Annotations the file already carried are drawn by the renderer. The ones
+this session adds are listed by the core and drawn by `AnnotationOverlay`
+until a save writes them into the file, the same split Linux and Windows
+use. Overlay positions come from the core's turn-aware `place_rect` /
+`point_to_pdf`, so a rotated page gets them in the right place.
 
 ## Building
 

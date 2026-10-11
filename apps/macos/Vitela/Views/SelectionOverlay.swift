@@ -12,6 +12,7 @@ struct SelectionOverlay: View {
     let currentMatchRects: [TextRect]
     let onDragBegan: (CGPoint) -> Void
     let onDragChanged: (CGPoint) -> Void
+    var onDragEnded: (CGPoint) -> Void = { _ in }
 
     /// Distinguishes the drag's first sample (a fresh mouse-down, which
     /// should start a new selection) from a later one (which should extend
@@ -43,7 +44,10 @@ struct SelectionOverlay: View {
                         onDragBegan(value.location)
                     }
                 }
-                .onEnded { _ in isDragging = false }
+                .onEnded { value in
+                    isDragging = false
+                    onDragEnded(value.location)
+                }
         )
     }
 

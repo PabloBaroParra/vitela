@@ -79,7 +79,7 @@ extension UniFfiPdfCoreClient {
 
     func pageDimensions(document: any PdfDocument) -> [PageDimensions] {
         guard let handle = try? handle(of: document) else { return document.pages }
-        return handle.pageDimensions().map { PageDimensions(width: $0.widthPt, height: $0.heightPt) }
+        return handle.pageDimensions().map(PageDimensions.init)
     }
 
     func handle(of document: any PdfDocument) throws -> DocumentHandle {

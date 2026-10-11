@@ -5,23 +5,6 @@ import XCTest
 /// made by the system's LibreSSL for this run — the Rust tests build theirs
 /// with `gen_fixtures`, which the Swift side cannot reach.
 final class UniFfiSigningIntegrationTests: XCTestCase {
-    /// On a background-QoS queue, as `UniFfiEditingIntegrationTests` does
-    /// and for the same reason: core calls wait on PDFium's render thread.
-    private func offMain(_ body: @escaping () throws -> Void) throws {
-        let done = expectation(description: "test body finished")
-        var failure: Error?
-        DispatchQueue.global(qos: .background).async {
-            do { try body() } catch { failure = error }
-            done.fulfill()
-        }
-        wait(for: [done], timeout: 30)
-        if let failure { throw failure }
-    }
-
-    private static func sampleBytes() throws -> Data {
-        try Data(contentsOf: try XCTUnwrap(Bundle.main.url(forResource: "vitela-sample", withExtension: "pdf")))
-    }
-
     private func makeP12(password: String) throws -> Data {
         let openssl = URL(fileURLWithPath: "/usr/bin/openssl")
         guard FileManager.default.isExecutableFile(atPath: openssl.path) else { throw XCTSkip("no /usr/bin/openssl to make a test certificate") }

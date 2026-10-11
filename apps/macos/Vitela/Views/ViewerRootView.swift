@@ -12,6 +12,7 @@ struct ViewerRootView: View {
         VStack(spacing: 0) {
             toolbar
             searchBar
+            AnnotationToolbar(store: model.store)
             Divider()
             HStack(spacing: 0) {
                 if model.store.pageSlots.isEmpty {
@@ -235,6 +236,8 @@ struct ViewerRootView: View {
                                 // the new DPI instead of upscaling.
                                 .onAppear { model.render(page: slot.index) }
                                 .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index) }
+                            AnnotationOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot))
+                                .frame(width: pageWidth(slot), height: pageHeight(slot))
                             SelectionOverlay(
                                 dimensions: slot.dimensions,
                                 zoom: pageZoom(slot),
@@ -242,16 +245,19 @@ struct ViewerRootView: View {
                                 matchRects: model.store.searchMatchRects(forPage: slot.index),
                                 currentMatchRects: model.store.currentSearchMatchRects(forPage: slot.index),
                                 onDragBegan: { location in
-                                    model.beginSelection(
+                                    model.pageDragBegan(
                                         page: slot.index, location: location,
                                         dimensions: slot.dimensions, zoom: pageZoom(slot)
                                     )
                                 },
                                 onDragChanged: { location in
-                                    model.extendSelection(
+                                    model.pageDragChanged(
                                         page: slot.index, location: location,
                                         dimensions: slot.dimensions, zoom: pageZoom(slot)
                                     )
+                                },
+                                onDragEnded: { location in
+                                    model.pageDragEnded(page: slot.index, location: location, zoom: pageZoom(slot))
                                 }
                             )
                             .frame(width: pageWidth(slot), height: pageHeight(slot))

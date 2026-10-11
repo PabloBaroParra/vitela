@@ -6,6 +6,8 @@ import Foundation
 struct PageDimensions: Equatable {
     let width: Double
     let height: Double
+    /// The page's turn; `width`/`height` already have it applied.
+    var rotation: PageRotation = .none
 }
 
 struct RenderedPage: Equatable {
@@ -182,6 +184,18 @@ protocol PdfCoreClient {
     /// Appends every page of `sources`, in order, as one undo step. Returns
     /// how many pages it added. All or nothing.
     func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int
+
+    // Annotations — see `ViewerStore+Annotations.swift`. Reading stays
+    // available when editing is refused.
+    func annotations(document: any PdfDocument) -> [Annotation]
+    func annotationEditingAllowed(document: any PdfDocument) -> Bool
+    func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws
+
+    // Page placement — the core's own turn-aware math, so every shell puts an
+    // overlay in the same place on a rotated page.
+    func placeRect(_ rect: PdfRect, on page: PagePlacement) -> PlacedRect
+    /// A pointer position on the drawn page back into page space.
+    func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -226,6 +240,27 @@ extension PdfCoreClient {
 
     func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int {
         throw EditFailure.failed("this client does not support importing PDFs")
+    }
+
+    func annotations(document: any PdfDocument) -> [Annotation] { [] }
+    func annotationEditingAllowed(document: any PdfDocument) -> Bool { false }
+
+    func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
+        throw EditFailure.failed("this client does not support annotations")
+    }
+
+    /// Unturned placement, for clients without the core's math.
+    func placeRect(_ rect: PdfRect, on page: PagePlacement) -> PlacedRect {
+        PlacedRect(
+            left: rect.x * page.scale,
+            top: (page.height - rect.y - rect.height) * page.scale,
+            width: rect.width * page.scale,
+            height: rect.height * page.scale
+        )
+    }
+
+    func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint {
+        PdfPoint(x: x / page.scale, y: page.height - y / page.scale)
     }
 
     func textExtractionAllowed(document: any PdfDocument) -> Bool { false }
