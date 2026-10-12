@@ -27,4 +27,29 @@ final class UniFfiFormIntegrationTests: XCTestCase {
         store.undo()
         XCTAssertEqual(store.formFields.first { $0.id == field.id }?.value, field.value)
     } }
+
+    func testAPlacedFieldIsListedFillableSavedAndUndoable() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let before = Set(store.formFields.map(\.id))
+        XCTAssertTrue(store.formStructureAllowed)
+        store.armField(.text)
+        XCTAssertTrue(store.beginFieldDraft(page: 0, at: PdfPoint(x: 72, y: 700)))
+        let place = try XCTUnwrap(store.endFieldDraft(page: 0, at: PdfPoint(x: 72, y: 700)))
+        store.applyPageWork(store.pageWorkResult(for: place), for: place)
+
+        let field = try XCTUnwrap(store.formFields.first { !before.contains($0.id) })
+        XCTAssertEqual(field.rect, PdfRect(x: 72, y: 664, width: 144, height: 36))
+        let fill = try XCTUnwrap(store.beginFieldFill(field.id, value: .text("Hola")))
+        store.applyPageWork(store.pageWorkResult(for: fill), for: fill)
+
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+        reopened.open(bytes: try store.saveResult(for: save).get())
+        XCTAssertTrue(reopened.formFields.contains { $0.value == .text("Hola") })
+
+        store.undo()
+        store.undo()
+        XCTAssertEqual(Set(store.formFields.map(\.id)), before, "placing the field is its own undo step")
+    } }
 }

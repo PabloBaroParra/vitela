@@ -19,6 +19,30 @@ extension UniFfiPdfCoreClient {
     }
 }
 
+extension UniFfiPdfCoreClient {
+    /// The same commands and default style Windows' `GeneratedPdfCore` issues.
+    func addField(document: any PdfDocument, kind: FieldToPlace, page: Int, rect: PdfRect) throws {
+        let handle = try handle(of: document)
+        let page = UInt32(page)
+        let rect = FfiRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+        let style = FfiTextStyle(font: .helvetica, sizePt: 12, color: FfiColor(r: 0, g: 0, b: 0))
+        let command: FfiEditCommand
+        switch kind {
+        case .text: command = .addTextField(page: page, rect: rect, style: style, multiline: false, maxLen: nil)
+        case .checkbox: command = .addCheckbox(page: page, rect: rect, style: style)
+        case .radioGroup: command = .addDefaultRadioGroup(page: page, rect: rect, style: style)
+        case .dropdown: command = .addDropdown(page: page, rect: rect, style: style, options: ["Option 1", "Option 2"], editable: false)
+        }
+        do {
+            try applyEdit(handle: handle, command: command)
+        } catch FfiError.UnsupportedOperation {
+            throw EditFailure.notPermitted("This document does not permit creating form fields.")
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
+    }
+}
+
 private extension FormField {
     init(_ field: FfiFormField) {
         let kind: FormFieldKind

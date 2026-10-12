@@ -8,7 +8,8 @@ import Foundation
 extension ViewerViewModel {
     func pageDragBegan(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
         if let point = annotationPoint(page: page, location: location, zoom: zoom),
-           store.beginAnnotationDraft(page: page, at: point)
+           store.beginFieldDraft(page: page, at: point)
+           || store.beginAnnotationDraft(page: page, at: point)
            || store.beginAnnotationGesture(page: page, at: point, zoom: zoom) {
             return
         }
@@ -16,6 +17,12 @@ extension ViewerViewModel {
     }
 
     func pageDragChanged(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
+        if store.fieldDraft != nil {
+            if let point = annotationPoint(page: page, location: location, zoom: zoom) {
+                store.continueFieldDraft(page: page, to: point)
+            }
+            return
+        }
         if store.annotationDraft != nil {
             if let point = annotationPoint(page: page, location: location, zoom: zoom) {
                 store.continueAnnotationDraft(page: page, to: point)
@@ -32,6 +39,10 @@ extension ViewerViewModel {
     }
 
     func pageDragEnded(page: Int, location: CGPoint, zoom: Double) {
+        if store.fieldDraft != nil {
+            let point = annotationPoint(page: page, location: location, zoom: zoom)
+            return enqueuePageWork(point.flatMap { store.endFieldDraft(page: page, at: $0) })
+        }
         if store.annotationGesture != nil {
             guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
                 return store.cancelAnnotationGesture()

@@ -12,8 +12,21 @@ struct FormFieldsPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Form").font(.headline)
+            if store.formStructureAllowed {
+                HStack(spacing: 4) {
+                    ForEach(FieldToPlace.allCases, id: \.self) { kind in
+                        Toggle(kind.name, isOn: Binding(
+                            get: { store.armedField == kind },
+                            set: { store.armField($0 ? kind : nil) }
+                        ))
+                        .toggleStyle(.button)
+                        .help("Click or drag on a page to place a \(kind.name.lowercased())")
+                    }
+                }
+                .disabled(store.document == nil || store.pageWorkInFlight)
+            }
             if store.formFields.isEmpty {
-                Text("Open a PDF with form fields to fill them in.").foregroundStyle(.secondary)
+                Text("Open a PDF with form fields to fill them in, or place one above.").foregroundStyle(.secondary)
             }
             if !store.formStatus.isEmpty {
                 Text(store.formStatus).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

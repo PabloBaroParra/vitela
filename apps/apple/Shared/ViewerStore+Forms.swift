@@ -35,6 +35,8 @@ extension ViewerStore {
 
     /// Called by `resetEditing` once a document has replaced the previous one.
     func resetForms() {
+        armedField = nil
+        fieldDraft = nil
         formFillAllowed = annotationEditingAllowed
         formStructureAllowed = document.map { client.formFieldEditingAllowed(document: $0) } ?? false
         refreshFormFields()

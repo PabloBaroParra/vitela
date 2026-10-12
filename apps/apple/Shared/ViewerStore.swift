@@ -120,6 +120,8 @@ final class ViewerStore: ObservableObject {
     @Published var formStructureAllowed = false
     /// The last form outcome, for the Form panel's own status line.
     @Published var formStatus = ""
+    @Published var armedField: FieldToPlace?
+    @Published var fieldDraft: FieldDraft?
     @Published var annotationEditingAllowed = false
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?

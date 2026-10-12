@@ -31,6 +31,29 @@ struct FormField: Equatable {
     let value: FieldValue
 }
 
+/// The kinds of field the Form panel can place — Windows' `FieldToPlace`.
+enum FieldToPlace: CaseIterable, Equatable {
+    case text, checkbox, radioGroup, dropdown
+
+    var name: String {
+        switch self {
+        case .text: return "Text field"
+        case .checkbox: return "Checkbox"
+        case .radioGroup: return "Radio group"
+        case .dropdown: return "Dropdown"
+        }
+    }
+
+    /// The box a click places, in points — Windows' and Linux's sizes.
+    var clickSize: (width: Double, height: Double) {
+        switch self {
+        case .checkbox: return (18, 18)
+        case .radioGroup: return (144, 48)
+        case .text, .dropdown: return (144, 36)
+        }
+    }
+}
+
 /// What a dropdown row shows for "no choice", and how its rows map to
 /// choices — Windows' `FormFieldChoices`.
 enum FormFieldChoices {
@@ -54,6 +77,10 @@ extension PdfCoreClient {
     func formFieldEditingAllowed(document: any PdfDocument) -> Bool { false }
 
     func setFieldValue(document: any PdfDocument, fieldId: UInt64, value: FieldValue) throws {
+        throw EditFailure.failed("this client does not support forms")
+    }
+
+    func addField(document: any PdfDocument, kind: FieldToPlace, page: Int, rect: PdfRect) throws {
         throw EditFailure.failed("this client does not support forms")
     }
 }
