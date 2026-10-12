@@ -64,4 +64,23 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         XCTAssertFalse(store.canUndo)
         XCTAssertTrue(store.canRedo)
     } }
+
+    func testExtractingTheFirstPageMakesAOnePagePdf() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        // Page 0 does not exist in a one-based range: the core says why.
+        guard case let .failure(.failed(reason)) = store.planExtract(range: "0") else {
+            return XCTFail("a range naming page 0 must be refused with the core's sentence")
+        }
+        XCTAssertFalse(reason.isEmpty)
+
+        let plan = try store.planExtract(range: "1").get()
+        let request = try XCTUnwrap(store.beginExtract(plan))
+        let bytes = try store.extractResult(for: request).get()
+
+        let extracted = ViewerStore(client: UniFfiPdfCoreClient())
+        extracted.open(bytes: bytes)
+        XCTAssertEqual(extracted.pageSlots.count, 1)
+        XCTAssertEqual(extracted.pageSlots.first?.dimensions, store.pageSlots.first?.dimensions)
+    } }
 }

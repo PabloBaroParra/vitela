@@ -124,6 +124,19 @@ protocol PdfCoreClient {
     /// says it already warned the user; without it a signature-breaking save
     /// is refused.
     func save(document: any PdfDocument, acknowledgingSignatureLoss: Bool) throws -> Data
+
+    // Extracting pages — see `ViewerStore+Extract.swift`. Never changes the
+    // open document.
+    func textExtractionAllowed(document: any PdfDocument) -> Bool
+    /// Whether the document survives a full rewrite with the credentials it
+    /// was opened with — an extraction is one.
+    func fullRewriteAllowed(document: any PdfDocument) -> Bool
+    /// One-based typed pages (`"1-3,7"`) to ascending zero-based positions;
+    /// throws `EditFailure.failed` with the core's own sentence.
+    func parsePageSelection(_ text: String, totalPages: Int) throws -> [Int]
+    /// A new PDF holding only `pages` of the document.
+    func extractPages(document: any PdfDocument, pages: [Int]) throws -> Data
+    func extractSourceIsSigned(document: any PdfDocument) -> Bool
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -151,6 +164,19 @@ extension PdfCoreClient {
     func save(document: any PdfDocument, acknowledgingSignatureLoss: Bool) throws -> Data {
         throw EditFailure.failed("this client does not support saving")
     }
+
+    func textExtractionAllowed(document: any PdfDocument) -> Bool { false }
+    func fullRewriteAllowed(document: any PdfDocument) -> Bool { false }
+
+    func parsePageSelection(_ text: String, totalPages: Int) throws -> [Int] {
+        throw EditFailure.failed("this client does not support page selections")
+    }
+
+    func extractPages(document: any PdfDocument, pages: [Int]) throws -> Data {
+        throw EditFailure.failed("this client does not support extracting pages")
+    }
+
+    func extractSourceIsSigned(document: any PdfDocument) -> Bool { false }
 }
 
 /// An edit or save the core refused, in words a user can act on.

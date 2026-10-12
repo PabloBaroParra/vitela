@@ -14,6 +14,8 @@ final class ViewerViewModel: ObservableObject {
     /// A shell-level message for the status line — a drop that could not be
     /// opened, say — as opposed to the store's edit and save outcomes.
     @Published var notice = ""
+    /// Whether the Extract pages sheet is up — `ViewerViewModel+Extract.swift`.
+    @Published var isExtractPresented = false
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
