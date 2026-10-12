@@ -116,23 +116,6 @@ protocol PageCharacters {
     func rectsIn(anchor: Int, focus: Int) -> [TextRect]
 }
 
-/// `search`/`pageCharacters` read the document's text, so they answer to the
-/// same extraction permission a copy does.
-enum TextQueryFailure: Error, Equatable {
-    /// The document forbids text extraction.
-    case notPermitted
-    case failed(String)
-}
-
-extension TextQueryFailure: LocalizedError {
-    var errorDescription: String? {
-        switch self {
-        case .notPermitted: return "Text extraction is not permitted for this document."
-        case let .failed(message): return message
-        }
-    }
-}
-
 /// Renders are issued from a background queue, so a conforming client must be
 /// safe to call from any thread. `UniFfiPdfCoreClient` is: it holds no mutable
 /// state and every handle it hands out is `Arc`/`Mutex`-guarded on the Rust side.
@@ -196,6 +179,15 @@ protocol PdfCoreClient {
     /// `saveWillInvalidateSignatures`, which asks about a different save.
     func compressionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool
     func compress(document: any PdfDocument, preset: CompressPreset, acknowledgingSignatureLoss: Bool) throws -> CompressionResult
+
+    // Digital signing — see `ViewerStore+Signing.swift`.
+    /// Why the document cannot be signed, as a sentence, or `nil`.
+    func signingRefusal(document: any PdfDocument) -> String?
+    func openSigningCertificate(bytes: Data, password: String) throws -> any SigningSource
+    /// The signed PDF; the open document is untouched.
+    func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data
+    /// Opens signed output with the open document's credentials.
+    func reopenSigned(document: any PdfDocument, bytes: Data) throws -> any PdfDocument
 
     // Protecting — see `ViewerStore+Protect.swift`.
     func protectionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool
@@ -266,6 +258,20 @@ extension PdfCoreClient {
         throw EditFailure.failed("this client does not support compression")
     }
 
+    func signingRefusal(document: any PdfDocument) -> String? { "This client does not support signing." }
+
+    func openSigningCertificate(bytes: Data, password: String) throws -> any SigningSource {
+        throw SigningSourceFailure.failed("this client does not support signing")
+    }
+
+    func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data {
+        throw EditFailure.failed("this client does not support signing")
+    }
+
+    func reopenSigned(document: any PdfDocument, bytes: Data) throws -> any PdfDocument {
+        throw ViewerFailure.openFailed("this client does not support signing")
+    }
+
     func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument {
         try open(bytes: bytes, password: ownerPassword)
     }
@@ -280,55 +286,5 @@ extension PdfCoreClient {
         document: any PdfDocument, openPassword: String, permissionsPassword: String, acknowledgingSignatureLoss: Bool
     ) throws -> Data {
         throw EditFailure.failed("this client does not support protection")
-    }
-}
-
-/// An edit or save the core refused, in words a user can act on.
-enum EditFailure: Error, Equatable {
-    /// The document's permissions forbid this kind of change.
-    case notPermitted(String)
-    /// The save would break a signature and the user has not agreed to that.
-    case signaturesWouldBeInvalidated
-    case failed(String)
-}
-
-extension EditFailure: LocalizedError {
-    var errorDescription: String? {
-        switch self {
-        case let .notPermitted(message): return message
-        case .signaturesWouldBeInvalidated: return "Saving would break this document's signature."
-        case let .failed(message): return message
-        }
-    }
-}
-
-enum ViewerFailure: Error, Equatable {
-    /// The bytes never reached the core — the file could not be read from disk.
-    case readFailed(String)
-    case openFailed(String)
-    /// The document is encrypted and no password (or an incomplete one) was
-    /// supplied — distinct from `wrongPassword` so the prompt can tell a
-    /// first ask apart from a retry.
-    case passwordRequired
-    /// The supplied password matched neither the user nor owner password.
-    case wrongPassword
-    case renderFailed(page: Int, message: String)
-    case invalidImage(page: Int)
-}
-
-extension ViewerFailure: LocalizedError {
-    var errorDescription: String? { message }
-
-    /// Deliberately not named `localizedDescription`: that would shadow the
-    /// `Error` extension and silently change meaning at each call site.
-    var message: String {
-        switch self {
-        case let .readFailed(message): return message
-        case let .openFailed(message): return message
-        case .passwordRequired: return "This document requires a password."
-        case .wrongPassword: return "The password is incorrect. Try again."
-        case let .renderFailed(_, message): return message
-        case let .invalidImage(page): return "Page \(page + 1) returned invalid image data."
-        }
     }
 }

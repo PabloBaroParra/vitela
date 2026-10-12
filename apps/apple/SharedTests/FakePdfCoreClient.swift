@@ -53,6 +53,15 @@ final class FakePdfCoreClient: PdfCoreClient {
     )
     var compressError: Error?
     var compressCalls: [(preset: CompressPreset, acknowledged: Bool)] = []
+    // Signing.
+    var signingRefusalText: String?
+    var certificatePassword = "secret"
+    var signingIdentities = [SigningIdentity(id: "id-1", displayName: "Test Signer")]
+    var unlockAttempts: [String] = []
+    var signedAs: [String] = []
+    var signError: Error?
+    var signedBytes = Data("%PDF-signed".utf8)
+    var reopenedSigned: [Data] = []
     // Protecting.
     var protectInvalidatesSignatures = false
     var protectedBytes = Data("%PDF-protected".utf8)
@@ -217,6 +226,31 @@ extension FakePdfCoreClient {
         protectCalls.append((openPassword, permissionsPassword, acknowledgingSignatureLoss))
         if let protectError { throw protectError }
         return protectedBytes
+    }
+}
+
+struct FakeSigningSource: SigningSource {
+    var identities: [SigningIdentity]
+}
+
+extension FakePdfCoreClient {
+    func signingRefusal(document: any PdfDocument) -> String? { signingRefusalText }
+
+    func openSigningCertificate(bytes: Data, password: String) throws -> any SigningSource {
+        unlockAttempts.append(password)
+        guard password == certificatePassword else { throw SigningSourceFailure.wrongPassword }
+        return FakeSigningSource(identities: signingIdentities)
+    }
+
+    func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data {
+        signedAs.append(identityId)
+        if let signError { throw signError }
+        return signedBytes
+    }
+
+    func reopenSigned(document: any PdfDocument, bytes: Data) throws -> any PdfDocument {
+        reopenedSigned.append(bytes)
+        return FakeCoreDocument(pages: pages)
     }
 }
 

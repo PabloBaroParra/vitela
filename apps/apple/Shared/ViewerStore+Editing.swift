@@ -37,10 +37,15 @@ extension ViewerStore {
         guard let document else {
             documentInfo = nil
             editingAllowed = false
+            signingRefusal = nil
+            isSigned = false
             return
         }
         editingAllowed = client.contentEditingAllowed(document: document)
         documentInfo = try? client.documentInfo(document: document)
+        signingRefusal = client.signingRefusal(document: document)
+        // The same fact extraction reports: the opened file carries a signature.
+        isSigned = client.extractSourceIsSigned(document: document)
     }
 
     // MARK: - Properties

@@ -96,6 +96,11 @@ final class ViewerStore: ObservableObject {
     var navigationSerial: UInt = 0
     /// The page the reader explicitly asked for, held until they scroll away.
     var requestedPage: RequestedPage?
+    // Signing state, owned by `ViewerStore+Signing.swift`.
+    /// Why the open document cannot be signed, or `nil` when it can.
+    @Published var signingRefusal: String?
+    /// Whether the open document carries a digital signature.
+    @Published var isSigned = false
 
     /// Not `private`: `ViewerStore+Search.swift` and `ViewerStore+Selection.swift`
     /// read it to issue their own background-safe requests, the same way this
@@ -141,6 +146,12 @@ final class ViewerStore: ObservableObject {
     /// before the reader did anything.
     func openBlank() {
         open(bytes: nil) { try $0.createBlankDocument() }
+    }
+
+    /// Shows signed output in place of `signed` — the document it was signed
+    /// from — opened with that document's credentials.
+    func openSigned(_ bytes: Data, from signed: any PdfDocument) {
+        open(bytes: bytes) { try $0.reopenSigned(document: signed, bytes: bytes) }
     }
 
     /// `bytes` is `nil` for a document that never was a file.

@@ -114,6 +114,12 @@ struct ViewerRootView: View {
                 .disabled(!model.store.canRedo)
             Toggle("Properties", isOn: $showsProperties)
                 .toggleStyle(.button)
+            if model.store.isSigned {
+                Text("✓ Digitally signed")
+                    .foregroundStyle(.secondary)
+                    .help("This document carries a digital signature.")
+                    .accessibilityIdentifier("signed-indicator")
+            }
             Spacer()
             Button("−") { model.store.stepZoom(-1) }
                 .accessibilityLabel("Zoom out")
