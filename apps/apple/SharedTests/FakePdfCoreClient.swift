@@ -37,6 +37,8 @@ final class FakePdfCoreClient: PdfCoreClient {
     var extractedBytes = Data("%PDF-extract".utf8)
     var extractError: Error?
     var extractedPages: [[Int]] = []
+    /// How many extractions succeed before `extractError` is thrown.
+    var failExtractsAfter = 0
 
     init(pages: [PageDimensions]) {
         self.pages = pages
@@ -132,9 +134,24 @@ extension FakePdfCoreClient {
         return pages.sorted()
     }
 
+    /// Cuts after each typed page; parts are named `<stem>-<n>.pdf`.
+    func planSplit(_ cuts: String, totalPages: Int, documentName: String) throws -> [SplitPart] {
+        let after = try cuts.split(separator: ",").map { text -> Int in
+            guard let page = Int(text.trimmingCharacters(in: .whitespaces)), (1..<totalPages).contains(page) else {
+                throw EditFailure.failed("\"\(text)\" is not a page to split after.")
+            }
+            return page
+        }
+        let stem = (documentName as NSString).deletingPathExtension
+        let bounds = [0] + after.sorted() + [totalPages]
+        return zip(bounds, bounds.dropFirst()).enumerated().map { index, range in
+            SplitPart(first: range.0, last: range.1 - 1, fileName: "\(stem)-\(index + 1).pdf")
+        }
+    }
+
     func extractPages(document: any PdfDocument, pages: [Int]) throws -> Data {
         extractedPages.append(pages)
-        if let extractError { throw extractError }
+        if let extractError, extractedPages.count > failExtractsAfter { throw extractError }
         return extractedBytes
     }
 }

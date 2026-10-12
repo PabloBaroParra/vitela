@@ -14,6 +14,10 @@ struct SavePrompts {
     var confirmSignatureLoss: () -> Bool
     /// What to do with unsaved changes before they would be lost.
     var resolveUnsavedChanges: () -> UnsavedChoice
+    /// A folder to write several files into (Split); `nil` when cancelled.
+    var chooseFolder: () -> URL? = { nil }
+    /// Whether to replace `existing` of the `total` files about to be written.
+    var confirmReplace: (_ existing: Int, _ total: Int) -> Bool = { _, _ in false }
 
     static let modal = SavePrompts(
         chooseDestination: { suggestedName in
@@ -52,6 +56,24 @@ struct SavePrompts {
             case .alertThirdButtonReturn: return .discard
             default: return .cancel
             }
+        },
+        chooseFolder: {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+            panel.prompt = "Split"
+            return panel.runModal() == .OK ? panel.url : nil
+        },
+        confirmReplace: { existing, total in
+            // Windows' wording; Cancel is the default there too.
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Replace \(existing) existing \(existing == 1 ? "PDF" : "PDFs")?"
+            alert.informativeText = "Splitting into this folder writes \(total) files named after the document, and \(existing) of them already exist there."
+            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: "Replace")
+            return alert.runModal() == .alertSecondButtonReturn
         }
     )
 }

@@ -52,6 +52,14 @@ struct DocumentInfo: Equatable {
     var modDate: MetadataDate?
 }
 
+/// One file a split writes: pages `first...last` (zero-based) — mirrors
+/// `FfiSplitPart`.
+struct SplitPart: Equatable {
+    let first: Int
+    let last: Int
+    let fileName: String
+}
+
 /// A page-space rectangle in PDF points with a bottom-left origin — mirrors
 /// `FfiTextRect`. A shell converts to view space (top-left origin) with the
 /// page's height: `y_view = (pageHeight - rect.yPt - rect.heightPt) * zoom`.
@@ -137,6 +145,9 @@ protocol PdfCoreClient {
     /// A new PDF holding only `pages` of the document.
     func extractPages(document: any PdfDocument, pages: [Int]) throws -> Data
     func extractSourceIsSigned(document: any PdfDocument) -> Bool
+    /// The parts typed cut points make, with safe file names from the
+    /// document's — the Linux shell's rules, now the core's.
+    func planSplit(_ cuts: String, totalPages: Int, documentName: String) throws -> [SplitPart]
 }
 
 /// Default, harmless implementations so existing/test conformers that predate
@@ -177,6 +188,10 @@ extension PdfCoreClient {
     }
 
     func extractSourceIsSigned(document: any PdfDocument) -> Bool { false }
+
+    func planSplit(_ cuts: String, totalPages: Int, documentName: String) throws -> [SplitPart] {
+        throw EditFailure.failed("this client does not support splitting")
+    }
 }
 
 /// An edit or save the core refused, in words a user can act on.

@@ -61,7 +61,10 @@ struct ViewerRootView: View {
             GoToPageSheet(model: model)
         }
         .sheet(isPresented: $model.isExtractPresented) {
-            ExtractPagesSheet(model: model)
+            PageRangeSheet.extract(model)
+        }
+        .sheet(isPresented: $model.isSplitPresented) {
+            PageRangeSheet.split(model)
         }
     }
 
