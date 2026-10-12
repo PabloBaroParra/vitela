@@ -19,9 +19,9 @@ responsibility:
 - `Vitela/VitelaApp.swift` — entry point only, nothing else.
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
   changes before quitting, and passes on files Finder opens with Vitela.
-- `Vitela/VitelaCommands.swift` — the menu bar (Open, Save As, Compress,
-  Extract Pages, Split PDF, Export Pages as Images, Print, Undo, Redo, the Go
-  menu's page navigation, and View ▸ zoom).
+- `Vitela/VitelaCommands.swift` — the menu bar (Open, Save As, Protect,
+  Compress, Extract Pages, Split PDF, Export Pages as Images, Print, Undo,
+  Redo, the Go menu's page navigation, and View ▸ zoom).
 - `Vitela/ViewerViewModel.swift` — file selection, the render queue, and
   opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
@@ -43,6 +43,8 @@ responsibility:
   Images…: choices, folder, one page at a time, never overwriting.
 - `Vitela/ViewerViewModel+Compress.swift` — File ▸ Compress…: preset,
   signature question, and a destination only when something smaller came out.
+- `Vitela/ViewerViewModel+Protect.swift` — File ▸ Protect with Password…:
+  two passwords, signature question, atomic write, reopen.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`

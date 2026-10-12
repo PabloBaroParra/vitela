@@ -125,12 +125,23 @@ final class ViewerStore: ObservableObject {
     func selectionCancelled() {}
 
     func open(bytes: Data, password: String? = nil) {
+        open(bytes: bytes) { try $0.open(bytes: bytes, password: password) }
+    }
+
+    /// Opens a file this shell just protected, with both of the passwords it
+    /// set — the owner password is what keeps it editable here, as Windows'
+    /// `ReopenProtectedAsync` does.
+    func open(bytes: Data, userPassword: String, ownerPassword: String) {
+        open(bytes: bytes) { try $0.open(bytes: bytes, userPassword: userPassword, ownerPassword: ownerPassword) }
+    }
+
+    private func open(bytes: Data, using opener: (PdfCoreClient) throws -> any PdfDocument) {
         generation += 1
         let attemptedGeneration = generation
         pendingBytes = bytes
         state = .loading
         do {
-            let opened = try client.open(bytes: bytes, password: password)
+            let opened = try opener(client)
             guard attemptedGeneration == generation else { return }
             document = opened
             sourceByteCount = bytes.count

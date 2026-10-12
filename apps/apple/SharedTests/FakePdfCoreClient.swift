@@ -53,6 +53,12 @@ final class FakePdfCoreClient: PdfCoreClient {
     )
     var compressError: Error?
     var compressCalls: [(preset: CompressPreset, acknowledged: Bool)] = []
+    // Protecting.
+    var protectInvalidatesSignatures = false
+    var protectedBytes = Data("%PDF-protected".utf8)
+    var protectError: Error?
+    var protectCalls: [(open: String, permissions: String, acknowledged: Bool)] = []
+    var openedWithPasswords: [(user: String, owner: String)] = []
 
     init(pages: [PageDimensions]) {
         self.pages = pages
@@ -190,6 +196,21 @@ extension FakePdfCoreClient {
         compressCalls.append((preset, acknowledgingSignatureLoss))
         if let compressError { throw compressError }
         return compression
+    }
+
+    func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument {
+        openedWithPasswords.append((userPassword, ownerPassword))
+        return try open(bytes: bytes, password: ownerPassword)
+    }
+
+    func protectionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { protectInvalidatesSignatures }
+
+    func protect(
+        document: any PdfDocument, openPassword: String, permissionsPassword: String, acknowledgingSignatureLoss: Bool
+    ) throws -> Data {
+        protectCalls.append((openPassword, permissionsPassword, acknowledgingSignatureLoss))
+        if let protectError { throw protectError }
+        return protectedBytes
     }
 }
 

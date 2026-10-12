@@ -137,4 +137,20 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
             XCTAssertEqual(reopened.pageSlots.count, store.pageSlots.count)
         }
     } }
+
+    func testAProtectedCopyNeedsItsPasswordAndReopensEditable() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let request = try XCTUnwrap(store.beginProtect(openPassword: "open-pass", permissionsPassword: "owner-pass"))
+        XCTAssertEqual(try store.protectionWillInvalidateSignatures(for: request).get(), false)
+
+        let bytes = try store.protectResult(for: request, acknowledgingSignatureLoss: false).get()
+
+        let locked = ViewerStore(client: UniFfiPdfCoreClient())
+        locked.open(bytes: bytes)
+        XCTAssertEqual(locked.state, .error(.passwordRequired), "the copy must ask for its password")
+        XCTAssertTrue(store.reopenProtected(bytes, for: request))
+        XCTAssertEqual(store.state, .loaded)
+        XCTAssertTrue(store.editingAllowed, "opened with the permissions password, the copy stays editable")
+    } }
 }

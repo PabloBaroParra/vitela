@@ -27,8 +27,18 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
     }
 
     func open(bytes: Data, password: String?) throws -> any PdfDocument {
+        try Self.document { try openFromBytes(bytes: bytes, password: password) }
+    }
+
+    func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument {
+        try Self.document {
+            try openWithPasswordsFromBytes(bytes: bytes, userPassword: userPassword, ownerPassword: ownerPassword)
+        }
+    }
+
+    private static func document(_ open: () throws -> DocumentHandle) throws -> any PdfDocument {
         do {
-            let handle = try openFromBytes(bytes: bytes, password: password)
+            let handle = try open()
             let pages = handle.pageDimensions().map {
                 PageDimensions(width: $0.widthPt, height: $0.heightPt)
             }

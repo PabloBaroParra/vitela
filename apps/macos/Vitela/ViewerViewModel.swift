@@ -6,7 +6,9 @@ import UniformTypeIdentifiers
 final class ViewerViewModel: ObservableObject {
     @Published private(set) var title = ViewerViewModel.windowTitle(for: .empty)
     /// The open document's file name, used to suggest a name when saving.
-    /// Not `private(set)`: `ViewerViewModel+FileDrop.swift` names what it opens.
+    /// Not `private(set)`: `ViewerViewModel+FileDrop.swift` names what it
+    /// opens, and `ViewerViewModel+Protect.swift` renames it to the protected
+    /// file it reopens.
     @Published var documentName: String?
     @Published var isSaving = false
     /// Whether the Go to page sheet is up — see `ViewerViewModel+Navigation.swift`.
@@ -22,6 +24,8 @@ final class ViewerViewModel: ObservableObject {
     @Published var isExportImagesPresented = false
     /// Whether the Compress sheet is up — `ViewerViewModel+Compress.swift`.
     @Published var isCompressPresented = false
+    /// Whether the Protect sheet is up — `ViewerViewModel+Protect.swift`.
+    @Published var isProtectPresented = false
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
