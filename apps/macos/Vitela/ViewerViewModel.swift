@@ -44,6 +44,10 @@ final class ViewerViewModel: ObservableObject {
     private var subscriptions = Set<AnyCancellable>()
     /// The pending viewport size report — see `ViewerViewModel+Zoom.swift`.
     var pendingViewport: DispatchWorkItem?
+    /// Draw Signature's sheet, and where the remembered signature lives —
+    /// `ViewerViewModel+Signature.swift`.
+    @Published var signatureSheet: SignatureSheet?
+    let signatures: SignatureStore
     /// The Delete-key monitor — `ViewerViewModel+Annotations.swift`.
     var annotationKeyMonitor: Any?
 
@@ -52,12 +56,14 @@ final class ViewerViewModel: ObservableObject {
         prompts: SavePrompts = .modal,
         signingPrompts: SigningPrompts = .modal,
         importPrompts: ImportPrompts = .modal,
+        signatures: SignatureStore = FileSignatureStore(url: FileSignatureStore.defaultURL),
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
         self.store = store
         self.prompts = prompts
         self.signingPrompts = signingPrompts
         self.importPrompts = importPrompts
+        self.signatures = signatures
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
         operationQueue.maxConcurrentOperationCount = 1

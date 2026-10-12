@@ -132,6 +132,9 @@ final class ViewerStore: ObservableObject {
     @Published var pendingNote: PendingNote?
     @Published var pendingFreeText: PendingFreeText?
     @Published var pendingStamp: PendingStamp?
+    /// A drawn signature waiting for its click — meaningful only while the
+    /// Stamp tool is armed, so it never outlives the arming it belongs to.
+    @Published var armedStampImage: Data?
     /// The image behind each stamp this session inserted, for its preview.
     var stampImages: [UInt64: Data] = [:]
     @Published var selectedAnnotationId: UInt64?

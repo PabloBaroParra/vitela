@@ -14,7 +14,7 @@ struct ViewerRootView: View {
         VStack(spacing: 0) {
             toolbar
             searchBar
-            AnnotationToolbar(store: model.store)
+            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature)
             Divider()
             HStack(spacing: 0) {
                 if model.store.pageSlots.isEmpty {

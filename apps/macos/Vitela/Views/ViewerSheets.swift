@@ -32,6 +32,14 @@ struct ViewerSheets: ViewModifier {
             .sheet(item: pendingFreeTextBinding) { pending in
                 FreeTextSheet(store: model.store, pending: pending)
             }
+            .sheet(item: $model.signatureSheet) { sheet in
+                switch sheet {
+                case let .saved(png):
+                    SavedSignatureSheet(png: png, choose: model.chooseSavedSignature)
+                case .pad:
+                    SignaturePadSheet(use: model.useDrawnSignature) { model.signatureSheet = nil }
+                }
+            }
     }
 
     /// Up while a traced note waits for its text; dismissing it any other

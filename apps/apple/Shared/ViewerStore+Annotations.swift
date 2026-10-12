@@ -85,6 +85,8 @@ extension ViewerStore {
         guard document != nil, annotationEditingAllowed || tool == nil else { return }
         armedTool = tool
         annotationDraft = nil
+        // Choosing a tool by hand replaces an armed drawn signature.
+        armedStampImage = nil
         if tool != nil {
             selectedAnnotationId = nil
             armedField = nil
@@ -135,6 +137,11 @@ extension ViewerStore {
             return beginFreeTextPlacement(page: page, origin: draft.origin, release: draft.current)
         }
         if draft.tool == .stamp {
+            if let signature = armedStampImage {
+                // A drawn signature goes where the click landed.
+                armedStampImage = nil
+                return insertStamp(imageBytes: signature, page: page, rect: nil, anchor: draft.origin)
+            }
             return beginStampPlacement(page: page, origin: draft.origin, release: draft.current)
         }
         let rect = Self.tracedRect(from: draft.origin, to: draft.current, tool: draft.tool)
@@ -229,6 +236,7 @@ extension ViewerStore {
         pendingNote = nil
         pendingFreeText = nil
         pendingStamp = nil
+        armedStampImage = nil
         stampImages = [:]
         selectedAnnotationId = nil
         annotationGesture = nil
