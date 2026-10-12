@@ -130,6 +130,8 @@ private extension FfiEditCommand {
             }
         case let .addInk(page, points, color):
             self = .addInk(page: UInt32(page), points: points.map { FfiPoint(x: $0.x, y: $0.y) }, color: FfiColor(color))
+        case let .addNote(page, rect, contents):
+            self = .addTextNote(page: UInt32(page), rect: FfiRect(rect), contents: contents)
         case let .remove(id):
             self = .removeAnnotation(annotationId: id)
         }

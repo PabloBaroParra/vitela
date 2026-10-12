@@ -78,6 +78,18 @@ struct ViewerRootView: View {
         .sheet(isPresented: $model.isProtectPresented) {
             ProtectSheet(model: model)
         }
+        .sheet(isPresented: isPresentingNoteSheet) {
+            NoteSheet(store: model.store)
+        }
+    }
+
+    /// Up while a traced note waits for its text; dismissing it any other
+    /// way than Add is a cancel.
+    private var isPresentingNoteSheet: Binding<Bool> {
+        Binding(
+            get: { model.store.pendingNote != nil },
+            set: { if !$0 { model.store.cancelPendingNote() } }
+        )
     }
 
     /// True while the store is waiting on a password — covers both the first

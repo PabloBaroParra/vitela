@@ -48,6 +48,11 @@ struct AnnotationOverlay: View {
             context.stroke(Path(box), with: .color(color.opacity(220 / 255)), lineWidth: 2)
         case .underline, .strikeout:
             context.fill(Path(box), with: .color(color.opacity(220 / 255)))
+        case .textNote:
+            // A note is its icon's box: filled lightly so it reads as a
+            // marker, not as an outline around content.
+            context.fill(Path(roundedRect: box, cornerRadius: 3), with: .color(color.opacity(160 / 255)))
+            context.stroke(Path(roundedRect: box, cornerRadius: 3), with: .color(color.opacity(220 / 255)), lineWidth: 1)
         default:
             context.stroke(Path(box), with: .color(color.opacity(220 / 255)), lineWidth: 2)
         }
