@@ -34,6 +34,8 @@ extension ViewerStore {
         canUndo = false
         canRedo = false
         editStatus = ""
+        pageWorkInFlight = false
+        pagesEdited = false
         guard let document else {
             documentInfo = nil
             editingAllowed = false
@@ -112,14 +114,17 @@ extension ViewerStore {
 
     // MARK: - Undo / redo
 
+    /// A page edit in flight is about to add a history step; undoing under
+    /// it would undo the step before. The shell refreshes the page layout
+    /// afterwards (`beginPageRefresh`).
     func undo() {
-        guard let document, client.undo(document: document) else { return }
+        guard !pageWorkInFlight, let document, client.undo(document: document) else { return }
         recordEdit(status: "Undone.")
         refreshAfterHistoryStep(document)
     }
 
     func redo() {
-        guard let document, client.redo(document: document) else { return }
+        guard !pageWorkInFlight, let document, client.redo(document: document) else { return }
         recordEdit(status: "Redone.")
         refreshAfterHistoryStep(document)
     }
@@ -130,7 +135,8 @@ extension ViewerStore {
         documentInfo = try? client.documentInfo(document: document)
     }
 
-    private func recordEdit(status: String) {
+    /// Not `private`: `ViewerStore+Pages.swift` records its steps here too.
+    func recordEdit(status: String) {
         editRevision += 1
         editStatus = status
         // The core's EditLog is the single owner of history; asking it back

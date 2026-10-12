@@ -16,6 +16,8 @@ struct ViewerRootView: View {
             HStack(spacing: 0) {
                 if model.store.pageSlots.isEmpty {
                     placeholder
+                } else if model.isOrganizing {
+                    OrganizeView(model: model)
                 } else {
                     pageList
                 }
@@ -109,9 +111,9 @@ struct ViewerRootView: View {
                 .keyboardShortcut("c", modifiers: .command)
                 .disabled(model.store.selectedText == nil)
             Button("Undo", action: model.undo)
-                .disabled(!model.store.canUndo)
+                .disabled(!model.store.canUndo || model.store.pageWorkInFlight)
             Button("Redo", action: model.redo)
-                .disabled(!model.store.canRedo)
+                .disabled(!model.store.canRedo || model.store.pageWorkInFlight)
             Toggle("Properties", isOn: $showsProperties)
                 .toggleStyle(.button)
             if model.store.isSigned {
@@ -120,6 +122,10 @@ struct ViewerRootView: View {
                     .help("This document carries a digital signature.")
                     .accessibilityIdentifier("signed-indicator")
             }
+            Toggle("Organize", isOn: $model.isOrganizing)
+                .toggleStyle(.button)
+                .help("Rotate and rearrange pages")
+                .disabled(model.store.document == nil)
             Spacer()
             Button("−") { model.store.stepZoom(-1) }
                 .accessibilityLabel("Zoom out")

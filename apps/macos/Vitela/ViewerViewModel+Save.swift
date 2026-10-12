@@ -128,9 +128,17 @@ extension ViewerViewModel {
         resolveUnsavedChanges { if $0 { proceed() } }
     }
 
-    func undo() { store.undo() }
+    /// After an undo or redo, a session that ever edited its pages re-derives
+    /// the layout (`ViewerStore.beginPageRefresh`).
+    func undo() {
+        store.undo()
+        enqueuePageWork(store.beginPageRefresh())
+    }
 
-    func redo() { store.redo() }
+    func redo() {
+        store.redo()
+        enqueuePageWork(store.beginPageRefresh())
+    }
 
     private var suggestedSaveName: String {
         guard let name = documentName, !name.isEmpty else { return "document.pdf" }

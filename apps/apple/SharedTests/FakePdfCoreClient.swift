@@ -19,13 +19,32 @@ final class FakePdfCoreClient: PdfCoreClient {
     var pageCharactersByPage: [Int: PageCharacters] = [:]
     var pageCharactersError: Error?
     var pageCharactersRequests: [Int] = []
-    // Editing: a tiny stand-in for the core's EditLog — a list of Info
-    // snapshots plus a cursor, which is all undo/redo of metadata needs.
+    // Editing: a tiny stand-in for the core's EditLog — a list of
+    // (Info, page layout) snapshots plus a cursor, which is all undo/redo of
+    // metadata and page edits needs.
+    struct Snapshot {
+        var info: DocumentInfo
+        var pages: [PageDimensions]
+    }
+
     var initialInfo = DocumentInfo()
     var editingAllowed = true
     var setInfoError: Error?
-    var infoHistory: [DocumentInfo] = []
+    var history: [Snapshot] = []
     var historyCursor = 0
+    /// The Info entries of `history`, for tests about metadata only.
+    var infoHistory: [DocumentInfo] {
+        get { history.map(\.info) }
+        set { history = newValue.map { Snapshot(info: $0, pages: pages) } }
+    }
+    // Page edits.
+    var pageEdits: [PageEdit] = []
+    var pageEditError: Error?
+    var refreshPreviewError: Error?
+    var refreshPreviewCount = 0
+    /// What `render` draws: the layout as of the last `refreshPreview`, as in
+    /// the core, where `pageDimensions` reads the render-side document.
+    var previewPages: [PageDimensions]?
     var invalidatesSignatures = false
     var savedBytes = Data("%PDF-fake".utf8)
     var saveError: Error?
@@ -110,13 +129,54 @@ final class FakePdfCoreClient: PdfCoreClient {
     }
 
     func documentInfo(document: any PdfDocument) throws -> DocumentInfo {
-        historyCursor == 0 ? initialInfo : infoHistory[historyCursor - 1]
+        historyCursor == 0 ? initialInfo : history[historyCursor - 1].info
+    }
+
+    /// The model's page layout, pending edits included.
+    var currentPages: [PageDimensions] {
+        historyCursor == 0 ? pages : history[historyCursor - 1].pages
+    }
+
+    private func record(_ snapshot: Snapshot) {
+        history = Array(history.prefix(historyCursor)) + [snapshot]
+        historyCursor = history.count
     }
 
     func setDocumentInfo(document: any PdfDocument, info: DocumentInfo) throws {
         if let setInfoError { throw setInfoError }
-        infoHistory = Array(infoHistory.prefix(historyCursor)) + [info]
-        historyCursor = infoHistory.count
+        record(Snapshot(info: info, pages: currentPages))
+    }
+
+    func applyPageEdit(document: any PdfDocument, edit: PageEdit) throws {
+        if let pageEditError { throw pageEditError }
+        pageEdits.append(edit)
+        var layout = currentPages
+        switch edit {
+        case let .rotate(page, degrees):
+            if (degrees / 90) % 2 != 0 {
+                layout[page] = PageDimensions(width: layout[page].height, height: layout[page].width)
+            }
+        case let .remove(page):
+            layout.remove(at: page)
+        case let .insertBlank(at, orientation):
+            let a4 = orientation == .portrait
+                ? PageDimensions(width: 595, height: 842)
+                : PageDimensions(width: 842, height: 595)
+            layout.insert(a4, at: at)
+        case let .move(from, to):
+            layout.insert(layout.remove(at: from), at: to)
+        }
+        record(Snapshot(info: try documentInfo(document: document), pages: layout))
+    }
+
+    func refreshPreview(document: any PdfDocument) throws {
+        refreshPreviewCount += 1
+        if let refreshPreviewError { throw refreshPreviewError }
+        previewPages = currentPages
+    }
+
+    func pageDimensions(document: any PdfDocument) -> [PageDimensions] {
+        previewPages ?? pages
     }
 
     func contentEditingAllowed(document: any PdfDocument) -> Bool { editingAllowed }
@@ -128,13 +188,13 @@ final class FakePdfCoreClient: PdfCoreClient {
     }
 
     func redo(document: any PdfDocument) -> Bool {
-        guard historyCursor < infoHistory.count else { return false }
+        guard historyCursor < history.count else { return false }
         historyCursor += 1
         return true
     }
 
     func canUndo(document: any PdfDocument) -> Bool { historyCursor > 0 }
-    func canRedo(document: any PdfDocument) -> Bool { historyCursor < infoHistory.count }
+    func canRedo(document: any PdfDocument) -> Bool { historyCursor < history.count }
 
     func saveWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { invalidatesSignatures }
 
