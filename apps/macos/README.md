@@ -47,6 +47,8 @@ responsibility:
   two passwords, signature question, atomic write, reopen.
 - `Vitela/ViewerViewModel+Pages.swift` — the Organize mode and running
   page edits on the queue.
+- `Vitela/ViewerViewModel+Import.swift` — Organize ▸ Add PDFs: picking,
+  per-source passwords and warnings, then one undoable import.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`

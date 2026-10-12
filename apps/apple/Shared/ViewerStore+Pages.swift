@@ -10,19 +10,30 @@
 import Foundation
 
 extension ViewerStore {
-    /// A page edit (or a bare layout refresh after undo/redo) in flight.
+    /// What a page-work request does to the model before the relayout.
+    enum PageWork {
+        case edit(PageEdit)
+        /// Every page of each prepared source, appended as one undo step —
+        /// `ViewerStore+Import.swift`.
+        case importSources([any ImportSource])
+        /// Nothing: re-derive the layout after an undo or redo.
+        case refresh
+    }
+
+    /// Page work in flight.
     struct PageWorkRequest {
         let generation: UInt
         let document: any PdfDocument
-        /// `nil` for a refresh after a history step.
-        let edit: PageEdit?
+        let work: PageWork
     }
 
     struct PageWorkOutcome {
-        /// Whether the edit reached the core's history — true even when the
+        /// Whether the work reached the core's history — true even when the
         /// refresh after it failed, because the step is there to undo.
         let applied: Bool
         let pages: Result<[PageDimensions], EditFailure>
+        /// What the status line reports for an applied step.
+        var done: String?
     }
 
     var canEditPages: Bool { document != nil && !pageWorkInFlight }
@@ -36,7 +47,7 @@ extension ViewerStore {
             return nil
         }
         pageWorkInFlight = true
-        return PageWorkRequest(generation: generation, document: document, edit: edit)
+        return PageWorkRequest(generation: generation, document: document, work: .edit(edit))
     }
 
     /// The layout refresh an undo or redo owes the viewer, or `nil` when
@@ -44,24 +55,33 @@ extension ViewerStore {
     func beginPageRefresh() -> PageWorkRequest? {
         guard pagesEdited, let document, !pageWorkInFlight else { return nil }
         pageWorkInFlight = true
-        return PageWorkRequest(generation: generation, document: document, edit: nil)
+        return PageWorkRequest(generation: generation, document: document, work: .refresh)
     }
 
     /// Thread-safe: only the immutable client and the request's own document.
     func pageWorkResult(for request: PageWorkRequest) -> PageWorkOutcome {
-        if let edit = request.edit {
-            do {
+        let done: String?
+        do {
+            switch request.work {
+            case let .edit(edit):
                 try client.applyPageEdit(document: request.document, edit: edit)
-            } catch {
-                return PageWorkOutcome(applied: false, pages: .failure(Self.editFailure(error)))
+                done = Self.doneMessage(for: edit)
+            case let .importSources(sources):
+                let added = try client.importPrepared(document: request.document, sources: sources)
+                done = "Imported \(added) \(added == 1 ? "page" : "pages") from \(sources.count) \(sources.count == 1 ? "PDF" : "PDFs")."
+            case .refresh:
+                done = nil
             }
+        } catch {
+            return PageWorkOutcome(applied: false, pages: .failure(Self.editFailure(error)))
         }
+        let applied = done != nil
         do {
             try client.refreshPreview(document: request.document)
         } catch {
-            return PageWorkOutcome(applied: request.edit != nil, pages: .failure(Self.editFailure(error)))
+            return PageWorkOutcome(applied: applied, pages: .failure(Self.editFailure(error)), done: done)
         }
-        return PageWorkOutcome(applied: request.edit != nil, pages: .success(client.pageDimensions(document: request.document)))
+        return PageWorkOutcome(applied: applied, pages: .success(client.pageDimensions(document: request.document)), done: done)
     }
 
     func applyPageWork(_ outcome: PageWorkOutcome, for request: PageWorkRequest) {
@@ -78,8 +98,8 @@ extension ViewerStore {
             // navigation request named a position in the old layout.
             requestedPage = nil
             currentPage = min(currentPage, max(pages.count - 1, 0))
-            if let edit = request.edit {
-                recordEdit(status: "\(Self.doneMessage(for: edit)) Changes are pending save.")
+            if let done = outcome.done {
+                recordEdit(status: "\(done) Changes are pending save.")
             }
         case let .failure(failure):
             if outcome.applied {

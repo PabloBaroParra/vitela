@@ -31,6 +31,9 @@ final class ViewerViewModel: ObservableObject {
     @Published var isOrganizing = false
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
+    /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
+    @Published var isImporting = false
+    let importPrompts: ImportPrompts
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
@@ -46,11 +49,13 @@ final class ViewerViewModel: ObservableObject {
         store: ViewerStore = ViewerStore(client: UniFfiPdfCoreClient()),
         prompts: SavePrompts = .modal,
         signingPrompts: SigningPrompts = .modal,
+        importPrompts: ImportPrompts = .modal,
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
         self.store = store
         self.prompts = prompts
         self.signingPrompts = signingPrompts
+        self.importPrompts = importPrompts
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
         operationQueue.maxConcurrentOperationCount = 1
