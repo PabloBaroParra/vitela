@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// The annotation tools — Windows' Highlight / Underline / Strikeout / Shape
-/// toggles plus Pointer. Arming one makes the next drag on a page place it;
-/// Escape or Pointer returns to selecting text.
+/// The annotation tools — Windows' tool toggles plus Pointer — and, when a
+/// placed annotation is selected, what applies to it. Arming a tool makes the
+/// next drag on a page place it; Escape or Pointer returns to selecting text.
 struct AnnotationToolbar: View {
     @ObservedObject var store: ViewerStore
+    /// The note being read, while its sheet is up.
+    @State private var readNote: String?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -17,6 +19,10 @@ struct AnnotationToolbar: View {
             Button("Pointer") { store.armAnnotationTool(nil) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(store.armedTool == nil)
+            if let selected = store.selectedAnnotation {
+                Divider().frame(height: 16)
+                selectionControls(selected)
+            }
             if store.document != nil && !store.annotationEditingAllowed {
                 Text("This document does not permit annotations.").foregroundStyle(.secondary)
             }
@@ -25,6 +31,51 @@ struct AnnotationToolbar: View {
         .disabled(store.document == nil || !store.annotationEditingAllowed)
         .padding(.horizontal)
         .padding(.bottom, 8)
+        .sheet(item: readNoteBinding) { note in
+            ReadNoteSheet(text: note.text) { readNote = nil }
+        }
+    }
+
+    private var readNoteBinding: Binding<NoteText?> {
+        Binding(get: { readNote.map(NoteText.init) }, set: { readNote = $0?.text })
+    }
+
+    /// What applies to the selected annotation — Windows' Delete, Nudge,
+    /// Grow, color and Read note, each enabled only where it means something.
+    @ViewBuilder private func selectionControls(_ selected: Annotation) -> some View {
+        Button("Delete", action: store.deleteSelectedAnnotation)
+            .help("Delete the selected annotation (⌫)")
+        Button("Nudge", action: store.nudgeSelectedAnnotation)
+            .help("Move the selected annotation 12 points up and right")
+        Button("Grow", action: store.growSelectedAnnotation)
+            .help("Make the selected annotation a quarter bigger")
+            .disabled(selected.rect == nil)
+        if selected.kind.supportsRestyle {
+            ColorPicker("Color", selection: colorBinding(selected))
+                .help("Change the selected annotation's color")
+        }
+        if selected.kind == .textNote {
+            Button("Read Note") { readNote = selected.contents ?? "" }
+        }
+    }
+
+    private func colorBinding(_ selected: Annotation) -> Binding<CGColor> {
+        Binding(
+            get: { Self.cgColor(selected.color ?? .annotationDefault) },
+            set: { store.restyleSelectedAnnotation(Self.pdfColor($0)) }
+        )
+    }
+
+    private static func cgColor(_ color: PdfColor) -> CGColor {
+        CGColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
+    }
+
+    /// The picked color in sRGB, rounded to the 8 bits a PDF color carries.
+    static func pdfColor(_ color: CGColor) -> PdfColor {
+        let srgb = color.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil) ?? color
+        let parts = (srgb.components ?? [0, 0, 0]) + [0, 0, 0]
+        func byte(_ value: CGFloat) -> UInt8 { UInt8(max(0, min(255, (value * 255).rounded()))) }
+        return PdfColor(r: byte(parts[0]), g: byte(parts[1]), b: byte(parts[2]))
     }
 
     private func binding(for tool: AnnotationTool) -> Binding<Bool> {
@@ -33,4 +84,10 @@ struct AnnotationToolbar: View {
             set: { store.armAnnotationTool($0 ? tool : nil) }
         )
     }
+}
+
+/// A note's text as a sheet item.
+private struct NoteText: Identifiable {
+    let text: String
+    var id: String { text }
 }

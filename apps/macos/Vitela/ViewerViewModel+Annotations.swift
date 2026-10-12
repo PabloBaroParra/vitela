@@ -1,12 +1,15 @@
+import AppKit
 import Foundation
 
 /// Routes a drag on a page: to the armed annotation tool when there is one,
-/// otherwise to text selection — Windows' `ConnectAnnotationPointer` order,
-/// where selection is tried only once annotations refuse the gesture.
+/// then to a placed annotation under the pointer (select, move, resize),
+/// and only then to text selection — Windows' `ConnectAnnotationPointer`
+/// order, where selection is tried only once annotations refuse the gesture.
 extension ViewerViewModel {
     func pageDragBegan(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
         if let point = annotationPoint(page: page, location: location, zoom: zoom),
-           store.beginAnnotationDraft(page: page, at: point) {
+           store.beginAnnotationDraft(page: page, at: point)
+           || store.beginAnnotationGesture(page: page, at: point, zoom: zoom) {
             return
         }
         beginSelection(page: page, location: location, dimensions: dimensions, zoom: zoom)
@@ -19,10 +22,22 @@ extension ViewerViewModel {
             }
             return
         }
+        if store.annotationGesture != nil {
+            if let point = annotationPoint(page: page, location: location, zoom: zoom) {
+                store.continueAnnotationGesture(to: point)
+            }
+            return
+        }
         extendSelection(page: page, location: location, dimensions: dimensions, zoom: zoom)
     }
 
     func pageDragEnded(page: Int, location: CGPoint, zoom: Double) {
+        if store.annotationGesture != nil {
+            guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
+                return store.cancelAnnotationGesture()
+            }
+            return store.endAnnotationGesture(at: point)
+        }
         guard store.annotationDraft != nil else { return }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
             return store.cancelAnnotationDraft()
@@ -35,5 +50,29 @@ extension ViewerViewModel {
     private func annotationPoint(page: Int, location: CGPoint, zoom: Double) -> PdfPoint? {
         guard let placement = store.placement(ofPage: page, zoom: zoom) else { return nil }
         return store.client.pointToPdf(x: Double(location.x), y: Double(location.y), on: placement)
+    }
+}
+
+extension ViewerViewModel {
+    /// Delete and Backspace remove the selected annotation — Linux's
+    /// `win.delete-annotation` accel — but never while a text field is
+    /// editing, where they belong to the text (Windows' `TextInputHasFocus`).
+    /// A local monitor rather than a button shortcut, which would take the
+    /// key from every text field in the window.
+    func installAnnotationKeyMonitor() {
+        guard annotationKeyMonitor == nil else { return }
+        annotationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, Self.isDeleteKey(event), self.store.selectedAnnotation != nil,
+                  !(event.window?.firstResponder is NSText)
+            else { return event }
+            self.store.deleteSelectedAnnotation()
+            return nil
+        }
+    }
+
+    /// Backspace (51) and forward delete (117), with no modifiers.
+    static func isDeleteKey(_ event: NSEvent) -> Bool {
+        (event.keyCode == 51 || event.keyCode == 117)
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
     }
 }

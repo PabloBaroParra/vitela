@@ -40,6 +40,7 @@ struct ViewerRootView: View {
             Self.loadFileURLs(providers, then: model.openExternalFiles)
             return !providers.isEmpty
         }
+        .onAppear(perform: model.installAnnotationKeyMonitor)
         .background(
             // `.hidden()` can pull a view out of the responder chain on some
             // macOS versions, which would silently kill the shortcut;
