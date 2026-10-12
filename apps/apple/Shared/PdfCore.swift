@@ -194,6 +194,8 @@ protocol PdfCoreClient {
     // Page placement — the core's own turn-aware math, so every shell puts an
     // overlay in the same place on a rotated page.
     func placeRect(_ rect: PdfRect, on page: PagePlacement) -> PlacedRect
+    /// A bare point — an ink vertex — on the drawn page.
+    func placePoint(_ point: PdfPoint, on page: PagePlacement) -> PlacedPoint
     /// A pointer position on the drawn page back into page space.
     func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint
 }
@@ -257,6 +259,10 @@ extension PdfCoreClient {
             width: rect.width * page.scale,
             height: rect.height * page.scale
         )
+    }
+
+    func placePoint(_ point: PdfPoint, on page: PagePlacement) -> PlacedPoint {
+        PlacedPoint(left: point.x * page.scale, top: (page.height - point.y) * page.scale)
     }
 
     func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint {

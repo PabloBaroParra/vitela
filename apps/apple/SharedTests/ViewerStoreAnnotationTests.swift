@@ -117,3 +117,39 @@ final class ViewerStoreAnnotationTests: XCTestCase {
         XCTAssertEqual(ink.bounds, PdfRect(x: 1, y: 2, width: 7, height: 18))
     }
 }
+
+extension ViewerStoreAnnotationTests {
+    func testAnInkDragCommitsEveryDistinctPointItPassed() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        store.armAnnotationTool(.ink)
+
+        XCTAssertTrue(store.beginAnnotationDraft(page: 0, at: PdfPoint(x: 10, y: 10)))
+        store.continueAnnotationDraft(page: 0, to: PdfPoint(x: 20, y: 15))
+        store.continueAnnotationDraft(page: 0, to: PdfPoint(x: 20, y: 15))
+        store.continueAnnotationDraft(page: 0, to: PdfPoint(x: 10, y: 10))
+        store.endAnnotationDraft(page: 0, at: PdfPoint(x: 10, y: 10))
+
+        XCTAssertEqual(client.annotationEdits, [.addInk(
+            page: 0,
+            points: [PdfPoint(x: 10, y: 10), PdfPoint(x: 20, y: 15), PdfPoint(x: 10, y: 10)],
+            color: .annotationDefault
+        )], "a repeat of the last sample is dropped; a return to an earlier one is kept")
+        XCTAssertEqual(store.annotations.first?.kind, .ink)
+    }
+
+    func testAnInkTapIsReportedNotSaved() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        store.armAnnotationTool(.ink)
+
+        XCTAssertTrue(store.beginAnnotationDraft(page: 0, at: PdfPoint(x: 10, y: 10)))
+        store.endAnnotationDraft(page: 0, at: PdfPoint(x: 10, y: 10))
+
+        XCTAssertTrue(client.annotationEdits.isEmpty)
+        XCTAssertEqual(store.editStatus, "Ink needs a drag, not a tap.")
+        XCTAssertFalse(store.hasUnsavedChanges)
+    }
+}

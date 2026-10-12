@@ -19,7 +19,9 @@ struct AnnotationOverlay: View {
             for annotation in store.annotations(onPage: page) {
                 draw(annotation, placement: placement, in: &context)
             }
-            if let draft = store.annotationDraft, draft.page == page {
+            if let draft = store.annotationDraft, draft.page == page, draft.tool == .ink {
+                context.stroke(stroke(draft.points, placement: placement), with: .color(Self.draftColor), style: Self.inkStyle(selected: false))
+            } else if let draft = store.annotationDraft, draft.page == page {
                 let rect = ViewerStore.tracedRect(from: draft.origin, to: draft.current, tool: draft.tool)
                 let box = frame(rect, placement: placement)
                 if draft.tool == .underline || draft.tool == .strikeout {
@@ -34,6 +36,10 @@ struct AnnotationOverlay: View {
 
     private func draw(_ annotation: Annotation, placement: PagePlacement, in context: inout GraphicsContext) {
         let color = Self.color(annotation.color ?? .annotationDefault)
+        if annotation.kind == .ink {
+            context.stroke(stroke(annotation.points, placement: placement), with: .color(color.opacity(220 / 255)), style: Self.inkStyle(selected: false))
+            return
+        }
         guard let rect = annotation.rect else { return }
         let box = frame(rect, placement: placement)
         switch annotation.kind {
@@ -45,6 +51,21 @@ struct AnnotationOverlay: View {
         default:
             context.stroke(Path(box), with: .color(color.opacity(220 / 255)), lineWidth: 2)
         }
+    }
+
+    /// A freehand stroke as a polyline through the placed points.
+    private func stroke(_ points: [PdfPoint], placement: PagePlacement) -> Path {
+        var path = Path()
+        for (index, point) in points.enumerated() {
+            let placed = store.client.placePoint(point, on: placement)
+            let at = CGPoint(x: placed.left, y: placed.top)
+            if index == 0 { path.move(to: at) } else { path.addLine(to: at) }
+        }
+        return path
+    }
+
+    private static func inkStyle(selected: Bool) -> StrokeStyle {
+        StrokeStyle(lineWidth: selected ? 3 : 2, lineCap: .round, lineJoin: .round)
     }
 
     /// The placed rect, never thinner than 2 points on either axis — which
