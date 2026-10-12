@@ -66,6 +66,9 @@ struct ViewerRootView: View {
         .sheet(isPresented: $model.isSplitPresented) {
             PageRangeSheet.split(model)
         }
+        .sheet(isPresented: $model.isExportImagesPresented) {
+            ExportImagesSheet(model: model)
+        }
     }
 
     /// True while the store is waiting on a password — covers both the first
