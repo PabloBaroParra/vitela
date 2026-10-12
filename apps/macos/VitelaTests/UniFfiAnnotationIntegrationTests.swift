@@ -1,3 +1,4 @@
+import ImageIO
 import XCTest
 @testable import Vitela
 
@@ -116,4 +117,35 @@ final class UniFfiAnnotationIntegrationTests: XCTestCase {
         let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
         XCTAssertNotNil(try store.saveResult(for: save).get().range(of: Data("/FreeText".utf8)))
     } }
+
+    func testAStampTakesTheImagesProportionsAndIsSaved() throws { try offMain {
+        let png = try XCTUnwrap(Self.tinyPng(width: 4, height: 2))
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+
+        store.insertStamp(imageBytes: png, page: 0, rect: nil, anchor: PdfPoint(x: 100, y: 500))
+
+        let stamp = try XCTUnwrap(store.selectedAnnotation)
+        XCTAssertEqual(stamp.kind, .stamp)
+        let rect = try XCTUnwrap(stamp.rect)
+        XCTAssertEqual(rect.width / rect.height, 2, accuracy: 0.01, "the core keeps the image's own proportions")
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        XCTAssertNotNil(try store.saveResult(for: save).get().range(of: Data("/Stamp".utf8)))
+    } }
+
+    /// A minimal opaque RGB PNG, encoded with ImageIO.
+    private static func tinyPng(width: Int, height: Int) -> Data? {
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return nil }
+        context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = context.makeImage() else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
+    }
 }

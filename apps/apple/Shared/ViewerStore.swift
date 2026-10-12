@@ -117,6 +117,9 @@ final class ViewerStore: ObservableObject {
     @Published var annotationDraft: AnnotationDraft?
     @Published var pendingNote: PendingNote?
     @Published var pendingFreeText: PendingFreeText?
+    @Published var pendingStamp: PendingStamp?
+    /// The image behind each stamp this session inserted, for its preview.
+    var stampImages: [UInt64: Data] = [:]
     @Published var selectedAnnotationId: UInt64?
     @Published var annotationGesture: AnnotationGesture?
 

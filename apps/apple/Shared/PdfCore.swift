@@ -193,6 +193,12 @@ protocol PdfCoreClient {
     /// Lays `contents` out in a box, as a stored text box would be — throws
     /// `EditFailure` naming a character the box's font cannot show.
     func freeTextLayout(contents: String, width: Double, height: Double) throws -> FreeTextLayout
+    /// Adds an image stamp — its own core entry point, since it carries the
+    /// image bytes — as one undoable edit.
+    func insertImageStamp(document: any PdfDocument, page: Int, imageBytes: Data, rect: PdfRect) throws
+    /// The rect a stamp anchored at a point gets from the image's own
+    /// proportions — the core's policy, so every shell agrees.
+    func stampPlacement(imageBytes: Data, anchor: PdfPoint) throws -> PdfRect
 
     // Page placement — the core's own turn-aware math, so every shell puts an
     // overlay in the same place on a rotated page.
@@ -245,35 +251,6 @@ extension PdfCoreClient {
 
     func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int {
         throw EditFailure.failed("this client does not support importing PDFs")
-    }
-
-    func annotations(document: any PdfDocument) -> [Annotation] { [] }
-    func annotationEditingAllowed(document: any PdfDocument) -> Bool { false }
-
-    func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
-        throw EditFailure.failed("this client does not support annotations")
-    }
-
-    func freeTextLayout(contents: String, width: Double, height: Double) throws -> FreeTextLayout {
-        FreeTextLayout(fontSizePt: 12, lines: [], overflow: false)
-    }
-
-    /// Unturned placement, for clients without the core's math.
-    func placeRect(_ rect: PdfRect, on page: PagePlacement) -> PlacedRect {
-        PlacedRect(
-            left: rect.x * page.scale,
-            top: (page.height - rect.y - rect.height) * page.scale,
-            width: rect.width * page.scale,
-            height: rect.height * page.scale
-        )
-    }
-
-    func placePoint(_ point: PdfPoint, on page: PagePlacement) -> PlacedPoint {
-        PlacedPoint(left: point.x * page.scale, top: (page.height - point.y) * page.scale)
-    }
-
-    func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint {
-        PdfPoint(x: x / page.scale, y: page.height - y / page.scale)
     }
 
     func textExtractionAllowed(document: any PdfDocument) -> Bool { false }

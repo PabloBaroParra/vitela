@@ -23,6 +23,17 @@ extension UniFfiPdfCoreClient {
         try Self.mapEditErrors { FreeTextLayout(try freetextLayout(contents: contents, widthPt: width, heightPt: height)) }
     }
 
+    func insertImageStamp(document: any PdfDocument, page: Int, imageBytes: Data, rect: PdfRect) throws {
+        let handle = try handle(of: document)
+        try Self.mapEditErrors {
+            try Vitela.insertImageStamp(handle: handle, pageIndex: UInt32(page), imageBytes: imageBytes, rect: FfiRect(rect))
+        }
+    }
+
+    func stampPlacement(imageBytes: Data, anchor: PdfPoint) throws -> PdfRect {
+        try Self.mapEditErrors { PdfRect(try Vitela.stampPlacement(imageBytes: imageBytes, anchorX: anchor.x, anchorY: anchor.y)) }
+    }
+
     func placeRect(_ rect: PdfRect, on page: PagePlacement) -> PlacedRect {
         let placed = Vitela.placeRect(rect: FfiRect(rect), page: FfiPagePlacement(page))
         return PlacedRect(left: placed.left, top: placed.top, width: placed.width, height: placed.height)

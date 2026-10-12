@@ -18,6 +18,8 @@ struct SavePrompts {
     var chooseFolder: () -> URL? = { nil }
     /// Whether to replace `existing` of the `total` files about to be written.
     var confirmReplace: (_ existing: Int, _ total: Int) -> Bool = { _, _ in false }
+    /// A PNG or JPEG for a stamp; `nil` when cancelled.
+    var chooseImage: () -> URL? = { nil }
 
     static let modal = SavePrompts(
         chooseDestination: { suggestedName in
@@ -74,6 +76,13 @@ struct SavePrompts {
             alert.addButton(withTitle: "Cancel")
             alert.addButton(withTitle: "Replace")
             return alert.runModal() == .alertSecondButtonReturn
+        },
+        chooseImage: {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.png, .jpeg]
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Place"
+            return panel.runModal() == .OK ? panel.url : nil
         }
     )
 }

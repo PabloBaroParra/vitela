@@ -53,6 +53,16 @@ struct AnnotationOverlay: View {
         if annotation.kind == .freeText {
             return drawFreeText(annotation, at: rect, placement: placement, selected: selected, in: &context)
         }
+        if annotation.kind == .stamp, let image = StampPreviews.image(for: annotation.id, bytes: store.stampImages[annotation.id]) {
+            // Sized upright and turned with the page: a saved stamp's
+            // appearance turns with the page, so its preview does too.
+            let upright = uprightContext(rect, placement: placement, from: context)
+            upright.draw(Image(nsImage: image), in: CGRect(x: 0, y: 0, width: rect.width * placement.scale, height: rect.height * placement.scale))
+            if selected {
+                context.stroke(Path(frame(rect, placement: placement)), with: .color(Self.handleColor), lineWidth: 1)
+            }
+            return
+        }
         let box = frame(rect, placement: placement)
         switch annotation.kind {
         case .highlight:
@@ -80,12 +90,8 @@ struct AnnotationOverlay: View {
             context.stroke(Path(box), with: .color(Self.handleColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         }
         guard let layout = store.freeTextLayout(for: annotation, at: rect) else { return }
-        let anchor = store.client.placePoint(PdfPoint(x: rect.x, y: rect.y + rect.height), on: placement)
         let scale = placement.scale
-        var upright = context
-        upright.translateBy(x: anchor.left, y: anchor.top)
-        upright.rotate(by: .degrees(Self.degrees(placement.rotation)))
-        upright.clip(to: Path(CGRect(x: 0, y: 0, width: rect.width * scale, height: rect.height * scale)))
+        let upright = uprightContext(rect, placement: placement, from: context)
         // The core hands over baselines; text is placed by its top, so step
         // up by the face's ascent — what Windows' `FreeTextDraw.AscentEm` does.
         let size = layout.fontSizePt * scale
@@ -98,6 +104,17 @@ struct AnnotationOverlay: View {
                 anchor: .topLeading
             )
         }
+    }
+
+    /// A context whose origin is `rect`'s upright top-left on the drawn page,
+    /// turned with the page and clipped to the rect — Windows' `PlaceUpright`.
+    private func uprightContext(_ rect: PdfRect, placement: PagePlacement, from context: GraphicsContext) -> GraphicsContext {
+        let anchor = store.client.placePoint(PdfPoint(x: rect.x, y: rect.y + rect.height), on: placement)
+        var upright = context
+        upright.translateBy(x: anchor.left, y: anchor.top)
+        upright.rotate(by: .degrees(Self.degrees(placement.rotation)))
+        upright.clip(to: Path(CGRect(x: 0, y: 0, width: rect.width * placement.scale, height: rect.height * placement.scale)))
+        return upright
     }
 
     private static func degrees(_ rotation: PageRotation) -> Double {
@@ -159,5 +176,21 @@ struct AnnotationOverlay: View {
 
     private static func color(_ color: PdfColor) -> Color {
         Color(red: Double(color.r) / 255, green: Double(color.g) / 255, blue: Double(color.b) / 255)
+    }
+}
+
+/// Decoded stamp previews, so a redraw does not decode the image again.
+/// Keyed by the bytes as well as the id: annotation ids restart with each
+/// document, the bytes do not repeat by accident.
+private enum StampPreviews {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func image(for id: UInt64, bytes: Data?) -> NSImage? {
+        guard let bytes else { return nil }
+        let key = "\(id)-\(bytes.count)-\(bytes.hashValue)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let image = NSImage(data: bytes) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
     }
 }
