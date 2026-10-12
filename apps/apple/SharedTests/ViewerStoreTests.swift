@@ -211,3 +211,41 @@ final class ViewerStoreTests: XCTestCase {
 
 // `FakePdfCoreClient`/`FakeDocument` live in FakePdfCoreClient.swift — shared
 // with ViewerStoreSearchTests.swift and ViewerStoreSelectionTests.swift.
+
+extension ViewerStoreTests {
+    func testANewDocumentHasOneBlankA4PageAndNothingToSave() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+
+        store.openBlank()
+
+        XCTAssertEqual(store.state, .loaded)
+        XCTAssertEqual(store.pageSlots.map(\.dimensions), [PageDimensions(width: 595, height: 842)])
+        XCTAssertFalse(store.hasUnsavedChanges, "no pending edit before the reader did anything")
+        XCTAssertFalse(store.canUndo)
+        XCTAssertEqual(client.blankDocumentsCreated, 1)
+    }
+
+    func testANewDocumentReplacesTheOpenOne() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792), PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        let generation = store.generation
+
+        store.openBlank()
+
+        XCTAssertEqual(store.pageSlots.count, 1)
+        XCTAssertGreaterThan(store.generation, generation)
+    }
+}
+
+extension ViewerStoreTests {
+    func testANewDocumentHasNoFileSizeForCompressToShow() {
+        let store = ViewerStore(client: FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)]))
+        store.open(bytes: Data(repeating: 1, count: 10))
+
+        store.openBlank()
+
+        XCTAssertNil(store.sourceByteCount)
+    }
+}

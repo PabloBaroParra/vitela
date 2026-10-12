@@ -36,6 +36,10 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
         }
     }
 
+    func createBlankDocument() throws -> any PdfDocument {
+        try Self.document { try createDocumentWithBlankPage(pageSize: .a4, orientation: .portrait) }
+    }
+
     private static func document(_ open: () throws -> DocumentHandle) throws -> any PdfDocument {
         do {
             let handle = try open()

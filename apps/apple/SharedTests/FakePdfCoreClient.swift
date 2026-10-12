@@ -59,6 +59,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     var protectError: Error?
     var protectCalls: [(open: String, permissions: String, acknowledged: Bool)] = []
     var openedWithPasswords: [(user: String, owner: String)] = []
+    var blankDocumentsCreated = 0
 
     init(pages: [PageDimensions]) {
         self.pages = pages
@@ -201,6 +202,11 @@ extension FakePdfCoreClient {
     func open(bytes: Data, userPassword: String, ownerPassword: String) throws -> any PdfDocument {
         openedWithPasswords.append((userPassword, ownerPassword))
         return try open(bytes: bytes, password: ownerPassword)
+    }
+
+    func createBlankDocument() throws -> any PdfDocument {
+        blankDocumentsCreated += 1
+        return FakeCoreDocument(pages: [PageDimensions(width: 595, height: 842)])
     }
 
     func protectionWillInvalidateSignatures(document: any PdfDocument) throws -> Bool { protectInvalidatesSignatures }
