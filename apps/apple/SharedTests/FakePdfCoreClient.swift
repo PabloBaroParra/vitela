@@ -26,6 +26,7 @@ final class FakePdfCoreClient: PdfCoreClient {
         var info: DocumentInfo
         var pages: [PageDimensions]
         var annotations: [Annotation] = []
+        var fieldValues: [UInt64: FieldValue] = [:]
     }
 
     var initialInfo = DocumentInfo()
@@ -44,7 +45,12 @@ final class FakePdfCoreClient: PdfCoreClient {
     var annotationEdits: [AnnotationEdit] = []
     var stampInserts: [(page: Int, rect: PdfRect)] = []
     var savedComments: [Comment] = []
-    private var nextAnnotationId: UInt64 = 1
+    // Forms: the fields as the file has them; fills are recorded in history.
+    var fields: [FormField] = []
+    var fieldStructurePermitted = true
+    var fieldFillError: Error?
+    var fills: [(id: UInt64, value: FieldValue)] = []
+    var nextAnnotationId: UInt64 = 1
     var currentAnnotations: [Annotation] {
         historyCursor == 0 ? [] : history[historyCursor - 1].annotations
     }
@@ -158,7 +164,8 @@ final class FakePdfCoreClient: PdfCoreClient {
         record(Snapshot(
             info: (try? documentInfo(document: FakeCoreDocument(pages: pages))) ?? initialInfo,
             pages: pages,
-            annotations: currentAnnotations
+            annotations: currentAnnotations,
+            fieldValues: currentFieldValues
         ))
     }
 
@@ -169,7 +176,7 @@ final class FakePdfCoreClient: PdfCoreClient {
 
     func setDocumentInfo(document: any PdfDocument, info: DocumentInfo) throws {
         if let setInfoError { throw setInfoError }
-        record(Snapshot(info: info, pages: currentPages, annotations: currentAnnotations))
+        record(Snapshot(info: info, pages: currentPages, annotations: currentAnnotations, fieldValues: currentFieldValues))
     }
 
     func applyPageEdit(document: any PdfDocument, edit: PageEdit) throws {
@@ -191,7 +198,7 @@ final class FakePdfCoreClient: PdfCoreClient {
         case let .move(from, to):
             layout.insert(layout.remove(at: from), at: to)
         }
-        record(Snapshot(info: try documentInfo(document: document), pages: layout, annotations: currentAnnotations))
+        record(Snapshot(info: try documentInfo(document: document), pages: layout, annotations: currentAnnotations, fieldValues: currentFieldValues))
     }
 
     func refreshPreview(document: any PdfDocument) throws {
@@ -228,86 +235,6 @@ final class FakePdfCoreClient: PdfCoreClient {
         if let saveError { throw saveError }
         if invalidatesSignatures && !acknowledgingSignatureLoss { throw EditFailure.signaturesWouldBeInvalidated }
         return savedBytes
-    }
-}
-
-extension FakePdfCoreClient {
-    func annotations(document: any PdfDocument) -> [Annotation] { currentAnnotations }
-    func annotationEditingAllowed(document: any PdfDocument) -> Bool { annotationsPermitted }
-
-    /// The file's own comments, then this session's notes — as the core merges them.
-    func comments(document: any PdfDocument) -> [Comment] {
-        (savedComments + currentAnnotations.filter { $0.kind == .textNote }.map {
-            Comment(page: $0.page, rect: $0.rect ?? PdfRect(x: 0, y: 0, width: 0, height: 0),
-                    contents: $0.contents ?? "", author: nil, date: nil, annotationId: $0.id)
-        }).sorted { $0.page < $1.page }
-    }
-
-    func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
-        if let annotationEditError { throw annotationEditError }
-        annotationEdits.append(edit)
-        var list = currentAnnotations
-        switch edit {
-        case let .add(kind, page, rect, color):
-            list.append(Annotation(id: takeAnnotationId(), page: page, kind: kind, rect: rect, points: [], color: color, contents: nil))
-        case let .addInk(page, points, color):
-            list.append(Annotation(id: takeAnnotationId(), page: page, kind: .ink, rect: nil, points: points, color: color, contents: nil))
-        case let .addNote(page, rect, contents):
-            list.append(Annotation(id: takeAnnotationId(), page: page, kind: .textNote, rect: rect, points: [], color: nil, contents: contents))
-        case let .remove(id):
-            list.removeAll { $0.id == id }
-        case let .move(id, dx, dy):
-            list = list.map { a in
-                guard a.id == id else { return a }
-                return Annotation(
-                    id: a.id, page: a.page, kind: a.kind,
-                    rect: a.rect.map { PdfRect(x: $0.x + dx, y: $0.y + dy, width: $0.width, height: $0.height) },
-                    points: a.points.map { PdfPoint(x: $0.x + dx, y: $0.y + dy) }, color: a.color, contents: a.contents
-                )
-            }
-        case let .resize(id, rect):
-            list = list.map { a in
-                a.id == id ? Annotation(id: a.id, page: a.page, kind: a.kind, rect: rect, points: a.points, color: a.color, contents: a.contents) : a
-            }
-        case let .restyle(id, color):
-            list = list.map { a in
-                a.id == id ? Annotation(id: a.id, page: a.page, kind: a.kind, rect: a.rect, points: a.points, color: color, contents: a.contents) : a
-            }
-        case let .addFreeText(page, rect, contents):
-            list.append(Annotation(
-                id: takeAnnotationId(), page: page, kind: .freeText, rect: rect, points: [], color: nil, contents: contents,
-                freeTextLayout: FreeTextLayout(fontSizePt: 12, lines: [.init(text: contents, xPt: 2, baselineFromTopPt: 12)], overflow: false)
-            ))
-        case let .setContents(id, contents):
-            list = list.map { a in
-                a.id == id ? Annotation(id: a.id, page: a.page, kind: a.kind, rect: a.rect, points: a.points, color: a.color, contents: contents, freeTextLayout: a.freeTextLayout) : a
-            }
-        }
-        recordAnnotations(list)
-    }
-
-    func insertImageStamp(document: any PdfDocument, page: Int, imageBytes: Data, rect: PdfRect) throws {
-        if let annotationEditError { throw annotationEditError }
-        stampInserts.append((page, rect))
-        recordAnnotations(currentAnnotations + [
-            Annotation(id: takeAnnotationId(), page: page, kind: .stamp, rect: rect, points: [], color: nil, contents: nil),
-        ])
-    }
-
-    /// A 2:1 image, 100 points wide, hanging from the anchor.
-    func stampPlacement(imageBytes: Data, anchor: PdfPoint) throws -> PdfRect {
-        PdfRect(x: anchor.x, y: anchor.y - 50, width: 100, height: 50)
-    }
-
-    func recordAnnotations(_ list: [Annotation]) {
-        history = Array(history.prefix(historyCursor))
-            + [Snapshot(info: (try? documentInfo(document: FakeCoreDocument(pages: pages))) ?? initialInfo, pages: currentPages, annotations: list)]
-        historyCursor = history.count
-    }
-
-    func takeAnnotationId() -> UInt64 {
-        defer { nextAnnotationId += 1 }
-        return nextAnnotationId
     }
 }
 

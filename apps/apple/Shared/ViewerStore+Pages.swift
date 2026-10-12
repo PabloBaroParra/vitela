@@ -16,6 +16,9 @@ extension ViewerStore {
         /// Every page of each prepared source, appended as one undo step —
         /// `ViewerStore+Import.swift`.
         case importSources([any ImportSource])
+        /// A form field's new value — `ViewerStore+Forms.swift`. The value is
+        /// painted by the PDF itself, so it needs the same refresh.
+        case fillField(id: UInt64, value: FieldValue)
         /// Nothing: re-derive the layout after an undo or redo.
         case refresh
     }
@@ -69,6 +72,9 @@ extension ViewerStore {
             case let .importSources(sources):
                 let added = try client.importPrepared(document: request.document, sources: sources)
                 done = "Imported \(added) \(added == 1 ? "page" : "pages") from \(sources.count) \(sources.count == 1 ? "PDF" : "PDFs")."
+            case let .fillField(id, value):
+                try client.setFieldValue(document: request.document, fieldId: id, value: value)
+                done = "Field filled in."
             case .refresh:
                 done = nil
             }
@@ -98,6 +104,8 @@ extension ViewerStore {
             // navigation request named a position in the old layout.
             requestedPage = nil
             currentPage = min(currentPage, max(pages.count - 1, 0))
+            // Fields travel with their pages, and a fill changes a value.
+            refreshFormFields()
             if let done = outcome.done {
                 recordEdit(status: "\(done) Changes are pending save.")
             }
