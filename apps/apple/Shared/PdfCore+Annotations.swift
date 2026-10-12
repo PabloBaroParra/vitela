@@ -145,6 +145,7 @@ struct PlacedPoint: Equatable {
 extension PdfCoreClient {
     func annotations(document: any PdfDocument) -> [Annotation] { [] }
     func annotationEditingAllowed(document: any PdfDocument) -> Bool { false }
+    func comments(document: any PdfDocument) -> [Comment] { [] }
 
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
         throw EditFailure.failed("this client does not support annotations")
@@ -178,5 +179,23 @@ extension PdfCoreClient {
 
     func pointToPdf(x: Double, y: Double, on page: PagePlacement) -> PdfPoint {
         PdfPoint(x: x / page.scale, y: page.height - y / page.scale)
+    }
+}
+
+/// A comment the file carries, or a note this session added — mirrors
+/// `FfiComment`. Reading comments never adds the file's annotations to the
+/// editable set, and works without edit permission.
+struct Comment: Equatable {
+    let page: Int
+    let rect: PdfRect
+    let contents: String
+    let author: String?
+    let date: String?
+    /// Only a pending note has a session annotation id to select.
+    let annotationId: UInt64?
+
+    /// "Author · Date", leaving out what the file does not say.
+    var byline: String {
+        [author, date].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }

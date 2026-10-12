@@ -148,4 +148,21 @@ final class UniFfiAnnotationIntegrationTests: XCTestCase {
         CGImageDestinationAddImage(destination, image, nil)
         return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
+
+    func testASavedNoteComesBackAsAFileComment() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let before = store.comments.count
+        store.applyAnnotationEdit(.addNote(page: 0, rect: PdfRect(x: 100, y: 600, width: 24, height: 24), contents: "Kept"))
+        XCTAssertEqual(store.comments.count, before + 1)
+        XCTAssertNotNil(store.comments.first { $0.contents == "Kept" }?.annotationId, "a pending note is selectable")
+
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+        reopened.open(bytes: try store.saveResult(for: save).get())
+
+        let saved = try XCTUnwrap(reopened.comments.first { $0.contents == "Kept" })
+        XCTAssertNil(saved.annotationId, "a saved comment is read, not edited")
+        XCTAssertEqual(saved.page, 0)
+    } }
 }
