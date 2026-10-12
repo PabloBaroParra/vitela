@@ -7,8 +7,6 @@ struct ViewerRootView: View {
     @FocusState private var searchFieldFocused: Bool
     @State private var showsProperties = false
 
-    private static let zoomStep = 0.1
-
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -95,17 +93,33 @@ struct ViewerRootView: View {
             Toggle("Properties", isOn: $showsProperties)
                 .toggleStyle(.button)
             Spacer()
-            Button("−") { model.store.setZoom(model.store.zoom - Self.zoomStep) }
+            Button("−") { model.store.stepZoom(-1) }
                 .accessibilityLabel("Zoom out")
-            Text("\(Int((model.store.zoom * 100).rounded()))%")
-                // Not `.monospacedDigit()`: that is macOS 12+, and the
-                // deployment floor is 11.0. A monospaced face keeps the
-                // readout from jittering as the digit count changes.
+                .help("Zoom out (⌘−)")
+            Text("\(Int((model.store.displayedZoom * 100).rounded()))%")
+                // A monospaced face keeps the readout from jittering as the
+                // digit count changes.
                 .font(.system(.body, design: .monospaced))
-            Button("+") { model.store.setZoom(model.store.zoom + Self.zoomStep) }
+            Button("+") { model.store.stepZoom(1) }
                 .accessibilityLabel("Zoom in")
+                .help("Zoom in (⌘=)")
+            Toggle("Fit width", isOn: zoomModeBinding(.fitWidth))
+                .toggleStyle(.button)
+                .help("Fit each page to the window width")
+            Toggle("Fit page", isOn: zoomModeBinding(.fitPage))
+                .toggleStyle(.button)
+                .help("Fit each whole page in the window (⌘9)")
         }
         .padding()
+    }
+
+    /// On while `mode` is active; switching it off freezes the factor the
+    /// pages are shown at, as an explicit zoom.
+    private func zoomModeBinding(_ mode: ZoomMode) -> Binding<Bool> {
+        Binding(
+            get: { model.store.zoomMode == mode },
+            set: { model.store.setZoomMode($0 ? mode : .custom) }
+        )
     }
 
     private var searchBar: some View {
@@ -158,30 +172,30 @@ struct ViewerRootView: View {
                 LazyVStack(spacing: 16) {
                     ForEach(model.store.pageSlots, id: \.index) { slot in
                         ZStack(alignment: .topLeading) {
-                            PageView(slot: slot, zoom: model.store.zoom) { model.retry(page: slot.index) }
+                            PageView(slot: slot, zoom: pageZoom(slot)) { model.retry(page: slot.index) }
                                 // `render` is a no-op when the slot is already
                                 // current, so re-appearing during scroll costs
                                 // nothing. A zoom change makes every visible
                                 // slot stale, which is what re-renders them at
                                 // the new DPI instead of upscaling.
                                 .onAppear { model.render(page: slot.index) }
-                                .onChange(of: model.store.zoom) { _ in model.render(page: slot.index) }
+                                .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index) }
                             SelectionOverlay(
                                 dimensions: slot.dimensions,
-                                zoom: model.store.zoom,
+                                zoom: pageZoom(slot),
                                 selectionRects: model.store.selectionRects(forPage: slot.index),
                                 matchRects: model.store.searchMatchRects(forPage: slot.index),
                                 currentMatchRects: model.store.currentSearchMatchRects(forPage: slot.index),
                                 onDragBegan: { location in
                                     model.beginSelection(
                                         page: slot.index, location: location,
-                                        dimensions: slot.dimensions, zoom: model.store.zoom
+                                        dimensions: slot.dimensions, zoom: pageZoom(slot)
                                     )
                                 },
                                 onDragChanged: { location in
                                     model.extendSelection(
                                         page: slot.index, location: location,
-                                        dimensions: slot.dimensions, zoom: model.store.zoom
+                                        dimensions: slot.dimensions, zoom: pageZoom(slot)
                                     )
                                 }
                             )
@@ -197,10 +211,15 @@ struct ViewerRootView: View {
                         .background(pageSpanReader(slot.index))
                     }
                 }
-                .padding()
+                .padding(ViewerViewModel.pageListPadding)
             }
             .coordinateSpace(name: Self.pageScrollSpace)
             .onPreferenceChange(PageSpansKey.self) { model.store.updateCurrentPage(spans: $0) }
+            .background(GeometryReader { geometry in
+                Color.clear
+                    .onAppear { model.updateViewport(geometry.size) }
+                    .onChange(of: geometry.size) { model.updateViewport($0) }
+            })
             .onChange(of: model.store.currentSearchMatchPage) { page in
                 guard let page else { return }
                 withAnimation { proxy.scrollTo(pageId(page: page), anchor: .top) }
@@ -233,9 +252,13 @@ struct ViewerRootView: View {
 
     private func pageId(page: Int) -> String { "\(model.store.generation)-\(page)" }
 
-    private func pageWidth(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.width * model.store.zoom) }
+    /// The factor this page is shown at — per page, because a fit mode
+    /// resolves each page against the viewport on its own.
+    private func pageZoom(_ slot: PageSlot) -> Double { model.store.zoom(forPage: slot.index) }
 
-    private func pageHeight(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.height * model.store.zoom) }
+    private func pageWidth(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.width * pageZoom(slot)) }
+
+    private func pageHeight(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.height * pageZoom(slot)) }
 }
 
 /// Collects every laid-out page row's `PageViewportSpan` in one dictionary.

@@ -17,6 +17,8 @@ final class ViewerViewModel: ObservableObject {
     let prompts: SavePrompts
     private let sampleLoader: () throws -> Data
     private var subscriptions = Set<AnyCancellable>()
+    /// The pending viewport size report — see `ViewerViewModel+Zoom.swift`.
+    var pendingViewport: DispatchWorkItem?
 
     init(
         store: ViewerStore = ViewerStore(client: UniFfiPdfCoreClient()),
@@ -28,6 +30,8 @@ final class ViewerViewModel: ObservableObject {
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
         operationQueue.maxConcurrentOperationCount = 1
+        // Linux and Windows open every document fitted to the window width.
+        store.setZoomMode(.fitWidth)
         // No `receive(on:)` hop: the store already publishes on main, and
         // `@Published` fires on `willSet` — so a hop would be the only reason
         // the sink ever saw the *new* state. Use the emitted value instead of
