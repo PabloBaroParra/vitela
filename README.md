@@ -145,7 +145,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Text search & navigate | ✅ | ✅ | — | 🚧 | — |
 | Print | ✅ | ✅ | 🚧 | 🚧 | — |
 | Share to another device | — | ✅ | — | — | — |
-| Annotate | ✅ | ✅ | — | 🚧 | — |
+| Annotate | ✅ | ✅ | 🚧 | 🚧 | — |
 | Edit page content | 🚧 | 🚧 | — | 🚧 | — |
 | Edit metadata | ✅ | ✅ | 🚧 | 🚧 | — |
 | Organize & assemble pages | ✅ | ✅ | 🚧 | 🚧 | — |

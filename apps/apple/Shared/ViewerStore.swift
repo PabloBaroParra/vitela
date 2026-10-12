@@ -110,6 +110,11 @@ final class ViewerStore: ObservableObject {
     /// Organize-grid pictures by page position — `ViewerStore+Thumbnails.swift`.
     @Published var thumbnails: [Int: RenderedPage] = [:]
     var thumbnailsRequested: Set<Int> = []
+    // Annotation state, owned by `ViewerStore+Annotations.swift`.
+    @Published var annotations: [Annotation] = []
+    @Published var annotationEditingAllowed = false
+    @Published var armedTool: AnnotationTool?
+    @Published var annotationDraft: AnnotationDraft?
 
     /// Not `private`: `ViewerStore+Search.swift` and `ViewerStore+Selection.swift`
     /// read it to issue their own background-safe requests, the same way this

@@ -45,9 +45,7 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
     static func document(_ open: () throws -> DocumentHandle) throws -> any PdfDocument {
         do {
             let handle = try open()
-            let pages = handle.pageDimensions().map {
-                PageDimensions(width: $0.widthPt, height: $0.heightPt)
-            }
+            let pages = handle.pageDimensions().map(PageDimensions.init)
             return UniFfiDocument(handle: handle, pages: pages)
         } catch FfiError.PasswordRequired {
             throw ViewerFailure.passwordRequired
