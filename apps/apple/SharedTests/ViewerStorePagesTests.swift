@@ -201,3 +201,37 @@ extension ViewerStorePagesTests {
         XCTAssertEqual(store.pagePositionText, "Page 3 of 3")
     }
 }
+
+extension ViewerStorePagesTests {
+    func testDeletingAPageRemovesItsSlotAndIsOneUndoStep() throws {
+        let letter = PageDimensions(width: 612, height: 792)
+        let a5 = PageDimensions(width: 420, height: 595)
+        let client = FakePdfCoreClient(pages: [letter, a5, letter])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+
+        let request = try XCTUnwrap(store.beginPageEdit(.remove(page: 1)))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertEqual(store.pageSlots.map(\.dimensions), [letter, letter])
+        XCTAssertEqual(store.pageSlots.map(\.index), [0, 1], "positions after the deleted page move up")
+        XCTAssertEqual(store.editStatus, "Page deleted. Changes are pending save.")
+
+        store.undo()
+        let refresh = try XCTUnwrap(store.beginPageRefresh())
+        store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh)
+        XCTAssertEqual(store.pageSlots.map(\.dimensions), [letter, a5, letter])
+    }
+
+    func testTheLastRemainingPageCannotBeDeleted() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792), PageDimensions(width: 612, height: 792)])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        let request = try XCTUnwrap(store.beginPageEdit(.remove(page: 0)))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertNil(store.beginPageEdit(.remove(page: 0)))
+        XCTAssertEqual(store.editStatus, "A document needs at least one page.")
+        XCTAssertEqual(client.pageEdits, [.remove(page: 0)])
+    }
+}

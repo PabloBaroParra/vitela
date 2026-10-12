@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The Organize grid: every page as a card, standing in for the reader —
 /// the macOS twin of Windows' `MainWindow.Organize.cs` and the Linux
-/// `organize/grid`. Each action on a card is one undoable page edit.
+/// `organize/grid`. Each action on a card — turn, delete — is one undoable
+/// page edit.
 struct OrganizeView: View {
     @ObservedObject var model: ViewerViewModel
     @Environment(\.displayScale) private var displayScale
@@ -20,6 +21,7 @@ struct OrganizeView: View {
                             number: slot.index + 1,
                             thumbnail: model.store.thumbnails[slot.index],
                             enabled: model.store.canEditPages,
+                            canDelete: model.store.pageSlots.count > 1,
                             onEdit: { model.editPages($0(slot.index)) }
                         )
                         .onAppear { model.renderThumbnail(page: slot.index, scale: Double(displayScale)) }

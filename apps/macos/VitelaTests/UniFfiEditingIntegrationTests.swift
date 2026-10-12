@@ -199,4 +199,20 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh)
         XCTAssertEqual(store.pageSlots.first?.dimensions, before)
     } }
+
+    func testADeletedPageIsGoneFromThePreviewAndTheSavedFile() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let count = store.pageSlots.count
+        try XCTSkipIf(count < 2, "the sample needs two pages to delete one")
+
+        let request = try XCTUnwrap(store.beginPageEdit(.remove(page: 0)))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+        XCTAssertEqual(store.pageSlots.count, count - 1)
+
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+        reopened.open(bytes: try store.saveResult(for: save).get())
+        XCTAssertEqual(reopened.pageSlots.count, count - 1)
+    } }
 }
