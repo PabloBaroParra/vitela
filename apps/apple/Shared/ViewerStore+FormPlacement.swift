@@ -23,7 +23,9 @@ extension ViewerStore {
         armedField = kind
         fieldDraft = nil
         if kind != nil {
-            // One mode owns a page click at a time.
+            // Placing is part of Edit fields mode, and one mode owns a page
+            // click at a time.
+            formEditMode = true
             armedTool = nil
             selectedAnnotationId = nil
         }

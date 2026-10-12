@@ -88,6 +88,8 @@ extension ViewerStore {
         if tool != nil {
             selectedAnnotationId = nil
             armedField = nil
+            formEditMode = false
+            selectedFieldId = nil
         }
         switch tool {
         case nil: editStatus = "Pointer mode."

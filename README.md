@@ -157,7 +157,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Compress to a smaller PDF | ✅ | ✅ | 🚧 | 🚧 | — |
 | Sign | ✅ | ✅ | 🚧 | 🚧 | — |
 | Draw a signature | ✅ | ✅ | — | 🚧 | — |
-| Fillable forms | ✅ | 🚧 | — | 🚧 | — |
+| Fillable forms | ✅ | 🚧 | 🚧 | 🚧 | — |
 
 Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
 Actions provides development-only evidence: for macOS it builds the shell, runs

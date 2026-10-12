@@ -52,4 +52,39 @@ final class UniFfiFormIntegrationTests: XCTestCase {
         store.undo()
         XCTAssertEqual(Set(store.formFields.map(\.id)), before, "placing the field is its own undo step")
     } }
+
+    func testRenamingRestylingMovingAndDeletingAPlacedField() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let before = Set(store.formFields.map(\.id))
+        store.armField(.text)
+        XCTAssertTrue(store.beginFieldDraft(page: 0, at: PdfPoint(x: 72, y: 700)))
+        let place = try XCTUnwrap(store.endFieldDraft(page: 0, at: PdfPoint(x: 72, y: 700)))
+        store.applyPageWork(store.pageWorkResult(for: place), for: place)
+        let field = try XCTUnwrap(store.formFields.first { !before.contains($0.id) })
+        store.selectedFieldId = field.id
+
+        func run(_ request: ViewerStore.PageWorkRequest?) throws {
+            let request = try XCTUnwrap(request)
+            store.applyPageWork(store.pageWorkResult(for: request), for: request)
+        }
+        try run(store.beginFieldRename("Surname"))
+        var style = field.style
+        style.font = .timesRoman
+        style.sizePt = 14
+        try run(store.beginFieldRestyle(style))
+        try run(store.beginFieldGeometryEdit(x: 100, y: 600, width: field.rect.width, height: field.rect.height))
+
+        let changed = try XCTUnwrap(store.formFields.first { $0.id == field.id })
+        XCTAssertEqual(changed.name, "Surname")
+        XCTAssertEqual(changed.style.font, .timesRoman)
+        XCTAssertEqual(changed.style.sizePt, 14)
+        XCTAssertEqual(changed.rect.x, 100)
+        XCTAssertEqual(changed.rect.y, 600)
+
+        try run(store.beginFieldDelete())
+        XCTAssertFalse(store.formFields.contains { $0.id == field.id })
+        store.undo()
+        XCTAssertTrue(store.formFields.contains { $0.name == "Surname" }, "undo brings the field back")
+    } }
 }

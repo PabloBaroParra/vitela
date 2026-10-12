@@ -27,6 +27,12 @@ struct AnnotationOverlay: View {
             } else if let selected = store.selectedAnnotation, selected.page == page, let bounds = selected.bounds {
                 drawHandles(bounds, placement: placement, in: &context)
             }
+            if store.formEditMode, let field = store.selectedField, field.page == page {
+                // The selected field's edge and handles; the PDF draws the field.
+                let rect = store.fieldGesture.map(\.previewRect) ?? field.rect
+                context.stroke(Path(frame(rect, placement: placement)), with: .color(Self.handleColor), lineWidth: 2)
+                drawHandles(rect, placement: placement, in: &context)
+            }
             if let draft = store.fieldDraft, draft.page == page {
                 let rect = ViewerStore.fieldPlacementRect(
                     origin: draft.origin, end: draft.current, page: placementDimensions(placement), clickSize: draft.kind.clickSize

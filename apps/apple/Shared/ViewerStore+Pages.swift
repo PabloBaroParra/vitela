@@ -21,6 +21,8 @@ extension ViewerStore {
         case fillField(id: UInt64, value: FieldValue)
         /// A new form field — `ViewerStore+FormPlacement.swift`.
         case addField(kind: FieldToPlace, page: Int, rect: PdfRect)
+        /// A change to a field's structure — `ViewerStore+FormEditing.swift`.
+        case editField(FieldEdit)
         /// Nothing: re-derive the layout after an undo or redo.
         case refresh
     }
@@ -80,6 +82,9 @@ extension ViewerStore {
             case let .addField(kind, page, rect):
                 try client.addField(document: request.document, kind: kind, page: page, rect: rect)
                 done = "\(kind.name) placed."
+            case let .editField(edit):
+                try client.applyFieldEdit(document: request.document, edit: edit)
+                done = edit.done
             case .refresh:
                 done = nil
             }

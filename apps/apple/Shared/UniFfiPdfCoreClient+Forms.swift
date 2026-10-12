@@ -43,6 +43,57 @@ extension UniFfiPdfCoreClient {
     }
 }
 
+extension UniFfiPdfCoreClient {
+    func applyFieldEdit(document: any PdfDocument, edit: FieldEdit) throws {
+        let handle = try handle(of: document)
+        let command: FfiEditCommand
+        switch edit {
+        case let .move(id, rect): command = .moveFormField(fieldId: id, to: FfiRect(rect))
+        case let .resize(id, rect): command = .resizeFormField(fieldId: id, to: FfiRect(rect))
+        case let .remove(id): command = .removeFormField(fieldId: id)
+        case let .rename(id, name): command = .renameFormField(fieldId: id, name: name)
+        case let .restyle(id, style): command = .restyleFormField(fieldId: id, style: FfiTextStyle(style))
+        }
+        do {
+            try applyEdit(handle: handle, command: command)
+        } catch FfiError.UnsupportedOperation {
+            throw EditFailure.notPermitted("This document does not permit changing its form fields.")
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
+    }
+}
+
+private extension FfiRect {
+    init(_ rect: PdfRect) {
+        self.init(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+    }
+}
+
+private extension FfiTextStyle {
+    init(_ style: FormTextStyle) {
+        let font: FfiFontFamily
+        switch style.font {
+        case .helvetica: font = .helvetica
+        case .timesRoman: font = .timesRoman
+        case .courier: font = .courier
+        }
+        self.init(font: font, sizePt: style.sizePt, color: FfiColor(r: style.color.r, g: style.color.g, b: style.color.b))
+    }
+}
+
+private extension FormTextStyle {
+    init(_ style: FfiTextStyle) {
+        let font: FormFont
+        switch style.font {
+        case .helvetica: font = .helvetica
+        case .timesRoman: font = .timesRoman
+        case .courier: font = .courier
+        }
+        self.init(font: font, sizePt: style.sizePt, color: PdfColor(r: style.color.r, g: style.color.g, b: style.color.b))
+    }
+}
+
 private extension FormField {
     init(_ field: FfiFormField) {
         let kind: FormFieldKind
@@ -55,7 +106,7 @@ private extension FormField {
         self.init(
             id: field.id, page: Int(field.page), name: field.name,
             rect: PdfRect(x: field.rect.x, y: field.rect.y, width: field.rect.width, height: field.rect.height),
-            kind: kind, value: FieldValue(field.value)
+            kind: kind, value: FieldValue(field.value), style: FormTextStyle(field.style)
         )
     }
 }

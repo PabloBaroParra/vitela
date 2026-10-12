@@ -21,6 +21,29 @@ enum FormFieldKind: Equatable {
     case dropdown(options: [String], editable: Bool)
 }
 
+/// The standard fonts a field's text can use — mirrors `FfiFontFamily`.
+enum FormFont: CaseIterable, Equatable {
+    case helvetica, timesRoman, courier
+
+    var name: String {
+        switch self {
+        case .helvetica: return "Helvetica"
+        case .timesRoman: return "Times"
+        case .courier: return "Courier"
+        }
+    }
+}
+
+/// How a field's text is drawn — mirrors `FfiTextStyle`.
+struct FormTextStyle: Equatable {
+    var font: FormFont
+    var sizePt: Double
+    var color: PdfColor
+
+    /// What every shell gives a new field.
+    static let `default` = FormTextStyle(font: .helvetica, sizePt: 12, color: PdfColor(r: 0, g: 0, b: 0))
+}
+
 /// One AcroForm field, as the core lists it.
 struct FormField: Equatable {
     let id: UInt64
@@ -29,6 +52,27 @@ struct FormField: Equatable {
     let rect: PdfRect
     let kind: FormFieldKind
     let value: FieldValue
+    var style: FormTextStyle = .default
+}
+
+/// One change to a field's structure — the form subset of `FfiEditCommand`.
+enum FieldEdit: Equatable {
+    case move(id: UInt64, to: PdfRect)
+    case resize(id: UInt64, to: PdfRect)
+    case remove(id: UInt64)
+    case rename(id: UInt64, name: String)
+    case restyle(id: UInt64, style: FormTextStyle)
+
+    /// What the status line says once it is recorded — Windows' wording.
+    var done: String {
+        switch self {
+        case .move: return "Field moved."
+        case .resize: return "Field resized."
+        case .remove: return "Field deleted."
+        case .rename: return "Field renamed."
+        case .restyle: return "Field style changed."
+        }
+    }
 }
 
 /// The kinds of field the Form panel can place — Windows' `FieldToPlace`.
@@ -81,6 +125,10 @@ extension PdfCoreClient {
     }
 
     func addField(document: any PdfDocument, kind: FieldToPlace, page: Int, rect: PdfRect) throws {
+        throw EditFailure.failed("this client does not support forms")
+    }
+
+    func applyFieldEdit(document: any PdfDocument, edit: FieldEdit) throws {
         throw EditFailure.failed("this client does not support forms")
     }
 }

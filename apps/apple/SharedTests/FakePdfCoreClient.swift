@@ -51,6 +51,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     var fieldFillError: Error?
     var fills: [(id: UInt64, value: FieldValue)] = []
     var addedFields: [FieldToPlace] = []
+    var fieldEdits: [FieldEdit] = []
     var nextAnnotationId: UInt64 = 1
     var currentAnnotations: [Annotation] {
         historyCursor == 0 ? [] : history[historyCursor - 1].annotations

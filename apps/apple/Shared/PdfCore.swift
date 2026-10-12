@@ -202,6 +202,7 @@ protocol PdfCoreClient {
     /// Places a new field with the shells' default style (Helvetica 12,
     /// black); a dropdown starts with "Option 1" and "Option 2".
     func addField(document: any PdfDocument, kind: FieldToPlace, page: Int, rect: PdfRect) throws
+    func applyFieldEdit(document: any PdfDocument, edit: FieldEdit) throws
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws
     /// Lays `contents` out in a box, as a stored text box would be — throws
     /// `EditFailure` naming a character the box's font cannot show.
