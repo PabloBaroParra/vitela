@@ -234,4 +234,21 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         reopened.open(bytes: try store.saveResult(for: save).get())
         XCTAssertEqual(reopened.pageSlots.count, count + 1)
     } }
+
+    func testAMovedPageKeepsItsSizeAtItsNewPosition() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        // A blank landscape page first gives the move something to tell apart.
+        let insert = try XCTUnwrap(store.beginPageEdit(.insertBlank(at: 0, orientation: .landscape)))
+        store.applyPageWork(store.pageWorkResult(for: insert), for: insert)
+        let last = store.pageSlots.count - 1
+        let blank = store.pageSlots[0].dimensions
+
+        let move = try XCTUnwrap(store.beginPageEdit(.move(from: 0, to: last)))
+        store.applyPageWork(store.pageWorkResult(for: move), for: move)
+
+        XCTAssertEqual(store.editStatus, "Page moved. Changes are pending save.")
+        XCTAssertEqual(store.pageSlots[last].dimensions, blank)
+        XCTAssertNotEqual(store.pageSlots[0].dimensions, blank)
+    } }
 }

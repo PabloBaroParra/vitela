@@ -29,6 +29,8 @@ final class ViewerViewModel: ObservableObject {
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
+    /// The Organize card being dragged, if any.
+    var organizePageDrag: OrganizePageDrag?
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.

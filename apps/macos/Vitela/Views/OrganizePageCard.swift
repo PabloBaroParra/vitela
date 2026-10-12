@@ -9,6 +9,7 @@ struct OrganizePageCard: View {
     let enabled: Bool
     /// False for a document's only page: a PDF needs at least one.
     let canDelete: Bool
+    let isLast: Bool
     let onEdit: ((Int) -> PageEdit) -> Void
 
     var body: some View {
@@ -39,6 +40,11 @@ struct OrganizePageCard: View {
             .buttonStyle(.borderless)
             .disabled(!enabled)
             Menu("Page actions") {
+                Button("Move page earlier") { onEdit { .move(from: $0, to: $0 - 1) } }
+                    .disabled(number == 1)
+                Button("Move page later") { onEdit { .move(from: $0, to: $0 + 1) } }
+                    .disabled(isLast)
+                Divider()
                 Button("Insert portrait A4 before") { onEdit { .insertBlank(at: $0, orientation: .portrait) } }
                 Button("Insert landscape A4 before") { onEdit { .insertBlank(at: $0, orientation: .landscape) } }
             }
