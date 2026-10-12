@@ -8,6 +8,8 @@ final class ViewerViewModel: ObservableObject {
     /// The open document's file name, used to suggest a name when saving.
     @Published private(set) var documentName: String?
     @Published var isSaving = false
+    /// Whether the Go to page sheet is up — see `ViewerViewModel+Navigation.swift`.
+    @Published var isGoToPagePresented = false
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.

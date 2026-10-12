@@ -52,6 +52,9 @@ struct ViewerRootView: View {
                 Text(ViewerFailure.wrongPassword.message)
             }
         }
+        .sheet(isPresented: $model.isGoToPagePresented) {
+            GoToPageSheet(model: model)
+        }
     }
 
     /// True while the store is waiting on a password — covers both the first
@@ -121,6 +124,7 @@ struct ViewerRootView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            PageNavigationBar(model: model)
         }
         .padding(.horizontal)
         .padding(.bottom, 8)
@@ -190,14 +194,38 @@ struct ViewerRootView: View {
                         // `onAppear` would never refire, and every page would
                         // stay stuck on its "Rendering…" placeholder forever.
                         .id(pageId(slot))
+                        .background(pageSpanReader(slot.index))
                     }
                 }
                 .padding()
             }
+            .coordinateSpace(name: Self.pageScrollSpace)
+            .onPreferenceChange(PageSpansKey.self) { model.store.updateCurrentPage(spans: $0) }
             .onChange(of: model.store.currentSearchMatchPage) { page in
                 guard let page else { return }
                 withAnimation { proxy.scrollTo(pageId(page: page), anchor: .top) }
             }
+            .onChange(of: model.store.pageNavigation) { request in
+                guard let request else { return }
+                proxy.scrollTo(pageId(page: request.page), anchor: .top)
+                // The layout passes `scrollTo` triggers run before the next
+                // main-queue turn; after it, a moving page is the reader.
+                DispatchQueue.main.async { model.store.pageNavigationLanded(request) }
+            }
+        }
+    }
+
+    private static let pageScrollSpace = "page-scroll"
+
+    /// Reports where a page row sits relative to the scroll view's visible
+    /// area, so the store can tell which page is current.
+    private func pageSpanReader(_ page: Int) -> some View {
+        GeometryReader { geometry in
+            let frame = geometry.frame(in: .named(Self.pageScrollSpace))
+            Color.clear.preference(
+                key: PageSpansKey.self,
+                value: [page: PageViewportSpan(top: Double(frame.minY), bottom: Double(frame.maxY))]
+            )
         }
     }
 
@@ -208,4 +236,13 @@ struct ViewerRootView: View {
     private func pageWidth(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.width * model.store.zoom) }
 
     private func pageHeight(_ slot: PageSlot) -> CGFloat { CGFloat(slot.dimensions.height * model.store.zoom) }
+}
+
+/// Collects every laid-out page row's `PageViewportSpan` in one dictionary.
+private struct PageSpansKey: PreferenceKey {
+    static var defaultValue: [Int: PageViewportSpan] = [:]
+
+    static func reduce(value: inout [Int: PageViewportSpan], nextValue: () -> [Int: PageViewportSpan]) {
+        value.merge(nextValue()) { _, new in new }
+    }
 }
