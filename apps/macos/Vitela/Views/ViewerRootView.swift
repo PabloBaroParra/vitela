@@ -69,6 +69,9 @@ struct ViewerRootView: View {
         .sheet(isPresented: $model.isExportImagesPresented) {
             ExportImagesSheet(model: model)
         }
+        .sheet(isPresented: $model.isCompressPresented) {
+            CompressSheet(model: model)
+        }
     }
 
     /// True while the store is waiting on a password — covers both the first
