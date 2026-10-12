@@ -215,4 +215,23 @@ final class UniFfiEditingIntegrationTests: XCTestCase {
         reopened.open(bytes: try store.saveResult(for: save).get())
         XCTAssertEqual(reopened.pageSlots.count, count - 1)
     } }
+
+    func testAnInsertedBlankPageIsA4InThePreviewAndTheSavedFile() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        let count = store.pageSlots.count
+
+        let request = try XCTUnwrap(store.beginPageEdit(.insertBlank(at: 0, orientation: .landscape)))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertEqual(store.pageSlots.count, count + 1)
+        let blank = try XCTUnwrap(store.pageSlots.first?.dimensions)
+        XCTAssertEqual(blank.width, 842, accuracy: 1)
+        XCTAssertEqual(blank.height, 595, accuracy: 1)
+
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        let reopened = ViewerStore(client: UniFfiPdfCoreClient())
+        reopened.open(bytes: try store.saveResult(for: save).get())
+        XCTAssertEqual(reopened.pageSlots.count, count + 1)
+    } }
 }

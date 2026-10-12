@@ -235,3 +235,22 @@ extension ViewerStorePagesTests {
         XCTAssertEqual(client.pageEdits, [.remove(page: 0)])
     }
 }
+
+extension ViewerStorePagesTests {
+    func testBlankPagesAreA4AndLandBeforeTheirPositionOrAtTheEnd() throws {
+        let letter = PageDimensions(width: 612, height: 792)
+        let client = FakePdfCoreClient(pages: [letter, letter])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+
+        let before = try XCTUnwrap(store.beginPageEdit(.insertBlank(at: 1, orientation: .landscape)))
+        store.applyPageWork(store.pageWorkResult(for: before), for: before)
+        let appended = try XCTUnwrap(store.beginPageEdit(.insertBlank(at: 3, orientation: .portrait)))
+        store.applyPageWork(store.pageWorkResult(for: appended), for: appended)
+
+        XCTAssertEqual(store.pageSlots.map(\.dimensions), [
+            letter, PageDimensions(width: 842, height: 595), letter, PageDimensions(width: 595, height: 842),
+        ])
+        XCTAssertEqual(store.editStatus, "Blank page added. Changes are pending save.")
+    }
+}
