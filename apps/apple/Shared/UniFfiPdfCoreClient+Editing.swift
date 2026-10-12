@@ -108,6 +108,12 @@ extension EditFailure {
             self = .signaturesWouldBeInvalidated
         case let .UnsupportedOperation(detail):
             self = .notPermitted(Self.sentence(detail))
+        case let .EncodingGap(character, _):
+            // Named, and with the character in it — Windows' wording: the one
+            // failure the reader can clear themselves by typing something else.
+            self = .failed(character.isEmpty
+                ? "This text's font cannot show one of those characters."
+                : "This text's font cannot show \"\(character)\". Try different characters.")
         case let .InvalidSaveRequest(detail), let .InvalidImage(detail), let .InvalidPageSelection(detail),
              let .RenderFailed(detail), let .Io(detail), let .Internal(detail):
             self = .failed(Self.sentence(detail))

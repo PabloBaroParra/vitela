@@ -56,6 +56,8 @@ struct Annotation: Equatable {
     let points: [PdfPoint]
     let color: PdfColor?
     let contents: String?
+    /// A text box's lines as the core laid them out; `nil` for other kinds.
+    var freeTextLayout: FreeTextLayout? = nil
 
     /// The area it occupies, for hit-testing and handles: its rect, or the
     /// bounding box of an ink stroke's points — Windows' `AnnotationBounds`.
@@ -85,6 +87,27 @@ enum AnnotationEdit: Equatable {
     /// Replaces a rect-based annotation's rect.
     case resize(id: UInt64, rect: PdfRect)
     case restyle(id: UInt64, color: PdfColor)
+    /// A visible text box; the core wraps and validates the text.
+    case addFreeText(page: Int, rect: PdfRect, contents: String)
+    /// Replaces a note's or a text box's text.
+    case setContents(id: UInt64, contents: String)
+}
+
+/// A text box's text as the core lays it out — mirrors `FfiFreeTextLayout`.
+/// A shell draws these lines; it never wraps the text itself.
+struct FreeTextLayout: Equatable {
+    struct Line: Equatable {
+        let text: String
+        /// From the box's left edge, in points.
+        let xPt: Double
+        /// From the box's top edge down to the line's baseline, in points.
+        let baselineFromTopPt: Double
+    }
+
+    let fontSizePt: Double
+    let lines: [Line]
+    /// The text did not fit the box.
+    let overflow: Bool
 }
 
 /// How a page is turned as drawn — mirrors `FfiPageRotation`.

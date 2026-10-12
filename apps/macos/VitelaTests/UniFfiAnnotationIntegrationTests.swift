@@ -98,4 +98,22 @@ final class UniFfiAnnotationIntegrationTests: XCTestCase {
         store.undo()
         XCTAssertEqual(store.annotations.first?.color, PdfColor(r: 0, g: 0, b: 255), "each edit is its own undo step")
     } }
+
+    func testATextBoxIsLaidOutByTheCoreAndRefusesWhatItsFontCannotShow() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        store.beginFreeTextPlacement(page: 0, origin: PdfPoint(x: 72, y: 700), release: PdfPoint(x: 72, y: 700))
+
+        XCTAssertNotNil(store.commitPendingFreeText("世界"), "a character Helvetica cannot show is named, not saved")
+        XCTAssertNil(store.commitPendingFreeText("Hello, text box"))
+
+        let box = try XCTUnwrap(store.selectedAnnotation)
+        XCTAssertEqual(box.kind, .freeText)
+        XCTAssertEqual(box.contents, "Hello, text box")
+        XCTAssertEqual(box.freeTextLayout?.lines.map(\.text).joined(separator: " "), "Hello, text box")
+        let narrower = try XCTUnwrap(store.freeTextLayout(for: box, at: PdfRect(x: 72, y: 600, width: 40, height: 100)))
+        XCTAssertGreaterThan(narrower.lines.count, 1, "a narrower box wraps — by the core, not the shell")
+        let save = try XCTUnwrap(store.beginSave(acknowledgingSignatureLoss: false))
+        XCTAssertNotNil(try store.saveResult(for: save).get().range(of: Data("/FreeText".utf8)))
+    } }
 }

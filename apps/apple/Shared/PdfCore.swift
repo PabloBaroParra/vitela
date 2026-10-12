@@ -190,6 +190,9 @@ protocol PdfCoreClient {
     func annotations(document: any PdfDocument) -> [Annotation]
     func annotationEditingAllowed(document: any PdfDocument) -> Bool
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws
+    /// Lays `contents` out in a box, as a stored text box would be — throws
+    /// `EditFailure` naming a character the box's font cannot show.
+    func freeTextLayout(contents: String, width: Double, height: Double) throws -> FreeTextLayout
 
     // Page placement — the core's own turn-aware math, so every shell puts an
     // overlay in the same place on a rotated page.
@@ -249,6 +252,10 @@ extension PdfCoreClient {
 
     func applyAnnotationEdit(document: any PdfDocument, edit: AnnotationEdit) throws {
         throw EditFailure.failed("this client does not support annotations")
+    }
+
+    func freeTextLayout(contents: String, width: Double, height: Double) throws -> FreeTextLayout {
+        FreeTextLayout(fontSizePt: 12, lines: [], overflow: false)
     }
 
     /// Unturned placement, for clients without the core's math.

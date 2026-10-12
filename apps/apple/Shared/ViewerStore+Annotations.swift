@@ -8,7 +8,7 @@ import Foundation
 
 /// The tools a drag on a page can place.
 enum AnnotationTool: Equatable, CaseIterable {
-    case highlight, underline, strikeout, shape, ink, note
+    case highlight, underline, strikeout, shape, ink, note, freeText
 
     var kind: AnnotationKind {
         switch self {
@@ -18,6 +18,7 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .shape: return .shape
         case .ink: return .ink
         case .note: return .textNote
+        case .freeText: return .freeText
         }
     }
 
@@ -30,6 +31,7 @@ enum AnnotationTool: Equatable, CaseIterable {
         case .shape: return "Shape"
         case .ink: return "Ink"
         case .note: return "Note"
+        case .freeText: return "Text box"
         }
     }
 }
@@ -82,7 +84,12 @@ extension ViewerStore {
         armedTool = tool
         annotationDraft = nil
         if tool != nil { selectedAnnotationId = nil }
-        editStatus = tool.map { "\($0.name) armed. Drag on a page to place it." } ?? "Pointer mode."
+        switch tool {
+        case nil: editStatus = "Pointer mode."
+        // Windows' wording: a text box can also be placed with a click.
+        case .freeText?: editStatus = "Text box armed. Click or drag on a page to place it."
+        case let tool?: editStatus = "\(tool.name) armed. Drag on a page to place it."
+        }
     }
 
     /// Starts tracing at `point` on `page` when a tool is armed. Returns
@@ -114,7 +121,11 @@ extension ViewerStore {
                 editStatus = "Ink needs a drag, not a tap."
                 return
             }
-            return applyAnnotationEdit(.addInk(page: page, points: draft.points, color: .annotationDefault))
+            applyAnnotationEdit(.addInk(page: page, points: draft.points, color: .annotationDefault))
+            return
+        }
+        if draft.tool == .freeText {
+            return beginFreeTextPlacement(page: page, origin: draft.origin, release: draft.current)
         }
         let rect = Self.tracedRect(from: draft.origin, to: draft.current, tool: draft.tool)
         if draft.tool == .note {
@@ -168,16 +179,20 @@ extension ViewerStore {
         return PagePlacement(width: dimensions.width, height: dimensions.height, rotation: dimensions.rotation, scale: zoom)
     }
 
-    func applyAnnotationEdit(_ edit: AnnotationEdit, status: String = "Annotation edited. Changes are pending save.") {
-        guard let document else { return }
+    /// Returns why the core refused, or `nil` once the edit is recorded.
+    @discardableResult
+    func applyAnnotationEdit(_ edit: AnnotationEdit, status: String = "Annotation edited. Changes are pending save.") -> String? {
+        guard let document else { return "The document is no longer open." }
         do {
             try client.applyAnnotationEdit(document: document, edit: edit)
         } catch {
-            editStatus = Self.editMessage(for: error)
-            return
+            let message = Self.editMessage(for: error)
+            editStatus = message
+            return message
         }
         refreshAnnotations()
         recordEdit(status: status)
+        return nil
     }
 
     /// Re-reads the core's list — after an edit, an undo or a redo.
@@ -199,6 +214,7 @@ extension ViewerStore {
         armedTool = nil
         annotationDraft = nil
         pendingNote = nil
+        pendingFreeText = nil
         selectedAnnotationId = nil
         annotationGesture = nil
         annotationEditingAllowed = document.map { client.annotationEditingAllowed(document: $0) } ?? false

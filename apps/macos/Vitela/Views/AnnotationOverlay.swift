@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Paints this session's annotations on one page, and the one being traced.
@@ -49,6 +50,9 @@ struct AnnotationOverlay: View {
             return
         }
         guard let rect = annotation.rect else { return }
+        if annotation.kind == .freeText {
+            return drawFreeText(annotation, at: rect, placement: placement, selected: selected, in: &context)
+        }
         let box = frame(rect, placement: placement)
         switch annotation.kind {
         case .highlight:
@@ -66,6 +70,45 @@ struct AnnotationOverlay: View {
         }
     }
 
+    /// A text box: the core's lines, laid out upright in the box's own frame
+    /// and turned with the page about the box's upright top-left — Windows'
+    /// `DrawFreeText` with `PlaceUpright`. Never a wrap computed here.
+    private func drawFreeText(_ annotation: Annotation, at rect: PdfRect, placement: PagePlacement, selected: Bool, in context: inout GraphicsContext) {
+        if selected {
+            // The box has no border in the file; this outline only shows its edge.
+            let box = frame(rect, placement: placement)
+            context.stroke(Path(box), with: .color(Self.handleColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        guard let layout = store.freeTextLayout(for: annotation, at: rect) else { return }
+        let anchor = store.client.placePoint(PdfPoint(x: rect.x, y: rect.y + rect.height), on: placement)
+        let scale = placement.scale
+        var upright = context
+        upright.translateBy(x: anchor.left, y: anchor.top)
+        upright.rotate(by: .degrees(Self.degrees(placement.rotation)))
+        upright.clip(to: Path(CGRect(x: 0, y: 0, width: rect.width * scale, height: rect.height * scale)))
+        // The core hands over baselines; text is placed by its top, so step
+        // up by the face's ascent — what Windows' `FreeTextDraw.AscentEm` does.
+        let size = layout.fontSizePt * scale
+        let face = NSFont(name: "Helvetica", size: size) ?? NSFont.systemFont(ofSize: size)
+        let font = Font(face as CTFont)
+        for line in layout.lines {
+            upright.draw(
+                Text(line.text).font(font).foregroundColor(.black),
+                at: CGPoint(x: line.xPt * scale, y: line.baselineFromTopPt * scale - face.ascender),
+                anchor: .topLeading
+            )
+        }
+    }
+
+    private static func degrees(_ rotation: PageRotation) -> Double {
+        switch rotation {
+        case .none: return 0
+        case .clockwise90: return 90
+        case .clockwise180: return 180
+        case .clockwise270: return 270
+        }
+    }
+
     /// The gesture's annotation at its preview position: moved as a whole,
     /// or with the grabbed corner following the pointer.
     private func moved(_ gesture: AnnotationGesture) -> Annotation {
@@ -74,7 +117,7 @@ struct AnnotationOverlay: View {
             id: source.id, page: source.page, kind: source.kind,
             rect: gesture.previewRect,
             points: source.points.map { PdfPoint(x: $0.x + gesture.dx, y: $0.y + gesture.dy) },
-            color: source.color, contents: source.contents
+            color: source.color, contents: source.contents, freeTextLayout: source.freeTextLayout
         )
     }
 

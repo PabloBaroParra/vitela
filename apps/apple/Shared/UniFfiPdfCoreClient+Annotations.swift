@@ -19,6 +19,10 @@ extension UniFfiPdfCoreClient {
         try Self.mapEditErrors { try applyEdit(handle: handle, command: FfiEditCommand(edit)) }
     }
 
+    func freeTextLayout(contents: String, width: Double, height: Double) throws -> FreeTextLayout {
+        try Self.mapEditErrors { FreeTextLayout(try freetextLayout(contents: contents, widthPt: width, heightPt: height)) }
+    }
+
     func placeRect(_ rect: PdfRect, on page: PagePlacement) -> PlacedRect {
         let placed = Vitela.placeRect(rect: FfiRect(rect), page: FfiPagePlacement(page))
         return PlacedRect(left: placed.left, top: placed.top, width: placed.width, height: placed.height)
@@ -99,6 +103,7 @@ private extension Annotation {
         var points: [PdfPoint] = []
         var color: PdfColor?
         var contents: String?
+        var layout: FreeTextLayout?
         let kind: AnnotationKind
         switch annotation.kind {
         case let .highlight(r, c): kind = .highlight; rect = PdfRect(r); color = PdfColor(c)
@@ -108,12 +113,26 @@ private extension Annotation {
         case let .ink(p, c): kind = .ink; points = p.map { PdfPoint(x: $0.x, y: $0.y) }; color = PdfColor(c)
         case let .textNote(r, text): kind = .textNote; rect = PdfRect(r); contents = text
         case let .stamp(r): kind = .stamp; rect = PdfRect(r)
-        case let .freeText(r, text, _, _): kind = .freeText; rect = PdfRect(r); contents = text
+        case let .freeText(r, text, size, lines):
+            kind = .freeText; rect = PdfRect(r); contents = text
+            layout = FreeTextLayout(fontSizePt: size, lines: lines.map(FreeTextLayout.Line.init), overflow: false)
         }
         self.init(
             id: annotation.id, page: Int(annotation.page), kind: kind,
-            rect: rect, points: points, color: color, contents: contents
+            rect: rect, points: points, color: color, contents: contents, freeTextLayout: layout
         )
+    }
+}
+
+private extension FreeTextLayout {
+    init(_ layout: FfiFreeTextLayout) {
+        self.init(fontSizePt: layout.fontSizePt, lines: layout.lines.map(Line.init), overflow: layout.overflow)
+    }
+}
+
+private extension FreeTextLayout.Line {
+    init(_ line: FfiFreeTextLine) {
+        self.init(text: line.text, xPt: line.xPt, baselineFromTopPt: line.baselineFromTopPt)
     }
 }
 
@@ -140,6 +159,10 @@ private extension FfiEditCommand {
             self = .resizeAnnotation(annotationId: id, rect: FfiRect(rect))
         case let .restyle(id, color):
             self = .restyleAnnotation(annotationId: id, color: FfiColor(color))
+        case let .addFreeText(page, rect, contents):
+            self = .addFreeText(page: UInt32(page), rect: FfiRect(rect), contents: contents)
+        case let .setContents(id, contents):
+            self = .setAnnotationContents(annotationId: id, contents: contents)
         }
     }
 }

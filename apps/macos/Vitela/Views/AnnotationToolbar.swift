@@ -57,6 +57,9 @@ struct AnnotationToolbar: View {
         if selected.kind == .textNote {
             Button("Read Note") { readNote = selected.contents ?? "" }
         }
+        if selected.kind == .freeText {
+            Button("Edit Text", action: store.beginFreeTextEdit)
+        }
     }
 
     private func colorBinding(_ selected: Annotation) -> Binding<CGColor> {

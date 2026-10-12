@@ -39,7 +39,12 @@ struct AnnotationGesture: Equatable {
     /// Where the annotation would be if the drag ended here.
     var previewRect: PdfRect? {
         guard let bounds = annotation.rect else { return nil }
-        if let corner { return ViewerStore.resizedRect(bounds, corner: corner, to: current) }
+        if let corner {
+            // A text box may not shrink below what the core accepts.
+            return annotation.kind == .freeText
+                ? ViewerStore.freeTextResizedRect(anchor: corner.opposite.point(of: bounds), pointer: current)
+                : ViewerStore.resizedRect(bounds, corner: corner, to: current)
+        }
         return PdfRect(x: bounds.x + dx, y: bounds.y + dy, width: bounds.width, height: bounds.height)
     }
 

@@ -263,6 +263,15 @@ extension FakePdfCoreClient {
             list = list.map { a in
                 a.id == id ? Annotation(id: a.id, page: a.page, kind: a.kind, rect: a.rect, points: a.points, color: color, contents: a.contents) : a
             }
+        case let .addFreeText(page, rect, contents):
+            list.append(Annotation(
+                id: takeAnnotationId(), page: page, kind: .freeText, rect: rect, points: [], color: nil, contents: contents,
+                freeTextLayout: FreeTextLayout(fontSizePt: 12, lines: [.init(text: contents, xPt: 2, baselineFromTopPt: 12)], overflow: false)
+            ))
+        case let .setContents(id, contents):
+            list = list.map { a in
+                a.id == id ? Annotation(id: a.id, page: a.page, kind: a.kind, rect: a.rect, points: a.points, color: a.color, contents: contents, freeTextLayout: a.freeTextLayout) : a
+            }
         }
         recordAnnotations(list)
     }
