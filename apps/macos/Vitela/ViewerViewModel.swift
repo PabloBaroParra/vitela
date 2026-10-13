@@ -34,6 +34,8 @@ final class ViewerViewModel: ObservableObject {
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
     @Published var isImporting = false
     let importPrompts: ImportPrompts
+    /// Share's signature question and picker — `ViewerViewModel+Share.swift`.
+    let sharePrompts: SharePrompts
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
@@ -56,6 +58,7 @@ final class ViewerViewModel: ObservableObject {
         prompts: SavePrompts = .modal,
         signingPrompts: SigningPrompts = .modal,
         importPrompts: ImportPrompts = .modal,
+        sharePrompts: SharePrompts = .modal,
         signatures: SignatureStore = FileSignatureStore(url: FileSignatureStore.defaultURL),
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
@@ -63,6 +66,7 @@ final class ViewerViewModel: ObservableObject {
         self.prompts = prompts
         self.signingPrompts = signingPrompts
         self.importPrompts = importPrompts
+        self.sharePrompts = sharePrompts
         self.signatures = signatures
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
