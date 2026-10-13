@@ -5,7 +5,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Long-press drag-select over one page's characters, resolved by the core. */
+/** Long-press drag-select, handle drags and double-tap words over one page's characters, resolved by the core. */
 internal class TextSelecting(private val session: ViewerSession) {
     private val state = session.state
 
@@ -18,13 +18,34 @@ internal class TextSelecting(private val session: ViewerSession) {
      * before they do are kept by the [TextSelectionDrag], not dropped.
      */
     fun begin(pageIndex: Int, point: AnnotationPoint) {
+        if (session.document == null) return
+        state.value = state.value.copy(textSelection = null, selectedAnnotationId = null)
+        start(TextSelectionDrag(pageIndex, point))
+    }
+
+    /**
+     * A finger grabbed one of the shown selection's handles at [point]: a new
+     * drag that keeps the other end's caret. The selection stays painted while
+     * the page's characters reload — they were released when the last drag ended.
+     */
+    fun grab(handle: SelectionHandle, point: AnnotationPoint) {
+        val shown = state.value.textSelection ?: return
+        val anchor = if (handle == SelectionHandle.Start) shown.end else shown.start
+        start(TextSelectionDrag(shown.pageIndex, TextSelectionDrag.Anchor.Caret(anchor), point))
+    }
+
+    /** A double tap: the word under [point], exactly as a long-press that never moved. */
+    fun selectWord(pageIndex: Int, point: AnnotationPoint) {
+        begin(pageIndex, point)
+        end()
+    }
+
+    private fun start(drag: TextSelectionDrag) {
         val openDocument = session.document ?: return
-        val drag = TextSelectionDrag(pageIndex, point)
         selectionDrag?.close()
         selectionDrag = drag
-        state.value = state.value.copy(textSelection = null, selectedAnnotationId = null)
         session.scope.launch {
-            when (val result = withContext(session.compute) { openDocument.pageCharacters(pageIndex) }) {
+            when (val result = withContext(session.compute) { openDocument.pageCharacters(drag.pageIndex) }) {
                 is PdfCoreResult.Success -> {
                     // A closed drag releases late characters itself.
                     drag.attach(result.value)
@@ -74,6 +95,8 @@ internal class TextSelecting(private val session: ViewerSession) {
     }
 
     private fun publish(drag: TextSelectionDrag) {
-        state.value = state.value.copy(textSelection = drag.selection())
+        val selection = drag.selection()
+        if (selection == null && drag.keepsShownSelection) return
+        state.value = state.value.copy(textSelection = selection)
     }
 }

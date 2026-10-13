@@ -30,9 +30,8 @@ import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationKind
 
-/** What can be done to the current selection — an annotation, a text run being moved, copied text. */
+/** What can be done to the current selection — an annotation, a text run being moved. Selected text has its own toolbar. */
 internal data class ContextActions(
-    val onCopy: () -> Unit,
     val onReadNote: () -> Unit,
     val onEditText: () -> Unit,
     val onGrow: () -> Unit,
@@ -44,7 +43,6 @@ internal data class ContextActions(
     val onCancelInsert: () -> Unit,
 ) {
     fun run(chip: ContextChip) = when (chip) {
-        ContextChip.Copy -> onCopy()
         ContextChip.ReadNote -> onReadNote()
         ContextChip.EditText -> onEditText()
         ContextChip.CancelMove -> onCancelMove()
@@ -59,7 +57,7 @@ internal data class ContextActions(
 }
 
 internal enum class ContextChip(val label: String) {
-    Copy("Copy"), ReadNote("Read note"), EditText("Edit text"), CancelMove("Cancel move"), CancelInsert("Cancel insert"),
+    ReadNote("Read note"), EditText("Edit text"), CancelMove("Cancel move"), CancelInsert("Cancel insert"),
     Grow("Grow"), Resize("Resize"), MoveTo("Move to"), Red("Red"), Gold("Gold"), Delete("Delete"),
 }
 
@@ -68,7 +66,6 @@ private val RED_ANNOTATION_COLOR = AnnotationColor(220, 40, 40)
 /** The chips for what is selected or armed right now, in display order; empty when nothing is. */
 internal fun contextChips(state: ViewerState, controls: AnnotationControls): List<ContextChip> = buildList {
     val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
-    if (state.textSelection != null) add(ContextChip.Copy)
     if (readableNote(state) != null) add(ContextChip.ReadNote)
     if (selected?.kind == AnnotationKind.FreeText && state.annotationEditingAllowed) add(ContextChip.EditText)
     if (state.contentEdit?.moving != null) add(ContextChip.CancelMove)

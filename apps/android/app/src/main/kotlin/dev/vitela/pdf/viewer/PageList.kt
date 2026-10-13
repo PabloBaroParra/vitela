@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -81,6 +82,7 @@ internal fun PageList(
     onAnnotationRevealConsumed: () -> Unit,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
+    selectionActions: SelectionActions,
     contentEdit: ContentEditActions,
     onFormFieldTap: (Int, AnnotationPoint) -> Unit,
     onPinch: (zoomFactor: Double) -> Unit,
@@ -225,6 +227,7 @@ internal fun PageList(
                                     stampBitmaps = stampBitmaps,
                                     onAnnotationGesture = onAnnotationGesture,
                                     textSelection = textSelection,
+                                    selectionActions = selectionActions,
                                     contentEdit = contentEdit,
                                     onFormFieldTap = onFormFieldTap,
                                     onFileDrop = onFileDrop,
@@ -249,6 +252,7 @@ private fun PageSlot(
     stampBitmaps: Map<Long, ImageBitmap>,
     onAnnotationGesture: (Int, AnnotationPoint, AnnotationPoint, List<AnnotationPoint>, Double) -> Unit,
     textSelection: TextSelectionGestures,
+    selectionActions: SelectionActions,
     contentEdit: ContentEditActions,
     onFormFieldTap: (Int, AnnotationPoint) -> Unit,
     onFileDrop: (Int, AnnotationPoint, DragAndDropEvent) -> Boolean,
@@ -260,6 +264,9 @@ private fun PageSlot(
     var pageWidthPx by remember { mutableStateOf(0) }
     var pageCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var moveDrag by remember { mutableStateOf<MoveDrag?>(null) }
+    // A long-press or handle drag is under way: the selection toolbar hides until the finger lifts.
+    var selecting by remember { mutableStateOf(false) }
+    var toolbarSize by remember { mutableStateOf(IntSize.Zero) }
         val density = LocalDensity.current.density.toDouble()
         val pageIndex = pageNumber - 1
         // Edit content claims every tap on the page, and nothing else: no drag-select, no annotation drag —
@@ -269,6 +276,8 @@ private fun PageSlot(
         // So does a field placement or move the Form fields panel armed.
         val formMode = state.formFields?.armed != null
         val tapMode = contentMode || formMode
+        // Selecting text — long-press, double tap, handles, the toolbar — belongs to the plain reader, as the long-press always did.
+        val selectionTools = state.activeAnnotationTool == AnnotationTool.Pointer && !tapMode
         LaunchedEffect(pageIndex, contentMode) { if (contentMode) contentEdit.onPageShown(pageIndex) }
         Box(
         modifier = Modifier
@@ -302,6 +311,11 @@ private fun PageSlot(
             // Taps and overlays both go through the page's turn: on a rotated page a bare y-flip misplaces every one.
             val placement = PagePlacement(size, scale)
             fun point(offset: Offset) = placement.pointToPdf(offset.x.toDouble(), offset.y.toDouble())
+            val knobRadiusPx = SELECTION_KNOB_RADIUS_DP * density
+            val selectionHere = state.textSelection?.takeIf { it.pageIndex == pageIndex && selectionTools }
+            val handleSpots = selectionHere?.let { selectionHandleSpots(it, placement, knobRadiusPx) }.orEmpty()
+            // The handle detector outlives recompositions — every step of its own drag republishes the selection.
+            val currentHandleSpots by rememberUpdatedState(handleSpots)
             androidx.compose.foundation.Canvas(
                 modifier = Modifier
                     .fillMaxSize()
@@ -319,7 +333,12 @@ private fun PageSlot(
                             // selection below. Declaring it here is what stops
                             // the finger lifting from also counting as a tap,
                             // which would clear the selection it just made.
-                            onLongPress = if (state.activeAnnotationTool == AnnotationTool.Pointer && !tapMode) ({ }) else null,
+                            onLongPress = if (selectionTools) ({ }) else null,
+                            // A double tap selects the word under it, as a long-press that never moves does.
+                            onDoubleTap = if (selectionTools) ({ offset ->
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                textSelection.onWord(pageIndex, point(offset))
+                            }) else null,
                         ) { offset ->
                             val tap = point(offset)
                             val reach = handleReachPoints(HANDLE_REACH_DP, density, scale)
@@ -360,14 +379,15 @@ private fun PageSlot(
                         detectDragGesturesAfterLongPress(
                             onDragStart = { offset ->
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                selecting = true
                                 textSelection.onStart(pageIndex, point(offset))
                             },
                             onDrag = { change, _ ->
                                 change.consume()
                                 textSelection.onMove(point(change.position))
                             },
-                            onDragEnd = textSelection.onEnd,
-                            onDragCancel = textSelection.onEnd,
+                            onDragEnd = { selecting = false; textSelection.onEnd() },
+                            onDragCancel = { selecting = false; textSelection.onEnd() },
                         )
                     }
                     .pointerInput(pageNumber, placement, state.activeAnnotationTool, state.selectedAnnotationId, tapMode) {
@@ -401,6 +421,33 @@ private fun PageSlot(
                                 if (completed && start != null && end != null) onAnnotationGesture(pageIndex, start, end, stroke, reach)
                                 origin = null; current = null; stroke = emptyList()
                             }
+                        }
+                    }
+                    .pointerInput(pageNumber, placement, selectionTools) {
+                        // Grabbing a knob of this page's selection drags that end. Declared last so it sees the
+                        // touch first: consuming the down keeps it from the tap (which would clear the selection),
+                        // the long-press and the list's scroll. A touch anywhere else is left alone.
+                        if (!selectionTools) return@pointerInput
+                        val reachPx = SELECTION_KNOB_REACH_DP.dp.toPx().toDouble()
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val spots = currentHandleSpots
+                            val handle = handleAt(spots, down.position.x.toDouble(), down.position.y.toDouble(), reachPx) ?: return@awaitEachGesture
+                            val spot = spots.first { it.handle == handle }
+                            down.consume()
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            // The finger holds the knob, below the text: carry its offset from the line edge, so the
+                            // caret tracks the line the knob hangs from rather than whatever is under the fingertip.
+                            val edge = placement.placePoint(spot.caretPoint)
+                            val grab = Offset((down.position.x - edge.x).toFloat(), (down.position.y - edge.y).toFloat())
+                            selecting = true
+                            textSelection.onGrab(handle, spot.caretPoint)
+                            drag(down.id) { change ->
+                                change.consume()
+                                textSelection.onMove(point(change.position - grab))
+                            }
+                            selecting = false
+                            textSelection.onEnd()
                         }
                     },
             ) {
@@ -436,8 +483,9 @@ private fun PageSlot(
                 }
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->
                     val placed = placement.placeRect(rect)
-                    drawRect(Color(0x553373E6), placed.topLeft, placed.size)
+                    drawRect(SELECTION_COLOR.copy(alpha = .33f), placed.topLeft, placed.size)
                 }
+                drawSelectionHandles(handleSpots)
                 // Current search match only, mirroring the Linux/Windows shells:
                 // one hit highlighted at a time, cleared as soon as the user
                 // steps to another match or page.
@@ -468,6 +516,29 @@ private fun PageSlot(
                 // the finger lifted and onAnnotationGesture actually applied it.
                 if (state.activeAnnotationTool != AnnotationTool.Pointer && previewOrigin != null && previewCurrent != null) {
                     drawAnnotationShape(placementAnnotation(state.activeAnnotationTool, pageIndex, previewOrigin, previewCurrent, stroke), placement, selected = false)
+                }
+            }
+            // The bar over the selection, once the finger has let go of it. Measured on its first frame,
+            // so that frame places it as if it had no size; the next one has the real one.
+            if (selectionHere != null && !selecting) {
+                val origin = selectionToolbarOrigin(
+                    handleSpots,
+                    toolbarSize.width.toDouble(),
+                    toolbarSize.height.toDouble(),
+                    pageWidthPx.toDouble(),
+                    size.heightPt * scale,
+                    gapPx = 8 * density,
+                    knobRadiusPx = knobRadiusPx,
+                )
+                if (origin != null) {
+                    SelectionToolbar(
+                        selectionActions,
+                        canMarkup = state.annotationEditingAllowed,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .offset { IntOffset(origin.x.roundToInt(), origin.y.roundToInt()) }
+                            .onSizeChanged { toolbarSize = it },
+                    )
                 }
             }
         }
@@ -556,9 +627,13 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAnnotationShape
     if (annotation.kind == dev.vitela.pdf.core.AnnotationKind.Ink && annotation.points.size > 1) annotation.points.zipWithNext().forEach { (a, b) -> drawLine(color, placement.offset(a.x, a.y), placement.offset(b.x, b.y), if (selected) 3f else 2f) }
 }
 
-/** The reader's long-press drag-select callbacks, in PDF-space points. */
+/** The reader's text-selection callbacks — long-press drag, handle drag, double tap — in PDF-space points. */
 internal class TextSelectionGestures(
     val onStart: (pageIndex: Int, point: AnnotationPoint) -> Unit,
     val onMove: (AnnotationPoint) -> Unit,
     val onEnd: () -> Unit,
+    /** A finger grabbed a handle; the drag then reports through [onMove] and [onEnd] like a long-press. */
+    val onGrab: (SelectionHandle, AnnotationPoint) -> Unit,
+    /** A double tap: the word under the point. */
+    val onWord: (pageIndex: Int, point: AnnotationPoint) -> Unit,
 )

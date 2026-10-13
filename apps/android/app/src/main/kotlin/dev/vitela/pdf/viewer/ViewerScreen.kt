@@ -98,7 +98,10 @@ internal fun ViewerScreen(
     onTextSelectionStart: (Int, dev.vitela.pdf.core.AnnotationPoint) -> Unit,
     onTextSelectionMove: (dev.vitela.pdf.core.AnnotationPoint) -> Unit,
     onTextSelectionEnd: () -> Unit,
+    onSelectionHandleGrab: (SelectionHandle, dev.vitela.pdf.core.AnnotationPoint) -> Unit,
+    onSelectWord: (Int, dev.vitela.pdf.core.AnnotationPoint) -> Unit,
     onCopySelection: () -> Unit,
+    onShareSelection: () -> Unit,
     onOpenMetadata: () -> Unit,
     onMetadataChange: (dev.vitela.pdf.core.DocumentInfo) -> Unit,
     onMetadataApply: () -> Unit,
@@ -223,7 +226,7 @@ internal fun ViewerScreen(
                             ContextChips(
                                 state, controls,
                                 ContextActions(
-                                    onCopy = onCopySelection, onReadNote = onNoteRead, onEditText = onEditText, onGrow = onAnnotationGrow, onResize = onAnnotationResize,
+                                    onReadNote = onNoteRead, onEditText = onEditText, onGrow = onAnnotationGrow, onResize = onAnnotationResize,
                                     onPosition = onAnnotationPosition, onDelete = onAnnotationDelete, onColor = onAnnotationColor,
                                     onCancelMove = contentEdit.onCancelMove, onCancelInsert = contentEdit.onCancelInsert,
                                 ),
@@ -239,8 +242,11 @@ internal fun ViewerScreen(
                                         onScrollTargetConsumed = onScrollTargetConsumed,
                                         onAnnotationRevealConsumed = onAnnotationRevealConsumed,
                                         onAnnotationGesture = onAnnotationGesture,
-                                        textSelection = remember(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd) {
-                                            TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd)
+                                        textSelection = remember(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd, onSelectionHandleGrab, onSelectWord) {
+                                            TextSelectionGestures(onTextSelectionStart, onTextSelectionMove, onTextSelectionEnd, onSelectionHandleGrab, onSelectWord)
+                                        },
+                                        selectionActions = remember(onCopySelection, onShareSelection, onAnnotationTool) {
+                                            SelectionActions(onCopy = onCopySelection, onShare = onShareSelection, onMarkup = onAnnotationTool)
                                         },
                                         contentEdit = contentEdit,
                                         onFormFieldTap = formFields.onPageTap,
