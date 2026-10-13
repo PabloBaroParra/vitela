@@ -244,6 +244,8 @@ struct ViewerRootView: View {
                                 .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index) }
                             AnnotationOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot))
                                 .frame(width: pageWidth(slot), height: pageHeight(slot))
+                            NoteTooltipLayer(tooltips: model.store.noteTooltips(page: slot.index, zoom: pageZoom(slot)))
+                                .frame(width: pageWidth(slot), height: pageHeight(slot))
                             SelectionOverlay(
                                 dimensions: slot.dimensions,
                                 zoom: pageZoom(slot),

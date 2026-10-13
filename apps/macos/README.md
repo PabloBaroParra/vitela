@@ -54,6 +54,8 @@ responsibility:
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
   `SignaturePng.swift` — Draw Signature: the remembered signature, the pad's
   strokes as a PNG, and arming the stamp with it.
+- `Vitela/Views/NoteTooltipLayer.swift` — a note's text as a native
+  tooltip while the pointer rests on it, without taking any click.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`
