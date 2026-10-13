@@ -40,6 +40,15 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
         try Self.document { try createDocumentWithBlankPage(pageSize: .a4, orientation: .portrait) }
     }
 
+    /// The core's `output_snapshot`: it reopens under the password it kept,
+    /// so the shell never holds one. Its failures are a save's, so they map
+    /// like an edit's rather than like an open's.
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        let handle = try handle(of: document)
+        let snapshot = try Self.mapEditErrors { try Vitela.outputSnapshot(handle: handle) }
+        return UniFfiDocument(handle: snapshot, pages: snapshot.pageDimensions().map(PageDimensions.init))
+    }
+
     /// Not `private`: `UniFfiPdfCoreClient+Signing.swift` reopens signed
     /// output the same way.
     static func document(_ open: () throws -> DocumentHandle) throws -> any PdfDocument {

@@ -6,7 +6,8 @@ import Foundation
 /// One print job's view of the document, taken when the user asks to print.
 /// Like `RenderRequest`, it carries its own document, so a page rendered for
 /// the printer never reads back into the store — and a document opened while
-/// the dialog is up does not change what this job prints.
+/// the dialog is up does not change what this job prints. That document is
+/// the open one's output snapshot, released with the request.
 struct PrintRequest {
     let generation: UInt
     let document: any PdfDocument
@@ -19,10 +20,9 @@ struct PrintRequest {
 /// render queue, so a page scrolling out of view can never supersede a page
 /// the printer still needs.
 ///
-/// Prints the open handle itself. That is complete today because the Apple
-/// shells only edit the Info dictionary, which never reaches the page. Once
-/// they can annotate, this must print an output snapshot instead, as Linux
-/// and Windows do, or the printout will miss what the overlay draws.
+/// Prints an output snapshot, never the open handle, as Linux and Windows do:
+/// the handle renders its preview, which leaves this session's annotations
+/// out for the overlay to paint, and paper has no overlay.
 extension ViewerStore {
     /// Full-quality rasterization for the printer; the platform scales the
     /// bitmap onto the paper.
@@ -32,6 +32,11 @@ extension ViewerStore {
     static let printPreviewDpi = 144
 
     /// `nil` when there is nothing to print; the status line says why.
+    ///
+    /// Takes the snapshot — a save in memory — on the calling thread. The
+    /// macOS print operation already rasterizes every page on the main
+    /// thread, so the job waits on it either way. A snapshot that cannot be
+    /// taken prints nothing: the open handle would print without the edits.
     func beginPrint() -> PrintRequest? {
         guard let document else {
             editStatus = "Open a PDF before printing."
@@ -41,7 +46,14 @@ extension ViewerStore {
             editStatus = "The PDF has no pages to print."
             return nil
         }
-        return PrintRequest(generation: generation, document: document, pages: document.pages)
+        let snapshot: any PdfDocument
+        do {
+            snapshot = try client.outputSnapshot(document: document)
+        } catch {
+            editStatus = "Could not print: \(Self.editMessage(for: error))"
+            return nil
+        }
+        return PrintRequest(generation: generation, document: snapshot, pages: snapshot.pages)
     }
 
     /// Thread-safe, like `renderResult(for:)`: touches only the immutable

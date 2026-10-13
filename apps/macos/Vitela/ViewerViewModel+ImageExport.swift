@@ -35,28 +35,46 @@ extension ViewerViewModel {
             store.editStatus = "Export cancelled. No file was written."
             return
         }
+        guard let request = store.beginImageExport(plan) else {
+            store.editStatus = "Export stopped after 0 written: The document is no longer open."
+            return
+        }
         isSaving = true
-        writeImage(0, of: plan, into: folder)
+        store.editStatus = "Preparing the export…"
+        // One output snapshot for every page, taken off the main thread: it
+        // is a save in memory. A failure writes nothing — the open document
+        // would draw the pages without this session's annotations.
+        operationQueue.addOperation { [weak self] in
+            guard let self else { return }
+            let taken = self.store.imageExportSource(for: request)
+            DispatchQueue.main.async {
+                switch taken {
+                case let .failure(failure):
+                    self.isSaving = false
+                    self.store.editStatus = "Could not export: \(failure.localizedDescription) No file was written."
+                case let .success(source):
+                    self.writeImage(0, from: source, into: folder)
+                }
+            }
+        }
     }
 
-    private func writeImage(_ index: Int, of plan: ViewerStore.ImageExportPlan, into folder: URL) {
+    /// Draws from `source` alone, so a document opened or edited mid-export
+    /// does not change what this export writes — as with a print job.
+    private func writeImage(_ index: Int, from source: ViewerStore.ImageExportSource, into folder: URL) {
+        let plan = source.plan
         guard index < plan.files.count else {
             isSaving = false
             store.editStatus = ViewerStore.imageExportSummary(count: index, format: plan.format, folder: folder.path)
             return
         }
         let file = plan.files[index]
-        guard let request = store.beginImageExport(file, of: plan) else {
-            isSaving = false
-            store.editStatus = "Export stopped after \(index) written: The document is no longer open."
-            return
-        }
         store.editStatus = "Exporting page \(file.page + 1) (\(index + 1) of \(plan.files.count))…"
         operationQueue.addOperation { [weak self] in
             guard let self else { return }
             // `nil` when the page landed; otherwise why the export stops.
             let stop: String?
-            switch self.store.imageExportResult(for: request) {
+            switch self.store.imageExportResult(file, from: source) {
             case let .failure(failure):
                 stop = "Page \(file.page + 1) could not be exported: \(failure.localizedDescription) \(index) written."
             case let .success(bytes):
@@ -72,7 +90,7 @@ extension ViewerViewModel {
                 }
             }
             DispatchQueue.main.async {
-                guard let stop else { return self.writeImage(index + 1, of: plan, into: folder) }
+                guard let stop else { return self.writeImage(index + 1, from: source, into: folder) }
                 self.isSaving = false
                 self.store.editStatus = stop
             }

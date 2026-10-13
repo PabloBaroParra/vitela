@@ -131,7 +131,8 @@ protocol PdfCoreClient {
     func planSplit(_ cuts: String, totalPages: Int, documentName: String) throws -> [SplitPart]
 
     // Exporting pages as images — see `ViewerStore+ImageExport.swift`. Draws
-    // what `render` draws; the encoder is the core's, shared with Linux and
+    // what `render` draws, so an export passes an `outputSnapshot`, not the
+    // open document; the encoder is the core's, shared with Linux and
     // Windows, so the same page comes out byte-identical everywhere.
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data
     /// The first of `pages` over the core's raster ceiling at `dpi`, if any.

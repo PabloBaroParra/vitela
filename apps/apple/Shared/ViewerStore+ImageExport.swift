@@ -30,12 +30,21 @@ extension ViewerStore {
         let format: ImageFormat
     }
 
+    /// The open document an export is taken from, read on the main thread.
     struct ImageExportRequest {
         let generation: UInt
         let document: any PdfDocument
-        let file: ImageExportFile
-        let dpi: Int
-        let format: ImageFormat
+        let plan: ImageExportPlan
+    }
+
+    /// What every page of one export is drawn from: the open document's
+    /// output snapshot, never the document itself. Its preview leaves this
+    /// session's annotations out for the overlay to paint, and an image file
+    /// has no overlay. The snapshot is released with the last reference to
+    /// this value, when the export ends — however it ends.
+    struct ImageExportSource {
+        let document: any PdfDocument
+        let plan: ImageExportPlan
     }
 
     func planImageExport(
@@ -77,16 +86,25 @@ extension ViewerStore {
         return .success(ImageExportPlan(files: files, dpi: dpi, format: format))
     }
 
-    func beginImageExport(_ file: ImageExportFile, of plan: ImageExportPlan) -> ImageExportRequest? {
+    func beginImageExport(_ plan: ImageExportPlan) -> ImageExportRequest? {
         guard let document else { return nil }
-        return ImageExportRequest(generation: generation, document: document, file: file, dpi: plan.dpi, format: plan.format)
+        return ImageExportRequest(generation: generation, document: document, plan: plan)
     }
 
     /// Thread-safe: only the immutable client and the request's own document.
-    func imageExportResult(for request: ImageExportRequest) -> Result<Data, EditFailure> {
+    /// Taken once per export — it is a save in memory. A failure is final:
+    /// falling back to the open document would write images without the
+    /// session's annotations.
+    func imageExportSource(for request: ImageExportRequest) -> Result<ImageExportSource, EditFailure> {
+        Result { try ImageExportSource(document: client.outputSnapshot(document: request.document), plan: request.plan) }
+            .mapError(Self.editFailure)
+    }
+
+    /// Thread-safe: only the immutable client and the source's own snapshot.
+    func imageExportResult(_ file: ImageExportFile, from source: ImageExportSource) -> Result<Data, EditFailure> {
         Result {
             try client.exportPageImage(
-                document: request.document, page: request.file.page, dpi: request.dpi, format: request.format
+                document: source.document, page: file.page, dpi: source.plan.dpi, format: source.plan.format
             )
         }
         .mapError(Self.editFailure)
