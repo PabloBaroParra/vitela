@@ -21,7 +21,7 @@ responsibility:
   changes before quitting, and passes on files Finder opens with Vitela.
 - `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Save As, Protect,
   Compress, Extract Pages, Split PDF, Export Pages as Images, Print, Undo,
-  Redo, the Go menu's page navigation, and View ▸ zoom).
+  Redo, the Go menu's page and annotation navigation, and View ▸ zoom).
 - `Vitela/ViewerViewModel.swift` — file selection, File ▸ New, the render
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
@@ -60,7 +60,8 @@ responsibility:
   and its siblings (protocol, value types, failures), `UniFfiPdfCoreClient*.swift` (the only files
   that touch the generated UniFFI API), and `ViewerStore*.swift` (viewer,
   search, selection, editing, print, page-navigation, zoom, page-structure,
-  thumbnail and annotation state).
+  thumbnail and annotation state, including stepping the selection through
+  annotations and revealing the one selected).
 
 `ViewerStore` is main-thread only, with one documented exception:
 `renderResult(for:)` runs on the render queue and touches nothing but the
