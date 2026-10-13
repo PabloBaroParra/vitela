@@ -17,11 +17,11 @@ extension ViewerViewModel {
         }
         operationQueue.addOperation { [weak self] in
             let bytes = try? Data(contentsOf: url)
-            DispatchQueue.main.async { self?.openExternal(bytes: bytes, name: url.lastPathComponent) }
+            DispatchQueue.main.async { self?.openExternal(bytes: bytes, url: url) }
         }
     }
 
-    private func openExternal(bytes: Data?, name: String) {
+    private func openExternal(bytes: Data?, url: URL) {
         guard let bytes else {
             notice = "The dropped file could not be read."
             return
@@ -33,7 +33,8 @@ extension ViewerViewModel {
         proceedPastUnsavedChanges { [weak self] in
             guard let self else { return }
             self.notice = ""
-            self.documentName = name
+            self.documentName = url.lastPathComponent
+            self.pendingRecentPath = url.path
             self.store.open(bytes: bytes)
         }
     }

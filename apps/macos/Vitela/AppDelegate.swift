@@ -4,7 +4,9 @@ import AppKit
 /// open requests share it: quitting with unsaved changes asks first, exactly
 /// like opening another document does.
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let model = ViewerViewModel()
+    /// The app keeps Recent on disk; a view model made anywhere else (tests)
+    /// keeps it in memory.
+    let model = ViewerViewModel(recentStore: FileRecentDocumentStore(url: FileRecentDocumentStore.defaultURL))
 
     /// Finder's double-click and Open With, and files dropped on the Dock
     /// icon — the PDF types are declared in `Info.plist`.

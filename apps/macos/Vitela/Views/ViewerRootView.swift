@@ -232,11 +232,8 @@ struct ViewerRootView: View {
     }
 
     private var placeholder: some View {
-        VStack(spacing: 12) {
-            AppMarkView()
-            Text(model.title)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        HomeView(model: model)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var pageList: some View {
