@@ -136,28 +136,28 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 
 | Capability | Linux (GTK4) | Windows (WinUI 3) | macOS (SwiftUI) | Android (Compose) | iOS (SwiftUI) |
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
-| Open a PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
+| Open a PDF | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Built-in sample document | ✅ | ✅ | 🚧 | ✅ | 🚧 |
-| Recent documents (removable) | ✅ | ✅ | — | 🚧 | — |
-| Password-protected PDF | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Multi-page view & scroll | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Fit-to-width rendering | ✅ | ✅ | 🚧 | 🚧 | — |
-| Text search & navigate | ✅ | ✅ | — | 🚧 | — |
-| Print | ✅ | ✅ | 🚧 | 🚧 | — |
+| Recent documents (removable) | ✅ | ✅ | — | ✅ | — |
+| Password-protected PDF | ✅ | ✅ | 🚧 | ✅ | 🚧 |
+| Multi-page view & scroll | ✅ | ✅ | 🚧 | ✅ | 🚧 |
+| Fit-to-width rendering | ✅ | ✅ | 🚧 | ✅ | — |
+| Text search & navigate | ✅ | ✅ | — | ✅ | — |
+| Print | ✅ | ✅ | 🚧 | ✅ | — |
 | Share to another device | — | ✅ | — | — | — |
-| Annotate | ✅ | ✅ | 🚧 | 🚧 | — |
+| Annotate | ✅ | ✅ | 🚧 | ✅ | — |
 | Edit page content | 🚧 | 🚧 | — | 🚧 | — |
-| Edit metadata | ✅ | ✅ | 🚧 | 🚧 | — |
-| Organize & assemble pages | ✅ | ✅ | 🚧 | 🚧 | — |
-| Extract pages to a new PDF | ✅ | ✅ | 🚧 | 🚧 | — |
-| Split into several PDFs | ✅ | ✅ | 🚧 | 🚧 | — |
-| Save | ✅ | ✅ | 🚧 | 🚧 | — |
-| Protect with a password | ✅ | ✅ | 🚧 | 🚧 | — |
-| Export to images | ✅ | ✅ | 🚧 | 🚧 | — |
-| Compress to a smaller PDF | ✅ | ✅ | 🚧 | 🚧 | — |
-| Sign | ✅ | ✅ | 🚧 | 🚧 | — |
-| Draw a signature | ✅ | ✅ | 🚧 | 🚧 | — |
-| Fillable forms | ✅ | 🚧 | 🚧 | 🚧 | — |
+| Edit metadata | ✅ | ✅ | 🚧 | ✅ | — |
+| Organize & assemble pages | ✅ | ✅ | 🚧 | ✅ | — |
+| Extract pages to a new PDF | ✅ | ✅ | 🚧 | ✅ | — |
+| Split into several PDFs | ✅ | ✅ | 🚧 | ✅ | — |
+| Save | ✅ | ✅ | 🚧 | ✅ | — |
+| Protect with a password | ✅ | ✅ | 🚧 | ✅ | — |
+| Export to images | ✅ | ✅ | 🚧 | ✅ | — |
+| Compress to a smaller PDF | ✅ | ✅ | 🚧 | ✅ | — |
+| Sign | ✅ | ✅ | 🚧 | ✅ | — |
+| Draw a signature | ✅ | ✅ | 🚧 | ✅ | — |
+| Fillable forms | ✅ | 🚧 | 🚧 | ✅ | — |
 
 Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
 Actions provides development-only evidence: for macOS it builds the shell, runs
@@ -170,9 +170,14 @@ distribution all remain unverified and deferred behind a paid Apple Developer
 account. The two shells share their model layer (`apps/apple/Shared`); only the
 app entry point, document picking and views are per-platform.
 
-Android has a Compose baseline; its native package still requires externally
-supplied PDFium Android libraries, so its capabilities remain in progress until
-that runtime is validated on devices.
+Android's `✅` cells were each exercised end to end on an Android emulator
+(x86_64, 16-KB pages) running the debug build with the same pinned PDFium the
+Play bundle ships (`scripts/fetch-android-pdfium.sh`), and the resulting files
+were checked off-device — saved annotations, metadata, page order and rotation,
+form values, the encryption, the compressed image DPI and the CMS signature —
+on top of the unit-test gate. No physical phone has run that pass yet. Editing
+page content stays `🚧` as it does on Linux and Windows, and Android only
+receives shared files; it does not send them.
 
 Windows no longer omits editing: its first vertical closed in B10 (password
 prompt, annotations with undo/redo, save, print, shortcuts), and retyping a

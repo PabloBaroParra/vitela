@@ -29,6 +29,9 @@ final class ViewerViewModel: ObservableObject {
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
+    /// Whether the Pages column is open — `ViewerViewModel+Navigation.swift`.
+    /// Open from the start, as on Linux and Windows.
+    @Published var showsPages = true
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
