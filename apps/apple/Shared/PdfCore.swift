@@ -107,6 +107,9 @@ protocol PdfCoreClient {
     func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent
     /// Records a content edit; the shell refreshes the preview after it.
     func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws
+    /// Why `image` cannot have its picture replaced, as a sentence, or `nil`
+    /// — asked before a file is chosen, as Windows and Android do.
+    func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String?
     /// Whether `run` was moved and not saved since — such a run cannot be
     /// retyped until the document is saved and reopened.
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool
@@ -256,15 +259,6 @@ extension PdfCoreClient {
 
     func contentEditingAllowed(document: any PdfDocument) -> Bool { false }
 
-    func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent {
-        PageContent(textRuns: [], images: [])
-    }
-
-    func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
-        throw EditFailure.notPermitted(ContentEditing.forbidden)
-    }
-
-    func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool { false }
     func undo(document: any PdfDocument) -> Bool { false }
     func redo(document: any PdfDocument) -> Bool { false }
     func canUndo(document: any PdfDocument) -> Bool { false }

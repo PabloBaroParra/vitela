@@ -30,7 +30,8 @@ responsibility:
 - `Vitela/ViewerViewModel+ContentEdit.swift`, `Views/ContentTextSheet.swift`,
   `Views/ContentOutlineOverlay.swift` — Edit Content: outlines of the lines
   and images a page paints; a click opens a line to retype or delete, a drag
-  moves a line or an image, a corner resizes an image; all run as page work
+  moves a line or an image, a corner resizes an image, Replace Image… and
+  Add Image… swap or place a PNG or JPEG; all run as page work
   (`../apple/Shared/ViewerStore+ContentEdit.swift`, `+ContentImages.swift`).
 - `Vitela/ViewerViewModel+TokenSigning.swift` — File ▸ Sign with Card or
   Token…: a PKCS#11 module and its PIN (empty for the token's own prompt),

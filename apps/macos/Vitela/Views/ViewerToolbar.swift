@@ -56,7 +56,14 @@ struct ViewerToolbar: View {
                 .toggleStyle(.button)
                 .help("Click a page to add a new line of text there")
                 .disabled(!model.canEditContent)
+            // Armed, the status line asks for the click; choosing again replaces the image.
+            Button("Add Image…", action: model.armImageInsert)
+                .help("Choose a PNG or JPEG, then click a page to place it")
+                .disabled(!model.canEditContent)
             if model.store.selectedContentImage != nil {
+                Button("Replace Image…", action: model.replaceSelectedImage)
+                    .help("Swap the selected image's picture for a PNG or JPEG, keeping its box")
+                    .disabled(model.store.pageWorkInFlight)
                 Button("Delete Image", action: model.deleteSelectedImage)
                     .help("Delete the selected image from the page (⌫)")
                     .disabled(model.store.pageWorkInFlight)

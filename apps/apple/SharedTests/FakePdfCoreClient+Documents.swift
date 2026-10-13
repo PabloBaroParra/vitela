@@ -164,6 +164,8 @@ extension FakePdfCoreClient {
         return pageContents[page] ?? PageContent(textRuns: [], images: [])
     }
 
+    func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? { imageReplaceRefusal }
+
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool {
         movedRuns.contains(run.id)
     }
@@ -186,6 +188,12 @@ extension FakePdfCoreClient {
             replaceImage(image) { [ContentImage(id: $0.id, page: $0.page, bbox: rect, resourceXObjectName: $0.resourceXObjectName)] }
         case let .removeImage(image):
             replaceImage(image) { _ in [] }
+        case .replaceImage:
+            break
+        case let .insertImage(page, rect, _):
+            let content = pageContents[page] ?? PageContent(textRuns: [], images: [])
+            let inserted = ContentImage(id: 2_000 + UInt64(content.images.count), page: page, bbox: rect, resourceXObjectName: "VitelaImage")
+            pageContents[page] = PageContent(textRuns: content.textRuns, images: content.images + [inserted])
         case let .moveText(run, rect):
             movedRuns.insert(run.id)
             replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: rect, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: $0.text)] }

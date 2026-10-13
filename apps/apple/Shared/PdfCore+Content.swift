@@ -51,6 +51,10 @@ enum ContentEdit: Equatable {
     /// A new box for the image; a corner drag may move its origin too.
     case resizeImage(ContentImage, to: PdfRect)
     case removeImage(ContentImage)
+    /// A new picture in the image's box; the core keeps the old one for undo.
+    case replaceImage(ContentImage, with: Data)
+    /// A new image on `page` filling `rect`.
+    case insertImage(page: Int, rect: PdfRect, bytes: Data)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -63,6 +67,8 @@ enum ContentEdit: Equatable {
         case .moveImage: return "Image moved."
         case .resizeImage: return "Image resized."
         case .removeImage: return "Image deleted."
+        case .replaceImage: return "Image replaced."
+        case .insertImage: return "Image inserted."
         }
     }
 }
@@ -77,6 +83,10 @@ enum ContentEditing {
     /// Windows' refusal to retype a run whose move is not saved yet.
     static let movedNotSaved = "This text was moved and not yet saved — save and reopen before retyping it."
     static let insertPrompt = "Click the page where the new text's top-left corner should go."
+    static let imageInsertPrompt = "Click the page where the image's top-left corner should go."
+    static let notAnImage = "This file is not a PNG or JPEG image."
+    /// Android's: names what the reader can do about it.
+    static let replaceRefused = "This image cannot be replaced. Save first if it already has a pending edit; some original encodings cannot be restored by Undo and are refused."
     static let insertCancelled = "Insert cancelled."
     static let insertEmpty = "Enter a nonempty single line of text."
     static let insertSizeInvalid = "Text size must be between 1 and 72 pt."
@@ -125,4 +135,20 @@ enum ContentEditing {
         let dy = max(rect.y - point.y, point.y - (rect.y + rect.height), 0)
         return (dx * dx + dy * dy).squareRoot()
     }
+}
+
+/// Defaults for clients without the core's content editor — kept beside the
+/// content types rather than in `PdfCore.swift`'s general defaults.
+extension PdfCoreClient {
+    func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent {
+        PageContent(textRuns: [], images: [])
+    }
+
+    func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
+        throw EditFailure.notPermitted(ContentEditing.forbidden)
+    }
+
+    func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool { false }
+
+    func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? { ContentEditing.replaceRefused }
 }

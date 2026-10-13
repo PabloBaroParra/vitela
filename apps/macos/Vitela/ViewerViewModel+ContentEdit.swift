@@ -21,6 +21,7 @@ extension ViewerViewModel {
         if !on {
             contentTextEditor = nil
             textInsertArmed = false
+            imageInsertBytes = nil
         }
     }
 
@@ -33,6 +34,7 @@ extension ViewerViewModel {
         }
         if !store.contentEditMode { setContentEditMode(true) }
         guard store.contentEditMode else { return }
+        imageInsertBytes = nil
         textInsertArmed = true
         store.editStatus = ContentEditing.insertPrompt
     }
@@ -67,6 +69,12 @@ extension ViewerViewModel {
     /// neither selects text nor an annotation.
     func contentPress(page: Int, location: CGPoint, zoom: Double) -> Bool {
         guard store.contentEditMode else { return false }
+        if let bytes = imageInsertBytes {
+            guard let point = annotationPoint(page: page, location: location, zoom: zoom) else { return true }
+            imageInsertBytes = nil
+            enqueuePageWork(store.beginImageInsert(page: page, at: point, bytes: bytes))
+            return true
+        }
         if textInsertArmed {
             // Placing a new line needs no content read: it goes where clicked.
             guard let point = annotationPoint(page: page, location: location, zoom: zoom) else { return true }
@@ -119,6 +127,40 @@ extension ViewerViewModel {
     func deleteText(_ run: ContentTextRun) {
         contentTextEditor = nil
         enqueuePageWork(store.beginContentEdit(.removeText(run)))
+    }
+
+    /// Add Image…: a PNG or JPEG first, then the click that places it —
+    /// Android's order. Turns Edit Content on if it is off.
+    func armImageInsert() {
+        guard canEditContent else { return }
+        guard let url = prompts.chooseImage() else { return }
+        guard let bytes = try? Data(contentsOf: url) else {
+            store.editStatus = "The selected image could not be read."
+            return
+        }
+        if !store.contentEditMode { setContentEditMode(true) }
+        guard store.contentEditMode else { return }
+        textInsertArmed = false
+        imageInsertBytes = bytes
+        store.editStatus = ContentEditing.imageInsertPrompt
+    }
+
+    /// Replace Image…: the core is asked first, so a refusal never costs the
+    /// reader a file pick — Windows' order (T-204).
+    func replaceSelectedImage() {
+        if let refusal = store.selectedImageReplacementRefusal() {
+            store.editStatus = refusal
+            return
+        }
+        guard let url = prompts.chooseImage() else {
+            store.editStatus = "Replace cancelled."
+            return
+        }
+        guard let bytes = try? Data(contentsOf: url) else {
+            store.editStatus = "The selected image could not be read."
+            return
+        }
+        enqueuePageWork(store.beginSelectedImageReplace(with: bytes))
     }
 
     /// The selected image's Delete — the toolbar button and ⌫.
