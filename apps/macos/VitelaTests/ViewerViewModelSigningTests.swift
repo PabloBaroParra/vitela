@@ -194,3 +194,64 @@ extension ViewerViewModelSigningTests {
         XCTAssertNil(KeychainSigningStore.algorithm(keyType: nil, keySizeInBits: nil))
     }
 }
+
+extension ViewerViewModelSigningTests {
+    private func tokenModel(_ client: FakePdfCoreClient, module: URL?, pin: String?, destination: URL?) -> ViewerViewModel {
+        var signing = SigningPrompts.modal
+        signing.chooseIdentity = { $0.first }
+        signing.chooseTokenModule = { module }
+        signing.askTokenPin = { pin }
+        let save = SavePrompts(chooseDestination: { _ in destination }, confirmSignatureLoss: { false }, resolveUnsavedChanges: { .cancel })
+        let model = ViewerViewModel(store: ViewerStore(client: client), prompts: save, signingPrompts: signing, sampleLoader: { Data([1]) })
+        model.openSample()
+        waitUntil({ model.store.state == .loaded }, "the sample never opened")
+        return model
+    }
+
+    func testATokenOpensWithItsPinAndSignsLikeACertificateFile() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let module = URL(fileURLWithPath: "/Library/OpenSC/lib/opensc-pkcs11.so")
+        let destination = directory.appendingPathComponent("signed.pdf")
+        let model = tokenModel(client, module: module, pin: "1234", destination: destination)
+
+        model.signWithToken()
+
+        waitUntil({ client.signedAs == ["id-1"] && !model.isSaving }, "the token never signed")
+        XCTAssertEqual(client.tokenOpens.map(\.module), [module.path])
+        XCTAssertEqual(client.tokenOpens.map(\.pin), ["1234"])
+        XCTAssertEqual(try Data(contentsOf: destination), client.signedBytes)
+    }
+
+    func testAnEmptyPinLeavesAuthenticationToTheToken() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = tokenModel(client, module: URL(fileURLWithPath: "/m.so"), pin: "", destination: nil)
+
+        model.signWithToken()
+
+        waitUntil({ !client.tokenOpens.isEmpty }, "the token was never opened")
+        XCTAssertEqual(client.tokenOpens.map(\.pin), [nil])
+    }
+
+    func testCancellingTheModuleOrThePinOpensNothing() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let noModule = tokenModel(client, module: nil, pin: "1", destination: nil)
+        noModule.signWithToken()
+        XCTAssertEqual(noModule.store.editStatus, "Certificate selection cancelled.")
+
+        let noPin = tokenModel(client, module: URL(fileURLWithPath: "/m.so"), pin: nil, destination: nil)
+        noPin.signWithToken()
+        XCTAssertEqual(noPin.store.editStatus, "Certificate selection cancelled.")
+        XCTAssertTrue(client.tokenOpens.isEmpty)
+    }
+
+    func testATokenThatWillNotOpenSaysWhy() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        client.tokenError = SigningSourceFailure.failed("The PKCS#11 module could not be loaded.")
+        let model = tokenModel(client, module: URL(fileURLWithPath: "/m.so"), pin: "1", destination: nil)
+
+        model.signWithToken()
+
+        waitUntil({ model.store.editStatus == "The PKCS#11 module could not be loaded." }, "the failure was never reported")
+        XCTAssertTrue(client.signedAs.isEmpty)
+    }
+}

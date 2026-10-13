@@ -107,6 +107,12 @@ extension FakePdfCoreClient {
         return FakeSigningSource(identities: signingIdentities)
     }
 
+    func openTokenSigningSource(modulePath: String, pin: String?) throws -> any SigningSource {
+        tokenOpens.append((modulePath, pin))
+        if let tokenError { throw tokenError }
+        return FakeSigningSource(identities: signingIdentities)
+    }
+
     /// Lists the store's identities, as the core does; signing never asks it.
     func openNativeSigningSource(_ store: any NativeSigningStore) throws -> any SigningSource {
         FakeSigningSource(identities: try store.identities().map { SigningIdentity(id: $0.id, displayName: $0.displayName) })

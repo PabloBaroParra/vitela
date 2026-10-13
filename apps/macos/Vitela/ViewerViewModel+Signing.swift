@@ -12,6 +12,10 @@ struct SigningPrompts {
     var askPassword: (_ retry: Bool) -> String?
     /// Which identity to sign as; `nil` when cancelled.
     var chooseIdentity: (_ identities: [SigningIdentity]) -> SigningIdentity?
+    /// A card or token's PKCS#11 module; `nil` when cancelled.
+    var chooseTokenModule: () -> URL? = TokenSigningPrompts.chooseModule
+    /// The token's PIN; `""` leaves it to the token's own prompt, `nil` cancels.
+    var askTokenPin: () -> String? = TokenSigningPrompts.askPin
     /// The user's keychains, as a store whose keys never leave them.
     var openKeychain: () throws -> any NativeSigningStore = { try KeychainSigningStore.open() }
 
@@ -124,7 +128,9 @@ extension ViewerViewModel {
         }
     }
 
-    private func chooseIdentity(in source: any SigningSource) {
+    /// The rest of every signing path once a source is open: identity,
+    /// destination, sign, write, reopen.
+    func chooseIdentity(in source: any SigningSource) {
         let identities = source.identities
         guard !identities.isEmpty else {
             store.editStatus = "This certificate source has no usable signing identities."

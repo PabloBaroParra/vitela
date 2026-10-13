@@ -27,6 +27,9 @@ responsibility:
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
+- `Vitela/ViewerViewModel+TokenSigning.swift` — File ▸ Sign with Card or
+  Token…: a PKCS#11 module and its PIN (empty for the token's own prompt),
+  then the certificate-file signing path.
 - `Vitela/KeychainSigningStore.swift` — File ▸ Sign with Keychain
   Identity…: the RSA and P-256 identities in the user's keychains, handed to
   the core as a `NativeSigningStore`; keys never leave the Keychain.

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The menu bar: File ▸ New/Open/Save/Protect/Sign/Compress/Extract/Split/
-/// Export/Print/Share, Sign (file or Keychain), Edit ▸ Undo/Redo, the Go menu and View ▸ Pages and zoom, with the standard shortcuts. Undo and Redo replace the system items because the document's
+/// Export/Print/Share, Sign (file, Keychain, or card or token), Edit ▸ Undo/Redo, the Go menu and View ▸ Pages and zoom, with the standard shortcuts. Undo and Redo replace the system items because the document's
 /// history lives in the core's EditLog, not in an `NSUndoManager`.
 struct VitelaCommands: Commands {
     @ObservedObject var model: ViewerViewModel
@@ -39,6 +39,8 @@ struct VitelaCommands: Commands {
             Button("Protect with Password…", action: model.requestProtect)
                 .disabled(model.store.document == nil || model.isSaving)
             Button("Sign with Certificate…", action: model.signWithCertificateFile)
+                .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
+            Button("Sign with Card or Token…", action: model.signWithToken)
                 .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
             Button("Sign with Keychain Identity…", action: model.signWithKeychainIdentity)
                 .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
