@@ -156,6 +156,17 @@ extension ViewerStore {
         return PageWorkRequest(generation: generation, document: document, work: .editContent(edit))
     }
 
+    /// Inserts `text` at `size` (as typed) with its top-left corner at
+    /// `point` on `page`. Returns why the sheet must stay open, or `nil`
+    /// once the insertion is on its way.
+    func beginTextInsert(page: Int, at point: PdfPoint, text: String, size: String) -> (problem: String?, request: PageWorkRequest?) {
+        guard ContentEditing.insertableText(text) else { return (ContentEditing.insertEmpty, nil) }
+        guard let points = Double(size.trimmingCharacters(in: .whitespaces)),
+              let rect = ContentEditing.insertedTextRect(at: point, size: points)
+        else { return (ContentEditing.insertSizeInvalid, nil) }
+        return (nil, beginContentEdit(.insertText(page: page, rect: rect, text: text)))
+    }
+
     /// After anything that may change what a page paints.
     func forgetPageContent() {
         contentDrag = nil

@@ -220,4 +220,34 @@ final class ViewerStoreContentEditTests: XCTestCase {
         XCTAssertEqual(store.editStatus, ContentEditing.positionUnchanged)
         XCTAssertTrue(client.contentEdits.isEmpty)
     }
+
+    // MARK: - Inserting
+
+    func testANewLineGoesWithItsTopLeftCornerAtTheClick() throws {
+        let (client, store) = opened()
+        store.setContentEditMode(true)
+
+        let (problem, request) = store.beginTextInsert(page: 0, at: PdfPoint(x: 72, y: 700), text: "Paid", size: "14")
+        XCTAssertNil(problem)
+        let work = try XCTUnwrap(request)
+        store.applyPageWork(store.pageWorkResult(for: work), for: work)
+
+        XCTAssertEqual(client.contentEdits, [.insertText(page: 0, rect: PdfRect(x: 72, y: 686, width: 14, height: 14), text: "Paid")])
+        XCTAssertEqual(store.editStatus, "Text inserted. Changes are pending save.")
+        XCTAssertTrue(store.canUndo)
+    }
+
+    func testAnInsertNeedsOneLineAndASizeFromOneToSeventyTwo() {
+        let (client, store) = opened()
+        store.setContentEditMode(true)
+        let at = PdfPoint(x: 10, y: 10)
+
+        XCTAssertEqual(store.beginTextInsert(page: 0, at: at, text: "  ", size: "14").problem, ContentEditing.insertEmpty)
+        XCTAssertEqual(store.beginTextInsert(page: 0, at: at, text: "two\nlines", size: "14").problem, ContentEditing.insertEmpty)
+        XCTAssertEqual(store.beginTextInsert(page: 0, at: at, text: "ok", size: "0").problem, ContentEditing.insertSizeInvalid)
+        XCTAssertEqual(store.beginTextInsert(page: 0, at: at, text: "ok", size: "73").problem, ContentEditing.insertSizeInvalid)
+        XCTAssertEqual(store.beginTextInsert(page: 0, at: at, text: "ok", size: "big").problem, ContentEditing.insertSizeInvalid)
+        XCTAssertTrue(client.contentEdits.isEmpty)
+        XCTAssertFalse(store.pageWorkInFlight)
+    }
 }

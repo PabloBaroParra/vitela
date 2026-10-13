@@ -183,3 +183,25 @@ extension UniFfiOutputIntegrationTests {
     } }
 }
 
+extension UniFfiOutputIntegrationTests {
+    /// A new line added against the real core is painted by the page: it
+    /// reads back as one of the page's own runs, in its own Helvetica.
+    func testAddingALineToTheSampleMakesItPartOfThePage() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        store.setContentEditMode(true)
+
+        let (problem, request) = store.beginTextInsert(page: 0, at: PdfPoint(x: 72, y: 120), text: "Vitela was here", size: "14")
+        XCTAssertNil(problem)
+        let work = try XCTUnwrap(request)
+        store.applyPageWork(store.pageWorkResult(for: work), for: work)
+        XCTAssertTrue(store.canUndo)
+
+        let read = try XCTUnwrap(store.beginPageContent(page: 0))
+        store.applyPageContent(store.pageContentResult(for: read), for: read)
+        let added = try XCTUnwrap(store.pageContent[0]?.textRuns.first { $0.text == "Vitela was here" })
+        XCTAssertEqual(added.fontKind, .standard14)
+        XCTAssertTrue(added.resourceFontName.hasPrefix("VitelaText"))
+    } }
+}
+

@@ -178,6 +178,10 @@ extension FakePdfCoreClient {
             replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: $0.bbox, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: text)] }
         case let .removeText(run):
             replaceRun(run) { _ in [] }
+        case let .insertText(page, rect, text):
+            let content = pageContents[page] ?? PageContent(textRuns: [], images: [])
+            let inserted = ContentTextRun(id: 1_000 + UInt64(content.textRuns.count), page: page, bbox: rect, resourceFontName: "VitelaText", fontKind: .standard14, text: text)
+            pageContents[page] = PageContent(textRuns: content.textRuns + [inserted], images: content.images)
         case let .moveText(run, rect):
             movedRuns.insert(run.id)
             replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: rect, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: $0.text)] }

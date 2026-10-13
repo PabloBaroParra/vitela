@@ -123,4 +123,34 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         XCTAssertNil(model.contentTextEditor)
         XCTAssertEqual(model.store.editStatus, ContentEditing.movedNotSaved)
     }
+
+    func testAddTextArmsTheModeAndTheNextClickPlacesTheLine() {
+        let (client, model) = model()
+
+        model.armTextInsert(true)
+        XCTAssertTrue(model.store.contentEditMode, "Add Text turns Edit Text on")
+        XCTAssertEqual(model.store.editStatus, ContentEditing.insertPrompt)
+        model.pageDragBegan(page: 0, location: location(72, 500), dimensions: PageDimensions(width: 612, height: 792), zoom: 1)
+
+        XCTAssertFalse(model.textInsertArmed)
+        XCTAssertEqual(model.pendingTextInsert, PendingTextInsert(page: 0, point: PdfPoint(x: 72, y: 500)))
+        XCTAssertEqual(model.insertText("x", size: "200"), ContentEditing.insertSizeInvalid, "the sheet stays open")
+        XCTAssertNil(model.insertText("Approved", size: "12"))
+        XCTAssertNil(model.pendingTextInsert)
+        waitUntil({ !model.store.pageWorkInFlight && client.contentEdits.count == 1 }, "the insertion never ran")
+        XCTAssertEqual(client.contentEdits.first, .insertText(page: 0, rect: PdfRect(x: 72, y: 488, width: 12, height: 12), text: "Approved"))
+    }
+
+    func testCancellingAnInsertSaysSo() {
+        let (client, model) = model()
+        model.armTextInsert(true)
+        model.armTextInsert(false)
+        XCTAssertEqual(model.store.editStatus, ContentEditing.insertCancelled)
+
+        model.pendingTextInsert = PendingTextInsert(page: 0, point: PdfPoint(x: 1, y: 1))
+        model.cancelTextInsert()
+
+        XCTAssertNil(model.pendingTextInsert)
+        XCTAssertTrue(client.contentEdits.isEmpty)
+    }
 }

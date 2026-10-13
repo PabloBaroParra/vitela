@@ -35,6 +35,10 @@ final class ViewerViewModel: ObservableObject {
     /// Whether the Pages column is open — `ViewerViewModel+Navigation.swift`.
     /// Open from the start, as on Linux and Windows.
     @Published var showsPages = true
+    /// Add Text is armed: the next click on a page places a new line there.
+    @Published var textInsertArmed = false
+    /// Where the new line goes, while its sheet is up.
+    @Published var pendingTextInsert: PendingTextInsert?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
