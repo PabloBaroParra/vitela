@@ -24,6 +24,10 @@ struct ViewerRootView: View {
                 } else {
                     pageList
                 }
+                if model.store.search != nil {
+                    Divider()
+                    SearchResultsPanel(store: model.store).frame(width: 260)
+                }
                 if showsProperties {
                     Divider()
                     PropertiesPanel(store: model.store)
