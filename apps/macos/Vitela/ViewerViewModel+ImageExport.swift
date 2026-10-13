@@ -35,18 +35,37 @@ extension ViewerViewModel {
             store.editStatus = "Export cancelled. No file was written."
             return
         }
+        guard let source = store.beginOutput() else {
+            store.editStatus = "Export stopped: The document is no longer open."
+            return
+        }
         isSaving = true
-        writeImage(0, of: plan, into: folder)
+        store.editStatus = "Preparing pages…"
+        // Resolved once, off the main thread: an annotated session exports
+        // its output snapshot, which is a whole save in memory.
+        operationQueue.addOperation { [weak self] in
+            guard let self else { return }
+            let output = self.store.outputDocument(for: source)
+            DispatchQueue.main.async {
+                switch output {
+                case let .success(document):
+                    self.writeImage(0, of: plan, from: document, into: folder)
+                case let .failure(failure):
+                    self.isSaving = false
+                    self.store.editStatus = "Export stopped. No file was written: \(failure.localizedDescription)"
+                }
+            }
+        }
     }
 
-    private func writeImage(_ index: Int, of plan: ViewerStore.ImageExportPlan, into folder: URL) {
+    private func writeImage(_ index: Int, of plan: ViewerStore.ImageExportPlan, from output: any PdfDocument, into folder: URL) {
         guard index < plan.files.count else {
             isSaving = false
             store.editStatus = ViewerStore.imageExportSummary(count: index, format: plan.format, folder: folder.path)
             return
         }
         let file = plan.files[index]
-        guard let request = store.beginImageExport(file, of: plan) else {
+        guard let request = store.beginImageExport(file, of: plan, from: output) else {
             isSaving = false
             store.editStatus = "Export stopped after \(index) written: The document is no longer open."
             return
@@ -72,7 +91,7 @@ extension ViewerViewModel {
                 }
             }
             DispatchQueue.main.async {
-                guard let stop else { return self.writeImage(index + 1, of: plan, into: folder) }
+                guard let stop else { return self.writeImage(index + 1, of: plan, from: output, into: folder) }
                 self.isSaving = false
                 self.store.editStatus = stop
             }
