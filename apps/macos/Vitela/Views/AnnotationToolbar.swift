@@ -7,6 +7,8 @@ struct AnnotationToolbar: View {
     @ObservedObject var store: ViewerStore
     /// Opens Draw Signature, which lives on the view model.
     var drawSignature: () -> Void = {}
+    /// Whether Organize is showing instead of the pages.
+    var organizing = false
     /// The note being read, while its sheet is up.
     @State private var readNote: String?
 
@@ -23,6 +25,14 @@ struct AnnotationToolbar: View {
             Button("Pointer") { store.armAnnotationTool(nil) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(store.armedTool == nil)
+            Divider().frame(height: 16)
+            // Organize hides the pages they would scroll to, as on Windows.
+            Button("Previous Annotation") { store.stepAnnotation(forward: false) }
+                .help("Select and show the previous annotation (⌥⌘[)")
+                .disabled(!store.canStepAnnotations || organizing)
+            Button("Next Annotation") { store.stepAnnotation(forward: true) }
+                .help("Select and show the next annotation (⌥⌘])")
+                .disabled(!store.canStepAnnotations || organizing)
             if let selected = store.selectedAnnotation {
                 Divider().frame(height: 16)
                 selectionControls(selected)
