@@ -59,3 +59,17 @@ final class UniFfiSigningIntegrationTests: XCTestCase {
         }
     }
 }
+
+extension UniFfiSigningIntegrationTests {
+    /// A module that is not there is refused by the core in words, without
+    /// crashing the app that tried to load it.
+    func testAMissingTokenModuleIsRefusedInWords() throws {
+        try offMain {
+            let client = UniFfiPdfCoreClient()
+            XCTAssertThrowsError(try client.openTokenSigningSource(modulePath: "/nonexistent/vitela-no-such-pkcs11.so", pin: "1234")) { error in
+                guard case let .failed(message) = error as? SigningSourceFailure else { return XCTFail("unexpected \(error)") }
+                XCTAssertFalse(message.isEmpty)
+            }
+        }
+    }
+}

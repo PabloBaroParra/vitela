@@ -20,6 +20,14 @@ extension UniFfiPdfCoreClient {
         }
     }
 
+    func openTokenSigningSource(modulePath: String, pin: String?) throws -> any SigningSource {
+        do {
+            return UniFfiSigningSource(certificate: try Vitela.openTokenSigningSource(modulePath: modulePath, pin: pin))
+        } catch let error as FfiError {
+            throw SigningSourceFailure.failed(EditFailure(error).localizedDescription)
+        }
+    }
+
     func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data {
         let handle = try handle(of: document)
         guard let source = source as? UniFfiSigningSource else {

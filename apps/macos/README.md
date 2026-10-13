@@ -26,6 +26,9 @@ responsibility:
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
+- `Vitela/ViewerViewModel+TokenSigning.swift` — File ▸ Sign with Card or
+  Token…: a PKCS#11 module and its PIN (empty for the token's own prompt),
+  then the certificate-file signing path.
 - `Vitela/ViewerViewModel+Print.swift` — Print… (⌘P): the standard print
   panel over `Views/PrintPagesView`, which paginates one paper page per PDF
   page and renders each on demand (144 DPI for the panel's preview, 300 DPI

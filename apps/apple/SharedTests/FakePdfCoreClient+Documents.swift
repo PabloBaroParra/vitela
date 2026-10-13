@@ -100,6 +100,12 @@ extension FakePdfCoreClient {
         return FakeSigningSource(identities: signingIdentities)
     }
 
+    func openTokenSigningSource(modulePath: String, pin: String?) throws -> any SigningSource {
+        tokenOpens.append((modulePath, pin))
+        if let tokenError { throw tokenError }
+        return FakeSigningSource(identities: signingIdentities)
+    }
+
     func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data {
         signedAs.append(identityId)
         if let signError { throw signError }

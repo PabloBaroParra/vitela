@@ -30,6 +30,8 @@ struct VitelaCommands: Commands {
                 .disabled(model.store.document == nil || model.isSaving)
             Button("Sign with Certificate…", action: model.signWithCertificateFile)
                 .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
+            Button("Sign with Card or Token…", action: model.signWithToken)
+                .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
         }
         CommandGroup(replacing: .printItem) {
             Button("Print…", action: model.printDocument)

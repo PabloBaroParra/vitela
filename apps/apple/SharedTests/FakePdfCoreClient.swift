@@ -106,6 +106,8 @@ final class FakePdfCoreClient: PdfCoreClient {
     var signError: Error?
     var signedBytes = Data("%PDF-signed".utf8)
     var reopenedSigned: [Data] = []
+    var tokenOpens: [(module: String, pin: String?)] = []
+    var tokenError: Error?
     // Protecting.
     var protectInvalidatesSignatures = false
     var protectedBytes = Data("%PDF-protected".utf8)
