@@ -121,3 +121,76 @@ final class ViewerViewModelSigningTests: XCTestCase {
         XCTAssertNil(store.signingRefusal)
     }
 }
+
+/// A Keychain stand-in: fixed identities, and a record of what it was asked.
+private final class FakeKeychain: NativeSigningStore {
+    var listed: [NativeSigningIdentity]
+    var failure: Error?
+
+    init(_ listed: [NativeSigningIdentity], failure: Error? = nil) {
+        self.listed = listed
+        self.failure = failure
+    }
+
+    func identities() throws -> [NativeSigningIdentity] {
+        if let failure { throw failure }
+        return listed
+    }
+
+    func signDigest(identityId: String, digest: Data, algorithm: NativeSigningAlgorithm) throws -> Data { Data() }
+}
+
+extension ViewerViewModelSigningTests {
+    private func keychainModel(_ client: FakePdfCoreClient, keychain: FakeKeychain, destination: URL?) -> ViewerViewModel {
+        var signing = SigningPrompts.modal
+        signing.chooseIdentity = { $0.last }
+        signing.openKeychain = { keychain }
+        let save = SavePrompts(chooseDestination: { _ in destination }, confirmSignatureLoss: { false }, resolveUnsavedChanges: { .cancel })
+        let model = ViewerViewModel(store: ViewerStore(client: client), prompts: save, signingPrompts: signing, sampleLoader: { Data([1]) })
+        model.openSample()
+        waitUntil({ model.store.state == .loaded }, "the sample never opened")
+        return model
+    }
+
+    func testAKeychainIdentitySignsLikeACertificateFile() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let keychain = FakeKeychain([
+            NativeSigningIdentity(id: "A1", displayName: "Ana", certificateChainDer: [Data([1])], algorithm: .rsaSha256),
+            NativeSigningIdentity(id: "B2", displayName: "Bo", certificateChainDer: [Data([2])], algorithm: .ecdsaSha256),
+        ])
+        let destination = directory.appendingPathComponent("signed.pdf")
+        let model = keychainModel(client, keychain: keychain, destination: destination)
+
+        model.signWithKeychainIdentity()
+
+        waitUntil({ client.signedAs == ["B2"] && !model.isSaving }, "the Keychain identity never signed")
+        XCTAssertEqual(try Data(contentsOf: destination), client.signedBytes)
+    }
+
+    func testAnEmptyKeychainSaysWhereToGetAnIdentity() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = keychainModel(client, keychain: FakeKeychain([]), destination: nil)
+
+        model.signWithKeychainIdentity()
+
+        waitUntil({ model.store.editStatus.hasPrefix("No signing identity") }, "the empty Keychain was never reported")
+        XCTAssertTrue(client.signedAs.isEmpty)
+    }
+
+    func testAKeychainThatCannotBeReadSaysWhy() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let failing = FakeKeychain([], failure: KeychainSigningFailure(message: "The Keychain could not be read (locked)."))
+        let model = keychainModel(client, keychain: failing, destination: nil)
+
+        model.signWithKeychainIdentity()
+
+        waitUntil({ model.store.editStatus == "The Keychain could not be read (locked)." }, "the failure was never reported")
+    }
+
+    func testOnlyRsaAndP256KeysCanSign() {
+        XCTAssertEqual(KeychainSigningStore.algorithm(keyType: kSecAttrKeyTypeRSA as String, keySizeInBits: 2048), .rsaSha256)
+        XCTAssertEqual(KeychainSigningStore.algorithm(keyType: kSecAttrKeyTypeECSECPrimeRandom as String, keySizeInBits: 256), .ecdsaSha256)
+        XCTAssertNil(KeychainSigningStore.algorithm(keyType: kSecAttrKeyTypeECSECPrimeRandom as String, keySizeInBits: 384))
+        XCTAssertNil(KeychainSigningStore.algorithm(keyType: nil, keySizeInBits: nil))
+    }
+}

@@ -27,6 +27,9 @@ responsibility:
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
+- `Vitela/KeychainSigningStore.swift` — File ▸ Sign with Keychain
+  Identity…: the RSA and P-256 identities in the user's keychains, handed to
+  the core as a `NativeSigningStore`; keys never leave the Keychain.
 - `Vitela/ViewerViewModel+Recents.swift`, `RecentDocumentStore.swift`,
   `Views/HomeView.swift` — the start screen's Recent list (by day, page-1
   previews, search, Remove from Recent) and File ▸ Open Recent. The rules
