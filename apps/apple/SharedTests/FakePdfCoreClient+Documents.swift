@@ -39,8 +39,15 @@ extension FakePdfCoreClient {
 
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data {
         exportedImages.append((page, dpi, format))
+        if document is FakeSnapshotDocument { exportedFromSnapshot += 1 }
         if let exportError, exportedImages.count > failExportsAfter { throw exportError }
         return Data("image-\(page)".utf8)
+    }
+
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        snapshotsTaken += 1
+        if let snapshotError { throw snapshotError }
+        return FakeSnapshotDocument(pages: document.pages)
     }
 
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? {
