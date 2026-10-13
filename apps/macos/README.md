@@ -26,6 +26,10 @@ responsibility:
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
+- `Vitela/ViewerViewModel+ContentEdit.swift`, `Views/ContentTextSheet.swift`,
+  `Views/ContentOutlineOverlay.swift` — Edit Text: outlines of the lines a
+  page paints, a click opening one to retype or delete, run as page work
+  (`../apple/Shared/ViewerStore+ContentEdit.swift`).
 - `Vitela/ViewerViewModel+Print.swift` — Print… (⌘P): the standard print
   panel over `Views/PrintPagesView`, which paginates one paper page per PDF
   page and renders each on demand (144 DPI for the panel's preview, 300 DPI

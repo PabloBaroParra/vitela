@@ -29,6 +29,9 @@ final class ViewerViewModel: ObservableObject {
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
+    /// The page text being retyped, while its sheet is up —
+    /// `ViewerViewModel+ContentEdit.swift`.
+    @Published var contentTextEditor: ContentTextRun?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.

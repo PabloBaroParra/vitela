@@ -91,6 +91,7 @@ extension ViewerStore {
             selectedAnnotationId = nil
             armedField = nil
             formEditMode = false
+            contentEditMode = false
             selectedFieldId = nil
         }
         switch tool {

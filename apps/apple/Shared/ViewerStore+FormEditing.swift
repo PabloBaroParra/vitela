@@ -39,6 +39,7 @@ extension ViewerStore {
         if on {
             // One mode owns a page click at a time.
             armedTool = nil
+            contentEditMode = false
             selectedAnnotationId = nil
             formStatus = "Edit fields armed — pick a field type to place, or click an existing field to select it."
         } else {

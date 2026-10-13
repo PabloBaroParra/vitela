@@ -103,6 +103,10 @@ protocol PdfCoreClient {
     func documentInfo(document: any PdfDocument) throws -> DocumentInfo
     func setDocumentInfo(document: any PdfDocument, info: DocumentInfo) throws
     func contentEditingAllowed(document: any PdfDocument) -> Bool
+    /// What `page` paints that can be edited — `PdfCore+Content.swift`.
+    func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent
+    /// Records a content edit; the shell refreshes the preview after it.
+    func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws
     func undo(document: any PdfDocument) -> Bool
     func redo(document: any PdfDocument) -> Bool
     func canUndo(document: any PdfDocument) -> Bool
@@ -239,6 +243,14 @@ extension PdfCoreClient {
     }
 
     func contentEditingAllowed(document: any PdfDocument) -> Bool { false }
+
+    func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent {
+        PageContent(textRuns: [], images: [])
+    }
+
+    func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
+        throw EditFailure.notPermitted(ContentEditing.forbidden)
+    }
     func undo(document: any PdfDocument) -> Bool { false }
     func redo(document: any PdfDocument) -> Bool { false }
     func canUndo(document: any PdfDocument) -> Bool { false }

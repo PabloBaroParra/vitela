@@ -1,0 +1,171 @@
+import XCTest
+@testable import Vitela
+
+final class ViewerStoreContentEditTests: XCTestCase {
+    private func run(_ id: UInt64, _ rect: PdfRect, text: String = "Hello", kind: ContentFontKind = .standard14, page: Int = 0) -> ContentTextRun {
+        ContentTextRun(id: id, page: page, bbox: rect, resourceFontName: "F1", fontKind: kind, text: text)
+    }
+
+    private func opened(_ client: FakePdfCoreClient = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])) -> (FakePdfCoreClient, ViewerStore) {
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        return (client, store)
+    }
+
+    /// Reads page 0 the way the shell does, synchronously.
+    private func read(_ store: ViewerStore, page: Int = 0) {
+        guard let request = store.beginPageContent(page: page) else { return }
+        store.applyPageContent(store.pageContentResult(for: request), for: request)
+    }
+
+    private func perform(_ store: ViewerStore, _ edit: ContentEdit) {
+        guard let request = store.beginContentEdit(edit) else { return }
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+    }
+
+    // MARK: - Hit-testing
+
+    func testAClickInsideARunWinsAndTheSmallestOfEqualsIsChosen() {
+        let wide = run(1, PdfRect(x: 0, y: 0, width: 300, height: 20))
+        let word = run(2, PdfRect(x: 10, y: 2, width: 40, height: 12))
+        XCTAssertEqual(ContentEditing.textRun(at: PdfPoint(x: 20, y: 8), in: [wide, word], reach: 0)?.id, 2)
+        XCTAssertEqual(ContentEditing.textRun(at: PdfPoint(x: 200, y: 8), in: [wide, word], reach: 0)?.id, 1)
+    }
+
+    func testANearMissWithinReachStillMeansTheRun() {
+        let line = run(1, PdfRect(x: 100, y: 100, width: 50, height: 10))
+        XCTAssertEqual(ContentEditing.textRun(at: PdfPoint(x: 120, y: 113), in: [line], reach: 4)?.id, 1)
+        XCTAssertNil(ContentEditing.textRun(at: PdfPoint(x: 120, y: 120), in: [line], reach: 4))
+    }
+
+    func testReachIsInScreenPointsSoItShrinksWhenZoomedIn() {
+        let (client, store) = opened()
+        client.pageContents[0] = PageContent(textRuns: [run(1, PdfRect(x: 100, y: 100, width: 50, height: 10))], images: [])
+        store.setContentEditMode(true)
+        read(store)
+
+        XCTAssertNotNil(store.textRun(page: 0, at: PdfPoint(x: 120, y: 114), zoom: 1))
+        XCTAssertNil(store.textRun(page: 0, at: PdfPoint(x: 120, y: 114), zoom: 4))
+    }
+
+    // MARK: - The mode
+
+    func testTheModeNeedsPermission() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        client.editingAllowed = false
+        let (_, store) = opened(client)
+
+        store.setContentEditMode(true)
+
+        XCTAssertFalse(store.contentEditMode)
+        XCTAssertEqual(store.editStatus, ContentEditing.forbidden)
+    }
+
+    func testOneModeOwnsAClickAtATime() {
+        let (_, store) = opened()
+        store.armAnnotationTool(.highlight)
+
+        store.setContentEditMode(true)
+        XCTAssertNil(store.armedTool)
+        XCTAssertEqual(store.editStatus, ContentEditing.armed)
+
+        store.armAnnotationTool(.shape)
+        XCTAssertFalse(store.contentEditMode, "arming a tool leaves Edit Text")
+    }
+
+    func testAPageIsReadOnceAndOnlyInTheMode() {
+        let (client, store) = opened()
+        XCTAssertNil(store.beginPageContent(page: 0), "not outside the mode")
+
+        store.setContentEditMode(true)
+        read(store)
+        read(store)
+
+        XCTAssertEqual(client.pageContentReads, [0])
+    }
+
+    func testAReadOfAnEarlierLayoutIsDropped() throws {
+        let (client, store) = opened()
+        client.pageContents[0] = PageContent(textRuns: [run(1, PdfRect(x: 0, y: 0, width: 10, height: 10))], images: [])
+        store.setContentEditMode(true)
+        let request = try XCTUnwrap(store.beginPageContent(page: 0))
+        store.bumpGeneration()
+
+        store.applyPageContent(store.pageContentResult(for: request), for: request)
+
+        XCTAssertNil(store.pageContent[0])
+    }
+
+    // MARK: - Editing
+
+    func testRetypingIsOneUndoableStepAndThePageIsReadAgain() {
+        let (client, store) = opened()
+        let line = run(7, PdfRect(x: 10, y: 10, width: 80, height: 12))
+        client.pageContents[0] = PageContent(textRuns: [line], images: [])
+        store.setContentEditMode(true)
+        read(store)
+
+        perform(store, .retypeText(line, to: "Goodbye"))
+
+        XCTAssertEqual(client.contentEdits, [.retypeText(line, to: "Goodbye")])
+        XCTAssertEqual(store.editStatus, "Text updated. Changes are pending save.")
+        XCTAssertTrue(store.canUndo)
+        XCTAssertTrue(store.hasUnsavedChanges)
+        XCTAssertNil(store.pageContent[0], "what the page paints changed")
+        read(store)
+        XCTAssertEqual(store.pageContent[0]?.textRuns.first?.text, "Goodbye")
+    }
+
+    func testDeletingRemovesTheRun() {
+        let (client, store) = opened()
+        let line = run(7, PdfRect(x: 10, y: 10, width: 80, height: 12))
+        client.pageContents[0] = PageContent(textRuns: [line], images: [])
+        store.setContentEditMode(true)
+
+        perform(store, .removeText(line))
+
+        XCTAssertEqual(store.editStatus, "Text deleted. Changes are pending save.")
+        read(store)
+        XCTAssertEqual(store.pageContent[0]?.textRuns, [])
+    }
+
+    func testAnEmptyOrUnchangedRetypeIsNotSent() {
+        let (client, store) = opened()
+        let line = run(7, PdfRect(x: 10, y: 10, width: 80, height: 12))
+        store.setContentEditMode(true)
+
+        XCTAssertNil(store.beginContentEdit(.retypeText(line, to: "  ")))
+        XCTAssertEqual(store.editStatus, ContentEditing.emptyRetype)
+        XCTAssertNil(store.beginContentEdit(.retypeText(line, to: "Hello")))
+        XCTAssertTrue(client.contentEdits.isEmpty)
+        XCTAssertFalse(store.pageWorkInFlight)
+    }
+
+    func testARefusalSaysWhyAndRecordsNothing() {
+        let (client, store) = opened()
+        client.contentEditError = EditFailure.failed("This text's font cannot show \"€\". Try different characters.")
+        let line = run(7, PdfRect(x: 10, y: 10, width: 80, height: 12))
+        store.setContentEditMode(true)
+
+        perform(store, .retypeText(line, to: "€5"))
+
+        XCTAssertEqual(store.editStatus, "This text's font cannot show \"€\". Try different characters.")
+        XCTAssertFalse(store.canUndo)
+        XCTAssertFalse(store.pageWorkInFlight)
+    }
+
+    func testACompositeFontRunSaysItsFontWillBeReplaced() {
+        XCTAssertTrue(run(1, PdfRect(x: 0, y: 0, width: 1, height: 1), kind: .embeddedComposite).substitutesFont)
+        XCTAssertFalse(run(1, PdfRect(x: 0, y: 0, width: 1, height: 1), kind: .embeddedSimple).substitutesFont)
+    }
+
+    func testOpeningAnotherDocumentLeavesTheMode() {
+        let (_, store) = opened()
+        store.setContentEditMode(true)
+
+        store.open(bytes: Data([2]))
+
+        XCTAssertFalse(store.contentEditMode)
+        XCTAssertTrue(store.pageContent.isEmpty)
+    }
+}

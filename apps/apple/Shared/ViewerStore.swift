@@ -127,6 +127,11 @@ final class ViewerStore: ObservableObject {
     @Published var selectedFieldId: UInt64?
     @Published var fieldGesture: FieldGesture?
     @Published var annotationEditingAllowed = false
+    // Content editing — `ViewerStore+ContentEdit.swift`.
+    @Published var contentEditMode = false
+    /// Each page's editable content, read on first need in the mode.
+    @Published var pageContent: [Int: PageContent] = [:]
+    var pageContentRequested = Set<Int>()
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?
     @Published var pendingNote: PendingNote?
