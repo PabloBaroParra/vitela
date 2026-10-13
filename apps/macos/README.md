@@ -101,6 +101,12 @@ until a save writes them into the file, the same split Linux and Windows
 use. Overlay positions come from the core's turn-aware `place_rect` /
 `point_to_pdf`, so a rotated page gets them in the right place.
 
+Print and Export Pages as Images have no overlay pass, so an annotated
+session renders them from the core's output snapshot instead — the
+document as a save would write it, reopened under the session's password
+(`ViewerStore+OutputSnapshot.swift`). Without annotations they render the
+open document itself.
+
 ## Building
 
 `scripts/build-macos.sh --assemble` runs the whole chain: `cargo build

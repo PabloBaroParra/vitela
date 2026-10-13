@@ -88,6 +88,11 @@ final class FakePdfCoreClient: PdfCoreClient {
     var exportError: Error?
     var failExportsAfter = 0
     var oversizedPage: Int?
+    // Output snapshots, and how many renders and exports drew from one.
+    var snapshotsTaken = 0
+    var snapshotError: Error?
+    var renderedFromSnapshot = 0
+    var exportedFromSnapshot = 0
     // Compressing.
     var compressRefusalText: String?
     var compressInvalidatesSignatures = false
@@ -130,6 +135,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage {
         requestedDpi.append(dpi)
         requestedPages.append(page)
+        if document is FakeSnapshotDocument { renderedFromSnapshot += 1 }
         if let renderError { throw renderError }
         return renderedImage
     }
@@ -241,6 +247,11 @@ final class FakePdfCoreClient: PdfCoreClient {
 }
 
 struct FakeCoreDocument: PdfDocument {
+    let pages: [PageDimensions]
+}
+
+/// What `outputSnapshot` hands back, so a test can tell it from the live one.
+struct FakeSnapshotDocument: PdfDocument {
     let pages: [PageDimensions]
 }
 
