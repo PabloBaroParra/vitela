@@ -12,6 +12,16 @@ struct VitelaCommands: Commands {
                 .keyboardShortcut("n", modifiers: .command)
             Button("Open…", action: model.selectDocument)
                 .keyboardShortcut("o", modifiers: .command)
+            Menu("Open Recent") {
+                ForEach(Array(model.recentDocuments.prefix(10)), id: \.path) { document in
+                    Button(document.name) { model.openRecent(document) }
+                }
+                if !model.recentDocuments.isEmpty {
+                    Divider()
+                }
+                Button("Clear Menu", action: model.clearRecents)
+                    .disabled(model.recentDocuments.isEmpty)
+            }
         }
         CommandGroup(replacing: .saveItem) {
             Button("Save As…") { model.saveAs() }

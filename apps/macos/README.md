@@ -19,13 +19,19 @@ responsibility:
 - `Vitela/VitelaApp.swift` — entry point only, nothing else.
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
   changes before quitting, and passes on files Finder opens with Vitela.
-- `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Save As, Protect,
+- `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Open Recent, Save As, Protect,
   Compress, Extract Pages, Split PDF, Export Pages as Images, Print, Undo,
   Redo, the Go menu's page navigation, and View ▸ zoom).
 - `Vitela/ViewerViewModel.swift` — file selection, File ▸ New, the render
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
+- `Vitela/ViewerViewModel+Recents.swift`, `RecentDocumentStore.swift`,
+  `Views/HomeView.swift` — the start screen's Recent list (by day, page-1
+  previews, search, Remove from Recent) and File ▸ Open Recent. The rules
+  are `../apple/Shared/RecentDocuments.swift`; the app keeps the list in
+  Application Support, a view model made without that store (every test)
+  keeps it in memory.
 - `Vitela/ViewerViewModel+Print.swift` — Print… (⌘P): the standard print
   panel over `Views/PrintPagesView`, which paginates one paper page per PDF
   page and renders each on demand (144 DPI for the panel's preview, 300 DPI
