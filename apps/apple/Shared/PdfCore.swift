@@ -153,6 +153,8 @@ protocol PdfCoreClient {
     /// Why the document cannot be signed, as a sentence, or `nil`.
     func signingRefusal(document: any PdfDocument) -> String?
     func openSigningCertificate(bytes: Data, password: String) throws -> any SigningSource
+    /// A source over a native store's keys, which stay in the store.
+    func openNativeSigningSource(_ store: any NativeSigningStore) throws -> any SigningSource
     /// The signed PDF; the open document is untouched.
     func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data
     /// Opens signed output with the open document's credentials.
@@ -304,6 +306,10 @@ extension PdfCoreClient {
     func signingRefusal(document: any PdfDocument) -> String? { "This client does not support signing." }
 
     func openSigningCertificate(bytes: Data, password: String) throws -> any SigningSource {
+        throw SigningSourceFailure.failed("this client does not support signing")
+    }
+
+    func openNativeSigningSource(_ store: any NativeSigningStore) throws -> any SigningSource {
         throw SigningSourceFailure.failed("this client does not support signing")
     }
 

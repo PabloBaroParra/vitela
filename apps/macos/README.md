@@ -26,6 +26,9 @@ responsibility:
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
+- `Vitela/KeychainSigningStore.swift` — File ▸ Sign with Keychain
+  Identity…: the RSA and P-256 identities in the user's keychains, handed to
+  the core as a `NativeSigningStore`; keys never leave the Keychain.
 - `Vitela/ViewerViewModel+Print.swift` — Print… (⌘P): the standard print
   panel over `Views/PrintPagesView`, which paginates one paper page per PDF
   page and renders each on demand (144 DPI for the panel's preview, 300 DPI

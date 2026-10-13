@@ -12,6 +12,8 @@ struct SigningPrompts {
     var askPassword: (_ retry: Bool) -> String?
     /// Which identity to sign as; `nil` when cancelled.
     var chooseIdentity: (_ identities: [SigningIdentity]) -> SigningIdentity?
+    /// The user's keychains, as a store whose keys never leave them.
+    var openKeychain: () throws -> any NativeSigningStore = { try KeychainSigningStore.open() }
 
     static let modal = SigningPrompts(
         chooseCertificate: {
@@ -49,9 +51,9 @@ struct SigningPrompts {
     )
 }
 
-/// File ▸ Sign with Certificate…: certificate, password, identity,
-/// destination, then the signed bytes off the main thread, written
-/// atomically and reopened — Windows' `ChooseSigningCertificate_Click`.
+/// File ▸ Sign with Certificate… and Sign with Keychain Identity…: a source,
+/// identity, destination, then the signed bytes off the main thread,
+/// written atomically and reopened — Windows' `ChooseSigningCertificate_Click`.
 extension ViewerViewModel {
     func signWithCertificateFile() {
         guard store.document != nil, !isSaving else { return }
@@ -68,6 +70,35 @@ extension ViewerViewModel {
             return
         }
         unlock(bytes, retry: false)
+    }
+
+    /// File ▸ Sign with Keychain Identity…: the identities in the user's
+    /// keychains (including a smart card's), then the same identity,
+    /// destination and write as a certificate file — Windows' "computer
+    /// certificate" source (`WindowsSigningStore`).
+    func signWithKeychainIdentity() {
+        guard store.document != nil, !isSaving else { return }
+        if let refusal = store.signingRefusal {
+            store.editStatus = refusal
+            return
+        }
+        store.editStatus = "Reading the Keychain…"
+        let client = store.client
+        let openKeychain = signingPrompts.openKeychain
+        operationQueue.addOperation { [weak self] in
+            let opened = Result { try client.openNativeSigningSource(try openKeychain()) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch opened {
+                case let .success(source) where source.identities.isEmpty:
+                    self.store.editStatus = "No signing identity was found in your keychains. Import a certificate with its private key into Keychain Access, or sign with a certificate file."
+                case let .success(source):
+                    self.chooseIdentity(in: source)
+                case let .failure(error):
+                    self.store.editStatus = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func unlock(_ bytes: Data, retry: Bool) {
