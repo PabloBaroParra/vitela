@@ -123,6 +123,7 @@ extension ViewerStore {
             refreshFormFields()
             // What a page paints may have changed; read it again on need.
             forgetPageContent()
+            noteContentWork(request.work)
             if let done = outcome.done {
                 recordEdit(status: "\(done) Changes are pending save.")
             }

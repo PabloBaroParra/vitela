@@ -250,4 +250,92 @@ final class ViewerStoreContentEditTests: XCTestCase {
         XCTAssertTrue(client.contentEdits.isEmpty)
         XCTAssertFalse(store.pageWorkInFlight)
     }
+
+    // MARK: - Images
+
+    private let photo = ContentImage(id: 40, page: 0, bbox: PdfRect(x: 100, y: 100, width: 200, height: 100), resourceXObjectName: "Im1")
+
+    private func withPhoto(caption: ContentTextRun? = nil) -> (FakePdfCoreClient, ViewerStore) {
+        let (client, store) = opened()
+        client.pageContents[0] = PageContent(textRuns: caption.map { [$0] } ?? [], images: [photo])
+        store.setContentEditMode(true)
+        read(store)
+        return (client, store)
+    }
+
+    private func drag(_ store: ViewerStore, from: PdfPoint, to: PdfPoint) {
+        XCTAssertTrue(store.beginContentPress(page: 0, at: from, zoom: 1))
+        if case let .move(request) = store.endContentDrag(at: to) {
+            store.applyPageWork(store.pageWorkResult(for: request), for: request)
+        }
+    }
+
+    func testAClickSelectsAnImageAndADragMovesIt() {
+        let (client, store) = withPhoto()
+
+        drag(store, from: PdfPoint(x: 150, y: 150), to: PdfPoint(x: 150, y: 150))
+        XCTAssertEqual(store.selectedContentImage, photo, "a click selects")
+        XCTAssertTrue(client.contentEdits.isEmpty)
+
+        drag(store, from: PdfPoint(x: 150, y: 150), to: PdfPoint(x: 180, y: 120))
+
+        XCTAssertEqual(client.contentEdits, [.moveImage(photo, to: PdfRect(x: 130, y: 70, width: 200, height: 100))])
+        XCTAssertEqual(store.editStatus, "Image moved. Changes are pending save.")
+        XCTAssertTrue(store.canUndo)
+    }
+
+    func testASelectedImagesCornerResizesIt() {
+        let (client, store) = withPhoto()
+        drag(store, from: PdfPoint(x: 150, y: 150), to: PdfPoint(x: 150, y: 150))
+
+        // The top-right corner, dragged out.
+        drag(store, from: PdfPoint(x: 299, y: 199), to: PdfPoint(x: 340, y: 230))
+
+        XCTAssertEqual(client.contentEdits, [.resizeImage(photo, to: PdfRect(x: 100, y: 100, width: 240, height: 130))])
+    }
+
+    func testAnEditedImageIsHeldUntilReopenedAndAnUndoGivesItBack() {
+        let (client, store) = withPhoto()
+        drag(store, from: PdfPoint(x: 150, y: 150), to: PdfPoint(x: 160, y: 150))
+        XCTAssertEqual(client.contentEdits.count, 1)
+        read(store)
+        let moved = store.pageContent[0]!.images[0]
+
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 170, y: 150), zoom: 1))
+        XCTAssertEqual(store.editStatus, ViewerStore.imageAgain)
+        XCTAssertEqual(store.selectedContentImage, moved)
+        XCTAssertNil(store.imageDrag)
+        XCTAssertNil(store.beginSelectedImageDelete())
+
+        store.undo()
+        if let refresh = store.beginPageRefresh() {
+            store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh)
+        }
+        XCTAssertTrue(store.contentEdit.editedImages.isEmpty)
+    }
+
+    func testDeletingTheSelectedImage() throws {
+        let (client, store) = withPhoto()
+        drag(store, from: PdfPoint(x: 150, y: 150), to: PdfPoint(x: 150, y: 150))
+
+        let request = try XCTUnwrap(store.beginSelectedImageDelete())
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertEqual(client.contentEdits, [.removeImage(photo)])
+        XCTAssertEqual(store.editStatus, "Image deleted. Changes are pending save.")
+        XCTAssertNil(store.selectedContentImage)
+    }
+
+    func testTextThePressIsInsideWinsOverTheImageUnderIt() {
+        let caption = run(9, PdfRect(x: 120, y: 120, width: 60, height: 12), text: "Caption")
+        let (_, store) = withPhoto(caption: caption)
+
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 130, y: 125), zoom: 1))
+        XCTAssertEqual(store.contentDrag?.run, caption)
+        XCTAssertNil(store.selectedContentImage)
+
+        store.cancelContentDrag()
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 250, y: 180), zoom: 1))
+        XCTAssertEqual(store.selectedContentImage, photo, "elsewhere on the photo, the photo")
+    }
 }

@@ -92,6 +92,10 @@ extension ViewerViewModel {
         guard annotationKeyMonitor == nil else { return }
         annotationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, Self.isDeleteKey(event), !(event.window?.firstResponder is NSText) else { return event }
+            if self.store.contentEditMode, self.store.selectedContentImage != nil {
+                self.deleteSelectedImage()
+                return nil
+            }
             if self.store.formEditMode, self.store.selectedField != nil {
                 self.enqueuePageWork(self.store.beginFieldDelete())
                 return nil

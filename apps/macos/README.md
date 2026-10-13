@@ -28,9 +28,10 @@ responsibility:
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
 - `Vitela/ViewerViewModel+ContentEdit.swift`, `Views/ContentTextSheet.swift`,
-  `Views/ContentOutlineOverlay.swift` — Edit Text: outlines of the lines a
-  page paints, a click opening one to retype or delete, run as page work
-  (`../apple/Shared/ViewerStore+ContentEdit.swift`).
+  `Views/ContentOutlineOverlay.swift` — Edit Content: outlines of the lines
+  and images a page paints; a click opens a line to retype or delete, a drag
+  moves a line or an image, a corner resizes an image; all run as page work
+  (`../apple/Shared/ViewerStore+ContentEdit.swift`, `+ContentImages.swift`).
 - `Vitela/ViewerViewModel+TokenSigning.swift` — File ▸ Sign with Card or
   Token…: a PKCS#11 module and its PIN (empty for the token's own prompt),
   then the certificate-file signing path.

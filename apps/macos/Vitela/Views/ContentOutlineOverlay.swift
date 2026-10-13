@@ -12,14 +12,28 @@ struct ContentOutlineOverlay: View {
     let read: () -> Void
 
     private static let outline = Color.accentColor.opacity(0.7)
+    private static let imageOutline = Color.orange.opacity(0.8)
 
     var body: some View {
         Canvas { context, _ in
             guard store.contentEditMode,
-                  let runs = store.pageContent[page]?.textRuns,
+                  let content = store.pageContent[page],
                   let placement = store.placement(ofPage: page, zoom: zoom)
             else { return }
-            for run in runs {
+            for image in content.images {
+                context.stroke(Path(frame(image.bbox, placement)), with: .color(Self.imageOutline), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
+            }
+            if let selected = store.selectedContentImage, selected.page == page {
+                let rect = store.imageDrag.map(\.previewRect) ?? selected.bbox
+                context.stroke(Path(frame(rect, placement)), with: .color(Self.imageOutline), lineWidth: 2)
+                for corner in AnnotationCorner.allCases {
+                    let point = store.client.placePoint(corner.point(of: rect), on: placement)
+                    let handle = CGRect(x: point.left - 4, y: point.top - 4, width: 8, height: 8)
+                    context.fill(Path(handle), with: .color(.white))
+                    context.stroke(Path(handle), with: .color(Self.imageOutline), lineWidth: 1)
+                }
+            }
+            for run in content.textRuns {
                 context.stroke(Path(frame(run.bbox, placement)), with: .color(Self.outline), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             }
             // Where a dragged line would land.

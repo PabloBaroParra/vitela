@@ -205,3 +205,67 @@ extension UniFfiOutputIntegrationTests {
     } }
 }
 
+extension UniFfiOutputIntegrationTests {
+    /// One page painting one 1×1 red image at (72, 600), 100 × 50 points.
+    static func onePhotoPdf() -> Data {
+        var pdf = Data("%PDF-1.7\n".utf8)
+        var offsets: [Int] = []
+        func object(_ body: Data) {
+            offsets.append(pdf.count)
+            pdf.append(Data("\(offsets.count) 0 obj\n".utf8))
+            pdf.append(body)
+            pdf.append(Data("\nendobj\n".utf8))
+        }
+        let content = Data("q 100 0 0 50 72 600 cm /Im1 Do Q".utf8)
+        object(Data("<< /Type /Catalog /Pages 2 0 R >>".utf8))
+        object(Data("<< /Type /Pages /Kids [3 0 R] /Count 1 >>".utf8))
+        object(Data("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>".utf8))
+        object(Data("<< /Length \(content.count) >>\nstream\n".utf8) + content + Data("\nendstream".utf8))
+        object(Data("<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\nstream\n".utf8)
+            + Data([0xFF, 0x00, 0x00]) + Data("\nendstream".utf8))
+        let xref = pdf.count
+        pdf.append(Data("xref\n0 \(offsets.count + 1)\n0000000000 65535 f \n".utf8))
+        for offset in offsets { pdf.append(Data(String(format: "%010d 00000 n \n", offset).utf8)) }
+        pdf.append(Data("trailer\n<< /Size \(offsets.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
+        return pdf
+    }
+
+    /// An image the page paints is found, moved, resized and deleted against
+    /// the real core, each as one undoable step that reads back.
+    func testAnImageIsMovedResizedAndDeleted() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: Self.onePhotoPdf())
+        XCTAssertEqual(store.state, .loaded)
+        store.setContentEditMode(true)
+        func read() throws -> [ContentImage] {
+            let request = try XCTUnwrap(store.beginPageContent(page: 0))
+            store.applyPageContent(store.pageContentResult(for: request), for: request)
+            return try XCTUnwrap(store.pageContent[0]).images
+        }
+        func perform(_ edit: ContentEdit) throws {
+            let request = try XCTUnwrap(store.beginContentEdit(edit))
+            store.applyPageWork(store.pageWorkResult(for: request), for: request)
+        }
+        let photo = try XCTUnwrap(try read().first)
+        XCTAssertEqual(photo.bbox.x, 72, accuracy: 0.5)
+        XCTAssertEqual(photo.bbox.width, 100, accuracy: 0.5)
+
+        try perform(.moveImage(photo, to: PdfRect(x: 172, y: 500, width: 100, height: 50)))
+        XCTAssertEqual(try XCTUnwrap(try read().first).bbox.x, 172, accuracy: 0.5)
+        XCTAssertTrue(store.canUndo)
+
+        store.undo()
+        if let refresh = store.beginPageRefresh() { store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh) }
+        let back = try XCTUnwrap(try read().first)
+        XCTAssertEqual(back.bbox.x, 72, accuracy: 0.5)
+
+        try perform(.resizeImage(back, to: PdfRect(x: 72, y: 600, width: 200, height: 100)))
+        XCTAssertEqual(try XCTUnwrap(try read().first).bbox.width, 200, accuracy: 0.5)
+
+        store.undo()
+        if let refresh = store.beginPageRefresh() { store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh) }
+        try perform(.removeImage(try XCTUnwrap(try read().first)))
+        XCTAssertEqual(try read(), [])
+    } }
+}
+

@@ -80,7 +80,7 @@ extension ViewerViewModel {
             return true
         }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom),
-              store.beginContentDrag(page: page, at: point, zoom: zoom) != nil
+              store.beginContentPress(page: page, at: point, zoom: zoom)
         else {
             store.editStatus = ContentEditing.missed
             return true
@@ -93,9 +93,10 @@ extension ViewerViewModel {
         store.continueContentDrag(to: point)
     }
 
-    /// The press ends: a click opens the line, a drag moves it.
+    /// The press ends: a click opens a line, a drag moves a line or an image,
+    /// a corner drag resizes an image.
     func contentReleased(page: Int, location: CGPoint, zoom: Double) {
-        guard store.contentDrag != nil else { return }
+        guard store.contentDrag != nil || store.imageDrag != nil else { return }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
             return store.cancelContentDrag()
         }
@@ -118,6 +119,11 @@ extension ViewerViewModel {
     func deleteText(_ run: ContentTextRun) {
         contentTextEditor = nil
         enqueuePageWork(store.beginContentEdit(.removeText(run)))
+    }
+
+    /// The selected image's Delete — the toolbar button and ⌫.
+    func deleteSelectedImage() {
+        enqueuePageWork(store.beginSelectedImageDelete())
     }
 
     func cancelTextEdit() {
