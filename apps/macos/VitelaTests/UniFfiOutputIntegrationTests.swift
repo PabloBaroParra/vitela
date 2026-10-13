@@ -130,3 +130,29 @@ final class UniFfiOutputIntegrationTests: XCTestCase {
         XCTAssertEqual(reopened.pageSlots.count, 1)
     } }
 }
+
+extension UniFfiOutputIntegrationTests {
+    /// A line the sample paints is retyped against the real core, through
+    /// the same page-work pipeline the shell runs, and reads back changed.
+    func testRetypingALineOfTheSampleChangesWhatThePageSays() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        XCTAssertTrue(store.editingAllowed)
+        store.setContentEditMode(true)
+        func read() throws -> PageContent {
+            let request = try XCTUnwrap(store.beginPageContent(page: 0))
+            store.applyPageContent(store.pageContentResult(for: request), for: request)
+            return try XCTUnwrap(store.pageContent[0])
+        }
+        let content = try read()
+        let line = try XCTUnwrap(content.textRuns.first { !$0.substitutesFont && $0.text.count > 3 }, "the sample paints no simple-font line")
+        // A prefix of the line: every character is one its font already shows.
+        let shorter = String(line.text.prefix(3))
+
+        let request = try XCTUnwrap(store.beginContentEdit(.retypeText(line, to: shorter)))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertTrue(store.canUndo)
+        XCTAssertTrue(try read().textRuns.contains { $0.text == shorter })
+    } }
+}

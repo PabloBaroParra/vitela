@@ -140,6 +140,10 @@ struct ViewerRootView: View {
             Toggle("Form", isOn: $showsForm)
                 .toggleStyle(.button)
                 .help("Fill in the document's form fields")
+            Toggle("Edit Text", isOn: Binding(get: { model.store.contentEditMode }, set: model.setContentEditMode))
+                .toggleStyle(.button)
+                .help("Click a line of the page's own text to retype or delete it")
+                .disabled(!model.canEditContent && !model.store.contentEditMode)
             Toggle("Organize", isOn: $model.isOrganizing)
                 .toggleStyle(.button)
                 .help("Rotate and rearrange pages")
@@ -252,6 +256,10 @@ struct ViewerRootView: View {
                                 .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index) }
                             AnnotationOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot))
                                 .frame(width: pageWidth(slot), height: pageHeight(slot))
+                            ContentOutlineOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot)) {
+                                model.readPageContent(page: slot.index)
+                            }
+                            .frame(width: pageWidth(slot), height: pageHeight(slot))
                             SelectionOverlay(
                                 dimensions: slot.dimensions,
                                 zoom: pageZoom(slot),

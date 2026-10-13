@@ -31,6 +31,11 @@ final class FakePdfCoreClient: PdfCoreClient {
 
     var initialInfo = DocumentInfo()
     var editingAllowed = true
+    // Content editing.
+    var pageContents: [Int: PageContent] = [:]
+    var pageContentReads: [Int] = []
+    var contentEdits: [ContentEdit] = []
+    var contentEditError: Error?
     var setInfoError: Error?
     var history: [Snapshot] = []
     var historyCursor = 0

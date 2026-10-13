@@ -157,3 +157,32 @@ extension FakePdfCoreClient {
         return added.count
     }
 }
+
+extension FakePdfCoreClient {
+    func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent {
+        pageContentReads.append(page)
+        return pageContents[page] ?? PageContent(textRuns: [], images: [])
+    }
+
+    /// Records the edit as one history step, and makes the page say what the
+    /// edit says, so a re-read after it sees the change.
+    func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
+        if let contentEditError { throw contentEditError }
+        contentEdits.append(edit)
+        switch edit {
+        case let .retypeText(run, text):
+            replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: $0.bbox, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: text)] }
+        case let .removeText(run):
+            replaceRun(run) { _ in [] }
+        }
+        recordAnnotations(currentAnnotations)
+    }
+
+    private func replaceRun(_ run: ContentTextRun, with change: (ContentTextRun) -> [ContentTextRun]) {
+        guard let content = pageContents[run.page] else { return }
+        pageContents[run.page] = PageContent(
+            textRuns: content.textRuns.flatMap { $0.id == run.id ? change($0) : [$0] },
+            images: content.images
+        )
+    }
+}
