@@ -36,6 +36,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     var pageContentReads: [Int] = []
     var contentEdits: [ContentEdit] = []
     var contentEditError: Error?
+    var movedRuns = Set<UInt64>()
     var setInfoError: Error?
     var history: [Snapshot] = []
     var historyCursor = 0

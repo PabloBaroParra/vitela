@@ -136,3 +136,30 @@ extension UniFfiOutputIntegrationTests {
         XCTAssertTrue(try read().textRuns.contains { $0.text == shorter })
     } }
 }
+
+extension UniFfiOutputIntegrationTests {
+    /// A line of the sample moved against the real core lands where it was
+    /// dropped, and is refused for retyping until the document is saved.
+    func testMovingALineOfTheSampleMovesItAndHoldsItsRetype() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        store.setContentEditMode(true)
+        func read() throws -> PageContent {
+            let request = try XCTUnwrap(store.beginPageContent(page: 0))
+            store.applyPageContent(store.pageContentResult(for: request), for: request)
+            return try XCTUnwrap(store.pageContent[0])
+        }
+        let line = try XCTUnwrap(try read().textRuns.first { !$0.substitutesFont })
+        let to = PdfRect(x: line.bbox.x + 20, y: line.bbox.y - 30, width: line.bbox.width, height: line.bbox.height)
+
+        let request = try XCTUnwrap(store.beginContentEdit(.moveText(line, to: to)))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertTrue(store.canUndo)
+        let moved = try XCTUnwrap(try read().textRuns.first { $0.id == line.id })
+        XCTAssertEqual(moved.bbox.x, to.x, accuracy: 1)
+        XCTAssertEqual(moved.bbox.y, to.y, accuracy: 1)
+        XCTAssertTrue(store.client.textRunHasPendingMove(document: try XCTUnwrap(store.document), run: moved))
+    } }
+}
+

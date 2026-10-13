@@ -1,8 +1,8 @@
 import Foundation
 
 /// Edit Text on macOS: the toolbar toggle, reading each page's content on
-/// the operation queue, a click opening the line under it in a sheet, and the
-/// sheet's Save/Delete running as page work. The rules are the store's
+/// the operation queue, a click opening the line under it in a sheet, a drag
+/// moving it, and the sheet's Save/Delete running as page work. The rules are the store's
 /// (`ViewerStore+ContentEdit.swift`).
 extension ViewerViewModel {
     /// Not over Organize, which hides the pages an edit would redraw.
@@ -24,9 +24,9 @@ extension ViewerViewModel {
         }
     }
 
-    /// A click on a page. Claims it whenever the mode is on, so a miss
+    /// A press on a page. Claims it whenever the mode is on, so a miss
     /// neither selects text nor an annotation.
-    func contentClick(page: Int, location: CGPoint, zoom: Double) -> Bool {
+    func contentPress(page: Int, location: CGPoint, zoom: Double) -> Bool {
         guard store.contentEditMode else { return false }
         guard store.pageContent[page] != nil else {
             readPageContent(page: page)
@@ -34,14 +34,34 @@ extension ViewerViewModel {
             return true
         }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom),
-              let run = store.textRun(page: page, at: point, zoom: zoom)
+              store.beginContentDrag(page: page, at: point, zoom: zoom) != nil
         else {
             store.editStatus = ContentEditing.missed
             return true
         }
-        if run.substitutesFont { store.editStatus = ContentEditing.fontSubstituted }
-        contentTextEditor = run
         return true
+    }
+
+    func contentDragged(page: Int, location: CGPoint, zoom: Double) {
+        guard let point = annotationPoint(page: page, location: location, zoom: zoom) else { return }
+        store.continueContentDrag(to: point)
+    }
+
+    /// The press ends: a click opens the line, a drag moves it.
+    func contentReleased(page: Int, location: CGPoint, zoom: Double) {
+        guard store.contentDrag != nil else { return }
+        guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
+            return store.cancelContentDrag()
+        }
+        switch store.endContentDrag(at: point) {
+        case let .open(run):
+            if run.substitutesFont { store.editStatus = ContentEditing.fontSubstituted }
+            contentTextEditor = run
+        case let .move(request):
+            enqueuePageWork(request)
+        case .nothing:
+            break
+        }
     }
 
     func retypeText(_ run: ContentTextRun, to text: String) {

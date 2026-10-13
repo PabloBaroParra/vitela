@@ -20,9 +20,11 @@ struct ContentOutlineOverlay: View {
                   let placement = store.placement(ofPage: page, zoom: zoom)
             else { return }
             for run in runs {
-                let placed = store.client.placeRect(run.bbox, on: placement)
-                let frame = CGRect(x: placed.left, y: placed.top, width: placed.width, height: placed.height).insetBy(dx: -1, dy: -1)
-                context.stroke(Path(frame), with: .color(Self.outline), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                context.stroke(Path(frame(run.bbox, placement)), with: .color(Self.outline), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            }
+            // Where a dragged line would land.
+            if let drag = store.contentDrag, drag.moving, drag.run.page == page {
+                context.stroke(Path(frame(drag.previewRect, placement)), with: .color(.accentColor), lineWidth: 2)
             }
         }
         .allowsHitTesting(false)
@@ -30,6 +32,11 @@ struct ContentOutlineOverlay: View {
         .onChange(of: store.contentEditMode) { _ in readIfEditing() }
         // An edit forgets every page's content; read this one again.
         .onChange(of: store.pageContent[page] == nil) { _ in readIfEditing() }
+    }
+
+    private func frame(_ rect: PdfRect, _ placement: PagePlacement) -> CGRect {
+        let placed = store.client.placeRect(rect, on: placement)
+        return CGRect(x: placed.left, y: placed.top, width: placed.width, height: placed.height).insetBy(dx: -1, dy: -1)
     }
 
     private func readIfEditing() {

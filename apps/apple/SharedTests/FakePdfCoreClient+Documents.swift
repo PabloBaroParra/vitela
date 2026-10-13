@@ -146,6 +146,10 @@ extension FakePdfCoreClient {
         return pageContents[page] ?? PageContent(textRuns: [], images: [])
     }
 
+    func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool {
+        movedRuns.contains(run.id)
+    }
+
     /// Records the edit as one history step, and makes the page say what the
     /// edit says, so a re-read after it sees the change.
     func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
@@ -156,6 +160,9 @@ extension FakePdfCoreClient {
             replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: $0.bbox, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: text)] }
         case let .removeText(run):
             replaceRun(run) { _ in [] }
+        case let .moveText(run, rect):
+            movedRuns.insert(run.id)
+            replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: rect, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: $0.text)] }
         }
         recordAnnotations(currentAnnotations)
     }

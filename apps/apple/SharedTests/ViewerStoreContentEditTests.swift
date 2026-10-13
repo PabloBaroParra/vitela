@@ -168,4 +168,56 @@ final class ViewerStoreContentEditTests: XCTestCase {
         XCTAssertFalse(store.contentEditMode)
         XCTAssertTrue(store.pageContent.isEmpty)
     }
+
+    // MARK: - Moving
+
+    func testAPressIsAClickUntilItTravelsFourScreenPoints() throws {
+        let (client, store) = opened()
+        let line = run(7, PdfRect(x: 10, y: 10, width: 80, height: 12))
+        client.pageContents[0] = PageContent(textRuns: [line], images: [])
+        store.setContentEditMode(true)
+        read(store)
+
+        XCTAssertEqual(store.beginContentDrag(page: 0, at: PdfPoint(x: 20, y: 15), zoom: 2), line)
+        store.continueContentDrag(to: PdfPoint(x: 21.5, y: 15))
+        XCTAssertEqual(store.contentDrag?.moving, false, "three screen points at 2×")
+        store.continueContentDrag(to: PdfPoint(x: 22, y: 15))
+        XCTAssertEqual(store.contentDrag?.moving, true, "four screen points at 2×")
+    }
+
+    func testAClickOpensTheLineAndADragMovesIt() throws {
+        let (client, store) = opened()
+        let line = run(7, PdfRect(x: 10, y: 10, width: 80, height: 12))
+        client.pageContents[0] = PageContent(textRuns: [line], images: [])
+        store.setContentEditMode(true)
+        read(store)
+
+        _ = store.beginContentDrag(page: 0, at: PdfPoint(x: 20, y: 15), zoom: 1)
+        guard case let .open(opened) = store.endContentDrag(at: PdfPoint(x: 21, y: 15)) else { return XCTFail("a click opens") }
+        XCTAssertEqual(opened, line)
+
+        _ = store.beginContentDrag(page: 0, at: PdfPoint(x: 20, y: 15), zoom: 1)
+        guard case let .move(request) = store.endContentDrag(at: PdfPoint(x: 120, y: 215)) else { return XCTFail("a drag moves") }
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+
+        XCTAssertEqual(client.contentEdits, [.moveText(line, to: PdfRect(x: 110, y: 210, width: 80, height: 12))])
+        XCTAssertTrue(store.canUndo)
+        read(store)
+        XCTAssertEqual(store.pageContent[0]?.textRuns.first?.bbox, PdfRect(x: 110, y: 210, width: 80, height: 12))
+    }
+
+    func testADragBackToWhereItStartedChangesNothing() {
+        let (client, store) = opened()
+        let line = run(7, PdfRect(x: 10, y: 10, width: 80, height: 12))
+        client.pageContents[0] = PageContent(textRuns: [line], images: [])
+        store.setContentEditMode(true)
+        read(store)
+
+        _ = store.beginContentDrag(page: 0, at: PdfPoint(x: 20, y: 15), zoom: 1)
+        store.continueContentDrag(to: PdfPoint(x: 60, y: 15))
+        guard case .nothing = store.endContentDrag(at: PdfPoint(x: 20, y: 15)) else { return XCTFail("nothing to move") }
+
+        XCTAssertEqual(store.editStatus, ContentEditing.positionUnchanged)
+        XCTAssertTrue(client.contentEdits.isEmpty)
+    }
 }

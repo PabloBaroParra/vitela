@@ -29,8 +29,10 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         readPage(model)
 
         model.pageDragBegan(page: 0, location: location(150, 699), dimensions: PageDimensions(width: 612, height: 792), zoom: 1)
+        model.pageDragChanged(page: 0, location: location(151, 699), dimensions: PageDimensions(width: 612, height: 792), zoom: 1)
+        model.pageDragEnded(page: 0, location: location(151, 699), zoom: 1)
 
-        XCTAssertEqual(model.contentTextEditor, line)
+        XCTAssertEqual(model.contentTextEditor, line, "a press that barely moves is a click")
         XCTAssertNil(model.store.selection, "the click does not select text")
     }
 
@@ -38,7 +40,7 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         let (client, model) = model()
         model.setContentEditMode(true)
 
-        XCTAssertTrue(model.contentClick(page: 0, location: location(150, 699), zoom: 1))
+        XCTAssertTrue(model.contentPress(page: 0, location: location(150, 699), zoom: 1))
 
         XCTAssertNil(model.contentTextEditor)
         waitUntil({ client.pageContentReads == [0] }, "the page was never read")
@@ -49,7 +51,7 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         model.setContentEditMode(true)
         readPage(model)
 
-        XCTAssertTrue(model.contentClick(page: 0, location: location(400, 100), zoom: 1))
+        XCTAssertTrue(model.contentPress(page: 0, location: location(400, 100), zoom: 1))
 
         XCTAssertNil(model.contentTextEditor)
         XCTAssertEqual(model.store.editStatus, ContentEditing.missed)
@@ -89,5 +91,36 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         XCTAssertNil(model.contentTextEditor)
         XCTAssertEqual(model.store.editStatus, "Edit cancelled.")
         XCTAssertTrue(client.contentEdits.isEmpty)
+    }
+
+    func testDraggingALineMovesItByTheDrag() {
+        let (client, model) = model()
+        model.setContentEditMode(true)
+        readPage(model)
+        let size = PageDimensions(width: 612, height: 792)
+
+        model.pageDragBegan(page: 0, location: location(150, 699), dimensions: size, zoom: 1)
+        model.pageDragChanged(page: 0, location: location(170, 649), dimensions: size, zoom: 1)
+        XCTAssertEqual(model.store.contentDrag?.moving, true)
+        model.pageDragEnded(page: 0, location: location(180, 599), zoom: 1)
+
+        waitUntil({ !model.store.pageWorkInFlight && client.contentEdits.count == 1 }, "the move never ran")
+        XCTAssertEqual(client.contentEdits.first, .moveText(line, to: PdfRect(x: 130, y: 592, width: 120, height: 14)))
+        XCTAssertNil(model.contentTextEditor, "a drag does not open the line")
+        XCTAssertEqual(model.store.editStatus, "Text moved. Changes are pending save.")
+    }
+
+    func testAMovedLineCannotBeRetypedUntilSaved() {
+        let (client, model) = model()
+        client.movedRuns = [line.id]
+        model.setContentEditMode(true)
+        readPage(model)
+        let size = PageDimensions(width: 612, height: 792)
+
+        model.pageDragBegan(page: 0, location: location(150, 699), dimensions: size, zoom: 1)
+        model.pageDragEnded(page: 0, location: location(150, 699), zoom: 1)
+
+        XCTAssertNil(model.contentTextEditor)
+        XCTAssertEqual(model.store.editStatus, ContentEditing.movedNotSaved)
     }
 }
