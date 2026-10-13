@@ -19,10 +19,9 @@ struct PrintRequest {
 /// render queue, so a page scrolling out of view can never supersede a page
 /// the printer still needs.
 ///
-/// Prints the open handle itself. That is complete today because the Apple
-/// shells only edit the Info dictionary, which never reaches the page. Once
-/// they can annotate, this must print an output snapshot instead, as Linux
-/// and Windows do, or the printout will miss what the overlay draws.
+/// An annotated session prints its output snapshot, as Linux and Windows do,
+/// or the printout would miss what the overlay draws — see
+/// `ViewerStore+OutputSnapshot.swift`.
 extension ViewerStore {
     /// Full-quality rasterization for the printer; the platform scales the
     /// bitmap onto the paper.
@@ -41,7 +40,15 @@ extension ViewerStore {
             editStatus = "The PDF has no pages to print."
             return nil
         }
-        return PrintRequest(generation: generation, document: document, pages: document.pages)
+        // On the main thread: `NSPrintOperation` draws there anyway, and the
+        // snapshot is one save the reader asked for by printing.
+        switch outputDocument(for: OutputSource(document: document, annotated: !annotations.isEmpty)) {
+        case let .success(output):
+            return PrintRequest(generation: generation, document: output, pages: output.pages)
+        case let .failure(failure):
+            editStatus = "Could not prepare the document for printing: \(failure.localizedDescription)"
+            return nil
+        }
     }
 
     /// Thread-safe, like `renderResult(for:)`: touches only the immutable
