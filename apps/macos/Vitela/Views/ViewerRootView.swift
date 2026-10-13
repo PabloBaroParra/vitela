@@ -17,6 +17,11 @@ struct ViewerRootView: View {
             AnnotationToolbar(store: model.store, drawSignature: model.drawSignature)
             Divider()
             HStack(spacing: 0) {
+                if model.showsPages && !model.store.pageSlots.isEmpty {
+                    PagesSidebar(model: model)
+                        .frame(width: 136)
+                    Divider()
+                }
                 if model.store.pageSlots.isEmpty {
                     placeholder
                 } else if model.isOrganizing {
@@ -123,6 +128,9 @@ struct ViewerRootView: View {
                     .help("This document carries a digital signature.")
                     .accessibilityIdentifier("signed-indicator")
             }
+            Toggle("Pages", isOn: $model.showsPages)
+                .toggleStyle(.button)
+                .help("Show or hide the list of pages (⌥⌘2)")
             Toggle("Comments", isOn: $showsComments)
                 .toggleStyle(.button)
                 .help("The document's comments, by page")

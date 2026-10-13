@@ -21,7 +21,7 @@ responsibility:
   changes before quitting, and passes on files Finder opens with Vitela.
 - `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Save As, Protect,
   Compress, Extract Pages, Split PDF, Export Pages as Images, Print, Undo,
-  Redo, the Go menu's page navigation, and View ▸ zoom).
+  Redo, the Go menu's page navigation, and View ▸ Pages and zoom).
 - `Vitela/ViewerViewModel.swift` — file selection, File ▸ New, the render
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
@@ -30,7 +30,8 @@ responsibility:
   panel over `Views/PrintPagesView`, which paginates one paper page per PDF
   page and renders each on demand (144 DPI for the panel's preview, 300 DPI
   for the printer), scaled to fit the printable area.
-- `Vitela/ViewerViewModel+Navigation.swift` — the Go to page prompt.
+- `Vitela/ViewerViewModel+Navigation.swift` — the Go to page prompt and
+  the Pages column (`Views/PagesSidebar`), which shares Organize's thumbnails.
 - `Vitela/ViewerViewModel+Zoom.swift` — feeds the page list's size to the
   fit-width / fit-page zoom modes, waiting for a live resize to settle.
 - `Vitela/ViewerViewModel+FileDrop.swift` — PDFs dropped on the window or

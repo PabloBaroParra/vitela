@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The menu bar: File ▸ New/Open/Save/Protect/Sign/Compress/Extract/Split/
-/// Export/Print, Edit ▸ Undo/Redo, the Go menu and View ▸ zoom, with the standard shortcuts. Undo and Redo replace the system items because the document's
+/// Export/Print, Edit ▸ Undo/Redo, the Go menu and View ▸ Pages and zoom, with the standard shortcuts. Undo and Redo replace the system items because the document's
 /// history lives in the core's EditLog, not in an `NSUndoManager`.
 struct VitelaCommands: Commands {
     @ObservedObject var model: ViewerViewModel
@@ -66,6 +66,10 @@ struct VitelaCommands: Commands {
                 .disabled(model.store.pageCount == 0)
         }
         CommandGroup(before: .toolbar) {
+            // Preview's shortcut for its thumbnail sidebar.
+            Button(model.showsPages ? "Hide Pages" : "Show Pages") { model.showsPages.toggle() }
+                .keyboardShortcut("2", modifiers: [.command, .option])
+            Divider()
             // ⌘= rather than ⌘+: it is the same key without Shift.
             Button("Zoom In") { model.store.stepZoom(1) }
                 .keyboardShortcut("=", modifiers: .command)
