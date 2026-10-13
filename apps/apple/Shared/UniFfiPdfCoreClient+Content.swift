@@ -19,8 +19,12 @@ extension UniFfiPdfCoreClient {
 
     func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
         let handle = try handle(of: document)
+        guard let command = FfiEditCommand(edit) else {
+            guard case let .insertText(page, rect, text) = edit else { return }
+            return try insertText(handle: handle, page: page, rect: rect, text: text)
+        }
         do {
-            try Vitela.applyEdit(handle: handle, command: FfiEditCommand(edit))
+            try Vitela.applyEdit(handle: handle, command: command)
         } catch let FfiError.EncodingGap(character, _) {
             // Named, with the character in it: the one failure the reader can
             // clear by typing something else — Windows' and Android's wording.
@@ -37,8 +41,32 @@ extension UniFfiPdfCoreClient {
     }
 }
 
+private extension UniFfiPdfCoreClient {
+    /// A new line under a font resource name the page has never declared — a
+    /// fresh one also keeps queued insertions apart — as Windows and Android
+    /// choose it.
+    func insertText(handle: DocumentHandle, page: Int, rect: PdfRect, text: String) throws {
+        do {
+            let declared = try handle.pageFontFamilies(page: UInt32(page))
+            var fontName: String
+            repeat {
+                fontName = "VitelaText" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+            } while declared[fontName] != nil
+            let run = FfiContentTextRun(id: 0, page: UInt32(page), bbox: FfiRect(rect), resourceFontName: fontName, fontKind: .standard14, text: text)
+            try Vitela.applyEdit(handle: handle, command: .insertTextRun(item: run))
+        } catch let FfiError.EncodingGap(character, _) {
+            throw EditFailure.failed("Helvetica cannot show \"\(character)\". Try different characters.")
+        } catch FfiError.UnsupportedOperation {
+            throw EditFailure.notPermitted(handle.contentEditingAllowed() ? "This text cannot be added here." : ContentEditing.forbidden)
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
+    }
+}
+
 private extension FfiEditCommand {
-    init(_ edit: ContentEdit) {
+    /// `nil` for an insertion, which needs the page's fonts to name its own.
+    init?(_ edit: ContentEdit) {
         switch edit {
         case let .retypeText(run, text):
             self = run.substitutesFont
@@ -48,6 +76,8 @@ private extension FfiEditCommand {
             self = .removeTextRun(item: FfiContentTextRun(run))
         case let .moveText(run, rect):
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
+        case .insertText:
+            return nil
         }
     }
 }

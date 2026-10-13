@@ -32,6 +32,10 @@ final class ViewerViewModel: ObservableObject {
     /// The page text being retyped, while its sheet is up —
     /// `ViewerViewModel+ContentEdit.swift`.
     @Published var contentTextEditor: ContentTextRun?
+    /// Add Text is armed: the next click on a page places a new line there.
+    @Published var textInsertArmed = false
+    /// Where the new line goes, while its sheet is up.
+    @Published var pendingTextInsert: PendingTextInsert?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.

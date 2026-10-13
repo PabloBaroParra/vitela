@@ -44,6 +44,9 @@ enum ContentEdit: Equatable {
     case removeText(ContentTextRun)
     /// Moves `run` so its box lands at `to`, keeping its text, font and size.
     case moveText(ContentTextRun, to: PdfRect)
+    /// A new line of Helvetica: `rect`'s height is its size, its top-left
+    /// corner where the line starts.
+    case insertText(page: Int, rect: PdfRect, text: String)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -52,6 +55,7 @@ enum ContentEdit: Equatable {
         case .retypeText: return "Text updated."
         case .removeText: return "Text deleted."
         case .moveText: return "Text moved."
+        case .insertText: return "Text inserted."
         }
     }
 }
@@ -65,6 +69,25 @@ enum ContentEditing {
     static let positionUnchanged = "Text position unchanged."
     /// Windows' refusal to retype a run whose move is not saved yet.
     static let movedNotSaved = "This text was moved and not yet saved — save and reopen before retyping it."
+    static let insertPrompt = "Click the page where the new text's top-left corner should go."
+    static let insertCancelled = "Insert cancelled."
+    static let insertEmpty = "Enter a nonempty single line of text."
+    static let insertSizeInvalid = "Text size must be between 1 and 72 pt."
+    /// The size a new line starts at, in points — Windows' and Android's.
+    static let defaultInsertedTextSize = 14.0
+
+    /// A line the core can insert: not blank, and one line.
+    static func insertableText(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespaces).isEmpty && !text.contains(where: { $0 == "\n" || $0 == "\r" })
+    }
+
+    /// The box a new line at `size` points takes with its top-left corner at
+    /// `at` — Android's `insertedTextRect`; `nil` outside 1...72 pt.
+    static func insertedTextRect(at: PdfPoint, size: Double) -> PdfRect? {
+        guard size.isFinite, (1...72).contains(size) else { return nil }
+        return PdfRect(x: at.x, y: at.y - size, width: size, height: size)
+    }
+
     /// How far, in screen points, a press must travel to be a drag rather
     /// than a click — Linux's `CLICK_EPSILON_PX`.
     static let clickEpsilon = 4.0
