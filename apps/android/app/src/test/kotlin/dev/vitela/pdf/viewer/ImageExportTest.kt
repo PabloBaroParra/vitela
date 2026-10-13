@@ -110,9 +110,15 @@ internal class PlanDocument(
     private val allowed: Boolean = true,
     private val oversizedPage: Int? = null,
     private val failingPage: Int? = null,
+    private val snapshotFails: Boolean = false,
 ) : PdfDocument {
     val parsed = mutableListOf<String>()
+    /** Pages rendered from the output snapshot — what an export should draw. */
     val exported = mutableListOf<Triple<Int, Int, ImageExportFormat>>()
+    /** Pages rendered from this live document, whose preview leaves the session's annotations out. */
+    val exportedLive = mutableListOf<Int>()
+    var snapshotsTaken = 0
+    var snapshotsClosed = 0
     override val pageSizes = List(pageCount) { PageSize(612.0, 792.0) }
     override fun renderPage(pageIndex: Int, dpi: Int): PdfCoreResult<RenderedPage> = PdfCoreResult.Success(RenderedPage(1, 1, 4, ByteArray(4)))
     override fun search(query: String): PdfCoreResult<List<SearchHit>> = PdfCoreResult.Success(emptyList())
@@ -128,9 +134,24 @@ internal class PlanDocument(
     override fun firstPageTooLargeToExport(pages: List<Int>, dpi: Int): PdfCoreResult<Int?> =
         PdfCoreResult.Success(pages.firstOrNull { it == oversizedPage && dpi > 300 })
     override fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> {
-        if (pageIndex == failingPage) return PdfCoreResult.Failure(PdfCoreError.Failed("The document could not be processed."))
-        exported += Triple(pageIndex, dpi, format)
-        return PdfCoreResult.Success(byteArrayOf(pageIndex.toByte()))
+        exportedLive += pageIndex
+        return PdfCoreResult.Success(byteArrayOf(-1))
+    }
+    override fun outputSnapshot(): PdfCoreResult<PdfDocument> {
+        if (snapshotFails) return PdfCoreResult.Failure(PdfCoreError.Failed("The document could not be processed."))
+        snapshotsTaken++
+        return PdfCoreResult.Success(Snapshot())
     }
     override fun close() = Unit
+
+    private inner class Snapshot : PdfDocument by this@PlanDocument {
+        override fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> {
+            if (pageIndex == failingPage) return PdfCoreResult.Failure(PdfCoreError.Failed("The document could not be processed."))
+            exported += Triple(pageIndex, dpi, format)
+            return PdfCoreResult.Success(byteArrayOf(pageIndex.toByte()))
+        }
+        override fun close() {
+            snapshotsClosed++
+        }
+    }
 }

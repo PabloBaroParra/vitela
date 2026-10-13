@@ -39,8 +39,15 @@ extension FakePdfCoreClient {
 
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data {
         exportedImages.append((page, dpi, format))
+        if document is FakeSnapshotDocument { exportedFromSnapshot += 1 }
         if let exportError, exportedImages.count > failExportsAfter { throw exportError }
         return Data("image-\(page)".utf8)
+    }
+
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        snapshotsTaken += 1
+        if let snapshotError { throw snapshotError }
+        return FakeSnapshotDocument(pages: document.pages)
     }
 
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? {
@@ -98,6 +105,17 @@ extension FakePdfCoreClient {
         unlockAttempts.append(password)
         guard password == certificatePassword else { throw SigningSourceFailure.wrongPassword }
         return FakeSigningSource(identities: signingIdentities)
+    }
+
+    func openTokenSigningSource(modulePath: String, pin: String?) throws -> any SigningSource {
+        tokenOpens.append((modulePath, pin))
+        if let tokenError { throw tokenError }
+        return FakeSigningSource(identities: signingIdentities)
+    }
+
+    /// Lists the store's identities, as the core does; signing never asks it.
+    func openNativeSigningSource(_ store: any NativeSigningStore) throws -> any SigningSource {
+        FakeSigningSource(identities: try store.identities().map { SigningIdentity(id: $0.id, displayName: $0.displayName) })
     }
 
     func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data {
