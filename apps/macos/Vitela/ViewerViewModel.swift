@@ -36,6 +36,8 @@ final class ViewerViewModel: ObservableObject {
     @Published var textInsertArmed = false
     /// Where the new line goes, while its sheet is up.
     @Published var pendingTextInsert: PendingTextInsert?
+    /// Add Image is armed with these bytes: the next click places them.
+    @Published var imageInsertBytes: Data?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.

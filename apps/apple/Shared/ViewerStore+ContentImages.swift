@@ -84,11 +84,41 @@ extension ViewerStore {
         return beginContentEdit(.removeImage(image))
     }
 
+    /// Replace Image… may go ahead for the selected image: not one held since
+    /// an edit, and not one the core will not read back for undo. Main
+    /// thread, like the other permission questions.
+    func selectedImageReplacementRefusal() -> String? {
+        guard contentEditMode, let document, let image = contentEdit.selectedImage else { return "Select an image first." }
+        if contentEdit.editedImages.contains(ContentImageKey(page: image.page, id: image.id)) { return Self.imageAgain }
+        return client.imageReplacementRefusal(document: document, image: image)
+    }
+
+    /// The selected image's picture, replaced by `bytes`.
+    func beginSelectedImageReplace(with bytes: Data) -> PageWorkRequest? {
+        guard contentEditMode, let image = contentEdit.selectedImage else { return nil }
+        return beginContentEdit(.replaceImage(image, with: bytes))
+    }
+
+    /// A new image with its top-left corner at `point` on `page`, sized by the
+    /// core's stamp policy so every shell agrees — Android's insertion.
+    func beginImageInsert(page: Int, at point: PdfPoint, bytes: Data) -> PageWorkRequest? {
+        guard contentEditMode else { return nil }
+        let rect: PdfRect
+        do {
+            rect = try client.stampPlacement(imageBytes: bytes, anchor: point)
+        } catch {
+            editStatus = Self.editFailure(error).localizedDescription
+            return nil
+        }
+        return beginContentEdit(.insertImage(page: page, rect: rect, bytes: bytes))
+    }
+
     /// Called once page work landed: an image edit holds that image until
     /// the document is reopened; an undo or redo gives every image back.
     func noteContentWork(_ work: PageWork) {
         switch work {
-        case let .editContent(.moveImage(image, _)), let .editContent(.resizeImage(image, _)), let .editContent(.removeImage(image)):
+        case let .editContent(.moveImage(image, _)), let .editContent(.resizeImage(image, _)),
+             let .editContent(.removeImage(image)), let .editContent(.replaceImage(image, _)):
             contentEdit.editedImages.insert(ContentImageKey(page: image.page, id: image.id))
         case .refresh:
             contentEdit.editedImages = []

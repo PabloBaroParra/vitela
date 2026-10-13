@@ -12,6 +12,12 @@ extension UniFfiPdfCoreClient {
         return PageContent(textRuns: content.textRuns.map(ContentTextRun.init), images: content.images.map(ContentImage.init))
     }
 
+    func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? {
+        guard let handle = try? handle(of: document) else { return "The document is no longer open." }
+        guard (try? handle.imageSourceBytes(item: FfiContentImageItem(image))) != nil else { return Self.replaceRefusal(handle) }
+        return nil
+    }
+
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool {
         guard let handle = try? handle(of: document) else { return false }
         return (try? handle.textRunHasPendingMove(page: UInt32(run.page), id: run.id)) ?? false
@@ -20,8 +26,16 @@ extension UniFfiPdfCoreClient {
     func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
         let handle = try handle(of: document)
         guard let command = FfiEditCommand(edit) else {
-            guard case let .insertText(page, rect, text) = edit else { return }
-            return try insertText(handle: handle, page: page, rect: rect, text: text)
+            switch edit {
+            case let .insertText(page, rect, text):
+                return try insertText(handle: handle, page: page, rect: rect, text: text)
+            case let .replaceImage(image, bytes):
+                return try replaceImage(handle: handle, image: image, with: bytes)
+            case let .insertImage(page, rect, bytes):
+                return try insertImage(handle: handle, page: page, rect: rect, bytes: bytes)
+            default:
+                return
+            }
         }
         do {
             try Vitela.applyEdit(handle: handle, command: command)
@@ -64,6 +78,45 @@ private extension UniFfiPdfCoreClient {
     }
 }
 
+private extension UniFfiPdfCoreClient {
+    /// `before` is read here, at apply time, not carried from the check: an
+    /// edit may have landed in between, and the undo must restore what the
+    /// page holds now — Android's reasoning.
+    func replaceImage(handle: DocumentHandle, image: ContentImage, with bytes: Data) throws {
+        let item = FfiContentImageItem(image)
+        do {
+            try Vitela.applyEdit(handle: handle, command: .replaceImageSource(item: item, before: handle.imageSourceBytes(item: item), after: bytes))
+        } catch FfiError.InvalidImage {
+            throw EditFailure.failed(ContentEditing.notAnImage)
+        } catch FfiError.UnsupportedOperation {
+            throw EditFailure.notPermitted(Self.replaceRefusal(handle))
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
+    }
+
+    /// A new image under an XObject name of its own: the core refuses one the
+    /// page already has rather than overwrite it, and a random name keeps
+    /// queued insertions apart — Android's choice.
+    func insertImage(handle: DocumentHandle, page: Int, rect: PdfRect, bytes: Data) throws {
+        let name = "VitelaImage" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let item = FfiContentImageItem(id: 0, page: UInt32(page), bbox: FfiRect(rect), resourceXobjectName: name)
+        do {
+            try Vitela.applyEdit(handle: handle, command: .insertImage(item: item, source: bytes))
+        } catch FfiError.InvalidImage {
+            throw EditFailure.failed(ContentEditing.notAnImage)
+        } catch FfiError.UnsupportedOperation {
+            throw EditFailure.notPermitted(handle.contentEditingAllowed() ? "This image cannot be added here." : ContentEditing.forbidden)
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
+    }
+
+    static func replaceRefusal(_ handle: DocumentHandle) -> String {
+        handle.contentEditingAllowed() ? ContentEditing.replaceRefused : ContentEditing.forbidden
+    }
+}
+
 private extension FfiEditCommand {
     /// `nil` for an insertion, which needs the page's fonts to name its own.
     init?(_ edit: ContentEdit) {
@@ -76,7 +129,7 @@ private extension FfiEditCommand {
             self = .removeTextRun(item: FfiContentTextRun(run))
         case let .moveText(run, rect):
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
-        case .insertText:
+        case .insertText, .replaceImage, .insertImage:
             return nil
         case let .moveImage(image, rect):
             self = .moveImage(item: FfiContentImageItem(image), to: FfiRect(rect))

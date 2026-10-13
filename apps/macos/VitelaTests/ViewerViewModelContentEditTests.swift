@@ -6,10 +6,17 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         id: 3, page: 0, bbox: PdfRect(x: 100, y: 692, width: 120, height: 14), resourceFontName: "F1", fontKind: .standard14, text: "Invoice"
     )
 
+    /// What the image picker hands back; `nil` cancels it.
+    private var pickedImage: URL?
+
     private func model() -> (FakePdfCoreClient, ViewerViewModel) {
         let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
         client.pageContents[0] = PageContent(textRuns: [line], images: [])
-        let model = ViewerViewModel(store: ViewerStore(client: client), sampleLoader: { Data([1]) })
+        let prompts = SavePrompts(
+            chooseDestination: { _ in nil }, confirmSignatureLoss: { false }, resolveUnsavedChanges: { .cancel },
+            chooseImage: { [unowned self] in self.pickedImage }
+        )
+        let model = ViewerViewModel(store: ViewerStore(client: client), prompts: prompts, sampleLoader: { Data([1]) })
         model.openSample()
         waitUntil({ model.store.state == .loaded }, "the sample never opened")
         return (client, model)
@@ -168,5 +175,56 @@ final class ViewerViewModelContentEditTests: XCTestCase {
 
         model.deleteSelectedImage()
         waitUntil({ !model.store.pageWorkInFlight && client.contentEdits == [.removeImage(photo)] }, "the delete never ran")
+    }
+
+    private func imageFile(_ bytes: [UInt8]) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("vitela-image-\(UUID().uuidString).png")
+        try Data(bytes).write(to: url)
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return url
+    }
+
+    func testAddImagePicksAFileThenTheClickPlacesIt() throws {
+        let (client, model) = model()
+        pickedImage = try imageFile([7, 7])
+
+        model.armImageInsert()
+        XCTAssertTrue(model.store.contentEditMode)
+        XCTAssertEqual(model.store.editStatus, ContentEditing.imageInsertPrompt)
+        model.pageDragBegan(page: 0, location: location(72, 300), dimensions: PageDimensions(width: 612, height: 792), zoom: 1)
+
+        XCTAssertNil(model.imageInsertBytes)
+        waitUntil({ !model.store.pageWorkInFlight && client.contentEdits.count == 1 }, "the insertion never ran")
+        XCTAssertEqual(client.contentEdits.first, .insertImage(page: 0, rect: PdfRect(x: 72, y: 250, width: 100, height: 50), bytes: Data([7, 7])))
+    }
+
+    func testCancellingThePickerArmsNothing() {
+        let (_, model) = model()
+        pickedImage = nil
+
+        model.armImageInsert()
+
+        XCTAssertNil(model.imageInsertBytes)
+        XCTAssertFalse(model.store.contentEditMode)
+    }
+
+    func testReplaceAsksTheCoreBeforeThePicker() throws {
+        let (client, model) = model()
+        let photo = ContentImage(id: 5, page: 0, bbox: PdfRect(x: 300, y: 300, width: 100, height: 100), resourceXObjectName: "Im1")
+        client.pageContents[0] = PageContent(textRuns: [], images: [photo])
+        model.setContentEditMode(true)
+        readPage(model)
+        model.pageDragBegan(page: 0, location: location(350, 350), dimensions: PageDimensions(width: 612, height: 792), zoom: 1)
+        model.pageDragEnded(page: 0, location: location(350, 350), zoom: 1)
+        client.imageReplaceRefusal = ContentEditing.replaceRefused
+        pickedImage = try imageFile([1])
+
+        model.replaceSelectedImage()
+        XCTAssertEqual(model.store.editStatus, ContentEditing.replaceRefused)
+        XCTAssertTrue(client.contentEdits.isEmpty)
+
+        client.imageReplaceRefusal = nil
+        model.replaceSelectedImage()
+        waitUntil({ !model.store.pageWorkInFlight && client.contentEdits == [.replaceImage(photo, with: Data([1]))] }, "the replace never ran")
     }
 }
