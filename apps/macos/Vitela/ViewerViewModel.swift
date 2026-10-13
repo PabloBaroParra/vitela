@@ -29,6 +29,9 @@ final class ViewerViewModel: ObservableObject {
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
+    /// Whether the Pages column is open — `ViewerViewModel+Navigation.swift`.
+    /// Open from the start, as on Linux and Windows.
+    @Published var showsPages = true
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
@@ -51,6 +54,8 @@ final class ViewerViewModel: ObservableObject {
     /// The file the document being opened came from, recorded in Recent once
     /// it loads; `nil` for samples, new documents and anything not a file.
     var pendingRecentPath: String?
+    /// Share's signature question and picker — `ViewerViewModel+Share.swift`.
+    let sharePrompts: SharePrompts
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
@@ -74,6 +79,7 @@ final class ViewerViewModel: ObservableObject {
         signingPrompts: SigningPrompts = .modal,
         importPrompts: ImportPrompts = .modal,
         recentStore: RecentDocumentStore = InMemoryRecentDocumentStore(),
+        sharePrompts: SharePrompts = .modal,
         signatures: SignatureStore = FileSignatureStore(url: FileSignatureStore.defaultURL),
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
@@ -82,6 +88,7 @@ final class ViewerViewModel: ObservableObject {
         self.signingPrompts = signingPrompts
         self.importPrompts = importPrompts
         self.recentStore = recentStore
+        self.sharePrompts = sharePrompts
         self.signatures = signatures
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()

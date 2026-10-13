@@ -20,8 +20,9 @@ responsibility:
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
   changes before quitting, and passes on files Finder opens with Vitela.
 - `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Open Recent, Save As, Protect,
-  Compress, Extract Pages, Split PDF, Export Pages as Images, Print, Undo,
-  Redo, the Go menu's page navigation, and View ▸ zoom).
+  Compress, Extract Pages, Split PDF, Export Pages as Images, Print, Share, Undo,
+  Redo, the Go menu's page and annotation navigation, and View ▸ Pages and
+  zoom).
 - `Vitela/ViewerViewModel.swift` — file selection, File ▸ New, the render
   queue, and opening the bundled sample documents.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
@@ -32,11 +33,15 @@ responsibility:
   are `../apple/Shared/RecentDocuments.swift`; the app keeps the list in
   Application Support, a view model made without that store (every test)
   keeps it in memory.
+- `Vitela/ViewerViewModel+Share.swift` — File ▸ Share…: signature
+  question, the bytes a save would write in a fresh temporary folder, the
+  share picker, and sweeping copies older than an hour.
 - `Vitela/ViewerViewModel+Print.swift` — Print… (⌘P): the standard print
   panel over `Views/PrintPagesView`, which paginates one paper page per PDF
   page and renders each on demand (144 DPI for the panel's preview, 300 DPI
   for the printer), scaled to fit the printable area.
-- `Vitela/ViewerViewModel+Navigation.swift` — the Go to page prompt.
+- `Vitela/ViewerViewModel+Navigation.swift` — the Go to page prompt and
+  the Pages column (`Views/PagesSidebar`), which shares Organize's thumbnails.
 - `Vitela/ViewerViewModel+Zoom.swift` — feeds the page list's size to the
   fit-width / fit-page zoom modes, waiting for a live resize to settle.
 - `Vitela/ViewerViewModel+FileDrop.swift` — PDFs dropped on the window or
@@ -66,7 +71,8 @@ responsibility:
   and its siblings (protocol, value types, failures), `UniFfiPdfCoreClient*.swift` (the only files
   that touch the generated UniFFI API), and `ViewerStore*.swift` (viewer,
   search, selection, editing, print, page-navigation, zoom, page-structure,
-  thumbnail and annotation state).
+  thumbnail and annotation state, including stepping the selection through
+  annotations and revealing the one selected).
 
 `ViewerStore` is main-thread only, with one documented exception:
 `renderResult(for:)` runs on the render queue and touches nothing but the
@@ -105,6 +111,12 @@ this session adds are listed by the core and drawn by `AnnotationOverlay`
 until a save writes them into the file, the same split Linux and Windows
 use. Overlay positions come from the core's turn-aware `place_rect` /
 `point_to_pdf`, so a rotated page gets them in the right place.
+
+Print and Export Pages as Images have no overlay pass, so an annotated
+session renders them from the core's output snapshot instead — the
+document as a save would write it, reopened under the session's password
+(`ViewerStore+OutputSnapshot.swift`). Without annotations they render the
+open document itself.
 
 ## Building
 
