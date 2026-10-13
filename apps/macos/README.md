@@ -77,6 +77,8 @@ responsibility:
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
   `SignaturePng.swift` — Draw Signature: the remembered signature, the pad's
   strokes as a PNG, and arming the stamp with it.
+- `Vitela/Views/NoteTooltipLayer.swift` — a note's text as a native
+  tooltip while the pointer rests on it, without taking any click.
 - `Vitela/Views/SearchResultsPanel.swift` — every match of the search,
   listed by page; a click makes one current.
 - `Vitela/Views/ViewerToolbar.swift` — the window's top row of actions,

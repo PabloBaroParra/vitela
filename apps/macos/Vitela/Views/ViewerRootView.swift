@@ -183,6 +183,8 @@ struct ViewerRootView: View {
                                 .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index) }
                             AnnotationOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot))
                                 .frame(width: pageWidth(slot), height: pageHeight(slot))
+                            NoteTooltipLayer(tooltips: model.store.noteTooltips(page: slot.index, zoom: pageZoom(slot)))
+                                .frame(width: pageWidth(slot), height: pageHeight(slot))
                             ContentOutlineOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot)) {
                                 model.readPageContent(page: slot.index)
                             }
