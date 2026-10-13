@@ -39,8 +39,15 @@ extension FakePdfCoreClient {
 
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data {
         exportedImages.append((page, dpi, format))
+        if document is FakeSnapshotDocument { exportedFromSnapshot += 1 }
         if let exportError, exportedImages.count > failExportsAfter { throw exportError }
         return Data("image-\(page)".utf8)
+    }
+
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        snapshotsTaken += 1
+        if let snapshotError { throw snapshotError }
+        return FakeSnapshotDocument(pages: document.pages)
     }
 
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? {
@@ -100,6 +107,17 @@ extension FakePdfCoreClient {
         return FakeSigningSource(identities: signingIdentities)
     }
 
+    func openTokenSigningSource(modulePath: String, pin: String?) throws -> any SigningSource {
+        tokenOpens.append((modulePath, pin))
+        if let tokenError { throw tokenError }
+        return FakeSigningSource(identities: signingIdentities)
+    }
+
+    /// Lists the store's identities, as the core does; signing never asks it.
+    func openNativeSigningSource(_ store: any NativeSigningStore) throws -> any SigningSource {
+        FakeSigningSource(identities: try store.identities().map { SigningIdentity(id: $0.id, displayName: $0.displayName) })
+    }
+
     func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data {
         signedAs.append(identityId)
         if let signError { throw signError }
@@ -137,5 +155,65 @@ extension FakePdfCoreClient {
         let added = sources.compactMap { $0 as? FakeImportSource }.flatMap(\.pages)
         appendToHistory(pages: currentPages + added)
         return added.count
+    }
+}
+
+extension FakePdfCoreClient {
+    func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent {
+        pageContentReads.append(page)
+        return pageContents[page] ?? PageContent(textRuns: [], images: [])
+    }
+
+    func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? { imageReplaceRefusal }
+
+    func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool {
+        movedRuns.contains(run.id)
+    }
+
+    /// Records the edit as one history step, and makes the page say what the
+    /// edit says, so a re-read after it sees the change.
+    func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
+        if let contentEditError { throw contentEditError }
+        contentEdits.append(edit)
+        switch edit {
+        case let .retypeText(run, text):
+            replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: $0.bbox, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: text)] }
+        case let .removeText(run):
+            replaceRun(run) { _ in [] }
+        case let .insertText(page, rect, text):
+            let content = pageContents[page] ?? PageContent(textRuns: [], images: [])
+            let inserted = ContentTextRun(id: 1_000 + UInt64(content.textRuns.count), page: page, bbox: rect, resourceFontName: "VitelaText", fontKind: .standard14, text: text)
+            pageContents[page] = PageContent(textRuns: content.textRuns + [inserted], images: content.images)
+        case let .moveImage(image, rect), let .resizeImage(image, rect):
+            replaceImage(image) { [ContentImage(id: $0.id, page: $0.page, bbox: rect, resourceXObjectName: $0.resourceXObjectName)] }
+        case let .removeImage(image):
+            replaceImage(image) { _ in [] }
+        case .replaceImage:
+            break
+        case let .insertImage(page, rect, _):
+            let content = pageContents[page] ?? PageContent(textRuns: [], images: [])
+            let inserted = ContentImage(id: 2_000 + UInt64(content.images.count), page: page, bbox: rect, resourceXObjectName: "VitelaImage")
+            pageContents[page] = PageContent(textRuns: content.textRuns, images: content.images + [inserted])
+        case let .moveText(run, rect):
+            movedRuns.insert(run.id)
+            replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: rect, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: $0.text)] }
+        }
+        recordAnnotations(currentAnnotations)
+    }
+
+    private func replaceImage(_ image: ContentImage, with change: (ContentImage) -> [ContentImage]) {
+        guard let content = pageContents[image.page] else { return }
+        pageContents[image.page] = PageContent(
+            textRuns: content.textRuns,
+            images: content.images.flatMap { $0.id == image.id ? change($0) : [$0] }
+        )
+    }
+
+    private func replaceRun(_ run: ContentTextRun, with change: (ContentTextRun) -> [ContentTextRun]) {
+        guard let content = pageContents[run.page] else { return }
+        pageContents[run.page] = PageContent(
+            textRuns: content.textRuns.flatMap { $0.id == run.id ? change($0) : [$0] },
+            images: content.images
+        )
     }
 }

@@ -12,6 +12,12 @@ struct SigningPrompts {
     var askPassword: (_ retry: Bool) -> String?
     /// Which identity to sign as; `nil` when cancelled.
     var chooseIdentity: (_ identities: [SigningIdentity]) -> SigningIdentity?
+    /// A card or token's PKCS#11 module; `nil` when cancelled.
+    var chooseTokenModule: () -> URL? = TokenSigningPrompts.chooseModule
+    /// The token's PIN; `""` leaves it to the token's own prompt, `nil` cancels.
+    var askTokenPin: () -> String? = TokenSigningPrompts.askPin
+    /// The user's keychains, as a store whose keys never leave them.
+    var openKeychain: () throws -> any NativeSigningStore = { try KeychainSigningStore.open() }
 
     static let modal = SigningPrompts(
         chooseCertificate: {
@@ -49,9 +55,9 @@ struct SigningPrompts {
     )
 }
 
-/// File ▸ Sign with Certificate…: certificate, password, identity,
-/// destination, then the signed bytes off the main thread, written
-/// atomically and reopened — Windows' `ChooseSigningCertificate_Click`.
+/// File ▸ Sign with Certificate… and Sign with Keychain Identity…: a source,
+/// identity, destination, then the signed bytes off the main thread,
+/// written atomically and reopened — Windows' `ChooseSigningCertificate_Click`.
 extension ViewerViewModel {
     func signWithCertificateFile() {
         guard store.document != nil, !isSaving else { return }
@@ -68,6 +74,35 @@ extension ViewerViewModel {
             return
         }
         unlock(bytes, retry: false)
+    }
+
+    /// File ▸ Sign with Keychain Identity…: the identities in the user's
+    /// keychains (including a smart card's), then the same identity,
+    /// destination and write as a certificate file — Windows' "computer
+    /// certificate" source (`WindowsSigningStore`).
+    func signWithKeychainIdentity() {
+        guard store.document != nil, !isSaving else { return }
+        if let refusal = store.signingRefusal {
+            store.editStatus = refusal
+            return
+        }
+        store.editStatus = "Reading the Keychain…"
+        let client = store.client
+        let openKeychain = signingPrompts.openKeychain
+        operationQueue.addOperation { [weak self] in
+            let opened = Result { try client.openNativeSigningSource(try openKeychain()) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch opened {
+                case let .success(source) where source.identities.isEmpty:
+                    self.store.editStatus = "No signing identity was found in your keychains. Import a certificate with its private key into Keychain Access, or sign with a certificate file."
+                case let .success(source):
+                    self.chooseIdentity(in: source)
+                case let .failure(error):
+                    self.store.editStatus = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func unlock(_ bytes: Data, retry: Bool) {
@@ -93,7 +128,9 @@ extension ViewerViewModel {
         }
     }
 
-    private func chooseIdentity(in source: any SigningSource) {
+    /// The rest of every signing path once a source is open: identity,
+    /// destination, sign, write, reopen.
+    func chooseIdentity(in source: any SigningSource) {
         let identities = source.identities
         guard !identities.isEmpty else {
             store.editStatus = "This certificate source has no usable signing identities."

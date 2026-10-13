@@ -12,11 +12,16 @@ struct ViewerRootView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
+            ViewerToolbar(model: model, showsProperties: $showsProperties, showsComments: $showsComments, showsForm: $showsForm)
             searchBar
-            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature)
+            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
             Divider()
             HStack(spacing: 0) {
+                if model.showsPages && !model.store.pageSlots.isEmpty {
+                    PagesSidebar(model: model)
+                        .frame(width: 136)
+                    Divider()
+                }
                 if model.store.pageSlots.isEmpty {
                     placeholder
                 } else if model.isOrganizing {
@@ -100,73 +105,6 @@ struct ViewerRootView: View {
         )
     }
 
-    private var toolbar: some View {
-        HStack {
-            Button("Open PDF", action: model.selectDocument)
-            Menu("Open Sample") {
-                Button("Vitela sample", action: model.openSample)
-                Button("AES-128 sample (user-aes-pass)", action: model.openAes128Sample)
-                Button("RC4-128 sample (user-rc4-pass)", action: model.openRc4128Sample)
-            }
-            Button("Save As…") { model.saveAs() }
-                .disabled(model.store.document == nil || model.isSaving)
-            Button("Print…", action: model.printDocument)
-                .disabled(model.store.document == nil)
-            Button("Copy", action: model.copySelection)
-                .keyboardShortcut("c", modifiers: .command)
-                .disabled(model.store.selectedText == nil)
-            Button("Undo", action: model.undo)
-                .disabled(!model.store.canUndo || model.store.pageWorkInFlight)
-            Button("Redo", action: model.redo)
-                .disabled(!model.store.canRedo || model.store.pageWorkInFlight)
-            Toggle("Properties", isOn: $showsProperties)
-                .toggleStyle(.button)
-            if model.store.isSigned {
-                Text("✓ Digitally signed")
-                    .foregroundStyle(.secondary)
-                    .help("This document carries a digital signature.")
-                    .accessibilityIdentifier("signed-indicator")
-            }
-            Toggle("Comments", isOn: $showsComments)
-                .toggleStyle(.button)
-                .help("The document's comments, by page")
-            Toggle("Form", isOn: $showsForm)
-                .toggleStyle(.button)
-                .help("Fill in the document's form fields")
-            Toggle("Organize", isOn: $model.isOrganizing)
-                .toggleStyle(.button)
-                .help("Rotate and rearrange pages")
-                .disabled(model.store.document == nil)
-            Spacer()
-            Button("−") { model.store.stepZoom(-1) }
-                .accessibilityLabel("Zoom out")
-                .help("Zoom out (⌘−)")
-            Text("\(Int((model.store.displayedZoom * 100).rounded()))%")
-                // A monospaced face keeps the readout from jittering as the
-                // digit count changes.
-                .font(.system(.body, design: .monospaced))
-            Button("+") { model.store.stepZoom(1) }
-                .accessibilityLabel("Zoom in")
-                .help("Zoom in (⌘=)")
-            Toggle("Fit width", isOn: zoomModeBinding(.fitWidth))
-                .toggleStyle(.button)
-                .help("Fit each page to the window width")
-            Toggle("Fit page", isOn: zoomModeBinding(.fitPage))
-                .toggleStyle(.button)
-                .help("Fit each whole page in the window (⌘9)")
-        }
-        .padding()
-    }
-
-    /// On while `mode` is active; switching it off freezes the factor the
-    /// pages are shown at, as an explicit zoom.
-    private func zoomModeBinding(_ mode: ZoomMode) -> Binding<Bool> {
-        Binding(
-            get: { model.store.zoomMode == mode },
-            set: { model.store.setZoomMode($0 ? mode : .custom) }
-        )
-    }
-
     private var searchBar: some View {
         HStack {
             TextField("Find in document", text: $searchQuery)
@@ -225,11 +163,8 @@ struct ViewerRootView: View {
     }
 
     private var placeholder: some View {
-        VStack(spacing: 12) {
-            AppMarkView()
-            Text(model.title)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        HomeView(model: model)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var pageList: some View {
@@ -248,6 +183,10 @@ struct ViewerRootView: View {
                                 .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index) }
                             AnnotationOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot))
                                 .frame(width: pageWidth(slot), height: pageHeight(slot))
+                            ContentOutlineOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot)) {
+                                model.readPageContent(page: slot.index)
+                            }
+                            .frame(width: pageWidth(slot), height: pageHeight(slot))
                             SelectionOverlay(
                                 dimensions: slot.dimensions,
                                 zoom: pageZoom(slot),
@@ -297,7 +236,7 @@ struct ViewerRootView: View {
             }
             .onChange(of: model.store.pageNavigation) { request in
                 guard let request else { return }
-                proxy.scrollTo(pageId(page: request.page), anchor: .top)
+                proxy.scrollTo(pageId(page: request.page), anchor: request.anchor.map { UnitPoint(x: $0.x, y: $0.y) } ?? .top)
                 // The layout passes `scrollTo` triggers run before the next
                 // main-queue turn; after it, a moving page is the reader.
                 DispatchQueue.main.async { model.store.pageNavigationLanded(request) }

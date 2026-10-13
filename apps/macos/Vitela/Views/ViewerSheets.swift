@@ -32,6 +32,12 @@ struct ViewerSheets: ViewModifier {
             .sheet(item: pendingFreeTextBinding) { pending in
                 FreeTextSheet(store: model.store, pending: pending)
             }
+            .sheet(item: $model.contentTextEditor) { run in
+                ContentTextSheet(model: model, run: run)
+            }
+            .sheet(item: $model.pendingTextInsert) { pending in
+                InsertTextSheet(model: model, page: pending.page)
+            }
             .sheet(item: $model.signatureSheet) { sheet in
                 switch sheet {
                 case let .saved(png):

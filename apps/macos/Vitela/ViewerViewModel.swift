@@ -29,11 +29,42 @@ final class ViewerViewModel: ObservableObject {
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
+    /// The page text being retyped, while its sheet is up —
+    /// `ViewerViewModel+ContentEdit.swift`.
+    @Published var contentTextEditor: ContentTextRun?
+    /// Whether the Pages column is open — `ViewerViewModel+Navigation.swift`.
+    /// Open from the start, as on Linux and Windows.
+    @Published var showsPages = true
+    /// Add Text is armed: the next click on a page places a new line there.
+    @Published var textInsertArmed = false
+    /// Where the new line goes, while its sheet is up.
+    @Published var pendingTextInsert: PendingTextInsert?
+    /// Add Image is armed with these bytes: the next click places them.
+    @Published var imageInsertBytes: Data?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
     @Published var isImporting = false
     let importPrompts: ImportPrompts
+    /// Home's Recent list, its page-1 previews, and where it is kept —
+    /// `ViewerViewModel+Recents.swift`.
+    @Published var recentDocuments: [RecentDocument] = []
+    @Published var recentPreviews: [String: RecentPreview] = [:]
+    /// Paths whose preview is queued, so a list change does not queue it twice.
+    var recentPreviewsRequested = Set<String>()
+    let recentStore: RecentDocumentStore
+    /// Serial and never cancelled, unlike `operationQueue`: an open must not
+    /// drop a pending write of the list.
+    let recentStorageQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 1
+        return queue
+    }()
+    /// The file the document being opened came from, recorded in Recent once
+    /// it loads; `nil` for samples, new documents and anything not a file.
+    var pendingRecentPath: String?
+    /// Share's signature question and picker — `ViewerViewModel+Share.swift`.
+    let sharePrompts: SharePrompts
     let store: ViewerStore
     /// Serial: renders, searches, character fetches and saves all go through
     /// it. Not `private`: the `ViewerViewModel+…` extensions enqueue on it.
@@ -56,6 +87,8 @@ final class ViewerViewModel: ObservableObject {
         prompts: SavePrompts = .modal,
         signingPrompts: SigningPrompts = .modal,
         importPrompts: ImportPrompts = .modal,
+        recentStore: RecentDocumentStore = InMemoryRecentDocumentStore(),
+        sharePrompts: SharePrompts = .modal,
         signatures: SignatureStore = FileSignatureStore(url: FileSignatureStore.defaultURL),
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
@@ -63,6 +96,8 @@ final class ViewerViewModel: ObservableObject {
         self.prompts = prompts
         self.signingPrompts = signingPrompts
         self.importPrompts = importPrompts
+        self.recentStore = recentStore
+        self.sharePrompts = sharePrompts
         self.signatures = signatures
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
@@ -74,8 +109,12 @@ final class ViewerViewModel: ObservableObject {
         // the sink ever saw the *new* state. Use the emitted value instead of
         // reading `store.state` back, and the update stays synchronous.
         store.$state
-            .sink { [weak self] state in self?.title = Self.windowTitle(for: state) }
+            .sink { [weak self] state in
+                self?.title = Self.windowTitle(for: state)
+                self?.recordPendingRecent(state)
+            }
             .store(in: &subscriptions)
+        loadRecentDocuments()
         // `ViewerRootView` observes only this view model (`@ObservedObject var
         // model`), not `store` directly. `store` is its own `ObservableObject`
         // with its own `@Published` properties (`pageSlots`, `zoom`), so a page
@@ -112,12 +151,13 @@ final class ViewerViewModel: ObservableObject {
             // Like every other open, a new document clears a drop's notice.
             self.notice = ""
             self.documentName = "Untitled"
+            self.pendingRecentPath = nil
             self.store.openBlank()
         }
     }
 
     func open(url: URL) {
-        loadAndOpen(name: url.lastPathComponent) { try Data(contentsOf: url) }
+        loadAndOpen(name: url.lastPathComponent, recentPath: url.path) { try Data(contentsOf: url) }
     }
 
     /// Opens the sample document bundled with the app (see the Resources
@@ -148,7 +188,7 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    private func loadAndOpen(name: String, _ load: @escaping () throws -> Data) {
+    private func loadAndOpen(name: String, recentPath: String? = nil, _ load: @escaping () throws -> Data) {
         operationQueue.cancelAllOperations()
         operationQueue.addOperation { [weak self] in
             guard let self else { return }
@@ -158,6 +198,7 @@ final class ViewerViewModel: ObservableObject {
                     self.notice = ""
                     self.documentName = name
                     self.isOrganizing = false
+                    self.pendingRecentPath = recentPath
                     self.store.open(bytes: bytes)
                 }
             } catch {
