@@ -85,7 +85,9 @@ internal class Signing(
             val current = state.value.sign ?: return@launch
             state.value = state.value.copy(
                 sign = when (result) {
-                    is PdfCoreResult.Failure -> current.copy(unlocking = false, error = CERTIFICATE_LOCKED)
+                    // A wrong password asks again; a file that opened but
+                    // cannot sign carries the core's sentence saying why.
+                    is PdfCoreResult.Failure -> current.copy(unlocking = false, error = (result.error as? PdfCoreError.Failed)?.message ?: CERTIFICATE_LOCKED)
                     is PdfCoreResult.Success -> {
                         val identities = result.value.identities
                         if (identities.isEmpty()) {

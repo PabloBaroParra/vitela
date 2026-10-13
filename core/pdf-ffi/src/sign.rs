@@ -24,7 +24,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use pdf_sign::{CertificateSourcePort, SignError};
-use pdf_sign_pfx::PfxCertificateSource;
+use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 
 use crate::document::DocumentHandle;
 use crate::error::FfiError;
@@ -79,10 +79,15 @@ impl SigningCertificate {
 ///
 /// # Errors
 ///
-/// [`FfiError::WrongPassword`] when the file does not open with `password`
-/// — PKCS#12 cannot tell a wrong password from a damaged or non-PKCS#12 file
-/// (both fail the same integrity check), so a shell should word its prompt
-/// to cover both.
+/// - [`FfiError::WrongPassword`] when the file does not open with `password`
+///   — PKCS#12 cannot tell a wrong password from a damaged or non-PKCS#12
+///   file (both fail the same integrity check), so a shell should word its
+///   prompt to cover both.
+/// - [`FfiError::UnsupportedOperation`] when the file opens but cannot sign:
+///   it is encrypted with a scheme the core does not read, or it holds
+///   private keys and none can sign. `detail` is a lower-case clause for the
+///   reader saying why and, where there is one, how to export the file
+///   again; asking for the password again would not help.
 #[uniffi::export]
 pub fn open_signing_certificate(
     bytes: Vec<u8>,
@@ -90,7 +95,10 @@ pub fn open_signing_certificate(
 ) -> Result<Arc<SigningCertificate>, FfiError> {
     PfxCertificateSource::from_pkcs12(&bytes, &password)
         .map(|source| SigningCertificate::from_source(Box::new(source)))
-        .map_err(|_| FfiError::WrongPassword)
+        .map_err(|error| match error {
+            PfxAdapterError::Unusable(detail) => FfiError::UnsupportedOperation { detail },
+            PfxAdapterError::Pkcs12(_) | PfxAdapterError::File(_) => FfiError::WrongPassword,
+        })
 }
 
 /// Why `handle` cannot be signed, as a lower-case clause, or `None` when it

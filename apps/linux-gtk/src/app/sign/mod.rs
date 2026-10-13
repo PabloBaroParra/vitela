@@ -268,6 +268,14 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                             password_entry.set_text("");
                             password_entry.grab_focus();
                         }
+                        // The password was right, or would not help: say what
+                        // is wrong with the file instead of prompting again.
+                        Err(PfxAdapterError::Unusable(reason)) => {
+                            viewer
+                                .status
+                                .set_text(&unusable_certificate_message(&reason));
+                            dismiss_pfx_dialog(&viewer, &dialog);
+                        }
                         Err(PfxAdapterError::File(message)) => {
                             viewer.status.set_text(&format!(
                                 "Could not read the certificate file: {message}"
@@ -338,6 +346,16 @@ fn identities_status_message(identities: &[SigningIdentity], empty_message: &str
         empty_message.to_owned()
     } else {
         format_found_identities(identities)
+    }
+}
+
+/// The adapter's clause about a certificate file that cannot sign,
+/// capitalised and stopped.
+fn unusable_certificate_message(reason: &str) -> String {
+    let mut characters = reason.chars();
+    match characters.next() {
+        Some(first) => format!("{}{}.", first.to_uppercase(), characters.as_str()),
+        None => reason.to_owned(),
     }
 }
 
@@ -1072,6 +1090,14 @@ fn next_signature_field_name(base: &pdf_manip::LopdfDocument) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unusable_certificate_reads_as_a_sentence() {
+        assert_eq!(
+            unusable_certificate_message("this certificate file cannot sign"),
+            "This certificate file cannot sign."
+        );
+    }
 
     fn identity(display_name: &str) -> SigningIdentity {
         SigningIdentity {

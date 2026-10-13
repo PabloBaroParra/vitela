@@ -22,7 +22,7 @@ public sealed partial class PdfDocumentFacade
     public async Task<OperationResult<ISigningCertificate>> OpenSigningCertificateAsync(byte[] bytes, string password)
     {
         try { return OperationResult<ISigningCertificate>.Success(await Task.Run(() => _core.OpenSigningCertificate(bytes, password)).ConfigureAwait(false)); }
-        catch (PdfCoreException error) { return OperationResult<ISigningCertificate>.Failure(MapError(error, "certificate", null, null)); }
+        catch (PdfCoreException error) { return OperationResult<ISigningCertificate>.Failure(MapImportError(error, "certificate", null)); }
         catch (Exception error) { return OperationResult<ISigningCertificate>.Failure(MapUnexpected(error, "certificate", null, null)); }
     }
 

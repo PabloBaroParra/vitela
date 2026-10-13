@@ -15,6 +15,11 @@ internal static class SigningParityTests
         var state = await facade.SigningStateAsync(session.SessionId);
         Check(state.IsSuccess && state.Value!.IsSigned && state.Value.Refusal is null, "Existing signature indicator must be independent of eligibility");
         Check(!(await facade.SigningStateAsync("stale")).IsSuccess, "Stale state query must fail");
+        core.CertificateRefusal = "this certificate file uses an encryption scheme that is not supported";
+        var unusable = await facade.OpenSigningCertificateAsync([1], "");
+        Check(!unusable.IsSuccess && !unusable.Error!.RequiresPassword && unusable.Error.Message == "This certificate file uses an encryption scheme that is not supported.",
+            "A certificate file that cannot sign must say why, not ask for its password again");
+        core.CertificateRefusal = null;
         using var certificate = (await facade.OpenSigningCertificateAsync([1], "")).Value!;
         var wrote = false;
         core.SignRefusal = "this document does not permit adding a signature";

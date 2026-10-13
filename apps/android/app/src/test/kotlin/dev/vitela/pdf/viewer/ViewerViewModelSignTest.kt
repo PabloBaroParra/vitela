@@ -101,6 +101,20 @@ class ViewerViewModelSignTest {
     }
 
     @Test
+    fun aFileThatCannotSignSaysWhyInsteadOfAskingForThePassword() = runTest {
+        val reason = "This certificate file uses an encryption scheme that is not supported."
+        val viewModel = openedWith(SignCore(SignDocument(), certificateFailure = PdfCoreError.Failed(reason)))
+        viewModel.openSign()
+        viewModel.state.first { it.sign != null }
+        viewModel.chooseSigningCertificate("legacy.p12", byteArrayOf(7))
+        viewModel.unlockSigningCertificate("secret")
+
+        val editor = requireNotNull(viewModel.state.first { it.sign?.error != null }.sign)
+        assertEquals(reason, editor.error)
+        assertTrue(editor.identities.isEmpty())
+    }
+
+    @Test
     fun theSignedFileIsWrittenReopenedAndTheKeysClosed() = runTest {
         val document = SignDocument()
         val certificate = FakeCertificate()
@@ -219,6 +233,7 @@ private class SignCore(
     vararg documents: PdfDocument,
     private val certificate: FakeCertificate = FakeCertificate(),
     private val reopenFailure: PdfCoreError? = null,
+    private val certificateFailure: PdfCoreError? = null,
 ) : PdfCore {
     private val queue = ArrayDeque(documents.toList())
     val unlocks = mutableListOf<Pair<List<Byte>, String>>()
@@ -235,6 +250,7 @@ private class SignCore(
 
     override fun openSigningCertificate(bytes: ByteArray, password: String): PdfCoreResult<SigningCertificate> {
         if (password != "secret") return PdfCoreResult.Failure(PdfCoreError.WrongPassword)
+        certificateFailure?.let { return PdfCoreResult.Failure(it) }
         unlocks += bytes.toList() to password
         return PdfCoreResult.Success(certificate)
     }

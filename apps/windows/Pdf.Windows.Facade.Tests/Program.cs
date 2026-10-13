@@ -4056,7 +4056,10 @@ sealed partial class FakeCore : IPdfCore
     public IReadOnlyList<DocumentBlock> DocumentBlocks(IPdfCoreDocument document) => Blocks;
     public string? SignRefusal { get; set; }
     public string? SigningRefusal(IPdfCoreDocument document) => SignRefusal ?? (document.PageCount == 0 ? "the document has no pages to sign" : null);
-    public ISigningCertificate OpenSigningCertificate(byte[] bytes, string password) => new FakeSigningCertificate();
+    public string? CertificateRefusal { get; set; }
+    public ISigningCertificate OpenSigningCertificate(byte[] bytes, string password) => CertificateRefusal is { } refusal
+        ? throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "UnsupportedOperation", refusal)
+        : new FakeSigningCertificate();
     public ISigningCertificate OpenTokenSigningSource(string modulePath, string? pin) => new FakeSigningCertificate();
     public ISigningCertificate OpenSystemSigningSource() => new FakeSigningCertificate();
     public byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId) => [1, 2, 3];

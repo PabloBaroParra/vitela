@@ -10,7 +10,9 @@ internal sealed partial class GeneratedPdfCore
     public ISigningCertificate OpenSigningCertificate(byte[] bytes, string password)
     {
         try { return new Certificate(PdfFfiMethods.OpenSigningCertificate(bytes, password)); }
-        catch (FfiException error) { throw Translate(error); }
+        // A file that opens but cannot sign is refused with a sentence for the
+        // reader, as an import is, so its detail crosses the same way.
+        catch (FfiException error) { throw TranslateImport(error); }
     }
 
     public byte[] SignToBytes(IPdfCoreDocument document, ISigningCertificate certificate, string identityId)

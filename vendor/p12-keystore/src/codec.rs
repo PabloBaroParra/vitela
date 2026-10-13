@@ -152,7 +152,9 @@ fn decrypt(alg: &AlgorithmIdentifierOwned, data: &[u8], password: &str) -> Resul
         oid::PBES2_OID => {
             let params = alg.parameters.as_ref().ok_or(Error::InvalidParameters)?.to_der()?;
 
-            let params = pbes2::Parameters::from_der(&params)?;
+            // An encryption scheme or PRF this build cannot decode is reported as
+            // such, not as malformed DER: the MAC has already vouched for the bytes.
+            let params = pbes2::Parameters::from_der(&params).map_err(|_| Error::UnsupportedEncryptionScheme)?;
 
             match &params.kdf {
                 pbes2::Kdf::Pbkdf2(pbkdf2) if pbkdf2.iteration_count > MAX_KDF_ITERATIONS as u32 => {
@@ -164,9 +166,10 @@ fn decrypt(alg: &AlgorithmIdentifierOwned, data: &[u8], password: &str) -> Resul
                 _ => {}
             }
 
-            Ok(params
-                .decrypt(password.as_bytes(), data)
-                .map_err(|e| Error::Pkcs5Error(format!("{e}")))?)
+            Ok(params.decrypt(password.as_bytes(), data).map_err(|e| match e {
+                pkcs5::Error::UnsupportedAlgorithm { .. } => Error::UnsupportedEncryptionScheme,
+                e => Error::Pkcs5Error(format!("{e}")),
+            })?)
         }
         #[cfg(feature = "pbes1")]
         oid::PBE_WITH_SHA_AND_40BIT_RC2_CBC_OID | oid::PBE_WITH_SHA_AND3_KEY_TRIPLE_DES_CBC_OID => {
