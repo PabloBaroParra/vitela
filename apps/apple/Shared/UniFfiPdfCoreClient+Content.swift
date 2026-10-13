@@ -78,6 +78,13 @@ private extension FfiEditCommand {
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
         case .insertText:
             return nil
+        case let .moveImage(image, rect):
+            self = .moveImage(item: FfiContentImageItem(image), to: FfiRect(rect))
+        case let .resizeImage(image, rect):
+            self = .resizeImage(item: FfiContentImageItem(image), to: FfiRect(rect))
+        case let .removeImage(image):
+            // The core keeps the original for undo itself, as on Windows.
+            self = .removeImage(item: FfiContentImageItem(image), source: nil)
         }
     }
 }
@@ -103,6 +110,12 @@ private extension FfiContentTextRun {
 private extension ContentImage {
     init(_ image: FfiContentImageItem) {
         self.init(id: image.id, page: Int(image.page), bbox: PdfRect(image.bbox), resourceXObjectName: image.resourceXobjectName)
+    }
+}
+
+private extension FfiContentImageItem {
+    init(_ image: ContentImage) {
+        self.init(id: image.id, page: UInt32(image.page), bbox: FfiRect(image.bbox), resourceXobjectName: image.resourceXObjectName)
     }
 }
 

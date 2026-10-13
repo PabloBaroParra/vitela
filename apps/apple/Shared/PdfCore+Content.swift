@@ -47,6 +47,10 @@ enum ContentEdit: Equatable {
     /// A new line of Helvetica: `rect`'s height is its size, its top-left
     /// corner where the line starts.
     case insertText(page: Int, rect: PdfRect, text: String)
+    case moveImage(ContentImage, to: PdfRect)
+    /// A new box for the image; a corner drag may move its origin too.
+    case resizeImage(ContentImage, to: PdfRect)
+    case removeImage(ContentImage)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -56,6 +60,9 @@ enum ContentEdit: Equatable {
         case .removeText: return "Text deleted."
         case .moveText: return "Text moved."
         case .insertText: return "Text inserted."
+        case .moveImage: return "Image moved."
+        case .resizeImage: return "Image resized."
+        case .removeImage: return "Image deleted."
         }
     }
 }
@@ -63,9 +70,9 @@ enum ContentEdit: Equatable {
 /// Content-edit hit-testing and wording, shared with the Android shell's
 /// `ContentEdit.kt` and Windows' `ContentHitTest`.
 enum ContentEditing {
-    static let armed = "Click text to retype or delete it, or drag it to move it."
+    static let armed = "Click text to retype or delete it, or drag it to move it; click an image to move, resize or delete it."
     static let off = "Content editing off."
-    static let missed = "Nothing to edit there. Click text to retype or delete it, or drag it to move it."
+    static let missed = "Nothing to edit there. Click text to retype or delete it, or drag it to move it; click an image to move, resize or delete it."
     static let positionUnchanged = "Text position unchanged."
     /// Windows' refusal to retype a run whose move is not saved yet.
     static let movedNotSaved = "This text was moved and not yet saved — save and reopen before retyping it."

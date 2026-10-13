@@ -11,6 +11,31 @@ import Foundation
 /// — applied, the preview re-derived, the pages re-rendered — and is one
 /// undoable step. What the shell draws is each run's outline, from the
 /// content as the core last reported it.
+/// Everything Edit Text keeps between clicks. The store publishes it as one
+/// value; `ViewerStore`'s accessors below read and write its fields.
+struct ContentEditState {
+    var mode = false
+    /// Each page's editable content, read on first need in the mode.
+    var pages: [Int: PageContent] = [:]
+    var requested = Set<Int>()
+    /// A press on a line: a click until it travels, then a move.
+    var drag: ContentDrag?
+    /// The image clicked last, whose handles show.
+    var selectedImage: ContentImage?
+    /// A press on the selected image: a move, or a resize by a corner.
+    var imageDrag: ImageDrag?
+    /// Images moved, resized or deleted since the document was opened, by
+    /// page and id: Windows refuses a second edit of one until the document
+    /// is saved and reopened.
+    var editedImages = Set<ContentImageKey>()
+}
+
+/// An image's identity across reads of its page.
+struct ContentImageKey: Hashable {
+    let page: Int
+    let id: UInt64
+}
+
 /// A press on a line in Edit Text mode. It stays a click — which opens the
 /// line — until the pointer travels `ContentEditing.clickEpsilon` screen
 /// points; from then on it drags the line, as in Linux's and Windows' editor.
@@ -46,6 +71,26 @@ struct PageContentRequest {
 }
 
 extension ViewerStore {
+    var contentEditMode: Bool {
+        get { contentEdit.mode }
+        set { contentEdit.mode = newValue }
+    }
+
+    var pageContent: [Int: PageContent] {
+        get { contentEdit.pages }
+        set { contentEdit.pages = newValue }
+    }
+
+    var pageContentRequested: Set<Int> {
+        get { contentEdit.requested }
+        set { contentEdit.requested = newValue }
+    }
+
+    var contentDrag: ContentDrag? {
+        get { contentEdit.drag }
+        set { contentEdit.drag = newValue }
+    }
+
     /// Arms or disarms the mode. One mode owns a page click at a time, so an
     /// armed annotation tool, Edit fields and a text selection are dropped.
     func setContentEditMode(_ on: Bool) {
@@ -56,6 +101,8 @@ extension ViewerStore {
         }
         contentEditMode = on
         contentDrag = nil
+        contentEdit.imageDrag = nil
+        contentEdit.selectedImage = nil
         guard on else {
             editStatus = ContentEditing.off
             return
@@ -108,7 +155,26 @@ extension ViewerStore {
         return run
     }
 
+    /// A press on `page` in the mode, for whichever of a line or an image it
+    /// meant — Android's order (`contentAt`), with the selected image's
+    /// handles first as on Windows: the selected image's corners and body,
+    /// then a line the press is inside, then an image it is inside, then the
+    /// nearest line within reach. `false` when it meant nothing.
+    func beginContentPress(page: Int, at point: PdfPoint, zoom: Double) -> Bool {
+        guard contentEditMode, !pageWorkInFlight, let content = pageContent[page] else { return false }
+        if beginImageDrag(page: page, at: point, zoom: zoom, onlySelected: true) { return true }
+        if let run = ContentEditing.textRun(at: point, in: content.textRuns, reach: 0) {
+            contentEdit.selectedImage = nil
+            contentDrag = ContentDrag(run: run, origin: point, current: point, zoom: max(zoom, 0.01))
+            return true
+        }
+        if beginImageDrag(page: page, at: point, zoom: zoom, onlySelected: false) { return true }
+        contentEdit.selectedImage = nil
+        return beginContentDrag(page: page, at: point, zoom: zoom) != nil
+    }
+
     func continueContentDrag(to point: PdfPoint) {
+        if contentEdit.imageDrag != nil { return continueImageDrag(to: point) }
         guard var drag = contentDrag else { return }
         drag.current = point
         let travel = ((point.x - drag.origin.x) * (point.x - drag.origin.x) + (point.y - drag.origin.y) * (point.y - drag.origin.y)).squareRoot()
@@ -120,6 +186,7 @@ extension ViewerStore {
     /// retyped — the core keeps its old text where its move points — so a
     /// click on one says so instead of opening it, as Windows does.
     func endContentDrag(at point: PdfPoint) -> ContentRelease {
+        if contentEdit.imageDrag != nil { return endImageDrag(at: point) }
         continueContentDrag(to: point)
         guard let drag = contentDrag, let document else { return .nothing }
         contentDrag = nil
@@ -140,6 +207,7 @@ extension ViewerStore {
 
     func cancelContentDrag() {
         contentDrag = nil
+        contentEdit.imageDrag = nil
     }
 
     /// Starts `edit` through the page-work pipeline, or says why not.
@@ -170,13 +238,14 @@ extension ViewerStore {
     /// After anything that may change what a page paints.
     func forgetPageContent() {
         contentDrag = nil
+        contentEdit.imageDrag = nil
+        contentEdit.selectedImage = nil
         pageContent = [:]
         pageContentRequested = []
     }
 
     /// Called by `resetEditing` once a document has replaced the previous one.
     func resetContentEditing() {
-        contentEditMode = false
-        forgetPageContent()
+        contentEdit = ContentEditState()
     }
 }

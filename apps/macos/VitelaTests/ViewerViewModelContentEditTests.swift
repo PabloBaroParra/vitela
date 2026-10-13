@@ -153,4 +153,20 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         XCTAssertNil(model.pendingTextInsert)
         XCTAssertTrue(client.contentEdits.isEmpty)
     }
+
+    func testAnImageIsSelectedDraggedAndDeletedFromTheView() {
+        let (client, model) = model()
+        let photo = ContentImage(id: 5, page: 0, bbox: PdfRect(x: 300, y: 300, width: 100, height: 100), resourceXObjectName: "Im1")
+        client.pageContents[0] = PageContent(textRuns: [line], images: [photo])
+        model.setContentEditMode(true)
+        readPage(model)
+        let size = PageDimensions(width: 612, height: 792)
+
+        model.pageDragBegan(page: 0, location: location(350, 350), dimensions: size, zoom: 1)
+        model.pageDragEnded(page: 0, location: location(350, 350), zoom: 1)
+        XCTAssertEqual(model.store.selectedContentImage, photo)
+
+        model.deleteSelectedImage()
+        waitUntil({ !model.store.pageWorkInFlight && client.contentEdits == [.removeImage(photo)] }, "the delete never ran")
+    }
 }
