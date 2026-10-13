@@ -123,3 +123,45 @@ final class ViewerStoreSearchTests: XCTestCase {
         XCTAssertEqual(store.searchMatchRects(forPage: 1), [])
     }
 }
+
+extension ViewerStoreSearchTests {
+    private func searched(_ matches: [SearchMatch]) throws -> ViewerStore {
+        let client = FakePdfCoreClient(pages: Array(repeating: PageDimensions(width: 612, height: 792), count: 3))
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        client.searchResults["tax"] = matches
+        let request = try XCTUnwrap(store.beginSearch(query: "tax"))
+        store.applySearch(store.searchResult(for: request), for: request)
+        return store
+    }
+
+    func testTheResultsListOneRowPerMatchInWindowsWords() throws {
+        let store = try searched([
+            SearchMatch(pageIndex: 0, text: "Tax", characterBounds: []),
+            SearchMatch(pageIndex: 2, text: "tax\n  rate", characterBounds: []),
+        ])
+
+        XCTAssertEqual(store.searchResultRows.map(\.label), ["Page 1: Tax", "Page 3: tax rate"])
+        XCTAssertEqual(store.searchResultRows.map(\.index), [0, 1])
+    }
+
+    func testClickingARowMakesItCurrentAndBringsItsPage() throws {
+        let store = try searched([
+            SearchMatch(pageIndex: 0, text: "tax", characterBounds: []),
+            SearchMatch(pageIndex: 2, text: "tax", characterBounds: []),
+        ])
+
+        store.selectSearchMatch(1)
+
+        XCTAssertEqual(store.search?.currentIndex, 1)
+        XCTAssertEqual(store.currentSearchMatchPage, 2)
+        XCTAssertEqual(store.searchStatus, "Match 2 of 2 for \"tax\".")
+        store.selectSearchMatch(7)
+        XCTAssertEqual(store.search?.currentIndex, 1, "a row that is not there changes nothing")
+    }
+
+    func testNoSearchNoRows() {
+        let store = ViewerStore(client: FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)]))
+        XCTAssertTrue(store.searchResultRows.isEmpty)
+    }
+}
