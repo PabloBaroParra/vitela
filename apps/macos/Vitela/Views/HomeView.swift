@@ -1,0 +1,116 @@
+import SwiftUI
+
+/// What the window shows with no document open: the mark, Open and New, and
+/// the Recent list grouped by day — Linux's Home (`home/`) and Windows'
+/// `MainWindow.Home.cs` / `MainWindow.Recents.cs`. The rules come from
+/// `RecentDocuments`; opening, removing and the previews from
+/// `ViewerViewModel+Recents.swift`.
+struct HomeView: View {
+    @ObservedObject var model: ViewerViewModel
+    @State private var query = ""
+    @Environment(\.displayScale) private var displayScale
+
+    /// The preview frame, which also sets the card's text width — Windows'
+    /// and Linux's 108.
+    static let cardWidth = 108.0
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                recentHeading
+                recentList
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onAppear { model.loadRecentPreviews(scale: Double(displayScale), retry: true) }
+        .onChange(of: model.recentDocuments) { _ in model.loadRecentPreviews(scale: Double(displayScale)) }
+    }
+
+    private var header: some View {
+        HStack(spacing: 16) {
+            AppMarkView()
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Vitela").font(.largeTitle)
+                Text(model.title).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("New", action: model.newDocument)
+            Button("Open…", action: model.selectDocument)
+                .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private var recentHeading: some View {
+        HStack {
+            Text("Recent").font(.title2)
+            Spacer()
+            TextField("Search recent", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 220)
+        }
+    }
+
+    @ViewBuilder private var recentList: some View {
+        let groups = RecentDocuments.grouped(model.recentDocuments, matching: query, now: Date())
+        if groups.isEmpty {
+            Text(RecentDocuments.emptyMessage(listIsEmpty: model.recentDocuments.isEmpty))
+                .foregroundStyle(.secondary)
+        }
+        ForEach(groups, id: \.bucket) { group in
+            VStack(alignment: .leading, spacing: 8) {
+                Text(group.bucket.rawValue)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.cardWidth + 16), spacing: 10, alignment: .top)],
+                          alignment: .leading, spacing: 10) {
+                    ForEach(group.documents, id: \.path) { card($0) }
+                }
+            }
+        }
+    }
+
+    private func card(_ document: RecentDocument) -> some View {
+        let preview = model.recentPreviews[document.path]
+        return Button { model.openRecent(document) } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                picture(preview?.image)
+                    .frame(width: Self.cardWidth, height: Self.cardWidth)
+                Text(document.name)
+                    .lineLimit(2)
+                    .font(.callout)
+                Text(RecentDocuments.caption(document, pageCount: preview?.pageCount, now: Date()))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .frame(width: Self.cardWidth, alignment: .leading)
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(document.path)
+        .accessibilityLabel("Open \(document.name)")
+        .contextMenu {
+            Button("Remove from Recent") { model.removeRecent(document) }
+        }
+    }
+
+    @ViewBuilder private func picture(_ image: RenderedPage?) -> some View {
+        if let image = image?.nsImage {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .background(Color.white)
+                .shadow(radius: 1)
+        } else {
+            // Passwords, damaged files and pages still rendering: a blank
+            // frame, as on Windows.
+            RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.1))
+        }
+    }
+}

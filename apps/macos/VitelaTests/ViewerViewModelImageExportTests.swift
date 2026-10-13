@@ -89,3 +89,33 @@ final class ViewerViewModelImageExportTests: XCTestCase {
         XCTAssertEqual(ViewerViewModel.uniqueDestination(for: "b.png", in: folder).lastPathComponent, "b.png")
     }
 }
+
+extension ViewerViewModelImageExportTests {
+    func testAnAnnotatedSessionExportsItsSnapshotTakenOnce() {
+        let client = client()
+        let model = makeModel(client, folder: folder)
+        model.store.applyAnnotationEdit(.add(kind: .shape, page: 0, rect: PdfRect(x: 10, y: 10, width: 50, height: 50), color: .annotationDefault))
+        model.requestExportImages()
+
+        XCTAssertNil(model.exportImages(pages: .range("1-2"), dpi: 150, format: .png))
+
+        waitUntil({ !model.isSaving && model.store.editStatus.hasPrefix("Exported") }, "the export never finished")
+        XCTAssertEqual(client.snapshotsTaken, 1)
+        XCTAssertEqual(client.exportedFromSnapshot, 2)
+    }
+
+    func testASnapshotThatFailsWritesNothingAndSaysWhy() throws {
+        let client = client()
+        client.snapshotError = EditFailure.failed("The save was refused.")
+        let model = makeModel(client, folder: folder)
+        model.store.applyAnnotationEdit(.add(kind: .shape, page: 0, rect: PdfRect(x: 10, y: 10, width: 50, height: 50), color: .annotationDefault))
+        model.requestExportImages()
+
+        XCTAssertNil(model.exportImages(pages: .all, dpi: 150, format: .png))
+
+        waitUntil({ !model.isSaving && model.store.editStatus.hasPrefix("Export stopped") }, "the export never stopped")
+        XCTAssertEqual(model.store.editStatus, "Export stopped. No file was written: The save was refused.")
+        XCTAssertTrue(client.exportedImages.isEmpty)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [])
+    }
+}

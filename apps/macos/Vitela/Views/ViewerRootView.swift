@@ -14,9 +14,14 @@ struct ViewerRootView: View {
         VStack(spacing: 0) {
             toolbar
             searchBar
-            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature)
+            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
             Divider()
             HStack(spacing: 0) {
+                if model.showsPages && !model.store.pageSlots.isEmpty {
+                    PagesSidebar(model: model)
+                        .frame(width: 136)
+                    Divider()
+                }
                 if model.store.pageSlots.isEmpty {
                     placeholder
                 } else if model.isOrganizing {
@@ -108,6 +113,9 @@ struct ViewerRootView: View {
                 .disabled(model.store.document == nil || model.isSaving)
             Button("Print…", action: model.printDocument)
                 .disabled(model.store.document == nil)
+            Button("Share…", action: model.share)
+                .help("Send a copy with your changes through Mail, Messages, AirDrop…")
+                .disabled(!model.canShare)
             Button("Copy", action: model.copySelection)
                 .keyboardShortcut("c", modifiers: .command)
                 .disabled(model.store.selectedText == nil)
@@ -123,6 +131,9 @@ struct ViewerRootView: View {
                     .help("This document carries a digital signature.")
                     .accessibilityIdentifier("signed-indicator")
             }
+            Toggle("Pages", isOn: $model.showsPages)
+                .toggleStyle(.button)
+                .help("Show or hide the list of pages (⌥⌘2)")
             Toggle("Comments", isOn: $showsComments)
                 .toggleStyle(.button)
                 .help("The document's comments, by page")
@@ -229,11 +240,8 @@ struct ViewerRootView: View {
     }
 
     private var placeholder: some View {
-        VStack(spacing: 12) {
-            AppMarkView()
-            Text(model.title)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        HomeView(model: model)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var pageList: some View {
@@ -305,7 +313,7 @@ struct ViewerRootView: View {
             }
             .onChange(of: model.store.pageNavigation) { request in
                 guard let request else { return }
-                proxy.scrollTo(pageId(page: request.page), anchor: .top)
+                proxy.scrollTo(pageId(page: request.page), anchor: request.anchor.map { UnitPoint(x: $0.x, y: $0.y) } ?? .top)
                 // The layout passes `scrollTo` triggers run before the next
                 // main-queue turn; after it, a moving page is the reader.
                 DispatchQueue.main.async { model.store.pageNavigationLanded(request) }
