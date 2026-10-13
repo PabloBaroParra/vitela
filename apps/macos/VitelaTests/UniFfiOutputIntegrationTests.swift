@@ -50,14 +50,54 @@ final class UniFfiOutputIntegrationTests: XCTestCase {
         let plan = try store.planImageExport(pages: .range("1"), dpi: 72, format: .png, documentName: "report.pdf").get()
         XCTAssertEqual(plan.files.first?.fileName.hasSuffix(".png"), true)
         XCTAssertTrue(plan.files.first?.fileName.hasPrefix("report") == true)
-        let request = try XCTUnwrap(store.beginImageExport(try XCTUnwrap(plan.files.first), of: plan))
-        let png = try store.imageExportResult(for: request).get()
+        let png = try Self.firstPageImage(of: store, plan)
         XCTAssertEqual(Array(png.prefix(8)), [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
 
         let jpegPlan = try store.planImageExport(pages: .all, dpi: 72, format: .jpeg, documentName: "report.pdf").get()
-        let jpegRequest = try XCTUnwrap(store.beginImageExport(try XCTUnwrap(jpegPlan.files.first), of: jpegPlan))
-        XCTAssertEqual(Array(try store.imageExportResult(for: jpegRequest).get().prefix(2)), [0xFF, 0xD8])
+        XCTAssertEqual(Array(try Self.firstPageImage(of: store, jpegPlan).prefix(2)), [0xFF, 0xD8])
     } }
+
+    /// The open handle draws its preview, which leaves this session's
+    /// annotations out for the overlay to paint; an export has no overlay.
+    func testAnExportedPageCarriesAnUnsavedInkStroke() throws { try offMain {
+        let untouched = try Self.openSample()
+        let annotated = try Self.openSampleWithAnInkStroke()
+        let plan = try untouched.planImageExport(pages: .range("1"), dpi: 72, format: .png, documentName: "a.pdf").get()
+
+        XCTAssertNotEqual(try Self.firstPageImage(of: annotated, plan), try Self.firstPageImage(of: untouched, plan))
+    } }
+
+    /// Print rasterizes straight to paper, so it needs the snapshot too.
+    func testAPrintedPageCarriesAnUnsavedInkStroke() throws { try offMain {
+        let untouched = try Self.openSample()
+        let annotated = try Self.openSampleWithAnInkStroke()
+
+        let printed = try XCTUnwrap(annotated.printPage(0, for: try XCTUnwrap(annotated.beginPrint()), dpi: 72))
+        let plain = try XCTUnwrap(untouched.printPage(0, for: try XCTUnwrap(untouched.beginPrint()), dpi: 72))
+        XCTAssertNotEqual(printed.rgba, plain.rgba)
+    } }
+
+    private static func openSample() throws -> ViewerStore {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try sampleBytes())
+        return store
+    }
+
+    /// Unsaved: the stroke lives only in the session's annotation list.
+    private static func openSampleWithAnInkStroke() throws -> ViewerStore {
+        let store = try openSample()
+        store.armAnnotationTool(.ink)
+        XCTAssertTrue(store.beginAnnotationDraft(page: 0, at: PdfPoint(x: 100, y: 100)))
+        store.continueAnnotationDraft(page: 0, to: PdfPoint(x: 300, y: 400))
+        store.endAnnotationDraft(page: 0, at: PdfPoint(x: 500, y: 100))
+        XCTAssertEqual(store.annotations.count, 1)
+        return store
+    }
+
+    private static func firstPageImage(of store: ViewerStore, _ plan: ViewerStore.ImageExportPlan) throws -> Data {
+        let source = try store.imageExportSource(for: try XCTUnwrap(store.beginImageExport(plan))).get()
+        return try store.imageExportResult(try XCTUnwrap(plan.files.first), from: source).get()
+    }
 
     func testCompressingNeverGrowsTheFile() throws { try offMain {
         let store = ViewerStore(client: UniFfiPdfCoreClient())

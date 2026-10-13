@@ -88,6 +88,14 @@ final class FakePdfCoreClient: PdfCoreClient {
     var exportError: Error?
     var failExportsAfter = 0
     var oversizedPage: Int?
+    /// Pages exported from the open document rather than its output
+    /// snapshot — whose preview leaves the session's annotations out.
+    var exportedFromLive: [Int] = []
+    // Output snapshots.
+    var snapshotError: Error?
+    var snapshotsTaken = 0
+    /// Pages `render` drew from an output snapshot — what print should draw.
+    var renderedSnapshotPages: [Int] = []
     // Compressing.
     var compressRefusalText: String?
     var compressInvalidatesSignatures = false
@@ -130,6 +138,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage {
         requestedDpi.append(dpi)
         requestedPages.append(page)
+        if (document as? FakeCoreDocument)?.isOutputSnapshot == true { renderedSnapshotPages.append(page) }
         if let renderError { throw renderError }
         return renderedImage
     }
@@ -242,6 +251,7 @@ final class FakePdfCoreClient: PdfCoreClient {
 
 struct FakeCoreDocument: PdfDocument {
     let pages: [PageDimensions]
+    var isOutputSnapshot = false
 }
 
 /// A `PageCharacters` double whose caret/text/rect answers are supplied by

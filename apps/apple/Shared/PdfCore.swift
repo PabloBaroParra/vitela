@@ -140,6 +140,14 @@ protocol PdfCoreClient {
     /// path component.
     func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String
 
+    /// The document as a save would write it right now, reopened as a
+    /// separate handle under the session's own password — what print and
+    /// export draw from. `render` and `exportPageImage` on the open document
+    /// draw its preview, which leaves this session's annotations out for the
+    /// overlay to paint; print and export have no overlay. The open document
+    /// is not changed, and the snapshot is released with its last reference.
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument
+
     // Compressing — see `ViewerStore+Compress.swift`. Never changes the open
     // document; the bytes are a smaller copy for the shell to write.
     /// Why this document cannot be compressed, as a sentence, or `nil`.
@@ -292,6 +300,10 @@ extension PdfCoreClient {
 
     func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String {
         "page-\(page + 1).\(format == .png ? "png" : "jpg")"
+    }
+
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        throw EditFailure.failed("this client does not support output snapshots")
     }
 
     func compressionRefusal(document: any PdfDocument) -> String? { "This client does not support compression." }

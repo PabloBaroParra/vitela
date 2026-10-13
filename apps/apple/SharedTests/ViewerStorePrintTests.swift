@@ -89,6 +89,33 @@ final class ViewerStorePrintTests: XCTestCase {
         XCTAssertTrue(client.requestedPages.isEmpty)
     }
 
+    /// The open document renders its preview, which leaves this session's
+    /// annotations out for the overlay to paint — and paper has no overlay.
+    func testPrintDrawsTheOutputSnapshotNotTheOpenDocument() throws {
+        let client = FakePdfCoreClient(pages: [letter, a4Landscape])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+
+        let request = try XCTUnwrap(store.beginPrint())
+        XCTAssertNotNil(store.printPage(0, for: request, dpi: ViewerStore.printDpi))
+        XCTAssertNotNil(store.printPage(1, for: request, dpi: ViewerStore.printDpi))
+
+        XCTAssertEqual(client.snapshotsTaken, 1, "one snapshot serves the whole job")
+        XCTAssertEqual(client.renderedSnapshotPages, [0, 1])
+    }
+
+    /// Never a fallback to the open document: that is a printout without the edits.
+    func testASnapshotThatFailsPrintsNothingAndSaysWhy() {
+        let client = FakePdfCoreClient(pages: [letter])
+        client.snapshotError = EditFailure.failed("The document could not be processed.")
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+
+        XCTAssertNil(store.beginPrint())
+        XCTAssertEqual(store.editStatus, "Could not print: The document could not be processed.")
+        XCTAssertTrue(client.requestedPages.isEmpty)
+    }
+
     func testFitScalesAPortraitPageToTheHeightAndCentresIt() {
         let rect = PrintLayout.fit(letter, in: CGRect(x: 10, y: 20, width: 1000, height: 792))
 

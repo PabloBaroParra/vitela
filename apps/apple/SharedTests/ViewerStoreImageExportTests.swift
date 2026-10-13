@@ -88,3 +88,43 @@ extension ViewerStoreImageExportTests {
         XCTAssertEqual(plan.files.map(\.page), [2])
     }
 }
+
+/// Pages are drawn from one output snapshot, never the open document: its
+/// preview leaves this session's annotations out for the overlay to paint,
+/// so an unsaved highlight would be missing from every image.
+extension ViewerStoreImageExportTests {
+    func testEveryPageIsDrawnFromOneOutputSnapshotNotTheOpenDocument() throws {
+        let client = pages()
+        let store = openStore(client)
+        let plan = try store.planImageExport(pages: .all, dpi: 150, format: .png, documentName: "a.pdf").get()
+
+        let request = try XCTUnwrap(store.beginImageExport(plan))
+        let source = try store.imageExportSource(for: request).get()
+        let images = try plan.files.map { try store.imageExportResult($0, from: source).get() }
+
+        XCTAssertEqual(client.snapshotsTaken, 1)
+        XCTAssertEqual(client.exportedFromLive, [])
+        XCTAssertEqual(client.exportedImages.map(\.page), [0, 1, 2])
+        XCTAssertEqual(images, [Data("image-0".utf8), Data("image-1".utf8), Data("image-2".utf8)])
+    }
+
+    /// Never a fallback to the open document: that is the image without the edits.
+    func testASnapshotThatFailsExportsNothingAndSaysWhy() throws {
+        let client = pages()
+        client.snapshotError = EditFailure.failed("The document could not be processed.")
+        let store = openStore(client)
+        let plan = try store.planImageExport(pages: .all, dpi: 150, format: .png, documentName: "a.pdf").get()
+
+        let request = try XCTUnwrap(store.beginImageExport(plan))
+
+        XCTAssertEqual(store.imageExportSource(for: request).map(\.plan), .failure(.failed("The document could not be processed.")))
+        XCTAssertEqual(client.exportedFromLive, [])
+        XCTAssertTrue(client.exportedImages.isEmpty)
+    }
+
+    func testThereIsNothingToExportWithoutADocument() {
+        let store = ViewerStore(client: pages())
+
+        XCTAssertNil(store.beginImageExport(ViewerStore.ImageExportPlan(files: [], dpi: 150, format: .png)))
+    }
+}

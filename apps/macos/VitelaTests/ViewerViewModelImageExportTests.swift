@@ -45,6 +45,8 @@ final class ViewerViewModelImageExportTests: XCTestCase {
         XCTAssertEqual(names, ["vitela-sample-1 (2).png", "vitela-sample-1.png", "vitela-sample-2.png"])
         XCTAssertEqual(try String(contentsOf: folder.appendingPathComponent("vitela-sample-1.png")), "earlier")
         XCTAssertEqual(client.exportedImages.map(\.dpi), [200, 200])
+        XCTAssertEqual(client.snapshotsTaken, 1, "one output snapshot serves the whole export")
+        XCTAssertEqual(client.exportedFromLive, [], "the open document's preview leaves session annotations out")
         XCTAssertEqual(model.store.editStatus, "Exported 2 pages as PNG to \(folder.path).")
     }
 
@@ -68,6 +70,21 @@ final class ViewerViewModelImageExportTests: XCTestCase {
         waitUntil({ !model.isSaving && model.store.editStatus.hasPrefix("Page") }, "the failure was never reported")
         XCTAssertEqual(model.store.editStatus, "Page 2 could not be exported: Render failed. 1 written.")
         XCTAssertEqual(client.exportedImages.count, 2)
+    }
+
+    /// Never a fallback to the open document: that is the image without the edits.
+    func testASnapshotThatFailsWritesNothingAndSaysWhy() throws {
+        let client = client()
+        client.snapshotError = EditFailure.failed("The document could not be processed.")
+        let model = makeModel(client, folder: folder)
+        model.requestExportImages()
+
+        XCTAssertNil(model.exportImages(pages: .all, dpi: 150, format: .png))
+
+        waitUntil({ !model.isSaving && model.store.editStatus.hasPrefix("Could not") }, "the failure was never reported")
+        XCTAssertEqual(model.store.editStatus, "Could not export: The document could not be processed. No file was written.")
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: folder.path), [])
+        XCTAssertEqual(client.exportedFromLive, [])
     }
 
     func testCancellingTheFolderWritesNothing() {

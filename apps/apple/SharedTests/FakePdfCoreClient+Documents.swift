@@ -37,10 +37,22 @@ extension FakePdfCoreClient {
         }
     }
 
+    /// Only a snapshot's pages count as exported; the open document's are
+    /// recorded apart and come back as bytes no real export would write.
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data {
+        guard (document as? FakeCoreDocument)?.isOutputSnapshot == true else {
+            exportedFromLive.append(page)
+            return Data("live-\(page)".utf8)
+        }
         exportedImages.append((page, dpi, format))
         if let exportError, exportedImages.count > failExportsAfter { throw exportError }
         return Data("image-\(page)".utf8)
+    }
+
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        if let snapshotError { throw snapshotError }
+        snapshotsTaken += 1
+        return FakeCoreDocument(pages: document.pages, isOutputSnapshot: true)
     }
 
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? {
