@@ -32,3 +32,31 @@ extension SigningSourceFailure: LocalizedError {
         }
     }
 }
+
+/// What a native key can do — mirrors `FfiSigningAlgorithm`: SHA-256 digests,
+/// ECDSA signatures as ASN.1 DER.
+enum NativeSigningAlgorithm: Equatable {
+    case rsaSha256
+    case ecdsaSha256
+}
+
+/// One identity a native store offers — mirrors `FfiPlatformSigningIdentity`.
+/// Only public material: the certificates, leaf first.
+struct NativeSigningIdentity: Equatable {
+    let id: String
+    let displayName: String
+    let certificateChainDer: [Data]
+    let algorithm: NativeSigningAlgorithm
+}
+
+/// A platform certificate store whose private keys never leave it (the
+/// macOS Keychain, Windows' personal store): the core asks it for identities
+/// and for signatures over digests — the shell side of the core's
+/// `PlatformSigningSource`. Implemented per platform, outside this folder,
+/// because the native APIs are not Foundation.
+protocol NativeSigningStore: AnyObject {
+    func identities() throws -> [NativeSigningIdentity]
+    /// The signature over a 32-byte SHA-256 `digest`; throws a sentence for
+    /// the reader when the key cannot be used or the user cancels.
+    func signDigest(identityId: String, digest: Data, algorithm: NativeSigningAlgorithm) throws -> Data
+}
