@@ -56,6 +56,26 @@ extension ViewerStore {
         searchStatus = Self.searchStatusText(query: session.query, index: session.currentIndex, total: count)
     }
 
+    /// Makes the match at `index` current — a click in the results list,
+    /// Windows' `SearchResultsList` selection.
+    func selectSearchMatch(_ index: Int) {
+        guard var session = search, session.matches.indices.contains(index) else { return }
+        session.currentIndex = index
+        search = session
+        searchStatus = Self.searchStatusText(query: session.query, index: index, total: session.matches.count)
+    }
+
+    /// One results-list row per match, in document order: Windows'
+    /// "Page 3: …" label, the match's own text with its runs of whitespace
+    /// folded, so a hit across a line break reads as one line.
+    var searchResultRows: [(index: Int, label: String)] {
+        guard let search else { return [] }
+        return search.matches.enumerated().map { offset, match in
+            let text = match.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            return (offset, "Page \(match.pageIndex + 1): \(text)")
+        }
+    }
+
     /// The page the current match is on, so a view can scroll it into view.
     var currentSearchMatchPage: Int? {
         guard let search, search.matches.indices.contains(search.currentIndex) else { return nil }

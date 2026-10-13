@@ -7,6 +7,8 @@ import Foundation
 /// order, where selection is tried only once annotations refuse the gesture.
 extension ViewerViewModel {
     func pageDragBegan(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
+        // Edit Text claims every press while it is on.
+        if contentPress(page: page, location: location, zoom: zoom) { return }
         if let point = annotationPoint(page: page, location: location, zoom: zoom),
            store.beginFieldDraft(page: page, at: point)
            || store.beginFieldGesture(page: page, at: point, zoom: zoom)
@@ -18,6 +20,7 @@ extension ViewerViewModel {
     }
 
     func pageDragChanged(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
+        if store.contentEditMode { return contentDragged(page: page, location: location, zoom: zoom) }
         if store.fieldDraft != nil {
             if let point = annotationPoint(page: page, location: location, zoom: zoom) {
                 store.continueFieldDraft(page: page, to: point)
@@ -47,6 +50,7 @@ extension ViewerViewModel {
     }
 
     func pageDragEnded(page: Int, location: CGPoint, zoom: Double) {
+        if store.contentEditMode { return contentReleased(page: page, location: location, zoom: zoom) }
         if store.fieldDraft != nil {
             let point = annotationPoint(page: page, location: location, zoom: zoom)
             return enqueuePageWork(point.flatMap { store.endFieldDraft(page: page, at: $0) })
@@ -71,7 +75,7 @@ extension ViewerViewModel {
 
     /// A pointer position on the drawn page in page space, through the
     /// core's turn-aware placement.
-    private func annotationPoint(page: Int, location: CGPoint, zoom: Double) -> PdfPoint? {
+    func annotationPoint(page: Int, location: CGPoint, zoom: Double) -> PdfPoint? {
         guard let placement = store.placement(ofPage: page, zoom: zoom) else { return nil }
         return store.client.pointToPdf(x: Double(location.x), y: Double(location.y), on: placement)
     }
@@ -88,6 +92,10 @@ extension ViewerViewModel {
         guard annotationKeyMonitor == nil else { return }
         annotationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, Self.isDeleteKey(event), !(event.window?.firstResponder is NSText) else { return event }
+            if self.store.contentEditMode, self.store.selectedContentImage != nil {
+                self.deleteSelectedImage()
+                return nil
+            }
             if self.store.formEditMode, self.store.selectedField != nil {
                 self.enqueuePageWork(self.store.beginFieldDelete())
                 return nil

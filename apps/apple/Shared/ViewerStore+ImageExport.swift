@@ -77,9 +77,11 @@ extension ViewerStore {
         return .success(ImageExportPlan(files: files, dpi: dpi, format: format))
     }
 
-    func beginImageExport(_ file: ImageExportFile, of plan: ImageExportPlan) -> ImageExportRequest? {
-        guard let document else { return nil }
-        return ImageExportRequest(generation: generation, document: document, file: file, dpi: plan.dpi, format: plan.format)
+    /// `output` is what `outputDocument(for:)` resolved once for the whole
+    /// export, so an annotated session's pages carry its annotations.
+    func beginImageExport(_ file: ImageExportFile, of plan: ImageExportPlan, from output: any PdfDocument) -> ImageExportRequest? {
+        guard document != nil else { return nil }
+        return ImageExportRequest(generation: generation, document: output, file: file, dpi: plan.dpi, format: plan.format)
     }
 
     /// Thread-safe: only the immutable client and the request's own document.

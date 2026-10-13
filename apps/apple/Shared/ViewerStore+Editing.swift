@@ -38,6 +38,7 @@ extension ViewerStore {
         pagesEdited = false
         resetAnnotations()
         resetForms()
+        resetContentEditing()
         guard let document else {
             documentInfo = nil
             editingAllowed = false

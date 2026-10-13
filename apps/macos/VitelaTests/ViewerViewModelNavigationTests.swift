@@ -39,3 +39,46 @@ final class ViewerViewModelNavigationTests: XCTestCase {
         XCTAssertNil(model.store.pageNavigation)
     }
 }
+
+extension ViewerViewModelNavigationTests {
+    func testThePagesColumnStartsOpenAsOnLinuxAndWindows() {
+        XCTAssertTrue(makeModel(pageCount: 1).showsPages)
+    }
+
+    func testPickingAPageFromTheColumnGoesThere() {
+        let model = makeModel(pageCount: 3)
+        model.store.open(bytes: Data([1]))
+        XCTAssertTrue(model.canPickPageFromList)
+
+        model.pickPageFromList(2)
+
+        XCTAssertEqual(model.store.pageNavigation?.page, 2)
+        XCTAssertEqual(model.store.currentPage, 2)
+    }
+
+    func testTheColumnDoesNothingWithoutADocumentOrWhileOrganizing() {
+        let model = makeModel(pageCount: 3)
+        XCTAssertFalse(model.canPickPageFromList)
+        model.pickPageFromList(1)
+        XCTAssertNil(model.store.pageNavigation)
+
+        model.store.open(bytes: Data([1]))
+        model.isOrganizing = true
+        XCTAssertFalse(model.canPickPageFromList)
+        model.pickPageFromList(1)
+        XCTAssertNil(model.store.pageNavigation)
+    }
+
+    func testTheColumnAsksForTheSameThumbnailsAsOrganize() {
+        let client = FakePdfCoreClient(pages: Array(repeating: PageDimensions(width: 612, height: 792), count: 2))
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+
+        model.renderThumbnail(page: 1, scale: 2)
+        waitUntil({ model.store.thumbnails[1] != nil }, "the thumbnail never arrived")
+        let renders = client.requestedPages.count
+        model.renderThumbnail(page: 1, scale: 2)
+
+        XCTAssertEqual(client.requestedPages.count, renders, "a page shown in both places renders once")
+    }
+}

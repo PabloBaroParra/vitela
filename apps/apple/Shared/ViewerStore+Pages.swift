@@ -23,6 +23,8 @@ extension ViewerStore {
         case addField(kind: FieldToPlace, page: Int, rect: PdfRect)
         /// A change to a field's structure — `ViewerStore+FormEditing.swift`.
         case editField(FieldEdit)
+        /// A change to what a page paints — `ViewerStore+ContentEdit.swift`.
+        case editContent(ContentEdit)
         /// Nothing: re-derive the layout after an undo or redo.
         case refresh
     }
@@ -85,6 +87,9 @@ extension ViewerStore {
             case let .editField(edit):
                 try client.applyFieldEdit(document: request.document, edit: edit)
                 done = edit.done
+            case let .editContent(edit):
+                try client.applyContentEdit(document: request.document, edit: edit)
+                done = edit.done
             case .refresh:
                 done = nil
             }
@@ -116,6 +121,9 @@ extension ViewerStore {
             currentPage = min(currentPage, max(pages.count - 1, 0))
             // Fields travel with their pages, and a fill changes a value.
             refreshFormFields()
+            // What a page paints may have changed; read it again on need.
+            forgetPageContent()
+            noteContentWork(request.work)
             if let done = outcome.done {
                 recordEdit(status: "\(done) Changes are pending save.")
             }

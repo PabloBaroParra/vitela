@@ -9,10 +9,22 @@ import Foundation
 
 /// One request to bring `page` to the top of the viewport. `serial` makes a
 /// repeat request for the same page observable, so asking twice scrolls twice
-/// (the user may have scrolled away in between).
+/// (the user may have scrolled away in between). With an `anchor`, the
+/// scroll view lines that point of the page up with the same point of the
+/// viewport instead, which keeps it in view however tall or wide the page is
+/// drawn — how an annotation low on a page, or off to the side at a high
+/// zoom, is revealed rather than left below the fold.
 struct PageNavigationRequest: Equatable {
     let page: Int
     let serial: UInt
+    var anchor: PageAnchor? = nil
+}
+
+/// A point on a drawn page as fractions of its width and height, measured
+/// from the top-left corner.
+struct PageAnchor: Equatable {
+    let x: Double
+    let y: Double
 }
 
 /// A page's vertical extent relative to the top of the viewport, in view
@@ -69,13 +81,13 @@ extension ViewerStore {
         setCurrentPage(first)
     }
 
-    func goToPage(_ index: Int) {
+    func goToPage(_ index: Int, anchor: PageAnchor? = nil) {
         guard pageCount > 0, (0..<pageCount).contains(index) else { return }
         navigationSerial &+= 1
         // Set now rather than waiting for the scroll to report back, so a
         // second step issued before the scroll settles moves from here.
         currentPage = index
-        pageNavigation = PageNavigationRequest(page: index, serial: navigationSerial)
+        pageNavigation = PageNavigationRequest(page: index, serial: navigationSerial, anchor: anchor)
         requestedPage = RequestedPage(page: index, serial: navigationSerial)
     }
 

@@ -127,6 +127,8 @@ final class ViewerStore: ObservableObject {
     @Published var selectedFieldId: UInt64?
     @Published var fieldGesture: FieldGesture?
     @Published var annotationEditingAllowed = false
+    /// Edit Text's state, as one value — `ViewerStore+ContentEdit.swift`.
+    @Published var contentEdit = ContentEditState()
     @Published var armedTool: AnnotationTool?
     @Published var annotationDraft: AnnotationDraft?
     @Published var pendingNote: PendingNote?
