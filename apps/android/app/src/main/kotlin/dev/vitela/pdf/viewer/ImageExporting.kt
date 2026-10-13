@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.core.PdfDocument
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -83,26 +84,40 @@ internal class ImageExporting(private val session: ViewerSession) {
      * Renders and writes each planned page, stopping at the first failure.
      * Stopping is the point: a missing file in a folder of hundreds goes
      * unnoticed until someone needs it, so what *was* written is counted
-     * instead of carrying on. Each page takes the document lane on its own, so
-     * an export of a long file does not freeze editing for its whole length.
+     * instead of carrying on.
+     *
+     * Pages are drawn from the core's output snapshot, not the live document:
+     * the live preview leaves this session's annotations out for the overlay
+     * to draw, so an unsaved highlight would be missing from every image. One
+     * snapshot serves the whole export; it is a separate handle, so taking it
+     * is the only step that holds the document lane, and editing is not frozen
+     * for the length of a long file.
      */
     suspend fun export(write: ImageFileWriter) {
         val export = pending ?: return
         pending = null
         if (state.value.imageExportRunning) return
         val plan = export.plan
-        state.value = state.value.copy(imageExportRunning = true)
+        state.value = state.value.copy(imageExportRunning = true, status = "Preparing the export...")
+        var snapshot: PdfDocument? = null
         var written = 0
         try {
+            val taken = session.documentLane.withLock {
+                val openDocument = session.document
+                if (openDocument == null || state.value.documentId != export.documentId) return@withLock null
+                withContext(session.compute) { openDocument.outputSnapshot() }
+            }
+            val source = when (taken) {
+                null -> return finish("The document changed. Export cancelled.")
+                is PdfCoreResult.Failure -> return finish("Could not export: ${userMessage(taken.error)} No file was written.")
+                is PdfCoreResult.Success -> taken.value
+            }
+            snapshot = source
             for (file in plan.files) {
+                if (state.value.documentId != export.documentId) return finish("The document changed. Export cancelled.")
                 state.value = state.value.copy(status = "Exporting page ${file.pageIndex + 1} (${written + 1} of ${plan.files.size})...")
-                val rendered = session.documentLane.withLock {
-                    val openDocument = session.document
-                    if (openDocument == null || state.value.documentId != export.documentId) return@withLock null
-                    withContext(session.compute) { openDocument.exportPageImage(file.pageIndex, plan.dpi, plan.format) }
-                }
+                val rendered = withContext(session.compute) { source.exportPageImage(file.pageIndex, plan.dpi, plan.format) }
                 val image = when (rendered) {
-                    null -> return finish("The document changed. Export cancelled.")
                     is PdfCoreResult.Failure ->
                         return finish("Page ${file.pageIndex + 1} could not be exported: ${userMessage(rendered.error)} $written written.")
                     is PdfCoreResult.Success -> rendered.value
@@ -114,6 +129,7 @@ internal class ImageExporting(private val session: ViewerSession) {
             }
             finish(imageExportSummary(written, plan.format))
         } finally {
+            snapshot?.close()
             // A cancelled export (the screen went away) must not leave Export disabled.
             if (state.value.imageExportRunning) state.value = state.value.copy(imageExportRunning = false)
         }

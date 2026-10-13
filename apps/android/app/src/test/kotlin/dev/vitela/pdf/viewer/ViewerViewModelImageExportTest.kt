@@ -84,6 +84,55 @@ class ViewerViewModelImageExportTest {
         assertFalse(state.isDirty)
     }
 
+    /**
+     * The live document renders its preview, which leaves this session's
+     * annotations out for the overlay to draw — so an unsaved highlight would
+     * be missing from every exported image. The output snapshot carries it.
+     */
+    @Test
+    fun exportDrawsEveryPageFromOneOutputSnapshotNotTheLiveDocument() = runTest {
+        val document = PlanDocument(pageCount = 3)
+        val viewModel = openedWith(document)
+        viewModel.openImageExport()
+        viewModel.state.first { it.imageExport != null }
+        viewModel.planImageExport()
+        viewModel.exportImages { _, _, _ -> true }
+
+        assertEquals(emptyList<Int>(), document.exportedLive)
+        assertEquals(listOf(0, 1, 2), document.exported.map { it.first })
+        assertEquals(1, document.snapshotsTaken)
+        assertEquals(1, document.snapshotsClosed)
+    }
+
+    @Test
+    fun aFailedExportStillClosesTheSnapshot() = runTest {
+        val document = PlanDocument(pageCount = 3, failingPage = 1)
+        val viewModel = openedWith(document)
+        viewModel.openImageExport()
+        viewModel.state.first { it.imageExport != null }
+        viewModel.planImageExport()
+        viewModel.exportImages { _, _, _ -> true }
+
+        assertEquals(1, document.snapshotsClosed)
+    }
+
+    /** Never a fallback to the live document: that is the image without the edits. */
+    @Test
+    fun aSnapshotThatFailsWritesNothingAndSaysWhy() = runTest {
+        val document = PlanDocument(pageCount = 2, snapshotFails = true)
+        val viewModel = openedWith(document)
+        viewModel.openImageExport()
+        viewModel.state.first { it.imageExport != null }
+        viewModel.planImageExport()
+        var writes = 0
+        viewModel.exportImages { _, _, _ -> writes++; true }
+
+        assertEquals(0, writes)
+        assertEquals(emptyList<Int>(), document.exportedLive)
+        assertEquals("Could not export: The document could not be processed. No file was written.", viewModel.state.value.status)
+        assertFalse(viewModel.state.value.imageExportRunning)
+    }
+
     @Test
     fun aSingleExportedPageIsReportedInTheSingular() = runTest {
         val viewModel = openedWith(PlanDocument(pageCount = 3))
