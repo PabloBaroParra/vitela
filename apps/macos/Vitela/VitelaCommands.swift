@@ -64,6 +64,13 @@ struct VitelaCommands: Commands {
             Button("Go to Page…", action: model.requestGoToPage)
                 .keyboardShortcut("g", modifiers: [.command, .option])
                 .disabled(model.store.pageCount == 0)
+            Divider()
+            Button("Previous Annotation") { model.store.stepAnnotation(forward: false) }
+                .keyboardShortcut("[", modifiers: [.command, .option])
+                .disabled(!model.store.canStepAnnotations || model.isOrganizing)
+            Button("Next Annotation") { model.store.stepAnnotation(forward: true) }
+                .keyboardShortcut("]", modifiers: [.command, .option])
+                .disabled(!model.store.canStepAnnotations || model.isOrganizing)
         }
         CommandGroup(before: .toolbar) {
             // Preview's shortcut for its thumbnail sidebar.

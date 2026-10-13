@@ -134,6 +134,10 @@ protocol PdfCoreClient {
     // what `render` draws; the encoder is the core's, shared with Linux and
     // Windows, so the same page comes out byte-identical everywhere.
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data
+    /// The document as a save would write it now, annotations included,
+    /// reopened as a throwaway for print and export — see
+    /// `ViewerStore+OutputSnapshot.swift`. The open document is unchanged.
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument
     /// The first of `pages` over the core's raster ceiling at `dpi`, if any.
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int?
     /// `"report.pdf"` page 3 of 12 as JPEG → `"report-03.jpg"`; always one
@@ -289,6 +293,10 @@ extension PdfCoreClient {
     }
 
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? { nil }
+
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        throw EditFailure.failed("this client does not support output snapshots")
+    }
 
     func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String {
         "page-\(page + 1).\(format == .png ? "png" : "jpg")"

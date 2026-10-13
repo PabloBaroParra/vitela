@@ -14,7 +14,7 @@ struct ViewerRootView: View {
         VStack(spacing: 0) {
             toolbar
             searchBar
-            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature)
+            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
             Divider()
             HStack(spacing: 0) {
                 if model.showsPages && !model.store.pageSlots.isEmpty {
@@ -301,7 +301,7 @@ struct ViewerRootView: View {
             }
             .onChange(of: model.store.pageNavigation) { request in
                 guard let request else { return }
-                proxy.scrollTo(pageId(page: request.page), anchor: .top)
+                proxy.scrollTo(pageId(page: request.page), anchor: request.anchor.map { UnitPoint(x: $0.x, y: $0.y) } ?? .top)
                 // The layout passes `scrollTo` triggers run before the next
                 // main-queue turn; after it, a moving page is the reader.
                 DispatchQueue.main.async { model.store.pageNavigationLanded(request) }
