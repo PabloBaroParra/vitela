@@ -134,6 +134,10 @@ protocol PdfCoreClient {
     // what `render` draws; the encoder is the core's, shared with Linux and
     // Windows, so the same page comes out byte-identical everywhere.
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data
+    /// The document as a save would write it now, annotations included,
+    /// reopened as a throwaway for print and export — see
+    /// `ViewerStore+OutputSnapshot.swift`. The open document is unchanged.
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument
     /// The first of `pages` over the core's raster ceiling at `dpi`, if any.
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int?
     /// `"report.pdf"` page 3 of 12 as JPEG → `"report-03.jpg"`; always one
@@ -156,6 +160,8 @@ protocol PdfCoreClient {
     /// A PKCS#11 card or token through its module; a `nil` PIN leaves
     /// authentication to the token's own prompt.
     func openTokenSigningSource(modulePath: String, pin: String?) throws -> any SigningSource
+    /// A source over a native store's keys, which stay in the store.
+    func openNativeSigningSource(_ store: any NativeSigningStore) throws -> any SigningSource
     /// The signed PDF; the open document is untouched.
     func sign(document: any PdfDocument, source: any SigningSource, identityId: String) throws -> Data
     /// Opens signed output with the open document's credentials.
@@ -293,6 +299,10 @@ extension PdfCoreClient {
 
     func firstPageTooLargeToExport(document: any PdfDocument, pages: [Int], dpi: Int) -> Int? { nil }
 
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        throw EditFailure.failed("this client does not support output snapshots")
+    }
+
     func pageImageFileName(documentName: String, page: Int, totalPages: Int, format: ImageFormat) -> String {
         "page-\(page + 1).\(format == .png ? "png" : "jpg")"
     }
@@ -311,6 +321,10 @@ extension PdfCoreClient {
     }
 
     func openTokenSigningSource(modulePath: String, pin: String?) throws -> any SigningSource {
+        throw SigningSourceFailure.failed("this client does not support signing")
+    }
+
+    func openNativeSigningSource(_ store: any NativeSigningStore) throws -> any SigningSource {
         throw SigningSourceFailure.failed("this client does not support signing")
     }
 

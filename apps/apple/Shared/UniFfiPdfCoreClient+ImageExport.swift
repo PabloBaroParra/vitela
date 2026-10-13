@@ -2,12 +2,21 @@
 // not importing AppKit or UIKit here.
 import Foundation
 
-/// Exporting pages as images through the generated UniFFI API.
+/// Exporting pages as images, and the output snapshot print and export
+/// render from, through the generated UniFFI API.
 extension UniFfiPdfCoreClient {
     func exportPageImage(document: any PdfDocument, page: Int, dpi: Int, format: ImageFormat) throws -> Data {
         let handle = try handle(of: document)
         return try Self.mapEditErrors {
             try Vitela.exportPageImage(handle: handle, pageIndex: UInt32(page), dpi: UInt32(dpi), format: FfiExportFormat(format))
+        }
+    }
+
+    func outputSnapshot(document: any PdfDocument) throws -> any PdfDocument {
+        let handle = try handle(of: document)
+        return try Self.mapEditErrors {
+            let snapshot = try Vitela.outputSnapshot(handle: handle)
+            return UniFfiDocument(handle: snapshot, pages: snapshot.pageDimensions().map(PageDimensions.init))
         }
     }
 
