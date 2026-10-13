@@ -7,8 +7,8 @@ import Foundation
 /// order, where selection is tried only once annotations refuse the gesture.
 extension ViewerViewModel {
     func pageDragBegan(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
-        // Edit Text claims every click while it is on.
-        if contentClick(page: page, location: location, zoom: zoom) { return }
+        // Edit Text claims every press while it is on.
+        if contentPress(page: page, location: location, zoom: zoom) { return }
         if let point = annotationPoint(page: page, location: location, zoom: zoom),
            store.beginFieldDraft(page: page, at: point)
            || store.beginFieldGesture(page: page, at: point, zoom: zoom)
@@ -20,7 +20,7 @@ extension ViewerViewModel {
     }
 
     func pageDragChanged(page: Int, location: CGPoint, dimensions: PageDimensions, zoom: Double) {
-        if store.contentEditMode { return }
+        if store.contentEditMode { return contentDragged(page: page, location: location, zoom: zoom) }
         if store.fieldDraft != nil {
             if let point = annotationPoint(page: page, location: location, zoom: zoom) {
                 store.continueFieldDraft(page: page, to: point)
@@ -50,7 +50,7 @@ extension ViewerViewModel {
     }
 
     func pageDragEnded(page: Int, location: CGPoint, zoom: Double) {
-        if store.contentEditMode { return }
+        if store.contentEditMode { return contentReleased(page: page, location: location, zoom: zoom) }
         if store.fieldDraft != nil {
             let point = annotationPoint(page: page, location: location, zoom: zoom)
             return enqueuePageWork(point.flatMap { store.endFieldDraft(page: page, at: $0) })

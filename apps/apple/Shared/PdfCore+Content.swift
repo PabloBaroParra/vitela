@@ -42,6 +42,8 @@ enum ContentEdit: Equatable {
     /// Retypes `run`; a composite-font run gets a standard font instead.
     case retypeText(ContentTextRun, to: String)
     case removeText(ContentTextRun)
+    /// Moves `run` so its box lands at `to`, keeping its text, font and size.
+    case moveText(ContentTextRun, to: PdfRect)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -49,6 +51,7 @@ enum ContentEdit: Equatable {
         switch self {
         case .retypeText: return "Text updated."
         case .removeText: return "Text deleted."
+        case .moveText: return "Text moved."
         }
     }
 }
@@ -56,9 +59,15 @@ enum ContentEdit: Equatable {
 /// Content-edit hit-testing and wording, shared with the Android shell's
 /// `ContentEdit.kt` and Windows' `ContentHitTest`.
 enum ContentEditing {
-    static let armed = "Click text to retype or delete it."
+    static let armed = "Click text to retype or delete it, or drag it to move it."
     static let off = "Content editing off."
-    static let missed = "Nothing to edit there. Click text to retype or delete it."
+    static let missed = "Nothing to edit there. Click text to retype or delete it, or drag it to move it."
+    static let positionUnchanged = "Text position unchanged."
+    /// Windows' refusal to retype a run whose move is not saved yet.
+    static let movedNotSaved = "This text was moved and not yet saved — save and reopen before retyping it."
+    /// How far, in screen points, a press must travel to be a drag rather
+    /// than a click — Linux's `CLICK_EPSILON_PX`.
+    static let clickEpsilon = 4.0
     static let forbidden = "This document does not permit content changes."
     static let fontSubstituted = "This text's font cannot be kept. What you type will use a standard font."
     static let emptyRetype = "Type the new text, or delete the line instead."

@@ -12,6 +12,11 @@ extension UniFfiPdfCoreClient {
         return PageContent(textRuns: content.textRuns.map(ContentTextRun.init), images: content.images.map(ContentImage.init))
     }
 
+    func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool {
+        guard let handle = try? handle(of: document) else { return false }
+        return (try? handle.textRunHasPendingMove(page: UInt32(run.page), id: run.id)) ?? false
+    }
+
     func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
         let handle = try handle(of: document)
         do {
@@ -41,6 +46,8 @@ private extension FfiEditCommand {
                 : .replaceTextRunContent(item: FfiContentTextRun(run), after: text)
         case let .removeText(run):
             self = .removeTextRun(item: FfiContentTextRun(run))
+        case let .moveText(run, rect):
+            self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
         }
     }
 }
