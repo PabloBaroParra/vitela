@@ -7,6 +7,7 @@
 #   <out-dir>/dists/stable/main/binary-amd64/Packages{,.gz}
 #   <out-dir>/vitela-archive-keyring.gpg   public key, binary (for Signed-By)
 #   <out-dir>/vitela.sources               deb822 source for sources.list.d
+#   <out-dir>/install.sh                   one-line installer (scripts/install.sh)
 #
 # The repo is rebuilt from scratch on every release, so <out-dir> must not
 # exist or must be empty: stale indexes are never patched in place.
@@ -23,6 +24,7 @@ readonly ARCH='amd64'
 readonly PACKAGE='vitela'
 readonly KEYRING_NAME='vitela-archive-keyring.gpg'
 readonly APT_FTPARCHIVE="${APT_FTPARCHIVE:-apt-ftparchive}"
+readonly INSTALLER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install.sh"
 
 fail() { printf 'build-apt-repo: %s\n' "$*" >&2; exit 1; }
 require_tool() { command -v "$1" >/dev/null 2>&1 || fail "required tool not found: $1"; }
@@ -35,6 +37,9 @@ readonly REPO_URL="${APT_REPO_URL:-}"
 
 [ -n "$KEY_ID" ] || fail 'APT_SIGNING_KEY_ID is not set'
 [ -n "$REPO_URL" ] || fail 'APT_REPO_URL is not set'
+# Embedded by sed (| & \) inside a single-quoted sh string (').
+case "$REPO_URL" in *["|&\\'"[:space:]]*) fail "APT_REPO_URL has a character the installer cannot embed: $REPO_URL" ;; esac
+[ -f "$INSTALLER" ] || fail "installer not found: $INSTALLER"
 require_tool "$APT_FTPARCHIVE"
 require_tool gpg
 require_tool dpkg-deb
@@ -107,6 +112,11 @@ Components: $COMPONENT
 Architectures: $ARCH
 Signed-By: /etc/apt/keyrings/$KEYRING_NAME
 EOF
+
+# The installer fetches the two files above from the URL it is served from.
+sed "s|@VITELA_REPO_URL@|${REPO_URL%/}|g" "$INSTALLER" > "$staging/install.sh"
+! grep -q '@VITELA_REPO_URL@' "$staging/install.sh" || fail 'installer still has the URL placeholder'
+chmod 644 "$staging/install.sh"
 
 [ ! -e "$OUT_DIR" ] || rmdir -- "$OUT_DIR"
 mv -- "$staging" "$OUT_DIR"

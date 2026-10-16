@@ -214,7 +214,14 @@ handles on the page.
 > the first tagged release; until then the commands below will fail.
 
 The Linux build is published to a signed APT repository (x86_64). It is a
-beta: expect rough edges.
+beta: expect rough edges. One line adds the repository and installs it:
+
+```sh
+curl -fsSL https://pablobaroparra.github.io/vitela/install.sh | sh
+```
+
+The script ([`scripts/install.sh`](scripts/install.sh)) only does what the
+manual steps below do, so you can read it first or run them by hand:
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
