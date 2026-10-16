@@ -430,6 +430,23 @@ impl DocumentState {
                 before,
                 after,
             },
+            FfiEditCommand::AddWatermark { watermark } => {
+                // Resolved here, once: the core names the stamp's pages by
+                // identity, so it stays on them through a later reorder.
+                let pages = watermark
+                    .pages
+                    .iter()
+                    .map(|&position| self.page_id(position))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Command::AddWatermark(pdf_document::Watermark {
+                    pages,
+                    text: watermark.text,
+                    font_size: watermark.font_size,
+                    color: watermark.color.into(),
+                    opacity: watermark.opacity,
+                    rotation_degrees: watermark.rotation_degrees,
+                })
+            }
             FfiEditCommand::AddTextField {
                 page,
                 rect,
@@ -789,8 +806,8 @@ fn full_rewrite_blocker(document: &Document) -> Option<pdf_save::RewriteBlocker>
 
 /// Whether `command` rewrites a page's own content — text runs and images —
 /// as opposed to an annotation drawn over it or the page structure around
-/// it. These are the ten commands `pdf_save::content` replays into the
-/// content stream at save time (Batch 21).
+/// it. These are the commands `pdf_save::content` replays into the content
+/// stream at save time (Batch 21), the watermark stamp among them.
 fn is_content_command(command: &FfiEditCommand) -> bool {
     matches!(
         command,
@@ -804,6 +821,7 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::MoveImage { .. }
             | FfiEditCommand::ResizeImage { .. }
             | FfiEditCommand::ReplaceImageSource { .. }
+            | FfiEditCommand::AddWatermark { .. }
     )
 }
 
@@ -870,6 +888,7 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::MoveImage { .. }
             | FfiEditCommand::ResizeImage { .. }
             | FfiEditCommand::ReplaceImageSource { .. }
+            | FfiEditCommand::AddWatermark { .. }
             | FfiEditCommand::SetDocumentInfo { .. }
     )
 }
@@ -1458,6 +1477,27 @@ mod tests {
 
         assert!(!handle.form_field_editing_allowed());
         assert!(apply_edit(&handle, a_checkbox()).is_err());
+    }
+
+    /// A watermark is painted into the page's content stream, so it answers
+    /// to the modify-contents bit like any other content edit — and not to
+    /// the annotate bit, which says nothing about page content.
+    #[test]
+    fn a_watermark_needs_the_modify_contents_bit_not_the_annotate_bit() {
+        let watermark = FfiEditCommand::AddWatermark {
+            watermark: crate::watermark::default_watermark(vec![0], "DRAFT".to_string()),
+        };
+        assert!(is_content_command(&watermark));
+        assert!(!is_annotation_command(&watermark));
+
+        let handle = restricted_handle(ANNOTATE_BIT);
+
+        match apply_edit(&handle, watermark).expect_err("content editing is withheld") {
+            FfiError::UnsupportedOperation { detail } => {
+                assert_eq!(detail, "content editing is not permitted")
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 
     /// Filling in a field the document already has is the weaker

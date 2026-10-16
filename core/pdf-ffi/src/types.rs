@@ -620,6 +620,27 @@ impl From<FfiDocumentInfo> for DocumentInfo {
     }
 }
 
+/// Mirrors `pdf_document::Watermark` — the text, look and pages of one
+/// "Add watermark" action — except that `pages` are **positions**, like
+/// every other `page` crossing this boundary. They are resolved to the pages
+/// sitting there when the command is recorded, so the stamp stays on those
+/// pages through a later reorder.
+///
+/// Start from [`crate::default_watermark`] so every shell's first stamp has
+/// the same look; the text is painted in Helvetica and must fit WinAnsi.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiWatermark {
+    pub pages: Vec<u32>,
+    pub text: String,
+    /// In points.
+    pub font_size: f64,
+    pub color: FfiColor,
+    /// Fill opacity, `0.0` exclusive to `1.0` inclusive.
+    pub opacity: f64,
+    /// Counter-clockwise, as the reader sees the page.
+    pub rotation_degrees: f64,
+}
+
 /// The FFI-facing shape of `pdf_document::Command` (T-040's `apply_edit`
 /// surface). One variant per real `Command`/annotation-kind combination
 /// this workspace supports as of Batch 7 — `move`/`resize`/`restyle` are
@@ -733,10 +754,14 @@ pub enum FfiEditCommand {
 
     // --- Page content (Batch 21, T-158) --------------------------------
     //
-    // Mirror `pdf_document::Command`'s ten page-content variants. Each
-    // carries the item read from `DocumentHandle::read_page_content` — no
-    // id is allocated here, unlike annotations, because the item already
-    // carries the identity the parser assigned it.
+    // Mirror `pdf_document::Command`'s page-content variants. Each item
+    // variant carries the item read from `DocumentHandle::read_page_content`
+    // — no id is allocated here, unlike annotations, because the item
+    // already carries the identity the parser assigned it.
+    //
+    // `RemoveWatermark` is deliberately absent: it exists in the core only
+    // as `AddWatermark`'s inverse (undo pops the stamp from the log), and
+    // `pdf-save` refuses to write a recorded one.
     ReplaceTextRunContent {
         item: FfiContentTextRun,
         after: String,
@@ -775,6 +800,14 @@ pub enum FfiEditCommand {
         item: FfiContentImageItem,
         before: Vec<u8>,
         after: Vec<u8>,
+    },
+    /// Stamps the same text on every page `watermark` names, as one undo
+    /// step. Refused at record time for text Helvetica cannot show
+    /// ([`FfiError::EncodingGap`](crate::FfiError::EncodingGap)), a page
+    /// position out of range, or a look or page list the model refuses
+    /// (blank text, a repeated page, an opacity nobody could see).
+    AddWatermark {
+        watermark: FfiWatermark,
     },
 
     // --- Form fields (Batch 20, T-140) ----------------------------------
