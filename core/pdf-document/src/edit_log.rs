@@ -17,6 +17,7 @@ use crate::document::PageId;
 use crate::document::{Document, Orientation, Page, PageSize};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
 use crate::metadata::DocumentInfo;
+use crate::watermark::Watermark;
 
 fn page_ids_are_unique<'a>(pages: impl IntoIterator<Item = &'a Page>) -> bool {
     let mut ids = HashSet::new();
@@ -272,6 +273,23 @@ pub enum Command {
         before: Vec<u8>,
         after: Vec<u8>,
     },
+    /// Stamps the same text on every page the watermark names, as one undo
+    /// step. Inert on the model like its neighbours — `pdf-edit` writes it
+    /// into each page's content during the save rewrite — but unlike them it
+    /// refuses itself (see [`Command::apply`]): it names pages and a look
+    /// rather than an item parsed out of a stream, so the model *can* tell a
+    /// stamp that could never be drawn, and it says so before the log
+    /// records one.
+    AddWatermark(Watermark),
+    /// The inverse of [`Command::AddWatermark`], and nothing else.
+    ///
+    /// Undo never needs to touch the file: it pops the stamp out of the log,
+    /// and a stamp that is not in the log is never written. So this variant
+    /// exists to give `AddWatermark` the inverse every command must have,
+    /// not as an edit a shell can record — `pdf-save` refuses to write one,
+    /// because a watermark already in the file is not something this version
+    /// can find again.
+    RemoveWatermark(Watermark),
 
     // --- Form fields (Batch 20) -----------------------------------------
     //
@@ -341,7 +359,7 @@ pub enum Command {
 }
 
 impl Command {
-    /// Whether this command edits page content (the ten "Page content
+    /// Whether this command edits page content (the twelve "Page content
     /// (Batch 21)" variants above) rather than an annotation or a page
     /// operation.
     ///
@@ -477,6 +495,8 @@ impl Command {
                 | Command::MoveImage { .. }
                 | Command::ResizeImage { .. }
                 | Command::ReplaceImageSource { .. }
+                | Command::AddWatermark(_)
+                | Command::RemoveWatermark(_)
         )
     }
 
@@ -760,6 +780,12 @@ impl Command {
             | Command::MoveImage { .. }
             | Command::ResizeImage { .. }
             | Command::ReplaceImageSource { .. } => {}
+            // Still inert — the check is the whole of the forward action.
+            Command::AddWatermark(watermark) | Command::RemoveWatermark(watermark) => {
+                if !watermark.can_apply_to(document) {
+                    return false;
+                }
+            }
             Command::AddFormField(field) => {
                 document.form_fields.insert(field.clone());
             }
@@ -949,6 +975,8 @@ impl Command {
                 before: after.clone(),
                 after: before.clone(),
             },
+            Command::AddWatermark(watermark) => Command::RemoveWatermark(watermark.clone()),
+            Command::RemoveWatermark(watermark) => Command::AddWatermark(watermark.clone()),
             Command::AddFormField(field) => Command::RemoveFormField(field.clone()),
             Command::RemoveFormField(field) => Command::AddFormField(field.clone()),
             Command::MoveFormField { id, from, to } => Command::MoveFormField {
@@ -2429,7 +2457,21 @@ mod tests {
                 before: vec![0x89, b'P'],
                 after: vec![0xff, 0xd8],
             },
+            Command::AddWatermark(sample_watermark()),
+            Command::RemoveWatermark(sample_watermark()),
         ]
+    }
+
+    fn sample_watermark() -> Watermark {
+        Watermark::diagonal(vec![PageId(0)], "DRAFT")
+    }
+
+    fn one_page_document() -> Document {
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        document
     }
 
     /// Batch decision 2: page content is never mirrored into `Document`, so
@@ -2477,7 +2519,7 @@ mod tests {
     #[test]
     fn content_commands_round_trip_through_undo_and_redo() {
         for command in all_content_commands() {
-            let mut document = Document::blank();
+            let mut document = one_page_document();
             let mut log = EditLog::new();
 
             log.apply(&mut document, command.clone());
@@ -2490,6 +2532,37 @@ mod tests {
             assert!(log.redo(&mut document));
             assert_eq!(log.entries(), &[command]);
         }
+    }
+
+    /// A watermark is the one content edit the model can check: what it
+    /// names is pages and a look, not an item parsed out of a stream. So a
+    /// stamp that could never be drawn is refused before it reaches the log,
+    /// the way `RotatePages` refuses a page list it cannot address.
+    #[test]
+    fn a_watermark_the_document_cannot_hold_is_refused_and_not_recorded() {
+        let mut document = one_page_document();
+        let untouched = document.clone();
+        let mut log = EditLog::new();
+
+        for watermark in [
+            Watermark::diagonal(vec![PageId(3)], "DRAFT"),
+            Watermark::diagonal(vec![PageId(0)], ""),
+        ] {
+            assert!(!log.apply(&mut document, Command::AddWatermark(watermark)));
+        }
+
+        assert!(log.entries().is_empty());
+        assert_eq!(document, untouched);
+    }
+
+    #[test]
+    fn the_inverse_of_adding_a_watermark_removes_the_same_watermark() {
+        let watermark = sample_watermark();
+
+        assert_eq!(
+            Command::AddWatermark(watermark.clone()).inverse(),
+            Command::RemoveWatermark(watermark)
+        );
     }
 
     /// `item` carries the run as parsed, so `item.text` *is* the before
@@ -2910,7 +2983,7 @@ mod tests {
 
     // --- Command::is_content_edit / EditLog::peek_undo/peek_redo (T-163) --
 
-    /// Every one of the ten page-content variants reports itself as a
+    /// Every one of the twelve page-content variants reports itself as a
     /// content edit — this is the whole set T-163's refresh path must react
     /// to, so a variant silently missing here would silently skip the
     /// re-render it needs.

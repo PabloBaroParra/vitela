@@ -96,7 +96,7 @@ next** — actively being built · 🔮 **Planned** — on the roadmap, not star
 | PDF to images | Export pages as PNG / JPEG | `pdf-save` | ✅ Core ready |
 | Sign PDF | Drawn signatures + PKCS#7/PAdES (offline, no TSA/OCSP) | `pdf-sign` | 🚧 In progress / next |
 | Create PDF | Author a new PDF, including fillable forms | `pdf-form` *(planned)* | 🚧 In progress / next |
-| Add watermark | Stamp text or image watermarks (alpha-aware) | `pdf-annotate` | 🚧 In progress / next |
+| Add watermark | Stamp a text watermark on chosen pages as one undoable edit (image watermarks next) | `pdf-edit` | ✅ Core ready (text) |
 | Add page numbers | Overlay page numbering | `pdf-annotate` | 🚧 In progress / next |
 | PDF overlay | Stamp one PDF on top of another | `pdf-annotate` | 🚧 In progress / next |
 | Images to PDF | Build a PDF from image files | — | 🔮 Planned |

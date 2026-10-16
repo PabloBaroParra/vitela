@@ -47,6 +47,7 @@ pub mod error;
 pub mod insert;
 pub mod parse;
 pub mod pending;
+pub mod watermark;
 
 #[cfg(test)]
 mod fixture;
@@ -65,3 +66,4 @@ pub use parse::{
 pub use pending::{
     overlay_pending_content, pending_log_index, pending_text_bbox, PENDING_ITEM_ID_BASE,
 };
+pub use watermark::{check_watermark, stamp_watermark};
