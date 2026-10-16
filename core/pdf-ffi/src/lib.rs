@@ -77,6 +77,7 @@ mod sign;
 mod sign_sources;
 mod split;
 mod types;
+mod watermark;
 
 pub use bitmap::BitmapHandle;
 pub use blocks::{document_blocks, FfiBlockSource, FfiDocumentBlock};
@@ -126,7 +127,8 @@ pub use types::{
     FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiFreeTextLayout, FfiFreeTextLine,
     FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPdfDate, FfiPdfDateOffset,
     FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult,
-    FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun,
+    FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun, FfiWatermark,
 };
+pub use watermark::default_watermark;
 
 uniffi::setup_scaffolding!();
