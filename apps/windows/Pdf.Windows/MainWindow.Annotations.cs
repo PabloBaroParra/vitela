@@ -497,6 +497,8 @@ public sealed partial class MainWindow
         InsertTextButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         MoveImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         InsertImageButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
+        // Asks only the permission: no selection, no mode, like the GTK tile.
+        AddWatermarkButton.IsEnabled = ContentEditButton.IsEnabled && !_isBusy;
         // Delete and Replace image follow the canvas selection, not just the
         // permission — see UpdateImageCard, which this reaches.
         UpdateEditPanelAvailability();

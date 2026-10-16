@@ -199,6 +199,14 @@ internal interface IPdfCore
     /// </summary>
     FreeTextLayout LayoutFreeText(string contents, double widthPt, double heightPt);
 
+    /// <summary>
+    /// A watermark showing <paramref name="text"/> on the page positions
+    /// <paramref name="pages"/>, with the core's default diagonal look — so
+    /// the first stamp here matches the GTK and Android shells. Nothing is
+    /// checked: <see cref="ApplyEdit"/> refuses what cannot be stamped.
+    /// </summary>
+    PdfCoreWatermark DefaultWatermark(IReadOnlyList<uint> pages, string text);
+
     /// <summary>The inverse of <see cref="PlacePoint"/>: a pointer position back into page space.</summary>
     AnnotationPoint PointToPdf(PlacedPoint point, PagePlacement page);
 
@@ -462,7 +470,30 @@ internal abstract record PdfCoreEdit
     public sealed record MoveImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record ReplaceImageSource(PdfCoreContentImage Item, byte[] Before, byte[] After) : PdfCoreEdit;
     public sealed record RemoveImage(PdfCoreContentImage Item) : PdfCoreEdit;
+
+    /// <summary>
+    /// Stamps the same text on every page the watermark names, as one undo
+    /// step. Page content, so it answers to the content-edit permission; text
+    /// Helvetica cannot show is <see cref="PdfCoreError.EncodingGap"/> before
+    /// anything is recorded.
+    /// </summary>
+    public sealed record AddWatermark(PdfCoreWatermark Watermark) : PdfCoreEdit;
 }
+
+/// <summary>
+/// Mirrors <c>FfiWatermark</c>: <paramref name="Pages"/> are positions,
+/// resolved by the core to the pages sitting there when the stamp is
+/// recorded, so it follows them through a later reorder.
+/// </summary>
+/// <param name="Opacity">Fill opacity, <c>0</c> exclusive to <c>1</c> inclusive.</param>
+/// <param name="RotationDegrees">Counter-clockwise, as the reader sees the page.</param>
+internal sealed record PdfCoreWatermark(
+    IReadOnlyList<uint> Pages,
+    string Text,
+    double FontSizePt,
+    PdfCoreColor Color,
+    double Opacity,
+    double RotationDegrees);
 
 internal sealed record PdfCoreFormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value, FormTextStyle? Style = null, PdfCoreRect? Rect = null);
 

@@ -48,6 +48,7 @@ public sealed partial class MainWindow
         {
             ContentEditButton, ResizeImageButton, MoveImageButton, DeleteImageButton,
             ReplaceImageButton, InsertImageButton, DeleteTextButton, MoveTextButton, InsertTextButton,
+            AddWatermarkButton,
         };
         var annotateRow = new Viewer.ToolbarPanel();
         var editRow = new Viewer.ToolbarPanel();
