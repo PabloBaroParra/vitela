@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shell tests for the signed APT repository that linux-release.yml publishes:
-# scripts/build-apt-repo.sh (.deb pool -> signed dists/ tree). The end-to-end
+# scripts/build-apt-repo.sh (.deb pool -> signed dists/ tree) and the one-line
+# installer it publishes next to it (scripts/install.sh). The end-to-end
 # cases drive a real, unprivileged `apt-get update` against the built tree,
 # so "signed" means "apt accepts it", not "a .gpg file exists". The repo is
 # served over loopback HTTP, as Pages serves it: apt reads a file:// pool in
@@ -201,6 +202,11 @@ test_bad_inputs_fail_before_writing_the_repo() {
     fi
     assert_not_exists "$fixture_root/repo"
 
+    if GNUPGHOME="$fixture_root/gnupg-a" APT_SIGNING_KEY_ID="$key_a"         APT_REPO_URL="$repo_url/it's"         bash "$BUILD_SCRIPT" "$fixture_root/debs" "$fixture_root/repo" >/dev/null 2>&1; then
+        fail 'built a repo whose URL the installer cannot embed'
+    fi
+    assert_not_exists "$fixture_root/repo"
+
     mkdir -p "$fixture_root/empty"
     if GNUPGHOME="$fixture_root/gnupg-a" APT_SIGNING_KEY_ID="$key_a" APT_REPO_URL="$repo_url" \
         bash "$BUILD_SCRIPT" "$fixture_root/empty" "$fixture_root/repo" >/dev/null 2>&1; then
@@ -233,8 +239,106 @@ test_foreign_or_duplicate_packages_fail() {
     assert_not_exists "$fixture_root/repo"
 }
 
+# Stubs for the one-line installer: sudo and apt-get only record what they
+# were asked to do (sudo then runs the command unprivileged), dpkg reports
+# $STUB_ARCH, and id reports $STUB_UID. Writes land under VITELA_INSTALL_ROOT.
+make_install_stubs() {
+    local bin="$fixture_root/stub-bin"
+    mkdir -p "$bin" "$fixture_root/root"
+    : > "$fixture_root/calls"
+    cat > "$bin/sudo" <<'STUB'
+#!/bin/sh
+printf 'sudo %s\n' "$*" >> "$STUB_LOG"
+exec "$@"
+STUB
+    cat > "$bin/apt-get" <<'STUB'
+#!/bin/sh
+printf 'apt-get %s\n' "$*" >> "$STUB_LOG"
+STUB
+    cat > "$bin/dpkg" <<'STUB'
+#!/bin/sh
+[ "$1" = --print-architecture ] && { printf '%s\n' "${STUB_ARCH:-amd64}"; exit 0; }
+exit 1
+STUB
+    cat > "$bin/id" <<'STUB'
+#!/bin/sh
+[ "$1" = -u ] && { printf '%s\n' "${STUB_UID:-1000}"; exit 0; }
+exec /usr/bin/id "$@"
+STUB
+    chmod +x "$bin"/*
+}
+
+# The one-liner exactly as documented: the published script piped into sh.
+run_installer() {
+    curl -fsS "$repo_url/install.sh" | env PATH="$fixture_root/stub-bin:$PATH" \
+        STUB_LOG="$fixture_root/calls" VITELA_INSTALL_ROOT="$fixture_root/root" "$@" sh
+}
+
+assert_mode() { [ "$(stat -c %a "$1")" = "$2" ] || fail "expected mode $2 on $1"; }
+
+test_published_installer_adds_the_repo_and_installs() {
+    make_fixture
+    build_repo
+    make_install_stubs
+    local repo="$fixture_root/repo" root="$fixture_root/root"
+    assert_file "$repo/install.sh"
+    grep -Fq "repo_url='$repo_url'" "$repo/install.sh" || fail 'install.sh does not point at the repo URL'
+    grep -Fq '@VITELA_REPO_URL@' "$repo/install.sh" && fail 'install.sh still has the URL placeholder'
+    run_installer >/dev/null 2>"$fixture_root/install.err" \
+        || { cat "$fixture_root/install.err" >&2; fail 'installer failed'; }
+    cmp -s "$repo/vitela-archive-keyring.gpg" "$root/etc/apt/keyrings/vitela-archive-keyring.gpg" \
+        || fail 'installer did not install the published keyring'
+    cmp -s "$repo/vitela.sources" "$root/etc/apt/sources.list.d/vitela.sources" \
+        || fail 'installer did not install the published source'
+    assert_mode "$root/etc/apt/keyrings/vitela-archive-keyring.gpg" 644
+    assert_mode "$root/etc/apt/sources.list.d/vitela.sources" 644
+    assert_contains "$fixture_root/calls" 'apt-get update'
+    assert_contains "$fixture_root/calls" 'apt-get install -y vitela'
+    assert_contains "$fixture_root/calls" 'sudo apt-get install -y vitela'
+    [ "$(grep -n '^apt-get' "$fixture_root/calls" | cut -d: -f2-)" = "$(printf 'apt-get update\napt-get install -y vitela')" ] \
+        || fail 'installer did not update before installing'
+    # Running it again is harmless.
+    run_installer >/dev/null 2>&1 || fail 'installer failed on a second run'
+}
+
+test_installer_as_root_does_not_use_sudo() {
+    make_fixture
+    build_repo
+    make_install_stubs
+    run_installer STUB_UID=0 >/dev/null 2>&1 || fail 'installer failed as root'
+    assert_contains "$fixture_root/calls" 'apt-get install -y vitela'
+    grep -q '^sudo' "$fixture_root/calls" && fail 'installer used sudo as root'
+    return 0
+}
+
+test_installer_refuses_unsupported_architectures() {
+    make_fixture
+    build_repo
+    make_install_stubs
+    if run_installer STUB_ARCH=arm64 >/dev/null 2>"$fixture_root/install.err"; then
+        fail 'installer accepted an arm64 system'
+    fi
+    grep -q 'AppImage' "$fixture_root/install.err" || fail 'refusal does not point at the AppImage'
+    [ -s "$fixture_root/calls" ] && fail 'installer ran commands before refusing'
+    assert_not_exists "$fixture_root/root/etc"
+}
+
+test_truncated_installer_runs_nothing() {
+    make_fixture
+    build_repo
+    make_install_stubs
+    local size
+    size="$(wc -c < "$fixture_root/repo/install.sh")"
+    head -c "$((size - 20))" "$fixture_root/repo/install.sh" \
+        | env PATH="$fixture_root/stub-bin:$PATH" STUB_LOG="$fixture_root/calls" \
+            VITELA_INSTALL_ROOT="$fixture_root/root" sh >/dev/null 2>&1 || true
+    [ -s "$fixture_root/calls" ] && fail 'a truncated installer still ran commands'
+    assert_not_exists "$fixture_root/root/etc"
+}
+
 test_required_assets_exist() {
     assert_file "$BUILD_SCRIPT"
+    assert_file "$REPO_ROOT/scripts/install.sh"
     assert_file "$REPO_ROOT/.github/workflows/linux-release.yml"
 }
 
@@ -244,5 +348,9 @@ test_apt_rejects_the_repo_under_a_different_key
 test_tampered_index_is_rejected
 test_bad_inputs_fail_before_writing_the_repo
 test_foreign_or_duplicate_packages_fail
+test_published_installer_adds_the_repo_and_installs
+test_installer_as_root_does_not_use_sudo
+test_installer_refuses_unsupported_architectures
+test_truncated_installer_runs_nothing
 test_required_assets_exist
-printf 'apt-repo shell tests: 7 passed\n'
+printf 'apt-repo shell tests: 11 passed\n'
