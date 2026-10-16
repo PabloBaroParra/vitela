@@ -195,7 +195,10 @@ pub fn insert_image(
 
 /// The transform that cancels whatever CTM the page's streams leave behind,
 /// so appended operators work in page coordinates.
-fn correction_matrix(document: &Document, page_object: ObjectId) -> Result<Matrix, EditError> {
+pub(crate) fn correction_matrix(
+    document: &Document,
+    page_object: ObjectId,
+) -> Result<Matrix, EditError> {
     let end_ctm = read_located_content(document, page_object)?.end_ctm;
 
     end_ctm.invert().ok_or_else(|| EditError::MalformedContent {
@@ -204,7 +207,7 @@ fn correction_matrix(document: &Document, page_object: ObjectId) -> Result<Matri
     })
 }
 
-fn matrix_operator(matrix: Matrix) -> String {
+pub(crate) fn matrix_operator(matrix: Matrix) -> String {
     format!(
         "{} {} {} {} {} {} cm",
         format_number(matrix.a),
@@ -231,7 +234,7 @@ fn matrix_operator(matrix: Matrix) -> String {
 ///
 /// Inserting content is an addition. Nothing already on the page is read,
 /// rewritten or re-encoded to do it.
-fn append_to_content(
+pub(crate) fn append_to_content(
     document: &mut Document,
     page_object: ObjectId,
     operators: &[u8],
@@ -466,7 +469,7 @@ fn owner_dictionary_mut(
     }
 }
 
-fn dereferenced_dict(document: &Document, object: &Object) -> Option<Dictionary> {
+pub(crate) fn dereferenced_dict(document: &Document, object: &Object) -> Option<Dictionary> {
     match object {
         Object::Dictionary(dict) => Some(dict.clone()),
         Object::Reference(id) => document

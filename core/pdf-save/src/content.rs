@@ -52,8 +52,17 @@ fn is_content_edit(command: &Command) -> bool {
             | Command::MoveImage { .. }
             | Command::ResizeImage { .. }
             | Command::ReplaceImageSource { .. }
+            | Command::AddWatermark(_)
+            | Command::RemoveWatermark(_)
     )
 }
+
+/// Why a [`Command::RemoveWatermark`] cannot be written. It is only ever
+/// `AddWatermark`'s inverse — undo drops the stamp from the log, so it is
+/// never written — and a stamp already in the file is not something this
+/// version can find again.
+const WATERMARK_REMOVAL_UNSUPPORTED: &str =
+    "removing a watermark already in the file is not supported";
 
 /// Applies every page-content command in `document`'s edit log to `working`,
 /// in the order they were made.
@@ -88,6 +97,23 @@ pub fn replay_content_edits(
     page_objects: &HashMap<PageId, ObjectId>,
 ) -> Result<(), SaveError> {
     for command in document.pending_edits.entries() {
+        match command {
+            Command::AddWatermark(watermark) => {
+                // Every named page that survived the batch, in the order the
+                // watermark lists them; a deleted one is skipped like any
+                // other edit on it.
+                for page in &watermark.pages {
+                    if let Some(&page_object) = page_objects.get(page) {
+                        pdf_edit::stamp_watermark(working, page_object, watermark)?;
+                    }
+                }
+                continue;
+            }
+            Command::RemoveWatermark(_) => {
+                return Err(SaveError::InvalidSaveRequest(WATERMARK_REMOVAL_UNSUPPORTED));
+            }
+            _ => {}
+        }
         let Some(page) = content_page(command) else {
             // Page and annotation commands reach the file through
             // `bridge::replay_page_ops` and `annotations::attach_annotations`.
@@ -105,7 +131,7 @@ pub fn replay_content_edits(
 /// Dry-runs one page-content command against a throwaway clone of `base`,
 /// reporting the error a save would hit — and writing nothing anywhere.
 ///
-/// Exists because the ten page-content `Command` variants are inert on
+/// Exists because the page-content `Command` variants are inert on
 /// `Document::apply` (page content is a snapshot, never cached state — see
 /// `pdf_document::content`'s module docs). Recording one unchecked means a
 /// text run whose font cannot encode the new characters, or an image paint
@@ -137,6 +163,16 @@ pub fn validate_content_command(
     sources: crate::bridge::ImportedSources<'_, '_>,
     command: &Command,
 ) -> Result<(), SaveError> {
+    // A watermark is checked without a page: the only thing that can stop it
+    // is its text, and that depends on the face it is painted in, not on
+    // anything a page holds.
+    match command {
+        Command::AddWatermark(watermark) => return Ok(pdf_edit::check_watermark(watermark)?),
+        Command::RemoveWatermark(_) => {
+            return Err(SaveError::InvalidSaveRequest(WATERMARK_REMOVAL_UNSUPPORTED))
+        }
+        _ => {}
+    }
     let Some(page) = content_page(command) else {
         return Ok(());
     };
@@ -213,7 +249,7 @@ mod tests {
     use lopdf::{dictionary, Object, Stream};
     use pdf_document::{
         Annotation, AnnotationId, AnnotationKind, Color, ContentItemId, EditLog, FontKind,
-        ImageItem, PageId, Rect, TextRun,
+        ImageItem, PageId, Rect, TextRun, Watermark,
     };
 
     /// A one-page document with a text run and an image, built the way a real
@@ -459,5 +495,143 @@ mod tests {
             replay_content_edits(&mut working, &document, &pages).expect_err("must not succeed");
 
         assert!(matches!(error, SaveError::Edit(_)));
+    }
+
+    // --- Watermarks -------------------------------------------------------
+
+    /// A watermark names pages the model must hold, so the log it is
+    /// recorded into needs a document that has them.
+    fn with_pages_and_commands(page_count: u32, commands: Vec<Command>) -> Document {
+        let mut document = Document::default();
+        for id in 0..page_count {
+            document.pages.push(pdf_document::Page::blank(
+                PageId(id),
+                pdf_document::PageSize::A4,
+                pdf_document::Orientation::Portrait,
+            ));
+        }
+        let mut log = EditLog::new();
+        for command in commands {
+            assert!(log.apply(&mut document, command), "recordable");
+        }
+        document.pending_edits = log;
+        document
+    }
+
+    fn texts(working: &LopdfDoc) -> Vec<String> {
+        read_runs(working).into_iter().map(|run| run.text).collect()
+    }
+
+    #[test]
+    fn a_watermark_forces_a_full_rewrite() {
+        let document = with_pages_and_commands(
+            1,
+            vec![Command::AddWatermark(Watermark::diagonal(
+                vec![PageId(0)],
+                "DRAFT",
+            ))],
+        );
+
+        assert!(has_content_edits(&document));
+    }
+
+    #[test]
+    fn replaying_a_watermark_stamps_the_page() {
+        let mut working = document_with(b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET");
+        let document = with_pages_and_commands(
+            1,
+            vec![Command::AddWatermark(Watermark::diagonal(
+                vec![PageId(0)],
+                "DRAFT",
+            ))],
+        );
+
+        let pages = page_map(&working);
+        replay_content_edits(&mut working, &document, &pages).expect("replayable");
+
+        assert_eq!(texts(&working), ["Hello", "DRAFT"]);
+    }
+
+    /// The same rule every other content edit follows: a page deleted in the
+    /// same batch has nowhere to receive the stamp, and the rest still do.
+    #[test]
+    fn a_watermark_skips_pages_deleted_in_the_same_batch() {
+        let mut working = document_with(b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET");
+        let document = with_pages_and_commands(
+            2,
+            vec![Command::AddWatermark(Watermark::diagonal(
+                vec![PageId(1), PageId(0)],
+                "DRAFT",
+            ))],
+        );
+
+        let pages = page_map(&working); // only PageId(0) survived the replay
+        replay_content_edits(&mut working, &document, &pages).expect("replayable");
+
+        assert_eq!(texts(&working), ["Hello", "DRAFT"]);
+    }
+
+    #[test]
+    fn undoing_a_watermark_means_it_is_never_written() {
+        let mut working = document_with(b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET");
+        let mut document = with_pages_and_commands(
+            1,
+            vec![Command::AddWatermark(Watermark::diagonal(
+                vec![PageId(0)],
+                "DRAFT",
+            ))],
+        );
+        let mut log = std::mem::take(&mut document.pending_edits);
+        assert!(log.undo(&mut document));
+        document.pending_edits = log;
+
+        let pages = page_map(&working);
+        replay_content_edits(&mut working, &document, &pages).expect("replayable");
+
+        assert_eq!(texts(&working), ["Hello"]);
+        assert!(!has_content_edits(&document));
+    }
+
+    /// `RemoveWatermark` exists only as `AddWatermark`'s inverse. One that
+    /// reached the log anyway asks for something this writer cannot do —
+    /// find a stamp already in the file — and saying so beats a save that
+    /// reports success with the watermark still there.
+    #[test]
+    fn a_recorded_watermark_removal_is_refused_rather_than_ignored() {
+        let mut working = document_with(b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET");
+        let document = with_pages_and_commands(
+            1,
+            vec![Command::RemoveWatermark(Watermark::diagonal(
+                vec![PageId(0)],
+                "DRAFT",
+            ))],
+        );
+
+        let pages = page_map(&working);
+        let error =
+            replay_content_edits(&mut working, &document, &pages).expect_err("must not succeed");
+
+        assert!(
+            matches!(error, SaveError::InvalidSaveRequest(_)),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn an_unencodable_watermark_fails_the_replay() {
+        let mut working = document_with(b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET");
+        let document = with_pages_and_commands(
+            1,
+            vec![Command::AddWatermark(Watermark::diagonal(
+                vec![PageId(0)],
+                "草稿",
+            ))],
+        );
+
+        let pages = page_map(&working);
+        let error =
+            replay_content_edits(&mut working, &document, &pages).expect_err("must not succeed");
+
+        assert!(matches!(error, SaveError::Edit(_)), "{error:?}");
     }
 }

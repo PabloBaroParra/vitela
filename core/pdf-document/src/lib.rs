@@ -19,6 +19,7 @@ pub mod form;
 pub mod metadata;
 pub mod prune;
 pub mod security;
+pub mod watermark;
 
 pub use annotation::{Annotation, AnnotationId, AnnotationKind, AnnotationSet, Color, Popup, Rect};
 pub use audit_log::{AuditActor, AuditEntry, AuditEvent, AuditLog};
@@ -37,3 +38,4 @@ pub use prune::{prune_to, removal_runs};
 pub use security::{
     Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
 };
+pub use watermark::Watermark;
