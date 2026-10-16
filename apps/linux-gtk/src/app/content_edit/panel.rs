@@ -219,6 +219,7 @@ pub(crate) struct EditContent {
     pub(crate) insert_image: ToggleButton,
     pub(crate) delete_image: Button,
     pub(crate) replace_image: Button,
+    pub(crate) add_watermark: Button,
     pub(crate) panel: EditPanel,
 }
 
@@ -321,6 +322,22 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
     image_card.append(&image_hint);
     root.append(&image_card);
 
+    // --- pages -------------------------------------------------------------
+    let (pages_card, pages_row) = card("Pages");
+    let add_watermark = Button::new();
+    tile(
+        &add_watermark,
+        "Add watermark",
+        Icon::Text,
+        "Stamp the same text across the pages you choose",
+    );
+    add_watermark.set_sensitive(false);
+    pages_row.append(&add_watermark);
+    pages_card.append(&hint(
+        "A watermark is painted into the pages themselves and is one undo step.",
+    ));
+    root.append(&pages_card);
+
     (
         EditContent {
             mode,
@@ -329,6 +346,7 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
             insert_image,
             delete_image,
             replace_image,
+            add_watermark,
             panel: EditPanel {
                 availability,
                 image_hint,
@@ -433,6 +451,7 @@ mod tests {
         assert!(!content.insert_image.is_sensitive());
         assert!(!content.delete_image.is_sensitive());
         assert!(!content.replace_image.is_sensitive());
+        assert!(!content.add_watermark.is_sensitive());
         assert_eq!(content.panel.availability.text(), NO_DOCUMENT_NOTICE);
         assert_eq!(content.panel.image_hint.text(), NO_IMAGE_SELECTED);
         assert_eq!(content.panel.text_hint.text(), NO_TEXT_SELECTED);

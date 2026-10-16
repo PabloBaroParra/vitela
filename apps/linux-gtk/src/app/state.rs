@@ -117,6 +117,9 @@ pub(crate) struct Viewer {
     /// Slice 2). Sensitivity is owned by `update_content_edit_controls`
     /// alongside `delete_image_button` — the same selection gates both.
     pub(crate) replace_image_button: Button,
+    /// Opens the Add watermark dialog (`content_edit::watermark`). Gated by
+    /// `content_edit::update_controls` on the content-edit permission alone.
+    pub(crate) add_watermark_button: Button,
     /// The "Edit" tools page's explanatory labels — see [`EditPanel`].
     pub(crate) edit_panel: EditPanel,
     /// The forms toolbar (T-141): the mode toggle, the four placement

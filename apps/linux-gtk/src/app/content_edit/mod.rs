@@ -61,6 +61,7 @@ pub(crate) mod image;
 mod model;
 pub(crate) mod panel;
 pub(crate) mod text;
+pub(crate) mod watermark;
 
 use gtk::prelude::*;
 use gtk::{GestureDrag, ToggleButton};
@@ -364,6 +365,10 @@ pub(crate) fn update_controls(viewer: &Viewer) {
     // that, not an additional safeguard.
     viewer.insert_text_button.set_sensitive(enabled);
     viewer.insert_image_button.set_sensitive(enabled);
+    // A watermark asks the same question as an insertion: whether the
+    // document lets its page content change, not whether anything is
+    // selected — it has no target on the page at all.
+    viewer.add_watermark_button.set_sensitive(enabled);
 }
 
 pub(crate) fn mode_is_active(viewer: &Viewer) -> bool {

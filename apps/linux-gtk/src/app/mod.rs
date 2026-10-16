@@ -199,6 +199,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         insert_image: insert_image_button,
         delete_image: delete_image_button,
         replace_image: replace_image_button,
+        add_watermark: add_watermark_button,
         panel: edit_panel,
     } = edit_controls;
 
@@ -406,6 +407,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         insert_image_button,
         delete_image_button,
         replace_image_button,
+        add_watermark_button,
         edit_panel,
         forms: form_field_toolbar,
         choose_signing_certificate,
@@ -468,6 +470,10 @@ fn build_ui(application: &Application) -> BuiltUi {
         let window = window.clone();
         let viewer = viewer.clone();
         move |_| content_edit::image::replace_selected(&window, &viewer)
+    });
+    viewer.add_watermark_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| content_edit::watermark::begin_watermark(&viewer)
     });
     // Navigation group. Neither of these closes the open document: coming
     // back to Home leaves the editor page exactly as it was.
