@@ -15,6 +15,7 @@ import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.TextRect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -39,7 +40,7 @@ class ViewerViewModelTextSelectionTest {
         viewModel.extendTextSelection(AnnotationPoint(40.0, 705.0))
 
         val selection = viewModel.state.first { it.textSelection != null }.textSelection
-        assertEquals(TextSelection(0, listOf(TextRect(10.0, 700.0, 30.0, 12.0)), "ell"), selection)
+        assertEquals(TextSelection(0, listOf(TextRect(10.0, 700.0, 30.0, 12.0)), "ell", 1, 4), selection)
     }
 
     @Test
@@ -111,6 +112,66 @@ class ViewerViewModelTextSelectionTest {
         assertEquals(AnnotationKind.Highlight, added.kind)
         assertEquals(AnnotationRect(10.0, 700.0, 30.0, 12.0), added.rect)
         assertNull(viewModel.state.value.textSelection)
+    }
+
+    @Test
+    fun draggingTheEndHandleMovesOnlyTheEnd() = runTest {
+        val document = SelectableDocument()
+        val viewModel = opened(document)
+        viewModel.beginTextSelection(0, AnnotationPoint(10.0, 705.0))
+        viewModel.extendTextSelection(AnnotationPoint(30.0, 705.0))
+        viewModel.endTextSelection()
+        viewModel.state.first { it.textSelection?.text == "el" }
+
+        viewModel.grabSelectionHandle(SelectionHandle.End, AnnotationPoint(30.0, 705.0))
+        viewModel.extendTextSelection(AnnotationPoint(50.0, 705.0))
+        viewModel.endTextSelection()
+
+        val selection = viewModel.state.first { it.textSelection?.text == "ello" }.textSelection
+        assertEquals(1, selection?.start)
+        assertEquals(5, selection?.end)
+        assertTrue(document.loaded.all { it.closed })
+    }
+
+    @Test
+    fun grabbingAHandleKeepsTheSelectionShownWhileThePageLoads() = runTest {
+        val viewModel = opened(SelectableDocument())
+        viewModel.beginTextSelection(0, AnnotationPoint(10.0, 705.0))
+        viewModel.extendTextSelection(AnnotationPoint(40.0, 705.0))
+        viewModel.endTextSelection()
+        viewModel.state.first { it.textSelection != null }
+
+        viewModel.grabSelectionHandle(SelectionHandle.Start, AnnotationPoint(10.0, 705.0))
+
+        assertEquals("ell", viewModel.state.value.textSelection?.text)
+    }
+
+    @Test
+    fun aHandleDroppedOnTheOtherKeepsTheLastSelection() = runTest {
+        val viewModel = opened(SelectableDocument())
+        viewModel.beginTextSelection(0, AnnotationPoint(10.0, 705.0))
+        viewModel.extendTextSelection(AnnotationPoint(40.0, 705.0))
+        viewModel.endTextSelection()
+        viewModel.state.first { it.textSelection != null }
+
+        viewModel.grabSelectionHandle(SelectionHandle.End, AnnotationPoint(40.0, 705.0))
+        viewModel.extendTextSelection(AnnotationPoint(10.0, 705.0))
+        viewModel.endTextSelection()
+        advanceUntilIdle()
+
+        assertEquals("ell", viewModel.state.value.textSelection?.text)
+    }
+
+    @Test
+    fun aDoubleTapSelectsTheWordUnderIt() = runTest {
+        val document = SelectableDocument()
+        val viewModel = opened(document)
+
+        viewModel.selectWordAt(0, AnnotationPoint(22.0, 705.0))
+
+        val selection = viewModel.state.first { it.textSelection != null }.textSelection
+        assertEquals("Hello", selection?.text)
+        assertTrue(document.loaded.single().closed)
     }
 
     @Test

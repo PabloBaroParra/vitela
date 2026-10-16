@@ -21,10 +21,11 @@ class ReaderContextTest {
     }
 
     @Test
-    fun selectedTextOffersCopyOnly() {
-        val state = ViewerState(pageCount = 1, textSelection = TextSelection(0, emptyList(), "hello"))
+    fun selectedTextLeavesItsActionsToTheSelectionToolbar() {
+        // Copy, markup and share sit on the floating bar over the selection, not in the chip row.
+        val state = ViewerState(pageCount = 1, textSelection = TextSelection(0, emptyList(), "hello", 0, 5))
 
-        assertEquals(listOf(ContextChip.Copy), chips(state))
+        assertTrue(chips(state).isEmpty())
     }
 
     @Test

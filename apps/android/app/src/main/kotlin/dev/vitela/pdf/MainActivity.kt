@@ -355,9 +355,18 @@ private fun VitelaApp(
         onTextSelectionStart = viewModel::beginTextSelection,
         onTextSelectionMove = viewModel::extendTextSelection,
         onTextSelectionEnd = viewModel::endTextSelection,
+        onSelectionHandleGrab = viewModel::grabSelectionHandle,
+        onSelectWord = viewModel::selectWordAt,
         onCopySelection = {
             state.textSelection?.text?.let { text ->
                 context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(state.title, text))
+            }
+            viewModel.clearTextSelection()
+        },
+        onShareSelection = {
+            state.textSelection?.text?.let { text ->
+                val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+                context.startActivity(Intent.createChooser(send, null))
             }
         },
         onOpenMetadata = viewModel::openMetadata,

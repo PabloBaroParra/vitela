@@ -23,7 +23,7 @@ class TextSelectionDragTest {
 
         drag.extend(AnnotationPoint(40.0, 705.0))
 
-        assertEquals(TextSelection(3, listOf(TextRect(10.0, 700.0, 30.0, 12.0)), "ell"), drag.selection())
+        assertEquals(TextSelection(3, listOf(TextRect(10.0, 700.0, 30.0, 12.0)), "ell", 1, 4), drag.selection())
     }
 
     @Test
@@ -42,7 +42,7 @@ class TextSelectionDragTest {
         val drag = TextSelectionDrag(0, AnnotationPoint(62.0, 705.0))
         drag.attach(LineCharacters("say hello"))
 
-        assertEquals(TextSelection(0, listOf(TextRect(40.0, 700.0, 50.0, 12.0)), "hello"), drag.selection())
+        assertEquals(TextSelection(0, listOf(TextRect(40.0, 700.0, 50.0, 12.0)), "hello", 4, 9), drag.selection())
     }
 
     @Test
@@ -84,6 +84,44 @@ class TextSelectionDragTest {
         drag.extend(AnnotationPoint(40.0, 705.0))
 
         assertNull(drag.selection())
+    }
+
+    @Test
+    fun aHandleDragKeepsTheOppositeCaretAndMovesTheGrabbedEnd() {
+        // "say hello" selected as "hello" (4..9); the start handle is dragged left to caret 1.
+        val drag = TextSelectionDrag(0, TextSelectionDrag.Anchor.Caret(9), AnnotationPoint(40.0, 705.0))
+        drag.attach(LineCharacters("say hello"))
+
+        drag.extend(AnnotationPoint(10.0, 705.0))
+
+        assertEquals(TextSelection(0, listOf(TextRect(10.0, 700.0, 80.0, 12.0)), "ay hello", 1, 9), drag.selection())
+    }
+
+    @Test
+    fun aHandleDraggedPastTheOtherEndSwapsTheEnds() {
+        val drag = TextSelectionDrag(0, TextSelectionDrag.Anchor.Caret(4), AnnotationPoint(90.0, 705.0))
+        drag.attach(LineCharacters("say hello"))
+
+        drag.extend(AnnotationPoint(10.0, 705.0))
+
+        assertEquals("ay ", drag.selection()?.text)
+        assertEquals(1, drag.selection()?.start)
+        assertEquals(4, drag.selection()?.end)
+    }
+
+    @Test
+    fun aHandleOnTopOfTheOtherSelectsNothingRatherThanAWord() {
+        // Collapsing is not a long-press: no word fallback, so the caller can keep what was shown.
+        val drag = TextSelectionDrag(0, TextSelectionDrag.Anchor.Caret(4), AnnotationPoint(40.0, 705.0))
+        drag.attach(LineCharacters("say hello"))
+
+        assertNull(drag.selection())
+        assertTrue(drag.keepsShownSelection)
+    }
+
+    @Test
+    fun aLongPressDoesNotKeepAStaleSelection() {
+        assertFalse(TextSelectionDrag(0, AnnotationPoint(10.0, 705.0)).keepsShownSelection)
     }
 
     @Test

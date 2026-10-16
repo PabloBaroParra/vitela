@@ -602,6 +602,8 @@ class ViewerViewModel(
     fun beginTextSelection(pageIndex: Int, point: AnnotationPoint) = selection.begin(pageIndex, point)
     fun extendTextSelection(point: AnnotationPoint) = selection.extend(point)
     fun endTextSelection() = selection.end()
+    fun grabSelectionHandle(handle: SelectionHandle, point: AnnotationPoint) = selection.grab(handle, point)
+    fun selectWordAt(pageIndex: Int, point: AnnotationPoint) = selection.selectWord(pageIndex, point)
     fun clearTextSelection() = selection.clear()
 
     private fun handleOpenFailure(error: PdfCoreError) {
