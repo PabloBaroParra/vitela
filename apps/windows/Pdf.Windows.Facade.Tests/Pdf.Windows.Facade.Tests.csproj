@@ -37,6 +37,9 @@
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextInsertion.cs" Link="Facade\PdfDocumentFacade.TextInsertion.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ImageInsertion.cs" Link="Facade\PdfDocumentFacade.ImageInsertion.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ImageReplacement.cs" Link="Facade\PdfDocumentFacade.ImageReplacement.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Watermark.cs" Link="Facade\PdfDocumentFacade.Watermark.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\Watermark.cs" Link="Facade\Watermark.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\WatermarkWording.cs" Link="Viewer\WatermarkWording.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ImageExport.cs" Link="Facade\PdfDocumentFacade.ImageExport.cs" />
     <Compile Include="..\Pdf.Windows\Facade\ImageExport.cs" Link="Facade\ImageExport.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ExtractPages.cs" Link="Facade\PdfDocumentFacade.ExtractPages.cs" />

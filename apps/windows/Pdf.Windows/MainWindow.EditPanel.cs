@@ -43,7 +43,8 @@ public sealed partial class MainWindow
         // .edit-tile: the cards' buttons are tiles; an armed mode (Edit content, Insert text/image) moves its border to the accent.
         foreach (var mode in new[] { ContentEditButton, InsertTextButton, InsertImageButton })
             mode.Style = NamedStyle("EditTileToggleStyle");
-        foreach (var tile in new Button[] { DeleteTextButton, ReplaceImageButton, DeleteImageButton })
+        ToolbarIcon(AddWatermarkButton, ShellIcon.Text, "Add watermark", "Stamp the same text across the pages you choose", "Add watermark", EditIconSize, IconTint.Accent);
+        foreach (var tile in new Button[] { DeleteTextButton, ReplaceImageButton, DeleteImageButton, AddWatermarkButton })
             tile.Style = NamedStyle("EditTileButtonStyle");
 
         page.Children.Add(EditCard("Text", "EditTextCard",
@@ -52,6 +53,9 @@ public sealed partial class MainWindow
         page.Children.Add(EditCard("Images", "EditImagesCard",
             _editImageHint,
             InsertImageButton, ReplaceImageButton, DeleteImageButton));
+        page.Children.Add(EditCard("Pages", "EditPagesCard",
+            EditHint("A watermark is painted into the pages themselves and is one undo step."),
+            AddWatermarkButton));
 
         // Preserve working Windows-only numeric geometry commands below the primary cards.
         var more = new Viewer.ToolbarPanel();

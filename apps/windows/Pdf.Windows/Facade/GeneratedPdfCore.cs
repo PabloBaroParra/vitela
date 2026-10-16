@@ -377,6 +377,13 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
     public bool TextExtractionAllowed(IPdfCoreDocument document) =>
         ((GeneratedDocument)document).Handle.TextExtractionAllowed();
 
+    public PdfCoreWatermark DefaultWatermark(IReadOnlyList<uint> pages, string text)
+    {
+        var look = PdfFfiMethods.DefaultWatermark([.. pages], text);
+        return new PdfCoreWatermark(look.Pages, look.Text, look.FontSize,
+            new PdfCoreColor(look.Color.R, look.Color.G, look.Color.B), look.Opacity, look.RotationDegrees);
+    }
+
     public IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages)
     {
         try { return PdfFfiMethods.ParsePageSelection(input, totalPages); }
@@ -497,6 +504,13 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.ReplaceImageSource value => new FfiEditCommand.ReplaceImageSource(
             new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
             value.Before, value.After),
+        PdfCoreEdit.AddWatermark value => new FfiEditCommand.AddWatermark(new FfiWatermark(
+            [.. value.Watermark.Pages],
+            value.Watermark.Text,
+            value.Watermark.FontSizePt,
+            new FfiColor(value.Watermark.Color.R, value.Watermark.Color.G, value.Watermark.Color.B),
+            value.Watermark.Opacity,
+            value.Watermark.RotationDegrees)),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
         PdfCoreEdit.RemoveFormField value => new FfiEditCommand.RemoveFormField(value.FieldId),

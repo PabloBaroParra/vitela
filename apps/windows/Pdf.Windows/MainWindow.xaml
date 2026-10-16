@@ -210,6 +210,7 @@
             <Button x:Name="DeleteTextButton" Content="Delete text" Click="DeleteTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Delete a text run on the visible page" />
             <Button x:Name="MoveTextButton" Content="Move text" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a text run on the visible page" />
             <ToggleButton x:Name="InsertTextButton" Content="Insert text" Click="InsertTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Click the page to place a new text box" />
+            <Button x:Name="AddWatermarkButton" Content="Add watermark" Click="AddWatermarkButton_Click" IsEnabled="False" ToolTipService.ToolTip="Stamp the same text across the pages you choose" />
             <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="Shift the selected annotation">Nudge</Button>
             <Button x:Name="MoveAnnotationButton" Click="MoveAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's X and Y in PDF points" IsEnabled="False">Move annotation</Button>
             <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
