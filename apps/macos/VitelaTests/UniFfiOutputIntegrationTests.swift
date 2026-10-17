@@ -79,6 +79,23 @@ final class UniFfiOutputIntegrationTests: XCTestCase {
         XCTAssertEqual(store.annotations.count, 1, "taking the snapshot leaves the session's annotation editable")
     } }
 
+    func testAnUnsavedAnnotationReachesThePrintedPage() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: try Self.sampleBytes())
+        func printed() throws -> RenderedPage {
+            try XCTUnwrap(store.printPage(0, for: try XCTUnwrap(store.beginPrint()), dpi: ViewerStore.printPreviewDpi))
+        }
+        let before = try printed()
+
+        store.applyAnnotationEdit(.add(kind: .highlight, page: 0, rect: PdfRect(x: 72, y: 72, width: 300, height: 200), color: PdfColor(r: 255, g: 0, b: 0)))
+        let annotated = try printed()
+        let live = try XCTUnwrap(store.printPage(0, for: PrintRequest(generation: 0, document: try XCTUnwrap(store.document), pages: try XCTUnwrap(store.document).pages), dpi: ViewerStore.printPreviewDpi))
+
+        XCTAssertNotEqual(annotated.rgba, before.rgba, "the snapshot prints the highlight")
+        XCTAssertEqual(live.rgba, before.rgba, "the live handle leaves it to the overlay, which is why print cannot use it")
+        XCTAssertEqual(store.annotations.count, 1, "taking the snapshot leaves the session's annotation editable")
+    } }
+
     func testCompressingNeverGrowsTheFile() throws { try offMain {
         let store = ViewerStore(client: UniFfiPdfCoreClient())
         store.open(bytes: try Self.sampleBytes())
