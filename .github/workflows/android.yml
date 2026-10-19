@@ -91,7 +91,7 @@ jobs:
           mkdir -p "$adapter_root"
           cp apps/android/GeneratedPdfCore.kt.template "$adapter_root/GeneratedPdfCore.kt"
       - name: Set up JDK 17
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "17"
@@ -165,7 +165,7 @@ jobs:
       - name: Build the native core and bindings (16-KB alignment checked)
         run: bash scripts/package-android.sh
       - name: Set up JDK 17
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "17"
