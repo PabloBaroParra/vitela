@@ -85,6 +85,8 @@ data class ViewerState(
     val importedSourceNames: Map<Long, String> = emptyMap(),
     /** The Document properties dialog, or null while it is closed. */
     val metadataEditor: MetadataEditor? = null,
+    /** The Add watermark dialog, or null while it is closed. */
+    val watermark: WatermarkEditor? = null,
     /** The Export images dialog, or null while it is closed. */
     val imageExport: ImageExportEditor? = null,
     /** True while an export is rendering and writing pages, so a second one cannot start on top of it. */
