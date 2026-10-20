@@ -49,7 +49,8 @@ responsibility:
   the start screen's Tools grid (Edit, Annotate, Sign, Organize, Compress,
   Protect: with no document open a tile opens the chooser first and goes
   there once the file loads), Quick actions and the keyboard reference —
-  Linux's `home/tools.rs`.
+  Linux's `home/tools.rs`. Home ▸ Return to Document (⇧⌘H, the toolbar's
+  Home) shows the start screen over an open document without touching it.
 - `Vitela/ViewerViewModel+Share.swift` — File ▸ Share…: signature
   question, the bytes a save would write in a fresh temporary folder, the
   share picker, and sweeping copies older than an hour.

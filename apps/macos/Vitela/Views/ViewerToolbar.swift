@@ -11,6 +11,10 @@ struct ViewerToolbar: View {
 
     var body: some View {
         HStack {
+            Toggle("Home", isOn: Binding(get: { model.showsHome }, set: { $0 ? model.showHome() : model.returnToDocument() }))
+                .toggleStyle(.button)
+                .help("Show the start screen; the open document stays as it is (⇧⌘H)")
+                .disabled(model.store.document == nil)
             Button("Open PDF", action: model.selectDocument)
             Menu("Open Sample") {
                 Button("Vitela sample", action: model.openSample)

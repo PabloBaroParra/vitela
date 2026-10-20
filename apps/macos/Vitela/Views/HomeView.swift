@@ -44,6 +44,10 @@ struct HomeView: View {
                 Text(model.title).foregroundStyle(.secondary)
             }
             Spacer()
+            if model.showsHome {
+                Button("Return to Document", action: model.returnToDocument)
+                    .help("Back to the open document, as you left it (⇧⌘H)")
+            }
             Button("New", action: model.newDocument)
             Button("Open…", action: model.selectDocument)
                 .keyboardShortcut(.defaultAction)

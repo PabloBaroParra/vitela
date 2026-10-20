@@ -66,6 +66,9 @@ final class ViewerViewModel: ObservableObject {
     /// A Home tool picked with no document open: applied once the document
     /// chosen for it loads — `ViewerViewModel+HomeTools.swift`.
     var pendingHomeTool: HomeTool?
+    /// Home is showing over an open document, which stays as it was —
+    /// `ViewerViewModel+HomeTools.swift`. A document that loads closes it.
+    @Published var showsHome = false
     /// Share's signature question and picker — `ViewerViewModel+Share.swift`.
     let sharePrompts: SharePrompts
     let store: ViewerStore
@@ -116,6 +119,7 @@ final class ViewerViewModel: ObservableObject {
                 self?.title = Self.windowTitle(for: state)
                 self?.recordPendingRecent(state)
                 self?.applyPendingHomeTool(state)
+                if case .loaded = state { self?.showsHome = false }
             }
             .store(in: &subscriptions)
         loadRecentDocuments()

@@ -56,7 +56,24 @@ extension ViewerViewModel {
             selectDocument()
             return
         }
+        returnToDocument()
         applyHomeTool(tool)
+    }
+
+    /// Home over the open document — Linux's and Windows' Home rail button.
+    /// Nothing about the document changes: not its edits, not its history.
+    func showHome() {
+        guard store.document != nil else { return }
+        showsHome = true
+    }
+
+    /// Back from Home to the document, at the page it was left on — the page
+    /// list is rebuilt, so it is asked to scroll there again.
+    func returnToDocument() {
+        guard showsHome else { return }
+        showsHome = false
+        let page = store.currentPage
+        DispatchQueue.main.async { [weak self] in self?.store.goToPage(page) }
     }
 
     /// What each tile means. Edit, Annotate and Organize only change what is

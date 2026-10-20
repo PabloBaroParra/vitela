@@ -68,4 +68,45 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
 
         XCTAssertEqual(model.pendingHomeTool, .sign)
     }
+
+    func testHomeShowsOverTheOpenDocumentAndReturnsToItsPage() {
+        let (client, model) = model()
+        model.store.currentPage = 0
+        let revision = model.store.editRevision
+
+        model.showHome()
+        XCTAssertTrue(model.showsHome)
+        XCTAssertNotNil(model.store.document, "Home never closes the document")
+
+        model.returnToDocument()
+        XCTAssertFalse(model.showsHome)
+        XCTAssertEqual(model.store.editRevision, revision)
+        waitUntil({ model.store.requestedPage?.page == 0 }, "the page list was never sent back to its page")
+        XCTAssertEqual(client.pageEdits, [])
+    }
+
+    func testHomeNeedsADocumentToShowOver() {
+        let (_, model) = model(open: false)
+        model.showHome()
+        XCTAssertFalse(model.showsHome)
+    }
+
+    func testATileOnHomeOverADocumentLeavesHomeForTheTool() {
+        let (_, model) = model()
+        model.showHome()
+
+        model.openHomeTool(.organize)
+
+        XCTAssertFalse(model.showsHome)
+        XCTAssertTrue(model.isOrganizing)
+    }
+
+    func testOpeningAnotherDocumentFromHomeLeavesHome() {
+        let (_, model) = model()
+        model.showHome()
+
+        model.openSample()
+
+        waitUntil({ !model.showsHome }, "Home stayed up over the new document")
+    }
 }
