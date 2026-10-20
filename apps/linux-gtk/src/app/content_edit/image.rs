@@ -498,16 +498,7 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
 
-    let filter = FileFilter::new();
-    filter.set_name(Some("Image files"));
-    filter.add_mime_type("image/png");
-    filter.add_mime_type("image/jpeg");
-    filter.add_pattern("*.png");
-    filter.add_pattern("*.PNG");
-    filter.add_pattern("*.jpg");
-    filter.add_pattern("*.JPG");
-    filter.add_pattern("*.jpeg");
-    filter.add_pattern("*.JPEG");
+    let filter = picture_filter();
 
     let chooser = FileDialog::builder()
         .title("Replace image")
@@ -635,6 +626,19 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     selection::redraw(viewer);
 }
 
+/// The PNG/JPEG filter every picture chooser in this shell opens with —
+/// Replace image, Insert image and the picture watermark.
+pub(crate) fn picture_filter() -> FileFilter {
+    let filter = FileFilter::new();
+    filter.set_name(Some("Image files"));
+    filter.add_mime_type("image/png");
+    filter.add_mime_type("image/jpeg");
+    for pattern in ["*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG"] {
+        filter.add_pattern(pattern);
+    }
+    filter
+}
+
 /// Opens a file picker and inserts the chosen image as brand-new page
 /// content anchored at `point` (T-163's "insert image" sub-mode) — the
 /// insertion twin of [`replace_selected`], same async split for the same
@@ -653,16 +657,7 @@ pub(crate) fn insert_at(
         return;
     }
 
-    let filter = FileFilter::new();
-    filter.set_name(Some("Image files"));
-    filter.add_mime_type("image/png");
-    filter.add_mime_type("image/jpeg");
-    filter.add_pattern("*.png");
-    filter.add_pattern("*.PNG");
-    filter.add_pattern("*.jpg");
-    filter.add_pattern("*.JPG");
-    filter.add_pattern("*.jpeg");
-    filter.add_pattern("*.JPEG");
+    let filter = picture_filter();
 
     let chooser = FileDialog::builder()
         .title("Insert image")
