@@ -31,7 +31,7 @@
 mod dialog;
 mod options;
 
-use pdf_document::{Command, Watermark};
+use pdf_document::{Command, Watermark, WatermarkLayer, WatermarkMark};
 use pdf_edit::EditError;
 
 use options::{summary, WatermarkOptions};
@@ -121,11 +121,14 @@ pub(crate) fn record(
     let count = pages.len();
     let watermark = Watermark {
         pages,
-        text: options.text,
-        font_size: options.font_size,
-        color: Watermark::DEFAULT_COLOR,
+        mark: WatermarkMark::Text {
+            text: options.text,
+            font_size: options.font_size,
+            color: Watermark::DEFAULT_COLOR,
+        },
         opacity: options.opacity,
         rotation_degrees: options.rotation_degrees,
+        layer: WatermarkLayer::OverContent,
     };
     pdf_edit::check_watermark(&watermark).map_err(|error| refusal_message(&error))?;
 
@@ -210,8 +213,15 @@ mod tests {
             panic!("expected exactly one AddWatermark");
         };
         assert_eq!(watermark.pages, vec![PageId(10), PageId(12)]);
-        assert_eq!(watermark.text, "DRAFT");
-        assert_eq!(watermark.color, Watermark::DEFAULT_COLOR);
+        assert_eq!(
+            watermark.mark,
+            WatermarkMark::Text {
+                text: "DRAFT".to_string(),
+                font_size: Watermark::DEFAULT_FONT_SIZE,
+                color: Watermark::DEFAULT_COLOR,
+            }
+        );
+        assert_eq!(watermark.layer, WatermarkLayer::OverContent);
         assert_eq!(session.edit_revision, 1);
         assert!(session.unsaved_to_disk);
     }
@@ -232,12 +242,11 @@ mod tests {
         let [Command::AddWatermark(watermark)] = log.as_slice() else {
             panic!("expected exactly one AddWatermark");
         };
+        let WatermarkMark::Text { font_size, .. } = watermark.mark else {
+            panic!("a text stamp, got {:?}", watermark.mark);
+        };
         assert_eq!(
-            (
-                watermark.font_size,
-                watermark.opacity,
-                watermark.rotation_degrees
-            ),
+            (font_size, watermark.opacity, watermark.rotation_degrees),
             (24.0, 0.5, -30.0)
         );
     }

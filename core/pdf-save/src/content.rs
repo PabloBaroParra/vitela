@@ -101,12 +101,14 @@ pub fn replay_content_edits(
             Command::AddWatermark(watermark) => {
                 // Every named page that survived the batch, in the order the
                 // watermark lists them; a deleted one is skipped like any
-                // other edit on it.
-                for page in &watermark.pages {
-                    if let Some(&page_object) = page_objects.get(page) {
-                        pdf_edit::stamp_watermark(working, page_object, watermark)?;
-                    }
-                }
+                // other edit on it. Stamped in one call so a picture is one
+                // image object however many pages carry it.
+                let pages: Vec<ObjectId> = watermark
+                    .pages
+                    .iter()
+                    .filter_map(|page| page_objects.get(page).copied())
+                    .collect();
+                pdf_edit::stamp_watermark(working, &pages, watermark)?;
                 continue;
             }
             Command::RemoveWatermark(_) => {
@@ -163,9 +165,9 @@ pub fn validate_content_command(
     sources: crate::bridge::ImportedSources<'_, '_>,
     command: &Command,
 ) -> Result<(), SaveError> {
-    // A watermark is checked without a page: the only thing that can stop it
-    // is its text, and that depends on the face it is painted in, not on
-    // anything a page holds.
+    // A watermark is checked without a page: the only things that can stop
+    // it are its text, which depends on the face it is painted in, and its
+    // picture, which either decodes or does not — nothing a page holds.
     match command {
         Command::AddWatermark(watermark) => return Ok(pdf_edit::check_watermark(watermark)?),
         Command::RemoveWatermark(_) => {

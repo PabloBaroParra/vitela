@@ -38,4 +38,4 @@ pub use prune::{prune_to, removal_runs};
 pub use security::{
     Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
 };
-pub use watermark::Watermark;
+pub use watermark::{Watermark, WatermarkLayer, WatermarkMark};

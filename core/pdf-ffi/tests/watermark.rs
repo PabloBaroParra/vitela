@@ -6,8 +6,9 @@
 use std::sync::Arc;
 
 use pdf_ffi::{
-    apply_edit, default_watermark, open_from_bytes, save_to_bytes, undo, DocumentHandle, FfiColor,
-    FfiEditCommand, FfiError, FfiSaveIntent, FfiSignatureAcknowledgement, FfiWatermark,
+    apply_edit, default_image_watermark, default_watermark, open_from_bytes, save_to_bytes, undo,
+    DocumentHandle, FfiColor, FfiEditCommand, FfiError, FfiImageWatermark, FfiSaveIntent,
+    FfiSignatureAcknowledgement, FfiWatermark, FfiWatermarkLayer,
 };
 
 /// A three-page file whose pages read "doc page 0", "doc page 1", ...
@@ -68,6 +69,7 @@ fn the_default_look_is_the_cores_large_grey_diagonal() {
             },
             opacity: 0.3,
             rotation_degrees: 45.0,
+            layer: FfiWatermarkLayer::OverContent,
         }
     );
 }
@@ -186,4 +188,108 @@ fn a_stamp_the_model_refuses_is_reported_and_not_recorded() {
         );
     }
     assert!(!undo(&handle), "nothing was recorded");
+}
+
+// --- Pictures and backgrounds ----------------------------------------------
+
+fn png() -> Vec<u8> {
+    gen_fixtures::content_edit::replacement_image_png_bytes()
+}
+
+fn add_picture(handle: &DocumentHandle, watermark: FfiImageWatermark) -> Result<(), FfiError> {
+    apply_edit(handle, FfiEditCommand::AddImageWatermark { watermark })
+}
+
+/// Every page of `bytes`, as the number of images it paints.
+fn image_counts(bytes: Vec<u8>) -> Vec<usize> {
+    let reopened = open_from_bytes(bytes, None).expect("output must reopen");
+    (0..reopened.page_count())
+        .map(|page| {
+            reopened
+                .read_page_content(page)
+                .expect("readable page")
+                .images
+                .len()
+        })
+        .collect()
+}
+
+#[test]
+fn the_default_picture_is_the_cores_upright_faded_background() {
+    let watermark = default_image_watermark(vec![1], vec![7, 8, 9]);
+
+    assert_eq!(
+        watermark,
+        FfiImageWatermark {
+            pages: vec![1],
+            image: vec![7, 8, 9],
+            scale: 0.5,
+            opacity: 0.3,
+            rotation_degrees: 0.0,
+            layer: FfiWatermarkLayer::UnderContent,
+        }
+    );
+}
+
+#[test]
+fn a_recorded_picture_is_saved_on_the_pages_it_names_and_undo_removes_it() {
+    let handle = open_three_pages();
+
+    add_picture(&handle, default_image_watermark(vec![0, 2], png())).expect("records");
+
+    assert_eq!(image_counts(save(&handle)), vec![1, 0, 1]);
+    assert!(undo(&handle), "the picture is one undo step");
+    assert_eq!(image_counts(save(&handle)), vec![0, 0, 0]);
+}
+
+#[test]
+fn bytes_that_are_not_a_picture_are_refused_before_they_are_recorded() {
+    let handle = open_three_pages();
+
+    for bytes in [b"not a picture".to_vec(), Vec::new()] {
+        let error = add_picture(&handle, default_image_watermark(vec![0], bytes.clone()))
+            .expect_err("not a PNG or JPEG");
+
+        assert!(
+            matches!(error, FfiError::InvalidImage { .. }),
+            "{bytes:?}: expected InvalidImage, got {error:?}"
+        );
+    }
+    assert!(!undo(&handle), "nothing was recorded");
+}
+
+#[test]
+fn a_picture_the_model_refuses_is_reported_and_not_recorded() {
+    let handle = open_three_pages();
+
+    for watermark in [
+        FfiImageWatermark {
+            scale: 0.0,
+            ..default_image_watermark(vec![0], png())
+        },
+        default_image_watermark(vec![2, 2], png()),
+    ] {
+        let error = add_picture(&handle, watermark.clone()).expect_err("refused");
+        assert!(
+            matches!(error, FfiError::UnsupportedOperation { .. }),
+            "{watermark:?}: got {error:?}"
+        );
+    }
+    assert!(!undo(&handle), "nothing was recorded");
+}
+
+#[test]
+fn a_text_stamp_can_be_sent_behind_the_page_text() {
+    let handle = open_three_pages();
+
+    add(
+        &handle,
+        FfiWatermark {
+            layer: FfiWatermarkLayer::UnderContent,
+            ..default_watermark(vec![1], "DRAFT".to_string())
+        },
+    )
+    .expect("records");
+
+    assert_eq!(pages(save(&handle))[1], texts(&["DRAFT", "doc page 1"]));
 }

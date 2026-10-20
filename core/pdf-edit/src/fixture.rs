@@ -236,3 +236,24 @@ pub fn text_and_image_resources() -> Dictionary {
     resources.set("XObject", xobjects);
     resources
 }
+
+/// A solid-colour PNG, `width` × `height`, with or without an alpha channel.
+pub fn solid_png(width: u32, height: u32, alpha: bool) -> Vec<u8> {
+    use image::{DynamicImage, ImageFormat, RgbImage, RgbaImage};
+    use std::io::Cursor;
+
+    let dynamic = if alpha {
+        DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+            width,
+            height,
+            image::Rgba([9, 8, 7, 6]),
+        ))
+    } else {
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(width, height, image::Rgb([9, 8, 7])))
+    };
+    let mut buffer = Cursor::new(Vec::new());
+    dynamic
+        .write_to(&mut buffer, ImageFormat::Png)
+        .expect("encode png");
+    buffer.into_inner()
+}
