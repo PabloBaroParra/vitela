@@ -83,6 +83,7 @@ class ViewerViewModel(
     private val organizing = PageOrganizing(session, annotations, pageLayout, selection)
     private val importing = PageImporting(core, session, annotations, pageLayout)
     private val metadata = MetadataEditing(session, annotations)
+    private val watermarking = Watermarking(session, annotations, pageLayout)
     private val imageExporting = ImageExporting(session)
     private val pageExtracting = PageExtracting(session)
     private val pageSplitting = PageSplitting(session)
@@ -401,6 +402,12 @@ class ViewerViewModel(
     fun editMetadata(draft: DocumentInfo) = metadata.edit(draft)
     fun dismissMetadata() = metadata.dismiss()
     fun applyMetadata() = metadata.apply()
+
+    // Add watermark
+    fun openWatermark() = watermarking.open()
+    fun editWatermark(draft: WatermarkDraft) = watermarking.edit(draft)
+    fun dismissWatermark() = watermarking.dismiss()
+    fun applyWatermark() = watermarking.apply()
 
     // Export images
     fun openImageExport() = imageExporting.open()

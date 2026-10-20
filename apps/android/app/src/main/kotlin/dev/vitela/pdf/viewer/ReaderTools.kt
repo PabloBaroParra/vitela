@@ -79,6 +79,7 @@ internal data class EditToolActions(
     val onUndo: () -> Unit,
     val onRedo: () -> Unit,
     val onOrganize: () -> Unit,
+    val onWatermark: () -> Unit,
     val contentEdit: ContentEditActions,
 )
 
@@ -101,6 +102,8 @@ internal fun EditTools(state: ViewerState, controls: AnnotationControls, actions
         ToolTile("Stamp", R.drawable.ic_shell_image, ToolHue.Annotate, actions.onChooseStamp, enabled = controls.canCreate, selected = armed == AnnotationTool.Stamp)
         ToolTile("Paste", R.drawable.ic_shell_image, ToolHue.Annotate, actions.onPasteStamp, enabled = controls.canCreate)
         ToolTile("Organize pages", R.drawable.ic_shell_organize, ToolHue.Organize, actions.onOrganize)
+        // Page content, like Edit text: the permission is asked when it opens.
+        ToolTile("Watermark", R.drawable.ic_shell_text, accent, actions.onWatermark, enabled = state.pageCount > 0, selected = state.watermark != null)
     }
 }
 

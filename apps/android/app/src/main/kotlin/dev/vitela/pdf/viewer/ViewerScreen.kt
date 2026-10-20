@@ -130,6 +130,7 @@ internal fun ViewerScreen(
     organize: OrganizeActions,
     formFields: FormFieldActions,
     contentEdit: ContentEditActions,
+    watermark: WatermarkActions,
     fileDrop: FileDropActions,
 ) {
     // Files dragged in from another app: whatever missed every page lands here, Home included.
@@ -189,7 +190,7 @@ internal fun ViewerScreen(
                         ), sidePanel = layout.sideTools)
                         ReaderMode.Edit -> EditTools(state, controls, EditToolActions(
                             onTool = onAnnotationTool, onChooseStamp = onChooseStamp, onPasteStamp = onPasteStamp,
-                            onUndo = onAnnotationUndo, onRedo = onAnnotationRedo, onOrganize = organize.onToggle, contentEdit = contentEdit,
+                            onUndo = onAnnotationUndo, onRedo = onAnnotationRedo, onOrganize = organize.onToggle, onWatermark = watermark.onOpen, contentEdit = contentEdit,
                         ), sidePanel = layout.sideTools)
                         ReaderMode.Sign -> SignTools(state, controls, onFormFields = formFields.onToggle, onDrawSignature = drawnSignature.onOpen, onSign = sign.onOpen, sidePanel = layout.sideTools)
                     }
@@ -322,7 +323,7 @@ internal fun ViewerScreen(
             onPageSplitChange = onPageSplitChange, onPageSplitConfirm = onPageSplitConfirm, onPageSplitDismiss = onPageSplitDismiss,
             onCompressSelect = onCompressSelect, onCompressConfirm = onCompressConfirm, onCompressDismiss = onCompressDismiss,
             onProtectConfirm = onProtectConfirm, onProtectDismiss = onProtectDismiss,
-            sign = sign, drawnSignature = drawnSignature, contentEdit = contentEdit,
+            sign = sign, drawnSignature = drawnSignature, contentEdit = contentEdit, watermark = watermark,
         ),
     )
 }

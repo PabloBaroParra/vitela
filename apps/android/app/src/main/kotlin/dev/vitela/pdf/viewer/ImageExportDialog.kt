@@ -73,8 +73,9 @@ internal fun ImageExportDialog(
     )
 }
 
+/** One labelled radio option; the whole row is the target. Shared with the Add watermark dialog. */
 @Composable
-private fun Choice(label: String, selected: Boolean, enabled: Boolean, onSelect: () -> Unit) {
+internal fun Choice(label: String, selected: Boolean, enabled: Boolean, onSelect: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.clickable(enabled = enabled, role = Role.RadioButton, onClick = onSelect),

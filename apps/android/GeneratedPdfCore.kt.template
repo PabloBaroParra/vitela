@@ -49,6 +49,7 @@ import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.CaretRange
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.TextRect
+import dev.vitela.pdf.core.WatermarkLook
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
 import dev.vitela.pdf.uniffi.FfiAnnotationKind
@@ -94,6 +95,7 @@ import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
 import dev.vitela.pdf.uniffi.insertImageStamp as ffiInsertImageStamp
 import dev.vitela.pdf.uniffi.parsePageSelection as ffiParsePageSelection
+import dev.vitela.pdf.uniffi.defaultWatermark as ffiDefaultWatermark
 import dev.vitela.pdf.uniffi.pageImageFileName as ffiPageImageFileName
 import dev.vitela.pdf.uniffi.firstPageTooLargeToExport as ffiFirstPageTooLargeToExport
 import dev.vitela.pdf.uniffi.exportPageImage as ffiExportPageImage
@@ -504,6 +506,31 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(PdfCoreError.Failed("Helvetica cannot show \"${error.character}\". Try different characters."))
     } catch (error: FfiException.UnsupportedOperation) {
         val sentence = if (handle.contentEditingAllowed()) "This text cannot be added here." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun defaultWatermarkLook(): PdfCoreResult<WatermarkLook> = try {
+        val look = ffiDefaultWatermark(emptyList(), "")
+        PdfCoreResult.Success(WatermarkLook(look.fontSize, look.opacity, look.rotationDegrees))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // Built from the core's default so the colour stays the core's: the
+    // dialog asks for everything else and never for that.
+    override fun addWatermark(pages: List<Int>, text: String, look: WatermarkLook): PdfCoreResult<Unit> = try {
+        val watermark = ffiDefaultWatermark(pages.map { it.toUInt() }, text)
+            .copy(fontSize = look.fontSizePt, opacity = look.opacity, rotationDegrees = look.rotationDegrees)
+        ffiApplyEdit(handle, FfiEditCommand.AddWatermark(watermark))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.EncodingGap) {
+        // The core's own message names a PDF font resource, which means
+        // nothing to someone typing "DRAFT". The GTK shell's wording.
+        PdfCoreResult.Failure(PdfCoreError.Failed("The watermark font cannot show “${error.character}”. Use Latin letters, digits and punctuation."))
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This watermark cannot be added to these pages." else "This document does not permit content changes."
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())

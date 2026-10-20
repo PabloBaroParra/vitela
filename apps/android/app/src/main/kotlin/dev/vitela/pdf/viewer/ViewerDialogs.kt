@@ -53,6 +53,7 @@ internal data class DialogActions(
     val sign: SignActions,
     val drawnSignature: DrawnSignatureActions,
     val contentEdit: ContentEditActions,
+    val watermark: WatermarkActions,
 )
 
 @Composable
@@ -79,6 +80,7 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
     state.annotationPositioner?.let {
         AnnotationPositionDialog(it, state.documentId, onMove = actions.onAnnotationPositionConfirm, onCancel = actions.onAnnotationPositionCancel)
     }
+    state.watermark?.let { WatermarkDialog(it, actions.watermark) }
     state.metadataEditor?.let { MetadataDialog(it, onChange = actions.onMetadataChange, onApply = actions.onMetadataApply, onDismiss = actions.onMetadataDismiss) }
     state.imageExport?.let {
         ImageExportDialog(it, onChange = actions.onImageExportChange, onExport = actions.onImageExportConfirm, onDismiss = actions.onImageExportDismiss)

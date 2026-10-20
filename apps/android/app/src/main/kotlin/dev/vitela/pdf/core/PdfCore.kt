@@ -42,6 +42,13 @@ sealed interface PageEdit {
     data class InsertBlank(val index: Int, val landscape: Boolean = false) : PageEdit
 }
 
+/**
+ * How a watermark is drawn: [fontSizePt] in points, [opacity] from 0
+ * exclusive to 1 inclusive, [rotationDegrees] counter-clockwise as the reader
+ * sees the page. The colour is the core's; no shell asks for one.
+ */
+data class WatermarkLook(val fontSizePt: Double, val opacity: Double, val rotationDegrees: Double)
+
 /** A bytes snapshot paired with the document revision it represents. */
 data class SaveSnapshot(val bytes: ByteArray, val documentId: Long, val revision: Long)
 
@@ -200,6 +207,16 @@ interface PdfDocument : AutoCloseable {
      * shows it only after [refreshPreview].
      */
     fun insertImage(pageIndex: Int, imageBytes: ByteArray, bounds: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /** The core's starting look for a new watermark, so every shell's first stamp is the same. */
+    fun defaultWatermarkLook(): PdfCoreResult<WatermarkLook> = PdfCoreResult.Failure(PdfCoreError.Failed("Watermarks are unavailable in this PDF core."))
+    /**
+     * Queues one undoable stamp of [text] drawn as [look] on every page in
+     * [pages] (zero-based positions), as page content — the content-editing
+     * permission, not the annotation one. The core checks the font can show
+     * every character before anything is queued. The pages show it only
+     * after [refreshPreview].
+     */
+    fun addWatermark(pages: List<Int>, text: String, look: WatermarkLook): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Watermarks are unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp or an inserted image; [anchor] is its top-left corner. */

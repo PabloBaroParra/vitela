@@ -54,6 +54,7 @@ import dev.vitela.pdf.viewer.showsHome
 import dev.vitela.pdf.viewer.SavedSignatureActions
 import dev.vitela.pdf.viewer.signaturePng
 import dev.vitela.pdf.viewer.ViewerViewModel
+import dev.vitela.pdf.viewer.WatermarkActions
 import dev.vitela.pdf.viewer.ZoomActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -479,6 +480,14 @@ private fun VitelaApp(
                 onCancelInsert = viewModel::cancelInsert,
                 onInsertText = viewModel::insertText,
                 onDismissInserter = viewModel::dismissTextInserter,
+            )
+        },
+        watermark = remember(viewModel) {
+            WatermarkActions(
+                onOpen = viewModel::openWatermark,
+                onChange = viewModel::editWatermark,
+                onAdd = viewModel::applyWatermark,
+                onDismiss = viewModel::dismissWatermark,
             )
         },
         fileDrop = rememberFileDropActions(viewModel, scope),
