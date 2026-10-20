@@ -150,11 +150,20 @@ extension FakePdfCoreClient {
         return source
     }
 
-    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int {
+    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> ImportedBatch {
         if let importError { throw importError }
         let added = sources.compactMap { $0 as? FakeImportSource }.flatMap(\.pages)
         appendToHistory(pages: currentPages + added)
-        return added.count
+        let ids = sources.indices.map { _ -> UInt64 in
+            nextImportId += 1
+            return nextImportId
+        }
+        return ImportedBatch(pageCount: added.count, sourceIds: ids)
+    }
+
+    /// What the test set, or one base block over every page.
+    func documentBlocks(document: any PdfDocument) -> [DocumentBlock] {
+        blocks ?? (currentPages.isEmpty ? [] : [DocumentBlock(source: .base, part: nil, start: 0, count: currentPages.count)])
     }
 }
 

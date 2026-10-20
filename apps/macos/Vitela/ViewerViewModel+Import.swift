@@ -101,7 +101,7 @@ extension ViewerViewModel {
             source.warnings.map { "\(url.lastPathComponent): \($0)" }
         }
         guard warnings.isEmpty || importPrompts.confirmWarnings(warnings) else { return endImport(Self.importCancelled) }
-        guard importIsCurrent(generation), let request = store.beginImport(sources) else {
+        guard importIsCurrent(generation), let request = store.beginImport(sources, names: urls.map(\.lastPathComponent)) else {
             return endImport(Self.importCancelled)
         }
         isImporting = false

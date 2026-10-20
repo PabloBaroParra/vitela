@@ -43,6 +43,11 @@ final class ViewerViewModel: ObservableObject {
     @Published var imageInsertBytes: Data?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
+    /// Organize opens on Documents, as on Linux and Windows; off shows Pages
+    /// — `ViewerViewModel+OrganizeDocuments.swift`.
+    @Published var organizeShowsDocuments = true
+    /// The Documents card being dragged, if any.
+    var organizeBlockDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
     @Published var isImporting = false
     let importPrompts: ImportPrompts
