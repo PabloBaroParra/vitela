@@ -239,20 +239,56 @@ pub(crate) fn append_to_content(
     page_object: ObjectId,
     operators: &[u8],
 ) -> Result<(), EditError> {
+    add_content_stream(document, page_object, operators, StreamEnd::Last)
+}
+
+/// [`append_to_content`]'s mirror image: the new stream is painted **before**
+/// everything already on the page, which is what a background is.
+///
+/// The operators run in the page's untouched initial graphics state, so they
+/// need no [`correction_matrix`]; they must leave it untouched in turn —
+/// balanced `q`/`Q` — or the page's own content would inherit their state.
+pub(crate) fn prepend_to_content(
+    document: &mut Document,
+    page_object: ObjectId,
+    operators: &[u8],
+) -> Result<(), EditError> {
+    add_content_stream(document, page_object, operators, StreamEnd::First)
+}
+
+enum StreamEnd {
+    First,
+    Last,
+}
+
+fn add_content_stream(
+    document: &mut Document,
+    page_object: ObjectId,
+    operators: &[u8],
+    end: StreamEnd,
+) -> Result<(), EditError> {
     let contents = document
         .get_dictionary(page_object)
         .ok()
         .and_then(|dict| dict.get(b"Contents").ok())
         .cloned();
     let new_id = document.add_object(Stream::new(dictionary! {}, operators.to_vec()));
+    let new = Object::Reference(new_id);
 
-    let updated = match contents {
-        Some(Object::Array(mut items)) => {
-            items.push(Object::Reference(new_id));
+    let updated = match (contents, end) {
+        (Some(Object::Array(mut items)), StreamEnd::First) => {
+            items.insert(0, new);
             Object::Array(items)
         }
-        Some(existing @ Object::Reference(_)) => {
-            Object::Array(vec![existing, Object::Reference(new_id)])
+        (Some(Object::Array(mut items)), StreamEnd::Last) => {
+            items.push(new);
+            Object::Array(items)
+        }
+        (Some(existing @ Object::Reference(_)), StreamEnd::First) => {
+            Object::Array(vec![new, existing])
+        }
+        (Some(existing @ Object::Reference(_)), StreamEnd::Last) => {
+            Object::Array(vec![existing, new])
         }
         // No `/Contents`, or one that is neither a stream reference nor an
         // array: there is nothing to preserve, so the new stream becomes it.

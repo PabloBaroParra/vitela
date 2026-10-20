@@ -129,6 +129,13 @@ impl DocumentState {
             .ok_or(FfiError::PageIndexOutOfBounds { index: position })
     }
 
+    fn page_ids(&self, positions: &[u32]) -> Result<Vec<PageId>, FfiError> {
+        positions
+            .iter()
+            .map(|&position| self.page_id(position))
+            .collect()
+    }
+
     /// Where the page `id` sits now — the outbound half of [`Self::page_id`].
     /// `None` only for an id no page holds, which an annotation or field
     /// cannot carry: removing a page removes what is anchored to it.
@@ -430,21 +437,31 @@ impl DocumentState {
                 before,
                 after,
             },
+            // A stamp's positions are resolved here, once: the core names its
+            // pages by identity, so it stays on them through a later reorder.
             FfiEditCommand::AddWatermark { watermark } => {
-                // Resolved here, once: the core names the stamp's pages by
-                // identity, so it stays on them through a later reorder.
-                let pages = watermark
-                    .pages
-                    .iter()
-                    .map(|&position| self.page_id(position))
-                    .collect::<Result<Vec<_>, _>>()?;
                 Command::AddWatermark(pdf_document::Watermark {
-                    pages,
-                    text: watermark.text,
-                    font_size: watermark.font_size,
-                    color: watermark.color.into(),
+                    pages: self.page_ids(&watermark.pages)?,
+                    mark: pdf_document::WatermarkMark::Text {
+                        text: watermark.text,
+                        font_size: watermark.font_size,
+                        color: watermark.color.into(),
+                    },
                     opacity: watermark.opacity,
                     rotation_degrees: watermark.rotation_degrees,
+                    layer: watermark.layer.into(),
+                })
+            }
+            FfiEditCommand::AddImageWatermark { watermark } => {
+                Command::AddWatermark(pdf_document::Watermark {
+                    pages: self.page_ids(&watermark.pages)?,
+                    mark: pdf_document::WatermarkMark::Image {
+                        bytes: watermark.image,
+                        scale: watermark.scale,
+                    },
+                    opacity: watermark.opacity,
+                    rotation_degrees: watermark.rotation_degrees,
+                    layer: watermark.layer.into(),
                 })
             }
             FfiEditCommand::AddTextField {
@@ -822,6 +839,7 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::ResizeImage { .. }
             | FfiEditCommand::ReplaceImageSource { .. }
             | FfiEditCommand::AddWatermark { .. }
+            | FfiEditCommand::AddImageWatermark { .. }
     )
 }
 
@@ -889,6 +907,7 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::ResizeImage { .. }
             | FfiEditCommand::ReplaceImageSource { .. }
             | FfiEditCommand::AddWatermark { .. }
+            | FfiEditCommand::AddImageWatermark { .. }
             | FfiEditCommand::SetDocumentInfo { .. }
     )
 }

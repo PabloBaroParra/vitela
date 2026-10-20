@@ -639,6 +639,55 @@ pub struct FfiWatermark {
     pub opacity: f64,
     /// Counter-clockwise, as the reader sees the page.
     pub rotation_degrees: f64,
+    pub layer: FfiWatermarkLayer,
+}
+
+/// Mirrors `pdf_document::Watermark` with a picture for its mark — the
+/// "Add watermark" tool's image half. `pages` are positions, exactly as in
+/// [`FfiWatermark`].
+///
+/// Start from [`crate::default_image_watermark`]: a picture's first look
+/// (upright, half the page, behind the content) is not a text stamp's.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiImageWatermark {
+    pub pages: Vec<u32>,
+    /// The encoded picture, PNG or JPEG, as the user picked it.
+    pub image: Vec<u8>,
+    /// How much of the page the picture may cover, `0.0` exclusive to `1.0`
+    /// inclusive; fitted with its aspect kept, so `1.0` touches two edges.
+    pub scale: f64,
+    /// Fill opacity, `0.0` exclusive to `1.0` inclusive.
+    pub opacity: f64,
+    /// Counter-clockwise, as the reader sees the page.
+    pub rotation_degrees: f64,
+    pub layer: FfiWatermarkLayer,
+}
+
+/// Mirrors `pdf_document::WatermarkLayer`: whether a stamp is painted over
+/// the page's content or behind it. Behind does not show on a scanned page,
+/// whose content is one opaque picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiWatermarkLayer {
+    OverContent,
+    UnderContent,
+}
+
+impl From<FfiWatermarkLayer> for pdf_document::WatermarkLayer {
+    fn from(layer: FfiWatermarkLayer) -> Self {
+        match layer {
+            FfiWatermarkLayer::OverContent => Self::OverContent,
+            FfiWatermarkLayer::UnderContent => Self::UnderContent,
+        }
+    }
+}
+
+impl From<pdf_document::WatermarkLayer> for FfiWatermarkLayer {
+    fn from(layer: pdf_document::WatermarkLayer) -> Self {
+        match layer {
+            pdf_document::WatermarkLayer::OverContent => Self::OverContent,
+            pdf_document::WatermarkLayer::UnderContent => Self::UnderContent,
+        }
+    }
 }
 
 /// The FFI-facing shape of `pdf_document::Command` (T-040's `apply_edit`
@@ -808,6 +857,15 @@ pub enum FfiEditCommand {
     /// (blank text, a repeated page, an opacity nobody could see).
     AddWatermark {
         watermark: FfiWatermark,
+    },
+    /// Stamps the same picture on every page `watermark` names, as one undo
+    /// step and one image object in the file. Refused at record time for
+    /// bytes that are not a PNG or JPEG
+    /// ([`FfiError::InvalidImage`](crate::FfiError::InvalidImage)), a page
+    /// position out of range, or a look or page list the model refuses (no
+    /// bytes, a scale outside `(0, 1]`, a repeated page).
+    AddImageWatermark {
+        watermark: FfiImageWatermark,
     },
 
     // --- Form fields (Batch 20, T-140) ----------------------------------
