@@ -55,7 +55,7 @@ enum ContentEdit: Equatable {
     case replaceImage(ContentImage, with: Data)
     /// A new image on `page` filling `rect`.
     case insertImage(page: Int, rect: PdfRect, bytes: Data)
-    /// The same text stamped on every page `Watermark.pages` names, as one
+    /// The same text or picture stamped on every page `Watermark.pages` names, as one
     /// undo step — `PdfCore+Watermark.swift`.
     case addWatermark(Watermark)
 

@@ -2,8 +2,9 @@
 // not importing AppKit or UIKit here.
 import Foundation
 
-/// Add watermark: the same text stamped across the pages the reader picks —
-/// Linux's `content_edit/watermark`, Windows' `AddWatermarkAsync`.
+/// Add watermark: the same text, or the same picture, stamped across the
+/// pages the reader picks, over the page content or behind it — Linux's
+/// `content_edit/watermark`, Windows' `AddWatermarkAsync` (text only there).
 ///
 /// A dialog rather than an armed click like Add Text, for the reason both
 /// give: the core centres the stamp on every page it names, so there is no
@@ -16,17 +17,28 @@ extension ViewerStore {
     /// grammar — Linux shares `resolve_pages`' contract between the two.
     typealias WatermarkPages = ImageExportPages
 
+    /// The mark half of the dialog's answers, as asked: a picture may not be
+    /// chosen yet, and its size is in percent.
+    enum WatermarkMarkAnswer: Equatable {
+        case text(String, fontSize: Double)
+        case picture(Data?, scalePercent: Double)
+    }
+
     /// The stamp the dialog's answers make, started as page work; or why
     /// the dialog must stay open. Everything the reader can correct in
     /// place is checked here, before the core is asked; what only the
-    /// writer knows (a character Helvetica cannot show) comes back as the
-    /// work's failure.
+    /// writer knows — a character Helvetica cannot show, a file that does
+    /// not decode — comes back as the work's failure.
     func beginWatermark(
-        pages: WatermarkPages, text: String, fontSize: Double, opacityPercent: Double, rotationDegrees: Double
+        pages: WatermarkPages, mark: WatermarkMarkAnswer, opacityPercent: Double, rotationDegrees: Double, layer: WatermarkLayer
     ) -> (problem: String?, request: PageWorkRequest?) {
         guard document != nil, !pageWorkInFlight else { return (nil, nil) }
         guard editingAllowed else { return (ContentEditing.forbidden, nil) }
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return (Watermarking.blankText, nil) }
+        let resolved: WatermarkMark
+        switch Self.resolve(mark) {
+        case let .success(value): resolved = value
+        case let .failure(problem): return (problem.localizedDescription, nil)
+        }
         let total = pageSlots.count
         guard total > 0 else { return (Watermarking.noPages, nil) }
         let chosen: [Int]
@@ -45,26 +57,45 @@ extension ViewerStore {
                 return (Self.editFailure(error).localizedDescription, nil)
             }
         }
-        if let problem = Self.watermarkLookProblem(fontSize: fontSize, opacityPercent: opacityPercent, rotationDegrees: rotationDegrees) {
+        if let problem = Self.watermarkLookProblem(opacityPercent: opacityPercent, rotationDegrees: rotationDegrees) {
             return (problem, nil)
         }
-        // Kept as typed, leading spaces included: the stamp is centred on
-        // its own width and the reader may have meant them — Linux's rule.
         let watermark = Watermark(
-            pages: chosen, text: text, fontSize: fontSize, opacity: opacityPercent / 100, rotationDegrees: rotationDegrees
+            pages: chosen, mark: resolved, opacity: opacityPercent / 100, rotationDegrees: rotationDegrees, layer: layer
         )
         return (nil, beginContentEdit(.addWatermark(watermark)))
     }
 
+    /// The mark to stamp, or what to say instead. Text is kept as typed,
+    /// leading spaces included: the stamp is centred on its own width and the
+    /// reader may have meant them — Linux's rule. Only "nothing picked" is
+    /// caught for a picture; whether the bytes decode is the core's answer.
+    private static func resolve(_ mark: WatermarkMarkAnswer) -> Result<WatermarkMark, EditFailure> {
+        switch mark {
+        case let .text(text, fontSize):
+            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .failure(.failed(Watermarking.blankText)) }
+            guard Watermarking.fontSizes.contains(fontSize) else {
+                return .failure(.failed("Size must be between \(Self.bounds(Watermarking.fontSizes)) pt."))
+            }
+            return .success(.text(text, fontSize: fontSize))
+        case let .picture(bytes, scalePercent):
+            guard let bytes, !bytes.isEmpty else { return .failure(.failed(Watermarking.noPicture)) }
+            guard Watermarking.scalePercents.contains(scalePercent) else {
+                return .failure(.failed("Size must be between \(Self.bounds(Watermarking.scalePercents)) % of the page."))
+            }
+            return .success(.picture(bytes, scale: scalePercent / 100))
+        }
+    }
+
+    private static func bounds(_ range: ClosedRange<Double>) -> String { "\(Int(range.lowerBound)) and \(Int(range.upperBound))" }
+
     /// A value outside the dialog's ranges — only reachable by typing, the
     /// steppers stop at the ends.
-    private static func watermarkLookProblem(fontSize: Double, opacityPercent: Double, rotationDegrees: Double) -> String? {
-        func text(_ range: ClosedRange<Double>) -> String { "\(Int(range.lowerBound)) and \(Int(range.upperBound))" }
-        if !Watermarking.fontSizes.contains(fontSize) { return "Size must be between \(text(Watermarking.fontSizes)) pt." }
+    private static func watermarkLookProblem(opacityPercent: Double, rotationDegrees: Double) -> String? {
         if !Watermarking.opacityPercents.contains(opacityPercent) {
-            return "Opacity must be between \(text(Watermarking.opacityPercents)) %."
+            return "Opacity must be between \(bounds(Watermarking.opacityPercents)) %."
         }
-        if !Watermarking.rotations.contains(rotationDegrees) { return "Angle must be between \(text(Watermarking.rotations))°." }
+        if !Watermarking.rotations.contains(rotationDegrees) { return "Angle must be between \(bounds(Watermarking.rotations))°." }
         return nil
     }
 }

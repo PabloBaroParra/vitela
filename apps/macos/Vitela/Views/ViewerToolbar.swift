@@ -61,7 +61,7 @@ struct ViewerToolbar: View {
                 .help("Choose a PNG or JPEG, then click a page to place it")
                 .disabled(!model.canEditContent)
             Button("Add Watermark…", action: model.requestWatermark)
-                .help("Stamp the same text across the pages you pick, as one undo step")
+                .help("Stamp the same text or picture across the pages you pick, as one undo step")
                 .disabled(!model.canEditContent)
             if model.store.selectedContentImage != nil {
                 Button("Replace Image…", action: model.replaceSelectedImage)

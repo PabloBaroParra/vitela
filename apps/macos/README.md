@@ -34,9 +34,10 @@ responsibility:
   Add Image… swap or place a PNG or JPEG; all run as page work
   (`../apple/Shared/ViewerStore+ContentEdit.swift`, `+ContentImages.swift`).
 - `Vitela/ViewerViewModel+Watermark.swift`, `Views/WatermarkSheet.swift` —
-  Add Watermark…: text, pages, size, opacity and angle from the core's
-  diagonal look; the sheet stays open until the core has answered, so a
-  character Helvetica cannot show is refused under the fields. The rules and
+  Add Watermark…: text or a PNG/JPEG picture, pages, size, opacity, angle
+  and over/behind the content, each kind starting from the core's look; the
+  sheet stays open until the core has answered, so a character Helvetica
+  cannot show, or a file that is not a picture, is refused under the fields. The rules and
   the recording are `../apple/Shared/ViewerStore+Watermark.swift`, one
   content edit through the page-work pipeline.
 - `Vitela/ViewerViewModel+TokenSigning.swift` — File ▸ Sign with Card or
