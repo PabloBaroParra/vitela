@@ -406,6 +406,8 @@ class ViewerViewModel(
     // Add watermark
     fun openWatermark() = watermarking.open()
     fun editWatermark(draft: WatermarkDraft) = watermarking.edit(draft)
+    fun chooseWatermarkPicture(bytes: ByteArray) = watermarking.choosePicture(bytes)
+    fun watermarkPictureUnreadable() = watermarking.pictureUnreadable()
     fun dismissWatermark() = watermarking.dismiss()
     fun applyWatermark() = watermarking.apply()
 
