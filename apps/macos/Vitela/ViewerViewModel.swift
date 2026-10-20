@@ -26,6 +26,8 @@ final class ViewerViewModel: ObservableObject {
     @Published var isCompressPresented = false
     /// Whether the Protect sheet is up — `ViewerViewModel+Protect.swift`.
     @Published var isProtectPresented = false
+    /// Whether the Add watermark sheet is up — `ViewerViewModel+Watermark.swift`.
+    @Published var isWatermarkPresented = false
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
