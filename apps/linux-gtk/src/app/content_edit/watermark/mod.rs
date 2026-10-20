@@ -1,4 +1,5 @@
-//! Add watermark: stamping the same text across the pages the user picks.
+//! Add watermark: stamping the same text, or the same picture, across the
+//! pages the user picks — over the page content or behind it.
 //!
 //! The Edit PDF page's "Add watermark" tile lands here. A dialog rather than
 //! an armed canvas click like Insert text, because a watermark has no
@@ -17,8 +18,9 @@
 //! ## What is checked before recording
 //!
 //! The model checks what it can see (blank text, a repeated or unknown page,
-//! a look nobody could see); `pdf_edit::check_watermark` checks the one thing
-//! only the writer knows — whether Helvetica can show every character. Both
+//! a look nobody could see); `pdf_edit::check_watermark` checks what only the
+//! writer knows — whether Helvetica can show every character, and whether a
+//! picked file really decodes as a PNG or JPEG. Both
 //! run here, before the log is touched, so a stamp that cannot be written
 //! never reaches a save where it would take every other queued edit down
 //! with it.
@@ -31,10 +33,10 @@
 mod dialog;
 mod options;
 
-use pdf_document::{Command, Watermark, WatermarkLayer, WatermarkMark};
+use pdf_document::{Command, Watermark, WatermarkMark};
 use pdf_edit::EditError;
 
-use options::{summary, WatermarkOptions};
+use options::{summary, MarkOptions, WatermarkOptions};
 
 use crate::app::state::{DocumentSession, Viewer};
 
@@ -119,16 +121,20 @@ pub(crate) fn record(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let count = pages.len();
-    let watermark = Watermark {
-        pages,
-        mark: WatermarkMark::Text {
-            text: options.text,
-            font_size: options.font_size,
+    let mark = match options.mark {
+        MarkOptions::Text { text, font_size } => WatermarkMark::Text {
+            text,
+            font_size,
             color: Watermark::DEFAULT_COLOR,
         },
+        MarkOptions::Picture { bytes, scale } => WatermarkMark::Image { bytes, scale },
+    };
+    let watermark = Watermark {
+        pages,
+        mark,
         opacity: options.opacity,
         rotation_degrees: options.rotation_degrees,
-        layer: WatermarkLayer::OverContent,
+        layer: options.layer,
     };
     pdf_edit::check_watermark(&watermark).map_err(|error| refusal_message(&error))?;
 
@@ -145,15 +151,19 @@ pub(crate) fn record(
     Ok(count)
 }
 
-/// The writer's refusal in the user's words. An encoding gap is the one a
-/// person can act on — and the core's own message names a PDF font
-/// resource, which means nothing to someone typing "DRAFT".
+/// The writer's refusal in the user's words. These are the two a person can
+/// act on — and the core's own messages name a PDF font resource or a
+/// decoder error, which mean nothing to someone typing "DRAFT" or picking a
+/// logo.
 fn refusal_message(error: &EditError) -> String {
     match error {
         EditError::EncodingGap { character, .. } => format!(
             "The watermark font cannot show “{character}”. Use Latin letters, digits and \
              punctuation."
         ),
+        EditError::InvalidImage(_) => {
+            "That file could not be read as a PNG or JPEG picture. Choose another one.".to_owned()
+        }
         other => other.to_string(),
     }
 }
@@ -164,7 +174,9 @@ mod tests {
     use crate::app::state::ContentEditAccess;
     use crate::app::test_fixtures::model_session;
     use gtk::prelude::*;
-    use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
+    use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation, WatermarkLayer};
+
+    use super::options::MarkOptions;
 
     fn three_page_session() -> DocumentSession {
         model_session(Document::with_pages(
@@ -185,11 +197,36 @@ mod tests {
     fn options(pages: Vec<u32>, text: &str) -> WatermarkOptions {
         WatermarkOptions {
             pages,
-            text: text.to_owned(),
-            font_size: Watermark::DEFAULT_FONT_SIZE,
+            mark: MarkOptions::Text {
+                text: text.to_owned(),
+                font_size: Watermark::DEFAULT_FONT_SIZE,
+            },
             opacity: Watermark::DEFAULT_OPACITY,
             rotation_degrees: Watermark::DEFAULT_ROTATION_DEGREES,
+            layer: WatermarkLayer::OverContent,
         }
+    }
+
+    fn picture_options(pages: Vec<u32>, bytes: Vec<u8>) -> WatermarkOptions {
+        WatermarkOptions {
+            pages,
+            mark: MarkOptions::Picture {
+                bytes,
+                scale: Watermark::DEFAULT_IMAGE_SCALE,
+            },
+            opacity: Watermark::DEFAULT_OPACITY,
+            rotation_degrees: Watermark::DEFAULT_IMAGE_ROTATION_DEGREES,
+            layer: WatermarkLayer::UnderContent,
+        }
+    }
+
+    fn small_png() -> Vec<u8> {
+        use image::{DynamicImage, ImageFormat, RgbImage};
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 4, image::Rgb([200, 30, 30])))
+            .write_to(&mut bytes, ImageFormat::Png)
+            .expect("encodes");
+        bytes.into_inner()
     }
 
     fn log_of(session: &DocumentSession) -> Vec<Command> {
@@ -230,9 +267,13 @@ mod tests {
     fn the_look_from_the_dialog_is_what_gets_recorded() {
         let mut session = three_page_session();
         let chosen = WatermarkOptions {
-            font_size: 24.0,
+            mark: MarkOptions::Text {
+                text: "COPY".to_owned(),
+                font_size: 24.0,
+            },
             opacity: 0.5,
             rotation_degrees: -30.0,
+            layer: WatermarkLayer::UnderContent,
             ..options(vec![1], "COPY")
         };
 
@@ -249,6 +290,55 @@ mod tests {
             (font_size, watermark.opacity, watermark.rotation_degrees),
             (24.0, 0.5, -30.0)
         );
+        assert_eq!(watermark.layer, WatermarkLayer::UnderContent);
+    }
+
+    #[test]
+    fn a_picture_is_recorded_byte_for_byte_with_its_scale_and_layer() {
+        let mut session = three_page_session();
+        let png = small_png();
+        let chosen = WatermarkOptions {
+            mark: MarkOptions::Picture {
+                bytes: png.clone(),
+                scale: 0.8,
+            },
+            ..picture_options(vec![0, 1, 2], Vec::new())
+        };
+
+        assert_eq!(record(&mut session, chosen), Ok(3));
+
+        let log = log_of(&session);
+        let [Command::AddWatermark(watermark)] = log.as_slice() else {
+            panic!("expected exactly one AddWatermark");
+        };
+        assert_eq!(
+            watermark.mark,
+            WatermarkMark::Image {
+                bytes: png,
+                scale: 0.8
+            }
+        );
+        assert_eq!(watermark.layer, WatermarkLayer::UnderContent);
+        assert_eq!(
+            watermark.rotation_degrees,
+            Watermark::DEFAULT_IMAGE_ROTATION_DEGREES
+        );
+        assert!(session.unsaved_to_disk);
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_picture_is_refused_in_words_and_not_recorded() {
+        let mut session = three_page_session();
+
+        let refusal = record(
+            &mut session,
+            picture_options(vec![0], b"%PDF-1.7 not a picture".to_vec()),
+        )
+        .expect_err("not a PNG/JPEG");
+
+        assert!(refusal.contains("PNG or JPEG"), "{refusal}");
+        assert!(log_of(&session).is_empty());
+        assert!(!session.unsaved_to_disk);
     }
 
     #[test]
