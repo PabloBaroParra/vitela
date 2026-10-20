@@ -28,11 +28,13 @@ struct OrganizeView: View {
 
     /// The Pages view: every page as a card.
     private var pages: some View {
-        ScrollView {
+        let sources = model.store.pageSourceNames(baseName: model.baseBlockName)
+        return ScrollView {
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(model.store.pageSlots, id: \.index) { slot in
                     OrganizePageCard(
                         number: slot.index + 1,
+                        source: sources.indices.contains(slot.index) ? sources[slot.index] : nil,
                         thumbnail: model.store.thumbnails[slot.index],
                         enabled: model.store.canEditPages && !model.isImporting,
                         canDelete: model.store.pageSlots.count > 1,

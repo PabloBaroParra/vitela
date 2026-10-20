@@ -108,4 +108,15 @@ final class ViewerStoreBlocksTests: XCTestCase {
         XCTAssertTrue(store.importedSourceNames.isEmpty)
         XCTAssertEqual(store.documentBlocks, client.blocks)
     }
+
+    func testPagesCardsNameTheirSourceOnlyOnceThereIsMoreThanOne() {
+        let (_, single) = opened(blocks: [DocumentBlock(source: .base, part: nil, start: 0, count: 2)], pages: 2)
+        XCTAssertEqual(single.pageSourceNames(baseName: "a.pdf"), [nil, nil])
+
+        let (_, mixed) = opened()
+        XCTAssertEqual(
+            mixed.pageSourceNames(baseName: "a.pdf"),
+            ["a.pdf", "a.pdf", "Blank page", "Imported PDF", "Imported PDF", "Imported PDF"]
+        )
+    }
 }
