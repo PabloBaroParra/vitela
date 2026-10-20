@@ -11,13 +11,16 @@ import Foundation
 enum DroppedFileKind: Equatable {
     /// A PDF to open, replacing whatever is on screen.
     case document
+    /// A PNG or JPEG, which a drop on a page places there as a stamp.
+    case image
     /// Nothing this shell can open.
     case unsupported
 
     private static let pdfSignature = Data("%PDF-".utf8)
 
     static func classify(_ bytes: Data) -> DroppedFileKind {
-        bytes.starts(with: pdfSignature) ? .document : .unsupported
+        if bytes.starts(with: pdfSignature) { return .document }
+        return ViewerStore.isSupportedStampImage(bytes) ? .image : .unsupported
     }
 
     /// The one file of a drop that is acted on. Dragging several files at

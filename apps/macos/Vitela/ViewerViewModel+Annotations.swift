@@ -87,11 +87,17 @@ extension ViewerViewModel {
     /// field (Windows' `DeleteFormField_Invoked`), but never while a text field is
     /// editing, where they belong to the text (Windows' `TextInputHasFocus`).
     /// A local monitor rather than a button shortcut, which would take the
-    /// key from every text field in the window.
+    /// key from every text field in the window. ⌘V outside a text field is
+    /// taken here too, for a pasted image — `ViewerViewModel+PasteImage.swift`.
     func installAnnotationKeyMonitor() {
         guard annotationKeyMonitor == nil else { return }
         annotationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, Self.isDeleteKey(event), !(event.window?.firstResponder is NSText) else { return event }
+            guard let self else { return event }
+            if self.takesPaste(event) {
+                self.pasteImageStamp()
+                return nil
+            }
+            guard Self.isDeleteKey(event), !(event.window?.firstResponder is NSText) else { return event }
             if self.store.contentEditMode, self.store.selectedContentImage != nil {
                 self.deleteSelectedImage()
                 return nil
