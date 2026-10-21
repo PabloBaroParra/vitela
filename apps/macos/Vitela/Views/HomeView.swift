@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// What the window shows with no document open: the mark, Open and New, and
-/// the Recent list grouped by day — Linux's Home (`home/`) and Windows'
-/// `MainWindow.Home.cs` / `MainWindow.Recents.cs`. The rules come from
+/// What the window shows with no document open: the mark, Open and New, the
+/// Recent list grouped by day, and the Tools column (`HomeToolsColumn`) —
+/// Linux's Home (`home/`) and Windows' `MainWindow.Home.cs` /
+/// `MainWindow.Recents.cs`. The rules come from
 /// `RecentDocuments`; opening, removing and the previews from
 /// `ViewerViewModel+Recents.swift`.
 struct HomeView: View {
@@ -18,8 +19,14 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
-                recentHeading
-                recentList
+                HStack(alignment: .top, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        recentHeading
+                        recentList
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    HomeToolsColumn(model: model)
+                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -32,7 +39,8 @@ struct HomeView: View {
         HStack(spacing: 16) {
             AppMarkView()
             VStack(alignment: .leading, spacing: 6) {
-                Text("Vitela").font(.largeTitle)
+                Text("Welcome to Vitela").font(.largeTitle)
+                Text("Your fast, private PDF workspace.").foregroundStyle(.secondary)
                 Text(model.title).foregroundStyle(.secondary)
             }
             Spacer()

@@ -70,6 +70,9 @@ final class ViewerViewModel: ObservableObject {
     /// The file the document being opened came from, recorded in Recent once
     /// it loads; `nil` for samples, new documents and anything not a file.
     var pendingRecentPath: String?
+    /// A Home tool picked with no document open: applied once the document
+    /// chosen for it loads — `ViewerViewModel+HomeTools.swift`.
+    var pendingHomeTool: HomeTool?
     /// Share's signature question and picker — `ViewerViewModel+Share.swift`.
     let sharePrompts: SharePrompts
     let store: ViewerStore
@@ -119,6 +122,7 @@ final class ViewerViewModel: ObservableObject {
             .sink { [weak self] state in
                 self?.title = Self.windowTitle(for: state)
                 self?.recordPendingRecent(state)
+                self?.applyPendingHomeTool(state)
             }
             .store(in: &subscriptions)
         loadRecentDocuments()
@@ -142,6 +146,7 @@ final class ViewerViewModel: ObservableObject {
             panel.allowedContentTypes = [.pdf]
             panel.allowsMultipleSelection = false
             guard panel.runModal() == .OK, let url = panel.url else {
+                self.pendingHomeTool = nil
                 self.store.selectionCancelled()
                 return
             }
