@@ -12,7 +12,7 @@ struct AnnotationToolbar: View {
     /// The note being read, while its sheet is up.
     @State private var readNote: String?
     /// The exact position or size being typed, while its sheet is up.
-    @State private var geometry: AnnotationGeometrySheet.Mode?
+    @State private var geometry: GeometrySheet.Request?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -50,8 +50,8 @@ struct AnnotationToolbar: View {
         .sheet(item: readNoteBinding) { note in
             ReadNoteSheet(text: note.text) { readNote = nil }
         }
-        .sheet(item: $geometry) { mode in
-            AnnotationGeometrySheet(store: store, mode: mode) { geometry = nil }
+        .sheet(item: $geometry) { request in
+            GeometrySheet(request: request) { geometry = nil }
         }
     }
 
@@ -69,9 +69,9 @@ struct AnnotationToolbar: View {
         Button("Grow", action: store.growSelectedAnnotation)
             .help("Make the selected annotation a quarter bigger")
             .disabled(selected.rect == nil)
-        Button("Position…") { geometry = .position }
+        Button("Position…") { geometry = .annotation(store, position: true) }
             .help("Type where the selected annotation goes, in points")
-        Button("Size…") { geometry = .size }
+        Button("Size…") { geometry = .annotation(store, position: false) }
             .help("Type the selected annotation's width and height, in points")
             .disabled(selected.rect == nil)
         if selected.kind.supportsRestyle {
