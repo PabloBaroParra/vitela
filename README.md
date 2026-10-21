@@ -138,15 +138,15 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
 | Open a PDF | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Built-in sample document | ✅ | ✅ | 🚧 | ✅ | 🚧 |
-| Recent documents (removable) | ✅ | ✅ | — | ✅ | — |
+| Recent documents (removable) | ✅ | ✅ | 🚧 | ✅ | — |
 | Password-protected PDF | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Fit-to-width rendering | ✅ | ✅ | 🚧 | ✅ | — |
-| Text search & navigate | ✅ | ✅ | — | ✅ | — |
+| Text search & navigate | ✅ | ✅ | 🚧 | ✅ | — |
 | Print | ✅ | ✅ | 🚧 | ✅ | — |
-| Share to another device | — | ✅ | — | — | — |
+| Share to another device | — | ✅ | 🚧 | — | — |
 | Annotate | ✅ | ✅ | 🚧 | ✅ | — |
-| Edit page content | 🚧 | 🚧 | — | 🚧 | — |
+| Edit page content | 🚧 | 🚧 | 🚧 | 🚧 | — |
 | Edit metadata | ✅ | ✅ | 🚧 | ✅ | — |
 | Organize & assemble pages | ✅ | ✅ | 🚧 | ✅ | — |
 | Extract pages to a new PDF | ✅ | ✅ | 🚧 | ✅ | — |
