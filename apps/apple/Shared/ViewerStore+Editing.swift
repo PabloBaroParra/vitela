@@ -39,6 +39,7 @@ extension ViewerStore {
         resetAnnotations()
         resetForms()
         resetContentEditing()
+        resetDocumentBlocks()
         guard let document else {
             documentInfo = nil
             editingAllowed = false

@@ -33,6 +33,8 @@ extension UniFfiPdfCoreClient {
                 return try replaceImage(handle: handle, image: image, with: bytes)
             case let .insertImage(page, rect, bytes):
                 return try insertImage(handle: handle, page: page, rect: rect, bytes: bytes)
+            case let .addWatermark(watermark):
+                return try addWatermark(handle: handle, watermark)
             default:
                 return
             }
@@ -118,7 +120,8 @@ private extension UniFfiPdfCoreClient {
 }
 
 private extension FfiEditCommand {
-    /// `nil` for an insertion, which needs the page's fonts to name its own.
+    /// `nil` for an edit that needs more than its own values: an insertion
+    /// the page's names, a replace the old picture, a watermark the core's look.
     init?(_ edit: ContentEdit) {
         switch edit {
         case let .retypeText(run, text):
@@ -129,7 +132,7 @@ private extension FfiEditCommand {
             self = .removeTextRun(item: FfiContentTextRun(run))
         case let .moveText(run, rect):
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
-        case .insertText, .replaceImage, .insertImage:
+        case .insertText, .replaceImage, .insertImage, .addWatermark:
             return nil
         case let .moveImage(image, rect):
             self = .moveImage(item: FfiContentImageItem(image), to: FfiRect(rect))

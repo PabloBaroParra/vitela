@@ -113,6 +113,9 @@ protocol PdfCoreClient {
     /// Whether `run` was moved and not saved since — such a run cannot be
     /// retyped until the document is saved and reopened.
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool
+    /// The core's first look for an Add watermark stamp of `kind` —
+    /// `PdfCore+Watermark.swift`. Recording one is `applyContentEdit`.
+    func defaultWatermarkLook(_ kind: WatermarkKind) -> WatermarkLook
     func undo(document: any PdfDocument) -> Bool
     func redo(document: any PdfDocument) -> Bool
     func canUndo(document: any PdfDocument) -> Bool
@@ -201,8 +204,10 @@ protocol PdfCoreClient {
     /// `.wrongPassword` when it needs a password, `EditFailure` otherwise.
     func prepareImport(bytes: Data, password: String?) throws -> any ImportSource
     /// Appends every page of `sources`, in order, as one undo step. Returns
-    /// how many pages it added. All or nothing.
-    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int
+    /// how many pages it added and each source's block id. All or nothing.
+    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> ImportedBatch
+    /// Every block of the document, in page order — `PdfCore+Blocks.swift`.
+    func documentBlocks(document: any PdfDocument) -> [DocumentBlock]
 
     // Annotations — see `ViewerStore+Annotations.swift`. Reading stays
     // available when editing is refused.
@@ -283,7 +288,7 @@ extension PdfCoreClient {
         throw EditFailure.failed("this client does not support importing PDFs")
     }
 
-    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int {
+    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> ImportedBatch {
         throw EditFailure.failed("this client does not support importing PDFs")
     }
 

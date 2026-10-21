@@ -19,10 +19,11 @@ extension ViewerStore {
     }
 
     /// Starts appending `sources`, or `nil` when there is nothing to add or
-    /// other page work is running.
-    func beginImport(_ sources: [any ImportSource]) -> PageWorkRequest? {
+    /// other page work is running. `names` are the picked files' names, in
+    /// the same order, so the Documents view can call each block by its file.
+    func beginImport(_ sources: [any ImportSource], names: [String] = []) -> PageWorkRequest? {
         guard let document, !pageWorkInFlight, !sources.isEmpty else { return nil }
         pageWorkInFlight = true
-        return PageWorkRequest(generation: generation, document: document, work: .importSources(sources))
+        return PageWorkRequest(generation: generation, document: document, work: .importSources(sources, names: names))
     }
 }
