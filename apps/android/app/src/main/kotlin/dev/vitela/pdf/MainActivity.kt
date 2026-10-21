@@ -150,6 +150,15 @@ private fun VitelaApp(
             if (bytes == null) viewModel.cancelImageReplacement(IMAGE_UNREADABLE) else viewModel.replaceImage(bytes)
         }
     }
+    val chooseWatermarkPicture = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes == null) viewModel.watermarkPictureUnreadable() else viewModel.chooseWatermarkPicture(bytes)
+        }
+    }
     val openPdf = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val startTool = pickedTool
         pickedTool = null
@@ -486,6 +495,8 @@ private fun VitelaApp(
             WatermarkActions(
                 onOpen = viewModel::openWatermark,
                 onChange = viewModel::editWatermark,
+                // The core decodes PNG and JPEG; anything else is refused on Add.
+                onChoosePicture = { chooseWatermarkPicture.launch("image/*") },
                 onAdd = viewModel::applyWatermark,
                 onDismiss = viewModel::dismissWatermark,
             )

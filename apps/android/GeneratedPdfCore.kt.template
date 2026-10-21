@@ -12,6 +12,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PageRotation
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.core.PictureWatermarkLook
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.SigningCertificate
@@ -49,6 +50,7 @@ import dev.vitela.pdf.core.PageCharacters
 import dev.vitela.pdf.core.CaretRange
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.TextRect
+import dev.vitela.pdf.core.WatermarkLayer
 import dev.vitela.pdf.core.WatermarkLook
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
@@ -64,6 +66,7 @@ import dev.vitela.pdf.uniffi.FfiContentTextRun
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
 import dev.vitela.pdf.uniffi.FfiExportFormat
+import dev.vitela.pdf.uniffi.FfiWatermarkLayer
 import dev.vitela.pdf.uniffi.FfiFieldValue
 import dev.vitela.pdf.uniffi.FfiFontKind
 import dev.vitela.pdf.uniffi.FfiFontFamily
@@ -95,6 +98,7 @@ import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
 import dev.vitela.pdf.uniffi.insertImageStamp as ffiInsertImageStamp
 import dev.vitela.pdf.uniffi.parsePageSelection as ffiParsePageSelection
+import dev.vitela.pdf.uniffi.defaultImageWatermark as ffiDefaultImageWatermark
 import dev.vitela.pdf.uniffi.defaultWatermark as ffiDefaultWatermark
 import dev.vitela.pdf.uniffi.pageImageFileName as ffiPageImageFileName
 import dev.vitela.pdf.uniffi.firstPageTooLargeToExport as ffiFirstPageTooLargeToExport
@@ -513,7 +517,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
 
     override fun defaultWatermarkLook(): PdfCoreResult<WatermarkLook> = try {
         val look = ffiDefaultWatermark(emptyList(), "")
-        PdfCoreResult.Success(WatermarkLook(look.fontSize, look.opacity, look.rotationDegrees))
+        PdfCoreResult.Success(WatermarkLook(look.fontSize, look.opacity, look.rotationDegrees, look.layer.toLayer()))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -522,13 +526,36 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     // dialog asks for everything else and never for that.
     override fun addWatermark(pages: List<Int>, text: String, look: WatermarkLook): PdfCoreResult<Unit> = try {
         val watermark = ffiDefaultWatermark(pages.map { it.toUInt() }, text)
-            .copy(fontSize = look.fontSizePt, opacity = look.opacity, rotationDegrees = look.rotationDegrees)
+            .copy(fontSize = look.fontSizePt, opacity = look.opacity, rotationDegrees = look.rotationDegrees, layer = look.layer.toFfi())
         ffiApplyEdit(handle, FfiEditCommand.AddWatermark(watermark))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.EncodingGap) {
         // The core's own message names a PDF font resource, which means
         // nothing to someone typing "DRAFT". The GTK shell's wording.
         PdfCoreResult.Failure(PdfCoreError.Failed("The watermark font cannot show “${error.character}”. Use Latin letters, digits and punctuation."))
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This watermark cannot be added to these pages." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun defaultPictureWatermarkLook(): PdfCoreResult<PictureWatermarkLook> = try {
+        val look = ffiDefaultImageWatermark(emptyList(), ByteArray(0))
+        PdfCoreResult.Success(PictureWatermarkLook(look.scale, look.opacity, look.rotationDegrees, look.layer.toLayer()))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun addImageWatermark(pages: List<Int>, image: ByteArray, look: PictureWatermarkLook): PdfCoreResult<Unit> = try {
+        val watermark = ffiDefaultImageWatermark(pages.map { it.toUInt() }, image)
+            .copy(scale = look.scale, opacity = look.opacity, rotationDegrees = look.rotationDegrees, layer = look.layer.toFfi())
+        ffiApplyEdit(handle, FfiEditCommand.AddImageWatermark(watermark))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.InvalidImage) {
+        // The core's own sentence is about "the image"; here the reader
+        // picked a file. The Windows shell's wording.
+        PdfCoreResult.Failure(PdfCoreError.Failed("That file could not be read as a PNG or JPEG picture. Choose another one."))
     } catch (error: FfiException.UnsupportedOperation) {
         val sentence = if (handle.contentEditingAllowed()) "This watermark cannot be added to these pages." else "This document does not permit content changes."
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
@@ -873,6 +900,16 @@ private fun FfiCompressRefusal.toClause(): String = when (this) {
     is FfiCompressRefusal.EncryptedDocumentNotRewritable -> "this document's password protection does not allow it to be rewritten, so it cannot be compressed"
     is FfiCompressRefusal.SignaturesWouldBeInvalidated -> "compressing rewrites the file and would stop its signature from verifying"
     is FfiCompressRefusal.Other -> detail
+}
+
+private fun FfiWatermarkLayer.toLayer(): WatermarkLayer = when (this) {
+    FfiWatermarkLayer.OVER_CONTENT -> WatermarkLayer.OverContent
+    FfiWatermarkLayer.UNDER_CONTENT -> WatermarkLayer.UnderContent
+}
+
+private fun WatermarkLayer.toFfi(): FfiWatermarkLayer = when (this) {
+    WatermarkLayer.OverContent -> FfiWatermarkLayer.OVER_CONTENT
+    WatermarkLayer.UnderContent -> FfiWatermarkLayer.UNDER_CONTENT
 }
 
 private fun FfiDocumentInfo.toDocumentInfo() = DocumentInfo(title, author, subject, keywords, creator, producer)

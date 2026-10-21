@@ -8,6 +8,8 @@ struct ViewerToolbar: View {
     @Binding var showsProperties: Bool
     @Binding var showsComments: Bool
     @Binding var showsForm: Bool
+    /// The selected image's typed position or size, while its sheet is up.
+    @State private var imageGeometry: GeometrySheet.Request?
 
     var body: some View {
         HStack {
@@ -64,12 +66,21 @@ struct ViewerToolbar: View {
             Button("Add Image…", action: model.armImageInsert)
                 .help("Choose a PNG or JPEG, then click a page to place it")
                 .disabled(!model.canEditContent)
+            Button("Add Watermark…", action: model.requestWatermark)
+                .help("Stamp the same text or picture across the pages you pick, as one undo step")
+                .disabled(!model.canEditContent)
             if model.store.selectedContentImage != nil {
                 Button("Replace Image…", action: model.replaceSelectedImage)
                     .help("Swap the selected image's picture for a PNG or JPEG, keeping its box")
                     .disabled(model.store.pageWorkInFlight)
                 Button("Delete Image", action: model.deleteSelectedImage)
                     .help("Delete the selected image from the page (⌫)")
+                    .disabled(model.store.pageWorkInFlight)
+                Button("Image Position…") { imageGeometry = model.selectedImageGeometry(position: true) }
+                    .help("Type where the selected image goes, in points")
+                    .disabled(model.store.pageWorkInFlight)
+                Button("Image Size…") { imageGeometry = model.selectedImageGeometry(position: false) }
+                    .help("Type the selected image's width and height, in points")
                     .disabled(model.store.pageWorkInFlight)
             }
             Toggle("Organize", isOn: $model.isOrganizing)
@@ -95,6 +106,9 @@ struct ViewerToolbar: View {
                 .help("Fit each whole page in the window (⌘9)")
         }
         .padding()
+        .sheet(item: $imageGeometry) { request in
+            GeometrySheet(request: request) { imageGeometry = nil }
+        }
     }
 
     /// On while `mode` is active; switching it off freezes the factor the

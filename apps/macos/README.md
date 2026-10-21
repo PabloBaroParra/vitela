@@ -33,6 +33,13 @@ responsibility:
   moves a line or an image, a corner resizes an image, Replace Image… and
   Add Image… swap or place a PNG or JPEG; all run as page work
   (`../apple/Shared/ViewerStore+ContentEdit.swift`, `+ContentImages.swift`).
+- `Vitela/ViewerViewModel+Watermark.swift`, `Views/WatermarkSheet.swift` —
+  Add Watermark…: text or a PNG/JPEG picture, pages, size, opacity, angle
+  and over/behind the content, each kind starting from the core's look; the
+  sheet stays open until the core has answered, so a character Helvetica
+  cannot show, or a file that is not a picture, is refused under the fields. The rules and
+  the recording are `../apple/Shared/ViewerStore+Watermark.swift`, one
+  content edit through the page-work pipeline.
 - `Vitela/ViewerViewModel+TokenSigning.swift` — File ▸ Sign with Card or
   Token…: a PKCS#11 module and its PIN (empty for the token's own prompt),
   then the certificate-file signing path.
@@ -78,11 +85,22 @@ responsibility:
   page edits on the queue.
 - `Vitela/ViewerViewModel+Import.swift` — Organize ▸ Add PDFs: picking,
   per-source passwords and warnings, then one undoable import.
+- `Vitela/ViewerViewModel+OrganizeDocuments.swift`,
+  `Views/OrganizeDocumentsList.swift` — Organize's Documents view, where it
+  opens: one card per run of pages from the same PDF (named by its file),
+  moved by its buttons or by a drag to a gap, turned or deleted whole. The
+  grouping is the core's `document_blocks`
+  (`../apple/Shared/ViewerStore+Blocks.swift`).
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
   `SignaturePng.swift` — Draw Signature: the remembered signature, the pad's
   strokes as a PNG, and arming the stamp with it.
+- `Vitela/Views/GeometrySheet.swift` — Position… and Size… for the
+  selected annotation or page image: exact X/Y or width/height in points,
+  over the same core move and resize a drag records
+  (`../apple/Shared/ViewerStore+AnnotationGeometry.swift`,
+  `+ContentGeometry.swift`); a line's X/Y is typed in its Edit text sheet.
 - `Vitela/Views/NoteTooltipLayer.swift` — a note's text as a native
   tooltip while the pointer rests on it, without taking any click.
 - `Vitela/Views/SearchResultsPanel.swift` — every match of the search,
