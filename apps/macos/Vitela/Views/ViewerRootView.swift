@@ -219,6 +219,14 @@ struct ViewerRootView: View {
                         // rows as the *same* views as the previous document's:
                         // `onAppear` would never refire, and every page would
                         // stay stuck on its "Rendering…" placeholder forever.
+                        // A file dropped on a page lands there: an image as
+                        // a stamp at the drop point, a PDF opens.
+                        .onDrop(of: [.fileURL], isTargeted: nil) { providers, location in
+                            Self.loadFileURLs(providers) {
+                                model.dropFiles($0, onPage: slot.index, at: location, zoom: pageZoom(slot))
+                            }
+                            return !providers.isEmpty
+                        }
                         .id(pageId(slot))
                         .background(pageSpanReader(slot.index))
                     }

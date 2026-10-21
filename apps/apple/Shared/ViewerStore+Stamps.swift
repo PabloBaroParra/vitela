@@ -68,4 +68,23 @@ extension ViewerStore {
         }
         recordEdit(status: "Image stamp added. Changes are pending save.")
     }
+
+    /// Pasting with no editable document: Linux's and Windows' wording.
+    static let pasteNeedsDocument = "Open an editable PDF before pasting an image."
+    static let clipboardHasNoImage = "Clipboard does not contain a bitmap image."
+
+    /// A pasted image, hung from the centre of the page in view — Linux's
+    /// `paste_target`, Windows' `PasteImage_Invoked`. The target is read
+    /// here, when the bytes are already in hand, so nothing can retarget it.
+    func pasteStamp(imageBytes: Data) {
+        guard document != nil, annotationEditingAllowed, !pageSlots.isEmpty else {
+            editStatus = Self.pasteNeedsDocument
+            return
+        }
+        let page = min(max(currentPage, 0), pageSlots.count - 1)
+        guard let placement = placement(ofPage: page, zoom: 1) else { return }
+        let dimensions = pageSlots[page].dimensions
+        let centre = client.pointToPdf(x: dimensions.width / 2, y: dimensions.height / 2, on: placement)
+        insertStamp(imageBytes: imageBytes, page: page, rect: nil, anchor: centre)
+    }
 }

@@ -63,4 +63,32 @@ final class ViewerStoreStampTests: XCTestCase {
         XCTAssertNil(store.pendingStamp)
         XCTAssertEqual(store.editStatus, "Stamp placement canceled.")
     }
+
+    func testAPastedImageHangsFromTheCentreOfThePageInView() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792), PageDimensions(width: 400, height: 600)])
+        let store = ViewerStore(client: client)
+        store.open(bytes: Data([1]))
+        store.currentPage = 1
+
+        store.pasteStamp(imageBytes: png)
+
+        // The fake's stamp policy hangs 100 × 50 from the anchor.
+        XCTAssertEqual(client.stampInserts.map(\.page), [1])
+        XCTAssertEqual(client.stampInserts.map(\.rect), [PdfRect(x: 200, y: 250, width: 100, height: 50)])
+        XCTAssertEqual(store.selectedAnnotation?.kind, .stamp)
+    }
+
+    func testPastingNeedsAnEditableDocument() {
+        let empty = ViewerStore(client: FakePdfCoreClient(pages: []))
+        empty.pasteStamp(imageBytes: png)
+        XCTAssertEqual(empty.editStatus, ViewerStore.pasteNeedsDocument)
+
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        client.annotationsPermitted = false
+        let locked = ViewerStore(client: client)
+        locked.open(bytes: Data([1]))
+        locked.pasteStamp(imageBytes: png)
+        XCTAssertEqual(locked.editStatus, ViewerStore.pasteNeedsDocument)
+        XCTAssertTrue(client.stampInserts.isEmpty)
+    }
 }

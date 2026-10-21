@@ -71,6 +71,9 @@ responsibility:
   fit-width / fit-page zoom modes, waiting for a live resize to settle.
 - `Vitela/ViewerViewModel+FileDrop.swift` — PDFs dropped on the window or
   sent by Finder (declared in `Vitela/Info.plist`).
+- `Vitela/ViewerViewModel+PasteImage.swift` — ⌘V outside a text field
+  stamps the clipboard's bitmap (never its text) at the centre of the page
+  in view; a PNG or JPEG dropped on a page is stamped where it lands.
 - `Vitela/ViewerViewModel+Extract.swift` — File ▸ Extract Pages…: range
   sheet, destination, atomic write.
 - `Vitela/ViewerViewModel+Split.swift` — File ▸ Split PDF…: cut points,
