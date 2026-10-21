@@ -43,11 +43,24 @@ sealed interface PageEdit {
 }
 
 /**
- * How a watermark is drawn: [fontSizePt] in points, [opacity] from 0
+ * Whether a watermark is painted over the page content or behind it. Behind
+ * does not show on a scanned page, whose content is one opaque picture.
+ */
+enum class WatermarkLayer { OverContent, UnderContent }
+
+/**
+ * How a text watermark is drawn: [fontSizePt] in points, [opacity] from 0
  * exclusive to 1 inclusive, [rotationDegrees] counter-clockwise as the reader
  * sees the page. The colour is the core's; no shell asks for one.
  */
-data class WatermarkLook(val fontSizePt: Double, val opacity: Double, val rotationDegrees: Double)
+data class WatermarkLook(val fontSizePt: Double, val opacity: Double, val rotationDegrees: Double, val layer: WatermarkLayer)
+
+/**
+ * How a picture watermark is drawn: [scale] is how much of the page it may
+ * cover, 0 exclusive to 1 inclusive, fitted with its aspect kept; the rest as
+ * [WatermarkLook].
+ */
+data class PictureWatermarkLook(val scale: Double, val opacity: Double, val rotationDegrees: Double, val layer: WatermarkLayer)
 
 /** A bytes snapshot paired with the document revision it represents. */
 data class SaveSnapshot(val bytes: ByteArray, val documentId: Long, val revision: Long)
@@ -217,6 +230,15 @@ interface PdfDocument : AutoCloseable {
      * after [refreshPreview].
      */
     fun addWatermark(pages: List<Int>, text: String, look: WatermarkLook): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Watermarks are unavailable in this PDF core."))
+    /** The core's starting look for a picture watermark: upright, half the page, faded, behind the content. */
+    fun defaultPictureWatermarkLook(): PdfCoreResult<PictureWatermarkLook> = PdfCoreResult.Failure(PdfCoreError.Failed("Picture watermarks are unavailable in this PDF core."))
+    /**
+     * Queues one undoable stamp of the PNG or JPEG [image], untouched, drawn
+     * as [look] on every page in [pages] — one image object in the file
+     * however many pages carry it. Bytes that do not decode are refused before
+     * anything is queued. The pages show it only after [refreshPreview].
+     */
+    fun addImageWatermark(pages: List<Int>, image: ByteArray, look: PictureWatermarkLook): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Picture watermarks are unavailable in this PDF core."))
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
     fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp or an inserted image; [anchor] is its top-left corner. */
