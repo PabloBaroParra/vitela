@@ -1,5 +1,7 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.PictureWatermarkLook
+import dev.vitela.pdf.core.WatermarkLayer
 import dev.vitela.pdf.core.WatermarkLook
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -7,6 +9,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -23,7 +26,8 @@ class ViewerViewModelWatermarkTest {
         viewModel.openWatermark()
 
         val editor = requireNotNull(viewModel.state.first { it.watermark != null }.watermark)
-        assertEquals(WatermarkDraft.from(document.look), editor.draft)
+        assertEquals(WatermarkDefaults(document.look, document.pictureLook), editor.defaults)
+        assertEquals(editor.defaults.draft(), editor.draft)
         assertEquals("DRAFT", editor.draft.text)
         assertEquals(WatermarkPages.All, editor.draft.pages)
         assertNull(editor.message)
@@ -44,8 +48,8 @@ class ViewerViewModelWatermarkTest {
         val viewModel = openedWith(document)
         viewModel.openWatermark()
         viewModel.state.first { it.watermark != null }
-        val look = WatermarkLook(fontSizePt = 40.0, opacity = 0.5, rotationDegrees = -30.0)
-        viewModel.editWatermark(WatermarkDraft.from(look).copy(text = "COPY", pages = WatermarkPages.Custom, range = "1,3"))
+        val look = WatermarkLook(fontSizePt = 40.0, opacity = 0.5, rotationDegrees = -30.0, layer = WatermarkLayer.UnderContent)
+        viewModel.editWatermark(WatermarkDefaults(look, document.pictureLook).draft().copy(text = "COPY", pages = WatermarkPages.Custom, range = "1,3"))
         val refreshesBefore = document.previewRefreshes
         viewModel.applyWatermark()
 
@@ -117,6 +121,85 @@ class ViewerViewModelWatermarkTest {
 
         viewModel.state.first { it.status == "Watermark added to 3 pages." }
         assertEquals(1, document.stamps.size)
+    }
+
+    @Test
+    fun aChosenPictureLandsOnTheDraftAndClearsAnEarlierRefusal() = runTest {
+        val viewModel = openedWith(WatermarkDocument())
+        viewModel.openWatermark()
+        val opened = requireNotNull(viewModel.state.first { it.watermark != null }.watermark)
+        viewModel.editWatermark(opened.switchedTo(WatermarkKind.Picture))
+        viewModel.applyWatermark()
+        viewModel.state.first { it.watermark?.message != null }
+
+        val bytes = byteArrayOf(9, 8, 7)
+        viewModel.chooseWatermarkPicture(bytes)
+
+        val editor = requireNotNull(viewModel.state.value.watermark)
+        assertSame(bytes, editor.draft.picture?.bytes)
+        assertNull(editor.message)
+    }
+
+    @Test
+    fun anUnreadablePictureSaysSoInTheDialog() = runTest {
+        val viewModel = openedWith(WatermarkDocument())
+        viewModel.openWatermark()
+        viewModel.state.first { it.watermark != null }
+        viewModel.watermarkPictureUnreadable()
+
+        assertEquals(IMAGE_UNREADABLE, viewModel.state.value.watermark?.message)
+        assertNull(viewModel.state.value.watermark?.draft?.picture)
+    }
+
+    @Test
+    fun aPictureArrivingAfterTheDialogClosedIsDropped() = runTest {
+        val viewModel = openedWith(WatermarkDocument())
+        viewModel.openWatermark()
+        viewModel.state.first { it.watermark != null }
+        viewModel.dismissWatermark()
+        viewModel.chooseWatermarkPicture(byteArrayOf(1))
+
+        assertNull(viewModel.state.value.watermark)
+    }
+
+    @Test
+    fun applyingAPictureStampsItsBytesUntouchedAsOneUndoableEdit() = runTest {
+        val document = WatermarkDocument()
+        val viewModel = openedWith(document)
+        viewModel.openWatermark()
+        val opened = requireNotNull(viewModel.state.first { it.watermark != null }.watermark)
+        val bytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+        viewModel.chooseWatermarkPicture(bytes)
+        val picked = requireNotNull(viewModel.state.value.watermark).draft
+        viewModel.editWatermark(picked.switchedTo(WatermarkKind.Picture, opened.defaults).copy(scalePercent = 80.0, opacityPercent = 40.0, pages = WatermarkPages.Current))
+        val refreshesBefore = document.previewRefreshes
+        viewModel.applyWatermark()
+
+        val state = viewModel.state.first { it.status == "Watermark added to 1 page." }
+        assertNull(state.watermark)
+        assertEquals(emptyList<Any>(), document.stamps)
+        val (pages, image, look) = document.pictureStamps.single()
+        assertEquals(listOf(0), pages)
+        assertSame(bytes, image)
+        assertEquals(PictureWatermarkLook(scale = 0.8, opacity = 0.4, rotationDegrees = 0.0, layer = WatermarkLayer.UnderContent), look)
+        assertTrue(state.isDirty)
+        assertTrue(state.canUndoAnnotations)
+        assertTrue(document.previewRefreshes > refreshesBefore)
+    }
+
+    @Test
+    fun aRefusedPictureKeepsTheDialogOpenWithTheCoresSentence() = runTest {
+        val sentence = "That file could not be read as a PNG or JPEG picture. Choose another one."
+        val viewModel = openedWith(WatermarkDocument(refusal = sentence))
+        viewModel.openWatermark()
+        val opened = requireNotNull(viewModel.state.first { it.watermark != null }.watermark)
+        viewModel.editWatermark(opened.switchedTo(WatermarkKind.Picture).copy(picture = WatermarkPicture(byteArrayOf(1))))
+        viewModel.applyWatermark()
+
+        val editor = requireNotNull(viewModel.state.first { it.watermark?.message != null }.watermark)
+        assertEquals(sentence, editor.message)
+        assertEquals(WatermarkKind.Picture, editor.draft.kind)
+        assertFalse(viewModel.state.value.isDirty)
     }
 
     @Test

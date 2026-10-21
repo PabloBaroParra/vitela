@@ -381,8 +381,22 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
     {
         var look = PdfFfiMethods.DefaultWatermark([.. pages], text);
         return new PdfCoreWatermark(look.Pages, look.Text, look.FontSize,
-            new PdfCoreColor(look.Color.R, look.Color.G, look.Color.B), look.Opacity, look.RotationDegrees);
+            new PdfCoreColor(look.Color.R, look.Color.G, look.Color.B), look.Opacity, look.RotationDegrees,
+            Layer(look.Layer));
     }
+
+    public PdfCoreImageWatermark DefaultImageWatermark(IReadOnlyList<uint> pages, byte[] image)
+    {
+        var look = PdfFfiMethods.DefaultImageWatermark([.. pages], image);
+        return new PdfCoreImageWatermark(look.Pages, look.Image, look.Scale, look.Opacity, look.RotationDegrees,
+            Layer(look.Layer));
+    }
+
+    private static WatermarkLayer Layer(FfiWatermarkLayer layer) =>
+        layer == FfiWatermarkLayer.UnderContent ? WatermarkLayer.UnderContent : WatermarkLayer.OverContent;
+
+    private static FfiWatermarkLayer Layer(WatermarkLayer layer) =>
+        layer == WatermarkLayer.UnderContent ? FfiWatermarkLayer.UnderContent : FfiWatermarkLayer.OverContent;
 
     public IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages)
     {
@@ -511,7 +525,14 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
             new FfiColor(value.Watermark.Color.R, value.Watermark.Color.G, value.Watermark.Color.B),
             value.Watermark.Opacity,
             value.Watermark.RotationDegrees,
-            FfiWatermarkLayer.OverContent)),
+            Layer(value.Watermark.Layer))),
+        PdfCoreEdit.AddImageWatermark value => new FfiEditCommand.AddImageWatermark(new FfiImageWatermark(
+            [.. value.Watermark.Pages],
+            value.Watermark.Image,
+            value.Watermark.Scale,
+            value.Watermark.Opacity,
+            value.Watermark.RotationDegrees,
+            Layer(value.Watermark.Layer))),
         PdfCoreEdit.SetFieldValue value => new FfiEditCommand.SetFieldValue(value.FieldId, FieldValue(value.Value)),
         PdfCoreEdit.RenameFormField value => new FfiEditCommand.RenameFormField(value.FieldId, value.Name),
         PdfCoreEdit.RemoveFormField value => new FfiEditCommand.RemoveFormField(value.FieldId),

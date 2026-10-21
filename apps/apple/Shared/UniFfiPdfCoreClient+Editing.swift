@@ -152,6 +152,12 @@ private extension FfiEditCommand {
             )
         case let .move(from, to):
             self = .movePages(from: UInt32(from), count: 1, to: UInt32(to))
+        case let .rotateBlock(from, count, degrees):
+            self = .rotatePages(from: UInt32(from), count: UInt32(count), deltaDegrees: Int32(degrees))
+        case let .removeBlock(from, count):
+            self = .removePages(index: UInt32(from), count: UInt32(count))
+        case let .moveBlock(from, count, to):
+            self = .movePages(from: UInt32(from), count: UInt32(count), to: UInt32(to))
         }
     }
 }

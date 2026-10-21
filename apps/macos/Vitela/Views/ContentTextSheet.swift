@@ -1,18 +1,23 @@
 import SwiftUI
 
-/// Retypes or deletes one line the page paints — Android's retype dialog
-/// (`ContentEditDialog.kt`); Windows types into the page itself. Save is one
-/// undoable edit; a composite-font line says up front that its font will be
-/// replaced.
+/// Retypes, moves to typed coordinates, or deletes one line the page paints
+/// — Android's retype dialog (`ContentEditDialog.kt`) plus Windows' Move
+/// text; Windows types into the page itself. Each is one undoable edit; a
+/// composite-font line says up front that its font will be replaced.
 struct ContentTextSheet: View {
     @ObservedObject var model: ViewerViewModel
     let run: ContentTextRun
     @State private var text: String
+    @State private var x: Double
+    @State private var y: Double
+    @State private var moveProblem: String?
 
     init(model: ViewerViewModel, run: ContentTextRun) {
         self.model = model
         self.run = run
         _text = State(initialValue: run.text)
+        _x = State(initialValue: run.bbox.x)
+        _y = State(initialValue: run.bbox.y)
     }
 
     var body: some View {
@@ -29,6 +34,21 @@ struct ContentTextSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Divider()
+            // Windows' Move text: where the line's box starts, in points.
+            HStack(spacing: 8) {
+                Text("Position")
+                coordinate("X", $x)
+                coordinate("Y", $y)
+                Button("Move") { moveProblem = model.moveText(run, toX: x, y: y) }
+            }
+            Text(ViewerStore.ContentGeometry.textHint)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let moveProblem {
+                Text(moveProblem).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("Delete Text", role: .destructive) { model.deleteText(run) }
                 Spacer()
@@ -40,6 +60,16 @@ struct ContentTextSheet: View {
             }
         }
         .padding()
+    }
+
+    private func coordinate(_ label: String, _ value: Binding<Double>) -> some View {
+        HStack(spacing: 4) {
+            Text(label).foregroundStyle(.secondary)
+            TextField(label, value: value, formatter: GeometrySheet.points)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 72)
+                .accessibilityIdentifier("content-text-\(label.lowercased())")
+        }
     }
 
     private func save() {

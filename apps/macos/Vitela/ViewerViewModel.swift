@@ -26,6 +26,8 @@ final class ViewerViewModel: ObservableObject {
     @Published var isCompressPresented = false
     /// Whether the Protect sheet is up — `ViewerViewModel+Protect.swift`.
     @Published var isProtectPresented = false
+    /// Whether the Add watermark sheet is up — `ViewerViewModel+Watermark.swift`.
+    @Published var isWatermarkPresented = false
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
@@ -43,6 +45,11 @@ final class ViewerViewModel: ObservableObject {
     @Published var imageInsertBytes: Data?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
+    /// Organize opens on Documents, as on Linux and Windows; off shows Pages
+    /// — `ViewerViewModel+OrganizeDocuments.swift`.
+    @Published var organizeShowsDocuments = true
+    /// The Documents card being dragged, if any.
+    var organizeBlockDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
     @Published var isImporting = false
     let importPrompts: ImportPrompts
@@ -63,6 +70,12 @@ final class ViewerViewModel: ObservableObject {
     /// The file the document being opened came from, recorded in Recent once
     /// it loads; `nil` for samples, new documents and anything not a file.
     var pendingRecentPath: String?
+    /// A Home tool picked with no document open: applied once the document
+    /// chosen for it loads — `ViewerViewModel+HomeTools.swift`.
+    var pendingHomeTool: HomeTool?
+    /// Home is showing over an open document, which stays as it was —
+    /// `ViewerViewModel+HomeTools.swift`. A document that loads closes it.
+    @Published var showsHome = false
     /// Share's signature question and picker — `ViewerViewModel+Share.swift`.
     let sharePrompts: SharePrompts
     let store: ViewerStore
@@ -112,6 +125,8 @@ final class ViewerViewModel: ObservableObject {
             .sink { [weak self] state in
                 self?.title = Self.windowTitle(for: state)
                 self?.recordPendingRecent(state)
+                self?.applyPendingHomeTool(state)
+                if case .loaded = state { self?.showsHome = false }
             }
             .store(in: &subscriptions)
         loadRecentDocuments()
@@ -135,6 +150,7 @@ final class ViewerViewModel: ObservableObject {
             panel.allowedContentTypes = [.pdf]
             panel.allowsMultipleSelection = false
             guard panel.runModal() == .OK, let url = panel.url else {
+                self.pendingHomeTool = nil
                 self.store.selectionCancelled()
                 return
             }
