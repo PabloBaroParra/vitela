@@ -33,6 +33,13 @@ responsibility:
   moves a line or an image, a corner resizes an image, Replace Image… and
   Add Image… swap or place a PNG or JPEG; all run as page work
   (`../apple/Shared/ViewerStore+ContentEdit.swift`, `+ContentImages.swift`).
+- `Vitela/ViewerViewModel+Watermark.swift`, `Views/WatermarkSheet.swift` —
+  Add Watermark…: text or a PNG/JPEG picture, pages, size, opacity, angle
+  and over/behind the content, each kind starting from the core's look; the
+  sheet stays open until the core has answered, so a character Helvetica
+  cannot show, or a file that is not a picture, is refused under the fields. The rules and
+  the recording are `../apple/Shared/ViewerStore+Watermark.swift`, one
+  content edit through the page-work pipeline.
 - `Vitela/ViewerViewModel+TokenSigning.swift` — File ▸ Sign with Card or
   Token…: a PKCS#11 module and its PIN (empty for the token's own prompt),
   then the certificate-file signing path.
@@ -45,6 +52,11 @@ responsibility:
   are `../apple/Shared/RecentDocuments.swift`; the app keeps the list in
   Application Support, a view model made without that store (every test)
   keeps it in memory.
+- `Vitela/ViewerViewModel+HomeTools.swift`, `Views/HomeToolsColumn.swift` —
+  the start screen's Tools grid (Edit, Annotate, Sign, Organize, Compress,
+  Protect: with no document open a tile opens the chooser first and goes
+  there once the file loads), Quick actions and the keyboard reference —
+  Linux's `home/tools.rs`.
 - `Vitela/ViewerViewModel+Share.swift` — File ▸ Share…: signature
   question, the bytes a save would write in a fresh temporary folder, the
   share picker, and sweeping copies older than an hour.
@@ -72,6 +84,12 @@ responsibility:
   page edits on the queue.
 - `Vitela/ViewerViewModel+Import.swift` — Organize ▸ Add PDFs: picking,
   per-source passwords and warnings, then one undoable import.
+- `Vitela/ViewerViewModel+OrganizeDocuments.swift`,
+  `Views/OrganizeDocumentsList.swift` — Organize's Documents view, where it
+  opens: one card per run of pages from the same PDF (named by its file),
+  moved by its buttons or by a drag to a gap, turned or deleted whole. The
+  grouping is the core's `document_blocks`
+  (`../apple/Shared/ViewerStore+Blocks.swift`).
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
