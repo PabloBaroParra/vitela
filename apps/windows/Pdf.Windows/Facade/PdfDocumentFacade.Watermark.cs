@@ -1,7 +1,8 @@
 namespace Pdf.Windows.Facade;
 
 /// <summary>
-/// Add watermark: stamping the same text across the pages the reader picks.
+/// Add watermark: stamping the same text, or the same picture, across the
+/// pages the reader picks — over the page content or behind it.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -14,10 +15,10 @@ namespace Pdf.Windows.Facade;
 /// <para>
 /// Everything a reader can get wrong is refused before the log is touched:
 /// blank text and an empty range here, in words; a bad range by the core's
-/// own grammar; and text Helvetica cannot show by the core's dry run inside
-/// <see cref="IPdfCore.ApplyEdit"/>, so a stamp that could not be written
-/// never reaches a save where it would take every other queued edit down
-/// with it.
+/// own grammar; and text Helvetica cannot show, or a file that is not a PNG
+/// or JPEG, by the core's dry run inside <see cref="IPdfCore.ApplyEdit"/>, so
+/// a stamp that could not be written never reaches a save where it would take
+/// every other queued edit down with it.
 /// </para>
 /// </remarks>
 public sealed partial class PdfDocumentFacade
@@ -26,7 +27,18 @@ public sealed partial class PdfDocumentFacade
     public WatermarkLook DefaultWatermarkLook()
     {
         var look = _core.DefaultWatermark([], WatermarkLimits.DefaultText);
-        return new WatermarkLook(look.FontSizePt, look.Opacity * 100, look.RotationDegrees);
+        return new WatermarkLook(look.FontSizePt, look.Opacity * 100, look.RotationDegrees, look.Layer);
+    }
+
+    /// <summary>
+    /// The core's picture look — upright, half the page, behind the content —
+    /// with opacity and size in the dialog's percent. Asked of the core with
+    /// no picture: the look does not depend on one.
+    /// </summary>
+    public PictureWatermarkLook DefaultPictureWatermarkLook()
+    {
+        var look = _core.DefaultImageWatermark([], []);
+        return new PictureWatermarkLook(look.Scale * 100, look.Opacity * 100, look.RotationDegrees, look.Layer);
     }
 
     /// <summary>
@@ -49,8 +61,10 @@ public sealed partial class PdfDocumentFacade
                     return Refuse("The document is no longer available.", PdfCoreError.DocumentNotFound);
                 if (!_core.ContentEditingAllowed(session.Document))
                     return Refuse("This document does not permit content changes.", PdfCoreError.UnsupportedOperation);
-                if (string.IsNullOrWhiteSpace(request.Text))
+                if (request.Mark is TextMark { Text: var typed } && string.IsNullOrWhiteSpace(typed))
                     return Refuse("Type the text to stamp on the pages.", PdfCoreError.UnsupportedOperation);
+                if (request.Mark is PictureMark { Image.Length: 0 })
+                    return Refuse("Choose a PNG or JPEG picture to stamp on the pages.", PdfCoreError.InvalidImage);
 
                 var total = session.Document.PageCount;
                 if (total == 0)
@@ -66,19 +80,18 @@ public sealed partial class PdfDocumentFacade
                     _ => _core.ParsePageSelection(request.PageRange, total),
                 };
 
-                // The colour is the core's: the dialog does not ask for one.
-                var look = _core.DefaultWatermark(pages, request.Text);
-                _core.ApplyEdit(session.Document, new PdfCoreEdit.AddWatermark(look with
-                {
-                    FontSizePt = request.FontSizePt,
-                    Opacity = request.OpacityPercent / 100,
-                    RotationDegrees = request.RotationDegrees,
-                }));
+                _core.ApplyEdit(session.Document, StampFor(request, pages));
                 session.EditRevision++;
                 session.HasRecordedPreviewEdit = true;
             }
             var preview = await RefreshPreviewAsync(session, operation, null).ConfigureAwait(false);
             return OperationResult<WatermarkAdded>.Success(new WatermarkAdded(pages, preview));
+        }
+        // The core's own InvalidImage sentence is about "the image"; here the
+        // reader picked a file, and that is the thing to change.
+        catch (PdfCoreException error) when (error.Category == PdfCoreError.InvalidImage)
+        {
+            return Refuse("That file could not be read as a PNG or JPEG picture. Choose another one.", PdfCoreError.InvalidImage);
         }
         catch (PdfCoreException error) { return OperationResult<WatermarkAdded>.Failure(MapError(error, operation, sessionId, null)); }
         catch (Exception error) { return OperationResult<WatermarkAdded>.Failure(MapUnexpected(error, operation, sessionId, null)); }
@@ -87,4 +100,27 @@ public sealed partial class PdfDocumentFacade
         OperationResult<WatermarkAdded> Refuse(string message, PdfCoreError category) =>
             OperationResult<WatermarkAdded>.Failure(CreateError(message, category, operation, sessionId, null));
     }
+
+    /// <summary>
+    /// The core's default look for the kind of mark, with only what the dialog
+    /// asks for laid over it — the colour stays the core's.
+    /// </summary>
+    private PdfCoreEdit StampFor(WatermarkRequest request, IReadOnlyList<uint> pages) => request.Mark switch
+    {
+        PictureMark picture => new PdfCoreEdit.AddImageWatermark(_core.DefaultImageWatermark(pages, picture.Image) with
+        {
+            Scale = picture.ScalePercent / 100,
+            Opacity = request.OpacityPercent / 100,
+            RotationDegrees = request.RotationDegrees,
+            Layer = request.Layer,
+        }),
+        TextMark text => new PdfCoreEdit.AddWatermark(_core.DefaultWatermark(pages, text.Text) with
+        {
+            FontSizePt = text.FontSizePt,
+            Opacity = request.OpacityPercent / 100,
+            RotationDegrees = request.RotationDegrees,
+            Layer = request.Layer,
+        }),
+        _ => throw new ArgumentOutOfRangeException(nameof(request)),
+    };
 }

@@ -26,6 +26,9 @@ struct ViewerSheets: ViewModifier {
             .sheet(isPresented: $model.isProtectPresented) {
                 ProtectSheet(model: model)
             }
+            .sheet(isPresented: $model.isWatermarkPresented) {
+                WatermarkSheet(model: model)
+            }
             .sheet(isPresented: isPresentingNoteSheet) {
                 NoteSheet(store: model.store)
             }

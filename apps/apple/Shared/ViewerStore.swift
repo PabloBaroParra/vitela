@@ -110,6 +110,10 @@ final class ViewerStore: ObservableObject {
     /// Organize-grid pictures by page position — `ViewerStore+Thumbnails.swift`.
     @Published var thumbnails: [Int: RenderedPage] = [:]
     var thumbnailsRequested: Set<Int> = []
+    /// Organize's Documents view — `ViewerStore+Blocks.swift`: the blocks
+    /// as last read, and the file each imported block came from.
+    @Published var documentBlocks: [DocumentBlock] = []
+    var importedSourceNames: [UInt64: String] = [:]
     // Annotation state, owned by `ViewerStore+Annotations.swift`.
     @Published var annotations: [Annotation] = []
     /// The file's comments and this session's notes — read-only.

@@ -23,7 +23,7 @@ extension UniFfiPdfCoreClient {
         }
     }
 
-    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> Int {
+    func importPrepared(document: any PdfDocument, sources: [any ImportSource]) throws -> ImportedBatch {
         let handle = try handle(of: document)
         let prepared = try sources.map { source -> PreparedImport in
             guard let source = source as? UniFfiImportSource else {
@@ -34,7 +34,20 @@ extension UniFfiPdfCoreClient {
         let report = try Self.mapEditErrors {
             try Vitela.importPrepared(handle: handle, sources: prepared, index: UInt32(handle.pageCount()))
         }
-        return Int(report.pageCount)
+        return ImportedBatch(pageCount: Int(report.pageCount), sourceIds: report.sourceIds)
+    }
+
+    func documentBlocks(document: any PdfDocument) -> [DocumentBlock] {
+        guard let handle = try? handle(of: document) else { return [] }
+        return Vitela.documentBlocks(handle: handle).map { block in
+            let source: BlockSource
+            switch block.source {
+            case .base: source = .base
+            case .blank: source = .blank
+            case let .imported(id): source = .imported(id: id)
+            }
+            return DocumentBlock(source: source, part: block.part.map(Int.init), start: Int(block.start), count: Int(block.count))
+        }
     }
 }
 

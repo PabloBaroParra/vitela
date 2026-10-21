@@ -26,6 +26,8 @@ final class ViewerViewModel: ObservableObject {
     @Published var isCompressPresented = false
     /// Whether the Protect sheet is up — `ViewerViewModel+Protect.swift`.
     @Published var isProtectPresented = false
+    /// Whether the Add watermark sheet is up — `ViewerViewModel+Watermark.swift`.
+    @Published var isWatermarkPresented = false
     /// Whether the Organize grid stands in for the reader — see
     /// `ViewerViewModel+Pages.swift`.
     @Published var isOrganizing = false
@@ -43,6 +45,11 @@ final class ViewerViewModel: ObservableObject {
     @Published var imageInsertBytes: Data?
     /// The Organize card being dragged, if any.
     var organizePageDrag: OrganizePageDrag?
+    /// Organize opens on Documents, as on Linux and Windows; off shows Pages
+    /// — `ViewerViewModel+OrganizeDocuments.swift`.
+    @Published var organizeShowsDocuments = true
+    /// The Documents card being dragged, if any.
+    var organizeBlockDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
     @Published var isImporting = false
     let importPrompts: ImportPrompts

@@ -20,9 +20,15 @@ internal static class WatermarkParityTests
         await AForbiddenDocumentIsRefusedAsync();
         await AStaleSessionIsRefusedAsync();
         await UndoTakesTheWholeStampBackAsync();
+        await APictureIsRecordedUntouchedWithItsScaleAndLayerAsync();
+        await ATextStampCarriesTheLayerTheReaderChoseAsync();
+        await AFileThatIsNotAPictureIsRefusedInWordsAndRecordsNothingAsync();
+        await NoPictureChosenIsRefusedBeforeTheCoreAsync();
+        await APictureStampIsOneUndoStepAsync();
         await TheStampSurvivesAFailedPreviewAsync();
         TheDefaultLookComesFromTheCoreInPercent();
         TheDefaultLookSitsInsideTheDialogsRanges();
+        ThePictureDefaultLookComesFromTheCore();
         TheSummaryCountsPagesInWords();
     }
 
@@ -39,9 +45,14 @@ internal static class WatermarkParityTests
         string range = "",
         uint current = 0,
         string text = "DRAFT") =>
-        new(pages, range, current, text, DefaultLook.FontSizePt, DefaultLook.OpacityPercent, DefaultLook.RotationDegrees);
+        new(pages, range, current, new TextMark(text, DefaultLook.FontSizePt), DefaultLook.OpacityPercent, DefaultLook.RotationDegrees, DefaultLook.Layer);
+
+    private static WatermarkRequest PictureRequest(byte[]? image = null, double scalePercent = 80, WatermarkPages pages = WatermarkPages.All) =>
+        new(pages, "", 0, new PictureMark(image ?? FakeCore.ValidPicture, scalePercent),
+            DefaultPictureLook.OpacityPercent, DefaultPictureLook.RotationDegrees, DefaultPictureLook.Layer);
 
     private static readonly WatermarkLook DefaultLook = new PdfDocumentFacade(new FakeCore(), new RecordingLogger()).DefaultWatermarkLook();
+    private static readonly PictureWatermarkLook DefaultPictureLook = new PdfDocumentFacade(new FakeCore(), new RecordingLogger()).DefaultPictureWatermarkLook();
 
     private static async Task AStampIsOneEditOverTheChosenPagesAsync()
     {
@@ -64,7 +75,7 @@ internal static class WatermarkParityTests
         var (core, facade, session) = await OpenAsync();
         using var disposeFacade = facade;
 
-        var chosen = Request(WatermarkPages.Current, current: 1, text: " COPY") with { FontSizePt = 24, OpacityPercent = 50, RotationDegrees = -30 };
+        var chosen = Request(WatermarkPages.Current, current: 1) with { Mark = new TextMark(" COPY", 24), OpacityPercent = 50, RotationDegrees = -30 };
         Check((await facade.AddWatermarkAsync(session, chosen)).IsSuccess, "a custom look is accepted");
 
         var stamp = core.Watermarks.Single().Watermark;
@@ -158,6 +169,75 @@ internal static class WatermarkParityTests
         Check(core.Watermarks.Count == 1, "undo did not ask for a second stamp");
     }
 
+    private static async Task APictureIsRecordedUntouchedWithItsScaleAndLayerAsync()
+    {
+        var (core, facade, session) = await OpenAsync();
+        using var disposeFacade = facade;
+        byte[] picture = [0x89, 1, 2, 3];
+
+        var added = await facade.AddWatermarkAsync(session, PictureRequest(picture, 80));
+
+        Check(added.IsSuccess && added.Value!.Pages.SequenceEqual([0u, 1u, 2u]), "a picture is stamped on every chosen page");
+        Check(core.Watermarks.Count == 0, "a picture is not recorded as a text stamp");
+        var stamp = core.ImageWatermarks.Single().Watermark;
+        Check(stamp.Image.SequenceEqual(picture), "the picked bytes reach the core untouched");
+        Check(stamp.Scale == 0.8, "the size is asked in percent of the page and recorded as a fraction");
+        Check((stamp.Opacity, stamp.RotationDegrees, stamp.Layer) == (0.3, 0.0, WatermarkLayer.UnderContent), "the look is the core's picture look");
+        Check(core.RefreshPreviewCalls == 1, "the preview is rebuilt once");
+    }
+
+    private static async Task ATextStampCarriesTheLayerTheReaderChoseAsync()
+    {
+        var (core, facade, session) = await OpenAsync();
+        using var disposeFacade = facade;
+
+        var behind = Request() with { Layer = WatermarkLayer.UnderContent };
+        Check((await facade.AddWatermarkAsync(session, behind)).IsSuccess, "text behind the content is accepted");
+
+        Check(core.Watermarks.Single().Watermark.Layer == WatermarkLayer.UnderContent, "the layer reaches the core instead of a hardcoded over");
+    }
+
+    private static async Task AFileThatIsNotAPictureIsRefusedInWordsAndRecordsNothingAsync()
+    {
+        var (core, facade, session) = await OpenAsync();
+        using var disposeFacade = facade;
+
+        var refused = await facade.AddWatermarkAsync(session, PictureRequest([0x25, 0x50, 0x44, 0x46]));
+
+        Check(!refused.IsSuccess && refused.Error!.Message == "That file could not be read as a PNG or JPEG picture. Choose another one.", "an undecodable file is refused in plain words");
+        Check(core.ImageWatermarks.Count == 0 && core.RefreshPreviewCalls == 0 && !core.LastDocument!.CanUndo, "nothing is recorded or refreshed");
+    }
+
+    private static async Task NoPictureChosenIsRefusedBeforeTheCoreAsync()
+    {
+        var (core, facade, session) = await OpenAsync();
+        using var disposeFacade = facade;
+
+        var refused = await facade.AddWatermarkAsync(session, PictureRequest([]));
+
+        Check(!refused.IsSuccess && refused.Error!.Message == "Choose a PNG or JPEG picture to stamp on the pages.", "no picture asks for one");
+        Check(core.ImageWatermarks.Count == 0 && core.ImageWatermarkAttempts == 0, "the core is not asked");
+    }
+
+    private static async Task APictureStampIsOneUndoStepAsync()
+    {
+        var (_, facade, session) = await OpenAsync();
+        using var disposeFacade = facade;
+        await facade.AddWatermarkAsync(session, PictureRequest());
+
+        var undone = await facade.UndoAsync(session);
+
+        Check(undone.IsSuccess && !undone.Value!.CanUndo && undone.Value.CanRedo, "one undo takes the whole picture stamp back");
+    }
+
+    private static void ThePictureDefaultLookComesFromTheCore()
+    {
+        Check(DefaultPictureLook == new PictureWatermarkLook(50, 30, 0, WatermarkLayer.UnderContent), "upright, half the page, faded, behind — as percent");
+        Check(DefaultLook.Layer == WatermarkLayer.OverContent, "the text look starts over the content");
+        Check(DefaultPictureLook.ScalePercent is >= WatermarkLimits.MinScalePercent and <= WatermarkLimits.MaxScalePercent, "the default size fits the range");
+        Check(DefaultPictureLook.RotationDegrees is >= WatermarkLimits.MinRotationDegrees and <= WatermarkLimits.MaxRotationDegrees, "the default picture angle fits the range");
+    }
+
     private static async Task TheStampSurvivesAFailedPreviewAsync()
     {
         var (core, facade, session) = await OpenAsync(new FakeCore { PageCount = 3, RefreshPreviewThrows = true });
@@ -171,7 +251,7 @@ internal static class WatermarkParityTests
 
     private static void TheDefaultLookComesFromTheCoreInPercent()
     {
-        Check(DefaultLook == new WatermarkLook(60, 30, 45), "the core's 0.3 opacity is asked as 30 percent");
+        Check(DefaultLook == new WatermarkLook(60, 30, 45, WatermarkLayer.OverContent), "the core's 0.3 opacity is asked as 30 percent");
     }
 
     /// <summary>
@@ -203,12 +283,30 @@ sealed partial class FakeCore
 {
     public static readonly PdfCoreColor DefaultWatermarkColor = new(128, 128, 128);
     public List<PdfCoreEdit.AddWatermark> Watermarks { get; } = [];
+    public List<PdfCoreEdit.AddImageWatermark> ImageWatermarks { get; } = [];
+    public int ImageWatermarkAttempts { get; private set; }
+
+    /// <summary>A PNG's first byte, which is all the fake decoder looks at; anything else is not a picture.</summary>
+    public static readonly byte[] ValidPicture = [0x89, 0x50, 0x4E, 0x47];
 
     public PdfCoreWatermark DefaultWatermark(IReadOnlyList<uint> pages, string text) =>
-        new(pages, text, 60, DefaultWatermarkColor, 0.3, 45);
+        new(pages, text, 60, DefaultWatermarkColor, 0.3, 45, WatermarkLayer.OverContent);
+
+    // A copy of Watermark::picture's look: upright, half the page, faded, behind.
+    public PdfCoreImageWatermark DefaultImageWatermark(IReadOnlyList<uint> pages, byte[] image) =>
+        new(pages, image, 0.5, 0.3, 0, WatermarkLayer.UnderContent);
 
     private bool TryApplyWatermark(FakeDocument fake, PdfCoreEdit edit)
     {
+        if (edit is PdfCoreEdit.AddImageWatermark picture)
+        {
+            ImageWatermarkAttempts++;
+            if (!fake.ContentEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
+            if (picture.Watermark.Image is not [0x89, ..]) throw new PdfCoreException(PdfCoreError.InvalidImage, "InvalidImage");
+            ImageWatermarks.Add(picture);
+            fake.Apply(edit);
+            return true;
+        }
         if (edit is not PdfCoreEdit.AddWatermark stamp) return false;
         if (!fake.ContentEditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "content editing is not permitted");
         if (UnencodableCharacter is { } character && stamp.Watermark.Text.Contains(character, StringComparison.Ordinal))
