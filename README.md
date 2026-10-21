@@ -156,7 +156,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Export to images | ✅ | ✅ | 🚧 | ✅ | — |
 | Compress to a smaller PDF | ✅ | ✅ | 🚧 | ✅ | — |
 | Add a text watermark | ✅ | ✅ | 🚧 | ✅ | — |
-| Add a picture watermark, over or behind the content | ✅ | 🚧 | 🚧 | 🚧 | — |
+| Add a picture watermark, over or behind the content | ✅ | ✅ | 🚧 | ✅ | — |
 | Sign | ✅ | ✅ | 🚧 | ✅ | — |
 | Draw a signature | ✅ | ✅ | 🚧 | ✅ | — |
 | Fillable forms | ✅ | 🚧 | 🚧 | ✅ | — |

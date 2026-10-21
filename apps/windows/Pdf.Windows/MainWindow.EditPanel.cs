@@ -43,7 +43,7 @@ public sealed partial class MainWindow
         // .edit-tile: the cards' buttons are tiles; an armed mode (Edit content, Insert text/image) moves its border to the accent.
         foreach (var mode in new[] { ContentEditButton, InsertTextButton, InsertImageButton })
             mode.Style = NamedStyle("EditTileToggleStyle");
-        ToolbarIcon(AddWatermarkButton, ShellIcon.Text, "Add watermark", "Stamp the same text across the pages you choose", "Add watermark", EditIconSize, IconTint.Accent);
+        ToolbarIcon(AddWatermarkButton, ShellIcon.Text, "Add watermark", "Stamp the same text or picture across the pages you choose", "Add watermark", EditIconSize, IconTint.Accent);
         foreach (var tile in new Button[] { DeleteTextButton, ReplaceImageButton, DeleteImageButton, AddWatermarkButton })
             tile.Style = NamedStyle("EditTileButtonStyle");
 
