@@ -95,6 +95,10 @@ responsibility:
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
   `SignaturePng.swift` — Draw Signature: the remembered signature, the pad's
   strokes as a PNG, and arming the stamp with it.
+- `Vitela/Views/AnnotationGeometrySheet.swift` — the selected
+  annotation's Position… and Size…: exact X/Y or width/height in points,
+  over the same core move and resize a drag records
+  (`../apple/Shared/ViewerStore+AnnotationGeometry.swift`).
 - `Vitela/Views/NoteTooltipLayer.swift` — a note's text as a native
   tooltip while the pointer rests on it, without taking any click.
 - `Vitela/Views/SearchResultsPanel.swift` — every match of the search,
