@@ -15,7 +15,7 @@ extension ViewerStore {
         case edit(PageEdit)
         /// Every page of each prepared source, appended as one undo step —
         /// `ViewerStore+Import.swift`.
-        case importSources([any ImportSource])
+        case importSources([any ImportSource], names: [String])
         /// A form field's new value — `ViewerStore+Forms.swift`. The value is
         /// painted by the PDF itself, so it needs the same refresh.
         case fillField(id: UInt64, value: FieldValue)
@@ -43,6 +43,8 @@ extension ViewerStore {
         let pages: Result<[PageDimensions], EditFailure>
         /// What the status line reports for an applied step.
         var done: String?
+        /// The file names of the blocks an import added, by block id.
+        var importedNames: [UInt64: String] = [:]
     }
 
     var canEditPages: Bool { document != nil && !pageWorkInFlight }
@@ -51,7 +53,7 @@ extension ViewerStore {
     /// why it cannot run and returns `nil`.
     func beginPageEdit(_ edit: PageEdit) -> PageWorkRequest? {
         guard let document, !pageWorkInFlight else { return nil }
-        if let refusal = refusal(for: edit) {
+        if let refusal = edit.refusal(pageCount: pageSlots.count) {
             editStatus = refusal
             return nil
         }
@@ -70,13 +72,16 @@ extension ViewerStore {
     /// Thread-safe: only the immutable client and the request's own document.
     func pageWorkResult(for request: PageWorkRequest) -> PageWorkOutcome {
         let done: String?
+        var importedNames: [UInt64: String] = [:]
         do {
             switch request.work {
             case let .edit(edit):
                 try client.applyPageEdit(document: request.document, edit: edit)
-                done = Self.doneMessage(for: edit)
-            case let .importSources(sources):
-                let added = try client.importPrepared(document: request.document, sources: sources)
+                done = edit.done
+            case let .importSources(sources, names):
+                let batch = try client.importPrepared(document: request.document, sources: sources)
+                importedNames = Dictionary(zip(batch.sourceIds, names), uniquingKeysWith: { first, _ in first })
+                let added = batch.pageCount
                 done = "Imported \(added) \(added == 1 ? "page" : "pages") from \(sources.count) \(sources.count == 1 ? "PDF" : "PDFs")."
             case let .fillField(id, value):
                 try client.setFieldValue(document: request.document, fieldId: id, value: value)
@@ -100,9 +105,11 @@ extension ViewerStore {
         do {
             try client.refreshPreview(document: request.document)
         } catch {
-            return PageWorkOutcome(applied: applied, pages: .failure(Self.editFailure(error)), done: done)
+            return PageWorkOutcome(applied: applied, pages: .failure(Self.editFailure(error)), done: done, importedNames: importedNames)
         }
-        return PageWorkOutcome(applied: applied, pages: .success(client.pageDimensions(document: request.document)), done: done)
+        return PageWorkOutcome(
+            applied: applied, pages: .success(client.pageDimensions(document: request.document)), done: done, importedNames: importedNames
+        )
     }
 
     func applyPageWork(_ outcome: PageWorkOutcome, for request: PageWorkRequest) {
@@ -111,6 +118,8 @@ extension ViewerStore {
         if outcome.applied {
             pagesEdited = true
         }
+        importedSourceNames.merge(outcome.importedNames) { _, new in new }
+        refreshDocumentBlocks()
         switch outcome.pages {
         case let .success(pages):
             bumpGeneration()
@@ -133,33 +142,6 @@ extension ViewerStore {
             } else {
                 editStatus = failure.localizedDescription
             }
-        }
-    }
-
-    private func refusal(for edit: PageEdit) -> String? {
-        let count = pageSlots.count
-        switch edit {
-        case let .rotate(page, degrees):
-            // A turn by a whole number of revolutions changes nothing and
-            // would still cost an undo step.
-            guard (0..<count).contains(page), degrees % 90 == 0, degrees % 360 != 0 else { return "Invalid page position." }
-        case let .remove(page):
-            guard (0..<count).contains(page) else { return "Invalid page position." }
-            guard count > 1 else { return "A document needs at least one page." }
-        case let .insertBlank(at, _):
-            guard (0...count).contains(at) else { return "Invalid page position." }
-        case let .move(from, to):
-            guard (0..<count).contains(from), (0..<count).contains(to), from != to else { return "Invalid page position." }
-        }
-        return nil
-    }
-
-    private static func doneMessage(for edit: PageEdit) -> String {
-        switch edit {
-        case .rotate: return "Page rotated."
-        case .remove: return "Page deleted."
-        case .insertBlank: return "Blank page added."
-        case .move: return "Page moved."
         }
     }
 }

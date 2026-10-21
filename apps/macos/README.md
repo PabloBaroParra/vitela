@@ -79,6 +79,12 @@ responsibility:
   page edits on the queue.
 - `Vitela/ViewerViewModel+Import.swift` — Organize ▸ Add PDFs: picking,
   per-source passwords and warnings, then one undoable import.
+- `Vitela/ViewerViewModel+OrganizeDocuments.swift`,
+  `Views/OrganizeDocumentsList.swift` — Organize's Documents view, where it
+  opens: one card per run of pages from the same PDF (named by its file),
+  moved by its buttons or by a drag to a gap, turned or deleted whole. The
+  grouping is the core's `document_blocks`
+  (`../apple/Shared/ViewerStore+Blocks.swift`).
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
