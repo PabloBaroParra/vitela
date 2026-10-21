@@ -75,6 +75,10 @@ final class FakePdfCoreClient: PdfCoreClient {
     var importRefusalText: String?
     /// Sources by their file bytes; a source with a password needs it typed.
     var importSources: [Data: FakeImportSource] = [:]
+    /// The last block id an import reported.
+    var nextImportId: UInt64 = 40
+    /// The Documents blocks to report; `nil` reports one base block.
+    var blocks: [DocumentBlock]?
     var preparedPasswords: [String?] = []
     var importError: Error?
     var invalidatesSignatures = false
@@ -214,6 +218,16 @@ final class FakePdfCoreClient: PdfCoreClient {
             layout.insert(a4, at: at)
         case let .move(from, to):
             layout.insert(layout.remove(at: from), at: to)
+        case let .rotateBlock(from, count, degrees):
+            if (degrees / 90) % 2 != 0 {
+                for page in from..<(from + count) { layout[page] = PageDimensions(width: layout[page].height, height: layout[page].width) }
+            }
+        case let .removeBlock(from, count):
+            layout.removeSubrange(from..<(from + count))
+        case let .moveBlock(from, count, to):
+            let moved = Array(layout[from..<(from + count)])
+            layout.removeSubrange(from..<(from + count))
+            layout.insert(contentsOf: moved, at: to)
         }
         record(Snapshot(info: try documentInfo(document: document), pages: layout, annotations: currentAnnotations, fieldValues: currentFieldValues))
     }

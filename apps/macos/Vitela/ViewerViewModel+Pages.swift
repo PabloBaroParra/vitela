@@ -19,12 +19,17 @@ extension ViewerViewModel {
 
     /// Runs page work on the queue — behind any render of the old layout —
     /// and applies the outcome on main.
-    func enqueuePageWork(_ request: ViewerStore.PageWorkRequest?) {
+    /// `landed`, when given, hears the outcome on the main thread once the
+    /// store has applied it — a sheet that waits to know whether to close.
+    func enqueuePageWork(_ request: ViewerStore.PageWorkRequest?, landed: ((ViewerStore.PageWorkOutcome) -> Void)? = nil) {
         guard let request else { return }
         operationQueue.addOperation { [weak self] in
             guard let self else { return }
             let outcome = self.store.pageWorkResult(for: request)
-            DispatchQueue.main.async { self.store.applyPageWork(outcome, for: request) }
+            DispatchQueue.main.async {
+                self.store.applyPageWork(outcome, for: request)
+                landed?(outcome)
+            }
         }
     }
 
