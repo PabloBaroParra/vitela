@@ -61,6 +61,12 @@ struct VitelaCommands: Commands {
                 .disabled(!model.store.canRedo || model.store.pageWorkInFlight)
         }
         CommandMenu("Go") {
+            Button(model.showsHome ? "Return to Document" : "Home") {
+                model.showsHome ? model.returnToDocument() : model.showHome()
+            }
+            .keyboardShortcut("h", modifiers: [.command, .shift])
+            .disabled(model.store.document == nil)
+            Divider()
             // Previous/Next and Go to Page use Preview's shortcuts; First/Last
             // map the Windows shell's Ctrl+Home/End onto Command.
             Button("Previous Page") { model.store.stepPage(by: -1) }
