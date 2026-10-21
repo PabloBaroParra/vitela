@@ -227,4 +227,18 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         model.replaceSelectedImage()
         waitUntil({ !model.store.pageWorkInFlight && client.contentEdits == [.replaceImage(photo, with: Data([1]))] }, "the replace never ran")
     }
+
+    func testTheEditTextSheetsMoveClosesItAndMovesTheLine() {
+        let (client, model) = model()
+        model.setContentEditMode(true)
+        readPage(model)
+        model.contentTextEditor = line
+
+        XCTAssertEqual(model.moveText(line, toX: .infinity, y: 0), ViewerStore.ContentGeometry.invalidPosition)
+        XCTAssertEqual(model.contentTextEditor, line, "a bad number keeps the sheet open")
+        XCTAssertNil(model.moveText(line, toX: 200, y: 600))
+
+        XCTAssertNil(model.contentTextEditor)
+        waitUntil({ client.contentEdits == [.moveText(line, to: PdfRect(x: 200, y: 600, width: 120, height: 14))] }, "the line never moved")
+    }
 }

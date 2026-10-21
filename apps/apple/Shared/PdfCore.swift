@@ -113,6 +113,9 @@ protocol PdfCoreClient {
     /// Whether `run` was moved and not saved since — such a run cannot be
     /// retyped until the document is saved and reopened.
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool
+    /// The core's first look for an Add watermark stamp of `kind` —
+    /// `PdfCore+Watermark.swift`. Recording one is `applyContentEdit`.
+    func defaultWatermarkLook(_ kind: WatermarkKind) -> WatermarkLook
     func undo(document: any PdfDocument) -> Bool
     func redo(document: any PdfDocument) -> Bool
     func canUndo(document: any PdfDocument) -> Bool

@@ -138,15 +138,15 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | ---------- | :----------: | :---------------: | :-------------: | :---------------: | :-----------: |
 | Open a PDF | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Built-in sample document | ✅ | ✅ | 🚧 | ✅ | 🚧 |
-| Recent documents (removable) | ✅ | ✅ | — | ✅ | — |
+| Recent documents (removable) | ✅ | ✅ | 🚧 | ✅ | — |
 | Password-protected PDF | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Multi-page view & scroll | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Fit-to-width rendering | ✅ | ✅ | 🚧 | ✅ | — |
-| Text search & navigate | ✅ | ✅ | — | ✅ | — |
+| Text search & navigate | ✅ | ✅ | 🚧 | ✅ | — |
 | Print | ✅ | ✅ | 🚧 | ✅ | — |
-| Share to another device | — | ✅ | — | — | — |
+| Share to another device | — | ✅ | 🚧 | — | — |
 | Annotate | ✅ | ✅ | 🚧 | ✅ | — |
-| Edit page content | 🚧 | 🚧 | — | 🚧 | — |
+| Edit page content | 🚧 | 🚧 | 🚧 | 🚧 | — |
 | Edit metadata | ✅ | ✅ | 🚧 | ✅ | — |
 | Organize & assemble pages | ✅ | ✅ | 🚧 | ✅ | — |
 | Extract pages to a new PDF | ✅ | ✅ | 🚧 | ✅ | — |
@@ -155,8 +155,8 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Protect with a password | ✅ | ✅ | 🚧 | ✅ | — |
 | Export to images | ✅ | ✅ | 🚧 | ✅ | — |
 | Compress to a smaller PDF | ✅ | ✅ | 🚧 | ✅ | — |
-| Add a text watermark | ✅ | ✅ | — | ✅ | — |
-| Add a picture watermark, over or behind the content | ✅ | 🚧 | — | 🚧 | — |
+| Add a text watermark | ✅ | ✅ | 🚧 | ✅ | — |
+| Add a picture watermark, over or behind the content | ✅ | ✅ | 🚧 | ✅ | — |
 | Sign | ✅ | ✅ | 🚧 | ✅ | — |
 | Draw a signature | ✅ | ✅ | 🚧 | ✅ | — |
 | Fillable forms | ✅ | 🚧 | 🚧 | ✅ | — |

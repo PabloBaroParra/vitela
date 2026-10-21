@@ -17,12 +17,12 @@ struct ViewerRootView: View {
             AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
             Divider()
             HStack(spacing: 0) {
-                if model.showsPages && !model.store.pageSlots.isEmpty {
+                if model.showsPages && !model.store.pageSlots.isEmpty && !model.showsHome {
                     PagesSidebar(model: model)
                         .frame(width: 136)
                     Divider()
                 }
-                if model.store.pageSlots.isEmpty {
+                if model.store.pageSlots.isEmpty || model.showsHome {
                     placeholder
                 } else if model.isOrganizing {
                     OrganizeView(model: model)
