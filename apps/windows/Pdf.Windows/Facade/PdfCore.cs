@@ -207,6 +207,14 @@ internal interface IPdfCore
     /// </summary>
     PdfCoreWatermark DefaultWatermark(IReadOnlyList<uint> pages, string text);
 
+    /// <summary>
+    /// A picture watermark of <paramref name="image"/> with the core's default
+    /// picture look: upright, half the page, faded, behind the content. The
+    /// bytes are not checked here; <see cref="ApplyEdit"/> refuses a file that
+    /// does not decode as <see cref="PdfCoreError.InvalidImage"/>.
+    /// </summary>
+    PdfCoreImageWatermark DefaultImageWatermark(IReadOnlyList<uint> pages, byte[] image);
+
     /// <summary>The inverse of <see cref="PlacePoint"/>: a pointer position back into page space.</summary>
     AnnotationPoint PointToPdf(PlacedPoint point, PagePlacement page);
 
@@ -478,6 +486,12 @@ internal abstract record PdfCoreEdit
     /// anything is recorded.
     /// </summary>
     public sealed record AddWatermark(PdfCoreWatermark Watermark) : PdfCoreEdit;
+
+    /// <summary>
+    /// The same, with a picture: a file that does not decode is
+    /// <see cref="PdfCoreError.InvalidImage"/> before anything is recorded.
+    /// </summary>
+    public sealed record AddImageWatermark(PdfCoreImageWatermark Watermark) : PdfCoreEdit;
 }
 
 /// <summary>
@@ -493,7 +507,21 @@ internal sealed record PdfCoreWatermark(
     double FontSizePt,
     PdfCoreColor Color,
     double Opacity,
-    double RotationDegrees);
+    double RotationDegrees,
+    WatermarkLayer Layer);
+
+/// <summary>
+/// Mirrors <c>FfiImageWatermark</c>: <paramref name="Image"/> is the picked
+/// PNG or JPEG untouched; <paramref name="Scale"/> is the share of the page it
+/// may cover, <c>0</c> exclusive to <c>1</c> inclusive.
+/// </summary>
+internal sealed record PdfCoreImageWatermark(
+    IReadOnlyList<uint> Pages,
+    byte[] Image,
+    double Scale,
+    double Opacity,
+    double RotationDegrees,
+    WatermarkLayer Layer);
 
 internal sealed record PdfCoreFormField(ulong Id, uint PageIndex, string Name, FormFieldKind Kind, FormFieldValue Value, FormTextStyle? Style = null, PdfCoreRect? Rect = null);
 
