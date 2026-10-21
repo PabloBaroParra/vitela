@@ -5,6 +5,8 @@ import SwiftUI
 /// position, so the card never has to know which index it sits at.
 struct OrganizePageCard: View {
     let number: Int
+    /// Which PDF the page came from, once the document mixes more than one.
+    var source: String?
     let thumbnail: RenderedPage?
     let enabled: Bool
     /// False for a document's only page: a PDF needs at least one.
@@ -16,6 +18,14 @@ struct OrganizePageCard: View {
         VStack(spacing: 6) {
             picture
                 .frame(width: ViewerStore.thumbnailBox, height: ViewerStore.thumbnailBox)
+            if let source {
+                Text(source)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(source)
+            }
             HStack(spacing: 2) {
                 Text("\(number)")
                     .font(.system(.body, design: .monospaced))
@@ -54,7 +64,7 @@ struct OrganizePageCard: View {
         .frame(width: ViewerStore.thumbnailBox + 16)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Page \(number)")
+        .accessibilityLabel(source.map { "Page \(number), from \($0)" } ?? "Page \(number)")
     }
 
     @ViewBuilder private var picture: some View {

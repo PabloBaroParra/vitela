@@ -44,6 +44,19 @@ extension ViewerStore {
         }
     }
 
+    /// What each Pages card says about where its page came from — Linux's
+    /// `source_names`: nothing while every page shares one source (naming it
+    /// on every card is noise), and every card's source, the opened file's
+    /// included, once there is more than one.
+    func pageSourceNames(baseName: String) -> [String?] {
+        let rows = documentBlockRows(baseName: baseName)
+        let mixed = Set(rows.map(\.block.source)).count > 1
+        return rows.flatMap { row -> [String?] in
+            let name = row.block.source == .blank ? DocumentBlocks.blankPageName : row.name
+            return Array(repeating: mixed ? name : nil, count: row.block.count)
+        }
+    }
+
     /// Starts `action` on block `position`, or says why not.
     func beginBlockEdit(_ position: Int, _ action: BlockAction) -> PageWorkRequest? {
         guard documentBlocks.indices.contains(position) else { return nil }

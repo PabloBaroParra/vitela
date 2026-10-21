@@ -3,7 +3,7 @@
 import Foundation
 
 /// Which PDF a block's pages come from — mirrors `FfiBlockSource`.
-enum BlockSource: Equatable {
+enum BlockSource: Hashable {
     /// The PDF the document was opened from.
     case base
     /// Pages with no source PDF at all — inserted blank pages.
@@ -56,6 +56,8 @@ enum DocumentBlocks {
     static let documentsHint = "Drag a document to move all of its pages."
     static let pagesHint = "Drag a page to reorder it."
     static let blankName = "Blank pages"
+    /// One sourceless page, as a Pages card names it.
+    static let blankPageName = "Blank page"
     /// A block whose import this session did not see — Linux's fallback.
     static let importedName = "Imported PDF"
 
