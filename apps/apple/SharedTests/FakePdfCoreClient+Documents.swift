@@ -188,7 +188,7 @@ extension FakePdfCoreClient {
             replaceImage(image) { [ContentImage(id: $0.id, page: $0.page, bbox: rect, resourceXObjectName: $0.resourceXObjectName)] }
         case let .removeImage(image):
             replaceImage(image) { _ in [] }
-        case .replaceImage:
+        case .replaceImage, .addWatermark:
             break
         case let .insertImage(page, rect, _):
             let content = pageContents[page] ?? PageContent(textRuns: [], images: [])

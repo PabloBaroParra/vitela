@@ -55,6 +55,9 @@ enum ContentEdit: Equatable {
     case replaceImage(ContentImage, with: Data)
     /// A new image on `page` filling `rect`.
     case insertImage(page: Int, rect: PdfRect, bytes: Data)
+    /// The same text stamped on every page `Watermark.pages` names, as one
+    /// undo step — `PdfCore+Watermark.swift`.
+    case addWatermark(Watermark)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -69,6 +72,7 @@ enum ContentEdit: Equatable {
         case .removeImage: return "Image deleted."
         case .replaceImage: return "Image replaced."
         case .insertImage: return "Image inserted."
+        case let .addWatermark(watermark): return Watermarking.summary(count: watermark.pages.count)
         }
     }
 }
