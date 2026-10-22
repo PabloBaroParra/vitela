@@ -274,7 +274,10 @@ struct ViewerRootView: View {
                         .background(PageViewRectReader(space: Self.pageScrollSpace, viewport: scrollSize, zoom: pageZoom(slot)) {
                             model.renderTiles(page: slot.index, visible: $0)
                         })
-                        .onDisappear { model.store.forgetTiles(page: slot.index) }
+                        .onDisappear { [generation = model.store.generation] in
+                            model.store.forgetTiles(page: slot.index)
+                            model.pageLeftView(slot.index, generation: generation)
+                        }
                     }
                 }
                 .padding(ViewerViewModel.pageListPadding)
