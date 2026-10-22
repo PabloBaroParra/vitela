@@ -41,6 +41,11 @@ struct ViewerToolbar: View {
             Button(action: model.share) { Label("Share…", shellIcon: .share) }
                 .help("Send a copy with your changes through Mail, Messages, AirDrop…")
                 .disabled(!model.canShare)
+            // The Output group's fourth button on Linux and Windows.
+            Button(action: model.requestExportImages) { Label("Export images…", shellIcon: .exportImages) }
+                .labelStyle(.iconOnly)
+                .help("Export pages as images")
+                .disabled(!model.canRequestExportImages)
             Button("Copy", action: model.copySelection)
                 .keyboardShortcut("c", modifiers: .command)
                 .disabled(model.store.selectedText == nil)
