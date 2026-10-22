@@ -169,4 +169,63 @@ final class ViewerViewModelImportTests: XCTestCase {
 
         waitUntil({ model.store.pageSlots.count == 1 }, "undo never removed the imported pages")
     }
+
+    func testProgressCountsThePreparedPdfsAndClearsWhenTheImportLands() throws {
+        let client = FakePdfCoreClient(pages: [letter])
+        let script = Script()
+        script.picked = [
+            try source("a.pdf", FakeImportSource(pages: [a5]), in: client),
+            try source("b.pdf", FakeImportSource(pages: [a5]), in: client),
+        ]
+        let model = makeModel(client, script)
+
+        model.importPdfs()
+
+        XCTAssertEqual(model.importProgress, ImportProgress(completed: 0, total: 2))
+        XCTAssertEqual(model.importProgress?.text, "0 of 2 PDFs")
+        waitUntil({ model.store.pageSlots.count == 3 && !model.store.pageWorkInFlight }, "the import never landed")
+        XCTAssertNil(model.importProgress)
+    }
+
+    func testCancelImportDropsThePickBeforeAnythingChanges() throws {
+        let client = FakePdfCoreClient(pages: [letter])
+        let script = Script()
+        script.picked = [
+            try source("a.pdf", FakeImportSource(pages: [a5]), in: client),
+            try source("b.pdf", FakeImportSource(pages: [a5]), in: client),
+        ]
+        let model = makeModel(client, script)
+        model.importPdfs()
+
+        model.cancelImport()
+
+        XCTAssertFalse(model.isImporting)
+        XCTAssertNil(model.importProgress)
+        XCTAssertEqual(model.store.editStatus, ViewerViewModel.importCancelled)
+        // The source already being read still lands; it must be dropped.
+        model.operationQueue.waitUntilAllOperationsAreFinished()
+        let drained = expectation(description: "main queue drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 5)
+        XCTAssertEqual(model.store.pageSlots.count, 1)
+        XCTAssertEqual(client.historyCursor, 0)
+        XCTAssertEqual(model.store.editStatus, ViewerViewModel.importCancelled)
+        XCTAssertFalse(model.store.pageWorkInFlight)
+    }
+
+    func testANewPickAfterACancelIsNotDisturbedByTheCancelledOne() throws {
+        let client = FakePdfCoreClient(pages: [letter])
+        let script = Script()
+        script.picked = [try source("a.pdf", FakeImportSource(pages: [a5]), in: client)]
+        let model = makeModel(client, script)
+        model.importPdfs()
+        model.cancelImport()
+
+        script.picked = [try source("b.pdf", FakeImportSource(pages: [letter, letter]), in: client)]
+        model.importPdfs()
+
+        waitUntil({ model.store.pageSlots.count == 3 && !model.store.pageWorkInFlight }, "the second import never landed")
+        XCTAssertEqual(model.store.pageSlots.map(\.dimensions), [letter, letter, letter])
+        XCTAssertEqual(client.historyCursor, 1)
+    }
 }

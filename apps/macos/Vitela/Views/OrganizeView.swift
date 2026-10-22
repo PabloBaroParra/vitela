@@ -81,7 +81,13 @@ struct OrganizeView: View {
                 .disabled(!model.store.canEditPages)
             Button("Add landscape A4 page") { appendBlankPage(.landscape) }
                 .disabled(!model.store.canEditPages)
-            if model.store.pageWorkInFlight || model.isImporting {
+            if let progress = model.importProgress {
+                ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
+                    .frame(width: 80)
+                Text(progress.text).foregroundStyle(.secondary).monospacedDigit()
+                Button("Cancel import", action: model.cancelImport)
+                    .help("Stop adding the picked PDFs; nothing has changed yet")
+            } else if model.store.pageWorkInFlight {
                 ProgressView().controlSize(.small)
             }
             Button("Done") { model.isOrganizing = false }
