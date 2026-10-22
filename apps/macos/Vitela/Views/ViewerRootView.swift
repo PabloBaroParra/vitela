@@ -9,6 +9,8 @@ struct ViewerRootView: View {
     @Environment(\.displayScale) private var displayScale
     /// The page scroller's own size, which bounds the part of a page in view.
     @State private var scrollSize = CGSize.zero
+    /// The page column's least width, so narrower pages stay centred.
+    @State private var pageColumnWidth = 0.0
     @State private var showsProperties = false
     @State private var showsComments = false
     @State private var showsForm = false
@@ -201,7 +203,9 @@ struct ViewerRootView: View {
 
     private var pageList: some View {
         ScrollViewReader { proxy in
-            ScrollView {
+            // Both axes: a page zoomed wider than the window pans sideways
+            // instead of being cut off at the window's edges.
+            ScrollView([.horizontal, .vertical]) {
                 LazyVStack(spacing: 16) {
                     ForEach(model.store.pageSlots, id: \.index) { slot in
                         ZStack(alignment: .topLeading) {
@@ -274,6 +278,7 @@ struct ViewerRootView: View {
                     }
                 }
                 .padding(ViewerViewModel.pageListPadding)
+                .frame(minWidth: pageColumnWidth)
             }
             .coordinateSpace(name: Self.pageScrollSpace)
             // The recessed surface the pages sit on — Linux's `vitela_canvas`
@@ -305,6 +310,7 @@ struct ViewerRootView: View {
     /// area, so the store can tell which page is current.
     private func scrollSizeChanged(_ size: CGSize) {
         scrollSize = size
+        pageColumnWidth = ViewerViewModel.pageColumnMinimumWidth(for: size)
         model.updateViewport(size)
     }
 

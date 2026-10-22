@@ -29,12 +29,24 @@ extension ViewerViewModel {
     /// The area a page may fill: the scroll view less its padding and, with
     /// always-visible scrollers, the vertical scroller.
     static func pageViewport(for size: CGSize) -> ViewportSize {
-        let scroller = NSScroller.preferredScrollerStyle == .legacy
-            ? Double(NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy))
-            : 0
-        return ViewportSize(
-            width: max(Double(size.width) - 2 * pageListPadding - scroller, 0),
+        ViewportSize(
+            width: max(Double(size.width) - 2 * pageListPadding - verticalScrollerWidth, 0),
             height: max(Double(size.height) - 2 * pageListPadding, 0)
         )
+    }
+
+    /// The width the page column fills at least, so pages narrower than the
+    /// window stay centred while a wider one scrolls sideways — the
+    /// horizontal half of Linux's canvas `ScrolledWindow` and Windows'
+    /// `PageScroller`. Less an always-visible vertical scroller, or a page
+    /// that fits would still scroll by the scroller's width.
+    static func pageColumnMinimumWidth(for size: CGSize) -> Double {
+        max(Double(size.width) - verticalScrollerWidth, 0)
+    }
+
+    private static var verticalScrollerWidth: Double {
+        NSScroller.preferredScrollerStyle == .legacy
+            ? Double(NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy))
+            : 0
     }
 }
