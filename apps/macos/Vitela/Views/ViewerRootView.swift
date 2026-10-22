@@ -159,7 +159,7 @@ struct ViewerRootView: View {
     }
 
     /// Resolves the dropped items' file URLs, then hands them over on main.
-    private static func loadFileURLs(_ providers: [NSItemProvider], then deliver: @escaping ([URL]) -> Void) {
+    static func loadFileURLs(_ providers: [NSItemProvider], then deliver: @escaping ([URL]) -> Void) {
         var urls = [URL?](repeating: nil, count: providers.count)
         let group = DispatchGroup()
         for (index, provider) in providers.enumerated() {

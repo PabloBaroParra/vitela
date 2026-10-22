@@ -101,6 +101,9 @@ responsibility:
 - `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
   card is dragged near its top or bottom edge, with Linux's
   `organize/autoscroll.rs` ramp.
+- `Views/HomeDropZone.swift` — Home's "Start a new task" area: drop a PDF
+  on it or click it to choose one (Linux's `home/hero.rs`, Windows'
+  `HomeDropZone`); the drop goes through `ViewerViewModel+FileDrop.swift`.
 - `Views/ShellIconImage.swift` — draws a `../apple/Shared/ShellIcon.swift`
   drawing from the shared `assets/icons` set (bundled as `Resources/icons`)
   as a template image tinted like the control's text — Linux's `icons.rs`,
