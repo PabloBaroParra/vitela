@@ -733,7 +733,7 @@ ninguno de los dos.
 
 ### Tareas
 - [x] T-055 App SwiftUI vía bindings pdf-ffi; abrir/render/scroll/zoom. [OpenPDF, NavZoom]
-- [ ] T-056 Prompt de contraseña, selección/búsqueda de texto, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
+- [x] T-056 Prompt de contraseña, selección/búsqueda de texto, toolbar de anotaciones, undo/redo. [PwdPDF, TextSelSearch, AnnoCreate, UndoRedo]
       **(2026-08-29 — parcial: prompt de contraseña (`ViewerRootView.alert`, ya estaba hecho pero
       la ficha no lo reflejaba) + selección de texto arrastrando y búsqueda de documento
       completo cerrados. Mismo patrón que Windows T-061: `pdf-ffi` ya exponía
@@ -753,9 +753,19 @@ ninguno de los dos.
       (origen abajo-izquierda); `ViewerRootView` gana una barra de búsqueda (Cmd+F enfoca,
       Return busca, Previous/Next con wraparound) y un botón Copy con Cmd+C que lee
       `store.selectedText`.
-      Anotaciones + undo/redo siguen sin empezar.
-- [ ] T-057 NSPrintOperation vía render_page. [Print]
-- [ ] T-058 NSPasteboard paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
+      **(Cerrada: undo/redo con Cmd+Z / Shift+Cmd+Z en #394; toolbar de anotaciones en
+      #410 (markup) a #413 (seleccionar, mover, redimensionar, recolorear, borrar), con
+      ink, notas, texto libre y stamps en los PRs intermedios.)**
+- [x] T-057 NSPrintOperation vía render_page. [Print]
+      **(Cerrada en #395: `ViewerViewModel+Print.swift` corre `NSPrintOperation` sobre
+      páginas rasterizadas por el core; #426 imprime las anotaciones de la sesión aún sin
+      guardar a través del output snapshot.)**
+- [x] T-058 NSPasteboard paste + drag-and-drop; shortcuts. [Clipboard, ShortcutsDnD]
+      **(Cerrada: abrir PDFs soltados en la ventana o enviados por Finder en #398; Cmd+V
+      pega una imagen PNG/TIFF del `NSPasteboard` como stamp y soltar una imagen sobre una
+      página la estampa, en #465 (T-050/T-051 de Linux). Shortcuts C/V/Z/P/S/F/O/N en
+      `VitelaCommands.swift`; rehacer es Shift+Cmd+Z, la convención de macOS, en lugar de
+      Ctrl+Y.)**
 - [ ] T-059 Bundling .dylib, sign + notarize en macos.yml. [pdfium dist]
 
 ### Criterios de aceptación
@@ -771,9 +781,9 @@ ninguno de los dos.
 - macos.yml YA existe con el job `swift-bindings` (T-042) — B9 lo extiende, no crea workflow.
   El job pasó a llamarse `macos-development-artifact` y absorbió la generación de bindings:
   sigue fallando si falta `pdf_ffi.swift`, `pdf_ffiFFI.h` o `pdf_ffiFFI.modulemap`.
-- T-055 (abrir/render/scroll/zoom) y la porción contraseña/selección/búsqueda de T-056 están
-  cerradas — ver la entrada extendida de T-056 arriba. Lo que sigue sin empezar de T-056 es
-  la toolbar de anotaciones y undo/redo; T-057/T-058 (print, clipboard/DnD/shortcuts) tampoco.
+- T-055 a T-058 están cerradas — ver las entradas de arriba. De B9 solo sigue abierta T-059
+  (firma de distribución + notarize), que necesita la identidad Developer ID y las
+  credenciales de notarización del maintainer.
 - **Piso de macOS = 12.0, no 11.0.** El PDFium 7763 pinneado (el mismo que comparten Linux,
   Windows y Android) declara `minos 12.0`. El gate fail-closed de `build-macos.sh` lo detectó
   al verificar el bundle real. Bajarlo de nuevo implica pinnear un PDFium distinto solo para

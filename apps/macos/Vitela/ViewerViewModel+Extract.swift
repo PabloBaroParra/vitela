@@ -10,6 +10,10 @@ extension ViewerViewModel {
     /// panel from proposing to overwrite the document being read.
     static let extractSuggestedName = "document.pdf"
 
+    /// Whether Extract can be asked for now — the File menu's item and the
+    /// Organize header's button share it, so the two cannot drift.
+    var canRequestExtract: Bool { store.document != nil && !isSaving }
+
     func requestExtractPages() {
         guard store.document != nil, !isSaving else { return }
         // The permission gates do not depend on the range; checking them

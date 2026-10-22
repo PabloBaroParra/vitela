@@ -27,15 +27,28 @@ enum HomeTool: CaseIterable {
         }
     }
 
-    /// An SF Symbol standing in for Linux's drawn icon.
-    var symbol: String {
+    /// The tile's drawing in the shared set, as Linux's table names it.
+    var icon: ShellIcon {
         switch self {
-        case .edit: return "pencil"
-        case .annotate: return "highlighter"
-        case .sign: return "signature"
-        case .organize: return "square.grid.2x2"
-        case .compress: return "arrow.down.right.and.arrow.up.left"
-        case .protect: return "lock"
+        case .edit: return .edit
+        case .annotate: return .annotate
+        case .sign: return .sign
+        case .organize: return .organize
+        case .compress: return .compress
+        case .protect: return .protect
+        }
+    }
+
+    /// The tile's tint — Windows' `IconTint` fixed hex values, the colours
+    /// Linux bakes into the same tiles. `nil` is the accent colour (Edit).
+    var tintHex: UInt32? {
+        switch self {
+        case .edit: return nil
+        case .annotate: return 0x14B8A6
+        case .sign: return 0xEC4899
+        case .organize: return 0x22C55E
+        case .compress: return 0xF59E0B
+        case .protect: return 0x6366F1
         }
     }
 
@@ -43,6 +56,15 @@ enum HomeTool: CaseIterable {
     /// Annotate bar's, and arming one for the reader would place a mark they
     /// did not ask for — Linux's rule that a tile navigates, never edits.
     static let annotatePrompt = "Choose a tool in the Annotate bar, then drag on a page."
+
+    /// The tiles Home's search leaves showing: those whose label contains
+    /// `query`, ignoring case — Linux's `ToolsCard::filter` and Windows'
+    /// `ApplyHomeFilter`. Trimmed like the Recent filter the same field
+    /// drives, so the two lists never disagree about a stray space.
+    static func matching(_ query: String) -> [HomeTool] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return allCases.filter { needle.isEmpty || $0.label.localizedCaseInsensitiveContains(needle) }
+    }
 }
 
 /// Home's Tools grid on macOS. A tile is a destination: with a document open
