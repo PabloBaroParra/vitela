@@ -71,6 +71,7 @@ final class ViewerStore: ObservableObject {
     @Published var zoomMode = ZoomMode.custom
     @Published var viewport: ViewportSize?
     var renderScale = 1.0 // pixels per point; owned by `ViewerStore+RenderDpi.swift`
+    @Published var pageTiles: [Int: PageTiles] = [:] // owned by `ViewerStore+Tiles.swift`
     // Not `private(set)`: `private` extends only to same-file extensions, and
     // `ViewerStore+Search.swift`/`ViewerStore+Selection.swift` mutate these
     // from their own files — same reasoning as `pageCharactersCache` below.
@@ -234,6 +235,7 @@ final class ViewerStore: ObservableObject {
     /// `generation` already bumped so renders of the old layout are dropped.
     func showPages(_ pages: [PageDimensions]) {
         pageSlots = pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
+        pageTiles = [:]
         thumbnails = [:]
         thumbnailsRequested = []
         pageCharactersCache = [:]

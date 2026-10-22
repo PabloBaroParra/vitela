@@ -7,6 +7,8 @@ struct ViewerRootView: View {
     @State private var searchQuery = ""
     @FocusState private var searchFieldFocused: Bool
     @Environment(\.displayScale) private var displayScale
+    /// The page scroller's own size, which bounds the part of a page in view.
+    @State private var scrollSize = CGSize.zero
     @State private var showsProperties = false
     @State private var showsComments = false
     @State private var showsForm = false
@@ -210,6 +212,8 @@ struct ViewerRootView: View {
                                 .onAppear { model.render(page: slot.index, scale: Double(displayScale)) }
                                 .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index, scale: Double(displayScale)) }
                                 .onChange(of: displayScale) { model.render(page: slot.index, scale: Double($0)) }
+                            PageTilesView(tiles: model.store.pageTiles[slot.index], zoom: pageZoom(slot))
+                                .frame(width: pageWidth(slot), height: pageHeight(slot))
                             AnnotationOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot))
                                 .frame(width: pageWidth(slot), height: pageHeight(slot))
                             NoteTooltipLayer(tooltips: model.store.noteTooltips(page: slot.index, zoom: pageZoom(slot)))
@@ -258,6 +262,12 @@ struct ViewerRootView: View {
                         }
                         .id(pageId(slot))
                         .background(pageSpanReader(slot.index))
+                        // Past the bitmap's pixel budget the part in view is
+                        // re-rendered sharp, in tiles; off screen it keeps none.
+                        .background(PageViewRectReader(space: Self.pageScrollSpace, viewport: scrollSize, zoom: pageZoom(slot)) {
+                            model.renderTiles(page: slot.index, visible: $0)
+                        })
+                        .onDisappear { model.store.forgetTiles(page: slot.index) }
                     }
                 }
                 .padding(ViewerViewModel.pageListPadding)
@@ -266,8 +276,8 @@ struct ViewerRootView: View {
             .onPreferenceChange(PageSpansKey.self) { model.store.updateCurrentPage(spans: $0) }
             .background(GeometryReader { geometry in
                 Color.clear
-                    .onAppear { model.updateViewport(geometry.size) }
-                    .onChange(of: geometry.size) { model.updateViewport($0) }
+                    .onAppear { scrollSizeChanged(geometry.size) }
+                    .onChange(of: geometry.size, perform: scrollSizeChanged)
             })
             .onChange(of: model.store.currentSearchMatchPage) { page in
                 guard let page else { return }
@@ -287,6 +297,11 @@ struct ViewerRootView: View {
 
     /// Reports where a page row sits relative to the scroll view's visible
     /// area, so the store can tell which page is current.
+    private func scrollSizeChanged(_ size: CGSize) {
+        scrollSize = size
+        model.updateViewport(size)
+    }
+
     private func pageSpanReader(_ page: Int) -> some View {
         GeometryReader { geometry in
             let frame = geometry.frame(in: .named(Self.pageScrollSpace))
