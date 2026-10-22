@@ -90,8 +90,10 @@ struct ViewerToolbar: View {
                 .disabled(!model.canEditContent)
             if model.store.selectedContentImage != nil {
                 Button("Replace Image…", action: model.replaceSelectedImage)
-                    .help("Swap the selected image's picture for a PNG or JPEG, keeping its box")
-                    .disabled(model.store.pageWorkInFlight)
+                    .help(model.store.canReplaceSelectedImage
+                        ? "Swap the selected image's picture for a PNG or JPEG, keeping its box"
+                        : "This image cannot be replaced now — the status line says why")
+                    .disabled(model.store.pageWorkInFlight || !model.store.canReplaceSelectedImage)
                 Button("Delete Image", action: model.deleteSelectedImage)
                     .help("Delete the selected image from the page (⌫)")
                     .disabled(model.store.pageWorkInFlight)
