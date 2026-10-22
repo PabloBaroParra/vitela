@@ -32,4 +32,15 @@ final class ShellIconTests: XCTestCase {
             XCTAssertGreaterThan(image?.size.width ?? 0, 0)
         }
     }
+
+    /// Linux's `home/tools.rs` drawings with Windows' `IconTint` hex values.
+    func testHomeToolsUseTheSharedDrawingsAndTheOtherShellsTints() {
+        XCTAssertEqual(HomeTool.allCases.map(\.icon), [.edit, .annotate, .sign, .organize, .compress, .protect])
+        XCTAssertEqual(HomeTool.allCases.map(\.tintHex), [nil, 0x14B8A6, 0xEC4899, 0x22C55E, 0xF59E0B, 0x6366F1])
+    }
+
+    func testEveryAnnotationToolWithADrawingInTheSetShowsIt() {
+        XCTAssertEqual(AnnotationTool.allCases.compactMap(AnnotationToolbar.icon(for:)),
+                       [.highlight, .underline, .strikeout, .shape, .ink])
+    }
 }

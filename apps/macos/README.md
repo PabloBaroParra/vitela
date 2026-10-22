@@ -104,7 +104,8 @@ responsibility:
 - `Views/ShellIconImage.swift` — draws a `../apple/Shared/ShellIcon.swift`
   drawing from the shared `assets/icons` set (bundled as `Resources/icons`)
   as a template image tinted like the control's text — Linux's `icons.rs`,
-  Windows' `Viewer/ShellIcons.cs`. The viewer toolbar uses them.
+  Windows' `Viewer/ShellIcons.cs`. The toolbars, page navigation, search,
+  Home's tiles and quick actions and Organize's cards use them.
 - `Views/SideColumn.swift` — the draggable divider beside Pages, search
   results and the Properties, Comments and Form panels: drag it or press
   ← / → to resize, past the minimum to fold (Windows' `SideColumn`, Linux's

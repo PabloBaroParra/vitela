@@ -20,7 +20,8 @@ struct HomeToolsColumn: View {
                     ForEach(HomeTool.allCases, id: \.self) { tool in
                         Button { model.openHomeTool(tool) } label: {
                             VStack(spacing: 6) {
-                                Image(systemName: tool.symbol).font(.title2)
+                                ShellIconImage(icon: tool.icon, size: 24)
+                                    .foregroundColor(tint(tool))
                                 Text(tool.label).font(.callout)
                             }
                             .frame(maxWidth: .infinity, minHeight: 56)
@@ -35,9 +36,9 @@ struct HomeToolsColumn: View {
             }
             card("Quick actions") {
                 VStack(alignment: .leading, spacing: 6) {
-                    quickAction("doc.badge.plus", "New blank PDF", model.newDocument)
-                    quickAction("folder", "Open file…", model.selectDocument)
-                    quickAction("doc.text", "Open the sample", model.openSample)
+                    quickAction(.newFile, "New blank PDF", model.newDocument)
+                    quickAction(.files, "Open file…", model.selectDocument)
+                    quickAction(.sample, "Open the sample", model.openSample)
                 }
             }
             card("Keyboard shortcuts") {
@@ -65,10 +66,15 @@ struct HomeToolsColumn: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
     }
 
-    private func quickAction(_ symbol: String, _ label: String, _ action: @escaping () -> Void) -> some View {
+    private func quickAction(_ icon: ShellIcon, _ label: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(label, systemImage: symbol)
+            Label(label, shellIcon: icon)
         }
         .buttonStyle(.borderless)
+    }
+
+    private func tint(_ tool: HomeTool) -> Color {
+        guard let hex = tool.tintHex else { return .accentColor }
+        return Color(red: Double(hex >> 16 & 0xFF) / 255, green: Double(hex >> 8 & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
     }
 }

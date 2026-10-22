@@ -9,11 +9,11 @@ struct PageNavigationBar: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Button { model.store.goToFirstPage() } label: { Image(systemName: "arrow.up.to.line") }
+            Button { model.store.goToFirstPage() } label: { ShellIconImage(icon: .firstPage) }
                 .help("Go to the first page (⌘Home)")
                 .accessibilityLabel("First page")
                 .disabled(!model.store.canGoToPreviousPage)
-            Button { model.store.stepPage(by: -1) } label: { Image(systemName: "chevron.up") }
+            Button { model.store.stepPage(by: -1) } label: { ShellIconImage(icon: .previous) }
                 .help("Go to the previous page (⌥⌘↑)")
                 .accessibilityLabel("Previous page")
                 .disabled(!model.store.canGoToPreviousPage)
@@ -21,11 +21,11 @@ struct PageNavigationBar: View {
                 .help("Jump to a page by number (⌥⌘G)")
                 .accessibilityIdentifier("page-position")
                 .disabled(model.store.pageCount == 0)
-            Button { model.store.stepPage(by: 1) } label: { Image(systemName: "chevron.down") }
+            Button { model.store.stepPage(by: 1) } label: { ShellIconImage(icon: .next) }
                 .help("Go to the next page (⌥⌘↓)")
                 .accessibilityLabel("Next page")
                 .disabled(!model.store.canGoToNextPage)
-            Button { model.store.goToLastPage() } label: { Image(systemName: "arrow.down.to.line") }
+            Button { model.store.goToLastPage() } label: { ShellIconImage(icon: .lastPage) }
                 .help("Go to the last page (⌘End)")
                 .accessibilityLabel("Last page")
                 .disabled(!model.store.canGoToNextPage)

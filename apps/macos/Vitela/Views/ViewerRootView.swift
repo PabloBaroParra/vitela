@@ -131,9 +131,16 @@ struct ViewerRootView: View {
                 .frame(maxWidth: 240)
                 .focused($searchFieldFocused)
                 .onSubmit { model.runSearch(searchQuery) }
-            Button("Previous") { model.stepSearchMatch(by: -1) }
+            Button { model.runSearch(searchQuery) } label: { Label("Find in document", shellIcon: .search) }
+                .labelStyle(.iconOnly)
+                .help("Find in document (⌘F)")
+            Button { model.stepSearchMatch(by: -1) } label: { Label("Previous match", shellIcon: .previous) }
+                .labelStyle(.iconOnly)
+                .help("Previous match")
                 .disabled(model.store.search == nil)
-            Button("Next") { model.stepSearchMatch(by: 1) }
+            Button { model.stepSearchMatch(by: 1) } label: { Label("Next match", shellIcon: .next) }
+                .labelStyle(.iconOnly)
+                .help("Next match")
                 .disabled(model.store.search == nil)
             if !model.store.searchStatus.isEmpty {
                 Text(model.store.searchStatus)
