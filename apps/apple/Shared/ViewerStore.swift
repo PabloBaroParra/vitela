@@ -64,7 +64,7 @@ final class ViewerStore: ObservableObject {
     static let baseDpi = 72.0
 
     @Published private(set) var state: ViewerState = .empty
-    @Published private(set) var pageSlots: [PageSlot] = []
+    @Published var pageSlots: [PageSlot] = [] // settable for `ViewerStore+PageCache.swift`
     @Published private(set) var zoom = 1.0
     // Owned by `ViewerStore+Zoom.swift` (not `private(set)` for the same
     // same-file reason as `search` below).
