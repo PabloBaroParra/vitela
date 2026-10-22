@@ -93,6 +93,8 @@ final class ViewerViewModel: ObservableObject {
     private var subscriptions = Set<AnyCancellable>()
     /// The pending viewport size report — see `ViewerViewModel+Zoom.swift`.
     var pendingViewport: DispatchWorkItem?
+    /// Each page's queued render — `ViewerViewModel+PageWindow.swift`.
+    var renderOperations: [Int: (generation: UInt, operation: Operation)] = [:]
     /// Draw Signature's sheet, and where the remembered signature lives —
     /// `ViewerViewModel+Signature.swift`.
     @Published var signatureSheet: SignatureSheet?
@@ -236,7 +238,7 @@ final class ViewerViewModel: ObservableObject {
     /// `nil` keeps the last one.
     func render(page: Int, scale: Double? = nil) {
         if let scale { store.setRenderScale(scale) }
-        enqueue(store.beginRender(page: page))
+        enqueue(store.beginRender(page: page, force: renderWasDropped(page)))
         // Piggybacks on the render queue rather than its own trigger: a page
         // becomes selectable at roughly the same time its bitmap appears,
         // and `beginPageCharactersFetch` is already a no-op once cached.
@@ -309,13 +311,15 @@ final class ViewerViewModel: ObservableObject {
 
     private func enqueue(_ request: RenderRequest?) {
         guard let request else { return }
-        operationQueue.addOperation { [weak self] in
+        let operation = BlockOperation { [weak self] in
             guard let self else { return }
             // `renderResult` only reads the request and the immutable client;
             // every mutation of the store happens back on main.
             let result = self.store.renderResult(for: request)
             DispatchQueue.main.async { self.store.applyRender(result, for: request) }
         }
+        renderOperations[request.page] = (request.generation, operation)
+        operationQueue.addOperation(operation)
     }
 
     /// Reads `assets/sample/vitela-sample.pdf`, copied into the app bundle by
