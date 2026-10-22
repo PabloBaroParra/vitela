@@ -32,10 +32,23 @@ struct FormFieldInspector: View {
                 )) {
                     ForEach(FormFont.allCases, id: \.self) { Text($0.name).tag($0) }
                 }
+                // Typed sizes are brought inside 4–400 pt and the stepper
+                // moves by one, as Linux's and Windows' spin boxes do.
                 committingField("Size", text: $size, reset: Self.number(field.style.sizePt)) {
-                    if let value = Double(size), value > 0 { restyle(size: value) } else { size = Self.number(field.style.sizePt) }
+                    guard let value = Double(size).flatMap(FormTextStyle.clampedSize) else {
+                        size = Self.number(field.style.sizePt)
+                        return
+                    }
+                    size = Self.number(value)
+                    restyle(size: value)
                 }
                 .frame(width: 60)
+                Stepper("Size", value: Binding(
+                    get: { field.style.sizePt },
+                    set: { restyle(size: $0) }
+                ), in: FormTextStyle.sizeRange, step: 1)
+                .labelsHidden()
+                .padding(.top, 14)
             }
             ColorPicker("Text color", selection: Binding(
                 get: {

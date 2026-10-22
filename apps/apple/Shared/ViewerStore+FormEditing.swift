@@ -119,6 +119,9 @@ extension ViewerStore {
     }
 
     func beginFieldRestyle(_ style: FormTextStyle) -> PageWorkRequest? {
+        var style = style
+        guard let size = FormTextStyle.clampedSize(style.sizePt) else { return nil }
+        style.sizePt = size
         guard let field = selectedField, style != field.style else { return nil }
         return beginFieldEdit(.restyle(id: field.id, style: style))
     }
