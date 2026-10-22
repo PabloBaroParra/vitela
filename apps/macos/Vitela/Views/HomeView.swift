@@ -19,20 +19,23 @@ struct HomeView: View {
     /// and Linux's 108.
     static let cardWidth = 108.0
 
+    /// Home's one responsive rule — Windows' `HomeLayout`: the Tools column,
+    /// Linux's `SIDE_COLUMN_WIDTH` wide, sits beside Start and Recent while
+    /// the body has room for both, and drops under them otherwise.
+    static let toolsColumnWidth: CGFloat = 268
+    static let stackBelowWidth = 720.0
+
+    /// An unmeasured body (zero) does not claim room for two columns.
+    static func isStacked(bodyWidth: Double) -> Bool { !(bodyWidth >= stackBelowWidth) }
+
+    /// The body's width inside the padding, as last laid out.
+    @State private var bodyWidth = 0.0
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
-                HStack(alignment: .top, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        Text("Start a new task").font(.title2)
-                        HomeDropZone(model: model)
-                        recentHeading
-                        recentList
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    HomeToolsColumn(model: model, query: query)
-                }
+                columns
                 Text(AppVersion.footerText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -44,6 +47,38 @@ struct HomeView: View {
         }
         .onAppear { model.loadRecentPreviews(scale: Double(displayScale), retry: true) }
         .onChange(of: model.recentDocuments) { _ in model.loadRecentPreviews(scale: Double(displayScale)) }
+    }
+
+    @ViewBuilder private var columns: some View {
+        Group {
+            if Self.isStacked(bodyWidth: bodyWidth) {
+                VStack(alignment: .leading, spacing: 20) {
+                    startAndRecent
+                    HomeToolsColumn(model: model, query: query, width: nil)
+                }
+            } else {
+                HStack(alignment: .top, spacing: 24) {
+                    startAndRecent
+                    HomeToolsColumn(model: model, query: query, width: Self.toolsColumnWidth)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GeometryReader { geometry in
+            Color.clear
+                .onAppear { bodyWidth = geometry.size.width }
+                .onChange(of: geometry.size.width) { bodyWidth = $0 }
+        })
+    }
+
+    private var startAndRecent: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Start a new task").font(.title2)
+            HomeDropZone(model: model)
+            recentHeading
+            recentList
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var header: some View {

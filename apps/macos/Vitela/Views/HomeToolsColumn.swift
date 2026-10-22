@@ -8,6 +8,9 @@ struct HomeToolsColumn: View {
     @ObservedObject var model: ViewerViewModel
     /// Home's search, which filters the Tools grid as well as Recent.
     var query = ""
+    /// Fixed beside Recent; `nil` fills the body once Home stacks it below
+    /// (`HomeView.isStacked`).
+    var width: CGFloat? = HomeView.toolsColumnWidth
 
     /// What macOS binds them to (`VitelaCommands`, the Find button) — the
     /// same five Linux lists.
@@ -61,7 +64,8 @@ struct HomeToolsColumn: View {
                 }
             }
         }
-        .frame(width: 300)
+        .frame(width: width)
+        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
     }
 
     private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
