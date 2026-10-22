@@ -55,7 +55,7 @@ struct PagesSidebar: View {
             .padding(6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(current ? Color.accentColor.opacity(0.2) : Color.clear)
+                    .fill(current ? Color.vitelaAccent.opacity(0.2) : Color.clear)
             )
             .contentShape(Rectangle())
         }

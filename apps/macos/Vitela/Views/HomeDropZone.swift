@@ -23,11 +23,11 @@ struct HomeDropZone: View {
         }
         .frame(maxWidth: .infinity)
         .padding(28)
-        .background(shape.fill(targeted ? Color.accentColor.opacity(0.12) : Color(nsColor: .textBackgroundColor)))
+        .background(shape.fill(targeted ? Color.vitelaAccent.opacity(0.12) : Color(nsColor: .textBackgroundColor)))
         // Dashed at rest, solid accent while a drag is over it — the
         // `.home-dropzone` / `.drop-active` pair.
         .overlay(shape.strokeBorder(
-            targeted ? Color.accentColor : Color(nsColor: .separatorColor),
+            targeted ? Color.vitelaAccent : Color(nsColor: .separatorColor),
             style: StrokeStyle(lineWidth: 2, dash: targeted ? [] : [4, 3])
         ))
         .contentShape(shape)

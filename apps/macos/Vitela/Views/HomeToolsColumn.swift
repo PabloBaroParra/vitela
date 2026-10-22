@@ -82,7 +82,7 @@ struct HomeToolsColumn: View {
     }
 
     private func tint(_ tool: HomeTool) -> Color {
-        guard let hex = tool.tintHex else { return .accentColor }
-        return Color(red: Double(hex >> 16 & 0xFF) / 255, green: Double(hex >> 8 & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+        guard let hex = tool.tintHex else { return .vitelaAccent }
+        return Color(nsColor: .vitelaTint(hex))
     }
 }

@@ -116,7 +116,7 @@ private struct BlockDropGap: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 2)
-            .fill(targeted ? Color.accentColor : Color.clear)
+            .fill(targeted ? Color.vitelaAccent : Color.clear)
             .frame(height: 6)
             .padding(.vertical, 3)
             .onDrop(of: [.plainText], delegate: BlockDropTarget(model: model, slot: slot, targeted: $targeted))
