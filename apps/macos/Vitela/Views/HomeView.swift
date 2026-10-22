@@ -29,7 +29,7 @@ struct HomeView: View {
                         recentList
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    HomeToolsColumn(model: model)
+                    HomeToolsColumn(model: model, query: query)
                 }
                 Text(AppVersion.footerText)
                     .font(.caption)
@@ -67,7 +67,9 @@ struct HomeView: View {
         HStack {
             Text("Recent").font(.title2)
             Spacer()
-            TextField("Search recent", text: $query)
+            // One field filtering Recent and the Tools grid, Linux's "Search
+            // files and tools" and Windows' `HomeSearchBox`.
+            TextField("Search files and tools", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 220)
         }
