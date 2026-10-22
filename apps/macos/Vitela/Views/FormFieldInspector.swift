@@ -13,6 +13,9 @@ struct FormFieldInspector: View {
     @State private var y = ""
     @State private var width = ""
     @State private var height = ""
+    /// The color panel's picks, held until they settle — one restyle, one
+    /// undo step, and the last pick never dropped behind work in flight.
+    @StateObject private var colorSettler = ColorSettler()
 
     private var store: ViewerStore { model.store }
 
@@ -35,8 +38,15 @@ struct FormFieldInspector: View {
                 .frame(width: 60)
             }
             ColorPicker("Text color", selection: Binding(
-                get: { CGColor(srgbRed: CGFloat(field.style.color.r) / 255, green: CGFloat(field.style.color.g) / 255, blue: CGFloat(field.style.color.b) / 255, alpha: 1) },
-                set: { restyle(color: AnnotationToolbar.pdfColor($0)) }
+                get: {
+                    let color = colorSettler.color(for: field.id) ?? field.style.color
+                    return CGColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
+                },
+                set: { [model, store] in
+                    colorSettler.pick(AnnotationToolbar.pdfColor($0), for: field.id) {
+                        model.enqueuePageWork(store.beginFieldColor(id: $0, color: $1))
+                    }
+                }
             ))
             HStack {
                 committingField("X (pt)", text: $x, reset: Self.number(field.rect.x), commit: commitGeometry)
@@ -52,6 +62,10 @@ struct FormFieldInspector: View {
         .disabled(store.pageWorkInFlight)
         .onAppear(perform: load)
         .onChange(of: field) { _ in load() }
+        // A color still settling lands on its field before another is shown,
+        // or before the inspector goes away with the selection.
+        .onChange(of: field.id) { _ in colorSettler.flush() }
+        .onDisappear { colorSettler.flush() }
     }
 
     private func load() {
