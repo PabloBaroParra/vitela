@@ -18,6 +18,17 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
         XCTAssertEqual(HomeTool.allCases.map(\.label), ["Edit", "Annotate", "Sign", "Organize", "Compress", "Protect"])
     }
 
+    /// Windows' `ThemeParityTests` checks on `HomeLayout`, with Linux's
+    /// `SIDE_COLUMN_WIDTH`.
+    func testHomeStacksTheToolsColumnUnderANarrowBody() {
+        XCTAssertEqual(HomeView.toolsColumnWidth, 268)
+        XCTAssertTrue(HomeView.isStacked(bodyWidth: HomeView.stackBelowWidth - 1), "Home stacks its side column under a narrow body")
+        XCTAssertFalse(HomeView.isStacked(bodyWidth: HomeView.stackBelowWidth), "Home keeps two columns at the breakpoint")
+        XCTAssertFalse(HomeView.isStacked(bodyWidth: 1200), "Home keeps two columns in a wide window")
+        XCTAssertTrue(HomeView.isStacked(bodyWidth: 0), "An unmeasured body must not claim room for two columns")
+        XCTAssertEqual(HomeView.stackBelowWidth, 720)
+    }
+
     func testHomeSearchLeavesTheTilesWhoseLabelMatchesIgnoringCase() {
         XCTAssertEqual(HomeTool.matching(""), HomeTool.allCases)
         XCTAssertEqual(HomeTool.matching("SIG"), [.sign])
