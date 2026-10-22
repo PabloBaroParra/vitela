@@ -109,4 +109,22 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
 
         waitUntil({ !model.showsHome }, "Home stayed up over the new document")
     }
+
+    func testAReleaseBuildShowsItsTagVersion() {
+        XCTAssertEqual(AppVersion.label("0.1.0-beta.3"), "Vitela 0.1.0-beta.3")
+        XCTAssertEqual(AppVersion.label(" 1.2.0\n"), "Vitela 1.2.0")
+    }
+
+    func testABuildWithoutAVersionSaysItIsADevelopmentOne() {
+        XCTAssertEqual(AppVersion.label(nil), "Vitela dev")
+        XCTAssertEqual(AppVersion.label("  "), "Vitela dev")
+        XCTAssertEqual(AppVersion.label("$(VITELA_VERSION)"), "Vitela dev")
+    }
+
+    func testTheAppCarriesTheVersionKeyItsFooterReads() {
+        // Tests run hosted in Vitela.app, built without VITELA_VERSION: the
+        // key is there and empty, so the footer names a development build.
+        XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: AppVersion.infoKey) as? String, "")
+        XCTAssertEqual(AppVersion.footerText, "Vitela dev")
+    }
 }

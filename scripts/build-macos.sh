@@ -96,8 +96,11 @@ assemble() {
 
   generate_bindings "$repo_root" "$generated_dir"
 
+  # VITELA_VERSION is the release tag's semver when a release hands one in;
+  # empty, Home's footer says the build is a development one (AppVersion.swift).
   xcodebuild -project "$repo_root/apps/macos/Vitela.xcodeproj" -scheme Vitela \
-    -configuration Release -derivedDataPath "$repo_root/apps/macos/DerivedData" build
+    -configuration Release -derivedDataPath "$repo_root/apps/macos/DerivedData" \
+    VITELA_VERSION="${VITELA_VERSION:-}" build
   local built_app="$repo_root/apps/macos/DerivedData/Build/Products/Release/Vitela.app"
   [[ -d "$built_app" ]] || die "Xcode did not produce Vitela.app"
   rm -rf "$app_path"
