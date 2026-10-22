@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 /// (`OrganizeDocumentsList`) or the Pages grid, every page as a card — the
 /// macOS twin of Windows' `MainWindow.Organize.cs` and the Linux
 /// `organize/grid`. Each action on a card — turn, delete, move, insert a
-/// blank page before it, or drag it onto another card — and each blank page
+/// blank page before it, or drag it onto another card (`OrganizeAutoscroll`
+/// scrolls while the drag nears an edge) — and each blank page
 /// or batch of PDFs added from the header is one undoable page edit.
 struct OrganizeView: View {
     @ObservedObject var model: ViewerViewModel
@@ -54,6 +55,7 @@ struct OrganizeView: View {
                 }
             }
             .padding()
+            .background(OrganizeAutoscroll { model.organizePageDrag != nil })
         }
     }
 
