@@ -112,6 +112,16 @@ extension ViewerStore {
         return beginFieldEdit(.restyle(id: field.id, style: style))
     }
 
+    /// Field `id`'s text in `color`, selected or not — a color that settles
+    /// in the panel after the selection moved still lands on its own field.
+    /// An unchanged color is no edit, so no undo step.
+    func beginFieldColor(id: UInt64, color: PdfColor) -> PageWorkRequest? {
+        guard let field = formFields.first(where: { $0.id == id }), field.style.color != color else { return nil }
+        var style = field.style
+        style.color = color
+        return beginFieldEdit(.restyle(id: id, style: style))
+    }
+
     func beginFieldDelete() -> PageWorkRequest? {
         guard let field = selectedField else { return nil }
         selectedFieldId = nil

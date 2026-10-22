@@ -44,6 +44,19 @@ final class ViewerStoreFormEditingTests: XCTestCase {
         XCTAssertEqual(client.fieldEdits.last, .resize(id: 5, to: PdfRect(x: 120, y: 120, width: 154, height: 46)))
     }
 
+    func testASettledTextColorLandsOnItsFieldOnceAndUnchangedIsNoEdit() throws {
+        let (client, store) = editingStore()
+        let blue = PdfColor(r: 0, g: 0, b: 255)
+        XCTAssertNil(store.selectedFieldId, "not selected: the color still lands on its own field")
+
+        try run(store, store.beginFieldColor(id: 5, color: blue))
+        XCTAssertNil(store.beginFieldColor(id: 5, color: blue), "an unchanged color is no second undo step")
+
+        var style = FormTextStyle.default
+        style.color = blue
+        XCTAssertEqual(client.fieldEdits, [.restyle(id: 5, style: style)])
+    }
+
     func testTheInspectorRenamesRestylesPlacesAndDeletes() throws {
         let (client, store) = editingStore()
         store.selectedFieldId = 5
