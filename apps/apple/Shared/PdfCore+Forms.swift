@@ -42,6 +42,16 @@ struct FormTextStyle: Equatable {
 
     /// What every shell gives a new field.
     static let `default` = FormTextStyle(font: .helvetica, sizePt: 12, color: PdfColor(r: 0, g: 0, b: 0))
+
+    /// The sizes a field's text may take — Linux's `Adjustment(12, 4, 400)`
+    /// and Windows' `FormStyleSize` (`Minimum="4" Maximum="400"`).
+    static let sizeRange: ClosedRange<Double> = 4...400
+
+    /// A typed size brought inside `sizeRange`, as both spin controls coerce
+    /// one; `nil` for a value that is no size at all.
+    static func clampedSize(_ value: Double) -> Double? {
+        value.isFinite ? min(max(value, sizeRange.lowerBound), sizeRange.upperBound) : nil
+    }
 }
 
 /// One AcroForm field, as the core lists it.

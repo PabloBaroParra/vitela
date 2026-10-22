@@ -94,6 +94,30 @@ final class ViewerStoreFormEditingTests: XCTestCase {
         XCTAssertTrue(store.formFields.isEmpty)
     }
 
+    /// Linux's and Windows' size spin boxes hold 4–400 pt and coerce a typed
+    /// value into that range; a value that is no number is no edit.
+    func testATextSizeOutsideFourToFourHundredPointsIsBroughtInside() throws {
+        let (client, store) = editingStore()
+        store.selectedFieldId = 5
+        var style = FormTextStyle.default
+
+        style.sizePt = .infinity
+        XCTAssertNil(store.beginFieldRestyle(style))
+        style.sizePt = .nan
+        XCTAssertNil(store.beginFieldRestyle(style))
+        style.sizePt = 1000
+        try run(store, store.beginFieldRestyle(style))
+        style.sizePt = 0.5
+        try run(store, store.beginFieldRestyle(style))
+
+        XCTAssertEqual(client.fieldEdits.map { edit -> Double? in
+            if case let .restyle(_, style) = edit { return style.sizePt }
+            return nil
+        }, [400, 4])
+        XCTAssertEqual(FormTextStyle.clampedSize(12), 12)
+        XCTAssertEqual(FormTextStyle.sizeRange, 4...400)
+    }
+
     func testEditModeAndAnnotationToolsAreExclusive() {
         let (_, store) = editingStore()
         store.selectedFieldId = 5
