@@ -284,7 +284,10 @@ struct ViewerRootView: View {
             // The recessed surface the pages sit on — Linux's `vitela_canvas`
             // behind `.canvas-frame`, Windows' `VitelaCanvasBackgroundBrush`.
             .background(Color.vitela(.canvas))
-            .onPreferenceChange(PageSpansKey.self) { model.store.updateCurrentPage(spans: $0) }
+            .onPreferenceChange(PageSpansKey.self) { spans in
+                model.store.updateCurrentPage(spans: spans)
+                model.store.releasePages(farFrom: spans)
+            }
             .background(GeometryReader { geometry in
                 Color.clear
                     .onAppear { scrollSizeChanged(geometry.size) }
