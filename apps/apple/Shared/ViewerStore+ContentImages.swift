@@ -24,6 +24,10 @@ struct ImageDrag: Equatable {
 /// Linux's `content_edit/image.rs`.
 extension ViewerStore {
     static let imageAgain = "Save and reopen before editing this image again."
+    /// Linux's `IMAGE_SELECTED_NO_REPLACE` and Windows' hint, said when the
+    /// image is selected rather than after a file was picked for it.
+    static let imageSelectedNoReplace = "Image selected — move, resize or delete it. It cannot be replaced: "
+        + "its current encoding cannot be read back, so the swap could not be undone."
 
     var selectedContentImage: ContentImage? { contentEdit.selectedImage }
 
@@ -50,8 +54,17 @@ extension ViewerStore {
             editStatus = Self.imageAgain
             return true
         }
+        let key = ContentImageKey(page: hit.page, id: hit.id)
+        if !contentEdit.replaceChecked.contains(key), let document {
+            contentEdit.replaceChecked.insert(key)
+            if client.imageReplacementRefusal(document: document, image: hit) != nil {
+                contentEdit.unreplaceableImages.insert(key)
+            }
+        }
         contentEdit.imageDrag = ImageDrag(image: hit, origin: point, current: point, corner: hit == selected ? corner : nil)
-        editStatus = "Image selected. Drag it to move it, a corner to resize it, or delete it."
+        editStatus = contentEdit.unreplaceableImages.contains(key)
+            ? Self.imageSelectedNoReplace
+            : "Image selected. Drag it to move it, a corner to resize it, or delete it."
         return true
     }
 
@@ -82,6 +95,16 @@ extension ViewerStore {
             return nil
         }
         return beginContentEdit(.removeImage(image))
+    }
+
+    /// Whether Replace Image… is offered for the selected image: not one held
+    /// since an edit, nor one the core already said it cannot read back —
+    /// Windows' `ImageControls.Ready`. `selectedImageReplacementRefusal`
+    /// still asks the core again when the button is pressed.
+    var canReplaceSelectedImage: Bool {
+        guard contentEditMode, let image = contentEdit.selectedImage else { return false }
+        let key = ContentImageKey(page: image.page, id: image.id)
+        return !contentEdit.editedImages.contains(key) && !contentEdit.unreplaceableImages.contains(key)
     }
 
     /// Replace Image… may go ahead for the selected image: not one held since
@@ -122,6 +145,8 @@ extension ViewerStore {
             contentEdit.editedImages.insert(ContentImageKey(page: image.page, id: image.id))
         case .refresh:
             contentEdit.editedImages = []
+            contentEdit.replaceChecked = []
+            contentEdit.unreplaceableImages = []
         default:
             break
         }
