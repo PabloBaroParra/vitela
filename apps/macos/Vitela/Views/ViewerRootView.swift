@@ -6,6 +6,7 @@ struct ViewerRootView: View {
     @State private var passwordInput = ""
     @State private var searchQuery = ""
     @FocusState private var searchFieldFocused: Bool
+    @Environment(\.displayScale) private var displayScale
     @State private var showsProperties = false
     @State private var showsComments = false
     @State private var showsForm = false
@@ -202,11 +203,13 @@ struct ViewerRootView: View {
                             PageView(slot: slot, zoom: pageZoom(slot)) { model.retry(page: slot.index) }
                                 // `render` is a no-op when the slot is already
                                 // current, so re-appearing during scroll costs
-                                // nothing. A zoom change makes every visible
-                                // slot stale, which is what re-renders them at
-                                // the new DPI instead of upscaling.
-                                .onAppear { model.render(page: slot.index) }
-                                .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index) }
+                                // nothing. A zoom change — or a move to a
+                                // screen of another backing scale — makes every
+                                // visible slot stale, which is what re-renders
+                                // them at the new DPI instead of stretching.
+                                .onAppear { model.render(page: slot.index, scale: Double(displayScale)) }
+                                .onChange(of: pageZoom(slot)) { _ in model.render(page: slot.index, scale: Double(displayScale)) }
+                                .onChange(of: displayScale) { model.render(page: slot.index, scale: Double($0)) }
                             AnnotationOverlay(store: model.store, page: slot.index, zoom: pageZoom(slot))
                                 .frame(width: pageWidth(slot), height: pageHeight(slot))
                             NoteTooltipLayer(tooltips: model.store.noteTooltips(page: slot.index, zoom: pageZoom(slot)))
