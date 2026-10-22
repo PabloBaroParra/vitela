@@ -5,10 +5,14 @@
   has no INFOPLIST_KEY_ build setting lives here: the document types that let
   Finder offer Vitela in Open With and send it double-clicked or Dock-dropped
   PDFs. "Alternate" so installing a development build never takes PDFs away
-  from the user's default viewer.
+  from the user's default viewer. VitelaVersion is the release semver the
+  build was handed (VITELA_VERSION), read by AppVersion.swift; empty means a
+  development build.
 -->
 <plist version="1.0">
 <dict>
+	<key>VitelaVersion</key>
+	<string>$(VITELA_VERSION)</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

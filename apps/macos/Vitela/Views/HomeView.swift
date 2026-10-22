@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// What the window shows with no document open: the mark, Open and New, the
-/// Recent list grouped by day, and the Tools column (`HomeToolsColumn`) —
+/// Recent list grouped by day, the Tools column (`HomeToolsColumn`) and the
+/// build's version (`AppVersion`) —
 /// Linux's Home (`home/`) and Windows' `MainWindow.Home.cs` /
 /// `MainWindow.Recents.cs`. The rules come from
 /// `RecentDocuments`; opening, removing and the previews from
@@ -27,6 +28,11 @@ struct HomeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     HomeToolsColumn(model: model)
                 }
+                Text(AppVersion.footerText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)

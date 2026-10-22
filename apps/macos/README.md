@@ -52,6 +52,9 @@ responsibility:
   are `../apple/Shared/RecentDocuments.swift`; the app keeps the list in
   Application Support, a view model made without that store (every test)
   keeps it in memory.
+- `Vitela/AppVersion.swift` — Home's footer, "Vitela <version>" from the
+  `VITELA_VERSION` the build was handed (`Info.plist`'s `VitelaVersion`), or
+  "Vitela dev" — Linux's `home/version.rs`.
 - `Vitela/ViewerViewModel+HomeTools.swift`, `Views/HomeToolsColumn.swift` —
   the start screen's Tools grid (Edit, Annotate, Sign, Organize, Compress,
   Protect: with no document open a tile opens the chooser first and goes
