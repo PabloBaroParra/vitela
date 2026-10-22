@@ -24,7 +24,13 @@ responsibility:
   Redo, the Go menu's page and annotation navigation, and View ▸ Pages and
   zoom).
 - `Vitela/ViewerViewModel.swift` — file selection, File ▸ New, the render
-  queue, and opening the bundled sample documents.
+  queue, and opening the bundled sample documents. Pages render at the
+  screen's backing scale, so a Retina display gets a 2× bitmap, inside
+  Linux's 24–600 DPI and 8-megapixel bounds
+  (`../apple/Shared/ViewerStore+RenderDpi.swift`). Past that budget the
+  part of a page in view is drawn again from 1024-pixel tiles at the full
+  DPI (`ViewerViewModel+Tiles.swift`, `Views/PageTilesView.swift`,
+  `../apple/Shared/ViewerStore+Tiles.swift`) — Linux's `tile_plan`.
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
 - `Vitela/ViewerViewModel+ContentEdit.swift`, `Views/ContentTextSheet.swift`,

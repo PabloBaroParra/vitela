@@ -232,7 +232,10 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    func render(page: Int) {
+    /// `scale` is the screen's pixels per point where the page is shown;
+    /// `nil` keeps the last one.
+    func render(page: Int, scale: Double? = nil) {
+        if let scale { store.setRenderScale(scale) }
         enqueue(store.beginRender(page: page))
         // Piggybacks on the render queue rather than its own trigger: a page
         // becomes selectable at roughly the same time its bitmap appears,

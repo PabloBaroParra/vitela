@@ -23,6 +23,8 @@ struct PageSlot: Equatable {
     /// from the zoom its page is shown at (`zoom(forPage:)`) is stale and will be re-rendered when it is next
     /// on screen — the previous bitmap keeps showing meanwhile, so no flicker.
     var renderZoom: Double?
+    /// DPI the `status` refers to (`ViewerStore+RenderDpi.swift`); stale on a new screen scale.
+    var renderDpi: Int?
     var image: RenderedPage?
 }
 
@@ -68,6 +70,8 @@ final class ViewerStore: ObservableObject {
     // same-file reason as `search` below).
     @Published var zoomMode = ZoomMode.custom
     @Published var viewport: ViewportSize?
+    var renderScale = 1.0 // pixels per point; owned by `ViewerStore+RenderDpi.swift`
+    @Published var pageTiles: [Int: PageTiles] = [:] // owned by `ViewerStore+Tiles.swift`
     // Not `private(set)`: `private` extends only to same-file extensions, and
     // `ViewerStore+Search.swift`/`ViewerStore+Selection.swift` mutate these
     // from their own files — same reasoning as `pageCharactersCache` below.
@@ -231,6 +235,7 @@ final class ViewerStore: ObservableObject {
     /// `generation` already bumped so renders of the old layout are dropped.
     func showPages(_ pages: [PageDimensions]) {
         pageSlots = pages.enumerated().map { PageSlot(index: $0.offset, dimensions: $0.element) }
+        pageTiles = [:]
         thumbnails = [:]
         thumbnailsRequested = []
         pageCharactersCache = [:]
@@ -273,15 +278,17 @@ final class ViewerStore: ObservableObject {
     func beginRender(page: Int, force: Bool = false) -> RenderRequest? {
         guard pageSlots.indices.contains(page), let document else { return nil }
         let pageZoom = zoom(forPage: page)
-        guard force || !isUpToDate(pageSlots[page], at: pageZoom) else { return nil }
+        let pageDpi = dpi(forPage: page, zoom: pageZoom)
+        guard force || !isUpToDate(pageSlots[page], at: pageZoom, dpi: pageDpi) else { return nil }
 
         pageSlots[page].status = .rendering
         pageSlots[page].renderZoom = pageZoom
+        pageSlots[page].renderDpi = pageDpi
         return RenderRequest(
             generation: generation,
             page: page,
             document: document,
-            dpi: dpi(for: pageZoom),
+            dpi: pageDpi,
             zoom: pageZoom
         )
     }
@@ -304,6 +311,7 @@ final class ViewerStore: ObservableObject {
         // The result describes the zoom it was rendered at, not the zoom that is
         // current now; recording it is what lets a stale slot re-render later.
         pageSlots[request.page].renderZoom = request.zoom
+        pageSlots[request.page].renderDpi = request.dpi
 
         switch result {
         case let .success(image):
@@ -322,18 +330,6 @@ final class ViewerStore: ObservableObject {
 
     func retry(page: Int) -> RenderRequest? {
         beginRender(page: page, force: true)
-    }
-
-    func dpi(for zoom: Double) -> Int {
-        Int((Self.baseDpi * zoom).rounded())
-    }
-
-    private func isUpToDate(_ slot: PageSlot, at pageZoom: Double) -> Bool {
-        guard slot.renderZoom == pageZoom else { return false }
-        switch slot.status {
-        case .rendering, .rendered, .failed: return true
-        case .idle: return false
-        }
     }
 
     /// Core Graphics reads `stride * height` bytes out of the provider without

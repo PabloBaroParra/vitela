@@ -81,6 +81,33 @@ final class UniFfiPdfCoreClient: PdfCoreClient {
         }
     }
 
+    func renderTiles(document: any PdfDocument, page: Int, dpi: Int, tiles: [PixelRect]) throws -> [RenderedPage] {
+        guard let document = document as? UniFfiDocument else {
+            throw ViewerFailure.renderFailed(page: page, message: "document is not backed by UniFFI")
+        }
+        do {
+            let bitmaps = try renderPageTiles(
+                handle: document.handle,
+                pageIndex: UInt32(page),
+                dpi: UInt32(dpi),
+                tiles: tiles.map {
+                    FfiRenderTile(leftPx: UInt32($0.left), topPx: UInt32($0.top), widthPx: UInt32($0.width), heightPx: UInt32($0.height))
+                },
+                options: FfiRenderOptions(invertContentColors: false)
+            )
+            return try bitmaps.map { bitmap in
+                try RenderedPage(
+                    rgba: bitmap.getPixels(),
+                    width: Int(bitmap.width()),
+                    height: Int(bitmap.height()),
+                    stride: Int(bitmap.stride())
+                )
+            }
+        } catch {
+            throw ViewerFailure.renderFailed(page: page, message: String(describing: error))
+        }
+    }
+
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch] {
         guard let document = document as? UniFfiDocument else {
             throw TextQueryFailure.failed("document is not backed by UniFFI")
