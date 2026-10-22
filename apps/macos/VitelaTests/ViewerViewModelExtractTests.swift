@@ -29,6 +29,11 @@ final class ViewerViewModelExtractTests: XCTestCase {
         FakePdfCoreClient(pages: Array(repeating: PageDimensions(width: 612, height: 792), count: 3))
     }
 
+    func testExtractCanBeAskedForWhileADocumentIsOpen() {
+        XCTAssertTrue(makeModel(client(), destination: nil).canRequestExtract)
+        XCTAssertFalse(ViewerViewModel(store: ViewerStore(client: client())).canRequestExtract, "no document open")
+    }
+
     func testARefusingDocumentNeverShowsTheRangeSheet() {
         let client = client()
         client.textExtractionPermitted = false
