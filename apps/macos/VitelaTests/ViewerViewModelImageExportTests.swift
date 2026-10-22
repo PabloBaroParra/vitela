@@ -31,6 +31,11 @@ final class ViewerViewModelImageExportTests: XCTestCase {
         FakePdfCoreClient(pages: Array(repeating: PageDimensions(width: 612, height: 792), count: 3))
     }
 
+    func testTheExportCanBeAskedForWhileADocumentIsOpen() {
+        XCTAssertTrue(makeModel(client(), folder: nil).canRequestExportImages)
+        XCTAssertFalse(ViewerViewModel(store: ViewerStore(client: client())).canRequestExportImages, "no document open")
+    }
+
     func testEveryChosenPageIsWrittenWithoutOverwritingEarlierExports() throws {
         try Data("earlier".utf8).write(to: folder.appendingPathComponent("vitela-sample-1.png"))
         let client = client()

@@ -33,7 +33,7 @@ struct VitelaCommands: Commands {
             Button("Split PDF…", action: model.requestSplitPages)
                 .disabled(!model.canRequestSplit)
             Button("Export Pages as Images…", action: model.requestExportImages)
-                .disabled(model.store.document == nil || model.isSaving)
+                .disabled(!model.canRequestExportImages)
             Button("Compress…", action: model.requestCompress)
                 .disabled(model.store.document == nil || model.isSaving)
             Button("Protect with Password…", action: model.requestProtect)

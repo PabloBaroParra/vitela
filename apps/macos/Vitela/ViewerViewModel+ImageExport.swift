@@ -6,6 +6,10 @@ import Foundation
 /// open), then a folder, then the files, one page at a time, stopping at the
 /// first that fails and saying how many were written.
 extension ViewerViewModel {
+    /// Whether the export can be asked for now — read by the File menu and
+    /// the toolbar's Export images button alike.
+    var canRequestExportImages: Bool { store.document != nil && !isSaving }
+
     func requestExportImages() {
         guard store.document != nil, !isSaving else { return }
         isExportImagesPresented = true
