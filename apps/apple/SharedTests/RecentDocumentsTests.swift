@@ -33,6 +33,15 @@ final class RecentDocumentsTests: XCTestCase {
         XCTAssertFalse(recorded.contains { $0.path == "/d\(RecentDocuments.capacity - 1).pdf" }, "the oldest is dropped")
     }
 
+    func testFirstShownIsTheNewestCardTheSearchLeaves() {
+        let list = [doc("/old-report.pdf", hoursAgo: 50), doc("/a.pdf", hoursAgo: 1), doc("/report.pdf", hoursAgo: 3)]
+
+        XCTAssertEqual(RecentDocuments.firstShown(list, now: now, calendar: calendar), "/a.pdf")
+        XCTAssertEqual(RecentDocuments.firstShown(list, matching: "report", now: now, calendar: calendar), "/report.pdf")
+        XCTAssertNil(RecentDocuments.firstShown(list, matching: "none", now: now, calendar: calendar))
+        XCTAssertNil(RecentDocuments.firstShown([], now: now, calendar: calendar))
+    }
+
     func testRemovingTakesOnlyThatDocument() {
         let list = [doc("/a.pdf", hoursAgo: 1), doc("/b.pdf", hoursAgo: 2)]
         XCTAssertEqual(RecentDocuments.removing("/a.pdf", from: list).map(\.path), ["/b.pdf"])
