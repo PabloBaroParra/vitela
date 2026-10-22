@@ -15,6 +15,11 @@ extension ViewerStore {
     /// empty query (the caller should `clearSearch()` in that case instead).
     func beginSearch(query: String) -> SearchRequest? {
         guard !query.isEmpty, let document else { return nil }
+        if let refusal = textExtractionRefusal {
+            clearSearch()
+            searchStatus = refusal
+            return nil
+        }
         return SearchRequest(generation: generation, document: document, query: query)
     }
 

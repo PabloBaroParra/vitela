@@ -14,7 +14,7 @@ extension ViewerStore {
     /// `nil` when there is nothing to fetch — no document open, or `page`'s
     /// characters are already cached.
     func beginPageCharactersFetch(page: Int) -> PageCharactersRequest? {
-        guard pageCharactersCache[page] == nil, let document else { return nil }
+        guard pageCharactersCache[page] == nil, let document, textExtractionRefusal == nil else { return nil }
         return PageCharactersRequest(generation: generation, document: document, page: page)
     }
 
@@ -31,8 +31,13 @@ extension ViewerStore {
 
     /// Starts (or restarts, on a fresh click) a selection at the caret
     /// nearest `(xPt, yPt)` on `page`. A no-op if that page's characters
-    /// haven't been fetched yet, or the page has no positioned text.
+    /// haven't been fetched yet, or the page has no positioned text. On a
+    /// document that withholds its text, the drag says why nothing selects.
     func beginSelection(page: Int, xPt: Double, yPt: Double) {
+        if let refusal = textExtractionRefusal {
+            editStatus = refusal
+            return
+        }
         guard let caret = pageCharactersCache[page]?.caretAt(xPt: xPt, yPt: yPt) else { return }
         selection = TextSelection(page: page, anchor: caret, focus: caret)
     }
