@@ -52,6 +52,11 @@ final class ViewerViewModel: ObservableObject {
     var organizeBlockDrag: OrganizePageDrag?
     /// Add PDFs is reading and preparing sources — `ViewerViewModel+Import.swift`.
     @Published var isImporting = false
+    /// How many picked PDFs are prepared so far, while `isImporting`.
+    @Published var importProgress: ImportProgress?
+    /// Bumped by every pick and every Cancel import, so a preparation that
+    /// finishes after its run was cancelled is dropped.
+    var importRun = 0
     let importPrompts: ImportPrompts
     /// Home's Recent list, its page-1 previews, and where it is kept —
     /// `ViewerViewModel+Recents.swift`.

@@ -87,7 +87,8 @@ responsibility:
 - `Vitela/ViewerViewModel+Pages.swift` — the Organize mode and running
   page edits on the queue.
 - `Vitela/ViewerViewModel+Import.swift` — Organize ▸ Add PDFs: picking,
-  per-source passwords and warnings, then one undoable import.
+  per-source passwords and warnings, progress and Cancel import while the
+  picks are prepared, then one undoable import.
 - `Vitela/ViewerViewModel+OrganizeDocuments.swift`,
   `Views/OrganizeDocumentsList.swift` — Organize's Documents view, where it
   opens: one card per run of pages from the same PDF (named by its file),
