@@ -9,6 +9,14 @@ struct ViewerRootView: View {
     @State private var showsProperties = false
     @State private var showsComments = false
     @State private var showsForm = false
+    // Each side column's width, dragged from its divider (`SideColumn`).
+    // Pages starts at the 136 it always had and keeps Windows' 120–320;
+    // the right-hand panels start at their old fixed widths.
+    @State private var pagesColumn = SideColumn(minimum: 120, maximum: 320, initial: 136)
+    @State private var searchColumn = SideColumn(minimum: 200, maximum: 600, initial: 260)
+    @State private var propertiesColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
+    @State private var commentsColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
+    @State private var formColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,10 +25,15 @@ struct ViewerRootView: View {
             AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
             Divider()
             HStack(spacing: 0) {
-                if model.showsPages && !model.store.pageSlots.isEmpty && !model.showsHome {
-                    PagesSidebar(model: model)
-                        .frame(width: 136)
-                    Divider()
+                if !model.store.pageSlots.isEmpty && !model.showsHome {
+                    if model.showsPages {
+                        PagesSidebar(model: model)
+                            .frame(width: pagesColumn.preferredWidth)
+                    }
+                    // Stays while Pages is folded, so dragging it back out
+                    // reopens the column — as on Linux and Windows.
+                    ColumnDivider(column: $pagesColumn, isOpen: $model.showsPages, widening: 1,
+                                  label: "Resize the Pages column")
                 }
                 if model.store.pageSlots.isEmpty || model.showsHome {
                     placeholder
@@ -30,23 +43,29 @@ struct ViewerRootView: View {
                     pageList
                 }
                 if model.store.search != nil {
-                    Divider()
-                    SearchResultsPanel(store: model.store).frame(width: 260)
+                    // Results close with the search, not with a drag: this
+                    // divider only resizes.
+                    ColumnDivider(column: $searchColumn, isOpen: .constant(true), widening: -1,
+                                  label: "Resize the search results")
+                    SearchResultsPanel(store: model.store).frame(width: searchColumn.preferredWidth)
                 }
                 if showsProperties {
-                    Divider()
+                    ColumnDivider(column: $propertiesColumn, isOpen: $showsProperties, widening: -1,
+                                  label: "Resize the Properties panel")
                     PropertiesPanel(store: model.store)
-                        .frame(width: 280)
+                        .frame(width: propertiesColumn.preferredWidth)
                 }
                 if showsComments {
-                    Divider()
+                    ColumnDivider(column: $commentsColumn, isOpen: $showsComments, widening: -1,
+                                  label: "Resize the Comments panel")
                     CommentsPanel(store: model.store)
-                        .frame(width: 280)
+                        .frame(width: commentsColumn.preferredWidth)
                 }
                 if showsForm {
-                    Divider()
+                    ColumnDivider(column: $formColumn, isOpen: $showsForm, widening: -1,
+                                  label: "Resize the Form panel")
                     FormFieldsPanel(model: model)
-                        .frame(width: 280)
+                        .frame(width: formColumn.preferredWidth)
                 }
             }
             if !statusText.isEmpty {
