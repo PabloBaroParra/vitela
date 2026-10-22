@@ -101,6 +101,10 @@ responsibility:
 - `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
   card is dragged near its top or bottom edge, with Linux's
   `organize/autoscroll.rs` ramp.
+- `Views/ShellIconImage.swift` — draws a `../apple/Shared/ShellIcon.swift`
+  drawing from the shared `assets/icons` set (bundled as `Resources/icons`)
+  as a template image tinted like the control's text — Linux's `icons.rs`,
+  Windows' `Viewer/ShellIcons.cs`. The viewer toolbar uses them.
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
