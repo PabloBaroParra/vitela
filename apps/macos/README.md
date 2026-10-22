@@ -101,6 +101,9 @@ responsibility:
 - `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
   card is dragged near its top or bottom edge, with Linux's
   `organize/autoscroll.rs` ramp.
+- `Views/ColorSettler.swift` — holds the color panel's picks until they
+  settle, so one annotation color change is one undo step (Windows pins
+  this in `AnnotationStyleParityTests`).
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
