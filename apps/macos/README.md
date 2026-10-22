@@ -48,7 +48,7 @@ responsibility:
   the core as a `NativeSigningStore`; keys never leave the Keychain.
 - `Vitela/ViewerViewModel+Recents.swift`, `RecentDocumentStore.swift`,
   `Views/HomeView.swift` — the start screen's Recent list (by day, page-1
-  previews, search, Remove from Recent) and File ▸ Open Recent. The rules
+  previews, search, Remove from Recent or Delete on a focused card) and File ▸ Open Recent. The rules
   are `../apple/Shared/RecentDocuments.swift`; the app keeps the list in
   Application Support, a view model made without that store (every test)
   keeps it in memory.
@@ -101,10 +101,18 @@ responsibility:
 - `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
   card is dragged near its top or bottom edge, with Linux's
   `organize/autoscroll.rs` ramp.
+- `Views/HomeDropZone.swift` — Home's "Start a new task" area: drop a PDF
+  on it or click it to choose one (Linux's `home/hero.rs`, Windows'
+  `HomeDropZone`); the drop goes through `ViewerViewModel+FileDrop.swift`.
 - `Views/ShellIconImage.swift` — draws a `../apple/Shared/ShellIcon.swift`
   drawing from the shared `assets/icons` set (bundled as `Resources/icons`)
   as a template image tinted like the control's text — Linux's `icons.rs`,
-  Windows' `Viewer/ShellIcons.cs`. The viewer toolbar uses them.
+  Windows' `Viewer/ShellIcons.cs`. The toolbars, page navigation, search,
+  Home's tiles and quick actions and Organize's cards use them.
+- `Views/SideColumn.swift` — the draggable divider beside Pages, search
+  results and the Properties, Comments and Form panels: drag it or press
+  ← / → to resize, past the minimum to fold (Windows' `SideColumn`, Linux's
+  `Paned`s).
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,

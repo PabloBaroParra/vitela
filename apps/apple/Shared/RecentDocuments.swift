@@ -63,6 +63,15 @@ enum RecentDocuments {
         }
     }
 
+    /// The card the keyboard moves to once the focused card is removed: the
+    /// newest one still shown under `query` — Linux's `focus_first_card` and
+    /// Windows' `FocusFirstRecentCard`. `nil` when no card is left.
+    static func firstShown(
+        _ list: [RecentDocument], matching query: String = "", now: Date, calendar: Calendar = .current
+    ) -> String? {
+        grouped(list, matching: query, now: now, calendar: calendar).first?.documents.first?.path
+    }
+
     /// "Opened today, 9:41 AM", "Opened yesterday, …", or "Opened 3/2/26" —
     /// Windows' card caption, with a page count once the preview knows it.
     static func caption(

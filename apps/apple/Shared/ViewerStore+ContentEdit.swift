@@ -28,6 +28,11 @@ struct ContentEditState {
     /// page and id: Windows refuses a second edit of one until the document
     /// is saved and reopened.
     var editedImages = Set<ContentImageKey>()
+    /// Images the core was asked about on selection, and those it said it
+    /// could not read back for a replace — asked once per image, since it is
+    /// a property of the bytes, and forgotten with every new revision.
+    var replaceChecked = Set<ContentImageKey>()
+    var unreplaceableImages = Set<ContentImageKey>()
 }
 
 /// An image's identity across reads of its page.
