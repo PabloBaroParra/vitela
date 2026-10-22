@@ -35,6 +35,7 @@ struct OrganizeDocumentsList: View {
                 }
             }
             .padding()
+            .background(OrganizeAutoscroll { model.organizeBlockDrag != nil })
         }
         .accessibilityIdentifier("organize-documents")
     }

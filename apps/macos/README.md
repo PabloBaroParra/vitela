@@ -98,6 +98,9 @@ responsibility:
   moved by its buttons or by a drag to a gap, turned or deleted whole. The
   grouping is the core's `document_blocks`
   (`../apple/Shared/ViewerStore+Blocks.swift`).
+- `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
+  card is dragged near its top or bottom edge, with Linux's
+  `organize/autoscroll.rs` ramp.
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
