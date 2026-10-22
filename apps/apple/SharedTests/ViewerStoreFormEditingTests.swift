@@ -29,6 +29,19 @@ final class ViewerStoreFormEditingTests: XCTestCase {
         XCTAssertNil(store.selectedFieldId)
     }
 
+    func testFocusingAPanelControlSelectsItsFieldOnlyInEditMode() {
+        let (_, store) = editingStore()
+        store.selectFieldFromPanel(5)
+        XCTAssertEqual(store.selectedFieldId, 5)
+
+        store.selectFieldFromPanel(99)
+        XCTAssertEqual(store.selectedFieldId, 5, "a field that is gone selects nothing")
+
+        store.setFormEditMode(false)
+        store.selectFieldFromPanel(5)
+        XCTAssertNil(store.selectedFieldId, "just filling in values never selects")
+    }
+
     func testDraggingMovesAndACornerResizesByThePointersDelta() throws {
         let (client, store) = editingStore()
         _ = store.beginFieldGesture(page: 0, at: PdfPoint(x: 150, y: 110), zoom: 1)
