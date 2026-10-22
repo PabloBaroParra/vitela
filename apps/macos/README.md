@@ -101,6 +101,10 @@ responsibility:
 - `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
   card is dragged near its top or bottom edge, with Linux's
   `organize/autoscroll.rs` ramp.
+- `Views/SideColumn.swift` — the draggable divider beside Pages, search
+  results and the Properties, Comments and Form panels: drag it or press
+  ← / → to resize, past the minimum to fold (Windows' `SideColumn`, Linux's
+  `Paned`s).
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
