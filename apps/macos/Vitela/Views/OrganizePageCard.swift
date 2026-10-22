@@ -31,17 +31,17 @@ struct OrganizePageCard: View {
                     .font(.system(.body, design: .monospaced))
                 Spacer()
                 Button { onEdit { .rotate(page: $0, degrees: -90) } } label: {
-                    Image(systemName: "rotate.left")
+                    ShellIconImage(icon: .rotateLeft)
                 }
                 .help("Rotate page left")
                 .accessibilityLabel("Rotate page \(number) left")
                 Button { onEdit { .rotate(page: $0, degrees: 90) } } label: {
-                    Image(systemName: "rotate.right")
+                    ShellIconImage(icon: .rotateRight)
                 }
                 .help("Rotate page right")
                 .accessibilityLabel("Rotate page \(number) right")
                 Button { onEdit { .remove(page: $0) } } label: {
-                    Image(systemName: "trash")
+                    ShellIconImage(icon: .delete)
                 }
                 .help("Delete page")
                 .accessibilityLabel("Delete page \(number)")

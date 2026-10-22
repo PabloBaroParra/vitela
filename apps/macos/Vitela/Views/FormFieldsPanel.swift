@@ -45,7 +45,9 @@ struct FormFieldsPanel: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(field.name.isEmpty ? "Unnamed field" : field.name)
                                 .font(.caption).foregroundStyle(.secondary)
-                            FormFieldControl(field: field) { model.fillField(field.id, value: $0) }
+                            FormFieldControl(field: field, focused: { store.selectFieldFromPanel(field.id) }) {
+                                model.fillField(field.id, value: $0)
+                            }
                                 .disabled(!store.formFillAllowed || store.pageWorkInFlight)
                         }
                         // A new value from the core rebuilds the row; typing
@@ -65,12 +67,19 @@ struct FormFieldsPanel: View {
 /// commits would queue one rebuild per character.
 private struct FormFieldControl: View {
     let field: FormField
+    /// Called when the control gains keyboard focus (T-143).
+    let focused: () -> Void
     let commit: (FieldValue) -> Void
 
     @State private var text = ""
-    @FocusState private var focused: Bool
+    @FocusState private var hasFocus: Bool
 
     var body: some View {
+        control
+            .onChange(of: hasFocus) { if $0 { focused() } }
+    }
+
+    @ViewBuilder private var control: some View {
         switch field.kind {
         case let .text(multiline, maxLength):
             textControl(multiline: multiline, maxLength: maxLength)
@@ -80,6 +89,7 @@ private struct FormFieldControl: View {
                 set: { commit(.checked($0)) }
             ))
             .labelsHidden()
+            .focused($hasFocus)
         case let .radioGroup(options):
             Picker(field.name, selection: Binding(
                 get: { FormFieldChoices.index(of: chosen, in: options) },
@@ -91,6 +101,7 @@ private struct FormFieldControl: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+            .focused($hasFocus)
         case let .dropdown(options, editable: false):
             Picker(field.name, selection: Binding(
                 get: { FormFieldChoices.index(of: chosen, in: options) },
@@ -102,15 +113,16 @@ private struct FormFieldControl: View {
                 }
             }
             .labelsHidden()
+            .focused($hasFocus)
         case let .dropdown(options, editable: true):
             // Accepts text outside its options, so it is typed into; the
             // options are named as the placeholder — as on Windows and GTK.
             TextField(options.joined(separator: ", "), text: $text)
                 .textFieldStyle(.roundedBorder)
-                .focused($focused)
+                .focused($hasFocus)
                 .onAppear { text = chosen ?? "" }
                 .onSubmit(commitChoiceText)
-                .onChange(of: focused) { if !$0 { commitChoiceText() } }
+                .onChange(of: hasFocus) { if !$0 { commitChoiceText() } }
         }
     }
 
@@ -133,12 +145,12 @@ private struct FormFieldControl: View {
                     .onSubmit(commitText)
             }
         }
-        .focused($focused)
+        .focused($hasFocus)
         .disabled(maxLength == 0)
         .onAppear {
             if case let .text(value) = field.value { text = value }
         }
-        .onChange(of: focused) { if !$0 { commitText() } }
+        .onChange(of: hasFocus) { if !$0 { commitText() } }
     }
 
     private func commitText() {
