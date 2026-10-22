@@ -48,7 +48,7 @@ responsibility:
   the core as a `NativeSigningStore`; keys never leave the Keychain.
 - `Vitela/ViewerViewModel+Recents.swift`, `RecentDocumentStore.swift`,
   `Views/HomeView.swift` — the start screen's Recent list (by day, page-1
-  previews, search, Remove from Recent) and File ▸ Open Recent. The rules
+  previews, search, Remove from Recent or Delete on a focused card) and File ▸ Open Recent. The rules
   are `../apple/Shared/RecentDocuments.swift`; the app keeps the list in
   Application Support, a view model made without that store (every test)
   keeps it in memory.

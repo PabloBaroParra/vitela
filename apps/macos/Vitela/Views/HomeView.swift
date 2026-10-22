@@ -10,6 +10,9 @@ import SwiftUI
 struct HomeView: View {
     @ObservedObject var model: ViewerViewModel
     @State private var query = ""
+    /// The Recent card with the keyboard (Full Keyboard Access), so Delete
+    /// knows which card it removes and where the focus goes next.
+    @FocusState private var focusedCard: String?
     @Environment(\.displayScale) private var displayScale
 
     /// The preview frame, which also sets the card's text width — Windows'
@@ -113,6 +116,14 @@ struct HomeView: View {
         .buttonStyle(.plain)
         .help(document.path)
         .accessibilityLabel("Open \(document.name)")
+        .focused($focusedCard, equals: document.path)
+        // Delete removes the focused card, as on Linux and Windows; the
+        // keyboard then lands on the newest card left rather than on nothing.
+        // The context menu's removal leaves the focus alone, as theirs does.
+        .onDeleteCommand {
+            model.removeRecent(document)
+            focusedCard = RecentDocuments.firstShown(model.recentDocuments, matching: query, now: Date())
+        }
         .contextMenu {
             Button("Remove from Recent") { model.removeRecent(document) }
         }
