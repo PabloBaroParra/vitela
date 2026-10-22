@@ -13,6 +13,8 @@ struct AnnotationToolbar: View {
     @State private var readNote: String?
     /// The exact position or size being typed, while its sheet is up.
     @State private var geometry: GeometrySheet.Request?
+    /// The color panel's picks, held until they settle (one undo step each).
+    @StateObject private var colorSettler = ColorSettler()
 
     var body: some View {
         HStack(spacing: 6) {
@@ -47,6 +49,9 @@ struct AnnotationToolbar: View {
         .disabled(store.document == nil || !store.annotationEditingAllowed)
         .padding(.horizontal)
         .padding(.bottom, 8)
+        // A color still settling lands on the annotation it was picked for
+        // before the selection moves on.
+        .onChange(of: store.selectedAnnotationId) { _ in colorSettler.flush() }
         .sheet(item: readNoteBinding) { note in
             ReadNoteSheet(text: note.text) { readNote = nil }
         }
@@ -109,8 +114,10 @@ struct AnnotationToolbar: View {
 
     private func colorBinding(_ selected: Annotation) -> Binding<CGColor> {
         Binding(
-            get: { Self.cgColor(selected.color ?? .annotationDefault) },
-            set: { store.restyleSelectedAnnotation(Self.pdfColor($0)) }
+            get: { Self.cgColor(colorSettler.color(for: selected.id) ?? selected.color ?? .annotationDefault) },
+            set: { [store] in
+                colorSettler.pick(Self.pdfColor($0), for: selected.id) { store.restyleAnnotation(id: $0, to: $1) }
+            }
         )
     }
 

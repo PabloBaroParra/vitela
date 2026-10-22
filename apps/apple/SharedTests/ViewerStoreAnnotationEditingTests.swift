@@ -81,6 +81,21 @@ final class ViewerStoreAnnotationEditingTests: XCTestCase {
         XCTAssertNil(ViewerStore.corner(of: box, at: PdfPoint(x: 205, y: 150), reach: 8 / 4))
     }
 
+    func testASettledColorLandsOnItsAnnotationEvenOnceDeselected() {
+        let (client, store) = storeWithShape()
+        _ = store.beginAnnotationGesture(page: 0, at: PdfPoint(x: 150, y: 120), zoom: 1)
+        store.endAnnotationGesture(at: PdfPoint(x: 150, y: 120))
+        let id = store.selectedAnnotationId!
+        store.selectedAnnotationId = nil
+
+        store.restyleAnnotation(id: id, to: PdfColor(r: 0, g: 0, b: 255))
+        store.restyleAnnotation(id: id, to: PdfColor(r: 0, g: 0, b: 255))
+
+        XCTAssertEqual(client.annotationEdits.last, .restyle(id: id, color: PdfColor(r: 0, g: 0, b: 255)))
+        XCTAssertEqual(client.annotationEdits.filter { if case .restyle = $0 { return true }; return false }.count, 1,
+                       "an unchanged color is no second undo step")
+    }
+
     func testDeleteNudgeGrowAndRestyleTheSelection() {
         let (client, store) = storeWithShape()
         _ = store.beginAnnotationGesture(page: 0, at: PdfPoint(x: 150, y: 120), zoom: 1)

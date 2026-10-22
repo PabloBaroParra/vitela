@@ -101,6 +101,9 @@ responsibility:
 - `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
   card is dragged near its top or bottom edge, with Linux's
   `organize/autoscroll.rs` ramp.
+- `Views/ColorSettler.swift` — holds the color panel's picks until they
+  settle, so one annotation color change is one undo step (Windows pins
+  this in `AnnotationStyleParityTests`).
 - `Views/HomeDropZone.swift` — Home's "Start a new task" area: drop a PDF
   on it or click it to choose one (Linux's `home/hero.rs`, Windows'
   `HomeDropZone`); the drop goes through `ViewerViewModel+FileDrop.swift`.

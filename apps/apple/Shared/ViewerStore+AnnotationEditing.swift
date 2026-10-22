@@ -133,10 +133,18 @@ extension ViewerStore {
     }
 
     func restyleSelectedAnnotation(_ color: PdfColor) {
-        guard annotationEditingAllowed, let selected = selectedAnnotation, selected.kind.supportsRestyle,
-              selected.color != color
+        guard let id = selectedAnnotationId else { return }
+        restyleAnnotation(id: id, to: color)
+    }
+
+    /// Recolors annotation `id`, selected or not — a color that settles
+    /// after the reader has moved on still lands on the annotation it was
+    /// picked for. Gone, unrestylable or unchanged: nothing, and no undo step.
+    func restyleAnnotation(id: UInt64, to color: PdfColor) {
+        guard annotationEditingAllowed, let target = annotations.last(where: { $0.id == id }), target.kind.supportsRestyle,
+              target.color != color
         else { return }
-        applyAnnotationEdit(.restyle(id: selected.id, color: color), status: "Annotation restyled. Changes are pending save.")
+        applyAnnotationEdit(.restyle(id: id, color: color), status: "Annotation restyled. Changes are pending save.")
     }
 
     /// The corner whose handle is under `point`, if any — Linux's `corner_at`.
