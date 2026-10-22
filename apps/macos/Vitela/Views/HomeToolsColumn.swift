@@ -6,6 +6,8 @@ import SwiftUI
 /// have.
 struct HomeToolsColumn: View {
     @ObservedObject var model: ViewerViewModel
+    /// Home's search, which filters the Tools grid as well as Recent.
+    var query = ""
 
     /// What macOS binds them to (`VitelaCommands`, the Find button) — the
     /// same five Linux lists.
@@ -15,21 +17,27 @@ struct HomeToolsColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            card("Tools") {
-                LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(HomeTool.allCases, id: \.self) { tool in
-                        Button { model.openHomeTool(tool) } label: {
-                            VStack(spacing: 6) {
-                                Image(systemName: tool.symbol).font(.title2)
-                                Text(tool.label).font(.callout)
+            // A titled card over an empty grid reads as broken rather than
+            // filtered, so the card leaves when no tile matches — as on Linux
+            // and Windows.
+            let tools = HomeTool.matching(query)
+            if !tools.isEmpty {
+                card("Tools") {
+                    LazyVGrid(columns: columns, spacing: 8) {
+                        ForEach(tools, id: \.self) { tool in
+                            Button { model.openHomeTool(tool) } label: {
+                                VStack(spacing: 6) {
+                                    Image(systemName: tool.symbol).font(.title2)
+                                    Text(tool.label).font(.callout)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 56)
+                                .contentShape(Rectangle())
                             }
-                            .frame(maxWidth: .infinity, minHeight: 56)
-                            .contentShape(Rectangle())
+                            .buttonStyle(.bordered)
+                            .help(tool.description)
+                            .accessibilityLabel(tool.label)
+                            .accessibilityHint(tool.description)
                         }
-                        .buttonStyle(.bordered)
-                        .help(tool.description)
-                        .accessibilityLabel(tool.label)
-                        .accessibilityHint(tool.description)
                     }
                 }
             }

@@ -43,6 +43,15 @@ enum HomeTool: CaseIterable {
     /// Annotate bar's, and arming one for the reader would place a mark they
     /// did not ask for — Linux's rule that a tile navigates, never edits.
     static let annotatePrompt = "Choose a tool in the Annotate bar, then drag on a page."
+
+    /// The tiles Home's search leaves showing: those whose label contains
+    /// `query`, ignoring case — Linux's `ToolsCard::filter` and Windows'
+    /// `ApplyHomeFilter`. Trimmed like the Recent filter the same field
+    /// drives, so the two lists never disagree about a stray space.
+    static func matching(_ query: String) -> [HomeTool] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return allCases.filter { needle.isEmpty || $0.label.localizedCaseInsensitiveContains(needle) }
+    }
 }
 
 /// Home's Tools grid on macOS. A tile is a destination: with a document open
