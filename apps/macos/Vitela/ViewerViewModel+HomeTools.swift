@@ -27,15 +27,28 @@ enum HomeTool: CaseIterable {
         }
     }
 
-    /// An SF Symbol standing in for Linux's drawn icon.
-    var symbol: String {
+    /// The tile's drawing in the shared set, as Linux's table names it.
+    var icon: ShellIcon {
         switch self {
-        case .edit: return "pencil"
-        case .annotate: return "highlighter"
-        case .sign: return "signature"
-        case .organize: return "square.grid.2x2"
-        case .compress: return "arrow.down.right.and.arrow.up.left"
-        case .protect: return "lock"
+        case .edit: return .edit
+        case .annotate: return .annotate
+        case .sign: return .sign
+        case .organize: return .organize
+        case .compress: return .compress
+        case .protect: return .protect
+        }
+    }
+
+    /// The tile's tint — Windows' `IconTint` fixed hex values, the colours
+    /// Linux bakes into the same tiles. `nil` is the accent colour (Edit).
+    var tintHex: UInt32? {
+        switch self {
+        case .edit: return nil
+        case .annotate: return 0x14B8A6
+        case .sign: return 0xEC4899
+        case .organize: return 0x22C55E
+        case .compress: return 0xF59E0B
+        case .protect: return 0x6366F1
         }
     }
 

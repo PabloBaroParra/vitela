@@ -18,21 +18,21 @@ struct AnnotationToolbar: View {
         HStack(spacing: 6) {
             Text("Annotate").foregroundStyle(.secondary)
             ForEach(AnnotationTool.allCases, id: \.self) { tool in
-                Toggle(tool.name, isOn: binding(for: tool))
+                Toggle(isOn: binding(for: tool)) { toolLabel(tool) }
                     .toggleStyle(.button)
                     .help("\(tool.name): drag on a page to place it")
             }
             Button("Signature…", action: drawSignature)
                 .help("Draw a signature, then click a page to place it")
-            Button("Pointer") { store.armAnnotationTool(nil) }
+            Button { store.armAnnotationTool(nil) } label: { Label("Pointer", shellIcon: .select) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(store.armedTool == nil)
             Divider().frame(height: 16)
             // Organize hides the pages they would scroll to, as on Windows.
-            Button("Previous Annotation") { store.stepAnnotation(forward: false) }
+            Button { store.stepAnnotation(forward: false) } label: { Label("Previous Annotation", shellIcon: .previous) }
                 .help("Select and show the previous annotation (⌥⌘[)")
                 .disabled(!store.canStepAnnotations || organizing)
-            Button("Next Annotation") { store.stepAnnotation(forward: true) }
+            Button { store.stepAnnotation(forward: true) } label: { Label("Next Annotation", shellIcon: .next) }
                 .help("Select and show the next annotation (⌥⌘])")
                 .disabled(!store.canStepAnnotations || organizing)
             if let selected = store.selectedAnnotation {
@@ -62,7 +62,7 @@ struct AnnotationToolbar: View {
     /// What applies to the selected annotation — Windows' Delete, Nudge,
     /// Grow, color and Read note, each enabled only where it means something.
     @ViewBuilder private func selectionControls(_ selected: Annotation) -> some View {
-        Button("Delete", action: store.deleteSelectedAnnotation)
+        Button(action: store.deleteSelectedAnnotation) { Label("Delete", shellIcon: .delete) }
             .help("Delete the selected annotation (⌫)")
         Button("Nudge", action: store.nudgeSelectedAnnotation)
             .help("Move the selected annotation 12 points up and right")
@@ -83,6 +83,27 @@ struct AnnotationToolbar: View {
         }
         if selected.kind == .freeText {
             Button("Edit Text", action: store.beginFreeTextEdit)
+        }
+    }
+
+    /// The tool's name, with its drawing where the shared set has one; the
+    /// note, text box and stamp tools have none and keep their word alone.
+    @ViewBuilder private func toolLabel(_ tool: AnnotationTool) -> some View {
+        if let icon = Self.icon(for: tool) {
+            Label(tool.name, shellIcon: icon)
+        } else {
+            Text(tool.name)
+        }
+    }
+
+    static func icon(for tool: AnnotationTool) -> ShellIcon? {
+        switch tool {
+        case .highlight: return .highlight
+        case .underline: return .underline
+        case .strikeout: return .strikeout
+        case .shape: return .shape
+        case .ink: return .ink
+        case .note, .freeText, .stamp: return nil
         }
     }
 
