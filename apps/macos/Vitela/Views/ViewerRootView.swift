@@ -74,6 +74,9 @@ struct ViewerRootView: View {
             }
         }
         .accessibilityIdentifier("viewer-root")
+        // Controls that take a tint (prominent buttons, switches, progress)
+        // wear Vitela's accent, as on Linux and Windows.
+        .tint(.vitelaAccent)
         // The whole window takes the drop, so a PDF can be dropped with
         // nothing open and no page to aim at.
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
@@ -260,6 +263,9 @@ struct ViewerRootView: View {
                 .padding(ViewerViewModel.pageListPadding)
             }
             .coordinateSpace(name: Self.pageScrollSpace)
+            // The recessed surface the pages sit on — Linux's `vitela_canvas`
+            // behind `.canvas-frame`, Windows' `VitelaCanvasBackgroundBrush`.
+            .background(Color.vitela(.canvas))
             .onPreferenceChange(PageSpansKey.self) { model.store.updateCurrentPage(spans: $0) }
             .background(GeometryReader { geometry in
                 Color.clear

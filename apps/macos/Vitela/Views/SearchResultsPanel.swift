@@ -28,7 +28,7 @@ struct SearchResultsPanel: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.vertical, 2)
-                    .listRowBackground(row.index == store.search?.currentIndex ? Color.accentColor.opacity(0.2) : Color.clear)
+                    .listRowBackground(row.index == store.search?.currentIndex ? Color.vitelaAccent.opacity(0.2) : Color.clear)
                     .accessibilityAddTraits(row.index == store.search?.currentIndex ? .isSelected : [])
                     .id(row.index)
                 }

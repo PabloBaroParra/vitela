@@ -112,6 +112,12 @@ responsibility:
   as a template image tinted like the control's text — Linux's `icons.rs`,
   Windows' `Viewer/ShellIcons.cs`. The toolbars, page navigation, search,
   Home's tiles and quick actions and Organize's cards use them.
+- `Views/ShellPaletteColor.swift` — Vitela's palette roles
+  (`../apple/Shared/ShellPalette.swift`: the accent, the canvas behind the
+  pages, Protect's tile tint) as colours that follow Light and Dark Mode —
+  Linux's `theme.rs`, Windows' `Themes/Palette.xaml`. The shell's chrome
+  (drop targets, the current page and search row, tinted controls) wears
+  Vitela's violet instead of the system accent; window chrome stays native.
 - `Views/SideColumn.swift` — the draggable divider beside Pages, search
   results and the Properties, Comments and Form panels: drag it or press
   ← / → to resize, past the minimum to fold (Windows' `SideColumn`, Linux's
