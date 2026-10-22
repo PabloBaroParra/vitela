@@ -22,6 +22,8 @@ struct HomeView: View {
                 header
                 HStack(alignment: .top, spacing: 24) {
                     VStack(alignment: .leading, spacing: 20) {
+                        Text("Start a new task").font(.title2)
+                        HomeDropZone(model: model)
                         recentHeading
                         recentList
                     }

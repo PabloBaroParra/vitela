@@ -101,6 +101,9 @@ responsibility:
 - `Views/OrganizeAutoscroll.swift` — scrolls either Organize view while a
   card is dragged near its top or bottom edge, with Linux's
   `organize/autoscroll.rs` ramp.
+- `Views/HomeDropZone.swift` — Home's "Start a new task" area: drop a PDF
+  on it or click it to choose one (Linux's `home/hero.rs`, Windows'
+  `HomeDropZone`); the drop goes through `ViewerViewModel+FileDrop.swift`.
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
