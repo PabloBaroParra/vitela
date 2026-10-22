@@ -83,6 +83,14 @@ struct OrganizeView: View {
                 .disabled(!model.store.canEditPages)
             Button("Add landscape A4 page") { appendBlankPage(.landscape) }
                 .disabled(!model.store.canEditPages)
+            // Whole-document outputs, beside the edits, as in Linux's
+            // `organize/header.rs` and Windows' Organize toolbar.
+            Button("Extract…", action: model.requestExtractPages)
+                .help("Save chosen pages as a new PDF (⇧⌘E)")
+                .disabled(!model.canRequestExtract)
+            Button("Split…", action: model.requestSplitPages)
+                .help("Cut this PDF into several new PDFs")
+                .disabled(!model.canRequestSplit)
             if let progress = model.importProgress {
                 ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
                     .frame(width: 80)

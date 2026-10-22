@@ -60,12 +60,12 @@ private struct OrganizeDocumentCard: View {
                 Text(row.title).font(.headline).lineLimit(1).truncationMode(.middle)
                 Text(row.meta).foregroundStyle(.secondary)
                 HStack(spacing: 2) {
-                    action("arrow.up", "Move up", .move(toSlot: position - 1)).disabled(position == 0)
-                    action("arrow.down", "Move down", .move(toSlot: position + 2)).disabled(position + 1 >= total)
-                    action("rotate.left", "Rotate left", .rotateLeft)
-                    action("rotate.right", "Rotate right", .rotateRight)
+                    action(.moveUp, "Move up", .move(toSlot: position - 1)).disabled(position == 0)
+                    action(.moveDown, "Move down", .move(toSlot: position + 2)).disabled(position + 1 >= total)
+                    action(.rotateLeft, "Rotate left", .rotateLeft)
+                    action(.rotateRight, "Rotate right", .rotateRight)
                     // A PDF needs at least one page.
-                    action("trash", "Delete", .delete).disabled(total == 1)
+                    action(.delete, "Delete", .delete).disabled(total == 1)
                 }
                 .buttonStyle(.borderless)
                 .disabled(!enabled)
@@ -78,8 +78,8 @@ private struct OrganizeDocumentCard: View {
         .accessibilityLabel("\(row.title), \(row.meta), document \(position + 1) of \(total)")
     }
 
-    private func action(_ symbol: String, _ label: String, _ action: ViewerStore.BlockAction) -> some View {
-        Button { onAction(action) } label: { Image(systemName: symbol) }
+    private func action(_ icon: ShellIcon, _ label: String, _ action: ViewerStore.BlockAction) -> some View {
+        Button { onAction(action) } label: { ShellIconImage(icon: icon) }
             .help(label)
             .accessibilityLabel("\(label): \(row.title)")
     }

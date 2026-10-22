@@ -32,6 +32,17 @@ extension ViewerStore {
         return formFields.first { $0.id == id }
     }
 
+    /// T-143's panel→page half: a fill-panel control gaining focus selects
+    /// its field on the page, so the outline shows which field is being
+    /// filled — Linux's `fill::mark_selected`, Windows' row `GotFocus`. Only in
+    /// Edit fields mode, so tabbing through the panel while just filling in
+    /// values never grabs a selection; a field already selected, or gone, is
+    /// left alone.
+    func selectFieldFromPanel(_ id: UInt64) {
+        guard formEditMode, selectedFieldId != id, formFields.contains(where: { $0.id == id }) else { return }
+        selectedFieldId = id
+    }
+
     func setFormEditMode(_ on: Bool) {
         guard document != nil, !on || formStructureAllowed else { return }
         formEditMode = on

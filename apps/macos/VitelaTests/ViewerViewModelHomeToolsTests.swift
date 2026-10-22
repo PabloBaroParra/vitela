@@ -18,6 +18,13 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
         XCTAssertEqual(HomeTool.allCases.map(\.label), ["Edit", "Annotate", "Sign", "Organize", "Compress", "Protect"])
     }
 
+    func testHomeSearchLeavesTheTilesWhoseLabelMatchesIgnoringCase() {
+        XCTAssertEqual(HomeTool.matching(""), HomeTool.allCases)
+        XCTAssertEqual(HomeTool.matching("SIG"), [.sign])
+        XCTAssertEqual(HomeTool.matching(" o "), [.annotate, .organize, .compress, .protect])
+        XCTAssertEqual(HomeTool.matching("Retype"), [], "descriptions are not searched, as on Linux and Windows")
+    }
+
     func testWithADocumentOpenATileGoesStraightToItsTool() {
         let (_, model) = model()
 
