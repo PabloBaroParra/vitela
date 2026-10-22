@@ -12,6 +12,8 @@ final class FakePdfCoreClient: PdfCoreClient {
     var requestedPages: [Int] = []
     var renderError: Error?
     var renderedImage = RenderedPage.placeholder
+    var tileRequests: [(page: Int, dpi: Int, tiles: [PixelRect])] = []
+    var tileError: Error?
     var openError: ViewerFailure?
     var searchResults: [String: [SearchMatch]] = [:]
     var searchError: Error?
@@ -151,6 +153,12 @@ final class FakePdfCoreClient: PdfCoreClient {
         if document is FakeSnapshotDocument { renderedFromSnapshot += 1 }
         if let renderError { throw renderError }
         return renderedImage
+    }
+
+    func renderTiles(document: any PdfDocument, page: Int, dpi: Int, tiles: [PixelRect]) throws -> [RenderedPage] {
+        tileRequests.append((page, dpi, tiles))
+        if let tileError { throw tileError }
+        return tiles.map { _ in renderedImage }
     }
 
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch] {

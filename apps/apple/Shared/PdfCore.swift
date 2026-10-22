@@ -95,6 +95,9 @@ protocol PdfCoreClient {
     /// A new document holding one blank portrait A4 page.
     func createBlankDocument() throws -> any PdfDocument
     func render(document: any PdfDocument, page: Int, dpi: Int) throws -> RenderedPage
+    /// Parts of one page at `dpi`, in the order given — the core's
+    /// `render_page_tiles`, which loads the page once for the whole set.
+    func renderTiles(document: any PdfDocument, page: Int, dpi: Int, tiles: [PixelRect]) throws -> [RenderedPage]
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch]
     func pageCharacters(document: any PdfDocument, page: Int) throws -> any PageCharacters
 
@@ -251,6 +254,10 @@ protocol PdfCoreClient {
 /// search/selection don't have to grow methods they never exercise.
 extension PdfCoreClient {
     func search(document: any PdfDocument, query: String) throws -> [SearchMatch] { [] }
+
+    func renderTiles(document: any PdfDocument, page: Int, dpi: Int, tiles: [PixelRect]) throws -> [RenderedPage] {
+        throw ViewerFailure.renderFailed(page: page, message: "this client does not render tiles")
+    }
 
     func pageCharacters(document: any PdfDocument, page: Int) throws -> any PageCharacters {
         throw TextQueryFailure.failed("this client does not support text queries")

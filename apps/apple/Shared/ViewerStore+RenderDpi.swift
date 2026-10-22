@@ -10,8 +10,7 @@ extension ViewerStore {
     /// Linux's `MIN_RENDER_DPI` and `MAX_RENDER_DPI`.
     static let renderDpiRange = 24.0...600.0
     /// Linux's `MAX_BASE_PIXELS`: past it the page bitmap is rendered
-    /// coarser rather than larger. (Linux and Windows add viewport tiles
-    /// above this budget; the Apple shells do not tile yet.)
+    /// coarser rather than larger, and the visible part is tiled instead.
     static let maxPagePixels = 8_000_000.0
 
     /// The screen's pixels per point; a value that is no scale counts as 1×.
@@ -20,9 +19,15 @@ extension ViewerStore {
         renderScale = scale.isFinite && scale > 0 ? scale : 1
     }
 
+    /// The DPI the screen asks for, before the page bitmap's pixel budget:
+    /// where it is higher than `dpi(forPage:zoom:)`, the part of the page in
+    /// view is drawn again from tiles at this DPI (`ViewerStore+Tiles.swift`).
+    func intendedDpi(zoom: Double) -> Double {
+        (Self.baseDpi * zoom * renderScale).rounded(.down).clamped(to: Self.renderDpiRange)
+    }
+
     func dpi(forPage page: Int, zoom: Double) -> Int {
-        let desired = (Self.baseDpi * zoom * renderScale).rounded(.down)
-            .clamped(to: Self.renderDpiRange)
+        let desired = intendedDpi(zoom: zoom)
         guard pageSlots.indices.contains(page) else { return Int(desired) }
         let size = pageSlots[page].dimensions
         let pixels = size.width * desired / Self.baseDpi * (size.height * desired / Self.baseDpi)
