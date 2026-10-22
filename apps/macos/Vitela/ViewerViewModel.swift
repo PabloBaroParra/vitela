@@ -282,6 +282,12 @@ final class ViewerViewModel: ObservableObject {
     /// Copies the current selection to the general pasteboard. A no-op when
     /// there is nothing selected, so wiring this straight to Cmd+C is safe.
     func copySelection() {
+        // Asked again here, though a refused document never selects: this
+        // is the call that hands the text over.
+        if let refusal = store.textExtractionRefusal {
+            store.editStatus = refusal
+            return
+        }
         guard let text = store.selectedText else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

@@ -156,6 +156,18 @@ final class ViewerViewModelTests: XCTestCase {
 
         XCTAssertEqual(model.store.state, .error(.readFailed("sample document is missing")))
     }
+
+    /// Copy asks the permission itself, not only the selection that a
+    /// refused document never gets — Linux's `copy_selection`.
+    func testCopyOnADocumentThatWithholdsItsTextSaysWhy() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        client.textExtractionPermitted = false
+        let model = ViewerViewModel(store: ViewerStore(client: client), sampleLoader: { Data([1]) })
+        model.openSample()
+        waitUntil({ model.store.state == .loaded }, "the sample never opened")
+        model.copySelection()
+        XCTAssertEqual(model.store.editStatus, ViewerStore.textExtractionRefusalMessage)
+    }
 }
 
 private struct SampleUnavailable: Error, LocalizedError {
