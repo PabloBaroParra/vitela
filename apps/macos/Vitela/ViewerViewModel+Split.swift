@@ -6,6 +6,10 @@ import Foundation
 /// files is asked once for the whole set, and parts are written one at a time
 /// through temporary files, stopping at the first that fails.
 extension ViewerViewModel {
+    /// Whether Split can be asked for now: a cut needs two pages. Shared by
+    /// the File menu and the Organize header.
+    var canRequestSplit: Bool { store.pageSlots.count >= 2 && !isSaving }
+
     func requestSplitPages() {
         guard store.document != nil, !isSaving else { return }
         if case let .failure(failure) = store.planSplit(cuts: "1", documentName: splitDocumentName) {

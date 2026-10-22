@@ -32,6 +32,12 @@ final class ViewerViewModelSplitTests: XCTestCase {
         FakePdfCoreClient(pages: Array(repeating: PageDimensions(width: 612, height: 792), count: count))
     }
 
+    func testSplitCanBeAskedForOnlyWithTwoPagesToCutBetween() {
+        XCTAssertFalse(makeModel(client(1), folder: folder).canRequestSplit)
+        XCTAssertTrue(makeModel(client(2), folder: folder).canRequestSplit)
+        XCTAssertFalse(ViewerViewModel(store: ViewerStore(client: client(2))).canRequestSplit, "no document open")
+    }
+
     func testEveryPartIsWrittenIntoTheChosenFolder() throws {
         let client = client()
         let model = makeModel(client, folder: folder)
