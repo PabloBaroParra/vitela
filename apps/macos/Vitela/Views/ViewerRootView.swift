@@ -27,7 +27,7 @@ struct ViewerRootView: View {
         VStack(spacing: 0) {
             if !model.isShowingHome {
                 ViewerToolbar(model: model, showsProperties: $showsProperties, showsComments: $showsComments, showsForm: $showsForm)
-                searchBar
+                SearchNavigationBar(model: model, query: $searchQuery, searchFieldFocused: $searchFieldFocused)
                 AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
                 Divider()
             }
@@ -150,35 +150,6 @@ struct ViewerRootView: View {
             },
             set: { _ in }
         )
-    }
-
-    private var searchBar: some View {
-        HStack {
-            TextField("Find in document", text: $searchQuery)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 240)
-                .focused($searchFieldFocused)
-                .onSubmit { model.runSearch(searchQuery) }
-            Button { model.runSearch(searchQuery) } label: { Label("Find in document", shellIcon: .search) }
-                .labelStyle(.iconOnly)
-                .help("Find in document (⌘F)")
-            Button { model.stepSearchMatch(by: -1) } label: { Label("Previous match", shellIcon: .previous) }
-                .labelStyle(.iconOnly)
-                .help("Previous match")
-                .disabled(model.store.search == nil)
-            Button { model.stepSearchMatch(by: 1) } label: { Label("Next match", shellIcon: .next) }
-                .labelStyle(.iconOnly)
-                .help("Next match")
-                .disabled(model.store.search == nil)
-            if !model.store.searchStatus.isEmpty {
-                Text(model.store.searchStatus)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            PageNavigationBar(model: model)
-        }
-        .padding(.horizontal)
-        .padding(.bottom, 8)
     }
 
     /// The shell's own notice wins: it answers what the reader just did.

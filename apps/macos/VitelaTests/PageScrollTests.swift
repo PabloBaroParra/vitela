@@ -7,6 +7,24 @@ import XCTest
 /// Windows' `PageScroller`: a page zoomed wider than the window pans
 /// sideways, and one that fits stays centred with nothing to pan.
 final class PageScrollTests: XCTestCase {
+    func testSearchAndPageNavigationWrapWithoutCompressingTheirReadout() {
+        let pages = Array(repeating: PageDimensions(width: 612, height: 792), count: 1000)
+        let model = ViewerViewModel(store: ViewerStore(client: FakePdfCoreClient(pages: pages)))
+        model.store.open(bytes: Data([1]))
+        model.store.currentPage = 999
+        assertWraps(SearchBarFixture(model: model))
+    }
+
+    func testLongSearchFeedbackWrapsBelowTheControls() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+        let request = try XCTUnwrap(model.store.beginSearch(query: String(repeating: "Invoice ", count: 25)))
+        model.store.applySearch(.success([]), for: request)
+        XCTAssertFalse(model.store.searchStatus.isEmpty)
+        assertWraps(SearchBarFixture(model: model))
+    }
+
     func testRailPersistsAndHomeHidesEditorCommandsInNarrowAndWideWindows() {
         let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
         let model = ViewerViewModel(store: ViewerStore(client: client))
@@ -141,5 +159,16 @@ final class PageScrollTests: XCTestCase {
             return (0, 0)
         }
         return (Double(pages.contentView.bounds.width), Double(document.frame.width))
+    }
+}
+
+/// Supplies the real focus binding, including the root's ownership of it.
+private struct SearchBarFixture: View {
+    @ObservedObject var model: ViewerViewModel
+    @State private var query = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        SearchNavigationBar(model: model, query: $query, searchFieldFocused: $focused)
     }
 }

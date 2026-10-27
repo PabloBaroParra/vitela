@@ -86,6 +86,11 @@ responsibility:
   for the printer), scaled to fit the printable area.
 - `Vitela/ViewerViewModel+Navigation.swift` — the Go to page prompt and
   the Pages column (`Views/PagesSidebar`), which shares Organize's thumbnails.
+- `Vitela/Views/SearchNavigationBar.swift` — search controls and page
+  navigation in adaptive groups, like Linux's `FlowBox` and Windows'
+  `ToolbarPanel`: two rows when narrow, a full page readout and search
+  feedback wrapping below rather than pushing navigation off-screen. Query
+  and keyboard focus remain owned by the root, including Home's ⌘F return.
 - `Vitela/ViewerViewModel+Zoom.swift` — feeds the page list's size to the
   fit-width / fit-page zoom modes, waiting for a live resize to settle.
 - `Vitela/ViewerViewModel+FileDrop.swift` — PDFs dropped on the window or
