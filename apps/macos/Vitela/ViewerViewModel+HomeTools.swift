@@ -85,6 +85,7 @@ extension ViewerViewModel {
     /// Home over the open document — Linux's and Windows' Home rail button.
     /// Nothing about the document changes: not its edits, not its history.
     func showHome() {
+        homeSection = .home
         guard store.document != nil else { return }
         showsHome = true
     }
@@ -103,10 +104,20 @@ extension ViewerViewModel {
     /// their own refusals — as on Linux.
     func applyHomeTool(_ tool: HomeTool) {
         switch tool {
-        case .edit: setContentEditMode(true)
-        case .annotate: store.editStatus = HomeTool.annotatePrompt
-        case .sign: signWithCertificateFile()
-        case .organize: isOrganizing = true
+        case .edit:
+            isOrganizing = false
+            setContentEditMode(true)
+        case .annotate:
+            isOrganizing = false
+            setContentEditMode(false)
+            store.armAnnotationTool(nil)
+            store.editStatus = HomeTool.annotatePrompt
+        case .sign:
+            signWithCertificateFile()
+        case .organize:
+            setContentEditMode(false)
+            store.armAnnotationTool(nil)
+            isOrganizing = true
         case .compress: requestCompress()
         case .protect: requestProtect()
         }

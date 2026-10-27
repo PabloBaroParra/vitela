@@ -18,6 +18,63 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
         XCTAssertEqual(HomeTool.allCases.map(\.label), ["Edit", "Annotate", "Sign", "Organize", "Compress", "Protect"])
     }
 
+    func testRailMatchesTheOtherDesktopShellsOrderAndIcons() {
+        XCTAssertEqual(ShellSection.allCases.map(\.label),
+            ["Home", "Recent", "My files", "Edit PDF", "Annotate", "Sign", "Organize pages", "Protect"])
+        XCTAssertEqual(ShellSection.allCases.map(\.icon), [.home, .recent, .files, .edit, .annotate, .sign, .organize, .protect])
+        XCTAssertEqual(ShellSection.allCases.compactMap(\.tool), [.edit, .annotate, .sign, .organize, .protect])
+    }
+
+    func testRailHomeAndRecentPreserveTheSessionAndReturnToItsMode() {
+        let (_, model) = model()
+        model.store.applyAnnotationEdit(.add(kind: .shape, page: 0,
+            rect: PdfRect(x: 10, y: 10, width: 100, height: 100), color: .annotationDefault))
+        model.isOrganizing = true
+        let revision = model.store.editRevision
+
+        model.navigateShell(to: .recent)
+        XCTAssertTrue(model.isShowingHome)
+        XCTAssertEqual(model.activeShellSection, .recent)
+        XCTAssertEqual(model.recentFocusRequest, 1)
+        model.navigateShell(to: .recent)
+        XCTAssertEqual(model.recentFocusRequest, 2, "a repeated Recent click must focus the cards again")
+        model.navigateShell(to: .home)
+        XCTAssertEqual(model.activeShellSection, .home)
+        model.returnToDocument()
+
+        XCTAssertEqual(model.activeShellSection, .organize)
+        XCTAssertNotNil(model.store.document)
+        XCTAssertEqual(model.store.editRevision, revision)
+        XCTAssertTrue(model.store.canUndo)
+    }
+
+    func testRailToolsLeaveOrganizeAndEditModesAsTheirDestinationsRequire() {
+        let (_, model) = model()
+        model.navigateShell(to: .organize)
+        XCTAssertEqual(model.activeShellSection, .organize)
+        model.navigateShell(to: .edit)
+        XCTAssertFalse(model.isOrganizing)
+        XCTAssertTrue(model.store.contentEditMode, "Edit must not be refused because Organize was showing")
+        XCTAssertEqual(model.activeShellSection, .edit)
+        model.navigateShell(to: .annotate)
+        XCTAssertFalse(model.store.contentEditMode)
+        XCTAssertNil(model.store.armedTool, "navigation must not place an unrequested annotation")
+        XCTAssertEqual(model.activeShellSection, .annotate)
+        model.navigateShell(to: .protect)
+        XCTAssertTrue(model.isProtectPresented, "the rail uses the existing protection flow")
+    }
+
+    func testRecentAlsoWorksOnAColdStartAndBusyNavigationDoesNotChangeModes() {
+        let (_, model) = model(open: false)
+        model.navigateShell(to: .recent)
+        XCTAssertEqual(model.activeShellSection, .recent)
+        XCTAssertTrue(model.isShowingHome)
+        model.isSaving = true
+        model.navigateShell(to: .home)
+        XCTAssertEqual(model.activeShellSection, .recent)
+        XCTAssertFalse(model.canNavigateShell)
+    }
+
     /// Windows' `ThemeParityTests` checks on `HomeLayout`, with Linux's
     /// `SIDE_COLUMN_WIDTH`.
     func testHomeStacksTheToolsColumnUnderANarrowBody() {

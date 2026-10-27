@@ -17,6 +17,16 @@ Per the repository's "no monolithic shells" rule, the target is split by
 responsibility:
 
 - `Vitela/VitelaApp.swift` — entry point only, nothing else.
+- `Vitela/Views/AppRail.swift`, `Vitela/ViewerViewModel+ShellNavigation.swift`
+  — persistent branded Home, Recent, My files and tool navigation, in the
+  same order as Linux's `shell.rs` and Windows' `AppRail`. At 1000pt and
+  above it is 176pt wide, like Windows; narrower windows use a 56pt icon
+  column with the same accessibility labels and tooltips. Recent reveals
+  its heading and focuses the newest visible card. The model owns navigation
+  and derives the active tool from the existing modes, never a second copy.
+  Home hides editor controls and panels without closing or changing the
+  document; Return to Document restores its mode and page. File picking,
+  signing and protection still use the existing native flows.
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
   changes before quitting, and passes on files Finder opens with Vitela.
 - `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Open Recent, Save As, Protect,
@@ -65,8 +75,8 @@ responsibility:
   the start screen's Tools grid (Edit, Annotate, Sign, Organize, Compress,
   Protect: with no document open a tile opens the chooser first and goes
   there once the file loads), Quick actions and the keyboard reference —
-  Linux's `home/tools.rs`. Home ▸ Return to Document (⇧⌘H, the toolbar's
-  Home) shows the start screen over an open document without touching it.
+  Linux's `home/tools.rs`. The Home rail item and Home ▸ Return to Document
+  (⇧⌘H) switch between Home and the open document without changing it.
 - `Vitela/ViewerViewModel+Share.swift` — File ▸ Share…: signature
   question, the bytes a save would write in a fresh temporary folder, the
   share picker, and sweeping copies older than an hour.

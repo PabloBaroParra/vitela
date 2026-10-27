@@ -23,14 +23,16 @@ struct ViewerRootView: View {
     @State private var commentsColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
     @State private var formColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
 
-    var body: some View {
+    private var workspace: some View {
         VStack(spacing: 0) {
-            ViewerToolbar(model: model, showsProperties: $showsProperties, showsComments: $showsComments, showsForm: $showsForm)
-            searchBar
-            AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
-            Divider()
+            if !model.isShowingHome {
+                ViewerToolbar(model: model, showsProperties: $showsProperties, showsComments: $showsComments, showsForm: $showsForm)
+                searchBar
+                AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
+                Divider()
+            }
             HStack(spacing: 0) {
-                if !model.store.pageSlots.isEmpty && !model.showsHome {
+                if !model.isShowingHome {
                     if model.showsPages {
                         PagesSidebar(model: model)
                             .frame(width: pagesColumn.preferredWidth)
@@ -40,37 +42,39 @@ struct ViewerRootView: View {
                     ColumnDivider(column: $pagesColumn, isOpen: $model.showsPages, widening: 1,
                                   label: "Resize the Pages column")
                 }
-                if model.store.pageSlots.isEmpty || model.showsHome {
+                if model.isShowingHome {
                     placeholder
                 } else if model.isOrganizing {
                     OrganizeView(model: model)
                 } else {
                     pageList
                 }
-                if model.store.search != nil {
-                    // Results close with the search, not with a drag: this
-                    // divider only resizes.
-                    ColumnDivider(column: $searchColumn, isOpen: .constant(true), widening: -1,
-                                  label: "Resize the search results")
-                    SearchResultsPanel(store: model.store).frame(width: searchColumn.preferredWidth)
-                }
-                if showsProperties {
-                    ColumnDivider(column: $propertiesColumn, isOpen: $showsProperties, widening: -1,
-                                  label: "Resize the Properties panel")
-                    PropertiesPanel(store: model.store)
-                        .frame(width: propertiesColumn.preferredWidth)
-                }
-                if showsComments {
-                    ColumnDivider(column: $commentsColumn, isOpen: $showsComments, widening: -1,
-                                  label: "Resize the Comments panel")
-                    CommentsPanel(store: model.store)
-                        .frame(width: commentsColumn.preferredWidth)
-                }
-                if showsForm {
-                    ColumnDivider(column: $formColumn, isOpen: $showsForm, widening: -1,
-                                  label: "Resize the Form panel")
-                    FormFieldsPanel(model: model)
-                        .frame(width: formColumn.preferredWidth)
+                if !model.isShowingHome {
+                    if model.store.search != nil {
+                        // Results close with the search, not with a drag: this
+                        // divider only resizes.
+                        ColumnDivider(column: $searchColumn, isOpen: .constant(true), widening: -1,
+                                       label: "Resize the search results")
+                        SearchResultsPanel(store: model.store).frame(width: searchColumn.preferredWidth)
+                    }
+                    if showsProperties {
+                        ColumnDivider(column: $propertiesColumn, isOpen: $showsProperties, widening: -1,
+                                       label: "Resize the Properties panel")
+                        PropertiesPanel(store: model.store)
+                            .frame(width: propertiesColumn.preferredWidth)
+                    }
+                    if showsComments {
+                        ColumnDivider(column: $commentsColumn, isOpen: $showsComments, widening: -1,
+                                       label: "Resize the Comments panel")
+                        CommentsPanel(store: model.store)
+                            .frame(width: commentsColumn.preferredWidth)
+                    }
+                    if showsForm {
+                        ColumnDivider(column: $formColumn, isOpen: $showsForm, widening: -1,
+                                       label: "Resize the Form panel")
+                        FormFieldsPanel(model: model)
+                            .frame(width: formColumn.preferredWidth)
+                    }
                 }
             }
             if !statusText.isEmpty {
@@ -78,6 +82,18 @@ struct ViewerRootView: View {
                 statusLine
             }
         }
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                AppRail(model: model, compact: geometry.size.width < AppRail.collapseBelowWidth)
+                Divider()
+                workspace
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("viewer-root")
         // Controls that take a tint (prominent buttons, switches, progress)
         // wear Vitela's accent, as on Linux and Windows.
@@ -93,8 +109,12 @@ struct ViewerRootView: View {
             // `.hidden()` can pull a view out of the responder chain on some
             // macOS versions, which would silently kill the shortcut;
             // `.opacity(0)` keeps it live while staying invisible.
-            Button("Find") { searchFieldFocused = true }
+            Button("Find") {
+                model.returnToDocument()
+                DispatchQueue.main.async { searchFieldFocused = true }
+            }
                 .keyboardShortcut("f", modifiers: .command)
+                .disabled(model.store.document == nil)
                 .opacity(0)
         )
         .alert("Password required", isPresented: isPresentingPasswordPrompt) {
