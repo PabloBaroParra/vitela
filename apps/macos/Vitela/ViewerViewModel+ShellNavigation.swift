@@ -50,6 +50,18 @@ extension ViewerViewModel {
 
     var canNavigateShell: Bool { !store.pageWorkInFlight && !isSaving && !isImporting }
 
+    var showsReaderChrome: Bool { !isShowingHome && !isOrganizing }
+
+    /// Windows' FindDocument_Invoked also leaves Organize before focusing
+    /// search. Never focus a control in a workspace that is still hidden.
+    @discardableResult
+    func revealDocumentSearch() -> Bool {
+        guard store.document != nil && canNavigateShell else { return false }
+        isOrganizing = false
+        returnToDocument()
+        return true
+    }
+
     /// Derive persistent selection from the actual modes. Dialog actions
     /// do not pretend to be a second selected workspace when cancelled.
     var activeShellSection: ShellSection {

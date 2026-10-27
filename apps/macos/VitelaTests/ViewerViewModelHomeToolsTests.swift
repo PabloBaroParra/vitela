@@ -75,6 +75,24 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
         XCTAssertFalse(model.canNavigateShell)
     }
 
+    func testFindLeavesHiddenWorkspacesAndHonoursTheBusyGuard() {
+        let (_, model) = model()
+        model.isOrganizing = true
+        model.showHome()
+        XCTAssertFalse(model.showsReaderChrome)
+        XCTAssertTrue(model.revealDocumentSearch())
+        XCTAssertFalse(model.showsHome)
+        XCTAssertFalse(model.isOrganizing)
+        XCTAssertTrue(model.showsReaderChrome)
+
+        model.isOrganizing = true
+        model.isSaving = true
+        XCTAssertFalse(model.revealDocumentSearch())
+        XCTAssertTrue(model.isOrganizing, "a refused Find must leave the workspace alone")
+        let (_, empty) = self.model(open: false)
+        XCTAssertFalse(empty.revealDocumentSearch(), "Find needs an open document")
+    }
+
     /// Windows' `ThemeParityTests` checks on `HomeLayout`, with Linux's
     /// `SIDE_COLUMN_WIDTH`.
     func testHomeStacksTheToolsColumnUnderANarrowBody() {

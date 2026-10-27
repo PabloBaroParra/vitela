@@ -16,7 +16,7 @@ struct OrganizeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            OrganizeHeader(model: model)
             Divider()
             if model.organizeShowsDocuments {
                 OrganizeDocumentsList(model: model)
@@ -59,53 +59,6 @@ struct OrganizeView: View {
         }
     }
 
-    private func appendBlankPage(_ orientation: PageEdit.Orientation) {
-        model.editPages(.insertBlank(at: model.store.pageSlots.count, orientation: orientation))
-    }
-
-    private var header: some View {
-        HStack {
-            Text("Organize pages").font(.headline)
-            Picker("View", selection: Binding(get: { model.organizeShowsDocuments }, set: model.showOrganizeDocuments)) {
-                Text("Documents").tag(true)
-                Text("Pages").tag(false)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 180)
-            .help(model.organizeShowsDocuments ? DocumentBlocks.documentsHint : DocumentBlocks.pagesHint)
-            Text("Each change is one undo step.").foregroundStyle(.secondary)
-            Spacer()
-            Button("Add PDFs…", action: model.importPdfs)
-                .help("Add every page of other PDFs at the end")
-                .disabled(!model.store.canEditPages || model.isImporting)
-            Button("Add blank A4 page") { appendBlankPage(.portrait) }
-                .disabled(!model.store.canEditPages)
-            Button("Add landscape A4 page") { appendBlankPage(.landscape) }
-                .disabled(!model.store.canEditPages)
-            // Whole-document outputs, beside the edits, as in Linux's
-            // `organize/header.rs` and Windows' Organize toolbar.
-            Button("Extract…", action: model.requestExtractPages)
-                .help("Save chosen pages as a new PDF (⇧⌘E)")
-                .disabled(!model.canRequestExtract)
-            Button("Split…", action: model.requestSplitPages)
-                .help("Cut this PDF into several new PDFs")
-                .disabled(!model.canRequestSplit)
-            if let progress = model.importProgress {
-                ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
-                    .frame(width: 80)
-                Text(progress.text).foregroundStyle(.secondary).monospacedDigit()
-                Button("Cancel import", action: model.cancelImport)
-                    .help("Stop adding the picked PDFs; nothing has changed yet")
-            } else if model.store.pageWorkInFlight {
-                ProgressView().controlSize(.small)
-            }
-            Button("Done") { model.isOrganizing = false }
-                .keyboardShortcut(.cancelAction)
-        }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-    }
 }
 
 /// Accepts a dragged Organize card on another card. The move itself is the
