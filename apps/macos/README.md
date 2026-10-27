@@ -143,7 +143,11 @@ responsibility:
 - `Vitela/Views/SearchResultsPanel.swift` — every match of the search,
   listed by page; a click makes one current.
 - `Vitela/Views/ViewerToolbar.swift` — the window's top row of actions,
-  panel and mode toggles, and zoom.
+  panel and mode toggles, and zoom. Related commands occupy adaptive grid
+  cells, wrapping on narrow windows rather than pushing controls off-screen,
+  like Linux's `FlowBox` and Windows' `ToolbarPanel`. `AnnotationToolbar`
+  likewise wraps its tools and selected-annotation controls. Both use grids
+  available on macOS 12, not macOS 13's `Layout` protocol.
 - `Vitela/Views/` — one file per view (including the Properties panel), plus
   the `RenderedPage → NSImage` bridge.
 - `../apple/Shared/` — the model layer shared with iOS: `PdfCore.swift`

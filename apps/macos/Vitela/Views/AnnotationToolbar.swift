@@ -17,7 +17,7 @@ struct AnnotationToolbar: View {
     @StateObject private var colorSettler = ColorSettler()
 
     var body: some View {
-        HStack(spacing: 6) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 8) {
             Text("Annotate").foregroundStyle(.secondary)
             ForEach(AnnotationTool.allCases, id: \.self) { tool in
                 Toggle(isOn: binding(for: tool)) { toolLabel(tool) }
@@ -29,22 +29,21 @@ struct AnnotationToolbar: View {
             Button { store.armAnnotationTool(nil) } label: { Label("Pointer", shellIcon: .select) }
                 .keyboardShortcut(.escape, modifiers: [])
                 .disabled(store.armedTool == nil)
-            Divider().frame(height: 16)
             // Organize hides the pages they would scroll to, as on Windows.
             Button { store.stepAnnotation(forward: false) } label: { Label("Previous Annotation", shellIcon: .previous) }
+                .labelStyle(.iconOnly)
                 .help("Select and show the previous annotation (⌥⌘[)")
                 .disabled(!store.canStepAnnotations || organizing)
             Button { store.stepAnnotation(forward: true) } label: { Label("Next Annotation", shellIcon: .next) }
+                .labelStyle(.iconOnly)
                 .help("Select and show the next annotation (⌥⌘])")
                 .disabled(!store.canStepAnnotations || organizing)
             if let selected = store.selectedAnnotation {
-                Divider().frame(height: 16)
                 selectionControls(selected)
             }
             if store.document != nil && !store.annotationEditingAllowed {
                 Text("This document does not permit annotations.").foregroundStyle(.secondary)
             }
-            Spacer()
         }
         .disabled(store.document == nil || !store.annotationEditingAllowed)
         .padding(.horizontal)

@@ -15,14 +15,19 @@ struct ViewerToolbar: View {
     @State private var imageGeometry: GeometrySheet.Request?
 
     var body: some View {
-        HStack {
-            Toggle(isOn: Binding(get: { model.showsHome }, set: { $0 ? model.showHome() : model.returnToDocument() })) {
-                Label("Home", shellIcon: .home)
+        // Each cell is a related group, as in Linux's FlowBox and Windows'
+        // ToolbarPanel. An adaptive grid works on our macOS 12 floor (the
+        // SwiftUI Layout protocol requires macOS 13).
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), alignment: .leading)], alignment: .leading, spacing: 8) {
+            HStack {
+                Toggle(isOn: Binding(get: { model.showsHome }, set: { $0 ? model.showHome() : model.returnToDocument() })) {
+                    Label("Home", shellIcon: .home)
+                }
+                    .toggleStyle(.button)
+                    .help("Show the start screen; the open document stays as it is (⇧⌘H)")
+                    .disabled(model.store.document == nil)
+                Button(action: model.selectDocument) { Label("Open PDF", shellIcon: .files) }
             }
-                .toggleStyle(.button)
-                .help("Show the start screen; the open document stays as it is (⇧⌘H)")
-                .disabled(model.store.document == nil)
-            Button(action: model.selectDocument) { Label("Open PDF", shellIcon: .files) }
             Menu {
                 Button("Vitela sample", action: model.openSample)
                 Button("AES-128 sample (user-aes-pass)", action: model.openAes128Sample)
@@ -30,108 +35,127 @@ struct ViewerToolbar: View {
             } label: {
                 Label("Open Sample", shellIcon: .sample)
             }
-            Button { model.saveAs() } label: { Label("Save As…", shellIcon: .save) }
-                .labelStyle(.iconOnly)
-                .help("Save as (⌘S)")
-                .disabled(model.store.document == nil || model.isSaving)
-            Button(action: model.printDocument) { Label("Print…", shellIcon: .print) }
-                .labelStyle(.iconOnly)
-                .help("Print (⌘P)")
-                .disabled(model.store.document == nil)
-            Button(action: model.share) { Label("Share…", shellIcon: .share) }
-                .help("Send a copy with your changes through Mail, Messages, AirDrop…")
-                .disabled(!model.canShare)
-            // The Output group's fourth button on Linux and Windows.
-            Button(action: model.requestExportImages) { Label("Export images…", shellIcon: .exportImages) }
-                .labelStyle(.iconOnly)
-                .help("Export pages as images")
-                .disabled(!model.canRequestExportImages)
-            Button("Copy", action: model.copySelection)
-                .keyboardShortcut("c", modifiers: .command)
-                .disabled(model.store.selectedText == nil)
-            Button(action: model.undo) { Label("Undo", shellIcon: .undo) }
-                .labelStyle(.iconOnly)
-                .help("Undo (⌘Z)")
-                .disabled(!model.store.canUndo || model.store.pageWorkInFlight)
-            Button(action: model.redo) { Label("Redo", shellIcon: .redo) }
-                .labelStyle(.iconOnly)
-                .help("Redo (⇧⌘Z)")
-                .disabled(!model.store.canRedo || model.store.pageWorkInFlight)
-            Toggle("Properties", isOn: $showsProperties)
-                .toggleStyle(.button)
-            if model.store.isSigned {
-                Text("✓ Digitally signed")
-                    .foregroundStyle(.secondary)
-                    .help("This document carries a digital signature.")
-                    .accessibilityIdentifier("signed-indicator")
+            HStack {
+                Button { model.saveAs() } label: { Label("Save As…", shellIcon: .save) }
+                    .labelStyle(.iconOnly)
+                    .help("Save as (⌘S)")
+                    .disabled(model.store.document == nil || model.isSaving)
+                Button(action: model.printDocument) { Label("Print…", shellIcon: .print) }
+                    .labelStyle(.iconOnly)
+                    .help("Print (⌘P)")
+                    .disabled(model.store.document == nil)
+                Button(action: model.share) { Label("Share…", shellIcon: .share) }
+                    .help("Send a copy with your changes through Mail, Messages, AirDrop…")
+                    .disabled(!model.canShare)
+                // The Output group's fourth button on Linux and Windows.
+                Button(action: model.requestExportImages) { Label("Export images…", shellIcon: .exportImages) }
+                    .labelStyle(.iconOnly)
+                    .help("Export pages as images")
+                    .disabled(!model.canRequestExportImages)
             }
-            Toggle(isOn: $model.showsPages) { Label("Pages", shellIcon: .panelLeft) }
-                .toggleStyle(.button)
-                .help("Show or hide the list of pages (⌥⌘2)")
-            Toggle(isOn: $showsComments) { Label("Comments", shellIcon: .comments) }
-                .toggleStyle(.button)
-                .help("The document's comments, by page")
-            Toggle("Form", isOn: $showsForm)
-                .toggleStyle(.button)
-                .help("Fill in the document's form fields")
-            Toggle(isOn: Binding(get: { model.store.contentEditMode }, set: model.setContentEditMode)) {
-                Label("Edit Content", shellIcon: .edit)
+            HStack {
+                Button("Copy", action: model.copySelection)
+                    .keyboardShortcut("c", modifiers: .command)
+                    .disabled(model.store.selectedText == nil)
+                Button(action: model.undo) { Label("Undo", shellIcon: .undo) }
+                    .labelStyle(.iconOnly)
+                    .help("Undo (⌘Z)")
+                    .disabled(!model.store.canUndo || model.store.pageWorkInFlight)
+                Button(action: model.redo) { Label("Redo", shellIcon: .redo) }
+                    .labelStyle(.iconOnly)
+                    .help("Redo (⇧⌘Z)")
+                    .disabled(!model.store.canRedo || model.store.pageWorkInFlight)
             }
-                .toggleStyle(.button)
-                .help("Click the page's own text to retype, move or delete it, or an image to move, resize or delete it")
-                .disabled(!model.canEditContent && !model.store.contentEditMode)
-            Toggle(isOn: Binding(get: { model.textInsertArmed }, set: model.armTextInsert)) {
-                Label("Add Text", shellIcon: .text)
+            HStack {
+                Toggle("Properties", isOn: $showsProperties)
+                    .toggleStyle(.button)
+                Toggle(isOn: $model.showsPages) { Label("Pages", shellIcon: .panelLeft) }
+                    .toggleStyle(.button)
+                    .help("Show or hide the list of pages (⌥⌘2)")
             }
-                .toggleStyle(.button)
-                .help("Click a page to add a new line of text there")
-                .disabled(!model.canEditContent)
-            // Armed, the status line asks for the click; choosing again replaces the image.
-            Button(action: model.armImageInsert) { Label("Add Image…", shellIcon: .image) }
-                .help("Choose a PNG or JPEG, then click a page to place it")
-                .disabled(!model.canEditContent)
-            Button("Add Watermark…", action: model.requestWatermark)
-                .help("Stamp the same text or picture across the pages you pick, as one undo step")
-                .disabled(!model.canEditContent)
+            HStack {
+                Toggle(isOn: $showsComments) { Label("Comments", shellIcon: .comments) }
+                    .toggleStyle(.button)
+                    .help("The document's comments, by page")
+                Toggle("Form", isOn: $showsForm)
+                    .toggleStyle(.button)
+                    .help("Fill in the document's form fields")
+            }
+            HStack {
+                Toggle(isOn: Binding(get: { model.store.contentEditMode }, set: model.setContentEditMode)) {
+                    Label("Edit Content", shellIcon: .edit)
+                }
+                    .toggleStyle(.button)
+                    .help("Click the page's own text to retype, move or delete it, or an image to move, resize or delete it")
+                    .disabled(!model.canEditContent && !model.store.contentEditMode)
+                Toggle(isOn: Binding(get: { model.textInsertArmed }, set: model.armTextInsert)) {
+                    Label("Add Text", shellIcon: .text)
+                }
+                    .toggleStyle(.button)
+                    .help("Click a page to add a new line of text there")
+                    .disabled(!model.canEditContent)
+            }
+            HStack {
+                // Armed, the status line asks for the click; choosing again replaces the image.
+                Button(action: model.armImageInsert) { Label("Add Image…", shellIcon: .image) }
+                    .help("Choose a PNG or JPEG, then click a page to place it")
+                    .disabled(!model.canEditContent)
+                Button("Add Watermark…", action: model.requestWatermark)
+                    .help("Stamp the same text or picture across the pages you pick, as one undo step")
+                    .disabled(!model.canEditContent)
+            }
             if model.store.selectedContentImage != nil {
-                Button("Replace Image…", action: model.replaceSelectedImage)
-                    .help(model.store.canReplaceSelectedImage
-                        ? "Swap the selected image's picture for a PNG or JPEG, keeping its box"
-                        : "This image cannot be replaced now — the status line says why")
-                    .disabled(model.store.pageWorkInFlight || !model.store.canReplaceSelectedImage)
-                Button("Delete Image", action: model.deleteSelectedImage)
-                    .help("Delete the selected image from the page (⌫)")
-                    .disabled(model.store.pageWorkInFlight)
-                Button("Image Position…") { imageGeometry = model.selectedImageGeometry(position: true) }
-                    .help("Type where the selected image goes, in points")
-                    .disabled(model.store.pageWorkInFlight)
-                Button("Image Size…") { imageGeometry = model.selectedImageGeometry(position: false) }
-                    .help("Type the selected image's width and height, in points")
-                    .disabled(model.store.pageWorkInFlight)
+                HStack {
+                    Button("Replace Image…", action: model.replaceSelectedImage)
+                        .help(model.store.canReplaceSelectedImage
+                            ? "Swap the selected image's picture for a PNG or JPEG, keeping its box"
+                            : "This image cannot be replaced now — the status line says why")
+                        .disabled(model.store.pageWorkInFlight || !model.store.canReplaceSelectedImage)
+                    Button("Delete Image", action: model.deleteSelectedImage)
+                        .help("Delete the selected image from the page (⌫)")
+                        .disabled(model.store.pageWorkInFlight)
+                }
+                HStack {
+                    Button("Image Position…") { imageGeometry = model.selectedImageGeometry(position: true) }
+                        .help("Type where the selected image goes, in points")
+                        .disabled(model.store.pageWorkInFlight)
+                    Button("Image Size…") { imageGeometry = model.selectedImageGeometry(position: false) }
+                        .help("Type the selected image's width and height, in points")
+                        .disabled(model.store.pageWorkInFlight)
+                }
             }
-            Toggle(isOn: $model.isOrganizing) { Label("Organize", shellIcon: .organize) }
-                .toggleStyle(.button)
-                .help("Rotate and rearrange pages")
-                .disabled(model.store.document == nil)
-            Spacer()
-            Button { model.store.stepZoom(-1) } label: { Label("Zoom out", shellIcon: .zoomOut) }
-                .labelStyle(.iconOnly)
-                .help("Zoom out (⌘−)")
-            Text("\(Int((model.store.displayedZoom * 100).rounded()))%")
-                // A monospaced face keeps the readout from jittering as the
-                // digit count changes.
-                .font(.system(.body, design: .monospaced))
-            Button { model.store.stepZoom(1) } label: { Label("Zoom in", shellIcon: .zoomIn) }
-                .labelStyle(.iconOnly)
-                .help("Zoom in (⌘=)")
-            Toggle(isOn: zoomModeBinding(.fitWidth)) { Label("Fit width", shellIcon: .fitWidth) }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help("Fit each page to the window width")
-            Toggle(isOn: zoomModeBinding(.fitPage)) { Label("Fit page", shellIcon: .fitPage) }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help("Fit each whole page in the window (⌘9)")
+            HStack {
+                Toggle(isOn: $model.isOrganizing) { Label("Organize", shellIcon: .organize) }
+                    .toggleStyle(.button)
+                    .help("Rotate and rearrange pages")
+                    .disabled(model.store.document == nil)
+                if model.store.isSigned {
+                    Text("✓ Digitally signed")
+                        .foregroundStyle(.secondary)
+                        .help("This document carries a digital signature.")
+                        .accessibilityIdentifier("signed-indicator")
+                }
+            }
+            HStack {
+                Button { model.store.stepZoom(-1) } label: { Label("Zoom out", shellIcon: .zoomOut) }
+                    .labelStyle(.iconOnly)
+                    .help("Zoom out (⌘−)")
+                Text("\(Int((model.store.displayedZoom * 100).rounded()))%")
+                    // A monospaced face keeps the readout from jittering as the
+                    // digit count changes.
+                    .font(.system(.body, design: .monospaced))
+                Button { model.store.stepZoom(1) } label: { Label("Zoom in", shellIcon: .zoomIn) }
+                    .labelStyle(.iconOnly)
+                    .help("Zoom in (⌘=)")
+                Toggle(isOn: zoomModeBinding(.fitWidth)) { Label("Fit width", shellIcon: .fitWidth) }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Fit each page to the window width")
+                Toggle(isOn: zoomModeBinding(.fitPage)) { Label("Fit page", shellIcon: .fitPage) }
+                    .toggleStyle(.button)
+                    .labelStyle(.iconOnly)
+                    .help("Fit each whole page in the window (⌘9)")
+            }
         }
         .padding()
         .sheet(item: $imageGeometry) { request in
