@@ -192,6 +192,8 @@ jobs:
       # itself needs network access to resolve/download crates, but the test
       # *run* must not. Compiling test binaries ahead of time means the
       # isolated steps below only need to execute already-built artifacts.
+      - name: Check namespace command environment wiring
+        run: python3 -m unittest discover -s scripts/tests -p test_zero_network_workflow.py
       - name: Pre-build test binaries (network allowed)
         run: cargo test --workspace --locked --no-run
       # `unshare --net` creates a new network namespace with only a loopback
@@ -208,9 +210,9 @@ jobs:
       # behave as on any real machine. External egress stays impossible
       # either way: the namespace has no other interface and no route out.
       #
-      # `sudo` resets PATH via secure_path and drops the runner env, so
-      # `env "PATH=$PATH"` re-injects the toolchain PATH and -E preserves
-      # HOME/PDFIUM_DYNAMIC_LIB_PATH for rustup/cargo/pdfium resolution.
+      # Some runners ignore sudo -E. Pass the required environment explicitly
+      # AFTER sudo so rustup still uses the runner's toolchain, PDFium resolves,
+      # and Cargo sees the same build flags as the pre-build (no rebuild).
       # Do not add `--map-root-user` here: `sudo` already supplies the
       # privilege needed for `--net`, while an extra user namespace prevents
       # the mapped root process from executing the runner-owned Cargo binary.
@@ -224,11 +226,19 @@ jobs:
       # #[gtk::test]s need a real display, which this runner doesn't have.
       - name: Run the full test suite inside a network namespace
         run: |
-          sudo -E env "PATH=$PATH" unshare --net \
+          sudo env "PATH=$PATH" "HOME=$HOME" \
+            "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+            "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+            "RUSTFLAGS=$RUSTFLAGS" "CARGO_INCREMENTAL=$CARGO_INCREMENTAL" \
+            "PDFIUM_DYNAMIC_LIB_PATH=$PDFIUM_DYNAMIC_LIB_PATH" unshare --net \
             sh -c 'ip link set lo up && exec cargo test --workspace --locked -- --skip gtk_ui_'
       - name: Run zero-network-guard's CI-only egress proof inside the namespace
         run: |
-          sudo -E env "PATH=$PATH" unshare --net \
+          sudo env "PATH=$PATH" "HOME=$HOME" \
+            "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" \
+            "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+            "RUSTFLAGS=$RUSTFLAGS" "CARGO_INCREMENTAL=$CARGO_INCREMENTAL" \
+            "PDFIUM_DYNAMIC_LIB_PATH=$PDFIUM_DYNAMIC_LIB_PATH" unshare --net \
             sh -c 'ip link set lo up && exec cargo test -p zero-network-guard --locked -- --ignored'
 
   determinism:
