@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// What the window shows with no document open: the mark, Open and New, the
+/// What the window shows on Home: Open and New, the
 /// Recent list grouped by day, the Tools column (`HomeToolsColumn`) and the
 /// build's version (`AppVersion`) —
 /// Linux's Home (`home/`) and Windows' `MainWindow.Home.cs` /
@@ -32,21 +32,36 @@ struct HomeView: View {
     @State private var bodyWidth = 0.0
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
-                columns
-                Text(AppVersion.footerText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    header
+                    columns
+                    Text(AppVersion.footerText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .onAppear { model.loadRecentPreviews(scale: Double(displayScale), retry: true) }
+            .onChange(of: model.recentDocuments) { _ in
+                model.loadRecentPreviews(scale: Double(displayScale))
+                if model.homeSection == .recent && focusedCard == nil { revealRecent(using: proxy) }
+            }
+            .onAppear { if model.homeSection == .recent { revealRecent(using: proxy) } }
+            .onChange(of: model.recentFocusRequest) { _ in revealRecent(using: proxy) }
+            .onChange(of: model.homeSection) { section in
+                if section == .home { proxy.scrollTo("home-heading", anchor: .top) }
+            }
         }
-        .onAppear { model.loadRecentPreviews(scale: Double(displayScale), retry: true) }
-        .onChange(of: model.recentDocuments) { _ in model.loadRecentPreviews(scale: Double(displayScale)) }
+    }
+
+    private func revealRecent(using proxy: ScrollViewProxy) {
+        proxy.scrollTo("recent-heading", anchor: .top)
+        focusedCard = RecentDocuments.firstShown(model.recentDocuments, matching: query, now: Date())
     }
 
     @ViewBuilder private var columns: some View {
@@ -82,22 +97,28 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 16) {
-            AppMarkView()
+        VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Welcome to Vitela").font(.largeTitle)
                 Text("Your fast, private PDF workspace.").foregroundStyle(.secondary)
                 Text(model.title).foregroundStyle(.secondary)
             }
-            Spacer()
-            if model.showsHome {
-                Button("Return to Document", action: model.returnToDocument)
-                    .help("Back to the open document, as you left it (⇧⌘H)")
+            HStack {
+                if model.showsHome {
+                    Button("Return to Document", action: model.returnToDocument)
+                        .help("Back to the open document, as you left it (⇧⌘H)")
+                }
+                Button("New", action: model.newDocument)
+                Button("Open…", action: model.selectDocument)
+                    .keyboardShortcut(.defaultAction)
+                Menu("Open Sample") {
+                    Button("Vitela sample", action: model.openSample)
+                    Button("AES-128 sample (user-aes-pass)", action: model.openAes128Sample)
+                    Button("RC4-128 sample (user-rc4-pass)", action: model.openRc4128Sample)
+                }
             }
-            Button("New", action: model.newDocument)
-            Button("Open…", action: model.selectDocument)
-                .keyboardShortcut(.defaultAction)
         }
+        .id("home-heading")
     }
 
     private var recentHeading: some View {
@@ -110,6 +131,7 @@ struct HomeView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 220)
         }
+        .id("recent-heading")
     }
 
     @ViewBuilder private var recentList: some View {

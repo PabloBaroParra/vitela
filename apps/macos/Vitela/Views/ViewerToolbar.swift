@@ -19,15 +19,7 @@ struct ViewerToolbar: View {
         // ToolbarPanel. An adaptive grid works on our macOS 12 floor (the
         // SwiftUI Layout protocol requires macOS 13).
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), alignment: .leading)], alignment: .leading, spacing: 8) {
-            HStack {
-                Toggle(isOn: Binding(get: { model.showsHome }, set: { $0 ? model.showHome() : model.returnToDocument() })) {
-                    Label("Home", shellIcon: .home)
-                }
-                    .toggleStyle(.button)
-                    .help("Show the start screen; the open document stays as it is (⇧⌘H)")
-                    .disabled(model.store.document == nil)
-                Button(action: model.selectDocument) { Label("Open PDF", shellIcon: .files) }
-            }
+            Button(action: model.selectDocument) { Label("Open PDF", shellIcon: .files) }
             Menu {
                 Button("Vitela sample", action: model.openSample)
                 Button("AES-128 sample (user-aes-pass)", action: model.openAes128Sample)
@@ -158,6 +150,9 @@ struct ViewerToolbar: View {
             }
         }
         .padding()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Document commands")
+        .accessibilityIdentifier("editor-toolbar")
         .sheet(item: $imageGeometry) { request in
             GeometrySheet(request: request) { imageGeometry = nil }
         }

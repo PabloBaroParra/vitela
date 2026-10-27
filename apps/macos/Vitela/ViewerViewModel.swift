@@ -81,6 +81,9 @@ final class ViewerViewModel: ObservableObject {
     /// Home is showing over an open document, which stays as it was —
     /// `ViewerViewModel+HomeTools.swift`. A document that loads closes it.
     @Published var showsHome = false
+    /// Home/Recent navigation only; the open document's modes remain intact.
+    @Published var homeSection: ShellSection = .home
+    @Published var recentFocusRequest: UInt = 0
     /// Share's signature question and picker — `ViewerViewModel+Share.swift`.
     let sharePrompts: SharePrompts
     let store: ViewerStore

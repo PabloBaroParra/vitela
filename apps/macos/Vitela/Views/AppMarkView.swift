@@ -1,14 +1,14 @@
 import SwiftUI
 
-/// The Vitela mark, shown in the page area while no document is open —
-/// mirrors the empty state of the GTK4 and WinUI shells (`app/brand.rs`,
-/// `MainWindow.xaml`'s `AppMarkImageSource`), including the 96pt size and the
-/// same two pre-authored light/dark SVGs from `assets/brand/`: the navy fill
+/// The Vitela mark — mirrors the GTK4 and WinUI shells (`app/brand.rs`,
+/// `MainWindow.xaml`'s `AppMarkImageSource`), with a 96pt default (24pt in
+/// the persistent rail) and the same two light/dark SVGs from `assets/brand/`: the navy fill
 /// reads on a light background and disappears on a dark one, and the files
 /// carry a literal fill rather than `currentColor`, so the shell picks the
 /// file instead of tinting one at runtime.
 struct AppMarkView: View {
     @Environment(\.colorScheme) private var colorScheme
+    var edge: CGFloat = 96
 
     var body: some View {
         let mark = colorScheme == .dark ? Self.dark : Self.light
@@ -17,13 +17,11 @@ struct AppMarkView: View {
                 Image(nsImage: mark)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: Self.edge, height: Self.edge)
+                    .frame(width: edge, height: edge)
             }
         }
         .accessibilityHidden(true)
     }
-
-    private static let edge: CGFloat = 96
 
     // Loaded once per variant, not per appearance change: the SVG never
     // changes underneath the running app, only which of the two is on screen.

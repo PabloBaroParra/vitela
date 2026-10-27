@@ -7,6 +7,60 @@ import XCTest
 /// Windows' `PageScroller`: a page zoomed wider than the window pans
 /// sideways, and one that fits stays centred with nothing to pan.
 final class PageScrollTests: XCTestCase {
+    func testRailPersistsAndHomeHidesEditorCommandsInNarrowAndWideWindows() {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+        model.showHome()
+        let layouts: [(CGFloat, ColorScheme)] = [(640, .light), (1100, .light), (640, .dark), (1100, .dark)]
+        for (width, scheme) in layouts {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let host = NSHostingView(rootView: ViewerRootView(model: model).environment(\.colorScheme, scheme))
+            host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+            window.contentView = host
+            window.orderFront(nil)
+            defer { window.close() }
+            model.showHome()
+            // Inspect the actual AppKit scroll views and text fields. SwiftUI's
+            // virtual AX nodes are not all materialized in a hosted unit test.
+            // Home must get the whole workspace height: leaving even a single
+            // toolbar above it fails this, without relying on a copied flag.
+            waitUntil({ self.scrollViews(host).contains { $0.frame.width > 300 && abs($0.frame.height - host.frame.height) < 1 } },
+                      "Home did not get the full workspace height")
+            let railWidth = width < AppRail.collapseBelowWidth ? AppRail.compactWidth : AppRail.expandedWidth
+            XCTAssertTrue(scrollViews(host).contains { abs($0.frame.width - railWidth) < 1 }, "the persistent rail was not laid out")
+            attach(host, named: "Home-\(Int(width))pt-\(scheme)")
+            XCTAssertFalse(hasDocumentSearch(host), "Home must not carry the editor chrome")
+
+            model.returnToDocument()
+            waitUntil({ self.hasDocumentSearch(host) }, "Return to Document did not restore commands")
+            attach(host, named: "Editor-\(Int(width))pt-\(scheme)")
+            XCTAssertTrue(scrollViews(host).contains { abs($0.frame.width - railWidth) < 1 }, "the rail must also stay beside the document")
+            XCTAssertEqual(host.frame.width, width, accuracy: 1, "commands must not widen the window")
+        }
+    }
+
+    private func scrollViews(_ view: NSView) -> [NSScrollView] {
+        ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
+    }
+
+    private func hasDocumentSearch(_ view: NSView) -> Bool {
+        (view as? NSTextField)?.placeholderString == "Find in document" || view.subviews.contains(where: hasDocumentSearch)
+    }
+
+    private func attach(_ view: NSView, named name: String) {
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let image = NSImage(size: view.bounds.size)
+        image.addRepresentation(bitmap)
+        let attachment = XCTAttachment(image: image)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     /// Linux's FlowBox and Windows' ToolbarPanel wrap instead of making the
     /// window as wide as every command put together. Exercise the actual
     /// SwiftUI/AppKit layout, not a second copy of its sizing arithmetic.
@@ -48,15 +102,7 @@ final class PageScrollTests: XCTestCase {
             host.appearance = NSAppearance(named: .aqua)
             host.frame.size = CGSize(width: width, height: 500)
             host.layoutSubtreeIfNeeded()
-            if let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-                host.cacheDisplay(in: host.bounds, to: bitmap)
-                let image = NSImage(size: host.bounds.size)
-                image.addRepresentation(bitmap)
-                let attachment = XCTAttachment(image: image)
-                attachment.name = "\(String(describing: Content.self))-\(Int(width))pt"
-                attachment.lifetime = .keepAlways
-                add(attachment)
-            }
+            attach(host, named: "\(String(describing: Content.self))-\(Int(width))pt")
             return host.fittingSize.height
         }
         let narrow = height(at: 640)
@@ -88,9 +134,6 @@ final class PageScrollTests: XCTestCase {
     /// The widths of the scroll view that holds the pages, after layout.
     private func pageScroller(in window: NSWindow) -> (clip: Double, document: Double) {
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-        func scrollViews(_ view: NSView) -> [NSScrollView] {
-            ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
-        }
         guard let pages = scrollViews(window.contentView!).max(by: {
             ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0)
         }), let document = pages.documentView else {
