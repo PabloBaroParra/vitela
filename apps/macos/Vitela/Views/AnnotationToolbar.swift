@@ -27,7 +27,6 @@ struct AnnotationToolbar: View {
             Button("Signature…", action: drawSignature)
                 .help("Draw a signature, then click a page to place it")
             Button { store.armAnnotationTool(nil) } label: { Label("Pointer", shellIcon: .select) }
-                .keyboardShortcut(.escape, modifiers: [])
                 .disabled(store.armedTool == nil)
             // Organize hides the pages they would scroll to, as on Windows.
             Button { store.stepAnnotation(forward: false) } label: { Label("Previous Annotation", shellIcon: .previous) }
@@ -51,6 +50,7 @@ struct AnnotationToolbar: View {
         // A color still settling lands on the annotation it was picked for
         // before the selection moves on.
         .onChange(of: store.selectedAnnotationId) { _ in colorSettler.flush() }
+        .onDisappear { colorSettler.flush() }
         .sheet(item: readNoteBinding) { note in
             ReadNoteSheet(text: note.text) { readNote = nil }
         }

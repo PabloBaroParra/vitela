@@ -11,24 +11,18 @@ struct ViewerRootView: View {
     @State private var scrollSize = CGSize.zero
     /// The page column's least width, so narrower pages stay centred.
     @State private var pageColumnWidth = 0.0
-    @State private var showsProperties = false
-    @State private var showsComments = false
-    @State private var showsForm = false
     // Each side column's width, dragged from its divider (`SideColumn`).
     // Pages starts at the 136 it always had and keeps Windows' 120–320;
-    // the right-hand panels start at their old fixed widths.
+    // the tools column starts at the old panels' width.
     @State private var pagesColumn = SideColumn(minimum: 120, maximum: 320, initial: 136)
     @State private var searchColumn = SideColumn(minimum: 200, maximum: 600, initial: 260)
-    @State private var propertiesColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
-    @State private var commentsColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
-    @State private var formColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
+    @State private var toolsColumn = SideColumn(minimum: 220, maximum: 600, initial: 280)
 
     private var workspace: some View {
         VStack(spacing: 0) {
             if model.showsReaderChrome {
-                ViewerToolbar(model: model, showsProperties: $showsProperties, showsComments: $showsComments, showsForm: $showsForm)
+                ViewerToolbar(model: model)
                 SearchNavigationBar(model: model, query: $searchQuery, searchFieldFocused: $searchFieldFocused)
-                AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
                 Divider()
             }
             HStack(spacing: 0) {
@@ -57,23 +51,12 @@ struct ViewerRootView: View {
                                        label: "Resize the search results")
                         SearchResultsPanel(store: model.store).frame(width: searchColumn.preferredWidth)
                     }
-                    if showsProperties {
-                        ColumnDivider(column: $propertiesColumn, isOpen: $showsProperties, widening: -1,
-                                       label: "Resize the Properties panel")
-                        PropertiesPanel(store: model.store)
-                            .frame(width: propertiesColumn.preferredWidth)
-                    }
-                    if showsComments {
-                        ColumnDivider(column: $commentsColumn, isOpen: $showsComments, widening: -1,
-                                       label: "Resize the Comments panel")
-                        CommentsPanel(store: model.store)
-                            .frame(width: commentsColumn.preferredWidth)
-                    }
-                    if showsForm {
-                        ColumnDivider(column: $formColumn, isOpen: $showsForm, widening: -1,
-                                       label: "Resize the Form panel")
-                        FormFieldsPanel(model: model)
-                            .frame(width: formColumn.preferredWidth)
+                    // Keep the handle while folded, so dragging can reopen it.
+                    ColumnDivider(column: $toolsColumn, isOpen: $model.showsTools, widening: -1,
+                                   label: "Resize the Tools panel")
+                    if model.showsTools {
+                        ToolsSidebar(model: model)
+                            .frame(width: toolsColumn.preferredWidth)
                     }
                 }
             }
@@ -105,6 +88,14 @@ struct ViewerRootView: View {
             return !providers.isEmpty
         }
         .onAppear(perform: model.installAnnotationKeyMonitor)
+        .background(
+            // Keep Escape available when another tools tab is showing or the
+            // column is folded; page tools belong to the store, not the tab.
+            Button("Pointer") { model.store.armAnnotationTool(nil) }
+                .keyboardShortcut(.escape, modifiers: [])
+                .disabled(!model.showsReaderChrome || model.store.armedTool == nil)
+                .opacity(0)
+        )
         .background(
             // `.hidden()` can pull a view out of the responder chain on some
             // macOS versions, which would silently kill the shortcut;

@@ -7,6 +7,101 @@ import XCTest
 /// Windows' `PageScroller`: a page zoomed wider than the window pans
 /// sideways, and one that fits stays centred with nothing to pan.
 final class PageScrollTests: XCTestCase {
+    func testSwitchingToolsTabsPreservesUnsubmittedFieldInspectorDrafts() throws {
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        client.fields = [FormField(id: 5, page: 0, name: "Original", rect: PdfRect(x: 100, y: 100, width: 144, height: 36),
+                                   kind: .text(multiline: false, maxLength: nil), value: .text(""))]
+        let model = ViewerViewModel(store: ViewerStore(client: client))
+        model.store.open(bytes: Data([1]))
+        model.store.setFormEditMode(true)
+        model.store.selectFieldFromPanel(5)
+        model.selectToolsTab(.fillSign)
+        let revision = model.store.editRevision
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 280, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ToolsSidebar(model: model))
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+        func nameField() -> NSTextField? {
+            nativeControls(host).compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Name" }
+        }
+        waitUntil({ nameField()?.stringValue == "Original" }, "the selected field's inspector did not load")
+        let field = try XCTUnwrap(nameField())
+        XCTAssertTrue(window.makeFirstResponder(field))
+        let editor = try XCTUnwrap(field.currentEditor())
+        editor.string = "Unsubmitted draft"
+        field.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: field))
+        for tab in [ToolsTab.comments, .edit, .annotate, .fillSign] {
+            model.selectToolsTab(tab)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            XCTAssertEqual(nameField()?.isEnabled, tab == .fillSign, "an inactive inspector must not accept keyboard input")
+        }
+        XCTAssertEqual(nameField()?.stringValue, "Unsubmitted draft", "tab navigation must not discard the inspector's draft")
+        XCTAssertEqual(model.store.selectedField?.name, "Original", "navigation must not submit the draft either")
+        XCTAssertEqual(model.store.editRevision, revision)
+        XCTAssertEqual(client.fieldEdits, [])
+    }
+
+    func testToolsTabsFitMinimumAndWideColumnsInBothAppearances() {
+        let model = ViewerViewModel(store: ViewerStore(client: FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])))
+        model.store.open(bytes: Data([1]))
+        for scheme in [ColorScheme.light, .dark] {
+            for width in [CGFloat(220), 280, 600] {
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 700),
+                                      styleMask: [.titled], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                let host = NSHostingView(rootView: ToolsSidebar(model: model).environment(\.colorScheme, scheme))
+                host.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                window.contentView = host
+                window.orderFront(nil)
+                defer { window.close() }
+                for tab in ToolsTab.allCases {
+                    model.selectToolsTab(tab)
+                    RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                    host.layoutSubtreeIfNeeded()
+                    XCTAssertEqual(host.frame.width, width, accuracy: 1, "\(tab.label) must not widen the column")
+                    // Ignore inactive pages' disabled controls and AppKit's
+                    // hidden overlay scrollbars, which it parks offscreen.
+                    for control in nativeControls(host) where control.isEnabled && !control.isHiddenOrHasHiddenAncestor {
+                        let bounds = control.convert(control.bounds, to: host)
+                        XCTAssertGreaterThanOrEqual(bounds.minX, -1, "\(tab.label): control clipped on the left")
+                        XCTAssertLessThanOrEqual(bounds.maxX, width + 1, "\(tab.label): control clipped on the right")
+                    }
+                    attach(host, named: "Tools-\(tab.rawValue)-\(Int(width))pt-\(scheme)")
+                }
+            }
+        }
+    }
+
+    func testOneToolsColumnFoldsAndRestoresWithoutChangingTheReader() {
+        let model = ViewerViewModel(store: ViewerStore(client: FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])))
+        model.store.open(bytes: Data([1]))
+        model.store.setZoom(1)
+        let revision = model.store.editRevision
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: ViewerRootView(model: model))
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        model.showsTools = false
+        let closedWidth = pageScroller(in: window).clip
+        for tab in ToolsTab.allCases {
+            model.selectToolsTab(tab)
+            XCTAssertEqual(pageScroller(in: window).clip, closedWidth - 280, accuracy: 1,
+                           "every tab must use the same single column")
+            model.showsTools = false
+            XCTAssertEqual(pageScroller(in: window).clip, closedWidth, accuracy: 1, "tools column did not fold")
+            XCTAssertEqual(model.toolsTab, tab)
+        }
+        XCTAssertEqual(model.store.currentPage, 0)
+        XCTAssertEqual(model.store.displayedZoom, 1)
+        XCTAssertEqual(model.store.editRevision, revision)
+    }
+
     func testOrganizeHeaderWrapsIncludingImportProgress() {
         let model = ViewerViewModel(store: ViewerStore(client: FakePdfCoreClient(pages: [])))
         assertWraps(OrganizeHeader(model: model))
@@ -83,6 +178,10 @@ final class PageScrollTests: XCTestCase {
         ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
     }
 
+    private func nativeControls(_ view: NSView) -> [NSControl] {
+        ((view as? NSControl).map { [$0] } ?? []) + view.subviews.flatMap(nativeControls)
+    }
+
     private func hasDocumentSearch(_ view: NSView) -> Bool {
         (view as? NSTextField)?.placeholderString == "Find in document" || view.subviews.contains(where: hasDocumentSearch)
     }
@@ -103,8 +202,7 @@ final class PageScrollTests: XCTestCase {
     /// SwiftUI/AppKit layout, not a second copy of its sizing arithmetic.
     func testEditorToolbarWrapsInANarrowWindow() {
         let model = ViewerViewModel(store: ViewerStore(client: FakePdfCoreClient(pages: [])))
-        let toolbar = ViewerToolbar(model: model, showsProperties: .constant(false),
-                                    showsComments: .constant(false), showsForm: .constant(false))
+        let toolbar = ViewerToolbar(model: model)
         assertWraps(toolbar)
     }
 
@@ -112,13 +210,14 @@ final class PageScrollTests: XCTestCase {
         assertWraps(AnnotationToolbar(store: ViewerStore(client: FakePdfCoreClient(pages: []))))
     }
 
-    func testSelectedImageControlsAlsoWrap() {
+    func testSelectedImageControlsFitTheMinimumToolsColumn() {
         let store = ViewerStore(client: FakePdfCoreClient(pages: []))
         store.contentEdit.selectedImage = ContentImage(id: 1, page: 0,
             bbox: PdfRect(x: 10, y: 10, width: 100, height: 100), resourceXObjectName: "Im1")
         let model = ViewerViewModel(store: store)
-        assertWraps(ViewerToolbar(model: model, showsProperties: .constant(false),
-                                 showsComments: .constant(false), showsForm: .constant(false)))
+        let host = NSHostingView(rootView: ContentEditPanel(model: model).frame(width: 220))
+        host.layoutSubtreeIfNeeded()
+        XCTAssertLessThanOrEqual(host.fittingSize.width, 220)
     }
 
     func testSelectedAnnotationControlsAlsoWrap() {
@@ -151,6 +250,9 @@ final class PageScrollTests: XCTestCase {
     func testAPageWiderThanTheWindowScrollsSidewaysAndOneThatFitsDoesNot() {
         let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
         let model = ViewerViewModel(store: ViewerStore(client: client), sampleLoader: { Data([1]) })
+        // This fixture tests the page's own panning, without the tools column
+        // reducing the available viewport below the 612pt page at 100%.
+        model.showsTools = false
         model.openSample()
         waitUntil({ model.store.state == .loaded }, "the sample never opened")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),

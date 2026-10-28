@@ -145,9 +145,22 @@ responsibility:
   (drop targets, the current page and search row, tinted controls) wears
   Vitela's violet instead of the system accent; window chrome stays native.
 - `Views/SideColumn.swift` — the draggable divider beside Pages, search
-  results and the Properties, Comments and Form panels: drag it or press
+  results and the Tools panel: drag it or press
   ← / → to resize, past the minimum to fold (Windows' `SideColumn`, Linux's
   `Paned`s).
+- `Vitela/ViewerViewModel+ToolsSidebar.swift`, `Views/ToolsSidebar.swift`,
+  `Views/ContentEditPanel.swift` — one resizable tools column with Edit,
+  Annotate, Comments and Fill & Sign tabs, in Linux/Windows order, opening on
+  Annotate. The tab strip wraps even at the 220pt minimum. The model owns
+  selection and visibility; changing a tab never changes a document mode or
+  records an edit. Edit/Annotate rail and Home destinations reveal their tab.
+  Inactive tab views stay mounted but disabled and hidden from accessibility,
+  preserving unsubmitted field-inspector drafts without saving them.
+  Properties lives under Annotate, existing form controls and Draw Signature
+  under Fill & Sign. Folding, Home, Organize and Find preserve the selection
+  and last width; Escape still disarms an annotation when its tab is hidden.
+  Certificate, Keychain and token choices remain in the existing native menu
+  flows; moving those choices into Fill & Sign is a separate pending slice.
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
@@ -163,7 +176,8 @@ responsibility:
 - `Vitela/Views/SearchResultsPanel.swift` — every match of the search,
   listed by page; a click makes one current.
 - `Vitela/Views/ViewerToolbar.swift` — the window's top row of actions,
-  panel and mode toggles, and zoom. Related commands occupy adaptive grid
+  panel and mode toggles, and zoom. Editing controls now live in Tools.
+  Related commands occupy adaptive grid
   cells, wrapping on narrow windows rather than pushing controls off-screen,
   like Linux's `FlowBox` and Windows' `ToolbarPanel`. `AnnotationToolbar`
   likewise wraps its tools and selected-annotation controls. Both use grids

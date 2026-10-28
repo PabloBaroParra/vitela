@@ -53,9 +53,9 @@ enum HomeTool: CaseIterable {
     }
 
     /// What the status line says when Annotate lands: the tools are the
-    /// Annotate bar's, and arming one for the reader would place a mark they
+    /// Annotate panel's, and arming one for the reader would place a mark they
     /// did not ask for — Linux's rule that a tile navigates, never edits.
-    static let annotatePrompt = "Choose a tool in the Annotate bar, then drag on a page."
+    static let annotatePrompt = "Choose a tool in the Annotate panel, then drag on a page."
 
     /// The tiles Home's search leaves showing: those whose label contains
     /// `query`, ignoring case — Linux's `ToolsCard::filter` and Windows'
@@ -106,9 +106,11 @@ extension ViewerViewModel {
         switch tool {
         case .edit:
             isOrganizing = false
+            selectToolsTab(.edit)
             setContentEditMode(true)
         case .annotate:
             isOrganizing = false
+            selectToolsTab(.annotate)
             setContentEditMode(false)
             store.armAnnotationTool(nil)
             store.editStatus = HomeTool.annotatePrompt

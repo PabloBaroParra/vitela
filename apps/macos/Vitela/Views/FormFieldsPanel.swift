@@ -21,7 +21,7 @@ struct FormFieldsPanel: View {
                     FormFieldInspector(model: model, field: selected)
                     Divider()
                 }
-                HStack(spacing: 4) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), alignment: .leading)], alignment: .leading, spacing: 4) {
                     ForEach(FieldToPlace.allCases, id: \.self) { kind in
                         Toggle(kind.name, isOn: Binding(
                             get: { store.armedField == kind },
