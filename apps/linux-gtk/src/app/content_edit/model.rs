@@ -245,6 +245,7 @@ mod tests {
         let content = PageContent {
             text_runs: vec![run(1, 100.0, 700.0, 50.0, 12.0)],
             images: Vec::new(),
+            paths: Vec::new(),
         };
 
         let found = text_run_at(&content, (110.0, 705.0)).expect("point is inside the bbox");
@@ -256,6 +257,7 @@ mod tests {
         let content = PageContent {
             text_runs: vec![run(1, 100.0, 700.0, 50.0, 12.0)],
             images: Vec::new(),
+            paths: Vec::new(),
         };
 
         assert!(text_run_at(&content, (0.0, 0.0)).is_none());
@@ -271,6 +273,7 @@ mod tests {
                 run(2, 50.0, 50.0, 20.0, 20.0),
             ],
             images: Vec::new(),
+            paths: Vec::new(),
         };
 
         let found = text_run_at(&content, (55.0, 55.0)).expect("point is inside both bboxes");
@@ -282,6 +285,7 @@ mod tests {
         let content = PageContent {
             text_runs: Vec::new(),
             images: vec![image(1, 100.0, 600.0, 80.0, 40.0)],
+            paths: Vec::new(),
         };
 
         let found = image_at(&content, (140.0, 620.0)).expect("point is inside the bbox");
@@ -293,6 +297,7 @@ mod tests {
         let content = PageContent {
             text_runs: Vec::new(),
             images: vec![image(1, 100.0, 600.0, 80.0, 40.0)],
+            paths: Vec::new(),
         };
 
         assert!(image_at(&content, (0.0, 0.0)).is_none());
@@ -308,6 +313,7 @@ mod tests {
                 image(1, 0.0, 0.0, 200.0, 200.0),
                 image(2, 50.0, 50.0, 20.0, 20.0),
             ],
+            paths: Vec::new(),
         };
 
         let found = image_at(&content, (55.0, 55.0)).expect("point is inside both bboxes");
@@ -669,6 +675,7 @@ mod tests {
         PageContent {
             text_runs: Vec::new(),
             images: Vec::new(),
+            paths: Vec::new(),
         }
     }
 
@@ -687,6 +694,7 @@ mod tests {
         let content = PageContent {
             text_runs: vec![taken],
             images: Vec::new(),
+            paths: Vec::new(),
         };
 
         assert_eq!(unused_font_resource_name(&content, &[]), "FIns2");
@@ -699,6 +707,7 @@ mod tests {
         let content = PageContent {
             text_runs: Vec::new(),
             images: vec![taken],
+            paths: Vec::new(),
         };
 
         assert_eq!(unused_xobject_resource_name(&content, &[]), "XIns2");
@@ -713,6 +722,7 @@ mod tests {
         let content = PageContent {
             text_runs: vec![taken_font],
             images: Vec::new(),
+            paths: Vec::new(),
         };
 
         assert_eq!(unused_xobject_resource_name(&content, &[]), "XIns1");
@@ -750,6 +760,7 @@ mod tests {
         let content = PageContent {
             text_runs: vec![painted],
             images: Vec::new(),
+            paths: Vec::new(),
         };
         let reserved = vec!["FIns2".to_string()];
 

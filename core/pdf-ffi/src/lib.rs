@@ -123,12 +123,12 @@ pub use sign_sources::{
 };
 pub use split::{plan_split, FfiSplitPart};
 pub use types::{
-    FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentTextRun,
-    FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiFreeTextLayout, FfiFreeTextLine,
-    FfiImageWatermark, FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPdfDate,
-    FfiPdfDateOffset, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
-    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRect, FfiTextRun, FfiWatermark,
-    FfiWatermarkLayer,
+    FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentPathItem,
+    FfiContentTextRun, FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiFreeTextLayout,
+    FfiFreeTextLine, FfiImageWatermark, FfiOrientation, FfiPageContent, FfiPageDimensions,
+    FfiPageSize, FfiPathPaint, FfiPdfDate, FfiPdfDateOffset, FfiPoint, FfiRect, FfiRenderOptions,
+    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRect,
+    FfiTextRun, FfiWatermark, FfiWatermarkLayer,
 };
 pub use watermark::{default_image_watermark, default_watermark};
 

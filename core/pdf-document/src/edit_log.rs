@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 
 use crate::annotation::{Annotation, Rect};
-use crate::content::{ImageItem, TextRun};
+use crate::content::{ImageItem, PathItem, TextRun};
 use crate::document::PageId;
 use crate::document::{Document, Orientation, Page, PageSize};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
@@ -178,7 +178,7 @@ pub enum Command {
 
     // --- Page content (Batch 21) --------------------------------------
     //
-    // These nine edit what lives *inside* a page's content stream. They
+    // These edit what lives *inside* a page's content stream. They
     // differ from every command above in one structural way: the model does
     // not hold page content (batch decision 2 — it is parsed lazily by
     // `pdf-edit`), so `apply` has nothing to mutate and is inert. The log
@@ -273,6 +273,35 @@ pub enum Command {
         before: Vec<u8>,
         after: Vec<u8>,
     },
+    /// Repositions an existing vector path (B25 P1) — `item.bbox` is where
+    /// it was, `to` is where it goes. Only `to`'s origin is read.
+    ///
+    /// Applied by rewriting the path's own coordinates, not by prefixing a
+    /// `cm`: a translation would draw the same thing either way, but keeping
+    /// one mechanism for move and resize means a moved-then-resized table
+    /// border goes through one rewrite, not two that have to agree.
+    MovePath {
+        item: PathItem,
+        to: Rect,
+    },
+    /// Reshapes an existing path so its box becomes `to`. The coordinates
+    /// are rewritten, so the **line width does not change** — a table frame
+    /// stretched to twice its width keeps a hairline border (decided by the
+    /// user 2026-10-28), which a scaling `cm` would have thickened.
+    ResizePath {
+        item: PathItem,
+        to: Rect,
+    },
+    /// Removes a path's construction and painting operators.
+    RemovePath(PathItem),
+    /// The inverse of [`Command::RemovePath`], and nothing else — the same
+    /// standing [`Command::RemoveWatermark`] has.
+    ///
+    /// Undo never writes it: it pops the removal out of the log, and a
+    /// removal that is not in the log is never written. A `PathItem` does not
+    /// carry the operators that drew it, so there is nothing to put back with,
+    /// and `pdf-save` refuses a recorded one rather than guess.
+    RestorePath(PathItem),
     /// Stamps the same text on every page the watermark names, as one undo
     /// step. Inert on the model like its neighbours — `pdf-edit` writes it
     /// into each page's content during the save rewrite — but unlike them it
@@ -495,6 +524,10 @@ impl Command {
                 | Command::MoveImage { .. }
                 | Command::ResizeImage { .. }
                 | Command::ReplaceImageSource { .. }
+                | Command::MovePath { .. }
+                | Command::ResizePath { .. }
+                | Command::RemovePath(_)
+                | Command::RestorePath(_)
                 | Command::AddWatermark(_)
                 | Command::RemoveWatermark(_)
         )
@@ -779,7 +812,11 @@ impl Command {
             | Command::RemoveImage { .. }
             | Command::MoveImage { .. }
             | Command::ResizeImage { .. }
-            | Command::ReplaceImageSource { .. } => {}
+            | Command::ReplaceImageSource { .. }
+            | Command::MovePath { .. }
+            | Command::ResizePath { .. }
+            | Command::RemovePath(_)
+            | Command::RestorePath(_) => {}
             // Still inert — the check is the whole of the forward action.
             Command::AddWatermark(watermark) | Command::RemoveWatermark(watermark) => {
                 if !watermark.can_apply_to(document) {
@@ -975,6 +1012,30 @@ impl Command {
                 before: after.clone(),
                 after: before.clone(),
             },
+            // Only the origin of `to` is read, so the untouched size rides
+            // along — the same swap `MoveTextRun` makes.
+            Command::MovePath { item, to } => {
+                let mut moved = item.clone();
+                moved.bbox = Rect {
+                    x: to.x,
+                    y: to.y,
+                    ..item.bbox
+                };
+                Command::MovePath {
+                    item: moved,
+                    to: item.bbox,
+                }
+            }
+            Command::ResizePath { item, to } => {
+                let mut resized = item.clone();
+                resized.bbox = *to;
+                Command::ResizePath {
+                    item: resized,
+                    to: item.bbox,
+                }
+            }
+            Command::RemovePath(path) => Command::RestorePath(path.clone()),
+            Command::RestorePath(path) => Command::RemovePath(path.clone()),
             Command::AddWatermark(watermark) => Command::RemoveWatermark(watermark.clone()),
             Command::RemoveWatermark(watermark) => Command::AddWatermark(watermark.clone()),
             Command::AddFormField(field) => Command::RemoveFormField(field.clone()),

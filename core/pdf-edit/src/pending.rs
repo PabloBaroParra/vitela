@@ -146,6 +146,33 @@ pub fn overlay_pending_content(
                     existing.bbox = *to;
                 }
             }
+            Command::RemovePath(item) if item.page == page => {
+                content.paths.retain(|existing| existing.id != item.id);
+            }
+            Command::MovePath { item, to } if item.page == page => {
+                if let Some(existing) = content
+                    .paths
+                    .iter_mut()
+                    .find(|existing| existing.id == item.id)
+                {
+                    existing.bbox = Rect {
+                        x: to.x,
+                        y: to.y,
+                        ..existing.bbox
+                    };
+                }
+            }
+            // Mirrors `path::page_mapping`: an axis the path is flat along is
+            // moved, never stretched, so its box keeps a zero extent there.
+            Command::ResizePath { item, to } if item.page == page => {
+                if let Some(existing) = content
+                    .paths
+                    .iter_mut()
+                    .find(|existing| existing.id == item.id)
+                {
+                    existing.bbox = crate::parse::path::reshaped_bbox(existing.bbox, *to);
+                }
+            }
             _ => {}
         }
     }

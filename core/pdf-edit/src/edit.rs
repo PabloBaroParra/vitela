@@ -1115,7 +1115,7 @@ fn resolve_image<'a>(
 /// fails the save with [`EditError::AmbiguousItem`] instead of silently
 /// rewriting the wrong one. A shell that hits it can re-read the page and
 /// record the command against a fresh parse.
-fn resolve<T>(
+pub(crate) fn resolve<T>(
     candidates: &[T],
     id: ContentItemId,
     id_of: impl Fn(&T) -> ContentItemId,
@@ -1161,7 +1161,7 @@ fn same_image(parsed: &ImageItem, held: &ImageItem) -> bool {
 /// Boxes are compared with a tolerance, not exactly: an earlier edit in the
 /// same batch can pass a coordinate through the stream's decimal formatting
 /// and back, which moves the last bits without moving the content.
-fn same_rect(left: Rect, right: Rect) -> bool {
+pub(crate) fn same_rect(left: Rect, right: Rect) -> bool {
     const TOLERANCE: f64 = 1e-6;
     (left.x - right.x).abs() < TOLERANCE
         && (left.y - right.y).abs() < TOLERANCE
@@ -1176,9 +1176,9 @@ fn same_rect(left: Rect, right: Rect) -> bool {
 /// were. For content inside a Form XObject both are the page-owned copy of
 /// the innermost form — the same object twice, because a form's dictionary
 /// lives on its stream.
-struct Scope {
+pub(crate) struct Scope {
     owner: ObjectId,
-    stream_object: ObjectId,
+    pub(crate) stream_object: ObjectId,
 }
 
 /// Gives the page its own copy of every Form XObject on `form_path`, so a
@@ -1235,7 +1235,7 @@ fn own_form_path(
 }
 
 /// [`own_form_path`], plus the stream object the rewrite is stored into.
-fn own_scope(
+pub(crate) fn own_scope(
     document: &mut Document,
     page_object: ObjectId,
     form_path: &[FormStep],
@@ -1258,7 +1258,7 @@ fn own_scope(
 ///
 /// The copy `own_scope` takes is byte for byte the stream read here, so a
 /// span measured against these bytes still means the same bytes there.
-fn scope_stream(
+pub(crate) fn scope_stream(
     document: &Document,
     located: &LocatedContent,
     form_path: &[FormStep],
@@ -1340,7 +1340,7 @@ fn run_scope_resources(document: &Document, page_object: ObjectId, run: &TextRun
 /// `destination` is not `stream.object_id`: for form content the bytes were
 /// read from the shared original and are stored into the page's own copy of
 /// it.
-fn splice(
+pub(crate) fn splice(
     document: &mut Document,
     destination: ObjectId,
     stream: &PageStream,

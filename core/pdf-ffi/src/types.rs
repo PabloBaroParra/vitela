@@ -8,7 +8,7 @@
 
 use pdf_document::{
     ContentItemId, DocumentInfo, FontKind, ImageItem, ImageSource, Orientation, PageContent,
-    PageId, PageSize, PdfDate, PdfDateOffset, Rect, TextRun,
+    PageId, PageSize, PathItem, PathPaint, PdfDate, PdfDateOffset, Rect, TextRun,
 };
 
 use crate::form::{FfiFieldValue, FfiRadioOption, FfiTextStyle};
@@ -483,6 +483,71 @@ impl From<FfiContentImageItem> for ImageItem {
     }
 }
 
+/// How a path is painted — mirrors `pdf_document::PathPaint`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiPathPaint {
+    Stroke,
+    Fill,
+    FillAndStroke,
+}
+
+impl From<PathPaint> for FfiPathPaint {
+    fn from(paint: PathPaint) -> Self {
+        match paint {
+            PathPaint::Stroke => Self::Stroke,
+            PathPaint::Fill => Self::Fill,
+            PathPaint::FillAndStroke => Self::FillAndStroke,
+        }
+    }
+}
+
+impl From<FfiPathPaint> for PathPaint {
+    fn from(paint: FfiPathPaint) -> Self {
+        match paint {
+            FfiPathPaint::Stroke => Self::Stroke,
+            FfiPathPaint::Fill => Self::Fill,
+            FfiPathPaint::FillAndStroke => Self::FillAndStroke,
+        }
+    }
+}
+
+/// A vector path parsed from a page's content stream (B25 T-206) — a table
+/// border, a rule, a shaded box. Read with `DocumentHandle::read_page_paths`,
+/// not as part of [`FfiPageContent`], so a shell that does not offer path
+/// editing yet keeps the record shape it was generated against.
+///
+/// `bbox` covers the geometry only, not the stroke: a hairline rule has a
+/// height of zero and a shell pads it to hit-test.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiContentPathItem {
+    pub id: u64,
+    pub page: u32,
+    pub bbox: FfiRect,
+    pub paint: FfiPathPaint,
+}
+
+impl From<PathItem> for FfiContentPathItem {
+    fn from(item: PathItem) -> Self {
+        Self {
+            id: item.id.0,
+            page: item.page.0,
+            bbox: item.bbox.into(),
+            paint: item.paint.into(),
+        }
+    }
+}
+
+impl From<FfiContentPathItem> for PathItem {
+    fn from(item: FfiContentPathItem) -> Self {
+        Self {
+            id: ContentItemId(item.id),
+            page: PageId(item.page),
+            bbox: item.bbox.into(),
+            paint: item.paint.into(),
+        }
+    }
+}
+
 /// The parsed content of one page — the FFI shape of
 /// `pdf_document::PageContent`, returned by
 /// `DocumentHandle::read_page_content` (T-158). Ids are only valid against
@@ -849,6 +914,20 @@ pub enum FfiEditCommand {
         item: FfiContentImageItem,
         before: Vec<u8>,
         after: Vec<u8>,
+    },
+    /// Moves a path so its box sits at `to`'s origin; its size is kept.
+    MovePath {
+        item: FfiContentPathItem,
+        to: FfiRect,
+    },
+    /// Reshapes a path so its box becomes `to`. The coordinates are
+    /// rewritten, so the line width does not change.
+    ResizePath {
+        item: FfiContentPathItem,
+        to: FfiRect,
+    },
+    RemovePath {
+        item: FfiContentPathItem,
     },
     /// Stamps the same text on every page `watermark` names, as one undo
     /// step. Refused at record time for text Helvetica cannot show
