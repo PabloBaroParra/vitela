@@ -35,6 +35,12 @@ public sealed partial class MainWindow
 
     private ContentPath? _selectedContentPath;
     private ContentPathDrag? _contentPathDrag;
+    /// <summary>
+    /// Where the selected path was dropped, while the core records the edit and
+    /// rebuilds the preview. The frame stays there instead of snapping back to
+    /// the old box for the length of the round trip.
+    /// </summary>
+    private AnnotationRect? _pathEditPreview;
     private bool _editingPath;
     private readonly Button _deleteShapeButton = new() { IsEnabled = false };
     private readonly TextBlock _editShapeHint = EditHint(NoShapeSelectedHint);
@@ -131,22 +137,30 @@ public sealed partial class MainWindow
 
     private async Task EndContentPathGestureAsync(PageSlot slot, int pageIndex, PointerRoutedEventArgs args)
     {
-        if (_contentPathDrag is not { Path.PageIndex: var dragPage } || dragPage != pageIndex)
+        if (_contentPathDrag is not { Path.PageIndex: var dragPage } drag || dragPage != pageIndex)
         {
             return;
         }
 
-        var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
+        var completed = drag with { Current = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position) };
+        // Cleared before the release, never after: releasing raises
+        // PointerCaptureLost synchronously, and its cancel would otherwise
+        // throw away the very drag being finished.
+        _contentPathDrag = null;
         slot.Annotations.ReleasePointerCapture(args.Pointer);
-        await CompleteContentPathDragAsync(point);
+        await RecordContentPathDragAsync(completed);
     }
 
     /// <summary>Records the drag in progress as ending at <paramref name="point"/>.</summary>
     private async Task CompleteContentPathDragAsync(AnnotationPoint point)
     {
         if (_contentPathDrag is not { } drag) return;
-        var completed = drag with { Current = point };
         _contentPathDrag = null;
+        await RecordContentPathDragAsync(drag with { Current = point });
+    }
+
+    private async Task RecordContentPathDragAsync(ContentPathDrag completed)
+    {
         var after = PathDragRect(completed);
         if (completed.Path.Bounds == after || _session?.SessionId != completed.SessionId || !_contentEditMode
             || !ContentEditButton.IsEnabled || _dialogOpen || !ReferenceEquals(_selectedContentPath, completed.Path))
@@ -156,7 +170,9 @@ public sealed partial class MainWindow
         }
 
         _editingPath = true;
+        _pathEditPreview = after;
         SetBusy(true);
+        RedrawContentPathSelection();
         try
         {
             if (await CurrentContentPathAsync(completed.SessionId, completed.Path) is not { } current) return;
@@ -170,6 +186,7 @@ public sealed partial class MainWindow
         finally
         {
             _editingPath = false;
+            _pathEditPreview = null;
             SetBusy(false);
             RedrawContentPathSelection();
         }
@@ -296,7 +313,8 @@ public sealed partial class MainWindow
         }
 
         if (_selectedContentPath is not { } selected || selected.PageIndex != pageIndex) return;
-        var bounds = _contentPathDrag is { } drag && ReferenceEquals(drag.Path, selected) ? PathDragRect(drag) : selected.Bounds;
+        var bounds = _contentPathDrag is { } drag && ReferenceEquals(drag.Path, selected) ? PathDragRect(drag)
+            : _pathEditPreview ?? selected.Bounds;
         var frame = new Rectangle { Stroke = HandleBrush, StrokeThickness = 2, IsHitTestVisible = false };
         PlaceOverPage(frame, slot, (int)pageIndex, bounds, minSide: 2);
         slot.Content.Children.Add(frame);
