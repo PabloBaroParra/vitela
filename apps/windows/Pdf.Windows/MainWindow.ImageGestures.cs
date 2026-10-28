@@ -48,6 +48,18 @@ public sealed partial class MainWindow
                 _selectedContentImage = null;
                 RedrawContentImageSelection();
             }
+            // Text outranks a path: a table's frame encloses its own cells,
+            // and an armed insert means "put something here", not "select".
+            var onText = content.TextRuns.Any(run => Contains(BoundsOf(run), point));
+            if (_contentInsertKind is null && !onText && BeginContentPathGesture(slot, sessionId, content, point, args))
+            {
+                return;
+            }
+            if (_selectedContentPath is not null)
+            {
+                ClearContentPathSelection();
+                RedrawContentPathSelection();
+            }
             // An armed insert kind turns a miss into new content; an image
             // under the pointer still wins, exactly as with nothing armed.
             if (_contentInsertKind is { } insert)
@@ -63,6 +75,7 @@ public sealed partial class MainWindow
         {
             _ = ProbeImageReplacementAsync(hit);
         }
+        ClearContentPathSelection();
         _selectedContentImage = hit;
         if (_pendingImageEdits.Contains((hit.PageIndex, hit.Id)))
         {
@@ -170,6 +183,7 @@ public sealed partial class MainWindow
     private void ResetContentImageGestureState()
     {
         ClearContentImageSelection();
+        ClearContentPathSelection();
         _pendingImageEdits.Clear();
         _replaceRefusedImages.Clear();
     }

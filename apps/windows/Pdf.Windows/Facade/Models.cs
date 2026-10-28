@@ -211,7 +211,8 @@ public sealed class ContentTextRun
 /// survive a preview refresh, which leaves those bytes alone, but a save and
 /// reopen invalidates every id — re-read the page after one.
 /// </remarks>
-public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns, IReadOnlyList<ContentImage> Images);
+public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns, IReadOnlyList<ContentImage> Images,
+    IReadOnlyList<ContentPath> Paths);
 
 /// <summary>A page bound to the revision at which the image insertion started.</summary>
 public sealed class ImageInsertionTarget
@@ -248,6 +249,29 @@ public sealed class ContentImage
     internal ulong Revision { get; }
     public ulong Id => Source.Id;
     public uint PageIndex => Source.PageIndex;
+    public AnnotationRect Bounds => new(Source.Bbox.X, Source.Bbox.Y, Source.Bbox.Width, Source.Bbox.Height);
+}
+
+/// <summary>
+/// A vector path (a table border, a rule, a shaded box) bound to the session
+/// and revision that parsed it, exactly like <see cref="ContentImage"/>.
+/// </summary>
+public sealed class ContentPath
+{
+    internal ContentPath(PdfCoreContentPath source, string sessionId, ulong revision)
+    {
+        Source = source;
+        SessionId = sessionId;
+        Revision = revision;
+    }
+
+    internal PdfCoreContentPath Source { get; }
+    internal string SessionId { get; }
+    internal ulong Revision { get; }
+    public ulong Id => Source.Id;
+    public uint PageIndex => Source.PageIndex;
+    /// <summary>Whether it is only an outline — hit-tested near its edges, not across its area.</summary>
+    public bool IsOutline => Source.Paint == PdfCorePathPaint.Stroke;
     public AnnotationRect Bounds => new(Source.Bbox.X, Source.Bbox.Y, Source.Bbox.Width, Source.Bbox.Height);
 }
 
