@@ -4,6 +4,13 @@
 	classes = {};
 	objectVersion = 56;
 	objects = {
+		A00000000000000000007101 /* ViewerViewModel+ToolsSidebar.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ViewerViewModel+ToolsSidebar.swift"; sourceTree = "<group>"; };
+		A00000000000000000007102 /* ToolsSidebar.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ToolsSidebar.swift; sourceTree = "<group>"; };
+		A00000000000000000007103 /* ContentEditPanel.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/ContentEditPanel.swift; sourceTree = "<group>"; };
+		B00000000000000000007101 /* ViewerViewModel+ToolsSidebar.swift in Sources */ = { isa = PBXBuildFile; fileRef = A00000000000000000007101; };
+		B00000000000000000007102 /* ToolsSidebar.swift in Sources */ = { isa = PBXBuildFile; fileRef = A00000000000000000007102; };
+		B00000000000000000007103 /* ContentEditPanel.swift in Sources */ = { isa = PBXBuildFile; fileRef = A00000000000000000007103; };
+		A00000000000000000007104 /* Tools sidebar */ = { isa = PBXGroup; children = (A00000000000000000007101, A00000000000000000007102, A00000000000000000007103); name = "Tools sidebar"; path = Vitela; sourceTree = "<group>"; };
 		A00000000000000000007001 /* OrganizeHeader.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizeHeader.swift; sourceTree = "<group>"; };
 		B00000000000000000007001 /* OrganizeHeader.swift in Sources */ = { isa = PBXBuildFile; fileRef = A00000000000000000007001 /* OrganizeHeader.swift */; };
 		A00000000000000000006901 /* SearchNavigationBar.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchNavigationBar.swift; sourceTree = "<group>"; };
@@ -58,7 +65,7 @@
 		A00000000000000000005401 /* ViewerViewModel+PasteImage.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ViewerViewModel+PasteImage.swift"; sourceTree = "<group>"; };
 		A00000000000000000000007 /* Generated */ = { isa = PBXGroup; children = (A00000000000000000000017 /* pdf_ffi.swift */); path = Generated; sourceTree = "<group>"; };
 		A00000000000000000000008 /* Products */ = { isa = PBXGroup; children = (A00000000000000000000001 /* Vitela.app */, A00000000000000000000002 /* VitelaTests.xctest */); name = Products; sourceTree = "<group>"; };
-		A00000000000000000000009 /* Main Group */ = { isa = PBXGroup; children = (A00000000000000000000022 /* Shared */, A00000000000000000000025 /* SharedTests */, A00000000000000000000004 /* Vitela */, A00000000000000000000005 /* VitelaTests */, A00000000000000000000007 /* Generated */, A00000000000000000000026 /* vitela-sample.pdf */, A00000000000000000000027 /* aes_128_user_and_owner.pdf */, A00000000000000000000028 /* rc4_128_user_and_owner.pdf */, A00000000000000000000035 /* vitela-app-mark.svg */, A00000000000000000000036 /* vitela-app-mark-dark.svg */, A00000000000000000000008 /* Products */, A00000000000000000005804 /* icons */); sourceTree = "<group>"; };
+		A00000000000000000000009 /* Main Group */ = { isa = PBXGroup; children = (A00000000000000000007104 /* Tools sidebar */, A00000000000000000000022 /* Shared */, A00000000000000000000025 /* SharedTests */, A00000000000000000000004 /* Vitela */, A00000000000000000000005 /* VitelaTests */, A00000000000000000000007 /* Generated */, A00000000000000000000026 /* vitela-sample.pdf */, A00000000000000000000027 /* aes_128_user_and_owner.pdf */, A00000000000000000000028 /* rc4_128_user_and_owner.pdf */, A00000000000000000000035 /* vitela-app-mark.svg */, A00000000000000000000036 /* vitela-app-mark-dark.svg */, A00000000000000000000008 /* Products */, A00000000000000000005804 /* icons */); sourceTree = "<group>"; };
 		A00000000000000000000011 /* PdfCore.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PdfCore.swift; sourceTree = "<group>"; };
 		A00000000000000000000012 /* ViewerStore.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerStore.swift; sourceTree = "<group>"; };
 		A00000000000000000000013 /* ViewerViewModel.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerViewModel.swift; sourceTree = "<group>"; };
@@ -356,6 +363,9 @@
 		B00000000000000000002311 /* UniFfiAnnotationIntegrationTests.swift in Sources */ = { isa = PBXBuildFile; fileRef = A00000000000000000002311 /* UniFfiAnnotationIntegrationTests.swift */; };
 		B00000000000000000003504 /* ViewerSheets.swift in Sources */ = { isa = PBXBuildFile; fileRef = A00000000000000000003504 /* ViewerSheets.swift */; };
 		C00000000000000000000001 /* Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
+			B00000000000000000007101 /* ViewerViewModel+ToolsSidebar.swift in Sources */,
+			B00000000000000000007102 /* ToolsSidebar.swift in Sources */,
+			B00000000000000000007103 /* ContentEditPanel.swift in Sources */,
 			B00000000000000000007001 /* OrganizeHeader.swift in Sources */,
 			B00000000000000000006901 /* SearchNavigationBar.swift in Sources */,
 			B00000000000000000006801 /* ViewerViewModel+ShellNavigation.swift in Sources */,

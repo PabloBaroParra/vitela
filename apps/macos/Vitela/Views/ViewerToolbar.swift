@@ -5,14 +5,9 @@ import SwiftUI
 /// controls Linux's `editor_toolbar.rs` shows as bare icons — save, print,
 /// undo, redo, zoom, fit — are icon-only here too, with their title kept for
 /// VoiceOver and the tooltip; the rest keep their title beside the icon. The
-/// panels it toggles are the root view's state, handed in as bindings.
+/// tools panel's selection and visibility are owned by the model.
 struct ViewerToolbar: View {
     @ObservedObject var model: ViewerViewModel
-    @Binding var showsProperties: Bool
-    @Binding var showsComments: Bool
-    @Binding var showsForm: Bool
-    /// The selected image's typed position or size, while its sheet is up.
-    @State private var imageGeometry: GeometrySheet.Request?
 
     var body: some View {
         // Each cell is a related group, as in Linux's FlowBox and Windows'
@@ -59,62 +54,12 @@ struct ViewerToolbar: View {
                     .disabled(!model.store.canRedo || model.store.pageWorkInFlight)
             }
             HStack {
-                Toggle("Properties", isOn: $showsProperties)
+                Toggle("Tools", isOn: $model.showsTools)
                     .toggleStyle(.button)
+                    .help("Show or hide the tools panel")
                 Toggle(isOn: $model.showsPages) { Label("Pages", shellIcon: .panelLeft) }
                     .toggleStyle(.button)
                     .help("Show or hide the list of pages (⌥⌘2)")
-            }
-            HStack {
-                Toggle(isOn: $showsComments) { Label("Comments", shellIcon: .comments) }
-                    .toggleStyle(.button)
-                    .help("The document's comments, by page")
-                Toggle("Form", isOn: $showsForm)
-                    .toggleStyle(.button)
-                    .help("Fill in the document's form fields")
-            }
-            HStack {
-                Toggle(isOn: Binding(get: { model.store.contentEditMode }, set: model.setContentEditMode)) {
-                    Label("Edit Content", shellIcon: .edit)
-                }
-                    .toggleStyle(.button)
-                    .help("Click the page's own text to retype, move or delete it, or an image to move, resize or delete it")
-                    .disabled(!model.canEditContent && !model.store.contentEditMode)
-                Toggle(isOn: Binding(get: { model.textInsertArmed }, set: model.armTextInsert)) {
-                    Label("Add Text", shellIcon: .text)
-                }
-                    .toggleStyle(.button)
-                    .help("Click a page to add a new line of text there")
-                    .disabled(!model.canEditContent)
-            }
-            HStack {
-                // Armed, the status line asks for the click; choosing again replaces the image.
-                Button(action: model.armImageInsert) { Label("Add Image…", shellIcon: .image) }
-                    .help("Choose a PNG or JPEG, then click a page to place it")
-                    .disabled(!model.canEditContent)
-                Button("Add Watermark…", action: model.requestWatermark)
-                    .help("Stamp the same text or picture across the pages you pick, as one undo step")
-                    .disabled(!model.canEditContent)
-            }
-            if model.store.selectedContentImage != nil {
-                HStack {
-                    Button("Replace Image…", action: model.replaceSelectedImage)
-                        .help(model.store.canReplaceSelectedImage
-                            ? "Swap the selected image's picture for a PNG or JPEG, keeping its box"
-                            : "This image cannot be replaced now — the status line says why")
-                        .disabled(model.store.pageWorkInFlight || !model.store.canReplaceSelectedImage)
-                    Button("Delete Image", action: model.deleteSelectedImage)
-                        .help("Delete the selected image from the page (⌫)")
-                        .disabled(model.store.pageWorkInFlight)
-                }
-                HStack {
-                    Button("Image Position…") { imageGeometry = model.selectedImageGeometry(position: true) }
-                        .help("Type where the selected image goes, in points")
-                        .disabled(model.store.pageWorkInFlight)
-                    Button("Image Size…") { imageGeometry = model.selectedImageGeometry(position: false) }
-                        .help("Type the selected image's width and height, in points")
-                        .disabled(model.store.pageWorkInFlight)
-                }
             }
             HStack {
                 Toggle(isOn: $model.isOrganizing) { Label("Organize", shellIcon: .organize) }
@@ -153,9 +98,6 @@ struct ViewerToolbar: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Document commands")
         .accessibilityIdentifier("editor-toolbar")
-        .sheet(item: $imageGeometry) { request in
-            GeometrySheet(request: request) { imageGeometry = nil }
-        }
     }
 
     /// On while `mode` is active; switching it off freezes the factor the

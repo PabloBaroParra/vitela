@@ -37,6 +37,9 @@ final class ViewerViewModel: ObservableObject {
     /// Whether the Pages column is open — `ViewerViewModel+Navigation.swift`.
     /// Open from the start, as on Linux and Windows.
     @Published var showsPages = true
+    /// One tools column, with navigation independent of the document's modes.
+    @Published var showsTools = true
+    @Published var toolsTab: ToolsTab = .annotate
     /// Add Text is armed: the next click on a page places a new line there.
     @Published var textInsertArmed = false
     /// Where the new line goes, while its sheet is up.

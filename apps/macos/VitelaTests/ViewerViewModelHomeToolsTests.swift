@@ -4,6 +4,51 @@ import XCTest
 /// Home's Tools grid: a tile goes to its tool, and one picked with no
 /// document open waits for the document chosen for it.
 final class ViewerViewModelHomeToolsTests: XCTestCase {
+    func testToolsTabsMatchDesktopOrderAndNavigationDoesNotEdit() {
+        let (client, model) = model()
+        XCTAssertEqual(ToolsTab.allCases.map(\.label), ["Edit", "Annotate", "Comments", "Fill & Sign"])
+        XCTAssertEqual(ToolsTab.allCases.map(\.icon), [.edit, .annotate, .comments, .sign])
+        XCTAssertEqual(model.toolsTab, .annotate)
+        model.setContentEditMode(true)
+        model.armTextInsert(true)
+        let revision = model.store.editRevision
+        let page = model.store.currentPage
+        for tab in ToolsTab.allCases {
+            model.showsTools = false
+            model.selectToolsTab(tab)
+            XCTAssertTrue(model.showsTools)
+            XCTAssertEqual(model.toolsTab, tab)
+            model.selectToolsTab(tab)
+            XCTAssertEqual(model.toolsTab, tab, "the active tab cannot be toggled off")
+            XCTAssertTrue(model.store.contentEditMode)
+            XCTAssertTrue(model.textInsertArmed)
+        }
+        XCTAssertEqual(model.store.currentPage, page)
+        XCTAssertEqual(model.store.editRevision, revision)
+        XCTAssertEqual(client.pageEdits, [])
+    }
+
+    func testToolsNavigationSurvivesHomeOrganizeAndFind() {
+        let (_, model) = model()
+        model.selectToolsTab(.comments)
+        model.showsTools = false
+        model.showHome()
+        model.returnToDocument()
+        XCTAssertEqual(model.toolsTab, .comments)
+        XCTAssertFalse(model.showsTools)
+        model.navigateShell(to: .organize)
+        XCTAssertTrue(model.revealDocumentSearch())
+        XCTAssertEqual(model.toolsTab, .comments)
+        XCTAssertFalse(model.showsTools)
+        model.navigateShell(to: .edit)
+        XCTAssertEqual(model.toolsTab, .edit)
+        XCTAssertTrue(model.showsTools)
+        model.showsTools = false
+        model.navigateShell(to: .annotate)
+        XCTAssertEqual(model.toolsTab, .annotate)
+        XCTAssertTrue(model.showsTools)
+    }
+
     private func model(open: Bool = true) -> (FakePdfCoreClient, ViewerViewModel) {
         let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
         let model = ViewerViewModel(store: ViewerStore(client: client), sampleLoader: { Data([1]) })
