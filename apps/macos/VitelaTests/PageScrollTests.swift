@@ -7,6 +7,14 @@ import XCTest
 /// Windows' `PageScroller`: a page zoomed wider than the window pans
 /// sideways, and one that fits stays centred with nothing to pan.
 final class PageScrollTests: XCTestCase {
+    func testOrganizeHeaderWrapsIncludingImportProgress() {
+        let model = ViewerViewModel(store: ViewerStore(client: FakePdfCoreClient(pages: [])))
+        assertWraps(OrganizeHeader(model: model))
+        model.isImporting = true
+        model.importProgress = ImportProgress(completed: 1, total: 3)
+        assertWraps(OrganizeHeader(model: model))
+    }
+
     func testSearchAndPageNavigationWrapWithoutCompressingTheirReadout() {
         let pages = Array(repeating: PageDimensions(width: 612, height: 792), count: 1000)
         let model = ViewerViewModel(store: ViewerStore(client: FakePdfCoreClient(pages: pages)))
@@ -57,6 +65,17 @@ final class PageScrollTests: XCTestCase {
             attach(host, named: "Editor-\(Int(width))pt-\(scheme)")
             XCTAssertTrue(scrollViews(host).contains { abs($0.frame.width - railWidth) < 1 }, "the rail must also stay beside the document")
             XCTAssertEqual(host.frame.width, width, accuracy: 1, "commands must not widen the window")
+
+            model.isOrganizing = true
+            waitUntil({ !self.hasDocumentSearch(host) }, "Organize must hide the reader's chrome")
+            let organizer = scrollViews(host).filter { $0.frame.width > 300 }.max { $0.frame.width < $1.frame.width }
+            XCTAssertEqual(organizer?.frame.width ?? 0, width - railWidth - 1, accuracy: 1,
+                           "Organize must not lose width to the reader's Pages/panels")
+            XCTAssertGreaterThan(organizer?.frame.height ?? 0, host.frame.height - 240,
+                                 "leave the workspace for the cards, not duplicate reader toolbars")
+            attach(host, named: "Organize-\(Int(width))pt-\(scheme)")
+            XCTAssertTrue(model.revealDocumentSearch())
+            waitUntil({ self.hasDocumentSearch(host) }, "Find must leave Organize before focusing its field")
         }
     }
 

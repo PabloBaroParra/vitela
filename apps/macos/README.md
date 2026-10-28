@@ -110,6 +110,11 @@ responsibility:
   two passwords, signature question, atomic write, reopen.
 - `Vitela/ViewerViewModel+Pages.swift` — the Organize mode and running
   page edits on the queue.
+- `Vitela/Views/OrganizeHeader.swift` — Organize's wrapping document-wide
+  actions, including Save As and history, like Linux's `organize/header.rs`.
+  Organize gets its own workspace, not the reader's tools and duplicate
+  Pages sidebar; the panels' state is kept for returning. ⌘F leaves Organize
+  for the reader before focusing search, like Windows' `FindDocument_Invoked`.
 - `Vitela/ViewerViewModel+Import.swift` — Organize ▸ Add PDFs: picking,
   per-source passwords and warnings, progress and Cancel import while the
   picks are prepared, then one undoable import.

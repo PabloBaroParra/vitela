@@ -25,14 +25,14 @@ struct ViewerRootView: View {
 
     private var workspace: some View {
         VStack(spacing: 0) {
-            if !model.isShowingHome {
+            if model.showsReaderChrome {
                 ViewerToolbar(model: model, showsProperties: $showsProperties, showsComments: $showsComments, showsForm: $showsForm)
                 SearchNavigationBar(model: model, query: $searchQuery, searchFieldFocused: $searchFieldFocused)
                 AnnotationToolbar(store: model.store, drawSignature: model.drawSignature, organizing: model.isOrganizing)
                 Divider()
             }
             HStack(spacing: 0) {
-                if !model.isShowingHome {
+                if model.showsReaderChrome {
                     if model.showsPages {
                         PagesSidebar(model: model)
                             .frame(width: pagesColumn.preferredWidth)
@@ -49,7 +49,7 @@ struct ViewerRootView: View {
                 } else {
                     pageList
                 }
-                if !model.isShowingHome {
+                if model.showsReaderChrome {
                     if model.store.search != nil {
                         // Results close with the search, not with a drag: this
                         // divider only resizes.
@@ -110,11 +110,11 @@ struct ViewerRootView: View {
             // macOS versions, which would silently kill the shortcut;
             // `.opacity(0)` keeps it live while staying invisible.
             Button("Find") {
-                model.returnToDocument()
+                guard model.revealDocumentSearch() else { return }
                 DispatchQueue.main.async { searchFieldFocused = true }
             }
                 .keyboardShortcut("f", modifiers: .command)
-                .disabled(model.store.document == nil)
+                .disabled(model.store.document == nil || !model.canNavigateShell)
                 .opacity(0)
         )
         .alert("Password required", isPresented: isPresentingPasswordPrompt) {
