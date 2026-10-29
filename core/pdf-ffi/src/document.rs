@@ -123,7 +123,7 @@ impl DocumentState {
     /// `PageId(0..n)`) and stop doing after the first move, removal or
     /// insertion — after which an annotation lands on whichever page owns
     /// that id, wherever it has gone.
-    fn page_id(&self, position: u32) -> Result<PageId, FfiError> {
+    pub(crate) fn page_id(&self, position: u32) -> Result<PageId, FfiError> {
         self.document
             .page_id_at(position as usize)
             .ok_or(FfiError::PageIndexOutOfBounds { index: position })
@@ -143,7 +143,7 @@ impl DocumentState {
         self.document.render_index(id).map(|index| index as u32)
     }
 
-    fn text_run(&self, item: FfiContentTextRun) -> Result<TextRun, FfiError> {
+    pub(crate) fn text_run(&self, item: FfiContentTextRun) -> Result<TextRun, FfiError> {
         let page = self.page_id(item.page)?;
         Ok(TextRun {
             page,
@@ -729,6 +729,10 @@ impl DocumentState {
         &self.document
     }
 
+    pub(crate) fn document_mut(&mut self) -> &mut Document {
+        &mut self.document
+    }
+
     /// Why `document` could not survive a full rewrite, or `None` when it
     /// could — see [`full_rewrite_blocker`], the free function this
     /// delegates to.
@@ -822,7 +826,7 @@ fn annotation_editing_is_allowed(document: &Document) -> bool {
 /// — so on such a document a content edit is not a change to be saved later,
 /// it is one that can never be saved at all. A shell that offered it would
 /// collect work it has no way to keep.
-fn content_editing_is_allowed(document: &Document) -> bool {
+pub(crate) fn content_editing_is_allowed(document: &Document) -> bool {
     pdf_manip::content_editing_is_allowed(document.security.as_ref())
         && full_rewrite_blocker(document).is_none()
 }
@@ -1642,7 +1646,7 @@ mod tests {
 /// the document and the log untouched. Callers map that to an error instead
 /// of dropping it: a rejected command records nothing, so an `Ok(())` would
 /// tell the shell an edit is queued when none is.
-fn apply_command(document: &mut Document, command: Command) -> bool {
+pub(crate) fn apply_command(document: &mut Document, command: Command) -> bool {
     // `EditLog::apply` needs `&mut EditLog` and `&mut Document` at once,
     // which can't both be reached as `document.pending_edits.apply(&mut
     // document, ..)` — same take/apply/restore dance used throughout
@@ -1937,6 +1941,21 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         }
     }
     if is_content {
+        // An item inside a queued batch (a block edit, B25 T-207) is edited
+        // again through that batch, which keeps the snapshot the file holds.
+        if let Some((index, batch)) =
+            crate::text_blocks::fold_into_queued_batch(&state.document, &core_command)?
+        {
+            state.with_imported_sources(|sources| {
+                pdf_save::validate_content_command(&state.document, &state.base, sources, &batch)
+            })?;
+            if !state.document.pending_edits.amend(index, batch) {
+                return Err(FfiError::UnsupportedOperation {
+                    detail: "the pending text edit is no longer available".to_string(),
+                });
+            }
+            return Ok(());
+        }
         let queued = pending_text_amendment_index(&state.document, &core_command)?;
         if let Some(index) = queued {
             // What a caller holds is the run as `read_page_content` reads it
@@ -2002,15 +2021,22 @@ fn pending_text_amendment_index(
                     if target.id == item.id && target.page == item.page)
         }));
     }
-    if let Command::MoveImage { item, to } = command {
-        if !to.x.is_finite() || !to.y.is_finite() {
+    if let Command::MoveImage { to, .. } | Command::ResizeImage { to, .. } = command {
+        if !to.x.is_finite() || !to.y.is_finite() || !to.width.is_finite() || !to.height.is_finite()
+        {
             return Err(FfiError::UnsupportedOperation {
                 detail: "Image coordinates must be finite.".to_string(),
             });
         }
+    }
+    if let Command::MoveImage { item, .. }
+    | Command::ResizeImage { item, .. }
+    | Command::RemoveImage { item, .. } = command
+    {
         return Ok(document.pending_edits.entries().iter().position(|queued| {
-            matches!(queued, Command::MoveImage { item: target, .. }
-                if target.id == item.id && target.page == item.page)
+            matches!(queued,
+                Command::MoveImage { item: target, .. } | Command::ResizeImage { item: target, .. }
+                    if target.id == item.id && target.page == item.page)
         }));
     }
     if let Command::MoveTextRun { item, to } = command {
@@ -2140,6 +2166,36 @@ fn with_queued_path(queued: &Command, command: &Command) -> Option<Command> {
     })
 }
 
+/// An image edit folded into the queued geometry edit of the same image,
+/// keyed to the snapshot the file still holds — the image twin of
+/// [`with_queued_path`].
+///
+/// A move or a resize carries its whole destination box, so the fold takes
+/// it as is. Two moves stay a move; any resize in the pair makes the fold a
+/// resize, which a move is a special case of. A removal replaces the queued
+/// edit outright, painting operation and all.
+fn with_queued_image(queued: &Command, command: &Command) -> Option<Command> {
+    let (Command::MoveImage { item: original, .. } | Command::ResizeImage { item: original, .. }) =
+        queued
+    else {
+        return None;
+    };
+    let item = original.clone();
+    Some(match command {
+        Command::RemoveImage { source, .. } => Command::RemoveImage {
+            item,
+            source: source.clone(),
+        },
+        Command::MoveImage { to, .. } if matches!(queued, Command::MoveImage { .. }) => {
+            Command::MoveImage { item, to: *to }
+        }
+        Command::MoveImage { to, .. } | Command::ResizeImage { to, .. } => {
+            Command::ResizeImage { item, to: *to }
+        }
+        _ => return None,
+    })
+}
+
 /// `command` carrying `queued`'s run snapshot in place of its own.
 ///
 /// Only called for a pair [`pending_text_amendment_index`] matched: retyping
@@ -2147,6 +2203,9 @@ fn with_queued_path(queued: &Command, command: &Command) -> Option<Command> {
 /// a run or an image with a queued move.
 fn with_queued_item(queued: &Command, command: Command) -> Command {
     if let Some(folded) = with_queued_path(queued, &command) {
+        return folded;
+    }
+    if let Some(folded) = with_queued_image(queued, &command) {
         return folded;
     }
     if let (Command::InsertTextRun(run), Command::MoveTextRun { to, .. }) = (queued, &command) {
@@ -2162,12 +2221,6 @@ fn with_queued_item(queued: &Command, command: Command) -> Command {
     if let (Command::MoveTextRun { item, .. }, Command::MoveTextRun { to, .. }) = (queued, &command)
     {
         return Command::MoveTextRun {
-            item: item.clone(),
-            to: *to,
-        };
-    }
-    if let (Command::MoveImage { item, .. }, Command::MoveImage { to, .. }) = (queued, &command) {
-        return Command::MoveImage {
             item: item.clone(),
             to: *to,
         };

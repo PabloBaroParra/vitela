@@ -526,6 +526,22 @@ pub struct FfiContentPathItem {
     pub paint: FfiPathPaint,
 }
 
+/// Text runs that read as one piece of text — on one line, in one font, no
+/// more than a space apart (B25 T-207). A shell selects, moves, deletes and
+/// retypes it as a unit through `move_text_block`, `remove_text_block` and
+/// `retype_text_block`, each one undo step.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiTextBlock {
+    /// The member runs, left to right, exactly as `read_page_content` reads
+    /// them — every run of the page is in exactly one block.
+    pub runs: Vec<FfiContentTextRun>,
+    /// The union of the runs' boxes.
+    pub bbox: FfiRect,
+    /// The runs' text joined left to right, with a space put back where the
+    /// file left a word gap out of the text.
+    pub text: String,
+}
+
 impl From<PathItem> for FfiContentPathItem {
     fn from(item: PathItem) -> Self {
         Self {
