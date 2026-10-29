@@ -41,6 +41,11 @@ public sealed partial class MainWindow
         var hit = selected is not null && (corner is not null || Contains(selected.Bounds, point))
             ? selected
             : content.Images.LastOrDefault(image => Contains(image.Bounds, point));
+        // A press anywhere but on text lets go of the selected text block.
+        if (hit is not null || !content.TextRuns.Any(run => Contains(BoundsOf(run), point)))
+        {
+            ClearTextBlockSelection();
+        }
         if (hit is null)
         {
             if (_selectedContentImage is not null)
@@ -67,6 +72,12 @@ public sealed partial class MainWindow
                 await InsertContentAtAsync(insert, (uint)pageIndex, point);
                 return;
             }
+            // A press on text is a click or a block drag; which one is decided
+            // by how far the pointer goes before it lets go.
+            if (await BeginTextBlockGestureAsync(slot, pageIndex, sessionId, content, point, args))
+            {
+                return;
+            }
             await OpenContentEditorAsync((uint)pageIndex, point);
             return;
         }
@@ -77,15 +88,13 @@ public sealed partial class MainWindow
         }
         ClearContentPathSelection();
         _selectedContentImage = hit;
-        if (_pendingImageEdits.Contains((hit.PageIndex, hit.Id)))
-        {
-            AnnotationStatus.Text = "Save and reopen before editing this image again.";
-            RedrawContentImageSelection();
-            return;
-        }
-
+        ClaimPageFocus();
+        // An image moved or resized before a save can be dragged again: the
+        // core folds the new box into the queued edit, which keeps the
+        // snapshot the file holds. Only Replace still waits for a save.
         _contentImageDrag = new(sessionId, hit, point, point, ReferenceEquals(hit, selected) ? corner : null);
-        slot.Annotations.CapturePointer(args.Pointer);
+        // No pointer in the smoke harness, which drives the gesture by points.
+        if (args is not null) slot.Annotations.CapturePointer(args.Pointer);
         RedrawContentImageSelection();
     }
 
@@ -108,6 +117,19 @@ public sealed partial class MainWindow
         var completed = drag with { Current = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position) };
         _contentImageDrag = null;
         slot.Annotations.ReleasePointerCapture(args.Pointer);
+        await RecordContentImageDragAsync(completed);
+    }
+
+    /// <summary>Records the drag in progress as ending at <paramref name="point"/> — the smoke harness's release.</summary>
+    private async Task CompleteContentImageDragAsync(AnnotationPoint point)
+    {
+        if (_contentImageDrag is not { } drag) return;
+        _contentImageDrag = null;
+        await RecordContentImageDragAsync(drag with { Current = point });
+    }
+
+    private async Task RecordContentImageDragAsync(ContentImageDrag completed)
+    {
         var before = completed.Image.Bounds;
         var after = ImageDragRect(completed);
         if (before == after)
@@ -122,13 +144,6 @@ public sealed partial class MainWindow
             RedrawContentImageSelection();
             return;
         }
-        if (_pendingImageEdits.Contains((completed.Image.PageIndex, completed.Image.Id)))
-        {
-            AnnotationStatus.Text = "Save and reopen before editing this image again.";
-            RedrawContentImageSelection();
-            return;
-        }
-
         SetBusy(true);
         try
         {
@@ -159,6 +174,14 @@ public sealed partial class MainWindow
             UpdateAnnotationControls(_annotationState);
             AnnotationStatus.Text = completed.Corner is null ? "Image moved. Save to keep the change."
                 : "Image resized. Save to keep the change.";
+            // The selection frame follows the image: re-read the page and
+            // select the same image where it now is, so the next drag starts
+            // from what is painted.
+            if (await EnsurePageContentAsync(completed.Image.PageIndex) is { } content
+                && ReferenceEquals(_selectedContentImage, completed.Image))
+            {
+                _selectedContentImage = content.Images.FirstOrDefault(image => image.Id == completed.Image.Id);
+            }
         }
         finally
         {

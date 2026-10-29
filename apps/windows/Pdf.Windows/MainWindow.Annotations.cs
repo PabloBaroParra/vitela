@@ -141,6 +141,14 @@ public sealed partial class MainWindow
         // an armed tool placing an annotation, or a press landing on an
         // existing annotation's handle or body, is aimed at the annotation,
         // not at the text underneath it. See `MainWindow.Selection.cs`.
+        // Content editing: a double-click on text opens the inline editor; a
+        // single click only selects (see `MainWindow.TextBlocks.cs`).
+        slot.Annotations.DoubleTapped += async (_, args) =>
+        {
+            if (!_contentEditMode) return;
+            args.Handled = true;
+            await OpenContentEditorOnDoubleTapAsync((uint)pageIndex, ToPdf(slot, pageIndex, args.GetPosition(slot.Annotations)));
+        };
         slot.Annotations.PointerPressed += (_, args) =>
         {
             if (_isBusy || _dialogOpen) return;
@@ -163,6 +171,7 @@ public sealed partial class MainWindow
                 var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
                 ContinueContentImageGesture(pageIndex, point);
                 ContinueContentPathGesture(pageIndex, point);
+                ContinueTextBlockGesture(slot, pageIndex, point);
                 return;
             }
             if (!ContinueAnnotationPointer(slot, pageIndex, args)) ContinueTextSelection(slot, pageIndex, args);
@@ -172,8 +181,10 @@ public sealed partial class MainWindow
             if (await EndFormFieldPlacementAsync(slot, pageIndex, args)) return;
             if (_contentEditMode)
             {
+                _contentPointerDown = false;
                 await EndContentImageGestureAsync(slot, pageIndex, args);
                 await EndContentPathGestureAsync(slot, pageIndex, args);
+                await EndTextBlockGestureAsync(slot, pageIndex, args);
                 return;
             }
             if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
@@ -205,6 +216,7 @@ public sealed partial class MainWindow
         CancelFormGesture(pageIndex);
         CancelContentImageGesture(pageIndex);
         CancelContentPathGesture(pageIndex);
+        CancelTextBlockGesture(pageIndex);
         if (_textSelection?.PageIndex == pageIndex) _textDragActive = false;
     }
 

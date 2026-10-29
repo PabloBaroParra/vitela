@@ -23,6 +23,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("replaces resource and inline image sources with history", ReplacesContentImagesAsync),
     ("stamps a watermark as one undoable content edit over the chosen pages", WatermarkParityTests.RunAsync),
     ("moves, resizes and deletes vector paths with history and stale guards", PathParityTests.RunAsync),
+    ("groups text runs into blocks and moves, deletes and retypes them whole", TextBlockParityTests.RunAsync),
     ("refuses stale forbidden and unrecoverable image replacement", RefusesImageReplacementAsync),
     ("retains image replacement after preview failure", KeepsImageReplacementAfterPreviewFailureAsync),
     ("inserts image content with shared placement and history", InsertsContentImageAsync),

@@ -7,6 +7,11 @@ public sealed partial class MainWindow
 
     private async Task DeleteOpenContentTextAsync()
     {
+        if (_pump.Box is null && _selectedTextBlock is not null)
+        {
+            await DeleteSelectedTextBlockAsync();
+            return;
+        }
         if (!DeleteTextButton.IsEnabled || _session is null || _pump.Box is not { } editor) return;
         var sessionId = _session.SessionId;
         _deletingContentText = true;
@@ -19,6 +24,19 @@ public sealed partial class MainWindow
             // unrecorded keystrokes: deletion supersedes them.
             await _pump.DrainAsync();
             if (_session?.SessionId != sessionId || _pump.Box != editor) return;
+            if (editor.Block is { } block)
+            {
+                var removed = await _facade.RemoveTextBlockAsync(sessionId, block);
+                if (_session?.SessionId != sessionId) return;
+                if (!removed.IsSuccess)
+                {
+                    AnnotationStatus.Text = removed.Error!.Message;
+                    return;
+                }
+                CancelContentEditor();
+                await AfterTextBlockEditAsync(editor.PageIndex, removed, "Text deleted. Save to keep the change.");
+                return;
+            }
             var targets = await _facade.PageTextEditTargetsAsync(sessionId, editor.PageIndex);
             if (_session?.SessionId != sessionId || _pump.Box != editor || !_contentEditMode || _organizing) return;
             if (!targets.IsSuccess)

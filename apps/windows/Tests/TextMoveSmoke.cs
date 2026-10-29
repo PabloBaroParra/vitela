@@ -55,8 +55,8 @@ public sealed partial class MainWindow
         var unchanged = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![0];
         if (unchanged.Bounds != current.Bounds) throw new Exception("Cancel/no-op changed position.");
         SetContentEditMode(true);
-        await BeginContentGestureAsync(_slots[0], 0,
-            new AnnotationPoint(current.Bounds.X + 2, current.Bounds.Y + current.Bounds.Height / 2), null!);
+        await OpenContentEditorOnDoubleTapAsync(0,
+            new AnnotationPoint(current.Bounds.X + 2, current.Bounds.Y + current.Bounds.Height / 2));
         if (_pump.Box is not null || !AnnotationStatus.Text.Contains("save and reopen before retyping"))
             throw new Exception("Moved existing text must be refused before opening its inline editor, like Linux.");
         var afterRefusal = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![0];
@@ -91,8 +91,8 @@ public sealed partial class MainWindow
         var inserted = targets[index];
         await DriveTextMoveAsync(80, 90, selectedIndex: index);
         var moved = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![index];
-        await BeginContentGestureAsync(_slots[0], 0,
-            new AnnotationPoint(moved.Bounds.X + 2, moved.Bounds.Y + moved.Bounds.Height / 2), null!);
+        await OpenContentEditorOnDoubleTapAsync(0,
+            new AnnotationPoint(moved.Bounds.X + 2, moved.Bounds.Y + moved.Bounds.Height / 2));
         if (_pump.Box is null || !_pump.Box.Run.IsPendingInsertion)
             throw new Exception("Moved insertion did not reopen through canvas hit-testing.");
         const string finalText = "Text move smoke retyped insertion";

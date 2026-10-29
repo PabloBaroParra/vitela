@@ -792,10 +792,11 @@ public sealed partial class PdfDocumentFacade : IDisposable
             // One dispatch for both: the fonts are only useful joined to the
             // runs that name them, and asking twice would parse the page's
             // resources on two different threads for one answer.
-            var (content, fonts, paths) = await Task.Run(() => (
+            var (content, fonts, paths, blocks) = await Task.Run(() => (
                 _core.ReadPageContent(session.Document, pageIndex),
                 _core.PageFontFamilies(session.Document, pageIndex),
-                _core.ReadPagePaths(session.Document, pageIndex))).ConfigureAwait(false);
+                _core.ReadPagePaths(session.Document, pageIndex),
+                _core.ReadPageTextBlocks(session.Document, pageIndex))).ConfigureAwait(false);
             lock (_gate)
             {
                 if (session.Retired || _currentSession != session)
@@ -807,11 +808,15 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 }
             }
 
+            ContentTextRun[] runs = [.. content.TextRuns.Select(run => new ContentTextRun(run, fonts.GetValueOrDefault(run.ResourceFontName)))];
             return OperationResult<PageContent>.Success(new PageContent(
                 pageIndex,
-                [.. content.TextRuns.Select(run => new ContentTextRun(run, fonts.GetValueOrDefault(run.ResourceFontName)))],
+                runs,
                 [.. content.Images.Select(image => new ContentImage(image, sessionId, session.EditRevision))],
-                [.. paths.Select(path => new ContentPath(path, sessionId, session.EditRevision))]));
+                [.. paths.Select(path => new ContentPath(path, sessionId, session.EditRevision))])
+            {
+                TextBlocks = TextBlocksOf(blocks, runs),
+            });
         }
         catch (PdfCoreException error)
         {

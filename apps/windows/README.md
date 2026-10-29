@@ -507,8 +507,10 @@ chosen image keeps its position and dimensions; a different aspect ratio
 stretches to that rectangle. Original bytes are recovered through Rust as soon as
 the image is selected, again before the picker opens and at submission, including
 on imported pages. Encodings that cannot round-trip without loss grey Replace out
-with an explanation, so undo can always restore the source. A pending edit on the
-selected image disables both Replace and Delete. Replacement requires
+with an explanation, so undo can always restore the source. A pending move or
+resize disables Replace until a save; the image can still be dragged, resized
+or deleted again, each folding into the queued edit as one undo step, and the
+selection frame follows the image to where it now is. Replacement requires
 content-edit permission and a full rewrite, refreshes the preview and supports
 undo/redo. Save to keep the replacement.
 
@@ -525,6 +527,22 @@ along its length but not made taller. Unlike images, a shape can be dragged
 again straight away without saving. The core folds the second edit into the
 first, which makes successive edits of one shape a single undo step. Clipping
 paths (`re W n`) are not shapes and are never offered.
+
+**Text blocks** (B25 T-207). A report generator often paints one phrase with
+several operators, so "PRESUPUESTO Nº 3.725/1" can be three runs. The core joins
+runs on one line, in one font and no more than a space apart, into a block, and
+Edit content outlines blocks instead of fragments, and text works like a text
+box in a slide editor: a click selects a block, Delete removes the selected
+block, and a double-click (or F2) opens the editor over the whole block with its
+full text. The first run receives the new text while the others are removed, and
+typing stays one undo step. Press and drag a block more than a few pixels to move
+all of its runs together, also as one undo step; it stays selected where it lands. Moved text is painted on top of everything else on the
+page and outside any clip its field had, so it cannot vanish under a later
+picture or outside a report field's box. Delete in a block editor removes the
+whole block. A block
+that already has an unsaved move cannot be retyped, and a retyped block cannot be
+moved, until the document is saved; the status line says so. Lines stacked into
+a paragraph are still separate blocks.
 
 **Delete text** lists the text runs on the visible page, with their text and PDF
 coordinates. Choose a run and confirm deletion; the PDF preview refreshes and
@@ -882,6 +900,18 @@ click on the border selects it, that a drag moves it, that a corner drag right
 after resizes it with no save in between, that Delete removes the rule and one
 undo restores it, and that the save reopens with the moved, resized frame and
 the rule. As with the other smokes, the press is not a physical pointer.
+
+## Text block runtime smoke
+
+`Tests/TextBlockSmoke.targets` replaces the entry point the same way and writes
+`text-block-smoke.log`. It opens a heading written as three show-text operators
+beside a separate "Total" column, and drives the canvas gesture handler to check
+that the heading reads as one block, that a drag moves the whole block and one
+undo puts it back, that a click selects the block and a double-click opens one
+editor over it, that Delete on the selection removes the block, that two writes
+while typing are one undo step, that Delete in a block editor removes the block
+and one undo restores it, and that the save reopens with the retyped block as one
+run. As with the other smokes, the press is not a physical pointer.
 
 ## Note placement runtime smoke
 

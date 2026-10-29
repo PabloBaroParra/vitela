@@ -31,7 +31,7 @@ public sealed partial class MainWindow
     private const string ImageSelectedHint = "Image selected — replace or delete it.";
     private const string ImageSelectedNoReplaceHint = "Image selected — move, resize or delete it. It cannot be replaced: "
         + "its current encoding cannot be read back, so the swap could not be undone.";
-    private const string ImagePendingEditHint = "This image already has a pending edit — save and reopen before editing it again.";
+    private const string ImagePendingEditHint = "This image has an unsaved edit — move, resize or delete it. Save before replacing it.";
 
     /// <summary>Images whose replacement the core refused before any picker opened.</summary>
     private readonly HashSet<(uint Page, ulong Image)> _replaceRefusedImages = [];
@@ -50,7 +50,9 @@ public sealed partial class MainWindow
     {
         var controls = CurrentImageControls();
         var idle = !_isBusy && !_editingImage;
-        DeleteImageButton.IsEnabled = idle && controls is ImageControls.Ready or ImageControls.NoReplace;
+        // A pending move or resize folds a deletion into itself in the core,
+        // so only Replace — which needs the file's own bytes — waits for a save.
+        DeleteImageButton.IsEnabled = idle && controls is ImageControls.Ready or ImageControls.NoReplace or ImageControls.PendingEdit;
         ReplaceImageButton.IsEnabled = idle && controls == ImageControls.Ready;
         _editImageHint.Text = controls switch
         {
@@ -110,12 +112,9 @@ public sealed partial class MainWindow
 
     private async Task DeleteSelectedImageAsync()
     {
+        // A pending move or resize does not stop a deletion: the core folds it
+        // into the queued edit, keeping the snapshot the file holds.
         if (_session is null || _organizing || _isBusy || _editingImage || _selectedContentImage is not { } selected) return;
-        if (CurrentImageControls() == ImageControls.PendingEdit)
-        {
-            AnnotationStatus.Text = ImagePendingEditHint;
-            return;
-        }
         _editingImage = true;
         UpdateImageCard();
         var sessionId = _session.SessionId;

@@ -52,14 +52,8 @@ public sealed partial class MainWindow
             "Delete shape", EditIconSize, IconTint.Accent);
         _deleteShapeButton.Style = NamedStyle("EditTileButtonStyle");
         _deleteShapeButton.Click += async (_, _) => await DeleteSelectedPathAsync();
-        var delete = new KeyboardAccelerator { Key = global::Windows.System.VirtualKey.Delete };
-        delete.Invoked += async (_, args) =>
-        {
-            if (_selectedContentPath is null || !_deleteShapeButton.IsEnabled) return;
-            args.Handled = true;
-            await DeleteSelectedPathAsync();
-        };
-        _deleteShapeButton.KeyboardAccelerators.Add(delete);
+        // The Delete key is the page view's (see WireTextBlockKeys): an
+        // accelerator on this button died whenever the card was collapsed.
         return EditCard("Shapes", "EditShapesCard", _editShapeHint, _deleteShapeButton);
     }
 
@@ -119,6 +113,7 @@ public sealed partial class MainWindow
 
         var corner = ReferenceEquals(hit, _selectedContentPath) ? CornerAt(hit.Bounds, point, reach) : null;
         _selectedContentPath = hit;
+        ClaimPageFocus();
         _contentPathDrag = new(sessionId, hit, point, point, corner);
         // No pointer in the smoke harness, which drives the gesture by points.
         if (args is not null) slot.Annotations.CapturePointer(args.Pointer);
