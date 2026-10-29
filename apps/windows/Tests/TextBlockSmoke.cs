@@ -23,7 +23,7 @@ public partial class App : Application
             await _window.TextBlockSmokeAsync(output);
             File.WriteAllText(Path.Combine(output, "text-block-smoke.log"),
                 "PASS the split heading reads as one block beside a separate column; a drag moves the whole block "
-                + "and one undo puts it back, staying selected where it landed; a click selects the block and a "
+                + "staying selected where it landed, Delete on it folds into the move, and one undo takes both back; a click selects the block and a "
                 + "double-click opens one editor over it; typing in two writes is one undo step; Delete on the "
                 + "selection, and Delete text in a block editor, remove the block and one undo restores it; the save "
                 + "reopens with the retyped block as one run; an image dragged twice before a save keeps its frame on it and "
@@ -61,8 +61,13 @@ public sealed partial class MainWindow
             throw new Exception($"The block is at {moved}, not 100pt below {before}. Status: {AnnotationStatus.Text}");
         if (_selectedTextBlock is not { } landed || Math.Abs(landed.Bounds.Y - moved.Y) > 0.01)
             throw new Exception("The moved block did not stay selected where it landed.");
+
+        // Delete on the block it just moved: folds into the queued move.
+        await DeleteSelectedTextBlockAsync();
+        await RequireBlocksAsync("after deleting the moved block", "Total");
         await ApplyHistoryAsync(true);
-        if (Math.Abs((await HeadingBoundsAsync()).Y - before.Y) > 0.01) throw new Exception("One undo did not put the block back.");
+        if (Math.Abs((await HeadingBoundsAsync()).Y - before.Y) > 0.01)
+            throw new Exception("One undo did not take back both the move and the delete.");
 
         // A click selects the block and opens nothing.
         await BeginContentGestureAsync(_slots[0], 0, OnHeading, null!);

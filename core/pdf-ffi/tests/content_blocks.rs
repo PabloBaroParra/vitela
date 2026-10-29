@@ -168,17 +168,41 @@ fn a_removed_block_is_gone_after_a_save_and_back_after_an_undo() {
     assert_eq!(texts(&handle), ["PRESUPUESTO N 3.725/1", "Total"]);
 }
 
-/// A run edited on its own after its block moved would be validated against
+/// One run of a moved block deleted on its own: it folds into the queued
+/// move, the rest of the block stays where it was moved to, and the pair is
+/// one undo step.
+#[test]
+fn a_run_of_a_moved_block_can_be_deleted_alone_before_a_save() {
+    let handle = open_from_bytes(heading_page(), None).expect("open");
+    move_text_block(&handle, heading(&handle).runs, 0.0, -100.0).expect("move");
+    let run = heading(&handle).runs.remove(0);
+
+    apply_edit(&handle, FfiEditCommand::RemoveTextRun { item: run }).expect("folds into the move");
+
+    let reopened = open_from_bytes(saved(&handle), None).expect("reopen");
+    // Moved runs are repainted on top, after everything else on the page.
+    assert_eq!(texts(&reopened), ["Total", "TO N 3.725/1"]);
+    assert!(undo(&handle));
+    assert!(!undo(&handle), "the move and the removal are one step");
+}
+
+/// A run retyped on its own after its block moved would be validated against
 /// a file that has it elsewhere. The shell must get a reason, not the
 /// generic refusal — and the queued move must survive.
 #[test]
-fn a_run_of_a_moved_block_cannot_be_edited_alone_before_a_save() {
+fn a_run_of_a_moved_block_cannot_be_retyped_alone_before_a_save() {
     let handle = open_from_bytes(heading_page(), None).expect("open");
-    move_text_block(&handle, heading(&handle).runs, 50.0, 0.0).expect("move");
+    move_text_block(&handle, heading(&handle).runs, 0.0, -100.0).expect("move");
     let run = heading(&handle).runs.remove(0);
 
-    let error = apply_edit(&handle, FfiEditCommand::RemoveTextRun { item: run })
-        .expect_err("refused until saved");
+    let error = apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: run,
+            after: "X".to_string(),
+        },
+    )
+    .expect_err("refused until saved");
 
     assert!(error.to_string().contains("save the document"), "{error}");
     assert!(undo(&handle));
@@ -240,6 +264,41 @@ fn the_run_left_by_a_block_retype_can_be_retyped_on_its_own() {
     assert_eq!(texts(&reopened), ["FACTURA", "Total"]);
     assert!(undo(&handle));
     assert!(!undo(&handle));
+}
+
+/// Moved, then deleted before a save: the reader sees the block where it
+/// landed and presses Delete. The removal folds into the queued move.
+#[test]
+fn a_moved_block_can_be_deleted_before_a_save() {
+    let handle = open_from_bytes(heading_page(), None).expect("open");
+    move_text_block(&handle, heading(&handle).runs, 0.0, -100.0).expect("move");
+
+    remove_text_block(&handle, heading(&handle).runs).expect("removal folds into the move");
+
+    assert_eq!(texts(&handle), ["Total"]);
+    let reopened = open_from_bytes(saved(&handle), None).expect("reopen");
+    assert_eq!(texts(&reopened), ["Total"]);
+    assert!(undo(&handle));
+    assert!(!undo(&handle), "the move and the removal are one step");
+    assert_eq!(texts(&handle), ["PRESUPUESTO N 3.725/1", "Total"]);
+}
+
+/// Retyped, then deleted: the page reads back one run, and removing that
+/// block has to take the whole retype with it.
+#[test]
+fn a_retyped_block_can_be_deleted_before_a_save() {
+    let handle = open_from_bytes(heading_page(), None).expect("open");
+    retype_text_block(&handle, heading(&handle).runs, "FACTURA".to_string(), false)
+        .expect("retype");
+    let left = read_page_text_blocks(&handle, 0).expect("blocks")[0]
+        .runs
+        .clone();
+
+    remove_text_block(&handle, left).expect("removal folds into the retype");
+
+    assert_eq!(texts(&handle), ["Total"]);
+    let reopened = open_from_bytes(saved(&handle), None).expect("reopen");
+    assert_eq!(texts(&reopened), ["Total"]);
 }
 
 #[test]

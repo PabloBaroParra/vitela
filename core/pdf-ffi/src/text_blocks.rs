@@ -195,37 +195,45 @@ fn queued_batch(
     let (Command::Batch(queued), Command::Batch(next)) = (&entries[index], command) else {
         return Err(save_first());
     };
-    let folded: Option<Vec<Command>> = next
-        .iter()
-        .map(|child| {
-            queued
-                .iter()
-                .find(|earlier| target(earlier) == target(child))
-                .and_then(|earlier| with_original(child, earlier))
-        })
-        .collect();
-    match folded {
-        Some(folded) if folded.len() == queued.len() => Ok(Some((index, Command::Batch(folded)))),
-        _ => Err(save_first()),
+    // Every new child has to land on a queued child for the same item; the
+    // queued children it does not name stay as they were — a retyped block's
+    // removed runs stay removed when the run left behind is deleted too.
+    let mut folded = queued.clone();
+    for child in next {
+        let at = queued
+            .iter()
+            .position(|earlier| target(earlier) == target(child))
+            .ok_or_else(save_first)?;
+        folded[at] = with_original(child, &queued[at]).ok_or_else(save_first)?;
     }
+    Ok(Some((index, Command::Batch(folded))))
 }
 
 /// `next` carrying the item snapshot `earlier` was built from, when both are
-/// the same kind of text edit; `None` when they are not.
+/// the same kind of text edit or `next` removes the run; `None` otherwise.
 ///
 /// The snapshot is what the untouched file holds, so it is what validation
 /// and the save can find. What changes is only what the caller asked for
-/// now: the destination of a move, the text of a retype.
+/// now: the destination of a move, the text of a retype — or, for a removal,
+/// that the run is gone, whatever was queued for it before.
 fn with_original(next: &Command, earlier: &Command) -> Option<Command> {
+    if let Command::RemoveTextRun(_) = next {
+        return match earlier {
+            Command::MoveTextRun { item, .. }
+            | Command::RemoveTextRun(item)
+            | Command::ReplaceTextRunContent { item, .. }
+            | Command::ReplaceTextRunWithInsertedFont { item, .. } => {
+                Some(Command::RemoveTextRun(item.clone()))
+            }
+            _ => None,
+        };
+    }
     Some(match (next, earlier) {
         (Command::MoveTextRun { to, .. }, Command::MoveTextRun { item, .. }) => {
             Command::MoveTextRun {
                 item: item.clone(),
                 to: *to,
             }
-        }
-        (Command::RemoveTextRun(_), Command::RemoveTextRun(item)) => {
-            Command::RemoveTextRun(item.clone())
         }
         (
             Command::ReplaceTextRunContent { after, .. },
