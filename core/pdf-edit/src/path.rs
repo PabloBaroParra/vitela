@@ -97,7 +97,7 @@ fn reshape_path(
 
 /// A path's identity is how it is painted and where. Two identical rules at
 /// the same spot are the ambiguity [`resolve`] refuses rather than guesses.
-fn resolve_path<'a>(
+pub(crate) fn resolve_path<'a>(
     located: &'a LocatedContent,
     item: &PathItem,
 ) -> Result<&'a LocatedPath, EditError> {

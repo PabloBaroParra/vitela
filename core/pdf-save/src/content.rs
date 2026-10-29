@@ -57,6 +57,8 @@ fn is_content_edit(command: &Command) -> bool {
             | Command::ResizePath { .. }
             | Command::RemovePath(_)
             | Command::RestorePath(_)
+            | Command::PasteContent { .. }
+            | Command::RemovePastedContent { .. }
             | Command::AddWatermark(_)
             | Command::RemoveWatermark(_)
             | Command::Batch(_)
@@ -74,6 +76,11 @@ const WATERMARK_REMOVAL_UNSUPPORTED: &str =
 /// `RemovePath`'s inverse, and undo pops the removal from the log instead.
 /// A `PathItem` does not carry the operators that drew it.
 const PATH_RESTORE_UNSUPPORTED: &str = "restoring a removed path is not supported";
+
+/// Why a [`Command::RemovePastedContent`] cannot be written: it is only ever
+/// `PasteContent`'s inverse, and undo pops the paste from the log instead.
+const PASTE_REMOVAL_UNSUPPORTED: &str =
+    "removing pasted content already in the file is not supported";
 
 /// Applies every page-content command in `document`'s edit log to `working`,
 /// in the order they were made.
@@ -340,6 +347,9 @@ fn content_page(command: &Command) -> Option<PageId> {
         | Command::ResizePath { item, .. }
         | Command::RemovePath(item)
         | Command::RestorePath(item) => Some(item.page),
+        Command::PasteContent { page, .. } | Command::RemovePastedContent { page, .. } => {
+            Some(*page)
+        }
         _ => None,
     }
 }
@@ -374,6 +384,12 @@ fn apply(
         Command::RemovePath(item) => pdf_edit::remove_path(working, page_object, item)?,
         Command::RestorePath(_) => {
             return Err(SaveError::InvalidSaveRequest(PATH_RESTORE_UNSUPPORTED))
+        }
+        Command::PasteContent { clip, to, .. } => {
+            pdf_edit::paste_clip(working, page_object, clip, *to)?
+        }
+        Command::RemovePastedContent { .. } => {
+            return Err(SaveError::InvalidSaveRequest(PASTE_REMOVAL_UNSUPPORTED))
         }
         Command::ReplaceImageSource { item, after, .. } => {
             pdf_edit::replace_image_source(working, page_object, item, after)?
@@ -588,6 +604,73 @@ mod tests {
 
         let texts: Vec<String> = read_runs(&working).into_iter().map(|r| r.text).collect();
         assert_eq!(texts, vec!["aaa".to_string(), "zzz".to_string()]);
+    }
+
+    /// A cut and a paste are two log entries (B25 T-209): the removal goes
+    /// through the ordinary replay, the paste writes the clip's own copy of
+    /// the run under a fresh font name, where it was asked to land.
+    #[test]
+    fn replaying_a_cut_and_a_paste_moves_the_run_under_a_fresh_name() {
+        let mut working = document_with(b"BT /F1 12 Tf 100 700 Td (Hello) Tj ET");
+        let run = read_runs(&working).remove(0);
+        let page = pdf_edit::page_object_id(&working, PageId(0)).expect("page");
+        let selection = pdf_edit::Selection {
+            runs: vec![run.clone()],
+            ..pdf_edit::Selection::default()
+        };
+        let clip = pdf_edit::copy_selection(&working, page, &selection).expect("copied");
+        let to = Rect {
+            x: 50.0,
+            y: 200.0,
+            ..clip.bbox
+        };
+
+        let mut document = Document::default();
+        document.pages.push(pdf_document::Page::blank(
+            PageId(0),
+            pdf_document::PageSize::A4,
+            pdf_document::Orientation::Portrait,
+        ));
+        let mut log = EditLog::new();
+        assert!(log.apply(&mut document, Command::RemoveTextRun(run)));
+        assert!(log.apply(
+            &mut document,
+            Command::PasteContent {
+                page: PageId(0),
+                clip,
+                to,
+            }
+        ));
+        document.pending_edits = log;
+        assert!(has_content_edits(&document));
+
+        let pages = page_map(&working);
+        replay_content_edits(&mut working, &document, &pages).expect("replayable");
+
+        let runs = read_runs(&working);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].text, "Hello");
+        assert_eq!(runs[0].resource_font_name, "VClip1");
+        assert!((runs[0].bbox.x - 50.0).abs() < 1e-6);
+        assert!((runs[0].bbox.y - 200.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_recorded_paste_removal_is_refused_rather_than_guessed() {
+        let mut working = document_with(b"");
+        let command = Command::RemovePastedContent {
+            page: PageId(0),
+            clip: pdf_document::ContentClip {
+                pdf: vec![1],
+                bbox: sample_image().bbox,
+            },
+            to: sample_image().bbox,
+        };
+        let page = pdf_edit::page_object_id(&working, PageId(0)).expect("page");
+        assert!(matches!(
+            apply(&mut working, &command, page),
+            Err(SaveError::InvalidSaveRequest(PASTE_REMOVAL_UNSUPPORTED))
+        ));
     }
 
     /// A batch is one undo step but every child still reaches the file —

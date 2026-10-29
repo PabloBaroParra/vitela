@@ -63,6 +63,7 @@ mod bitmap;
 mod blocks;
 mod comments;
 mod compress;
+mod content_clipboard;
 mod content_selection;
 mod document;
 mod error;
@@ -88,6 +89,9 @@ pub use compress::{
     compress_presets, compressed_save_will_invalidate_signatures, compression_refusal,
     save_compressed_to_bytes, save_compressed_to_path, FfiCompressOutcome, FfiCompressPreset,
     FfiCompressRefusal, FfiCompressReport, FfiCompressWork, FfiCompressedSave,
+};
+pub use content_clipboard::{
+    copy_content_selection, cut_content_selection, paste_content, FfiContentClip,
 };
 pub use content_selection::{
     move_content_selection, remove_content_selection, FfiContentSelection,

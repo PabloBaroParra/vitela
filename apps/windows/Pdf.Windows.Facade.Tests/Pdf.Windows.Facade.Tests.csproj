@@ -36,6 +36,7 @@
     <Compile Include="..\Pdf.Windows\Facade\TextBlocks.cs" Link="Facade\TextBlocks.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ContentSelection.cs" Link="Facade\PdfDocumentFacade.ContentSelection.cs" />
     <Compile Include="..\Pdf.Windows\Facade\ContentSelection.cs" Link="Facade\ContentSelection.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ContentClipboard.cs" Link="Facade\PdfDocumentFacade.ContentClipboard.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Print.cs" Link="Facade\PdfDocumentFacade.Print.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.OutputSnapshot.cs" Link="Facade\PdfDocumentFacade.OutputSnapshot.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextGeometry.cs" Link="Facade\PdfDocumentFacade.TextGeometry.cs" />

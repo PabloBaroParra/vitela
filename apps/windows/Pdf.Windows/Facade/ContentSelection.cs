@@ -95,6 +95,22 @@ public sealed class ContentSelection
             [.. content.Images.Where(Contains)],
             [.. content.Paths.Where(Contains)]);
 
+    /// <summary>
+    /// Only the members that exist because of a pending edit — what a paste
+    /// just added (B25 T-209), told apart from the page's own items by their
+    /// synthetic ids.
+    /// </summary>
+    public ContentSelection OnlyPending() =>
+        new(PageIndex,
+            [.. Blocks.Where(block => block.Runs.All(run => IsPending(run.Id)))],
+            [.. Images.Where(image => IsPending(image.Id))],
+            [.. Paths.Where(path => IsPending(path.Id))]);
+
+    private static bool IsPending(ulong id) => id >= PendingIdBase;
+
+    /// <summary>pdf_edit::PENDING_ITEM_ID_BASE.</summary>
+    private const ulong PendingIdBase = 1UL << 40;
+
     internal PdfCoreContentTextRun[] RunSources => [.. Blocks.SelectMany(block => block.Runs).Select(run => run.Source)];
     internal PdfCoreContentImage[] ImageSources => [.. Images.Select(image => image.Source)];
     internal PdfCoreContentPath[] PathSources => [.. Paths.Select(path => path.Source)];

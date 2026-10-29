@@ -27,6 +27,7 @@
             <KeyboardAccelerator Key="P" Modifiers="Control" Invoked="ShellPrint_Invoked" />
             <KeyboardAccelerator Key="V" Modifiers="Control" Invoked="PasteImage_Invoked" />
             <KeyboardAccelerator Key="C" Modifiers="Control" Invoked="CopySelection_Invoked" />
+            <KeyboardAccelerator Key="X" Modifiers="Control" Invoked="CutContent_Invoked" />
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FindDocument_Invoked" />
             <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewDocument_Invoked" />
         </Grid.KeyboardAccelerators>

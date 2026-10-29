@@ -147,13 +147,13 @@ pub(crate) fn apply_batch_edit(
 
 /// What a page-content command edits: the kind of item and which one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Target {
+pub(crate) enum Target {
     Text(ContentItemId, PageId),
     Image(ContentItemId, PageId),
     Path(ContentItemId, PageId),
 }
 
-fn target(command: &Command) -> Option<Target> {
+pub(crate) fn target(command: &Command) -> Option<Target> {
     Some(match command {
         Command::ReplaceTextRunContent { item, .. }
         | Command::ReplaceTextRunWithInsertedFont { item, .. }

@@ -164,6 +164,29 @@ pub struct PathItem {
     pub paint: PathPaint,
 }
 
+/// Page content copied out of a page (B25 P4, T-209): what CTRL+C and CTRL+X
+/// put on the content clipboard, and what a paste writes back.
+///
+/// **Self-contained by construction.** `pdf` is a complete one-page PDF whose
+/// content is the copied operators and whose resources are deep copies of the
+/// fonts, images and graphics states they name — never an object number of
+/// the document it came from. That is what lets a paste land on another page,
+/// where the source page's `/F1` means a different font or nothing at all, and
+/// later in another document, by importing those resources the way
+/// `graft_pages` imports a page's (decided by the user 2026-10-28).
+///
+/// The model only carries it: `pdf-edit` builds it and writes it, and nothing
+/// here reads inside the bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContentClip {
+    /// The one-page PDF holding the copied content, in the coordinates the
+    /// content had on the page it was copied from.
+    pub pdf: Vec<u8>,
+    /// The union of the copied items' boxes, in those same coordinates — what
+    /// a paste lines up with the cursor (its top-left corner is the anchor).
+    pub bbox: Rect,
+}
+
 /// The parsed content of a single page: what a shell needs to hit-test and
 /// edit, and nothing more.
 ///

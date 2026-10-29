@@ -94,7 +94,23 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       marquee; arrastrar dentro del recuadro punteado mueve todo; Delete borra todo; Esc
       deselecciona. `ContentSelectionSmoke`. Mover a **otra página** queda para T-209
       (cortar/pegar), que es donde se copian recursos.
-- [ ] T-209 **P4 — Portapapeles de contenido.** CTRL+X = copiar los spans seleccionados
+- [ ] T-209 **P4 — Portapapeles de contenido.**
+      **Core + FFI + Windows hechos (2026-10-29); faltan Linux y Android (T-212).**
+      Como quedó: `ContentClip {pdf, bbox}` es un PDF de una página (los ítems
+      repintados con su CTM, colores, `w`/`J`/`j`/`M`/`d` y fuente, y copia profunda de
+      los recursos que nombran). `pdf_edit::copy_selection` / `paste_clip`; pegar importa
+      cada recurso como `/VClip{n}` y agrega el contenido al final de la página en su
+      `q … Q`. `Command::PasteContent {page, clip, to}` es un paso de undo; su inverso
+      `RemovePastedContent` nunca se escribe (como `RestorePath`). El overlay de
+      pendientes muestra lo pegado con ids sintéticos `BASE + índice + (k << 24)`.
+      FFI: `copy_content_selection`, `cut_content_selection` (copia + borrado de T-208),
+      `paste_content(page, clip, left, top)`. Arrastrar **todo** lo recién pegado
+      enmienda el `to` del pegado (un solo undo); editar una parte, borrarlo o copiarlo
+      antes de guardar se rechaza. Copiar algo con una edición sin guardar se rechaza
+      (la copia sale del archivo). Contenido dentro de Form XObjects: todavía no.
+      Entre documentos ya funciona con el mismo formato (test FFI y smoke de Windows).
+      Windows: Ctrl+C/X/V en Edit content, pegado donde está el puntero.
+      `ContentClipboardSmoke`. CTRL+X = copiar los spans seleccionados
       (+ recursos que referencian: fuentes, XObjects) y borrarlos; CTRL+C igual sin borrar;
       CTRL+V reinserta con el ancla (esquina sup-izq del bbox de la selección) en la
       posición del cursor sobre la página. Pegar en otra página exige copiar recursos con

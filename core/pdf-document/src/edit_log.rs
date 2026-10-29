@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 
 use crate::annotation::{Annotation, Rect};
-use crate::content::{ImageItem, PathItem, TextRun};
+use crate::content::{ContentClip, ImageItem, PathItem, TextRun};
 use crate::document::PageId;
 use crate::document::{Document, Orientation, Page, PageSize};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
@@ -302,6 +302,28 @@ pub enum Command {
     /// carry the operators that drew it, so there is nothing to put back with,
     /// and `pdf-save` refuses a recorded one rather than guess.
     RestorePath(PathItem),
+    /// Writes copied content onto `page` (B25 P4, T-209): the clipboard's
+    /// operators, their resources imported under names the page does not
+    /// use yet, shifted so the clip's box lands on `to`.
+    ///
+    /// Only `to`'s origin is read — a paste moves content, it never scales
+    /// it. One command however many items the clip holds, so a paste is one
+    /// undo step. Inert on the model like its neighbours, but it refuses
+    /// itself on apply when `page` is not in the document: unlike an item
+    /// edit, it does not name something a parse found there.
+    PasteContent {
+        page: PageId,
+        clip: ContentClip,
+        to: Rect,
+    },
+    /// The inverse of [`Command::PasteContent`], and nothing else — the
+    /// standing of [`Command::RestorePath`]. Undo pops the paste out of the
+    /// log instead, so `pdf-save` refuses a recorded one.
+    RemovePastedContent {
+        page: PageId,
+        clip: ContentClip,
+        to: Rect,
+    },
     /// Stamps the same text on every page the watermark names, as one undo
     /// step. Inert on the model like its neighbours — `pdf-edit` writes it
     /// into each page's content during the save rewrite — but unlike them it
@@ -542,6 +564,8 @@ impl Command {
                 | Command::ResizePath { .. }
                 | Command::RemovePath(_)
                 | Command::RestorePath(_)
+                | Command::PasteContent { .. }
+                | Command::RemovePastedContent { .. }
                 | Command::AddWatermark(_)
                 | Command::RemoveWatermark(_)
                 | Command::Batch(_)
@@ -554,11 +578,17 @@ impl Command {
     ///
     /// Watermarks are left out because they name pages, not an item, and
     /// refuse themselves on apply; a nested batch because nothing needs one.
+    /// A paste likewise names a page and refuses itself, and is already one
+    /// step however much it writes.
     pub fn is_batchable(&self) -> bool {
         self.is_content_edit()
             && !matches!(
                 self,
-                Command::AddWatermark(_) | Command::RemoveWatermark(_) | Command::Batch(_)
+                Command::AddWatermark(_)
+                    | Command::RemoveWatermark(_)
+                    | Command::PasteContent { .. }
+                    | Command::RemovePastedContent { .. }
+                    | Command::Batch(_)
             )
     }
 
@@ -853,6 +883,17 @@ impl Command {
                     return false;
                 }
             }
+            // Inert too; a paste onto a page the document does not hold, or
+            // to nowhere, is refused before the log can record it.
+            Command::PasteContent { page, clip, to }
+            | Command::RemovePastedContent { page, clip, to } => {
+                let finite = [to.x, to.y, clip.bbox.x, clip.bbox.y]
+                    .iter()
+                    .all(|value| value.is_finite());
+                if !finite || clip.pdf.is_empty() || document.render_index(*page).is_none() {
+                    return false;
+                }
+            }
             // Still inert — the check is the whole of the forward action.
             Command::AddWatermark(watermark) | Command::RemoveWatermark(watermark) => {
                 if !watermark.can_apply_to(document) {
@@ -1075,6 +1116,16 @@ impl Command {
                 Command::Batch(children.iter().rev().map(Command::inverse).collect())
             }
             Command::RestorePath(path) => Command::RemovePath(path.clone()),
+            Command::PasteContent { page, clip, to } => Command::RemovePastedContent {
+                page: *page,
+                clip: clip.clone(),
+                to: *to,
+            },
+            Command::RemovePastedContent { page, clip, to } => Command::PasteContent {
+                page: *page,
+                clip: clip.clone(),
+                to: *to,
+            },
             Command::AddWatermark(watermark) => Command::RemoveWatermark(watermark.clone()),
             Command::RemoveWatermark(watermark) => Command::AddWatermark(watermark.clone()),
             Command::AddFormField(field) => Command::RemoveFormField(field.clone()),
@@ -2559,7 +2610,24 @@ mod tests {
             },
             Command::AddWatermark(sample_watermark()),
             Command::RemoveWatermark(sample_watermark()),
+            Command::PasteContent {
+                page: PageId(0),
+                clip: sample_clip(),
+                to: sample_rect(10.0, 20.0),
+            },
+            Command::RemovePastedContent {
+                page: PageId(0),
+                clip: sample_clip(),
+                to: sample_rect(10.0, 20.0),
+            },
         ]
+    }
+
+    fn sample_clip() -> ContentClip {
+        ContentClip {
+            pdf: b"%PDF-1.7".to_vec(),
+            bbox: sample_rect(0.0, 0.0),
+        }
     }
 
     fn sample_watermark() -> Watermark {
@@ -3210,13 +3278,38 @@ mod tests {
     }
 
     #[test]
+    fn a_paste_onto_a_page_the_document_lacks_is_refused() {
+        let mut document = one_page_document();
+        let mut log = EditLog::new();
+        let paste = |page| Command::PasteContent {
+            page,
+            clip: sample_clip(),
+            to: sample_rect(10.0, 20.0),
+        };
+        assert!(!log.apply(&mut document, paste(PageId(9))));
+        assert!(log.apply(&mut document, paste(PageId(0))));
+        let empty = Command::PasteContent {
+            page: PageId(0),
+            clip: ContentClip {
+                pdf: Vec::new(),
+                bbox: sample_rect(0.0, 0.0),
+            },
+            to: sample_rect(10.0, 20.0),
+        };
+        assert!(!log.apply(&mut document, empty));
+    }
+
+    #[test]
     fn every_single_item_content_edit_is_batchable() {
         for command in all_content_commands() {
-            let watermark = matches!(
+            let names_pages = matches!(
                 command,
-                Command::AddWatermark(_) | Command::RemoveWatermark(_)
+                Command::AddWatermark(_)
+                    | Command::RemoveWatermark(_)
+                    | Command::PasteContent { .. }
+                    | Command::RemovePastedContent { .. }
             );
-            assert_eq!(command.is_batchable(), !watermark, "{command:?}");
+            assert_eq!(command.is_batchable(), !names_pages, "{command:?}");
         }
     }
 

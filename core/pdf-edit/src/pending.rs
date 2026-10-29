@@ -32,12 +32,26 @@ use pdf_document::{Command, ContentItemId, EditLog, PageContent, PageId, Rect, T
 /// indices stay unique across text and images alike.
 pub const PENDING_ITEM_ID_BASE: u64 = 1 << 40;
 
+/// Where the item's position inside its command starts in a synthetic id.
+///
+/// A paste (B25 T-209) is the one command that yields more than one item, so
+/// its `k`-th item gets `PENDING_ITEM_ID_BASE + index + (k << 24)`: the low
+/// bits still name the log entry, and every other command's items, with
+/// `k = 0`, keep exactly the id they always had. 2^24 log entries and 2^16
+/// items per paste are both far past anything a session holds.
+const PENDING_PART_SHIFT: u32 = 24;
+
 /// The `EditLog` position a synthetic id points back at, or `None` for a real
 /// id parsed off the page — the inverse of the id arithmetic in
 /// [`overlay_pending_content`].
 pub fn pending_log_index(id: ContentItemId) -> Option<usize> {
     id.0.checked_sub(PENDING_ITEM_ID_BASE)
-        .map(|index| index as usize)
+        .map(|offset| (offset & ((1 << PENDING_PART_SHIFT) - 1)) as usize)
+}
+
+/// The synthetic id of the `part`-th item a pending command at `index` adds.
+fn synthetic_part(index: usize, part: usize) -> ContentItemId {
+    ContentItemId(PENDING_ITEM_ID_BASE + index as u64 + ((part as u64) << PENDING_PART_SHIFT))
 }
 
 /// Layers the page-content effect of every command still pending in
@@ -79,6 +93,29 @@ pub fn overlay_pending_content(
             Command::Batch(children) => {
                 for child in children {
                     overlay_command(content, child, synthetic_id, page, document, page_object);
+                }
+            }
+            // Every item the clip paints, where the paste puts it, each
+            // with an id of its own that still leads back to this entry.
+            Command::PasteContent {
+                page: target,
+                clip,
+                to,
+            } if *target == page => {
+                let pasted = crate::pasted_content(clip, *to, page).unwrap_or_default();
+                let mut parts = 0..;
+                let mut next = || synthetic_part(index, parts.next().unwrap_or_default());
+                for mut run in pasted.text_runs {
+                    run.id = next();
+                    content.text_runs.push(run);
+                }
+                for mut image in pasted.images {
+                    image.id = next();
+                    content.images.push(image);
+                }
+                for mut path in pasted.paths {
+                    path.id = next();
+                    content.paths.push(path);
                 }
             }
             command => overlay_command(content, command, synthetic_id, page, document, page_object),
@@ -235,6 +272,16 @@ mod tests {
             pending_log_index(ContentItemId(PENDING_ITEM_ID_BASE + 7)),
             Some(7)
         );
+    }
+
+    #[test]
+    fn every_item_of_a_paste_leads_back_to_the_same_entry() {
+        assert_eq!(
+            synthetic_part(3, 0),
+            ContentItemId(PENDING_ITEM_ID_BASE + 3)
+        );
+        assert_eq!(pending_log_index(synthetic_part(3, 5)), Some(3));
+        assert_ne!(synthetic_part(3, 1), synthetic_part(4, 0));
     }
 
     #[test]

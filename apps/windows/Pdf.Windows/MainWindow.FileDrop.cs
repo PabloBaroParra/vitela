@@ -242,6 +242,7 @@ public sealed partial class MainWindow
         }
 
         args.Handled = true;
+        if (TryPasteContent()) return;
         if (_isBusy || _organizing || _shellPickingFile || _dialogOpen) return;
         if (_session is not { State: DocumentSessionState.Ready } session || _annotationState?.EditingAllowed != true || session.Pages.Count == 0)
         {

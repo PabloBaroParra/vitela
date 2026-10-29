@@ -133,6 +133,16 @@ internal interface IPdfCore
     void ApplyContentSelectionEdit(IPdfCoreDocument document, PdfCoreContentSelectionEdit edit);
 
     /// <summary>
+    /// Copies a selection's members into a self-contained clip (B25 T-209);
+    /// with <paramref name="cut"/> the members are removed too, as one undo
+    /// step. Members with an unsaved edit are refused.
+    /// </summary>
+    PdfCoreContentClip CopyContentSelection(IPdfCoreDocument document, PdfCoreContentSelectionEdit.Remove members, bool cut);
+
+    /// <summary>Writes a clip onto a page, its box's top-left corner at (<paramref name="left"/>, <paramref name="top"/>), PDF points — one undo step.</summary>
+    void PasteContent(IPdfCoreDocument document, uint pageIndex, PdfCoreContentClip clip, double left, double top);
+
+    /// <summary>
     /// The <c>/BaseFont</c> name of each font a page declares, keyed by the
     /// resource name its text runs report. Empty when the page names none.
     /// </summary>
@@ -451,6 +461,9 @@ internal sealed record PdfCorePageContent(IReadOnlyList<PdfCoreContentTextRun> T
 internal sealed record PdfCoreSearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
 internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyList<PdfCoreSearchRect> CharacterBounds);
 internal sealed record PdfCoreRect(double X, double Y, double Width, double Height);
+
+/// <summary>A copied clip as the core hands it over: a one-page PDF and the box it covered.</summary>
+internal sealed record PdfCoreContentClip(byte[] Pdf, PdfCoreRect Bbox);
 internal sealed record PdfCoreColor(byte R, byte G, byte B);
 internal sealed record PdfCorePoint(double X, double Y);
 internal enum PdfCoreAnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp, FreeText }

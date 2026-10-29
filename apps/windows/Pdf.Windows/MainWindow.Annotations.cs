@@ -169,6 +169,7 @@ public sealed partial class MainWindow
             if (_contentEditMode)
             {
                 var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
+                TrackContentPointer(pageIndex, point);
                 ContinueContentImageGesture(pageIndex, point);
                 ContinueContentPathGesture(pageIndex, point);
                 ContinueTextBlockGesture(slot, pageIndex, point);

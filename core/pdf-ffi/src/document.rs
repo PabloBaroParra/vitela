@@ -810,7 +810,7 @@ impl DocumentState {
 /// layer that owns `/P` bit semantics — so this boundary and the GTK4 shell,
 /// which links the core crates directly instead of crossing UniFFI, refuse
 /// the same documents.
-fn text_extraction_is_allowed(document: &Document) -> bool {
+pub(crate) fn text_extraction_is_allowed(document: &Document) -> bool {
     pdf_manip::text_extraction_is_allowed(document.security.as_ref())
 }
 
