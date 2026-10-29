@@ -365,11 +365,7 @@ pub fn remove_text_run(
     let target = resolve_text_run(&located, item)?;
     let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
 
-    let replacement = if target.advance_adjustment.abs() < 1e-9 {
-        Vec::new()
-    } else {
-        format!("[{}] TJ", format_number(target.advance_adjustment)).into_bytes()
-    };
+    let replacement = removal(target);
 
     let span = target.operation_span.clone();
     let destination = if target.form_path.is_empty() {
@@ -378,6 +374,26 @@ pub fn remove_text_run(
         own_scope(document, page_object, &target.form_path, &stream)?.stream_object
     };
     splice(document, destination, &stream, span, &replacement)
+}
+
+/// What a deleted run's operation becomes: nothing it painted, everything it
+/// did to the text state.
+///
+/// That is the advance, as a `TJ` number — and for `'`, the new line it
+/// started first. `'` is `T*` then a show, so a deletion that kept only the
+/// advance would pull every following line on it up by one leading.
+fn removal(target: &crate::parse::interpreter::LocatedTextRun) -> Vec<u8> {
+    let mut out = if target.operator == "'" {
+        b"T* ".to_vec()
+    } else {
+        Vec::new()
+    };
+    if target.advance_adjustment.abs() >= 1e-9 {
+        out.extend_from_slice(
+            format!("[{}] TJ", format_number(target.advance_adjustment)).as_bytes(),
+        );
+    }
+    out
 }
 
 /// Copies only the targeted stream occurrence before editing. `/Contents`
@@ -507,6 +523,10 @@ pub fn move_text_run(
     let operand = &stream.bytes[target.operand_span.clone()];
     let show = if target.operator == "TJ" { "TJ" } else { "Tj" };
 
+    if target.form_path.is_empty() {
+        return bring_run_to_front(document, page_object, target, &stream, moved, operand, show);
+    }
+
     let mut replacement = matrix_operator(moved);
     replacement.extend_from_slice(operand);
     replacement.extend_from_slice(format!(" {show} ").as_bytes());
@@ -522,6 +542,64 @@ pub fn move_text_run(
         own_scope(document, page_object, &target.form_path, &stream)?.stream_object
     };
     splice(document, destination, &stream, span, &replacement)
+}
+
+/// The page-scope half of [`move_text_run`]: the run is removed where it was,
+/// leaving its advance as a deletion does, and painted again in a stream of
+/// its own after everything else on the page.
+///
+/// Moving in place keeps the run wherever the stream put it, and that is
+/// where it disappears. A report generator clips each field to its own box
+/// (`q x y w h re W n BT … ET Q`), so a run moved out of that box stops
+/// painting; and anything painted later — a white cell, a picture — covers
+/// it. The reader moving text expects to see it land on top, so it does.
+///
+/// The repaint carries the run's own look, read off the stream where it
+/// painted: `gs` dictionaries, fill colour, character and word spacing,
+/// horizontal scale, rise and render mode, plus its font, size and operand
+/// bytes. Its CTM is set outright, after a correction for whatever the page
+/// content leaves unbalanced. Runs inside a Form XObject keep moving in
+/// place: their resource names belong to the form, not to the page a new
+/// stream would read them from.
+fn bring_run_to_front(
+    document: &mut Document,
+    page_object: ObjectId,
+    target: &crate::parse::interpreter::LocatedTextRun,
+    stream: &crate::parse::interpreter::PageStream,
+    moved: Matrix,
+    operand: &[u8],
+    show: &str,
+) -> Result<(), EditError> {
+    let correction = crate::insert::correction_matrix(document, page_object)?;
+    let mut repaint = b"\nq ".to_vec();
+    for matrix in [correction, target.placement.ctm] {
+        repaint.extend_from_slice(crate::insert::matrix_operator(matrix).as_bytes());
+        repaint.push(b' ');
+    }
+    repaint.extend_from_slice(&target.paint_state);
+    repaint.extend_from_slice(
+        format!(
+            "BT /{} {} Tf ",
+            target.run.resource_font_name,
+            format_number(target.placement.font_size)
+        )
+        .as_bytes(),
+    );
+    repaint.extend_from_slice(&matrix_operator(moved));
+    repaint.extend_from_slice(operand);
+    repaint.extend_from_slice(format!(" {show} ET Q\n").as_bytes());
+
+    let removal = removal(target);
+    let destination =
+        own_page_stream(document, page_object, target.stream_index, stream.object_id)?;
+    splice(
+        document,
+        destination,
+        stream,
+        target.operation_span.clone(),
+        &removal,
+    )?;
+    crate::insert::append_to_content(document, page_object, &repaint)
 }
 
 /// `a b c d e f Tm `, trailing space included so operands never run together.
@@ -2766,6 +2844,130 @@ mod tests {
             "the next line must not move: {:?} was {:?}",
             second.bbox,
             second_before
+        );
+    }
+
+    /// The bytes painted after `marker`'s last occurrence — the repaint a
+    /// move appends, for a test that only wants to read that part.
+    fn after_last<'a>(bytes: &'a [u8], marker: &[u8]) -> &'a [u8] {
+        let at = bytes
+            .windows(marker.len())
+            .rposition(|window| window == marker)
+            .expect("marker present");
+        &bytes[at..]
+    }
+
+    /// A report generator clips each field to its box. A run moved out of it
+    /// must still paint, so it is repainted after everything, outside the
+    /// clip, and nothing of it is left inside.
+    #[test]
+    fn a_moved_run_is_repainted_on_top_outside_its_clip() {
+        let (mut document, page) = text_document(
+            b"q 100 690 50 20 re W n BT /F1 10 Tf 100 700 Td (clipped) Tj ET Q               BT /F1 10 Tf 0 0 Td (later) Tj ET",
+        );
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(300.0, 500.0)).expect("movable");
+
+        let bytes = stream_bytes(&document);
+        let clipped = bytes.windows(9).filter(|w| w == b"(clipped)").count();
+        assert_eq!(clipped, 1, "the run is painted once");
+        let tail = after_last(&bytes, b"(later)");
+        assert!(
+            tail.windows(9).any(|w| w == b"(clipped)"),
+            "the run is painted after everything else"
+        );
+        let moved = content_of(&document)
+            .text_runs
+            .into_iter()
+            .find(|candidate| candidate.text == "clipped")
+            .expect("the run is still there");
+        assert!((moved.bbox.x - 300.0).abs() < 1e-6 && (moved.bbox.y - 500.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_run_brought_to_the_front_keeps_its_colour_and_text_state() {
+        let (mut document, page) =
+            text_document(b"BT /F1 10 Tf 2 Tc 1 0 0 rg 150 Tz 100 700 Td (red) Tj ET");
+        let target = run(&document, 0);
+        let before = target.bbox;
+
+        move_text_run(&mut document, page, &target, origin(50.0, 60.0)).expect("movable");
+
+        let bytes = stream_bytes(&document);
+        let repaint = String::from_utf8_lossy(after_last(
+            &bytes, b"
+q ",
+        ))
+        .into_owned();
+        assert!(repaint.contains("1 0 0 rg"), "fill colour kept: {repaint}");
+        assert!(
+            repaint.contains("2 Tc") && repaint.contains("150 Tz"),
+            "text state kept: {repaint}"
+        );
+        let moved = run(&document, 0).bbox;
+        assert!(
+            (moved.width - before.width).abs() < 1e-6,
+            "same width after the move"
+        );
+    }
+
+    #[test]
+    fn a_run_in_a_named_colour_space_keeps_its_space_and_colour() {
+        let (mut document, page) =
+            text_document(b"/CS0 cs 0.2 0.4 0.6 scn BT /F1 10 Tf 100 700 Td (tinted) Tj ET");
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(50.0, 60.0)).expect("movable");
+
+        let bytes = stream_bytes(&document);
+        let repaint = String::from_utf8_lossy(after_last(
+            &bytes, b"
+q ",
+        ))
+        .into_owned();
+        assert!(repaint.contains("/CS0 cs 0.2 0.4 0.6 scn"), "{repaint}");
+    }
+
+    #[test]
+    fn a_run_in_the_initial_colour_is_repainted_black() {
+        let (mut document, page) = text_document(b"BT /F1 10 Tf 100 700 Td (plain) Tj ET 1 0 0 rg");
+        let target = run(&document, 0);
+
+        move_text_run(&mut document, page, &target, origin(50.0, 60.0)).expect("movable");
+
+        let bytes = stream_bytes(&document);
+        let repaint = String::from_utf8_lossy(after_last(
+            &bytes, b"
+q ",
+        ))
+        .into_owned();
+        assert!(
+            repaint.contains("0 g"),
+            "the page's later red must not leak in: {repaint}"
+        );
+    }
+
+    /// `'` is a new line and then a show. Deleting the run keeps the new line,
+    /// or the line after it would climb into its place.
+    #[test]
+    fn removing_a_run_shown_with_the_next_line_operator_keeps_the_following_line_put() {
+        let (mut document, page) =
+            text_document(b"BT /F1 10 Tf 14 TL 0 700 Td (first) ' (second) ' ET");
+        let second_before = run(&document, 1).bbox;
+        let target = run(&document, 0);
+
+        remove_text_run(&mut document, page, &target).expect("removable");
+
+        let second = content_of(&document)
+            .text_runs
+            .into_iter()
+            .find(|candidate| candidate.text == "second")
+            .expect("the second run survives");
+        assert!(
+            (second.bbox.y - second_before.y).abs() < 1e-6,
+            "{:?}",
+            second.bbox
         );
     }
 
