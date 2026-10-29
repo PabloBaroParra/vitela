@@ -160,13 +160,21 @@ public sealed partial class MainWindow
             return ContentWriteOutcome.Refused;
         }
 
-        if (editor.Block is not null)
+        // Read the page again so the outlines and the next click agree with
+        // the core: a block's other runs are gone, and the core measures the
+        // retyped run in its real font — the estimate below is only the
+        // fallback for a run the re-read no longer has.
+        await RereadPageContentAsync(editor.PageIndex);
+        if (_pageContent.TryGetValue(editor.PageIndex, out var reread)
+            && reread.Content?.TextRuns.FirstOrDefault(run => run.Id == editor.Run.Id) is { } measured)
         {
-            // The block's other runs are gone from the page now; read it
-            // again so the outlines and the next click agree with the core.
-            await RereadPageContentAsync(editor.PageIndex);
+            _pendingRunBounds[(editor.PageIndex, editor.Run.Id)] = measured.Bounds;
+            DrawContentOutlines(editor.PageIndex);
         }
-        RecordPendingBounds(editor.Run, text);
+        else
+        {
+            RecordPendingBounds(editor.Run, text);
+        }
         _contentEditedPages.Add(editor.PageIndex);
         // The page says something else now, so the characters cached for
         // drag-select no longer describe it.

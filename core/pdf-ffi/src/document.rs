@@ -1943,9 +1943,33 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
     if is_content {
         // An item inside a queued batch (a block edit, B25 T-207) is edited
         // again through that batch, which keeps the snapshot the file holds.
-        if let Some((index, batch)) =
-            crate::text_blocks::fold_into_queued_batch(&state.document, &core_command)?
-        {
+        let folded =
+            match crate::text_blocks::fold_into_queued_batch(&state.document, &core_command) {
+                Ok(folded) => folded,
+                // Not the same kind of edit as the batch's child for this item —
+                // retyping a run of a moved block, say. It can still follow the
+                // batch as its own step if the save could replay it after it.
+                Err(refusal) => {
+                    state
+                        .with_imported_sources(|sources| {
+                            pdf_save::validate_content_command_after_pending(
+                                &state.document,
+                                &state.base,
+                                sources,
+                                &core_command,
+                            )
+                        })
+                        .map_err(|_| refusal)?;
+                    if !apply_command(&mut state.document, core_command) {
+                        return Err(FfiError::UnsupportedOperation {
+                            detail: "this edit command was rejected against the open document"
+                                .to_string(),
+                        });
+                    }
+                    return Ok(());
+                }
+            };
+        if let Some((index, batch)) = folded {
             state.with_imported_sources(|sources| {
                 pdf_save::validate_content_command(&state.document, &state.base, sources, &batch)
             })?;

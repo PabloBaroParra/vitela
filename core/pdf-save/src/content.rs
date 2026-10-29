@@ -244,26 +244,81 @@ fn validate_batch(
             "a batch holds only edits of page content",
         ));
     }
+    probe_in_sequence(document, base, sources, &[], children)
+}
+
+/// Dry-runs `command` against its page **as the save will find it**: every
+/// page-content edit already pending on that page replayed first, in log
+/// order, then this one.
+///
+/// [`validate_content_command`] probes the untouched page, which is right for
+/// an edit of something the file holds as it is. It cannot judge an edit of
+/// something a pending edit already changed — a run moved, retyped or
+/// inserted since the last save — because the snapshot the reader holds names
+/// it where the pending edit put it. This gate can: it is the save's own
+/// replay, cut short, so an edit it accepts is one the save can write.
+pub fn validate_content_command_after_pending(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    sources: crate::bridge::ImportedSources<'_, '_>,
+    command: &Command,
+) -> Result<(), SaveError> {
+    let commands = match command {
+        Command::Batch(children) => children.as_slice(),
+        single => std::slice::from_ref(single),
+    };
+    if commands.is_empty() || !commands.iter().all(Command::is_batchable) {
+        return Err(SaveError::InvalidSaveRequest(
+            "only edits of page content can be checked against pending edits",
+        ));
+    }
+    let pending: Vec<Command> = document
+        .pending_edits
+        .entries()
+        .iter()
+        .flat_map(|entry| match entry {
+            Command::Batch(children) => children.clone(),
+            single => vec![single.clone()],
+        })
+        .collect();
+    probe_in_sequence(document, base, sources, &pending, commands)
+}
+
+/// Applies `prelude` and then `commands` to one probe per page `commands`
+/// touches, in order. A prelude command on a page `commands` does not touch
+/// is skipped: pages do not share content streams once edited, so it cannot
+/// change what `commands` resolve against. Watermarks are skipped too — a
+/// stamp is appended after everything and names no item.
+fn probe_in_sequence(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    sources: crate::bridge::ImportedSources<'_, '_>,
+    prelude: &[Command],
+    commands: &[Command],
+) -> Result<(), SaveError> {
     let mut probes: HashMap<PageId, (LopdfDoc, ObjectId)> = HashMap::new();
-    for child in children {
-        let Some(page) = content_page(child) else {
-            continue;
-        };
-        let (probe, object) = match probes.entry(page) {
-            Entry::Occupied(slot) => slot.into_mut(),
-            Entry::Vacant(slot) => {
-                match crate::origin::page_backing(document, page, base, sources)? {
-                    // See `validate_content_command`: a blank page has
-                    // nothing to check against.
-                    crate::origin::PageBacking::Empty => continue,
-                    crate::origin::PageBacking::Object {
-                        document: backing,
-                        object,
-                    } => slot.insert((backing.as_lopdf().clone(), object)),
+    for page in commands.iter().filter_map(content_page) {
+        if let Entry::Vacant(slot) = probes.entry(page) {
+            match crate::origin::page_backing(document, page, base, sources)? {
+                // See `validate_content_command`: a blank page has nothing
+                // to check against.
+                crate::origin::PageBacking::Empty => {}
+                crate::origin::PageBacking::Object {
+                    document: backing,
+                    object,
+                } => {
+                    slot.insert((backing.as_lopdf().clone(), object));
                 }
             }
+        }
+    }
+    for command in prelude.iter().chain(commands) {
+        let Some(page) = content_page(command) else {
+            continue;
         };
-        apply(probe, child, *object)?;
+        if let Some((probe, object)) = probes.get_mut(&page) {
+            apply(probe, command, *object)?;
+        }
     }
     Ok(())
 }

@@ -186,40 +186,71 @@ fn a_run_of_a_moved_block_can_be_deleted_alone_before_a_save() {
     assert!(!undo(&handle), "the move and the removal are one step");
 }
 
-/// A run retyped on its own after its block moved would be validated against
-/// a file that has it elsewhere. The shell must get a reason, not the
-/// generic refusal — and the queued move must survive.
+/// A run retyped on its own after its block moved. It does not fold into
+/// the move — a different kind of edit — so it follows it as its own step,
+/// checked against the page with the move replayed.
 #[test]
-fn a_run_of_a_moved_block_cannot_be_retyped_alone_before_a_save() {
+fn a_run_of_a_moved_block_can_be_retyped_alone_before_a_save() {
     let handle = open_from_bytes(heading_page(), None).expect("open");
     move_text_block(&handle, heading(&handle).runs, 0.0, -100.0).expect("move");
     let run = heading(&handle).runs.remove(0);
 
-    let error = apply_edit(
+    apply_edit(
         &handle,
         FfiEditCommand::ReplaceTextRunContent {
             item: run,
             after: "X".to_string(),
         },
     )
-    .expect_err("refused until saved");
+    .expect("follows the move");
 
-    assert!(error.to_string().contains("save the document"), "{error}");
-    assert!(undo(&handle));
+    let reopened = open_from_bytes(saved(&handle), None).expect("reopen");
+    let moved = heading_like(&reopened, "X");
+    assert!(
+        (moved.bbox.y - (heading_page_y() - 100.0)).abs() < 1e-3,
+        "{:?}",
+        moved.bbox
+    );
+    assert!(undo(&handle), "the retype is its own step");
+    assert!(undo(&handle), "and the move another");
     assert!(!undo(&handle));
 }
 
-/// Retyping a block that is moved and not saved touches queued runs with a
-/// different edit, which does not fold.
+/// A moved block retyped before a save: the move is replayed, then the
+/// retype lands where the block now is.
 #[test]
-fn a_moved_block_cannot_be_retyped_before_a_save() {
+fn a_moved_block_can_be_retyped_before_a_save() {
     let handle = open_from_bytes(heading_page(), None).expect("open");
-    move_text_block(&handle, heading(&handle).runs, 50.0, 0.0).expect("move");
+    move_text_block(&handle, heading(&handle).runs, 0.0, -100.0).expect("move");
 
-    let error = retype_text_block(&handle, heading(&handle).runs, "X".to_string(), false)
-        .expect_err("refused until saved");
+    retype_text_block(&handle, heading(&handle).runs, "FACTURA".to_string(), false)
+        .expect("follows the move");
 
-    assert!(error.to_string().contains("save the document"), "{error}");
+    // Pending reads keep the parsed order; the save paints the moved run last.
+    assert_eq!(texts(&handle), ["FACTURA", "Total"]);
+    let reopened = open_from_bytes(saved(&handle), None).expect("reopen");
+    assert_eq!(texts(&reopened), ["Total", "FACTURA"]);
+    let moved = heading_like(&reopened, "FACTURA");
+    assert!(
+        (moved.bbox.y - (heading_page_y() - 100.0)).abs() < 1e-3,
+        "{:?}",
+        moved.bbox
+    );
+}
+
+/// The bottom of the heading's box in the fixture, before anything moves.
+fn heading_page_y() -> f64 {
+    heading(&open_from_bytes(heading_page(), None).expect("open"))
+        .bbox
+        .y
+}
+
+fn heading_like(handle: &pdf_ffi::DocumentHandle, text: &str) -> FfiTextBlock {
+    read_page_text_blocks(handle, 0)
+        .expect("blocks")
+        .into_iter()
+        .find(|block| block.text.starts_with(text))
+        .unwrap_or_else(|| panic!("no block starting {text:?}"))
 }
 
 /// The Windows editor writes as the reader types, sending the block it
@@ -299,6 +330,91 @@ fn a_retyped_block_can_be_deleted_before_a_save() {
     assert_eq!(texts(&handle), ["Total"]);
     let reopened = open_from_bytes(saved(&handle), None).expect("reopen");
     assert_eq!(texts(&reopened), ["Total"]);
+}
+
+fn block_named(handle: &pdf_ffi::DocumentHandle, text: &str) -> FfiTextBlock {
+    read_page_text_blocks(handle, 0)
+        .expect("blocks")
+        .into_iter()
+        .find(|block| block.text == text)
+        .unwrap_or_else(|| panic!("no block {text:?} in {:?}", texts(handle)))
+}
+
+fn saved_texts(handle: &pdf_ffi::DocumentHandle) -> Vec<String> {
+    texts(&open_from_bytes(saved(handle), None).expect("reopen"))
+}
+
+/// A one-run block retyped through the single-run path, then deleted as a
+/// block: the queued edit is a plain retype, not a batch.
+#[test]
+fn a_run_retyped_alone_can_then_be_deleted_as_a_block() {
+    let handle = open_from_bytes(heading_page(), None).expect("open");
+    let total = block_named(&handle, "Total").runs.remove(0);
+    apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: total,
+            after: "Total 2".to_string(),
+        },
+    )
+    .expect("retype");
+
+    remove_text_block(&handle, block_named(&handle, "Total 2").runs).expect("delete");
+
+    assert_eq!(texts(&handle), ["PRESUPUESTO N 3.725/1"]);
+    assert_eq!(saved_texts(&handle), ["PRESUPUESTO N 3.725/1"]);
+}
+
+/// Two blocks moved one after the other, then each deleted: the second
+/// deletion's runs sit in a different queued batch than the first's.
+#[test]
+fn blocks_moved_separately_can_each_be_deleted() {
+    let handle = open_from_bytes(heading_page(), None).expect("open");
+    move_text_block(&handle, heading(&handle).runs, 0.0, -100.0).expect("move heading");
+    move_text_block(&handle, block_named(&handle, "Total").runs, 0.0, -200.0).expect("move total");
+    move_text_block(&handle, heading(&handle).runs, 10.0, 0.0).expect("move heading again");
+
+    remove_text_block(&handle, block_named(&handle, "Total").runs).expect("delete total");
+    remove_text_block(&handle, heading(&handle).runs).expect("delete heading");
+
+    assert!(texts(&handle).is_empty(), "{:?}", texts(&handle));
+    assert!(saved_texts(&handle).is_empty());
+}
+
+/// Two moved blocks dropped side by side read back as one block, made of
+/// runs from two queued batches. Deleting it must not need a save.
+#[test]
+fn a_block_joined_from_two_moves_can_be_deleted() {
+    let handle = open_from_bytes(heading_page(), None).expect("open");
+    let heading_box = heading(&handle).bbox;
+    let total = block_named(&handle, "Total");
+    move_text_block(&handle, heading(&handle).runs, 0.0, -100.0).expect("move heading");
+    // Right after the heading's end, on its new line.
+    let dx = heading_box.x + heading_box.width + 3.0 - total.bbox.x;
+    move_text_block(&handle, total.runs, dx, -100.0).expect("move total");
+    let joined = block_named(&handle, "PRESUPUESTO N 3.725/1 Total");
+
+    remove_text_block(&handle, joined.runs).expect("delete the joined block");
+
+    assert!(texts(&handle).is_empty(), "{:?}", texts(&handle));
+    assert!(saved_texts(&handle).is_empty());
+}
+
+/// Text typed in with Insert text and deleted before a save.
+#[test]
+fn inserted_text_can_be_deleted_before_a_save() {
+    let handle = open_from_bytes(heading_page(), None).expect("open");
+    let mut item = handle.read_page_content(0).unwrap().text_runs.remove(0);
+    item.id = 0;
+    item.bbox.y = 300.0;
+    item.text = "Chiclana".to_string();
+    apply_edit(&handle, FfiEditCommand::InsertTextRun { item }).expect("insert");
+
+    remove_text_block(&handle, block_named(&handle, "Chiclana").runs)
+        .expect("delete the insertion");
+
+    assert_eq!(texts(&handle), ["PRESUPUESTO N 3.725/1", "Total"]);
+    assert_eq!(saved_texts(&handle), ["PRESUPUESTO N 3.725/1", "Total"]);
 }
 
 #[test]

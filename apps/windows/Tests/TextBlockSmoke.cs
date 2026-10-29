@@ -26,7 +26,7 @@ public partial class App : Application
                 + "staying selected where it landed, Delete on it folds into the move, and one undo takes both back; a click selects the block and a "
                 + "double-click opens one editor over it; typing in two writes is one undo step; Delete on the "
                 + "selection, and Delete text in a block editor, remove the block and one undo restores it; the save "
-                + "reopens with the retyped block as one run; an image dragged twice before a save keeps its frame on it and "
+                + "reopens with the retyped block as one run; typed-in and retyped one-run text can be selected end to end and deleted before a save; an image dragged twice before a save keeps its frame on it and "
                 + "one undo puts it back.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "text-block-smoke.log"), "FAIL " + error); }
@@ -117,6 +117,31 @@ public sealed partial class MainWindow
         await RequireBlocksAsync("after the delete", "Total");
         await ApplyHistoryAsync(true);
         await RequireBlocksAsync("after undoing the delete", "PRESUPUESTO N 3.725/1", "Total");
+
+        // Text typed in with Insert text: selected and deleted before a save.
+        await OpenTextBlockSmokeAsync(HeadingPdf());
+        SetContentEditMode(true);
+        SetContentInsertMode(ContentInsertKind.Text);
+        await BeginContentGestureAsync(_slots[0], 0, new AnnotationPoint(100, 300), null!);
+        _insertEditor!.Box.Text = "Chiclana de la Frontera";
+        await CommitInsertEditorAsync();
+        SetContentInsertMode(null);
+        var typed = (await _facade.PageContentAsync(_session!.SessionId, 0)).Value!.TextRuns.Single(run => run.Text == "Chiclana de la Frontera");
+        await BeginContentGestureAsync(_slots[0], 0, new AnnotationPoint(typed.Bounds.X + typed.Bounds.Width - 1, typed.Bounds.Y + typed.Bounds.Height / 2), null!);
+        if (_selectedTextBlock?.First.Text != "Chiclana de la Frontera")
+            throw new Exception("A click on the end of the typed text did not select it — its box is short.");
+        await DeleteSelectedTextBlockAsync();
+        await RequireBlocksAsync("after deleting typed text", "PRESUPUESTO N 3.725/1", "Total");
+
+        // A one-run text retyped alone, then deleted with the selection.
+        var total = (await _facade.PageContentAsync(_session!.SessionId, 0)).Value!.TextBlocks.Single(block => block.Text == "Total").Bounds;
+        var onTotal = new AnnotationPoint(total.X + 2, total.Y + total.Height / 2);
+        await OpenContentEditorOnDoubleTapAsync(0, onTotal);
+        _pump.Box!.Box.Text = "Total 2";
+        await CommitContentEditorAsync();
+        await BeginContentGestureAsync(_slots[0], 0, onTotal, null!);
+        await DeleteSelectedTextBlockAsync();
+        await RequireBlocksAsync("after deleting retyped text", "PRESUPUESTO N 3.725/1");
 
         // An image dragged twice before a save: the frame follows it each
         // time, the second drag is not refused, and one undo puts it back.

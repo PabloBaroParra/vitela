@@ -90,37 +90,47 @@ fn apply_block_edit(
         .into_iter()
         .map(|run| state.text_run(run))
         .collect::<Result<Vec<_>, _>>()?;
-    // A pending insertion is not in the file; its synthetic id names a log
-    // entry, which a batch has no way to amend.
-    if runs
-        .iter()
-        .any(|run| pdf_edit::pending_log_index(run.id).is_some())
-    {
-        return Err(unsupported(
-            "Text added since the last save cannot be edited as a block yet — save first.",
-        ));
-    }
     let command = build(&runs).ok_or_else(|| unsupported("a text block has at least one run"))?;
 
-    let queued = queued_batch(state.document(), &command)?;
-    let command = match &queued {
-        Some((_, folded)) => folded.clone(),
-        None => command,
-    };
-    state.with_imported_sources(|sources| {
-        pdf_save::validate_content_command(state.document(), state.base(), sources, &command)
-    })?;
-
-    let applied = match queued {
-        Some((index, _)) => state.document_mut().pending_edits.amend(index, command),
-        None => apply_command(state.document_mut(), command),
-    };
-    if !applied {
-        return Err(unsupported(
-            "this edit command was rejected against the open document",
-        ));
+    match queued_batch(state.document(), &command) {
+        // Folded into the queued batch: it keeps the snapshots the file
+        // holds, so the untouched page is what it is checked against.
+        Ok(Some((index, folded))) => {
+            state.with_imported_sources(|sources| {
+                pdf_save::validate_content_command(state.document(), state.base(), sources, &folded)
+            })?;
+            if !state.document_mut().pending_edits.amend(index, folded) {
+                return Err(unsupported("the pending text edit is no longer available"));
+            }
+            Ok(())
+        }
+        // A step of its own. Its runs are named as the reader sees them now —
+        // where a pending edit moved them, as one retyped them, or as one
+        // inserted them — so it is checked against the page as the save will
+        // find it, every pending edit replayed first. A refused fold keeps
+        // its own reason when that check fails too.
+        queued => {
+            let checked = state.with_imported_sources(|sources| {
+                pdf_save::validate_content_command_after_pending(
+                    state.document(),
+                    state.base(),
+                    sources,
+                    &command,
+                )
+            });
+            match (queued, checked) {
+                (Err(refusal), Err(_)) => return Err(refusal),
+                (_, Err(error)) => return Err(error.into()),
+                _ => {}
+            }
+            if !apply_command(state.document_mut(), command) {
+                return Err(unsupported(
+                    "this edit command was rejected against the open document",
+                ));
+            }
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 /// What a page-content command edits: the kind of item and which one.
