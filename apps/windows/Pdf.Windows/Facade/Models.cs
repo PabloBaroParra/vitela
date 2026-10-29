@@ -212,7 +212,18 @@ public sealed class ContentTextRun
 /// reopen invalidates every id — re-read the page after one.
 /// </remarks>
 public sealed record PageContent(uint PageIndex, IReadOnlyList<ContentTextRun> TextRuns, IReadOnlyList<ContentImage> Images,
-    IReadOnlyList<ContentPath> Paths);
+    IReadOnlyList<ContentPath> Paths)
+{
+    /// <summary>
+    /// <see cref="TextRuns"/> grouped into the blocks a reader sees (B25
+    /// T-207). Every run is in exactly one block; empty when none were read.
+    /// </summary>
+    public IReadOnlyList<ContentTextBlock> TextBlocks { get; init; } = [];
+
+    /// <summary>The block holding <paramref name="run"/>, matched by id.</summary>
+    public ContentTextBlock? BlockOf(ContentTextRun run) =>
+        TextBlocks.FirstOrDefault(block => block.Runs.Any(member => member.Id == run.Id));
+}
 
 /// <summary>A page bound to the revision at which the image insertion started.</summary>
 public sealed class ImageInsertionTarget

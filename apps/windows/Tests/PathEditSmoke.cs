@@ -22,7 +22,7 @@ public partial class App : Application
         {
             await _window.PathEditSmokeAsync(output);
             File.WriteAllText(Path.Combine(output, "path-edit-smoke.log"),
-                "PASS a click inside the frame retypes text; a click on its border selects it; a drag moves it; "
+                "PASS a click inside the frame selects its text; a click on its border selects it; a drag moves it; "
                 + "a corner drag right after resizes it without a save in between; Delete removes the rule; "
                 + "one undo restores it; the save reopens with the moved, resized frame and the rule.");
         }
@@ -42,10 +42,10 @@ public sealed partial class MainWindow
         var content = await EnsurePageContentAsync(0) ?? throw new Exception("Page content did not load.");
         if (content.Paths.Count != 2) throw new Exception($"Expected the frame and the rule, read {content.Paths.Count} paths.");
 
-        // Inside the frame, on its text: the text editor, not the frame.
+        // Inside the frame, on its text: the text, not the frame.
         await BeginContentGestureAsync(_slots[0], 0, new AnnotationPoint(335, 243), null!);
-        if (_selectedContentPath is not null) throw new Exception("A click on the cell text selected the frame.");
-        CancelContentEditor();
+        if (_selectedContentPath is not null || _selectedTextBlock is null)
+            throw new Exception("A click on the cell text did not select the text over the frame.");
 
         // On the border: selected, and dragged 20pt right and down.
         await BeginContentGestureAsync(_slots[0], 0, new AnnotationPoint(319.5, 200), null!);

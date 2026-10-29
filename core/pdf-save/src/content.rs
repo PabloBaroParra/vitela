@@ -26,6 +26,7 @@
 //! import ask it, the destination here and a source at selection time (see
 //! `pdf_manip::signatures`).
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use lopdf::{Document as LopdfDoc, ObjectId};
@@ -58,6 +59,7 @@ fn is_content_edit(command: &Command) -> bool {
             | Command::RestorePath(_)
             | Command::AddWatermark(_)
             | Command::RemoveWatermark(_)
+            | Command::Batch(_)
     )
 }
 
@@ -107,6 +109,15 @@ pub fn replay_content_edits(
 ) -> Result<(), SaveError> {
     for command in document.pending_edits.entries() {
         match command {
+            // A batch is one undo step, not one write: its children reach
+            // the file one by one, in order, exactly as if each had been
+            // recorded on its own.
+            Command::Batch(children) => {
+                for child in children {
+                    replay_item_edit(working, child, page_objects)?;
+                }
+                continue;
+            }
             Command::AddWatermark(watermark) => {
                 // Every named page that survived the batch, in the order the
                 // watermark lists them; a deleted one is skipped like any
@@ -125,18 +136,27 @@ pub fn replay_content_edits(
             }
             _ => {}
         }
-        let Some(page) = content_page(command) else {
-            // Page and annotation commands reach the file through
-            // `bridge::replay_page_ops` and `annotations::attach_annotations`.
-            continue;
-        };
-        let Some(&page_object) = page_objects.get(&page) else {
-            continue; // the page this edit targeted was deleted in the same batch
-        };
-
-        apply(working, command, page_object)?;
+        replay_item_edit(working, command, page_objects)?;
     }
     Ok(())
+}
+
+/// Writes one command that edits a single page's content, skipping anything
+/// else and any page deleted since.
+fn replay_item_edit(
+    working: &mut LopdfDoc,
+    command: &Command,
+    page_objects: &HashMap<PageId, ObjectId>,
+) -> Result<(), SaveError> {
+    let Some(page) = content_page(command) else {
+        // Page and annotation commands reach the file through
+        // `bridge::replay_page_ops` and `annotations::attach_annotations`.
+        return Ok(());
+    };
+    let Some(&page_object) = page_objects.get(&page) else {
+        return Ok(()); // the page this edit targeted was deleted in the same batch
+    };
+    apply(working, command, page_object)
 }
 
 /// Dry-runs one page-content command against a throwaway clone of `base`,
@@ -182,6 +202,9 @@ pub fn validate_content_command(
         Command::RemoveWatermark(_) => {
             return Err(SaveError::InvalidSaveRequest(WATERMARK_REMOVAL_UNSUPPORTED))
         }
+        Command::Batch(children) => {
+            return validate_batch(document, base, sources, children);
+        }
         _ => {}
     }
     let Some(page) = content_page(command) else {
@@ -202,6 +225,102 @@ pub fn validate_content_command(
             apply(&mut probe, command, object)
         }
     }
+}
+
+/// Dry-runs a batch's children **in sequence**, each page against one probe
+/// that keeps the earlier children's effect — the way the save replays them.
+///
+/// Probing each child against the untouched page on its own would pass a
+/// batch whose second edit only fails once the first has rewritten the
+/// stream, and that is the failure this gate exists to move off the save.
+fn validate_batch(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    sources: crate::bridge::ImportedSources<'_, '_>,
+    children: &[Command],
+) -> Result<(), SaveError> {
+    if children.is_empty() || !children.iter().all(Command::is_batchable) {
+        return Err(SaveError::InvalidSaveRequest(
+            "a batch holds only edits of page content",
+        ));
+    }
+    probe_in_sequence(document, base, sources, &[], children)
+}
+
+/// Dry-runs `command` against its page **as the save will find it**: every
+/// page-content edit already pending on that page replayed first, in log
+/// order, then this one.
+///
+/// [`validate_content_command`] probes the untouched page, which is right for
+/// an edit of something the file holds as it is. It cannot judge an edit of
+/// something a pending edit already changed — a run moved, retyped or
+/// inserted since the last save — because the snapshot the reader holds names
+/// it where the pending edit put it. This gate can: it is the save's own
+/// replay, cut short, so an edit it accepts is one the save can write.
+pub fn validate_content_command_after_pending(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    sources: crate::bridge::ImportedSources<'_, '_>,
+    command: &Command,
+) -> Result<(), SaveError> {
+    let commands = match command {
+        Command::Batch(children) => children.as_slice(),
+        single => std::slice::from_ref(single),
+    };
+    if commands.is_empty() || !commands.iter().all(Command::is_batchable) {
+        return Err(SaveError::InvalidSaveRequest(
+            "only edits of page content can be checked against pending edits",
+        ));
+    }
+    let pending: Vec<Command> = document
+        .pending_edits
+        .entries()
+        .iter()
+        .flat_map(|entry| match entry {
+            Command::Batch(children) => children.clone(),
+            single => vec![single.clone()],
+        })
+        .collect();
+    probe_in_sequence(document, base, sources, &pending, commands)
+}
+
+/// Applies `prelude` and then `commands` to one probe per page `commands`
+/// touches, in order. A prelude command on a page `commands` does not touch
+/// is skipped: pages do not share content streams once edited, so it cannot
+/// change what `commands` resolve against. Watermarks are skipped too — a
+/// stamp is appended after everything and names no item.
+fn probe_in_sequence(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    sources: crate::bridge::ImportedSources<'_, '_>,
+    prelude: &[Command],
+    commands: &[Command],
+) -> Result<(), SaveError> {
+    let mut probes: HashMap<PageId, (LopdfDoc, ObjectId)> = HashMap::new();
+    for page in commands.iter().filter_map(content_page) {
+        if let Entry::Vacant(slot) = probes.entry(page) {
+            match crate::origin::page_backing(document, page, base, sources)? {
+                // See `validate_content_command`: a blank page has nothing
+                // to check against.
+                crate::origin::PageBacking::Empty => {}
+                crate::origin::PageBacking::Object {
+                    document: backing,
+                    object,
+                } => {
+                    slot.insert((backing.as_lopdf().clone(), object));
+                }
+            }
+        }
+    }
+    for command in prelude.iter().chain(commands) {
+        let Some(page) = content_page(command) else {
+            continue;
+        };
+        if let Some((probe, object)) = probes.get_mut(&page) {
+            apply(probe, command, *object)?;
+        }
+    }
+    Ok(())
 }
 
 /// The page a content command targets, or `None` if it is not a content
@@ -469,6 +588,105 @@ mod tests {
 
         let texts: Vec<String> = read_runs(&working).into_iter().map(|r| r.text).collect();
         assert_eq!(texts, vec!["aaa".to_string(), "zzz".to_string()]);
+    }
+
+    /// A batch is one undo step but every child still reaches the file —
+    /// the shape a text block retype takes (B25 T-207): the rest of the runs
+    /// are removed, then the first gets the whole text.
+    #[test]
+    fn replaying_a_batch_writes_every_child_in_order() {
+        let mut working = document_with(b"BT /F1 12 Tf 0 700 Td (aaa) Tj (bbb) Tj (ccc) Tj ET");
+        let runs = read_runs(&working);
+        let document = with_commands(vec![Command::Batch(vec![
+            Command::RemoveTextRun(runs[1].clone()),
+            Command::RemoveTextRun(runs[2].clone()),
+            Command::ReplaceTextRunContent {
+                item: runs[0].clone(),
+                after: "aaabbbccc".to_string(),
+            },
+        ])]);
+        assert_eq!(document.pending_edits.entries().len(), 1);
+        assert!(has_content_edits(&document));
+
+        let pages = page_map(&working);
+        replay_content_edits(&mut working, &document, &pages).expect("replayable");
+
+        assert_eq!(texts(&working), vec!["aaabbbccc".to_string()]);
+    }
+
+    /// Why the order above is the only one that works: a longer first run
+    /// pushes the text cursor, so the runs after it are no longer where their
+    /// snapshots say, and the replay cannot find them.
+    #[test]
+    fn retyping_first_moves_the_runs_after_it_out_from_under_their_snapshots() {
+        let mut working = document_with(b"BT /F1 12 Tf 0 700 Td (aaa) Tj (bbb) Tj ET");
+        let runs = read_runs(&working);
+        let document = with_commands(vec![Command::Batch(vec![
+            Command::ReplaceTextRunContent {
+                item: runs[0].clone(),
+                after: "aaabbb".to_string(),
+            },
+            Command::RemoveTextRun(runs[1].clone()),
+        ])]);
+
+        let pages = page_map(&working);
+        replay_content_edits(&mut working, &document, &pages)
+            .expect_err("the removal no longer finds its run");
+    }
+
+    /// The model's view of a one-page file whose page 0 is the base's page 0,
+    /// which is what `validate_content_command` resolves against.
+    fn base_backed(commands: Vec<Command>) -> Document {
+        let mut document = with_commands(commands);
+        document.pages.push(pdf_document::Page::base(
+            PageId(0),
+            0,
+            pdf_document::PageSize::Letter,
+            pdf_document::Orientation::Portrait,
+            pdf_document::Rotation::None,
+        ));
+        document
+    }
+
+    #[test]
+    fn a_valid_batch_validates() {
+        let working = document_with(b"BT /F1 12 Tf 0 700 Td (aaa) Tj (bbb) Tj ET");
+        let runs = read_runs(&working);
+        let batch = Command::Batch(vec![
+            Command::RemoveTextRun(runs[0].clone()),
+            Command::RemoveTextRun(runs[1].clone()),
+        ]);
+        let base = pdf_manip::LopdfDocument::from_lopdf(working);
+
+        validate_content_command(
+            &base_backed(Vec::new()),
+            &base,
+            crate::bridge::ImportedSources::none(),
+            &batch,
+        )
+        .expect("two independent removals validate");
+    }
+
+    /// Each child probed against the untouched page alone would pass this:
+    /// the run is there both times. Replayed in order, the second removal
+    /// finds nothing — and the gate must say so before the save does.
+    #[test]
+    fn a_batch_validates_its_children_in_sequence() {
+        let working = document_with(b"BT /F1 12 Tf 0 700 Td (aaa) Tj (bbb) Tj ET");
+        let run = read_runs(&working).remove(0);
+        let batch = Command::Batch(vec![
+            Command::RemoveTextRun(run.clone()),
+            Command::RemoveTextRun(run),
+        ]);
+        let base = pdf_manip::LopdfDocument::from_lopdf(working);
+
+        validate_content_command(
+            &base_backed(Vec::new()),
+            &base,
+            crate::bridge::ImportedSources::none(),
+            &batch,
+        )
+        .expect_err("the second removal has nothing left to remove");
     }
 
     #[test]

@@ -66,7 +66,12 @@ public sealed partial class MainWindow
             return;
         }
 
-        var eligibility = await _facade.CanRetypeTextRunAsync(sessionId, run);
+        // A run that is one of several on its line is retyped as the whole
+        // block (B25 T-207): the editor opens over the block, with its text.
+        var block = content.BlockOf(run) is { IsMultiRun: true } multi ? multi : null;
+        // An open editor replaces the selection: Delete now acts on its text.
+        _selectedTextBlock = null;
+        var eligibility = await _facade.CanRetypeTextRunAsync(sessionId, block?.First ?? run);
         if (!IsCurrent()) return;
         if (!eligibility.IsSuccess)
         {
@@ -83,6 +88,15 @@ public sealed partial class MainWindow
 
         if (!IsCurrent())
         {
+            return;
+        }
+
+        if (block is not null)
+        {
+            // A box estimated for an earlier retype of the first run alone
+            // would otherwise size the block's editor.
+            _pendingRunBounds.Remove((pageIndex, block.First.Id));
+            OpenEditorOver(pageIndex, BlockStandIn(block), point.X, block);
             return;
         }
 
@@ -110,7 +124,7 @@ public sealed partial class MainWindow
         return await ShowModalAsync(dialog) == ContentDialogResult.Primary;
     }
 
-    private void OpenEditorOver(uint pageIndex, ContentTextRun run, double clickX)
+    private void OpenEditorOver(uint pageIndex, ContentTextRun run, double clickX, ContentTextBlock? block = null)
     {
         if (pageIndex >= _slots.Count)
         {
@@ -154,7 +168,7 @@ public sealed partial class MainWindow
 
         // Opening closes whatever was open — see `ContentEditPump.Open` for
         // why two of these overlap on a double click.
-        var editor = new ContentEditor(pageIndex, run, box, mask, box.Text) { TakeOffThePage = CloseEditor };
+        var editor = new ContentEditor(pageIndex, run, box, mask, box.Text, block) { TakeOffThePage = CloseEditor };
         // Escape restores this retype, not the insertion it amended.
         _pump.Open(editor, preserveCommandOnAbandon: run.IsPendingInsertion);
         UpdateEditTextSelection();
@@ -401,7 +415,8 @@ public sealed partial class MainWindow
     /// the run's identity, the text, and a way to take the whole thing off the
     /// page.
     /// </remarks>
-    private sealed record ContentEditor(uint PageIndex, ContentTextRun Run, TextBox Box, Rectangle Mask, string OpenedWith)
+    private sealed record ContentEditor(uint PageIndex, ContentTextRun Run, TextBox Box, Rectangle Mask, string OpenedWith,
+        ContentTextBlock? Block = null)
         : IContentEditBox
     {
         /// <summary>

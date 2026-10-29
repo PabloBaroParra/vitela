@@ -25,6 +25,7 @@
 use super::lexer::{Operand, SpannedOperation};
 use super::matrix::Matrix;
 use super::path::{self, LocatedPath, PathBuilder};
+use crate::edit::format_number;
 use crate::encoding::{resolve_font, FontInfo};
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object, ObjectId};
@@ -103,6 +104,12 @@ pub struct LocatedTextRun {
     pub advance_adjustment: f64,
     /// Where the text state stood when this run painted.
     pub placement: TextPlacement,
+    /// Operators that put back how this run looked — its `gs` dictionaries,
+    /// fill colour and text state parameters — in the scope's own resource
+    /// names, for repainting it somewhere the stream's state is not in
+    /// effect (B25: a moved run is brought to the front). The font and the
+    /// matrices are not included; they are what the caller changes.
+    pub paint_state: Vec<u8>,
 }
 
 /// An image plus where the bytes that paint it are, and what transform
@@ -230,6 +237,17 @@ struct State {
     word_spacing: f64,
     horizontal_scale: f64,
     rise: f64,
+    render_mode: f64,
+    /// The `cs` that set the fill colour space, verbatim, or `None` for one
+    /// implied by `g`/`rg`/`k` or the initial DeviceGray.
+    fill_space: Option<Vec<u8>>,
+    /// The operator that set the fill colour, verbatim, or `None` for the
+    /// initial colour of the current space.
+    fill_color: Option<Vec<u8>>,
+    /// Every `gs` applied, verbatim and in order: each one only overrides the
+    /// entries its dictionary names, so replaying the last alone could lose
+    /// an alpha an earlier one set.
+    ext_gstates: Vec<Vec<u8>>,
 }
 
 impl Default for State {
@@ -245,6 +263,10 @@ impl Default for State {
             word_spacing: 0.0,
             horizontal_scale: 1.0,
             rise: 0.0,
+            render_mode: 0.0,
+            fill_space: None,
+            fill_color: None,
+            ext_gstates: Vec::new(),
         }
     }
 }
@@ -321,6 +343,7 @@ fn interpret_streams(
                 state,
                 &mut stack,
                 &Context {
+                    bytes: &stream.bytes,
                     stream_index,
                     fonts: &fonts,
                     xobjects: &xobjects,
@@ -433,6 +456,9 @@ fn interpret_form(
 }
 
 struct Context<'a> {
+    /// The decoded bytes of the stream being walked, for keeping operators
+    /// verbatim.
+    bytes: &'a [u8],
     stream_index: usize,
     fonts: &'a HashMap<String, FontInfo>,
     xobjects: &'a HashMap<String, XObjectKind>,
@@ -487,6 +513,17 @@ fn apply_operation(
                 .map_or(1.0, |percent| percent / 100.0)
         }
         "Ts" => state.rise = operands.first().and_then(Operand::as_f64).unwrap_or(0.0),
+        "Tr" => state.render_mode = operands.first().and_then(Operand::as_f64).unwrap_or(0.0),
+        "g" | "rg" | "k" => {
+            state.fill_space = None;
+            state.fill_color = Some(verbatim(operation, context));
+        }
+        "cs" => {
+            state.fill_space = Some(verbatim(operation, context));
+            state.fill_color = None;
+        }
+        "sc" | "scn" => state.fill_color = Some(verbatim(operation, context)),
+        "gs" => state.ext_gstates.push(verbatim(operation, context)),
         "Td" => translate_line(state, operands),
         "TD" => {
             // `TD` is `Td` with a side effect: it also sets the leading to
@@ -660,6 +697,7 @@ fn show_text(
         operand_span: span,
         operator: operation.operator.clone(),
         advance_adjustment: advance_adjustment(state, advance),
+        paint_state: paint_state(state),
         placement: TextPlacement {
             text_matrix: state.text_matrix,
             line_matrix: state.line_matrix,
@@ -671,6 +709,54 @@ fn show_text(
     });
 
     state.text_matrix = Matrix::translate(advance, 0.0).then(state.text_matrix);
+}
+
+/// An operation's own bytes, operands included.
+fn verbatim(operation: &SpannedOperation, context: &Context<'_>) -> Vec<u8> {
+    context
+        .bytes
+        .get(operation.span.clone())
+        .map(<[u8]>::to_vec)
+        .unwrap_or_default()
+}
+
+/// The operators that reproduce `state`'s look — see
+/// [`LocatedTextRun::paint_state`]. The fill colour is always set, `0 g`
+/// when the stream never changed it, because the place this is replayed
+/// may have.
+fn paint_state(state: &State) -> Vec<u8> {
+    let mut out = Vec::new();
+    for gs in &state.ext_gstates {
+        out.extend_from_slice(gs);
+        out.push(b' ');
+    }
+    match (&state.fill_space, &state.fill_color) {
+        (Some(space), color) => {
+            out.extend_from_slice(space);
+            out.push(b' ');
+            if let Some(color) = color {
+                out.extend_from_slice(color);
+                out.push(b' ');
+            }
+        }
+        (None, Some(color)) => {
+            out.extend_from_slice(color);
+            out.push(b' ');
+        }
+        (None, None) => out.extend_from_slice(b"0 g "),
+    }
+    out.extend_from_slice(
+        format!(
+            "{} Tc {} Tw {} Tz {} Ts {} Tr ",
+            format_number(state.char_spacing),
+            format_number(state.word_spacing),
+            format_number(state.horizontal_scale * 100.0),
+            format_number(state.rise),
+            format_number(state.render_mode),
+        )
+        .as_bytes(),
+    );
+    out
 }
 
 /// Flattens a show-text operand to its code bytes, plus the total kerning

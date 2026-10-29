@@ -76,6 +76,8 @@ public sealed partial class MainWindow
             if (generation != _contentModeGeneration) return;
             ClearContentImageSelection();
             ClearContentPathSelection();
+            _selectedTextBlock = null;
+            UpdateEditTextSelection();
             ClearContentEditVisuals();
             AnnotationStatus.Text = "Content editing off.";
             return;
@@ -92,7 +94,7 @@ public sealed partial class MainWindow
         _textSelection = null;
         _textDragActive = false;
         RedrawSelection();
-        AnnotationStatus.Text = "Content editing armed — click a text run to retype it.";
+        AnnotationStatus.Text = "Content editing armed — click text to select it, double-click to retype it.";
         UpdateContentEditOverlays(VisiblePageWindow());
     }
 
@@ -116,6 +118,7 @@ public sealed partial class MainWindow
         // would make an armed mode mean different things in different places
         // on the same page.
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
+        _contentPointerDown = true;
         _ = BeginContentGestureAsync(slot, pageIndex, point, args);
         return true;
     }
@@ -150,16 +153,25 @@ public sealed partial class MainWindow
     /// </summary>
     private void InvalidateContentEditedPages()
     {
+        // The selection holds runs the step just moved; let go of it.
+        _selectedTextBlock = null;
+        UpdateEditTextSelection();
         foreach (var pageIndex in _contentEditedPages)
         {
+            // The core reads a page with its pending edits applied, so the
+            // parsed content of an edited page describes the step just undone
+            // or redone — a moved block where it no longer is. Read it again.
+            _pageContent.Remove(pageIndex);
             if (pageIndex < _slots.Count)
             {
+                ClearContentOutlines(_slots[(int)pageIndex]);
                 _slots[(int)pageIndex].Render.DropBitmap();
                 _slots[(int)pageIndex].Tiles.Clear();
             }
         }
 
         UpdateViewport(intermediate: false);
+        UpdateContentEditOverlays(VisiblePageWindow());
     }
 
     /// <summary>
@@ -233,24 +245,7 @@ public sealed partial class MainWindow
 
         if (_pageContent.TryGetValue(pageIndex, out var state) && state.Content is { } content)
         {
-            foreach (var run in content.TextRuns)
-            {
-                var outline = new Rectangle
-                {
-                    StrokeThickness = 1,
-                    Stroke = new SolidColorBrush(run.RequiresFontSubstitution
-                        ? global::Windows.UI.Color.FromArgb(120, 170, 90, 220)
-                        : global::Windows.UI.Color.FromArgb(120, 40, 120, 235)),
-                    IsHitTestVisible = false,
-                };
-                if (run.RequiresFontSubstitution)
-                {
-                    outline.StrokeDashArray = [2, 2];
-                }
-
-                PlaceOverPage(outline, slot, (int)pageIndex, BoundsOf(run));
-                slot.Content.Children.Add(outline);
-            }
+            DrawTextBlockOutlines(slot, pageIndex, content);
             DrawContentPaths(slot, pageIndex, content);
         }
 
@@ -311,6 +306,8 @@ public sealed partial class MainWindow
         // for — which is why this runs before the visuals are cleared.
         _pump.Reset();
         ResetContentImageGestureState();
+        _textBlockDrag = null;
+        _selectedTextBlock = null;
         ClearContentEditVisuals();
         _pageContent.Clear();
         _pendingRunBounds.Clear();

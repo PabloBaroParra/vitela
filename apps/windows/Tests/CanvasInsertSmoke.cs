@@ -22,7 +22,7 @@ public partial class App : Application
             var notes = await _window.CanvasInsertSmokeAsync(output);
             File.WriteAllText(Path.Combine(output, "canvas-insert-smoke.log"),
                 "PASS insert toggles arm content editing and exclude each other; a miss click with Insert text opens a blank box at the click; "
-                + "Escape records nothing; insertion retyping/cancellation preserve one undoable run that saves at the click; image card Nothing/Ready/synthetic PendingEdit; "
+                + "Escape records nothing; insertion retyping/cancellation preserve one undoable run that saves at the click; image card Nothing/Ready/synthetic PendingEdit (Delete kept, Replace refused); "
                 + "Delete acts on the canvas selection with one undo; leaving the mode disarms the insert kind. " + notes);
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "canvas-insert-smoke.log"), "FAIL " + error); }
@@ -80,7 +80,7 @@ public sealed partial class MainWindow
         SetContentInsertMode(null);
         var pending = (await _facade.PageContentAsync(_session!.SessionId, 0)).Value!.TextRuns.Single(run => run.Text == inserted);
         var editPoint = new AnnotationPoint(pending.Bounds.X + 2, pending.Bounds.Y + pending.Bounds.Height / 2);
-        await BeginContentGestureAsync(_slots[0], 0, editPoint, null!);
+        await OpenContentEditorOnDoubleTapAsync(0, editPoint);
         if (_pump.Box is null || !_pump.Box.Run.IsPendingInsertion || DeleteTextButton.IsEnabled)
             throw new Exception("Pending inserted text did not open in the inline editor with deletion refused.");
         _pump.Box.Box.Text = "Cancelled insertion retype";
@@ -90,7 +90,7 @@ public sealed partial class MainWindow
         var cancelled = await _facade.PageTextEditTargetsAsync(_session.SessionId, 0);
         if (!cancelled.IsSuccess || cancelled.Value!.Single(run => run.Id == pending.Id).Text != inserted || !_annotationState!.CanUndo)
             throw new Exception("Escape removed the insertion instead of restoring its text.");
-        await BeginContentGestureAsync(_slots[0], 0, editPoint, null!);
+        await OpenContentEditorOnDoubleTapAsync(0, editPoint);
         const string finalInserted = "Vitela smoke inserted and retyped";
         _pump.Box!.Box.Text = "First insertion retype";
         _liveEdit.Stop();
@@ -157,12 +157,13 @@ public sealed partial class MainWindow
         var back = restored.Value!.FirstOrDefault(candidate => candidate.Bounds == image.Bounds)
             ?? throw new Exception("One undo did not restore the image.");
 
-        // Synthetic pending edit: the card's widest refusal.
+        // Synthetic pending edit: Replace waits for a save, Delete does not —
+        // the core folds a deletion into the queued move or resize.
         _selectedContentImage = back;
         _pendingImageEdits.Add((back.PageIndex, back.Id));
         RedrawContentImageSelection();
-        if (DeleteImageButton.IsEnabled || ReplaceImageButton.IsEnabled || _editImageHint.Text != ImagePendingEditHint)
-            throw new Exception("A pending edit did not disable both image commands.");
+        if (!DeleteImageButton.IsEnabled || ReplaceImageButton.IsEnabled || _editImageHint.Text != ImagePendingEditHint)
+            throw new Exception("A pending edit must disable Replace and keep Delete.");
 
         SetContentInsertMode(ContentInsertKind.Image);
         SetContentEditMode(false);

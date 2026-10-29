@@ -37,6 +37,7 @@ public sealed partial class MainWindow
         ToolbarIcon(DeleteTextButton, ShellIcon.Delete, "Delete text", "Remove the text run being edited from the page (not secure redaction)", "Delete text", EditIconSize, IconTint.Accent);
         // Keep the inline target when clicked, without removing keyboard access.
         DeleteTextButton.AllowFocusOnInteraction = false;
+        WireTextBlockKeys();
         ToolbarIcon(InsertImageButton, ShellIcon.Image, "Insert image", "Click the page to insert a picture", "Insert image", EditIconSize, IconTint.Accent);
         ToolbarIcon(ReplaceImageButton, ShellIcon.Image, "Replace image", "Swap the selected image for a file on disk", "Replace image", EditIconSize, IconTint.Accent);
         ToolbarIcon(DeleteImageButton, ShellIcon.Delete, "Delete image", "Remove the selected image from the page", "Delete image", EditIconSize, IconTint.Accent);
@@ -105,10 +106,14 @@ public sealed partial class MainWindow
     private void UpdateEditTextSelection()
     {
         var editor = _pump.Box;
-        DeleteTextButton.IsEnabled = ContentEditButton.IsEnabled && _contentEditMode
-            && editor is not null && !editor.Run.IsPendingInsertion && !_deletingContentText;
-        _editTextHint.Text = editor is null ? "Click a text run to retype it in place."
-            : editor.Run.IsPendingInsertion ? "Retype this inserted text; save and reopen before deleting it."
-            : "Text run selected — delete it, or retype it in place.";
+        var block = editor is null ? _selectedTextBlock : null;
+        DeleteTextButton.IsEnabled = ContentEditButton.IsEnabled && _contentEditMode && !_deletingContentText && !_isBusy
+            && (editor is not null ? !editor.Run.IsPendingInsertion
+                : block is not null && !block.Runs.Any(run => run.IsPendingInsertion));
+        _editTextHint.Text = editor is not null
+            ? editor.Run.IsPendingInsertion ? "Retype this inserted text; save and reopen before deleting it."
+                : "Text run selected — delete it, or retype it in place."
+            : block is not null ? TextBlockSelectedHint
+            : "Click text to select it; double-click to retype it in place.";
     }
 }

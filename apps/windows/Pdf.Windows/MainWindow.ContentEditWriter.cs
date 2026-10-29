@@ -140,9 +140,13 @@ public sealed partial class MainWindow
         }
 
         var sessionId = _session.SessionId;
-        var result = editor.Run.RequiresFontSubstitution
-            ? await _facade.ReplaceTextRunWithInsertedFontAsync(sessionId, editor.Run, text)
-            : await _facade.ReplaceTextRunAsync(sessionId, editor.Run, text);
+        // A block editor sends the runs it opened over every time; the core
+        // folds each write into the first, so typing stays one undo step.
+        var result = editor.Block is { } block
+            ? await _facade.RetypeTextBlockAsync(sessionId, block, text)
+            : editor.Run.RequiresFontSubstitution
+                ? await _facade.ReplaceTextRunWithInsertedFontAsync(sessionId, editor.Run, text)
+                : await _facade.ReplaceTextRunAsync(sessionId, editor.Run, text);
         if (_session is null || _session.SessionId != sessionId)
         {
             // Another document arrived while the write was in flight; its own
@@ -156,7 +160,21 @@ public sealed partial class MainWindow
             return ContentWriteOutcome.Refused;
         }
 
-        RecordPendingBounds(editor.Run, text);
+        // Read the page again so the outlines and the next click agree with
+        // the core: a block's other runs are gone, and the core measures the
+        // retyped run in its real font — the estimate below is only the
+        // fallback for a run the re-read no longer has.
+        await RereadPageContentAsync(editor.PageIndex);
+        if (_pageContent.TryGetValue(editor.PageIndex, out var reread)
+            && reread.Content?.TextRuns.FirstOrDefault(run => run.Id == editor.Run.Id) is { } measured)
+        {
+            _pendingRunBounds[(editor.PageIndex, editor.Run.Id)] = measured.Bounds;
+            DrawContentOutlines(editor.PageIndex);
+        }
+        else
+        {
+            RecordPendingBounds(editor.Run, text);
+        }
         _contentEditedPages.Add(editor.PageIndex);
         // The page says something else now, so the characters cached for
         // drag-select no longer describe it.

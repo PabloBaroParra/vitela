@@ -69,112 +69,137 @@ pub fn overlay_pending_content(
     document: &Document,
     page_object: ObjectId,
 ) {
-    let measured = |run: &TextRun, text: &str| pending_text_bbox(document, page_object, run, text);
     for (index, command) in pending.entries().iter().enumerate() {
         let synthetic_id = ContentItemId(PENDING_ITEM_ID_BASE + index as u64);
         match command {
-            Command::InsertTextRun(run) if run.page == page => {
-                let mut run = run.clone();
-                run.bbox = measured(&run, &run.text);
-                run.id = synthetic_id;
-                content.text_runs.push(run);
-            }
-            Command::RemoveTextRun(run) if run.page == page => {
-                content.text_runs.retain(|existing| existing.id != run.id);
-            }
-            Command::ReplaceTextRunContent { item, after } if item.page == page => {
-                if let Some(existing) = content
-                    .text_runs
-                    .iter_mut()
-                    .find(|existing| existing.id == item.id)
-                {
-                    // Measured from `item`, the run as it was parsed, never
-                    // from `existing` — the two agree today, and keying off
-                    // the command's own snapshot keeps them agreeing if a
-                    // later command ever touches the same run first.
-                    existing.bbox = measured(item, after);
-                    existing.text = after.clone();
+            // One undo step, but each child is an ordinary edit of its own
+            // item (B25 T-207). A batch never inserts — `pdf-ffi` refuses
+            // one that would — so the shared synthetic id is never handed
+            // to two items.
+            Command::Batch(children) => {
+                for child in children {
+                    overlay_command(content, child, synthetic_id, page, document, page_object);
                 }
             }
-            Command::ReplaceTextRunWithInsertedFont { item, after } if item.page == page => {
-                if let Some(existing) = content
-                    .text_runs
-                    .iter_mut()
-                    .find(|existing| existing.id == item.id)
-                {
-                    // The page now draws this run in the inserted standard
-                    // font, not the composite one it was parsed with, so
-                    // that is the font it is measured in.
-                    existing.bbox =
-                        crate::inserted_font_text_bbox(document, item, after).unwrap_or(item.bbox);
-                    existing.text = after.clone();
-                }
-            }
-            Command::MoveTextRun { item, to } if item.page == page => {
-                if let Some(existing) = content
-                    .text_runs
-                    .iter_mut()
-                    .find(|existing| existing.id == item.id)
-                {
-                    // Origin only, and the width the run already had is kept
-                    // rather than re-measured: a move changes nothing about
-                    // what the run says, so the box it occupies is the same
-                    // box somewhere else.
-                    existing.bbox = Rect {
-                        x: to.x,
-                        y: to.y,
-                        ..existing.bbox
-                    };
-                }
-            }
-            Command::InsertImage { item, .. } if item.page == page => {
-                let mut item = item.clone();
-                item.id = synthetic_id;
-                content.images.push(item);
-            }
-            Command::RemoveImage { item, .. } if item.page == page => {
-                content.images.retain(|existing| existing.id != item.id);
-            }
-            Command::MoveImage { item, to } | Command::ResizeImage { item, to }
-                if item.page == page =>
-            {
-                if let Some(existing) = content
-                    .images
-                    .iter_mut()
-                    .find(|existing| existing.id == item.id)
-                {
-                    existing.bbox = *to;
-                }
-            }
-            Command::RemovePath(item) if item.page == page => {
-                content.paths.retain(|existing| existing.id != item.id);
-            }
-            Command::MovePath { item, to } if item.page == page => {
-                if let Some(existing) = content
-                    .paths
-                    .iter_mut()
-                    .find(|existing| existing.id == item.id)
-                {
-                    existing.bbox = Rect {
-                        x: to.x,
-                        y: to.y,
-                        ..existing.bbox
-                    };
-                }
-            }
-            // Mirrors `path::page_mapping`: an axis the path is flat along is
-            // moved, never stretched, so its box keeps a zero extent there.
-            Command::ResizePath { item, to } if item.page == page => {
-                if let Some(existing) = content
-                    .paths
-                    .iter_mut()
-                    .find(|existing| existing.id == item.id)
-                {
-                    existing.bbox = crate::parse::path::reshaped_bbox(existing.bbox, *to);
-                }
-            }
-            _ => {}
+            command => overlay_command(content, command, synthetic_id, page, document, page_object),
         }
+    }
+}
+
+/// Layers one command's effect on `page` onto `content`.
+fn overlay_command(
+    content: &mut PageContent,
+    command: &Command,
+    synthetic_id: ContentItemId,
+    page: PageId,
+    document: &Document,
+    page_object: ObjectId,
+) {
+    let measured = |run: &TextRun, text: &str| pending_text_bbox(document, page_object, run, text);
+    match command {
+        Command::InsertTextRun(run) if run.page == page => {
+            let mut run = run.clone();
+            // Measured outright: an insertion has no parsed box to scale.
+            run.bbox = crate::insert::inserted_text_run_bbox(document, page_object, &run)
+                .unwrap_or(run.bbox);
+            run.id = synthetic_id;
+            content.text_runs.push(run);
+        }
+        Command::RemoveTextRun(run) if run.page == page => {
+            content.text_runs.retain(|existing| existing.id != run.id);
+        }
+        Command::ReplaceTextRunContent { item, after } if item.page == page => {
+            if let Some(existing) = content
+                .text_runs
+                .iter_mut()
+                .find(|existing| existing.id == item.id)
+            {
+                // Measured from `item`, the run as it was parsed, never
+                // from `existing` — the two agree today, and keying off
+                // the command's own snapshot keeps them agreeing if a
+                // later command ever touches the same run first.
+                existing.bbox = measured(item, after);
+                existing.text = after.clone();
+            }
+        }
+        Command::ReplaceTextRunWithInsertedFont { item, after } if item.page == page => {
+            if let Some(existing) = content
+                .text_runs
+                .iter_mut()
+                .find(|existing| existing.id == item.id)
+            {
+                // The page now draws this run in the inserted standard
+                // font, not the composite one it was parsed with, so
+                // that is the font it is measured in.
+                existing.bbox =
+                    crate::inserted_font_text_bbox(document, item, after).unwrap_or(item.bbox);
+                existing.text = after.clone();
+            }
+        }
+        Command::MoveTextRun { item, to } if item.page == page => {
+            if let Some(existing) = content
+                .text_runs
+                .iter_mut()
+                .find(|existing| existing.id == item.id)
+            {
+                // Origin only, and the width the run already had is kept
+                // rather than re-measured: a move changes nothing about
+                // what the run says, so the box it occupies is the same
+                // box somewhere else.
+                existing.bbox = Rect {
+                    x: to.x,
+                    y: to.y,
+                    ..existing.bbox
+                };
+            }
+        }
+        Command::InsertImage { item, .. } if item.page == page => {
+            let mut item = item.clone();
+            item.id = synthetic_id;
+            content.images.push(item);
+        }
+        Command::RemoveImage { item, .. } if item.page == page => {
+            content.images.retain(|existing| existing.id != item.id);
+        }
+        Command::MoveImage { item, to } | Command::ResizeImage { item, to }
+            if item.page == page =>
+        {
+            if let Some(existing) = content
+                .images
+                .iter_mut()
+                .find(|existing| existing.id == item.id)
+            {
+                existing.bbox = *to;
+            }
+        }
+        Command::RemovePath(item) if item.page == page => {
+            content.paths.retain(|existing| existing.id != item.id);
+        }
+        Command::MovePath { item, to } if item.page == page => {
+            if let Some(existing) = content
+                .paths
+                .iter_mut()
+                .find(|existing| existing.id == item.id)
+            {
+                existing.bbox = Rect {
+                    x: to.x,
+                    y: to.y,
+                    ..existing.bbox
+                };
+            }
+        }
+        // Mirrors `path::page_mapping`: an axis the path is flat along is
+        // moved, never stretched, so its box keeps a zero extent there.
+        Command::ResizePath { item, to } if item.page == page => {
+            if let Some(existing) = content
+                .paths
+                .iter_mut()
+                .find(|existing| existing.id == item.id)
+            {
+                existing.bbox = crate::parse::path::reshaped_bbox(existing.bbox, *to);
+            }
+        }
+        _ => {}
     }
 }
 

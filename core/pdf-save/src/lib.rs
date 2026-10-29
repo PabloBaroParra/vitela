@@ -62,7 +62,10 @@ pub use compress::{
     compressed_save_will_invalidate_signatures, compression_blocker, save_document_compressed,
     CompressedSave,
 };
-pub use content::{has_content_edits, replay_content_edits, validate_content_command};
+pub use content::{
+    has_content_edits, replay_content_edits, validate_content_command,
+    validate_content_command_after_pending,
+};
 pub use error::SaveError;
 pub use export::{
     document_file_stem, export_page_as_image, page_image_file_name, parse_page_selection,

@@ -76,6 +76,7 @@ mod selection;
 mod sign;
 mod sign_sources;
 mod split;
+mod text_blocks;
 mod types;
 mod watermark;
 
@@ -122,13 +123,16 @@ pub use sign_sources::{
     FfiSigningAlgorithm, PlatformSigningSource,
 };
 pub use split::{plan_split, FfiSplitPart};
+pub use text_blocks::{
+    move_text_block, read_page_text_blocks, remove_text_block, retype_text_block,
+};
 pub use types::{
     FfiAnnotation, FfiAnnotationKind, FfiColor, FfiContentImageItem, FfiContentPathItem,
     FfiContentTextRun, FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiFreeTextLayout,
     FfiFreeTextLine, FfiImageWatermark, FfiOrientation, FfiPageContent, FfiPageDimensions,
     FfiPageSize, FfiPathPaint, FfiPdfDate, FfiPdfDateOffset, FfiPoint, FfiRect, FfiRenderOptions,
-    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRect,
-    FfiTextRun, FfiWatermark, FfiWatermarkLayer,
+    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextBlock,
+    FfiTextRect, FfiTextRun, FfiWatermark, FfiWatermarkLayer,
 };
 pub use watermark::{default_image_watermark, default_watermark};
 

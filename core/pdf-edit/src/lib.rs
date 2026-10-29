@@ -17,6 +17,8 @@
 //! - [`path`] (B25 T-206): move, resize and delete vector paths — the
 //!   loose `re`/`m`/`l` operators a table border is made of — by rewriting
 //!   their coordinates, so a stretched frame keeps its line width.
+//! - [`group`] (B25 T-207): runs on one line joined into the block a reader
+//!   sees, and the one-undo-step batches that move, remove or retype it.
 //! - [`pending`]: a page's content as the reader sees it — the parse with
 //!   every page-content edit still pending in the `EditLog` layered on top,
 //!   so a shell hit-tests what the refreshed preview paints.
@@ -47,6 +49,7 @@
 pub mod edit;
 pub mod encoding;
 pub mod error;
+pub mod group;
 pub mod insert;
 pub mod parse;
 pub mod path;
@@ -62,7 +65,8 @@ pub use edit::{
     resize_image, text_run_bbox,
 };
 pub use error::EditError;
-pub use insert::{insert_image, insert_text_run};
+pub use group::{group_text_runs, move_block, remove_block, retype_block, TextBlock};
+pub use insert::{insert_image, insert_text_run, inserted_text_run_bbox};
 pub use parse::{
     page_font_families, page_image_placements, page_object_font_families, page_object_id,
     read_page_content, read_page_object_content, ImagePlacement,
