@@ -13,6 +13,9 @@ namespace Pdf.Windows.Viewer;
 /// <item>a render that lands after the zoom moved is discarded <em>and</em>
 /// leaves the page asking again, instead of stranding it until the next
 /// scroll event.</item>
+/// <item>so is a render that lands after the page's <em>content</em> changed
+/// — a deleted line, a moved word — even at the same DPI: it painted the
+/// page as it was when it was asked for.</item>
 /// </list>
 /// </summary>
 public sealed class PageRenderPlan
@@ -60,7 +63,23 @@ public sealed class PageRenderPlan
         _failedDpi = 0;
     }
 
-    public void MarkRequested() => Requested = true;
+    /// <summary>
+    /// Bumped every time the bitmap is dropped, which is what every content
+    /// edit does to its page. A render remembers the version it was asked for
+    /// at, so one asked for before the edit can be told apart from one after.
+    /// </summary>
+    private ulong _contentVersion;
+
+    private ulong _requestedVersion;
+
+    public void MarkRequested()
+    {
+        Requested = true;
+        _requestedVersion = _contentVersion;
+    }
+
+    /// <summary>Whether the render in flight was asked for before the content last changed.</summary>
+    private bool RequestedStaleContent => _requestedVersion != _contentVersion;
 
     /// <summary>
     /// Records a finished render.
@@ -73,7 +92,7 @@ public sealed class PageRenderPlan
     public bool CompleteWith(uint dpi)
     {
         Requested = false;
-        if (dpi != TargetDpi)
+        if (dpi != TargetDpi || RequestedStaleContent)
         {
             return false;
         }
@@ -89,7 +108,7 @@ public sealed class PageRenderPlan
     /// <returns><c>true</c> when the completed render is superseded.</returns>
     public bool DiscardIfSuperseded(uint dpi)
     {
-        if (dpi == TargetDpi)
+        if (dpi == TargetDpi && !RequestedStaleContent)
         {
             return false;
         }
@@ -115,6 +134,14 @@ public sealed class PageRenderPlan
     /// <summary>Releases the in-flight slot after a discarded render; nothing failed.</summary>
     public void Release() => Requested = false;
 
-    /// <summary>Drops the bitmap when the page leaves the keep window.</summary>
-    public void DropBitmap() => RenderedDpi = 0;
+    /// <summary>
+    /// Drops the bitmap — when the page leaves the keep window, or when its
+    /// content changed and what is on screen no longer describes it. Either
+    /// way a render already in flight is now stale.
+    /// </summary>
+    public void DropBitmap()
+    {
+        RenderedDpi = 0;
+        _contentVersion++;
+    }
 }

@@ -88,6 +88,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("does not queue a second render while one is in flight", DoesNotQueueConcurrentRenders),
     ("releases stale completed work for immediate re-request", ReleasesStaleCompletedWorkForImmediateReRequest),
     ("re-requests a render that finished at a superseded zoom", ReRequestsSupersededRender),
+    ("discards a render requested before the page's content changed", DiscardsRenderOfChangedContent),
     ("latches a failed render until the next fit", LatchesAFailedRenderUntilTheNextFit),
     ("does not latch a failure from a superseded zoom", DoesNotLatchAFailureFromASupersededZoom),
     ("releases a discarded render without latching", ReleasesADiscardedRenderWithoutLatching),
@@ -869,6 +870,31 @@ static Task ReRequestsSupersededRender()
     plan.RetargetTo(288);
     Assert(!plan.CompleteWith(96), "a render finished at a superseded zoom must not be published");
     Assert(plan.ShouldRequest, "a superseded render must leave the page asking again, never stranded");
+    return Task.CompletedTask;
+}
+
+/// <summary>
+/// A content edit drops the page's bitmap while a render of the old content
+/// may already be in flight — at the same DPI. Accepting that render showed a
+/// deleted line until some later edit redrew the page. It has to be
+/// discarded, at both of the places a render is checked, and asked again.
+/// </summary>
+static Task DiscardsRenderOfChangedContent()
+{
+    var plan = new PageRenderPlan();
+    plan.RetargetTo(96);
+    plan.MarkRequested();
+    plan.DropBitmap();
+    Assert(plan.DiscardIfSuperseded(96), "a render of content that changed since it was asked for must be discarded");
+    Assert(plan.ShouldRequest, "the page must ask again for its new content");
+
+    plan.MarkRequested();
+    plan.DropBitmap();
+    Assert(!plan.CompleteWith(96), "a stale render must not be published even if it got past the first check");
+    Assert(plan.ShouldRequest, "and the page must still ask again");
+
+    plan.MarkRequested();
+    Assert(plan.CompleteWith(96), "a render of the current content is published");
     return Task.CompletedTask;
 }
 
