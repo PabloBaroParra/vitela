@@ -77,6 +77,8 @@ public sealed partial class MainWindow
             ClearContentImageSelection();
             ClearContentPathSelection();
             _selectedTextBlock = null;
+            _contentSelection = null;
+            _selectionGesture = null;
             UpdateEditTextSelection();
             ClearContentEditVisuals();
             AnnotationStatus.Text = "Content editing off.";
@@ -119,6 +121,7 @@ public sealed partial class MainWindow
         // on the same page.
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _contentPointerDown = true;
+        _contentPressShift = args.KeyModifiers.HasFlag(global::Windows.System.VirtualKeyModifiers.Shift);
         _ = BeginContentGestureAsync(slot, pageIndex, point, args);
         return true;
     }
@@ -155,6 +158,7 @@ public sealed partial class MainWindow
     {
         // The selection holds runs the step just moved; let go of it.
         _selectedTextBlock = null;
+        _contentSelection = null;
         UpdateEditTextSelection();
         foreach (var pageIndex in _contentEditedPages)
         {
@@ -250,6 +254,7 @@ public sealed partial class MainWindow
         }
 
         DrawContentImageSelection(slot, pageIndex);
+        DrawContentSelection(slot, pageIndex);
     }
 
     /// <summary>
@@ -308,6 +313,8 @@ public sealed partial class MainWindow
         ResetContentImageGestureState();
         _textBlockDrag = null;
         _selectedTextBlock = null;
+        _selectionGesture = null;
+        _contentSelection = null;
         ClearContentEditVisuals();
         _pageContent.Clear();
         _pendingRunBounds.Clear();

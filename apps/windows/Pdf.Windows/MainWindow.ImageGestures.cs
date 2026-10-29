@@ -35,6 +35,13 @@ public sealed partial class MainWindow
             return;
         }
 
+        // SHIFT+click, a drag inside a multi-selection, or a marquee from
+        // empty page (B25 T-208); anything else is a single-item gesture.
+        if (BeginContentSelectionGesture(slot, pageIndex, sessionId, content, point, args))
+        {
+            return;
+        }
+
         var selected = _selectedContentImage is { PageIndex: var selectedPage } current && selectedPage == pageIndex
             ? current : null;
         var corner = selected is not null ? CornerAt(selected.Bounds, point, HandleReachPx / slot.Scale) : null;
