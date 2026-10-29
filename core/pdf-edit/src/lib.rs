@@ -66,7 +66,7 @@ pub use edit::{
 };
 pub use error::EditError;
 pub use group::{group_text_runs, move_block, remove_block, retype_block, TextBlock};
-pub use insert::{insert_image, insert_text_run};
+pub use insert::{insert_image, insert_text_run, inserted_text_run_bbox};
 pub use parse::{
     page_font_families, page_image_placements, page_object_font_families, page_object_id,
     read_page_content, read_page_object_content, ImagePlacement,

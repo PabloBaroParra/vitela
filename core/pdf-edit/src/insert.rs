@@ -126,6 +126,27 @@ pub fn insert_text_run(
     append_to_content(document, page_object, operators.as_bytes())
 }
 
+/// The box [`insert_text_run`] paints `run` into, measured outright: the font
+/// it will be drawn in (the page's resource by that name, or the standard
+/// one insertion registers when there is none), `bbox.height` as the size.
+///
+/// [`crate::text_run_bbox`] cannot answer this. It scales a box the page
+/// already measured by the ratio of two texts, and an insertion has no
+/// measured box — asked for the run's own text it hands back the width the
+/// shell guessed, which is how a typed-in line came to be outlined short and
+/// could not be found again by a save replaying a later edit of it.
+pub fn inserted_text_run_bbox(
+    document: &Document,
+    page_object: ObjectId,
+    run: &TextRun,
+) -> Result<pdf_document::Rect, EditError> {
+    let font_dict = font_resource(document, page_object, &run.resource_font_name)
+        .unwrap_or_else(inserted_font_dictionary);
+    let font = resolve_font(document, &font_dict, &run.resource_font_name)?;
+    let width = font.width_of(&font.encode(&run.text)?) * run.bbox.height;
+    Ok(pdf_document::Rect { width, ..run.bbox })
+}
+
 /// Appends an image to the page as real page content.
 ///
 /// `source` carries the encoded image when this brings a new picture, and is

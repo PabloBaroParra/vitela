@@ -99,7 +99,9 @@ fn overlay_command(
     match command {
         Command::InsertTextRun(run) if run.page == page => {
             let mut run = run.clone();
-            run.bbox = measured(&run, &run.text);
+            // Measured outright: an insertion has no parsed box to scale.
+            run.bbox = crate::insert::inserted_text_run_bbox(document, page_object, &run)
+                .unwrap_or(run.bbox);
             run.id = synthetic_id;
             content.text_runs.push(run);
         }
