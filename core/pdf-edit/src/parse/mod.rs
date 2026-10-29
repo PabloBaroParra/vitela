@@ -14,6 +14,7 @@ pub mod inline;
 pub mod interpreter;
 pub mod lexer;
 pub mod matrix;
+pub mod path;
 pub mod placement;
 
 pub use interpreter::{
@@ -21,6 +22,7 @@ pub use interpreter::{
 };
 pub use lexer::{tokenize, Operand, SpannedOperation};
 pub use matrix::Matrix;
+pub use path::{LocatedPath, PathSegment};
 pub use placement::{page_image_placements, ImagePlacement};
 
 pub use fonts::{page_font_families, page_object_font_families};

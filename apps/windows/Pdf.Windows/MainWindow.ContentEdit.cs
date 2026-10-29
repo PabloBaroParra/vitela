@@ -75,6 +75,7 @@ public sealed partial class MainWindow
             await CommitContentEditorAsync();
             if (generation != _contentModeGeneration) return;
             ClearContentImageSelection();
+            ClearContentPathSelection();
             ClearContentEditVisuals();
             AnnotationStatus.Text = "Content editing off.";
             return;
@@ -250,6 +251,7 @@ public sealed partial class MainWindow
                 PlaceOverPage(outline, slot, (int)pageIndex, BoundsOf(run));
                 slot.Content.Children.Add(outline);
             }
+            DrawContentPaths(slot, pageIndex, content);
         }
 
         DrawContentImageSelection(slot, pageIndex);

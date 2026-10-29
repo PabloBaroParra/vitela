@@ -52,6 +52,10 @@ fn is_content_edit(command: &Command) -> bool {
             | Command::MoveImage { .. }
             | Command::ResizeImage { .. }
             | Command::ReplaceImageSource { .. }
+            | Command::MovePath { .. }
+            | Command::ResizePath { .. }
+            | Command::RemovePath(_)
+            | Command::RestorePath(_)
             | Command::AddWatermark(_)
             | Command::RemoveWatermark(_)
     )
@@ -63,6 +67,11 @@ fn is_content_edit(command: &Command) -> bool {
 /// version can find again.
 const WATERMARK_REMOVAL_UNSUPPORTED: &str =
     "removing a watermark already in the file is not supported";
+
+/// Why a [`Command::RestorePath`] cannot be written: it is only ever
+/// `RemovePath`'s inverse, and undo pops the removal from the log instead.
+/// A `PathItem` does not carry the operators that drew it.
+const PATH_RESTORE_UNSUPPORTED: &str = "restoring a removed path is not supported";
 
 /// Applies every page-content command in `document`'s edit log to `working`,
 /// in the order they were made.
@@ -208,6 +217,10 @@ fn content_page(command: &Command) -> Option<PageId> {
         | Command::MoveImage { item, .. }
         | Command::ResizeImage { item, .. }
         | Command::ReplaceImageSource { item, .. } => Some(item.page),
+        Command::MovePath { item, .. }
+        | Command::ResizePath { item, .. }
+        | Command::RemovePath(item)
+        | Command::RestorePath(item) => Some(item.page),
         _ => None,
     }
 }
@@ -236,6 +249,12 @@ fn apply(
         Command::MoveImage { item, to } => pdf_edit::move_image(working, page_object, item, *to)?,
         Command::ResizeImage { item, to } => {
             pdf_edit::resize_image(working, page_object, item, *to)?
+        }
+        Command::MovePath { item, to } => pdf_edit::move_path(working, page_object, item, *to)?,
+        Command::ResizePath { item, to } => pdf_edit::resize_path(working, page_object, item, *to)?,
+        Command::RemovePath(item) => pdf_edit::remove_path(working, page_object, item)?,
+        Command::RestorePath(_) => {
+            return Err(SaveError::InvalidSaveRequest(PATH_RESTORE_UNSUPPORTED))
         }
         Command::ReplaceImageSource { item, after, .. } => {
             pdf_edit::replace_image_source(working, page_object, item, after)?

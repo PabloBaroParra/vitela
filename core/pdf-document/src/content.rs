@@ -1,4 +1,4 @@
-//! Page-content data model (T-148) — the text runs and images that live
+//! Page-content data model (T-148) — the text runs, images and paths that live
 //! *inside* a page's content stream, as opposed to annotations and form
 //! fields, which are addressable objects hanging off `/Annots`/`/AcroForm`.
 //!
@@ -125,6 +125,45 @@ impl ImageItem {
     }
 }
 
+/// How a path is painted — which of the painting operators ended it.
+///
+/// Only what a shell can see is distinguished. The fill rule (`f` vs `f*`)
+/// and whether the subpath was closed first (`s`, `b`) change the bytes, not
+/// whether the path is a line or a solid shape, and the writer regenerates
+/// the operator from the stream rather than from this value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathPaint {
+    /// `S` / `s` — an outline.
+    Stroke,
+    /// `f` / `F` / `f*` — a solid shape with no outline.
+    Fill,
+    /// `B` / `B*` / `b` / `b*` — both.
+    FillAndStroke,
+}
+
+/// A vector path painted onto the page (B25 P1, T-206): everything from the
+/// first construction operator (`m`, `re`, …) up to and including the
+/// painting operator (`S`, `f`, `B`, …) that ends it.
+///
+/// This is what a table border, a rule or a shaded box is in a real file —
+/// not an object, just loose `re`/`m`/`l` operators — so until it was an
+/// item there was nothing to select.
+///
+/// A path that only clips (`W n`) is **not** one: it paints nothing, and
+/// moving or deleting it would change what everything after it shows. A
+/// path that clips *and* paints (`W f`) is left out for the same reason.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathItem {
+    pub id: ContentItemId,
+    pub page: PageId,
+    /// Bounding box in page space of the path's geometry — every point and
+    /// control point mapped through the CTM. The stroke's own width is not
+    /// included: a hairline rule has a box of zero height, and a shell that
+    /// hit-tests one has to pad it itself.
+    pub bbox: Rect,
+    pub paint: PathPaint,
+}
+
 /// The parsed content of a single page: what a shell needs to hit-test and
 /// edit, and nothing more.
 ///
@@ -137,6 +176,8 @@ impl ImageItem {
 pub struct PageContent {
     pub text_runs: Vec<TextRun>,
     pub images: Vec<ImageItem>,
+    /// Vector paths, in paint order. Numbered on their own, like images.
+    pub paths: Vec<PathItem>,
 }
 
 impl PageContent {
@@ -150,6 +191,11 @@ impl PageContent {
     /// The image carrying `id`, if this page has one.
     pub fn image(&self, id: ContentItemId) -> Option<&ImageItem> {
         self.images.iter().find(|image| image.id == id)
+    }
+
+    /// The path carrying `id`, if this page has one.
+    pub fn path(&self, id: ContentItemId) -> Option<&PathItem> {
+        self.paths.iter().find(|path| path.id == id)
     }
 }
 
@@ -199,6 +245,7 @@ mod tests {
         let content = PageContent {
             text_runs: vec![sample_text_run(1), sample_text_run(2)],
             images: Vec::new(),
+            paths: Vec::new(),
         };
 
         let found = content
@@ -213,6 +260,7 @@ mod tests {
         let content = PageContent {
             text_runs: Vec::new(),
             images: vec![sample_image(5)],
+            paths: Vec::new(),
         };
 
         let found = content
@@ -230,6 +278,7 @@ mod tests {
         let content = PageContent {
             text_runs: vec![sample_text_run(1)],
             images: vec![sample_image(1)],
+            paths: Vec::new(),
         };
 
         assert_eq!(

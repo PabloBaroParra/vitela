@@ -222,6 +222,31 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         catch (FfiException error) { throw Translate(error); }
     }
 
+    public IReadOnlyList<PdfCoreContentPath> ReadPagePaths(IPdfCoreDocument document, uint pageIndex)
+    {
+        try
+        {
+            return [.. ((GeneratedDocument)document).Handle.ReadPagePaths(pageIndex)
+                .Select(path => new PdfCoreContentPath(path.Id, path.Page, Rect(path.Bbox), PathPaint(path.Paint)))];
+        }
+        catch (FfiException error) { throw Translate(error); }
+    }
+
+    private static PdfCorePathPaint PathPaint(FfiPathPaint paint) => paint switch
+    {
+        FfiPathPaint.Stroke => PdfCorePathPaint.Stroke,
+        FfiPathPaint.Fill => PdfCorePathPaint.Fill,
+        _ => PdfCorePathPaint.FillAndStroke,
+    };
+
+    private static FfiContentPathItem ContentPath(PdfCoreContentPath path) => new(
+        path.Id, path.PageIndex, Rect(path.Bbox), path.Paint switch
+        {
+            PdfCorePathPaint.Stroke => FfiPathPaint.Stroke,
+            PdfCorePathPaint.Fill => FfiPathPaint.Fill,
+            _ => FfiPathPaint.FillAndStroke,
+        });
+
     public byte[] ImageSourceBytes(IPdfCoreDocument document, PdfCoreContentImage image)
     {
         try { return ((GeneratedDocument)document).Handle.ImageSourceBytes(new FfiContentImageItem(
@@ -515,6 +540,9 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.RemoveImage value => new FfiEditCommand.RemoveImage(
             new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
             null),
+        PdfCoreEdit.MovePath value => new FfiEditCommand.MovePath(ContentPath(value.Item), Rect(value.To)),
+        PdfCoreEdit.ResizePath value => new FfiEditCommand.ResizePath(ContentPath(value.Item), Rect(value.To)),
+        PdfCoreEdit.RemovePath value => new FfiEditCommand.RemovePath(ContentPath(value.Item)),
         PdfCoreEdit.ReplaceImageSource value => new FfiEditCommand.ReplaceImageSource(
             new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
             value.Before, value.After),

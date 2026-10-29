@@ -512,6 +512,20 @@ selected image disables both Replace and Delete. Replacement requires
 content-edit permission and a full rewrite, refreshes the preview and supports
 undo/redo. Save to keep the replacement.
 
+**Shapes** (B25 T-206) are the lines and boxes a page draws with vector
+operators — a table's frame, a rule under a heading, a shaded panel. With Edit
+content armed, every shape gets a faint dotted outline. Click a line, or the
+border of a box, to select it: drag to move it, drag a corner handle to resize
+it, and press Delete (or **Delete shape** in the Shapes card) to remove it.
+Text outranks a shape, so a click on a cell's text inside a frame still retypes
+the text, and an outline is hit only near its edges. Resizing rewrites the
+path's coordinates, so the line width does not change, and the text inside a
+frame is neither scaled nor moved. A rule stays a rule: it can be stretched
+along its length but not made taller. Unlike images, a shape can be dragged
+again straight away without saving. The core folds the second edit into the
+first, which makes successive edits of one shape a single undo step. Clipping
+paths (`re W n`) are not shapes and are never offered.
+
 **Delete text** lists the text runs on the visible page, with their text and PDF
 coordinates. Choose a run and confirm deletion; the PDF preview refreshes and
 undo/redo restores or reapplies it. Deleting does not substitute composite fonts.
@@ -857,6 +871,17 @@ selection made stale by an edit on another page, and that leaving Edit content
 disarms the insert kind. The press is driven through the canvas gesture handler,
 not a physical pointer, and Insert image's native picker is not automated.
 Rebuild without that property before normal use.
+
+## Path edit runtime smoke
+
+`Tests/PathEditSmoke.targets` replaces the entry point the same way and writes
+`path-edit-smoke.log`. It opens a one-page table (a stroked frame, a rule and
+one text run) and drives the canvas gesture handler to check that a click on
+the cell text opens the text editor rather than selecting the frame, that a
+click on the border selects it, that a drag moves it, that a corner drag right
+after resizes it with no save in between, that Delete removes the rule and one
+undo restores it, and that the save reopens with the moved, resized frame and
+the rule. As with the other smokes, the press is not a physical pointer.
 
 ## Note placement runtime smoke
 

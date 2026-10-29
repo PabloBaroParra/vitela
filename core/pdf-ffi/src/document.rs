@@ -48,10 +48,10 @@ use crate::error::FfiError;
 use crate::form::{self, FfiFormField};
 use crate::selection::FfiPageCharacters;
 use crate::types::{
-    FfiAnnotation, FfiAnnotationKind, FfiContentImageItem, FfiContentTextRun, FfiDocumentInfo,
-    FfiEditCommand, FfiOrientation, FfiPageContent, FfiPageDimensions, FfiPageSize, FfiPoint,
-    FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent, FfiSearchResult,
-    FfiSignatureAcknowledgement, FfiTextRun, GRANTED_PROTECTION_PERMISSIONS,
+    FfiAnnotation, FfiAnnotationKind, FfiContentImageItem, FfiContentPathItem, FfiContentTextRun,
+    FfiDocumentInfo, FfiEditCommand, FfiOrientation, FfiPageContent, FfiPageDimensions,
+    FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
+    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun, GRANTED_PROTECTION_PERMISSIONS,
 };
 use crate::BitmapHandle;
 
@@ -154,6 +154,14 @@ impl DocumentState {
     fn image_item(&self, item: FfiContentImageItem) -> Result<ImageItem, FfiError> {
         let page = self.page_id(item.page)?;
         Ok(ImageItem {
+            page,
+            ..item.into()
+        })
+    }
+
+    fn path_item(&self, item: FfiContentPathItem) -> Result<pdf_document::PathItem, FfiError> {
+        let page = self.page_id(item.page)?;
+        Ok(pdf_document::PathItem {
             page,
             ..item.into()
         })
@@ -437,6 +445,15 @@ impl DocumentState {
                 before,
                 after,
             },
+            FfiEditCommand::MovePath { item, to } => Command::MovePath {
+                item: self.path_item(item)?,
+                to: to.into(),
+            },
+            FfiEditCommand::ResizePath { item, to } => Command::ResizePath {
+                item: self.path_item(item)?,
+                to: to.into(),
+            },
+            FfiEditCommand::RemovePath { item } => Command::RemovePath(self.path_item(item)?),
             // A stamp's positions are resolved here, once: the core names its
             // pages by identity, so it stays on them through a later reorder.
             FfiEditCommand::AddWatermark { watermark } => {
@@ -838,6 +855,9 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::MoveImage { .. }
             | FfiEditCommand::ResizeImage { .. }
             | FfiEditCommand::ReplaceImageSource { .. }
+            | FfiEditCommand::MovePath { .. }
+            | FfiEditCommand::ResizePath { .. }
+            | FfiEditCommand::RemovePath { .. }
             | FfiEditCommand::AddWatermark { .. }
             | FfiEditCommand::AddImageWatermark { .. }
     )
@@ -906,6 +926,9 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::MoveImage { .. }
             | FfiEditCommand::ResizeImage { .. }
             | FfiEditCommand::ReplaceImageSource { .. }
+            | FfiEditCommand::MovePath { .. }
+            | FfiEditCommand::ResizePath { .. }
+            | FfiEditCommand::RemovePath { .. }
             | FfiEditCommand::AddWatermark { .. }
             | FfiEditCommand::AddImageWatermark { .. }
             | FfiEditCommand::SetDocumentInfo { .. }
@@ -1268,6 +1291,35 @@ impl DocumentHandle {
                 .map(|image| FfiContentImageItem { page, ..image })
                 .collect(),
         })
+    }
+
+    /// The vector paths `page` paints (B25 T-206) — table borders, rules,
+    /// shaded boxes — as the reader sees them, pending moves, resizes and
+    /// removals layered on top exactly as [`Self::read_page_content`] does
+    /// for text and images.
+    ///
+    /// A separate read rather than a field on `FfiPageContent`, so every
+    /// shell's generated record keeps the shape it was built against until
+    /// that shell offers path editing.
+    pub fn read_page_paths(&self, page: u32) -> Result<Vec<FfiContentPathItem>, FfiError> {
+        let state = self.lock();
+        if !text_extraction_is_allowed(&state.document) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "text extraction is not permitted".to_string(),
+            });
+        }
+        let page_id = state.page_id(page)?;
+        let content = state.with_imported_sources(|sources| {
+            pdf_save::read_pending_page_content_of(&state.document, page_id, &state.base, sources)
+        })?;
+        Ok(content
+            .paths
+            .into_iter()
+            .map(|path| FfiContentPathItem {
+                page,
+                ..path.into()
+            })
+            .collect())
     }
 
     /// Reads the original image as PNG/JPEG for an undoable source replacement.
@@ -1934,10 +1986,22 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
 /// An image moved again folds into its queued move the same way: what the
 /// caller holds is the image already at its new place, which the untouched
 /// bytes a save replays against do not contain.
+/// A path moved, resized or removed after a queued move or resize folds into
+/// that geometry edit for the same reason (B25 T-206).
 fn pending_text_amendment_index(
     document: &Document,
     command: &Command,
 ) -> Result<Option<usize>, FfiError> {
+    if let Command::MovePath { item, .. }
+    | Command::ResizePath { item, .. }
+    | Command::RemovePath(item) = command
+    {
+        return Ok(document.pending_edits.entries().iter().position(|queued| {
+            matches!(queued,
+                Command::MovePath { item: target, .. } | Command::ResizePath { item: target, .. }
+                    if target.id == item.id && target.page == item.page)
+        }));
+    }
     if let Command::MoveImage { item, to } = command {
         if !to.x.is_finite() || !to.y.is_finite() {
             return Err(FfiError::UnsupportedOperation {
@@ -2038,12 +2102,53 @@ fn pending_insertion_amendment_index(
     })
 }
 
+/// A path edit folded into the queued geometry edit of the same path, keyed
+/// to the snapshot the file still holds.
+///
+/// The caller's item is the path at its pending box, so the destination is
+/// read off it: a move keeps that box's size. Two moves stay a move; any
+/// resize in the pair makes the fold a resize from the original box straight
+/// to the final one, which a move is a special case of. A removal simply
+/// replaces the queued edit. Successive edits coalesce into one undo step —
+/// the cost `EditLog::amend` documents.
+fn with_queued_path(queued: &Command, command: &Command) -> Option<Command> {
+    let (Command::MovePath { item: original, .. } | Command::ResizePath { item: original, .. }) =
+        queued
+    else {
+        return None;
+    };
+    let original = original.clone();
+    Some(match command {
+        Command::RemovePath(_) => Command::RemovePath(original),
+        Command::MovePath { item, to } => {
+            let to = pdf_document::annotation::Rect {
+                x: to.x,
+                y: to.y,
+                ..item.bbox
+            };
+            if matches!(queued, Command::MovePath { .. }) {
+                Command::MovePath { item: original, to }
+            } else {
+                Command::ResizePath { item: original, to }
+            }
+        }
+        Command::ResizePath { to, .. } => Command::ResizePath {
+            item: original,
+            to: *to,
+        },
+        _ => return None,
+    })
+}
+
 /// `command` carrying `queued`'s run snapshot in place of its own.
 ///
 /// Only called for a pair [`pending_text_amendment_index`] matched: retyping
 /// an insertion, replacing/removing a run with a queued replacement, or moving
 /// a run or an image with a queued move.
 fn with_queued_item(queued: &Command, command: Command) -> Command {
+    if let Some(folded) = with_queued_path(queued, &command) {
+        return folded;
+    }
     if let (Command::InsertTextRun(run), Command::MoveTextRun { to, .. }) = (queued, &command) {
         return Command::InsertTextRun(TextRun {
             bbox: pdf_document::annotation::Rect {

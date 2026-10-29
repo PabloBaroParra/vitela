@@ -24,6 +24,7 @@
 
 use super::lexer::{Operand, SpannedOperation};
 use super::matrix::Matrix;
+use super::path::{self, LocatedPath, PathBuilder};
 use crate::encoding::{resolve_font, FontInfo};
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object, ObjectId};
@@ -145,6 +146,7 @@ pub struct LocatedContent {
     pub streams: Vec<PageStream>,
     pub text_runs: Vec<LocatedTextRun>,
     pub images: Vec<LocatedImage>,
+    pub paths: Vec<LocatedPath>,
     /// The CTM left in effect once every stream has been walked.
     ///
     /// Content appended after that inherits it, so [`crate::insert`] has to
@@ -181,6 +183,14 @@ impl LocatedContent {
                     ..located.item.clone()
                 })
                 .collect(),
+            paths: self
+                .paths
+                .iter()
+                .map(|located| pdf_document::PathItem {
+                    page,
+                    ..located.item.clone()
+                })
+                .collect(),
         }
     }
 
@@ -190,6 +200,10 @@ impl LocatedContent {
 
     pub fn image(&self, id: ContentItemId) -> Option<&LocatedImage> {
         self.images.iter().find(|located| located.item.id == id)
+    }
+
+    pub fn path(&self, id: ContentItemId) -> Option<&LocatedPath> {
+        self.paths.iter().find(|located| located.item.id == id)
     }
 }
 
@@ -246,6 +260,7 @@ pub fn interpret(
     let mut state = State::default();
     let mut text_runs = Vec::new();
     let mut images = Vec::new();
+    let mut paths = Vec::new();
     let mut active_forms = HashSet::new();
     let mut decode_budget = super::filter::MAX_PAGE_CONTENT_BYTES;
     interpret_streams(
@@ -258,12 +273,14 @@ pub fn interpret(
         &mut decode_budget,
         &mut text_runs,
         &mut images,
+        &mut paths,
     )?;
 
     Ok(LocatedContent {
         streams: streams.to_vec(),
         text_runs,
         images,
+        paths,
         end_ctm: state.ctm,
     })
 }
@@ -279,13 +296,26 @@ fn interpret_streams(
     decode_budget: &mut usize,
     text_runs: &mut Vec<LocatedTextRun>,
     images: &mut Vec<LocatedImage>,
+    paths: &mut Vec<LocatedPath>,
 ) -> Result<(), EditError> {
     let fonts = font_table(document, resources);
     let xobjects = xobject_table(document, resources);
     let mut stack = Vec::new();
+    let mut building: Option<PathBuilder> = None;
 
     for (stream_index, stream) in streams.iter().enumerate() {
         for operation in super::lexer::tokenize(&stream.bytes)? {
+            match path::step(&mut building, &operation, stream_index) {
+                path::PathStep::Other => {}
+                step => {
+                    if let Some(located) =
+                        path::located_path(step, state.ctm, stream_index, form_path, paths.len())
+                    {
+                        paths.push(located);
+                    }
+                    continue;
+                }
+            }
             let form = apply_operation(
                 &operation,
                 state,
@@ -315,6 +345,7 @@ fn interpret_streams(
                     decode_budget,
                     text_runs,
                     images,
+                    paths,
                 )?;
             }
         }
@@ -342,6 +373,7 @@ fn interpret_form(
     decode_budget: &mut usize,
     text_runs: &mut Vec<LocatedTextRun>,
     images: &mut Vec<LocatedImage>,
+    paths: &mut Vec<LocatedPath>,
 ) -> Result<(), EditError> {
     if parent_path.len() >= MAX_FORM_DEPTH {
         return Err(EditError::FormNestingTooDeep {
@@ -392,6 +424,7 @@ fn interpret_form(
             decode_budget,
             text_runs,
             images,
+            paths,
         )
     })();
 

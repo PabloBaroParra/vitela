@@ -14,6 +14,9 @@
 //!   it did not target untouched.
 //! - [`insert`] (T-155): appends genuinely new text or images as page
 //!   content, registering the resources they need.
+//! - [`path`] (B25 T-206): move, resize and delete vector paths — the
+//!   loose `re`/`m`/`l` operators a table border is made of — by rewriting
+//!   their coordinates, so a stretched frame keeps its line width.
 //! - [`pending`]: a page's content as the reader sees it — the parse with
 //!   every page-content edit still pending in the `EditLog` layered on top,
 //!   so a shell hit-tests what the refreshed preview paints.
@@ -46,6 +49,7 @@ pub mod encoding;
 pub mod error;
 pub mod insert;
 pub mod parse;
+pub mod path;
 pub mod pending;
 pub mod watermark;
 
@@ -63,6 +67,7 @@ pub use parse::{
     page_font_families, page_image_placements, page_object_font_families, page_object_id,
     read_page_content, read_page_object_content, ImagePlacement,
 };
+pub use path::{move_path, remove_path, resize_path};
 pub use pending::{
     overlay_pending_content, pending_log_index, pending_text_bbox, PENDING_ITEM_ID_BASE,
 };

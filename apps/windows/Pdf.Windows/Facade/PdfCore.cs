@@ -110,6 +110,13 @@ internal interface IPdfCore
     byte[] ImageSourceBytes(IPdfCoreDocument document, PdfCoreContentImage image);
 
     /// <summary>
+    /// The vector paths a page paints — table borders, rules, shaded boxes —
+    /// with pending path edits applied. A separate read from
+    /// <see cref="ReadPageContent"/>, as the core keeps it.
+    /// </summary>
+    IReadOnlyList<PdfCoreContentPath> ReadPagePaths(IPdfCoreDocument document, uint pageIndex);
+
+    /// <summary>
     /// The <c>/BaseFont</c> name of each font a page declares, keyed by the
     /// resource name its text runs report. Empty when the page names none.
     /// </summary>
@@ -417,6 +424,13 @@ internal sealed record PdfCoreContentTextRun(ulong Id, uint PageIndex, PdfCoreRe
 /// as an optional name (see <c>FfiContentImageItem</c>).
 /// </summary>
 internal sealed record PdfCoreContentImage(ulong Id, uint PageIndex, PdfCoreRect Bbox, string? ResourceXObjectName);
+/// <summary>How a path is painted: an outline, a solid shape, or both.</summary>
+internal enum PdfCorePathPaint { Stroke, Fill, FillAndStroke }
+/// <summary>
+/// A vector path painted by a page's content stream. <c>Bbox</c> covers the
+/// geometry only, so a hairline rule has a height of zero.
+/// </summary>
+internal sealed record PdfCoreContentPath(ulong Id, uint PageIndex, PdfCoreRect Bbox, PdfCorePathPaint Paint);
 internal sealed record PdfCorePageContent(IReadOnlyList<PdfCoreContentTextRun> TextRuns, IReadOnlyList<PdfCoreContentImage> Images);
 internal sealed record PdfCoreSearchRect(double XPt, double YPt, double WidthPt, double HeightPt);
 internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyList<PdfCoreSearchRect> CharacterBounds);
@@ -478,6 +492,11 @@ internal abstract record PdfCoreEdit
     public sealed record MoveImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record ReplaceImageSource(PdfCoreContentImage Item, byte[] Before, byte[] After) : PdfCoreEdit;
     public sealed record RemoveImage(PdfCoreContentImage Item) : PdfCoreEdit;
+    /// <summary>Moves a path; only the origin of <c>To</c> is read.</summary>
+    public sealed record MovePath(PdfCoreContentPath Item, PdfCoreRect To) : PdfCoreEdit;
+    /// <summary>Reshapes a path to <c>To</c>, rewriting its coordinates so the line width stays.</summary>
+    public sealed record ResizePath(PdfCoreContentPath Item, PdfCoreRect To) : PdfCoreEdit;
+    public sealed record RemovePath(PdfCoreContentPath Item) : PdfCoreEdit;
 
     /// <summary>
     /// Stamps the same text on every page the watermark names, as one undo

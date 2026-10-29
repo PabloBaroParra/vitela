@@ -22,6 +22,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("preserves note contents in read-only snapshots without history", PreservesNoteContentsAsync),
     ("replaces resource and inline image sources with history", ReplacesContentImagesAsync),
     ("stamps a watermark as one undoable content edit over the chosen pages", WatermarkParityTests.RunAsync),
+    ("moves, resizes and deletes vector paths with history and stale guards", PathParityTests.RunAsync),
     ("refuses stale forbidden and unrecoverable image replacement", RefusesImageReplacementAsync),
     ("retains image replacement after preview failure", KeepsImageReplacementAfterPreviewFailureAsync),
     ("inserts image content with shared placement and history", InsertsContentImageAsync),
@@ -4506,6 +4507,7 @@ sealed partial class FakeCore : IPdfCore
 
         if (TryApplyFreeText(fake, edit)) return;
         if (TryApplyWatermark(fake, edit)) return;
+        if (TryApplyPath(fake, edit)) return;
 
         if (!fake.EditingAllowed) throw new PdfCoreException(PdfCoreError.UnsupportedOperation, "annotation editing is not permitted");
         fake.Apply(edit);

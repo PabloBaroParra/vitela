@@ -36,7 +36,15 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
 
 ## Fases propuestas
 
-- [ ] T-206 **P1 — Trazados vectoriales como item.** `PathItem {id, page, bbox, …}` en
+- [x] T-206 **P1 — Trazados vectoriales como item.** Core + FFI + Windows (2026-10-28).
+      Linux y Android siguen pendientes (van en T-212). Como quedó:
+      `PathItem {id, page, bbox, paint}` en `PageContent.paths`; el FFI lo lee aparte con
+      `read_page_paths` para no cambiar `FfiPageContent` en los shells que todavía no
+      editan trazados. Mover y redimensionar reescriben las coordenadas (no se usa `cm`).
+      Una segunda edición de geometría antes de guardar se pliega en la que está en cola,
+      que conserva el snapshot original, así que mover y después redimensionar es un solo
+      undo. `RemovePath` tiene como inverso `RestorePath`, que nunca se escribe (mismo
+      criterio que `RemoveWatermark`). El diseño original era: `PathItem {id, page, bbox, …}` en
       `PageContent`: un `re`/`m`/`l`/`c` … hasta el operador de pintado (`S`/`f`/`B`/`n`)
       es un item. Mover = prefijar `cm` (mismo truco que imágenes); borrar = quitar el span.
       Redimensionar una tabla **cambia sólo el marco, no el texto** (decidido por el usuario

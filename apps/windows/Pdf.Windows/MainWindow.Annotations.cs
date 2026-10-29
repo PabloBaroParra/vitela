@@ -160,7 +160,9 @@ public sealed partial class MainWindow
             }
             if (_contentEditMode)
             {
-                ContinueContentImageGesture(pageIndex, ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position));
+                var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
+                ContinueContentImageGesture(pageIndex, point);
+                ContinueContentPathGesture(pageIndex, point);
                 return;
             }
             if (!ContinueAnnotationPointer(slot, pageIndex, args)) ContinueTextSelection(slot, pageIndex, args);
@@ -171,6 +173,7 @@ public sealed partial class MainWindow
             if (_contentEditMode)
             {
                 await EndContentImageGestureAsync(slot, pageIndex, args);
+                await EndContentPathGestureAsync(slot, pageIndex, args);
                 return;
             }
             if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
@@ -201,6 +204,7 @@ public sealed partial class MainWindow
         }
         CancelFormGesture(pageIndex);
         CancelContentImageGesture(pageIndex);
+        CancelContentPathGesture(pageIndex);
         if (_textSelection?.PageIndex == pageIndex) _textDragActive = false;
     }
 

@@ -53,6 +53,7 @@ public sealed partial class MainWindow
         page.Children.Add(EditCard("Images", "EditImagesCard",
             _editImageHint,
             InsertImageButton, ReplaceImageButton, DeleteImageButton));
+        page.Children.Add(BuildShapesCard());
         page.Children.Add(EditCard("Pages", "EditPagesCard",
             EditHint("A watermark is painted into the pages themselves and is one undo step."),
             AddWatermarkButton));
@@ -90,6 +91,7 @@ public sealed partial class MainWindow
     {
         UpdateEditTextSelection();
         UpdateImageCard();
+        UpdateShapeCard();
         if (_editNotice is null) return;
         var reason = _session is null ? "Open a PDF to edit the text and images on its pages."
             : !_session.ContentEditingAllowed ? "This document does not permit content changes."
