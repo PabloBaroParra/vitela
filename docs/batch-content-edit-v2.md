@@ -55,6 +55,24 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       alineadas forman párrafo. Es agrupación para **seleccionar/mover/borrar/retipear**,
       no reflow: el "Fuera de scope" de B21 sigue vigente. Retipear un bloque partido en
       varios runs = reescribir el primero y vaciar el resto.
+      **Core + FFI + Windows hechos (2026-10-29); faltan Linux, Android (T-212) y los párrafos.**
+      Windows: Edit content contornea bloques; clic = un editor sobre el bloque entero
+      (escribe con `retype_text_block`, cada pausa se pliega en el mismo undo); arrastrar
+      más de 4 px mueve el bloque; Delete en el editor borra el bloque. `TextBlockSmoke`.
+      Como quedó: `Command::Batch(Vec<Command>)` genérico = un paso de undo (decidido por
+      el usuario 2026-10-29; lo reusan T-208 y T-211). Sólo lleva ediciones de contenido de
+      un item (`Command::is_batchable`); `pdf-save` lo valida **en secuencia** sobre una
+      copia por página, como lo reproduce el guardado. `pdf_edit::group_text_runs` agrupa
+      sólo **líneas** (misma fuente, misma altura, hueco ≤ 0.4 × alto); los párrafos
+      quedan afuera porque retipear uno pondría todas sus líneas en la primera.
+      Retipear = **primero borrar el resto, después reescribir el primero**: al revés, el
+      texto más largo corre el cursor y el guardado ya no encuentra los runs siguientes.
+      FFI: `read_page_text_blocks`, `move_text_block`, `remove_text_block`,
+      `retype_text_block`. Mover un bloque dos veces antes de guardar se pliega en un solo
+      undo, igual que retipear un bloque otra vez mientras se escribe, y una edición suelta
+      del mismo tipo sobre un run de un batch en cola (p. ej. retipear el run que quedó) se
+      pliega en ese hijo. Mezclar tipos (mover un bloque retipeado) se rechaza con
+      "save the document before editing it again".
 - [ ] T-208 **P3 — Multi-selección y movimiento en bloque.** Selección = conjunto de
       `ContentItemId` (texto, imagen, trazado, grupo). Marquee: items cuyo bbox **toca**
       (interseca) el rectángulo — decidido por el usuario 2026-10-28. SHIFT+click alterna. Arrastre mueve todos
