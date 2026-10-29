@@ -16,7 +16,7 @@ contained PASS, with no FAIL or UNHANDLED entry.
 | Area | Passing targets |
 | --- | --- |
 | Signing | SigningSmoke, SigningDialogsSmoke |
-| Content | CanvasInsertSmoke, TextMoveSmoke, ContentDeleteSmoke, SelectionSmoke, PathEditSmoke, TextBlockSmoke |
+| Content | CanvasInsertSmoke, TextMoveSmoke, ContentDeleteSmoke, SelectionSmoke, PathEditSmoke, TextBlockSmoke, ContentSelectionSmoke |
 | Forms and colors | FormFillSmoke, FormToolbarSmoke, ColorDialogsSmoke |
 | Organization | ImportPdfsSmoke, OrganizeDocumentsSmoke, OrganizePagesSmoke |
 | Output and lifecycle | LifecycleDialogsSmoke, OutputDialogsSmoke, PrintSmoke, DocumentStatesSmoke |

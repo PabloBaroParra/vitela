@@ -172,6 +172,7 @@ public sealed partial class MainWindow
                 ContinueContentImageGesture(pageIndex, point);
                 ContinueContentPathGesture(pageIndex, point);
                 ContinueTextBlockGesture(slot, pageIndex, point);
+                ContinueContentSelectionGesture(slot, pageIndex, point);
                 return;
             }
             if (!ContinueAnnotationPointer(slot, pageIndex, args)) ContinueTextSelection(slot, pageIndex, args);
@@ -185,6 +186,7 @@ public sealed partial class MainWindow
                 await EndContentImageGestureAsync(slot, pageIndex, args);
                 await EndContentPathGestureAsync(slot, pageIndex, args);
                 await EndTextBlockGestureAsync(slot, pageIndex, args);
+                await EndContentSelectionGestureAsync(slot, pageIndex, args);
                 return;
             }
             if (!await EndAnnotationPointerAsync(slot, pageIndex, args)) EndTextSelection(slot, pageIndex, args);
@@ -217,6 +219,7 @@ public sealed partial class MainWindow
         CancelContentImageGesture(pageIndex);
         CancelContentPathGesture(pageIndex);
         CancelTextBlockGesture(pageIndex);
+        CancelContentSelectionGesture(pageIndex);
         if (_textSelection?.PageIndex == pageIndex) _textDragActive = false;
     }
 

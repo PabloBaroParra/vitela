@@ -7,7 +7,7 @@
 
 use pdf_document::{Command, ContentItemId, Document, PageId, TextRun};
 
-use crate::document::{apply_command, content_editing_is_allowed, DocumentHandle};
+use crate::document::{apply_command, content_editing_is_allowed, DocumentHandle, DocumentState};
 use crate::error::FfiError;
 use crate::types::{FfiContentTextRun, FfiTextBlock};
 
@@ -80,17 +80,29 @@ fn apply_block_edit(
     runs: Vec<FfiContentTextRun>,
     build: impl FnOnce(&[TextRun]) -> Option<Command>,
 ) -> Result<(), FfiError> {
+    apply_batch_edit(handle, |state| {
+        let runs = runs
+            .into_iter()
+            .map(|run| state.text_run(run))
+            .collect::<Result<Vec<_>, _>>()?;
+        build(&runs).ok_or_else(|| unsupported("a text block has at least one run"))
+    })
+}
+
+/// Records the batch `build` makes as one undo step, gated like
+/// `apply_edit` gates a single content edit. Shared by text blocks and by
+/// multi-item selections (`content_selection`, T-208).
+pub(crate) fn apply_batch_edit(
+    handle: &DocumentHandle,
+    build: impl FnOnce(&DocumentState) -> Result<Command, FfiError>,
+) -> Result<(), FfiError> {
     let mut state = handle.lock();
     // One question, two answers, as in `apply_edit`: whether the document
     // permits it and whether a rewrite could ever keep it.
     if !content_editing_is_allowed(state.document()) {
         return Err(unsupported("content editing is not permitted"));
     }
-    let runs = runs
-        .into_iter()
-        .map(|run| state.text_run(run))
-        .collect::<Result<Vec<_>, _>>()?;
-    let command = build(&runs).ok_or_else(|| unsupported("a text block has at least one run"))?;
+    let command = build(&state)?;
 
     match queued_batch(state.document(), &command) {
         // Folded into the queued batch: it keeps the snapshots the file
@@ -238,6 +250,9 @@ fn with_original(next: &Command, earlier: &Command) -> Option<Command> {
             _ => None,
         };
     }
+    if let Some(folded) = with_original_geometry(next, earlier) {
+        return Some(folded);
+    }
     Some(match (next, earlier) {
         (Command::MoveTextRun { to, .. }, Command::MoveTextRun { item, .. }) => {
             Command::MoveTextRun {
@@ -258,6 +273,48 @@ fn with_original(next: &Command, earlier: &Command) -> Option<Command> {
         ) => Command::ReplaceTextRunWithInsertedFont {
             item: item.clone(),
             after: after.clone(),
+        },
+        _ => return None,
+    })
+}
+
+/// The image and path half of [`with_original`], for a selection moved or
+/// removed again (T-208): the queued original with the new destination, a
+/// resize staying a resize, or the item removed outright.
+fn with_original_geometry(next: &Command, earlier: &Command) -> Option<Command> {
+    Some(match (next, earlier) {
+        (
+            Command::RemoveImage { source, .. },
+            Command::MoveImage { item, .. }
+            | Command::ResizeImage { item, .. }
+            | Command::RemoveImage { item, .. },
+        ) => Command::RemoveImage {
+            item: item.clone(),
+            source: source.clone(),
+        },
+        (Command::MoveImage { to, .. }, Command::MoveImage { item, .. }) => Command::MoveImage {
+            item: item.clone(),
+            to: *to,
+        },
+        (Command::MoveImage { to, .. }, Command::ResizeImage { item, .. }) => {
+            Command::ResizeImage {
+                item: item.clone(),
+                to: *to,
+            }
+        }
+        (
+            Command::RemovePath(_),
+            Command::MovePath { item, .. }
+            | Command::ResizePath { item, .. }
+            | Command::RemovePath(item),
+        ) => Command::RemovePath(item.clone()),
+        (Command::MovePath { to, .. }, Command::MovePath { item, .. }) => Command::MovePath {
+            item: item.clone(),
+            to: *to,
+        },
+        (Command::MovePath { to, .. }, Command::ResizePath { item, .. }) => Command::ResizePath {
+            item: item.clone(),
+            to: *to,
         },
         _ => return None,
     })

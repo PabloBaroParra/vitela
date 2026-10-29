@@ -913,6 +913,27 @@ while typing are one undo step, that Delete in a block editor removes the block
 and one undo restores it, and that the save reopens with the retyped block as one
 run. As with the other smokes, the press is not a physical pointer.
 
+## Multi-item selection (B25 T-208)
+
+With Edit content armed, a press on empty page drags a dashed marquee that
+selects every text block, image and shape it touches. SHIFT+click adds or
+removes one item (extending a single selection already made), and SHIFT+drag
+on empty page adds the marquee to the selection. A drag inside the dashed box
+moves every member; Delete removes them all; Esc clears the selection. Each
+move or delete is one undo step, and a selection dragged again before a save
+folds into the first move. Moving content to another page is not here — that
+is cut and paste (T-209).
+
+`Tests/ContentSelectionSmoke.targets` replaces the entry point the same way and
+writes `content-selection-smoke.log`. It opens a client box (a stroked frame with
+two lines inside), a logo and a footer, and drives the canvas gesture handler to
+check that a marquee from empty page gathers exactly the frame and its two lines,
+that SHIFT+click toggles the logo in and out, that a drag inside the selection
+moves every member and keeps them selected, that a second drag shares the first
+one's undo step, that the save reopens with every member moved, and that a
+marquee over the page plus Delete empties it in one undo step. As with the other
+smokes, the press is not a physical pointer.
+
 ## Note placement runtime smoke
 
 `Tests/NotePlacementSmoke.targets` replaces the app entry point with an opt-in

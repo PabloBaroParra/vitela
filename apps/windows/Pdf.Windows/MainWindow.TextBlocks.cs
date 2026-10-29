@@ -215,6 +215,7 @@ public sealed partial class MainWindow
     {
         if (!_contentEditMode || _contentInsertKind is not null || _isBusy || _dialogOpen) return;
         ClearTextBlockSelection();
+        ClearContentSelection();
         await OpenContentEditorAsync(pageIndex, point);
     }
 
@@ -265,7 +266,12 @@ public sealed partial class MainWindow
         delete.Invoked += async (_, args) =>
         {
             if (TextInputHasFocus() || !_contentEditMode || _pump.Box is not null) return;
-            if (_selectedTextBlock is not null)
+            if (_contentSelection is not null)
+            {
+                args.Handled = true;
+                await DeleteContentSelectionAsync();
+            }
+            else if (_selectedTextBlock is not null)
             {
                 args.Handled = true;
                 await DeleteSelectedTextBlockAsync();
@@ -291,6 +297,16 @@ public sealed partial class MainWindow
             await RetypeSelectedTextBlockAsync();
         };
         PageScroller.KeyboardAccelerators.Add(retype);
+
+        var deselect = new KeyboardAccelerator { Key = global::Windows.System.VirtualKey.Escape };
+        deselect.Invoked += (_, args) =>
+        {
+            if (TextInputHasFocus() || _contentSelection is null) return;
+            args.Handled = true;
+            ClearContentSelection();
+            AnnotationStatus.Text = "Selection cleared.";
+        };
+        PageScroller.KeyboardAccelerators.Add(deselect);
     }
 
     /// <summary>Drops one page's parsed content and its estimated boxes, then reads it again.</summary>

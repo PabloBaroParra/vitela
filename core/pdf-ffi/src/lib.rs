@@ -63,6 +63,7 @@ mod bitmap;
 mod blocks;
 mod comments;
 mod compress;
+mod content_selection;
 mod document;
 mod error;
 mod export;
@@ -87,6 +88,9 @@ pub use compress::{
     compress_presets, compressed_save_will_invalidate_signatures, compression_refusal,
     save_compressed_to_bytes, save_compressed_to_path, FfiCompressOutcome, FfiCompressPreset,
     FfiCompressRefusal, FfiCompressReport, FfiCompressWork, FfiCompressedSave,
+};
+pub use content_selection::{
+    move_content_selection, remove_content_selection, FfiContentSelection,
 };
 pub use document::{
     apply_edit, create_blank_document, create_document_with_blank_page, insert_image_stamp, open,

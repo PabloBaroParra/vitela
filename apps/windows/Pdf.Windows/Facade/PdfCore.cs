@@ -127,6 +127,12 @@ internal interface IPdfCore
     void ApplyTextBlockEdit(IPdfCoreDocument document, PdfCoreTextBlockEdit edit);
 
     /// <summary>
+    /// Moves or removes a multi-item selection — text runs, images and paths
+    /// of one page (B25 T-208) — as one undo step.
+    /// </summary>
+    void ApplyContentSelectionEdit(IPdfCoreDocument document, PdfCoreContentSelectionEdit edit);
+
+    /// <summary>
     /// The <c>/BaseFont</c> name of each font a page declares, keyed by the
     /// resource name its text runs report. Empty when the page names none.
     /// </summary>
