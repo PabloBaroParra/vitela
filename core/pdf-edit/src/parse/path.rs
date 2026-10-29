@@ -57,6 +57,10 @@ pub struct LocatedPath {
     /// The CTM the path was built under. `cm` is not allowed inside a path
     /// object (PDF 32000-1 8.2), so one matrix holds for every segment.
     pub ctm: Matrix,
+    /// Operators that put back how the path looked — `gs`, fill and stroke
+    /// colours, line width, caps, joins and dash — in the scope's own
+    /// resource names (B25 T-209: copying a path out of its stream).
+    pub paint_state: Vec<u8>,
 }
 
 /// A path under construction.
@@ -262,6 +266,7 @@ pub(crate) fn located_path(
         segments,
         paint_operator,
         ctm,
+        paint_state: Vec::new(),
     })
 }
 

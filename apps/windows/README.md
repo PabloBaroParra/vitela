@@ -922,7 +922,7 @@ on empty page adds the marquee to the selection. A drag inside the dashed box
 moves every member; Delete removes them all; Esc clears the selection. Each
 move or delete is one undo step, and a selection dragged again before a save
 folds into the first move. Moving content to another page is not here — that
-is cut and paste (T-209).
+is cut and paste (T-209, below).
 
 `Tests/ContentSelectionSmoke.targets` replaces the entry point the same way and
 writes `content-selection-smoke.log`. It opens a client box (a stroked frame with
@@ -933,6 +933,29 @@ moves every member and keeps them selected, that a second drag shares the first
 one's undo step, that the save reopens with every member moved, and that a
 marquee over the page plus Delete empties it in one undo step. As with the other
 smokes, the press is not a physical pointer.
+
+## Content clipboard (B25 T-209)
+
+With Edit content armed, Ctrl+C copies what is selected — the multi-selection,
+or the one block, image or shape selected on its own — and Ctrl+X cuts it (one
+undo step). Ctrl+V pastes it with the top-left corner of its box where the
+pointer last was, on that page or any other, and selects what it added: a drag
+inside the dashed box then moves the whole paste, still one undo step with the
+paste. The clip is a self-contained one-page PDF held by the window, so it
+survives opening another document and pastes there too; the copied text also
+goes on the system clipboard for other apps. Outside Edit content, or with no
+clip held, Ctrl+C copies page text and Ctrl+V pastes a bitmap as before.
+
+Until the save, pasted content moves only as a whole: editing part of it,
+deleting it (undo takes a paste back) or copying it again is refused with a
+sentence saying so. Content with an unsaved edit is not copied, because the
+clip is copied from the file. Content inside a form xobject is not copied yet.
+
+`Tests/ContentClipboardSmoke.targets` replaces the entry point the same way and
+writes `content-clipboard-smoke.log`. It copies a client box off page 1 with a
+marquee and Ctrl+C, pastes it on page 2 at the pointer, drags the paste, checks
+one undo takes it back, reopens the save with the box beside page 2's own
+Courier `/F1` text, and cuts the box off page 1 and pastes it back.
 
 ## Note placement runtime smoke
 

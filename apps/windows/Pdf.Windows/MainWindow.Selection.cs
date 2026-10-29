@@ -91,6 +91,7 @@ public sealed partial class MainWindow
         }
 
         args.Handled = true;
+        if (TryCopyContent()) return;
         CopySelectedDocumentText();
     }
 

@@ -25,7 +25,8 @@ pub use annotation::{Annotation, AnnotationId, AnnotationKind, AnnotationSet, Co
 pub use audit_log::{AuditActor, AuditEntry, AuditEvent, AuditLog};
 pub use blocks::{derive_blocks, Block, BlockSource};
 pub use content::{
-    ContentItemId, FontKind, ImageItem, ImageSource, PageContent, PathItem, PathPaint, TextRun,
+    ContentClip, ContentItemId, FontKind, ImageItem, ImageSource, PageContent, PathItem, PathPaint,
+    TextRun,
 };
 pub use document::{
     Document, ImportedDocumentId, Orientation, Page, PageId, PageOrigin, PageSize, Rotation,

@@ -119,6 +119,13 @@ pub enum EditError {
     /// Neither does the content-byte budget, because a level costs the
     /// seven bytes of a `/N Do`.
     FormNestingTooDeep { limit: usize },
+    /// A selection cannot be put on the content clipboard (B25 T-209): it is
+    /// empty, or a member is painted somewhere this version does not copy
+    /// from, such as inside a form xobject.
+    ContentNotCopyable { reason: String },
+    /// A clip handed to a paste is not one this crate can write: not a PDF,
+    /// not one page, or content that names a resource it does not carry.
+    InvalidClip(String),
     /// A structural problem reported by lopdf while reading the document.
     Lopdf(String),
 }
@@ -204,6 +211,10 @@ impl fmt::Display for EditError {
                 f,
                 "this page nests form xobjects more than {limit} levels deep,                  which is past what this version reads"
             ),
+            EditError::ContentNotCopyable { reason } => {
+                write!(f, "this selection cannot be copied: {reason}")
+            }
+            EditError::InvalidClip(msg) => write!(f, "the copied content cannot be pasted: {msg}"),
             EditError::Lopdf(msg) => write!(f, "pdf structure error: {msg}"),
         }
     }

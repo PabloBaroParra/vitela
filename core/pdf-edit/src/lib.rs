@@ -19,6 +19,8 @@
 //!   their coordinates, so a stretched frame keeps its line width.
 //! - [`group`] (B25 T-207): runs on one line joined into the block a reader
 //!   sees, and the one-undo-step batches that move, remove or retype it.
+//! - [`clipboard`] (B25 T-209): a selection copied out as a self-contained
+//!   one-page PDF, and pasted onto any page with its resources renamed.
 //! - [`pending`]: a page's content as the reader sees it — the parse with
 //!   every page-content edit still pending in the `EditLog` layered on top,
 //!   so a shell hit-tests what the refreshed preview paints.
@@ -46,6 +48,7 @@
 //! their document has not moved underneath them; `pdf-save` uses the mapping
 //! its own page replay produced.
 
+pub mod clipboard;
 pub mod edit;
 pub mod encoding;
 pub mod error;
@@ -60,6 +63,7 @@ pub mod watermark;
 #[cfg(test)]
 mod fixture;
 
+pub use clipboard::{copy_selection, paste_clip, pasted_content};
 pub use edit::{
     image_source_bytes, inserted_font_text_bbox, move_image, move_text_run, remove_image,
     remove_text_run, replace_image_source, replace_text_run, replace_text_run_with_inserted_font,

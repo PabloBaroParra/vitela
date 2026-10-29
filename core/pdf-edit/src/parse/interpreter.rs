@@ -248,6 +248,14 @@ struct State {
     /// entries its dictionary names, so replaying the last alone could lose
     /// an alpha an earlier one set.
     ext_gstates: Vec<Vec<u8>>,
+    /// The `CS` that set the stroke colour space, verbatim — the stroking
+    /// twin of `fill_space` (B25 T-209: a copied path keeps its outline).
+    stroke_space: Option<Vec<u8>>,
+    /// The operator that set the stroke colour, verbatim.
+    stroke_color: Option<Vec<u8>>,
+    /// The last `w`, `J`, `j`, `M`, `d` and `ri` applied, verbatim, keyed by
+    /// operator: each replaces only its own parameter.
+    line_params: Vec<(String, Vec<u8>)>,
 }
 
 impl Default for State {
@@ -267,6 +275,9 @@ impl Default for State {
             fill_space: None,
             fill_color: None,
             ext_gstates: Vec::new(),
+            stroke_space: None,
+            stroke_color: None,
+            line_params: Vec::new(),
         }
     }
 }
@@ -330,9 +341,10 @@ fn interpret_streams(
             match path::step(&mut building, &operation, stream_index) {
                 path::PathStep::Other => {}
                 step => {
-                    if let Some(located) =
+                    if let Some(mut located) =
                         path::located_path(step, state.ctm, stream_index, form_path, paths.len())
                     {
+                        located.paint_state = path_paint_state(state);
                         paths.push(located);
                     }
                     continue;
@@ -523,6 +535,24 @@ fn apply_operation(
             state.fill_color = None;
         }
         "sc" | "scn" => state.fill_color = Some(verbatim(operation, context)),
+        "G" | "RG" | "K" => {
+            state.stroke_space = None;
+            state.stroke_color = Some(verbatim(operation, context));
+        }
+        "CS" => {
+            state.stroke_space = Some(verbatim(operation, context));
+            state.stroke_color = None;
+        }
+        "SC" | "SCN" => state.stroke_color = Some(verbatim(operation, context)),
+        "w" | "J" | "j" | "M" | "d" | "ri" => {
+            let operator = operation.operator.clone();
+            state
+                .line_params
+                .retain(|(existing, _)| *existing != operator);
+            state
+                .line_params
+                .push((operator, verbatim(operation, context)));
+        }
         "gs" => state.ext_gstates.push(verbatim(operation, context)),
         "Td" => translate_line(state, operands),
         "TD" => {
@@ -756,6 +786,44 @@ fn paint_state(state: &State) -> Vec<u8> {
         )
         .as_bytes(),
     );
+    out
+}
+
+/// The operators that reproduce how a path painted — its `gs` dictionaries,
+/// fill and stroke colours and line parameters — for repainting it somewhere
+/// the stream's state is not in effect (B25 T-209: a copied path). Colours
+/// left at their initial value are set outright, as for text.
+fn path_paint_state(state: &State) -> Vec<u8> {
+    let mut out = Vec::new();
+    for gs in &state.ext_gstates {
+        out.extend_from_slice(gs);
+        out.push(b' ');
+    }
+    let colours = [
+        (&state.fill_space, &state.fill_color, b"0 g " as &[u8]),
+        (&state.stroke_space, &state.stroke_color, b"0 G "),
+    ];
+    for (space, color, initial) in colours {
+        match (space, color) {
+            (Some(space), color) => {
+                out.extend_from_slice(space);
+                out.push(b' ');
+                if let Some(color) = color {
+                    out.extend_from_slice(color);
+                    out.push(b' ');
+                }
+            }
+            (None, Some(color)) => {
+                out.extend_from_slice(color);
+                out.push(b' ');
+            }
+            (None, None) => out.extend_from_slice(initial),
+        }
+    }
+    for (_, operation) in &state.line_params {
+        out.extend_from_slice(operation);
+        out.push(b' ');
+    }
     out
 }
 

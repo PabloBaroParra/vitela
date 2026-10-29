@@ -8,6 +8,7 @@
 
 use pdf_edit::Selection;
 
+use crate::content_clipboard::{move_pending_paste, pasted_members, PastedMembers};
 use crate::document::DocumentHandle;
 use crate::error::FfiError;
 use crate::text_blocks::apply_batch_edit;
@@ -23,6 +24,9 @@ pub struct FfiContentSelection {
 }
 
 /// Moves every member of `selection` by `(dx, dy)` points, as one undo step.
+///
+/// A selection that is exactly what a pending paste added (T-209) moves the
+/// paste itself, so pasting and then nudging into place stays one step.
 #[uniffi::export]
 pub fn move_content_selection(
     handle: &DocumentHandle,
@@ -33,17 +37,31 @@ pub fn move_content_selection(
     if !dx.is_finite() || !dy.is_finite() {
         return Err(unsupported("Selection offsets must be finite."));
     }
+    {
+        let mut state = handle.lock();
+        if let PastedMembers::Whole(index) = pasted_members(&state, &selection)? {
+            return move_pending_paste(&mut state, index, dx, dy);
+        }
+    }
     apply_selection_edit(handle, selection, |selection| {
         pdf_edit::move_selection(selection, dx, dy)
     })
 }
 
 /// Removes every member of `selection`, as one undo step.
+///
+/// Pasted content that is not saved yet is refused: the paste is taken back
+/// with undo, and a removal of it would have nothing in the file to resolve.
 #[uniffi::export]
 pub fn remove_content_selection(
     handle: &DocumentHandle,
     selection: FfiContentSelection,
 ) -> Result<(), FfiError> {
+    if let PastedMembers::Whole(_) = pasted_members(&handle.lock(), &selection)? {
+        return Err(unsupported(
+            "Undo the paste to take it back, or save the document before deleting it.",
+        ));
+    }
     apply_selection_edit(handle, selection, pdf_edit::remove_selection)
 }
 

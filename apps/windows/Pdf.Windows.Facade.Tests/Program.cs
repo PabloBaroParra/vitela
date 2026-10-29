@@ -25,6 +25,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("moves, resizes and deletes vector paths with history and stale guards", PathParityTests.RunAsync),
     ("groups text runs into blocks and moves, deletes and retypes them whole", TextBlockParityTests.RunAsync),
     ("gathers multi-item selections and moves or deletes them as one edit", ContentSelectionParityTests.RunAsync),
+    ("copies, cuts and pastes content selections at the cursor", ContentClipboardParityTests.RunAsync),
     ("refuses stale forbidden and unrecoverable image replacement", RefusesImageReplacementAsync),
     ("retains image replacement after preview failure", KeepsImageReplacementAfterPreviewFailureAsync),
     ("inserts image content with shared placement and history", InsertsContentImageAsync),

@@ -1149,7 +1149,7 @@ fn place_image(
 /// Identity — text, font, box — is the authority, because the id is only a
 /// **position in a parse** and replaying several content commands in one
 /// save renumbers the page as soon as one of them removes something.
-fn resolve_text_run<'a>(
+pub(crate) fn resolve_text_run<'a>(
     located: &'a LocatedContent,
     item: &TextRun,
 ) -> Result<&'a LocatedTextRun, EditError> {
@@ -1163,7 +1163,7 @@ fn resolve_text_run<'a>(
 
 /// The same lookup for images, whose identity is the resource they paint and
 /// where they paint it.
-fn resolve_image<'a>(
+pub(crate) fn resolve_image<'a>(
     located: &'a LocatedContent,
     item: &ImageItem,
 ) -> Result<&'a LocatedImage, EditError> {
