@@ -319,6 +319,20 @@ pub enum Command {
     /// because a watermark already in the file is not something this version
     /// can find again.
     RemoveWatermark(Watermark),
+    /// Several page-content edits recorded as **one undo step** (B25 T-207):
+    /// a text block moved or deleted as a unit, and later a multi-selection
+    /// (T-208) or a header removed from every page (T-211).
+    ///
+    /// One generic command rather than a `MoveTextRuns`, a `RemoveImages`
+    /// and so on, so that a selection mixing text, images and paths needs no
+    /// new variant (decided by the user 2026-10-29). Children run in order on
+    /// apply and save; the inverse is the children's inverses in reverse.
+    ///
+    /// Only edits of page content may be children, and never another batch
+    /// or a watermark — see [`Command::is_batchable`]. Page, form and
+    /// annotation commands mutate the model, and a batch of those would need
+    /// a rollback on partial failure that inert content edits never do.
+    Batch(Vec<Command>),
 
     // --- Form fields (Batch 20) -----------------------------------------
     //
@@ -530,7 +544,22 @@ impl Command {
                 | Command::RestorePath(_)
                 | Command::AddWatermark(_)
                 | Command::RemoveWatermark(_)
+                | Command::Batch(_)
         )
+    }
+
+    /// Whether `self` may be a child of a [`Command::Batch`]: an edit of one
+    /// page-content item, which is inert on the model, so a batch of them
+    /// applies and undoes without ever having half-happened.
+    ///
+    /// Watermarks are left out because they name pages, not an item, and
+    /// refuse themselves on apply; a nested batch because nothing needs one.
+    pub fn is_batchable(&self) -> bool {
+        self.is_content_edit()
+            && !matches!(
+                self,
+                Command::AddWatermark(_) | Command::RemoveWatermark(_) | Command::Batch(_)
+            )
     }
 
     /// Whether this command changes the membership or order of document pages.
@@ -817,6 +846,13 @@ impl Command {
             | Command::ResizePath { .. }
             | Command::RemovePath(_)
             | Command::RestorePath(_) => {}
+            // Inert like its children; refusing a malformed batch is the
+            // whole forward action, so an empty or mixed one is never logged.
+            Command::Batch(children) => {
+                if children.is_empty() || !children.iter().all(Command::is_batchable) {
+                    return false;
+                }
+            }
             // Still inert — the check is the whole of the forward action.
             Command::AddWatermark(watermark) | Command::RemoveWatermark(watermark) => {
                 if !watermark.can_apply_to(document) {
@@ -1035,6 +1071,9 @@ impl Command {
                 }
             }
             Command::RemovePath(path) => Command::RestorePath(path.clone()),
+            Command::Batch(children) => {
+                Command::Batch(children.iter().rev().map(Command::inverse).collect())
+            }
             Command::RestorePath(path) => Command::RemovePath(path.clone()),
             Command::AddWatermark(watermark) => Command::RemoveWatermark(watermark.clone()),
             Command::RemoveWatermark(watermark) => Command::AddWatermark(watermark.clone()),
@@ -3090,6 +3129,94 @@ mod tests {
                 !command.is_content_edit(),
                 "{command:?} must not report itself as a content edit"
             );
+        }
+    }
+
+    /// A block of two runs moved as one gesture — the shape B25 T-207 records.
+    fn a_two_run_move() -> Command {
+        let second = TextRun {
+            id: ContentItemId(2),
+            text: "second".to_string(),
+            ..sample_text_run()
+        };
+        Command::Batch(vec![
+            Command::MoveTextRun {
+                item: sample_text_run(),
+                to: sample_rect(10.0, 10.0),
+            },
+            Command::MoveTextRun {
+                item: second,
+                to: sample_rect(110.0, 10.0),
+            },
+        ])
+    }
+
+    #[test]
+    fn a_batch_is_one_undo_step() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        assert!(log.apply(&mut document, a_two_run_move()));
+        assert_eq!(log.entries().len(), 1);
+
+        assert!(log.undo(&mut document));
+        assert!(!log.can_undo());
+        assert!(log.redo(&mut document));
+        assert_eq!(log.entries(), [a_two_run_move()]);
+    }
+
+    #[test]
+    fn a_batch_inverts_its_children_in_reverse_order() {
+        let Command::Batch(children) = a_two_run_move() else {
+            unreachable!()
+        };
+        let Command::Batch(inverse) = a_two_run_move().inverse() else {
+            panic!("the inverse of a batch must be a batch");
+        };
+        let expected: Vec<Command> = children.iter().rev().map(Command::inverse).collect();
+        assert_eq!(inverse, expected);
+        assert_eq!(a_two_run_move().inverse().inverse(), a_two_run_move());
+    }
+
+    #[test]
+    fn a_batch_is_a_content_edit() {
+        assert!(a_two_run_move().is_content_edit());
+        assert!(!a_two_run_move().is_page_structure_edit());
+        assert!(!a_two_run_move().is_form_field_edit());
+    }
+
+    /// Only inert content edits may ride in a batch: anything else either
+    /// mutates the model, so a partial failure would need a rollback, or
+    /// refuses itself on apply (watermarks).
+    #[test]
+    fn an_empty_or_mixed_batch_is_refused_without_recording() {
+        let annotation = sample_annotation(1, PageId(0));
+        let refused = [
+            Command::Batch(Vec::new()),
+            Command::Batch(vec![Command::AddAnnotation(annotation)]),
+            Command::Batch(vec![a_two_run_move()]),
+            Command::Batch(vec![Command::RotatePage {
+                page: PageId(0),
+                delta_degrees: 90,
+            }]),
+        ];
+        for batch in refused {
+            let mut document = Document::blank();
+            let before = document.clone();
+            let mut log = EditLog::new();
+            assert!(!log.apply(&mut document, batch.clone()), "{batch:?}");
+            assert!(!log.can_undo());
+            assert_eq!(document, before);
+        }
+    }
+
+    #[test]
+    fn every_single_item_content_edit_is_batchable() {
+        for command in all_content_commands() {
+            let watermark = matches!(
+                command,
+                Command::AddWatermark(_) | Command::RemoveWatermark(_)
+            );
+            assert_eq!(command.is_batchable(), !watermark, "{command:?}");
         }
     }
 
