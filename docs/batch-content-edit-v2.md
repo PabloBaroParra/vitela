@@ -78,6 +78,22 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       (interseca) el rectángulo — decidido por el usuario 2026-10-28. SHIFT+click alterna. Arrastre mueve todos
       con un único comando atómico (un paso de undo, igual criterio que `MovePages`).
       Un "objeto tabla" = trazados + texto dentro de su bbox, armado por esta selección.
+      **Core + FFI + Windows hechos (2026-10-29); faltan Linux y Android (T-212).**
+      Como quedó: `pdf_edit::selection` arma un `Command::Batch` de `MoveTextRun`/
+      `MoveImage`/`MovePath` (o los `Remove*`) de una sola página; el FFI expone
+      `move_content_selection` / `remove_content_selection` con un
+      `FfiContentSelection {runs, images, paths}` y pasa por la misma compuerta que los
+      bloques (`text_blocks::apply_batch_edit`). Arrastrar la selección otra vez antes de
+      guardar se pliega en el batch en cola (ahora también para imágenes y trazados), así
+      que sigue siendo un undo. Si un miembro ya tenía una edición suelta en cola (p. ej. la
+      imagen se movió sola antes), la selección no se pliega: se valida contra la página con
+      todo lo pendiente reproducido y entra como su propio paso.
+      Windows: en Edit content, apretar donde no hay texto, imagen ni trazado arranca un
+      marquee (rectángulo punteado) que selecciona lo que toca; SHIFT+clic agrega o quita un
+      item (y extiende la selección simple que hubiera); SHIFT+arrastre en vacío suma al
+      marquee; arrastrar dentro del recuadro punteado mueve todo; Delete borra todo; Esc
+      deselecciona. `ContentSelectionSmoke`. Mover a **otra página** queda para T-209
+      (cortar/pegar), que es donde se copian recursos.
 - [ ] T-209 **P4 — Portapapeles de contenido.** CTRL+X = copiar los spans seleccionados
       (+ recursos que referencian: fuentes, XObjects) y borrarlos; CTRL+C igual sin borrar;
       CTRL+V reinserta con el ancla (esquina sup-izq del bbox de la selección) en la
