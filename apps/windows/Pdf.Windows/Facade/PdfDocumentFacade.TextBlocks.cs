@@ -59,11 +59,23 @@ public sealed partial class PdfDocumentFacade
             ? CreateError(reason, error.Category, operation, sessionId, pageIndex)
             : MapError(error, operation, sessionId, pageIndex);
 
-    private async Task<OperationResult<AnnotationState>> WriteTextBlockAsync(
+    private Task<OperationResult<AnnotationState>> WriteTextBlockAsync(
         string sessionId,
         ContentTextBlock block,
         string operation,
-        PdfCoreTextBlockEdit edit)
+        PdfCoreTextBlockEdit edit) =>
+        WriteContentBatchAsync(sessionId, block.PageIndex, operation, document => _core.ApplyTextBlockEdit(document, edit));
+
+    /// <summary>
+    /// Records one multi-item content edit — a text block's or a selection's —
+    /// and rebuilds the preview. The core's own refusal sentence reaches the
+    /// reader as is.
+    /// </summary>
+    private async Task<OperationResult<AnnotationState>> WriteContentBatchAsync(
+        string sessionId,
+        uint pageIndex,
+        string operation,
+        Action<IPdfCoreDocument> apply)
     {
         await _documentChangeGate.WaitAsync().ConfigureAwait(false);
         SessionEntry session;
@@ -73,22 +85,22 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, block.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
                 }
 
                 try
                 {
-                    _core.ApplyTextBlockEdit(session.Document, edit);
+                    apply(session.Document);
                     session.EditRevision++;
                     session.HasRecordedPreviewEdit = true;
                 }
                 catch (PdfCoreException error)
                 {
-                    return OperationResult<AnnotationState>.Failure(MapTextBlockError(error, operation, sessionId, block.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(MapTextBlockError(error, operation, sessionId, pageIndex));
                 }
             }
 
-            return await RefreshPreviewAsync(session, operation, block.PageIndex).ConfigureAwait(false);
+            return await RefreshPreviewAsync(session, operation, pageIndex).ConfigureAwait(false);
         }
         finally
         {
