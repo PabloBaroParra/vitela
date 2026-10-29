@@ -74,12 +74,12 @@ public sealed partial class MainWindow
         HomeView.Visibility = Visibility.Collapsed;
         EditorView.Visibility = _organizing ? Visibility.Collapsed : Visibility.Visible;
         OrganizePanel.Visibility = _organizing ? Visibility.Visible : Visibility.Collapsed;
+        MarkRailDestination(_organizing ? "Organize" : _selectedToolPage);
     }
 
     private void ReturnToDocument_Click(object sender, RoutedEventArgs e)
     {
         ShowEditorView();
-        MarkRailDestination(_organizing ? "Organize" : "Annotate");
     }
 
     private async void ShellOpen_Click(object sender, RoutedEventArgs e) => await PickShellDocumentAsync();
@@ -140,7 +140,6 @@ public sealed partial class MainWindow
         }
 
         ShowEditorView();
-        MarkRailDestination(destination);
         // Open installs the session before the async permission snapshot reaches
         // the controls. A cold-start Edit must wait for that same owner before arming.
         var sessionId = _session?.SessionId;
@@ -152,6 +151,7 @@ public sealed partial class MainWindow
             return;
         }
         LeaveOrganizeView();
+        MarkRailDestination(destination);
         SetToolsPanelVisible(true);
         if (destination == "Protect")
         {

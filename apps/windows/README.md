@@ -193,7 +193,12 @@ column has Annotate, Edit, Comments and Fill & Sign pages. Existing controls ret
 their handlers and permissions; Comments lists saved comments and pending session notes.
 The icon-and-label tab strip wraps within the tools column. Clicking the active
 tab keeps it active; rail and Home destinations select that same page, never a
-second independently tracked view. Inactive pages take no layout space.
+second independently tracked view. Switching a tools tab updates the rail selection;
+returning from Home or Organize restores the selected tools page rather than marking
+Annotate unconditionally. Comments has no rail entry, so it leaves the document-tool
+rail buttons unselected. Inactive pages take no layout space.
+`Tests/ToolNavigationSmoke.targets` covers native tab clicks, rail navigation,
+Home/Recent and Organize returns, document replacement and unchanged edit history.
 **Signing** appears above Form fields on Fill & Sign. Choose a `.pfx` or `.p12`
 certificate, unlock it (empty passwords are accepted), select an identity and
 choose a signed PDF destination. Cancel leaves the document unchanged; password

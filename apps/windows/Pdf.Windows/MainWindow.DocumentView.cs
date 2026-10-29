@@ -48,7 +48,6 @@ public sealed partial class MainWindow
         ResetContentEditMode();
         ResetFormFieldState();
         _session = session;
-        if (HomeView.Visibility == Visibility.Visible) MarkRailDestination("Annotate");
         ShowEditorView();
         RefreshSessionCommands();
         _ = RefreshDocumentInfoAsync();

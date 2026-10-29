@@ -44,7 +44,6 @@ public sealed partial class MainWindow
     {
         if (_isBusy || _organizeBusy || _dialogOpen) return;
         LeaveOrganizeView();
-        MarkRailDestination("Annotate");
     }
 
     private async void OrganizeUndoButton_Click(object sender, RoutedEventArgs e) => await RunOrganizeHistoryAsync(undo: true);
