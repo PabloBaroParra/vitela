@@ -151,7 +151,7 @@ impl DocumentState {
         })
     }
 
-    fn image_item(&self, item: FfiContentImageItem) -> Result<ImageItem, FfiError> {
+    pub(crate) fn image_item(&self, item: FfiContentImageItem) -> Result<ImageItem, FfiError> {
         let page = self.page_id(item.page)?;
         Ok(ImageItem {
             page,
@@ -159,7 +159,10 @@ impl DocumentState {
         })
     }
 
-    fn path_item(&self, item: FfiContentPathItem) -> Result<pdf_document::PathItem, FfiError> {
+    pub(crate) fn path_item(
+        &self,
+        item: FfiContentPathItem,
+    ) -> Result<pdf_document::PathItem, FfiError> {
         let page = self.page_id(item.page)?;
         Ok(pdf_document::PathItem {
             page,
