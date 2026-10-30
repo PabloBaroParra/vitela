@@ -81,8 +81,8 @@ public sealed partial class MainWindow
         var pending = (await _facade.PageContentAsync(_session!.SessionId, 0)).Value!.TextRuns.Single(run => run.Text == inserted);
         var editPoint = new AnnotationPoint(pending.Bounds.X + 2, pending.Bounds.Y + pending.Bounds.Height / 2);
         await OpenContentEditorOnDoubleTapAsync(0, editPoint);
-        if (_pump.Box is null || !_pump.Box.Run.IsPendingInsertion || DeleteTextButton.IsEnabled)
-            throw new Exception("Pending inserted text did not open in the inline editor with deletion refused.");
+        if (_pump.Box is null || !_pump.Box.Run.IsPendingInsertion || !DeleteTextButton.IsEnabled)
+            throw new Exception("Pending inserted text did not open in the inline editor with deletion offered.");
         _pump.Box.Box.Text = "Cancelled insertion retype";
         _liveEdit.Stop();
         await _pump.PumpAsync();
@@ -106,6 +106,20 @@ public sealed partial class MainWindow
         if (!removed.IsSuccess || removed.Value!.Any(run => run.Id == pending.Id))
             throw new Exception("One Undo did not remove the amended insertion.");
         await ApplyHistoryAsync(false);
+
+        // Deleting the insertion before a save: the core writes it into a new
+        // in-memory base and deletes it there, as one undo step.
+        await OpenContentEditorOnDoubleTapAsync(0, editPoint);
+        if (_pump.Box is null || !DeleteTextButton.IsEnabled)
+            throw new Exception("The retyped insertion did not reopen with deletion offered.");
+        await DeleteOpenContentTextAsync();
+        var deleted = await _facade.PageTextEditTargetsAsync(_session.SessionId, 0);
+        if (!deleted.IsSuccess || deleted.Value!.Any(run => run.Text == finalInserted))
+            throw new Exception("Deleting the pending insertion did not take it off the page: " + AnnotationStatus.Text);
+        await ApplyHistoryAsync(true);
+        var restoredInsertion = await _facade.PageTextEditTargetsAsync(_session.SessionId, 0);
+        if (!restoredInsertion.IsSuccess || !restoredInsertion.Value!.Any(run => run.Text == finalInserted))
+            throw new Exception("One Undo did not bring the deleted insertion back.");
 
         // --- an image to select, inserted at a known spot, then saved -----------
         var prepared = await _facade.PrepareImageInsertionAsync(_session!.SessionId, 0);

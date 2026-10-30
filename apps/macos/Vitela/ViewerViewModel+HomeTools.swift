@@ -100,8 +100,8 @@ extension ViewerViewModel {
     }
 
     /// What each tile means. Edit, Annotate and Organize only change what is
-    /// shown; Sign, Compress and Protect start their own flows, which report
-    /// their own refusals — as on Linux.
+    /// shown; Sign reveals its source choices, while Compress and Protect
+    /// start their own flows, which report their own refusals — as on Linux.
     func applyHomeTool(_ tool: HomeTool) {
         switch tool {
         case .edit:
@@ -115,7 +115,10 @@ extension ViewerViewModel {
             store.armAnnotationTool(nil)
             store.editStatus = HomeTool.annotatePrompt
         case .sign:
-            signWithCertificateFile()
+            isOrganizing = false
+            selectToolsTab(.fillSign)
+            setContentEditMode(false)
+            store.armAnnotationTool(nil)
         case .organize:
             setContentEditMode(false)
             store.armAnnotationTool(nil)

@@ -58,12 +58,12 @@ struct ToolsSidebar: View {
         case .comments:
             CommentsPanel(store: model.store)
         case .fillSign:
-            VStack(spacing: 0) {
-                Button("Draw Signature…", action: model.drawSignature)
-                    .help("Draw a signature, then click a page to place it")
-                    .disabled(model.store.document == nil || !model.store.annotationEditingAllowed)
-                    .padding(8)
-                FormFieldsPanel(model: model)
+            ScrollView {
+                VStack(spacing: 0) {
+                    SigningPanel(model: model)
+                    Divider()
+                    FormFieldsPanel(model: model)
+                }
             }
         }
     }

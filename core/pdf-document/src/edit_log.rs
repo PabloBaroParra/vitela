@@ -1262,6 +1262,12 @@ impl EditLog {
         true
     }
 
+    /// Drops every undone command, as a fresh edit would — for a caller that
+    /// records that edit somewhere other than this log.
+    pub fn discard_redo(&mut self) {
+        self.redo_stack.clear();
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.entries.is_empty()
     }
@@ -1476,6 +1482,27 @@ mod tests {
         assert!(redone);
         assert_eq!(document.annotations.len(), 1);
         assert_eq!(document.annotations.get(AnnotationId(1)), Some(&annotation));
+    }
+
+    #[test]
+    fn discard_redo_drops_the_undone_commands_and_keeps_the_applied_ones() {
+        let mut document = Document::blank();
+        let mut log = EditLog::new();
+        log.apply(
+            &mut document,
+            Command::AddAnnotation(sample_annotation(1, PageId(0))),
+        );
+        log.apply(
+            &mut document,
+            Command::AddAnnotation(sample_annotation(2, PageId(0))),
+        );
+        assert!(log.undo(&mut document));
+
+        log.discard_redo();
+
+        assert!(!log.can_redo());
+        assert_eq!(log.entries().len(), 1);
+        assert_eq!(document.annotations.len(), 1);
     }
 
     #[test]
