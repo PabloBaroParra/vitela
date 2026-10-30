@@ -34,7 +34,6 @@ public sealed partial class MainWindow
         if (_organizing)
         {
             LeaveOrganizeView();
-            MarkRailDestination("Annotate");
         }
         ShowEditorView();
         _documentFindFlyout.ShowAt(_findDocumentButton);

@@ -10,6 +10,7 @@ public sealed partial class MainWindow
 {
     private readonly Dictionary<string, StackPanel> _toolPages = [];
     private readonly Viewer.ToolbarPanel _toolsTabStrip = new();
+    private string _selectedToolPage = "Annotate";
 
     private void BuildToolPages()
     {
@@ -22,12 +23,12 @@ public sealed partial class MainWindow
             ("Comments", "Comments", ShellIcon.Comments), ("Sign", "Fill & Sign", ShellIcon.Sign),
         })
         {
-            var tab = new ToggleButton { Content = label, Tag = key, IsChecked = key == "Annotate" };
+            var tab = new ToggleButton { Content = label, Tag = key, IsChecked = key == _selectedToolPage };
             ToolbarIcon(tab, icon, label, caption: label, size: 16);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tab, $"ToolsTab_{key}");
             tab.Click += (_, _) => SelectToolPage(key);
             _toolsTabStrip.Children.Add(tab);
-            _toolPages[key] = new StackPanel { Spacing = 8, Visibility = key == "Annotate" ? Visibility.Visible : Visibility.Collapsed };
+            _toolPages[key] = new StackPanel { Spacing = 8, Visibility = key == _selectedToolPage ? Visibility.Visible : Visibility.Collapsed };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_toolPages[key], $"ToolsPage_{key}");
         }
 
@@ -66,9 +67,11 @@ public sealed partial class MainWindow
     {
         if (!_toolPages.ContainsKey(key)) return;
         DisarmSignatureOutsideSign(key);
+        _selectedToolPage = key;
         foreach (var (name, page) in _toolPages)
             page.Visibility = name == key ? Visibility.Visible : Visibility.Collapsed;
         foreach (var tab in _toolsTabStrip.Children.OfType<ToggleButton>())
             tab.IsChecked = (string)tab.Tag == key;
+        if (EditorView.Visibility == Visibility.Visible && !_organizing) MarkRailDestination(key);
     }
 }

@@ -106,6 +106,7 @@ public sealed partial class MainWindow
 
         SyncPageNavigation();
         UpdateAnnotationControls(_annotationState);
+        ShowEditorView();
     }
 
     /// <summary>Hides the grid and forgets its cards, without touching the viewer.</summary>
