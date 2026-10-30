@@ -57,13 +57,15 @@ final class ViewerStoreContentGeometryTests: XCTestCase {
         XCTAssertTrue(client.contentEdits.isEmpty)
     }
 
-    func testAnImageEditedSinceOpeningIsHeldAsADragHoldsIt() throws {
-        let (_, store) = withPhotoSelected()
+    func testAnImageMovedToTypedCoordinatesCanBeResizedStraightAway() throws {
+        let (client, store) = withPhotoSelected()
         try run(store, store.beginSelectedImageMove(toX: 36, y: 500))
+        ContentEditFixture.read(store)
+        let moved = try XCTUnwrap(store.selectedContentImage, "selected again at its new box")
+        XCTAssertEqual(moved.bbox.x, 36)
 
-        // The relayout drops the selection; select the moved image again.
-        store.contentEdit.selectedImage = photo
-        XCTAssertEqual(store.beginSelectedImageResize(width: 10, height: 10).problem, ViewerStore.imageAgain)
+        try run(store, store.beginSelectedImageResize(width: 10, height: 10))
+        XCTAssertEqual(client.contentEdits.last, .resizeImage(moved, to: PdfRect(x: 36, y: 500, width: 10, height: 10)))
     }
 
     func testALineMovesToTypedCoordinates() throws {

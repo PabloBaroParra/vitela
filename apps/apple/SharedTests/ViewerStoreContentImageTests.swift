@@ -54,18 +54,25 @@ final class ViewerStoreContentImageTests: XCTestCase {
         XCTAssertEqual(client.contentEdits, [.resizeImage(photo, to: PdfRect(x: 100, y: 100, width: 240, height: 130))])
     }
 
-    func testAnEditedImageIsHeldUntilReopenedAndAnUndoGivesItBack() {
+    /// The core folds a second geometry edit into the queued one (B25
+    /// T-207), so a moved image stays selected and can be edited again; only
+    /// its replace waits for a save.
+    func testAnEditedImageCanBeEditedAgainAndOnlyItsReplaceWaits() throws {
         let (client, store) = withPhoto()
         drag(store, from: PdfPoint(x: 150, y: 150), to: PdfPoint(x: 160, y: 150))
         XCTAssertEqual(client.contentEdits.count, 1)
         read(store)
         let moved = store.pageContent[0]!.images[0]
+        XCTAssertEqual(store.selectedContentImage, moved, "the frame follows the image")
+        XCTAssertFalse(store.canReplaceSelectedImage)
+        XCTAssertEqual(store.selectedImageReplacementRefusal(), ViewerStore.imageAgain)
 
-        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 170, y: 150), zoom: 1))
-        XCTAssertEqual(store.editStatus, ViewerStore.imageAgain)
-        XCTAssertEqual(store.selectedContentImage, moved)
-        XCTAssertNil(store.imageDrag)
-        XCTAssertNil(store.beginSelectedImageDelete())
+        drag(store, from: PdfPoint(x: 170, y: 150), to: PdfPoint(x: 170, y: 170))
+        XCTAssertEqual(client.contentEdits.last, .moveImage(moved, to: PdfRect(x: 110, y: 120, width: 200, height: 100)))
+        read(store)
+        let request = try XCTUnwrap(store.beginSelectedImageDelete())
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+        XCTAssertEqual(client.contentEdits.count, 3)
 
         store.undo()
         if let refresh = store.beginPageRefresh() {

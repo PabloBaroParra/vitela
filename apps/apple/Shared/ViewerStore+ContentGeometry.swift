@@ -27,7 +27,7 @@ extension ViewerStore {
             editStatus = ContentGeometry.imagePositionUnchanged
             return (nil, nil)
         }
-        return (nil, beginContentEdit(.moveImage(image, to: to)))
+        return (nil, beginImageGeometry(.moveImage(image, to: to), image))
     }
 
     /// The selected image `width` × `height` points from its current origin.
@@ -40,7 +40,7 @@ extension ViewerStore {
             editStatus = ContentGeometry.imageSizeUnchanged
             return (nil, nil)
         }
-        return (nil, beginContentEdit(.resizeImage(image, to: to)))
+        return (nil, beginImageGeometry(.resizeImage(image, to: to), image))
     }
 
     /// `block` with its box's bottom-left corner at `x`, `y` — the same move
@@ -55,12 +55,16 @@ extension ViewerStore {
         return (nil, beginContentEdit(Self.textMove(block, to: to)))
     }
 
-    /// The selected image, or why there is none to edit: nothing selected,
-    /// or one edited since the document was opened — Windows holds such an
-    /// image until a save and reopen.
+    /// The selected image, or why there is none to edit. One edited before
+    /// a save can be edited again: the core folds the new box in.
     private func editableSelectedImage() -> (image: ContentImage?, refusal: String?) {
         guard contentEditMode, let image = contentEdit.selectedImage else { return (nil, "Select an image first.") }
-        guard !contentEdit.editedImages.contains(ContentImageKey(page: image.page, id: image.id)) else { return (nil, Self.imageAgain) }
         return (image, nil)
+    }
+
+    private func beginImageGeometry(_ edit: ContentEdit, _ image: ContentImage) -> PageWorkRequest? {
+        guard let request = beginContentEdit(edit) else { return nil }
+        contentEdit.reselectImage = ContentImageKey(page: image.page, id: image.id)
+        return request
     }
 }
