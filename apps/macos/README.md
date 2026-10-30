@@ -59,7 +59,12 @@ responsibility:
   A press on empty page drags a marquee that gathers every block, image and
   shape it touches; Shift-click adds or removes one item, a drag inside the
   dashed box moves them all and Delete Selection or ⌫ removes them all,
-  each one undo step (B25 T-208, `+ContentSelection.swift`).
+  each one undo step (B25 T-208, `+ContentSelection.swift`). ⌘C and ⌘X
+  copy or cut what is selected, and ⌘V pastes it with its top-left corner
+  where the pointer last was, on any page or in another document
+  (T-209, `ViewerViewModel+ContentClipboard.swift`,
+  `../apple/Shared/ViewerStore+ContentClipboard.swift`); outside Edit
+  Content, or with nothing held, ⌘V still pastes an image stamp.
   All run as page work (`../apple/Shared/ViewerStore+ContentEdit.swift`,
   `+ContentImages.swift`, `+ContentPaths.swift`).
 - `Vitela/ViewerViewModel+Watermark.swift`, `Views/WatermarkSheet.swift` —

@@ -110,6 +110,9 @@ protocol PdfCoreClient {
     func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent
     /// Records a content edit; the shell refreshes the preview after it.
     func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws
+    /// A self-contained clip of `selection` for a later paste, here or in
+    /// another document (B25 T-209) — `ViewerStore+ContentClipboard.swift`.
+    func copyContent(document: any PdfDocument, selection: ContentSelection) throws -> ContentClip
     /// Why `image` cannot have its picture replaced, as a sentence, or `nil`
     /// — asked before a file is chosen, as Windows and Android do.
     func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String?

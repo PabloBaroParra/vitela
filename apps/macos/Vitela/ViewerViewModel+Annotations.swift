@@ -93,6 +93,7 @@ extension ViewerViewModel {
         guard annotationKeyMonitor == nil else { return }
         annotationKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
+            if self.handleContentClipboardKey(event) { return nil }
             if self.takesPaste(event) {
                 self.pasteImageStamp()
                 return nil

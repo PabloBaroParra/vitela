@@ -116,3 +116,35 @@ private func XCTAssertEqual(_ a: [Double], _ b: [Double], accuracy: Double, _ me
     XCTAssertEqual(a.count, b.count, message, file: file, line: line)
     for (x, y) in zip(a, b) { XCTAssertEqual(x, y, accuracy: accuracy, message, file: file, line: line) }
 }
+
+extension UniFfiContentPathIntegrationTests {
+    /// The frame copied and pasted against the real core lands as a second
+    /// frame where asked, and one undo takes the paste back (B25 T-209).
+    func testACopiedFramePastesAsOneStepAgainstTheRealCore() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: Self.framedPdf())
+        store.setContentEditMode(true)
+        func read() throws -> PageContent {
+            let request = try XCTUnwrap(store.beginPageContent(page: 0))
+            store.applyPageContent(store.pageContentResult(for: request), for: request)
+            return try XCTUnwrap(store.pageContent[0])
+        }
+        _ = try read()
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 319, y: 200), zoom: 1))
+        _ = store.endContentDrag(at: PdfPoint(x: 319, y: 200))
+        XCTAssertNotNil(store.selectedContentPath)
+        let (clip, _) = try XCTUnwrap(store.copyContentSelection())
+        XCTAssertEqual(clip.bbox.width, 251, accuracy: 1)
+
+        let request = try XCTUnwrap(store.beginContentPaste(clip, page: 0, at: PdfPoint(x: 40, y: 700)))
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+        XCTAssertTrue(store.canUndo)
+        let pasted = try read().paths
+        XCTAssertEqual(pasted.count, 3, "the frame and the rule, plus the pasted frame")
+        XCTAssertTrue(pasted.contains { abs($0.bbox.x - 40) < 1.5 }, "pasted with its top-left corner where asked")
+
+        store.undo()
+        if let refresh = store.beginPageRefresh() { store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh) }
+        XCTAssertEqual(try read().paths.count, 2)
+    } }
+}

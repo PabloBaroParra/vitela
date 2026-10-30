@@ -22,10 +22,36 @@ extension UniFfiPdfCoreClient {
             try mapTextEditErrors(handle) { try Vitela.moveContentSelection(handle: handle, selection: FfiContentSelection(selection), dx: dx, dy: dy) }
         case let .removeSelection(selection):
             try mapTextEditErrors(handle) { try Vitela.removeContentSelection(handle: handle, selection: FfiContentSelection(selection)) }
+        case let .pasteContent(page, clip, left, top):
+            try mapTextEditErrors(handle) {
+                try Vitela.pasteContent(handle: handle, page: UInt32(page), clip: FfiContentClip(clip), left: left, top: top)
+            }
         default:
             return false
         }
         return true
+    }
+}
+
+extension UniFfiPdfCoreClient {
+    /// Copying reads the file, never the session: the core refuses a member
+    /// with an unsaved edit, and extraction permission gates it.
+    func copyContent(document: any PdfDocument, selection: ContentSelection) throws -> ContentClip {
+        let handle = try handle(of: document)
+        do {
+            let clip = try Vitela.copyContentSelection(handle: handle, selection: FfiContentSelection(selection))
+            return ContentClip(pdf: clip.pdf, bbox: PdfRect(x: clip.bbox.x, y: clip.bbox.y, width: clip.bbox.width, height: clip.bbox.height))
+        } catch FfiError.UnsupportedOperation {
+            throw EditFailure.notPermitted(ContentEditing.copyRefused)
+        } catch let error as FfiError {
+            throw EditFailure(error)
+        }
+    }
+}
+
+private extension FfiContentClip {
+    init(_ clip: ContentClip) {
+        self.init(pdf: clip.pdf, bbox: FfiRect(x: clip.bbox.x, y: clip.bbox.y, width: clip.bbox.width, height: clip.bbox.height))
     }
 }
 

@@ -34,6 +34,10 @@ final class ViewerViewModel: ObservableObject {
     /// The page text being retyped, while its sheet is up —
     /// `ViewerViewModel+ContentEdit.swift`.
     @Published var contentTextEditor: ContentTextBlock?
+    /// What the last ⌘C or ⌘X in Edit Content held, across documents, and
+    /// where the pointer last was over a page (B25 T-209).
+    @Published var contentClip: ContentClip?
+    var contentPointer: ContentPointer?
     /// Whether the Pages column is open — `ViewerViewModel+Navigation.swift`.
     /// Open from the start, as on Linux and Windows.
     @Published var showsPages = true
