@@ -99,7 +99,8 @@ jobs:
           key: ${{ runner.os }}-cargo-package-${{ hashFiles('Cargo.lock') }}
       # Same package list scripts/bootstrap-linux-package.sh installs for a
       # local run: libgtk-4-dev for the -sys crates' pkg-config build,
-      # dpkg-dev/file/binutils for package-linux.sh's own tool checks, and
+      # dpkg-dev/file/binutils for package-linux.sh's own tool checks,
+      # librsvg2-bin to rasterize the PNG icon the AppImage needs, and
       # libfuse2 so linuxdeploy/appimagetool's AppImage runtime can mount
       # itself instead of failing closed with no /dev/fuse.
       - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
@@ -114,7 +115,7 @@ jobs:
         # endpoint stalled ~30s per request before apt fell back to https.
         run: sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
       - name: Install packaging and GTK4 build dependencies
-        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev dpkg-dev file binutils libfuse2
+        run: sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libgtk-4-dev dpkg-dev file binutils libfuse2 librsvg2-bin
       # The same pinned chromium/7763 Linux/x64 input core.yml's test job
       # downloads for pdf-render's own tests — cached separately because this
       # job feeds it to package-linux.sh as a raw archive, not as an
@@ -136,8 +137,12 @@ jobs:
           mkdir -p build/linux/tools
           curl -fsSL https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
             -o build/linux/tools/linuxdeploy
-          curl -fsSL https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+          # Pinned: the continuous build changes under the same URL, and one
+          # (b082d2e) started refusing SVG-only AppDirs on a commit that had
+          # not touched packaging. Bump deliberately, with the digest.
+          curl -fsSL https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
             -o build/linux/tools/appimagetool
+          echo 'ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  build/linux/tools/appimagetool' | sha256sum -c -
           chmod +x build/linux/tools/linuxdeploy build/linux/tools/appimagetool
       - name: Build linux-gtk (release)
         env:
