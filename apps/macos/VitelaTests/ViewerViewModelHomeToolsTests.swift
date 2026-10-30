@@ -70,6 +70,32 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
         XCTAssertEqual(client.pageEdits, [])
     }
 
+    /// Windows' ToolNavigationSmoke: a tab click marks the rail with its page,
+    /// Comments marks nothing, and Home/Organize returns restore the page.
+    func testRailFollowsTheSelectedToolsTabThroughHomeAndOrganize() {
+        let (client, model) = model()
+        let revision = model.store.editRevision
+        let expected: [ToolsTab: ShellSection?] = [.edit: .edit, .annotate: .annotate, .comments: nil, .fillSign: .sign]
+        for tab in ToolsTab.allCases {
+            model.selectToolsTab(tab)
+            XCTAssertEqual(model.activeShellSection, expected[tab]!, "\(tab) marks the wrong rail section")
+            XCTAssertFalse(model.store.contentEditMode, "selecting a tab must not change the edit mode")
+            model.navigateShell(to: .home)
+            XCTAssertEqual(model.activeShellSection, .home)
+            model.returnToDocument()
+            XCTAssertEqual(model.activeShellSection, expected[tab]!, "Home return lost \(tab)")
+            model.navigateShell(to: .organize)
+            XCTAssertEqual(model.activeShellSection, .organize)
+            XCTAssertTrue(model.revealDocumentSearch())
+            XCTAssertEqual(model.activeShellSection, expected[tab]!, "leaving Organize lost \(tab)")
+        }
+        model.selectToolsTab(.comments)
+        model.showsTools = false
+        XCTAssertNil(model.activeShellSection, "folding the column keeps the selected page's rail mark")
+        XCTAssertEqual(model.store.editRevision, revision)
+        XCTAssertTrue(client.pageEdits.isEmpty)
+    }
+
     func testToolsNavigationSurvivesHomeOrganizeAndFind() {
         let (_, model) = model()
         model.selectToolsTab(.comments)
