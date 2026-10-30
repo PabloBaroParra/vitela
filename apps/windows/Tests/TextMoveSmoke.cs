@@ -23,7 +23,7 @@ public partial class App : Application
         {
             await _window.TextMoveSmokeAsync();
             File.WriteAllText(Path.Combine(output, "text-move-smoke.log"),
-                "PASS native Move text dialog; repeated moves and preview; stale-target refusal; cancel/no-op history; Linux-compatible moved-run inline retype refusal; one Undo/Redo; final position save/reopen; click-insert then move/retype/move with one insertion Undo/Redo and final save/reopen.");
+                "PASS native Move text dialog; repeated moves and preview; stale-target refusal; cancel/no-op history; moved-run inline editor opens (core checkpoint); one Undo/Redo; final position save/reopen; click-insert then move/retype/move with one insertion Undo/Redo and final save/reopen.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "text-move-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -57,11 +57,14 @@ public sealed partial class MainWindow
         SetContentEditMode(true);
         await OpenContentEditorOnDoubleTapAsync(0,
             new AnnotationPoint(current.Bounds.X + 2, current.Bounds.Y + current.Bounds.Height / 2));
-        if (_pump.Box is not null || !AnnotationStatus.Text.Contains("save and reopen before retyping"))
-            throw new Exception("Moved existing text must be refused before opening its inline editor, like Linux.");
+        // The core writes the move into a new in-memory base before a retype,
+        // so moved text opens its editor without a save and reopen.
+        if (_pump.Box is null)
+            throw new Exception("Moved text must open its inline editor: " + AnnotationStatus.Text);
+        await AbandonContentEditorAsync();
         var afterRefusal = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![0];
         if (afterRefusal.Text != current.Text || afterRefusal.Bounds != current.Bounds)
-            throw new Exception("Refused retyping changed the moved text.");
+            throw new Exception("An abandoned editor changed the moved text.");
         await ApplyHistoryAsync(true);
         var restored = (await _facade.PageTextEditTargetsAsync(sessionId, 0)).Value![0];
         if (restored.Bounds != original.Bounds || _annotationState!.CanUndo || !_annotationState.CanRedo)

@@ -19,6 +19,7 @@ require_tool sha256sum
 require_tool file
 require_tool readelf
 require_tool dpkg-deb
+require_tool rsvg-convert
 require_file "$PDFIUM_ARCHIVE"
 require_file "$LINUX_GTK_BINARY"
 [ "$(sha256sum "$PDFIUM_ARCHIVE" | awk '{print $1}')" = "$PDFIUM_SHA256" ] || fail 'PDFium archive checksum mismatch'
@@ -85,6 +86,13 @@ install -Dm755 "$LINUX_GTK_BINARY" "$stage_usr/lib/vitela/linux-gtk"
 install -Dm644 "$work_dir/pdfium/lib/libpdfium.so" "$stage_usr/lib/vitela/libpdfium.so"
 install -Dm644 "$REPO_ROOT/apps/linux-gtk/package/org.vitela.Pdf.desktop" "$stage_usr/share/applications/org.vitela.Pdf.desktop"
 install -Dm644 "$REPO_ROOT/apps/linux-gtk/package/org.vitela.Pdf.svg" "$stage_usr/share/icons/hicolor/scalable/apps/org.vitela.Pdf.svg"
+# appimagetool takes the AppImage's .DirIcon from a PNG or XPM only: file
+# managers and thumbnailers cannot be relied on to parse SVG. Rasterized here
+# from the one source so the two never drift.
+mkdir -p "$stage_usr/share/icons/hicolor/256x256/apps"
+rsvg-convert --width 256 --height 256 --output "$stage_usr/share/icons/hicolor/256x256/apps/org.vitela.Pdf.png" \
+    "$REPO_ROOT/apps/linux-gtk/package/org.vitela.Pdf.svg"
+chmod 644 "$stage_usr/share/icons/hicolor/256x256/apps/org.vitela.Pdf.png"
 install -Dm644 "$REPO_ROOT/LICENSE-MIT" "$stage_usr/share/doc/vitela/LICENSE-MIT"
 install -Dm644 "$REPO_ROOT/LICENSE-APACHE" "$stage_usr/share/doc/vitela/LICENSE-APACHE"
 install -Dm644 "$work_dir/pdfium/LICENSE" "$stage_usr/share/doc/vitela/pdfium/LICENSE"
@@ -104,6 +112,9 @@ install -Dm755 "$REPO_ROOT/apps/linux-gtk/package/vitela" "$app_dir/AppRun"
 "${LINUXDEPLOY:-linuxdeploy}" --appdir "$app_dir" --executable "$app_dir/usr/lib/vitela/linux-gtk" \
     --desktop-file "$app_dir/usr/share/applications/org.vitela.Pdf.desktop" \
     --icon-file "$app_dir/usr/share/icons/hicolor/scalable/apps/org.vitela.Pdf.svg"
+# linuxdeploy only links the SVG into the AppDir root; appimagetool needs the
+# PNG there, as a real file, to point .DirIcon at.
+install -m644 "$app_dir/usr/share/icons/hicolor/256x256/apps/org.vitela.Pdf.png" "$app_dir/org.vitela.Pdf.png"
 ARCH=x86_64 "${APPIMAGETOOL:-appimagetool}" "$app_dir" "$staged_packages/Vitela-${PACKAGE_VERSION}-x86_64.AppImage"
 chmod 755 "$staged_packages/Vitela-${PACKAGE_VERSION}-x86_64.AppImage"
 mv "$staged_packages" "$packages_dir"
