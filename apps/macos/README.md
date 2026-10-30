@@ -50,7 +50,9 @@ responsibility:
   images and vector paths a page paints. Text is outlined and edited by
   block (B25 T-207): runs the core reads as one piece of text open, move,
   retype and delete together as one undo step (`ContentTextBlock`), and a
-  run that joins nothing keeps the single-run edits. A click opens a block
+  run that joins nothing keeps the single-run edits. Moved text opens to
+  retype before a save wherever the core can write the pending edits into
+  an in-memory base (#506's checkpoint); elsewhere it still asks for a save. A click opens a block
   to retype or delete, a drag moves a block or an image, a corner resizes
   an image, and an image can be moved, resized or deleted again before a
   save (only Replace Image… waits for one). Replace Image… and Add Image…

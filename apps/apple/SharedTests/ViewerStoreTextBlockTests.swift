@@ -58,6 +58,12 @@ final class ViewerStoreTextBlockTests: XCTestCase {
         XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 130, y: 685), zoom: 1))
         if case .open = store.endContentDrag(at: PdfPoint(x: 130, y: 685)) { XCTFail("a moved block is held until saved") }
         XCTAssertEqual(store.editStatus, ContentEditing.movedNotSaved)
+
+        // Where the core checkpoints (#506), the moved block opens to retype.
+        client.canCheckpoint = true
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 130, y: 685), zoom: 1))
+        guard case let .open(opened) = store.endContentDrag(at: PdfPoint(x: 130, y: 685)) else { return XCTFail("opens once the core can checkpoint") }
+        XCTAssertEqual(opened.runs.map(\.id), [left.id, right.id])
     }
 
     func testTheEditorsRetypeDeleteAndTypedMoveUseTheBlockCommands() throws {

@@ -175,6 +175,8 @@ extension PdfCoreClient {
 
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool { false }
 
+    func contentEditsCanCheckpoint(document: any PdfDocument) -> Bool { false }
+
     func copyContent(document: any PdfDocument, selection: ContentSelection) throws -> ContentClip {
         throw EditFailure.notPermitted(ContentEditing.copyRefused)
     }
