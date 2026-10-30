@@ -37,6 +37,7 @@ final class FakePdfCoreClient: PdfCoreClient {
     var pageContents: [Int: PageContent] = [:]
     var pageContentReads: [Int] = []
     var contentEdits: [ContentEdit] = []
+    var copiedSelections: [ContentSelection] = []
     var contentEditError: Error?
     var movedRuns = Set<UInt64>()
     var imageReplaceRefusal: String?

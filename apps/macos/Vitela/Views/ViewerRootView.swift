@@ -234,6 +234,7 @@ struct ViewerRootView: View {
                                 }
                             )
                             .frame(width: pageWidth(slot), height: pageHeight(slot))
+                            .trackingContentPointer { model.trackContentPointer(page: slot.index, location: $0, zoom: pageZoom(slot)) }
                         }
                         // `pageSlots` reuses the same `index` values across
                         // documents, so without a generation-keyed identity

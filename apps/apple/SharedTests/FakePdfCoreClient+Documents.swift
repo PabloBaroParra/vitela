@@ -175,6 +175,12 @@ extension FakePdfCoreClient {
 
     func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? { imageReplaceRefusal }
 
+    func copyContent(document: any PdfDocument, selection: ContentSelection) throws -> ContentClip {
+        if let contentEditError { throw contentEditError }
+        copiedSelections.append(selection)
+        return ContentClip(pdf: Data([0x25]), bbox: selection.bbox ?? PdfRect(x: 0, y: 0, width: 0, height: 0))
+    }
+
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool {
         movedRuns.contains(run.id)
     }
@@ -225,6 +231,8 @@ extension FakePdfCoreClient {
             }
             for image in selection.images { replaceImage(image) { [ContentImage(id: $0.id, page: $0.page, bbox: shifted($0.bbox), resourceXObjectName: $0.resourceXObjectName)] } }
             for path in selection.paths { replacePath(path) { [ContentPath(id: $0.id, page: $0.page, bbox: shifted($0.bbox), paint: $0.paint)] } }
+        case .pasteContent:
+            break
         case let .removeSelection(selection):
             for run in selection.blocks.flatMap(\.runs) { replaceRun(run) { _ in [] } }
             for image in selection.images { replaceImage(image) { _ in [] } }

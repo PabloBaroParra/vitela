@@ -132,6 +132,8 @@ enum ContentEdit: Equatable {
     /// Moves every member of a multi-selection by `dx`, `dy`, as one step.
     case moveSelection(ContentSelection, dx: Double, dy: Double)
     case removeSelection(ContentSelection)
+    /// `clip` on `page` with its top-left corner at `left`, `top`, one step.
+    case pasteContent(page: Int, clip: ContentClip, left: Double, top: Double)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -155,6 +157,7 @@ enum ContentEdit: Equatable {
         case .retypeTextBlock: return "Text updated."
         case .moveSelection: return "Selection moved."
         case .removeSelection: return "Selection deleted."
+        case .pasteContent: return "Pasted."
         }
     }
 }
@@ -171,6 +174,10 @@ extension PdfCoreClient {
     }
 
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool { false }
+
+    func copyContent(document: any PdfDocument, selection: ContentSelection) throws -> ContentClip {
+        throw EditFailure.notPermitted(ContentEditing.copyRefused)
+    }
 
     func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? { ContentEditing.replaceRefused }
 }

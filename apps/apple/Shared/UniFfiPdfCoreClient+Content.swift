@@ -143,7 +143,7 @@ private extension FfiEditCommand {
         case let .moveText(run, rect):
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
         case .insertText, .replaceImage, .insertImage, .addWatermark, .moveTextBlock, .removeTextBlock, .retypeTextBlock,
-             .moveSelection, .removeSelection:
+             .moveSelection, .removeSelection, .pasteContent:
             return nil
         case let .moveImage(image, rect):
             self = .moveImage(item: FfiContentImageItem(image), to: FfiRect(rect))

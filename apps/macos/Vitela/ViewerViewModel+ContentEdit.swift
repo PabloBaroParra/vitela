@@ -87,6 +87,10 @@ extension ViewerViewModel {
             store.editStatus = "Reading the page’s text… click again in a moment."
             return true
         }
+        if let point = annotationPoint(page: page, location: location, zoom: zoom) {
+            // Where ⌘V pastes when no hover was seen (macOS 12).
+            contentPointer = ContentPointer(page: page, point: point)
+        }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom),
               // SHIFT adds or removes one item, or a marquee's worth (T-208).
               store.beginContentPress(page: page, at: point, zoom: zoom, extend: NSEvent.modifierFlags.contains(.shift))
