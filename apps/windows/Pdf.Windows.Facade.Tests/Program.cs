@@ -3382,6 +3382,11 @@ static async Task ChecksRetypeEligibilityAsync()
     pending = true;
     var refused = await facade.CanRetypeTextRunAsync(session.SessionId, cached);
     Assert(!refused.IsSuccess && refused.Error!.Message.Contains("save and reopen before retyping"), "pending move must explain recovery");
+    // A session the core can checkpoint retypes the moved run itself: the
+    // move is written into a new in-memory base first.
+    core.CheckpointAvailable = true;
+    Assert((await facade.CanRetypeTextRunAsync(session.SessionId, cached)).IsSuccess, "a checkpointable session must not ask for a save");
+    core.CheckpointAvailable = false;
     Assert(core.RefreshPreviewCalls == 1, "eligibility must not rebuild preview or mutate history");
     var bound = (await facade.PageTextEditTargetsAsync(session.SessionId, 0)).Value![0];
     var replacement = (await facade.OpenAsync(new DocumentSource("other.pdf", [2]), discardPendingEdits: true)).Value!;
@@ -4657,6 +4662,10 @@ sealed partial class FakeCore : IPdfCore
     public bool TextExtractionAllowed(IPdfCoreDocument document) => ExtractionPermissionOverride?.Invoke() ?? ExtractionPermitted;
 
     public Func<uint, ulong, bool>? PendingTextMoveOverride { get; init; }
+    public bool CheckpointAvailable { get; set; }
+    public bool ContentEditsCanCheckpoint(IPdfCoreDocument document) => CheckpointAvailable;
+    public ulong ContentBaseGeneration { get; set; }
+    ulong IPdfCore.ContentBaseGeneration(IPdfCoreDocument document) => ContentBaseGeneration;
     public bool TextRunHasPendingMove(IPdfCoreDocument document, uint pageIndex, ulong id) => PendingTextMoveOverride?.Invoke(pageIndex, id) ?? false;
 
     public IReadOnlyList<uint> ParsePageSelection(string input, uint totalPages)
