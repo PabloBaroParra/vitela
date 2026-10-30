@@ -1,7 +1,8 @@
 import Foundation
 
 /// The two groups in Linux's `build_app_rail` and Windows' `AppRail`, in
-/// the same order. Files, Sign and Protect invoke the existing native flows.
+/// the same order. Files and Protect invoke the existing native flows;
+/// Sign reveals the signing sources in Fill & Sign.
 enum ShellSection: String, CaseIterable {
     case home, recent, files, edit, annotate, sign, organize, protect
 
@@ -62,11 +63,12 @@ extension ViewerViewModel {
         return true
     }
 
-    /// Derive persistent selection from the actual modes. Dialog actions
-    /// do not pretend to be a second selected workspace when cancelled.
+    /// Derive selection from the visible workspace and tools page, never a
+    /// second navigation state. Dialog actions do not claim a workspace.
     var activeShellSection: ShellSection {
         if isShowingHome { return homeSection }
         if isOrganizing { return .organize }
+        if showsTools && toolsTab == .fillSign { return .sign }
         return store.contentEditMode ? .edit : .annotate
     }
 

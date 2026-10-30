@@ -4,6 +4,48 @@ import XCTest
 /// Home's Tools grid: a tile goes to its tool, and one picked with no
 /// document open waits for the document chosen for it.
 final class ViewerViewModelHomeToolsTests: XCTestCase {
+    func testSignDestinationsRevealChoicesWithoutOpeningACertificateOrEditing() {
+        let (client, model) = model(signing: SigningPrompts(
+            chooseCertificate: { XCTFail("Sign navigation must not choose a source"); return nil },
+            askPassword: { _ in nil }, chooseIdentity: { _ in nil }))
+        let revision = model.store.editRevision
+        for fromHome in [false, true] {
+            model.isOrganizing = true
+            model.showsTools = false
+            if fromHome {
+                model.showHome()
+                model.openHomeTool(.sign)
+            } else {
+                model.navigateShell(to: .sign)
+            }
+            XCTAssertFalse(model.isShowingHome)
+            XCTAssertFalse(model.isOrganizing)
+            XCTAssertFalse(model.store.contentEditMode)
+            XCTAssertNil(model.store.armedTool)
+            XCTAssertTrue(model.showsTools)
+            XCTAssertEqual(model.toolsTab, .fillSign)
+            XCTAssertEqual(model.activeShellSection, .sign)
+            XCTAssertEqual(model.store.editRevision, revision)
+        }
+        XCTAssertTrue(client.signedAs.isEmpty)
+        XCTAssertTrue(client.pageEdits.isEmpty)
+        model.navigateShell(to: .annotate)
+        XCTAssertEqual(model.activeShellSection, .annotate)
+        model.navigateShell(to: .edit)
+        XCTAssertEqual(model.activeShellSection, .edit)
+    }
+
+    func testPendingSignRevealsSourcesAfterOpeningTheDocument() {
+        let (_, model) = model(open: false, signing: SigningPrompts(
+            chooseCertificate: { XCTFail("A pending Sign must not open a source"); return nil },
+            askPassword: { _ in nil }, chooseIdentity: { _ in nil }))
+        model.pendingHomeTool = .sign
+        model.openSample()
+        waitUntil({ model.toolsTab == .fillSign }, "Sign never revealed the source choices")
+        XCTAssertNil(model.pendingHomeTool)
+        XCTAssertEqual(model.activeShellSection, .sign)
+    }
+
     func testToolsTabsMatchDesktopOrderAndNavigationDoesNotEdit() {
         let (client, model) = model()
         XCTAssertEqual(ToolsTab.allCases.map(\.label), ["Edit", "Annotate", "Comments", "Fill & Sign"])
@@ -49,9 +91,9 @@ final class ViewerViewModelHomeToolsTests: XCTestCase {
         XCTAssertTrue(model.showsTools)
     }
 
-    private func model(open: Bool = true) -> (FakePdfCoreClient, ViewerViewModel) {
+    private func model(open: Bool = true, signing: SigningPrompts = .modal) -> (FakePdfCoreClient, ViewerViewModel) {
         let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
-        let model = ViewerViewModel(store: ViewerStore(client: client), sampleLoader: { Data([1]) })
+        let model = ViewerViewModel(store: ViewerStore(client: client), signingPrompts: signing, sampleLoader: { Data([1]) })
         if open {
             model.openSample()
             waitUntil({ model.store.state == .loaded }, "the sample never opened")

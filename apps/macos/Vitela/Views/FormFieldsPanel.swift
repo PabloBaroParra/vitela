@@ -39,21 +39,21 @@ struct FormFieldsPanel: View {
             if !store.formStatus.isEmpty {
                 Text(store.formStatus).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(store.formFields, id: \.id) { field in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(field.name.isEmpty ? "Unnamed field" : field.name)
-                                .font(.caption).foregroundStyle(.secondary)
-                            FormFieldControl(field: field, focused: { store.selectFieldFromPanel(field.id) }) {
-                                model.fillField(field.id, value: $0)
-                            }
-                                .disabled(!store.formFillAllowed || store.pageWorkInFlight)
+            // The enclosing Fill & Sign page scrolls the field inspector,
+            // signing sources and values together, even in a short window.
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(store.formFields, id: \.id) { field in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(field.name.isEmpty ? "Unnamed field" : field.name)
+                            .font(.caption).foregroundStyle(.secondary)
+                        FormFieldControl(field: field, focused: { store.selectFieldFromPanel(field.id) }) {
+                            model.fillField(field.id, value: $0)
                         }
-                        // A new value from the core rebuilds the row; typing
-                        // into it does not, so focus stays put.
-                        .id("\(field.id)-\(String(describing: field.value))")
+                            .disabled(!store.formFillAllowed || store.pageWorkInFlight)
                     }
+                    // A new value from the core rebuilds the row; typing
+                    // into it does not, so focus stays put.
+                    .id("\(field.id)-\(String(describing: field.value))")
                 }
             }
         }
