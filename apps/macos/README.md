@@ -23,10 +23,12 @@ responsibility:
   above it is 176pt wide, like Windows; narrower windows use a 56pt icon
   column with the same accessibility labels and tooltips. Recent reveals
   its heading and focuses the newest visible card. The model owns navigation
-  and derives the active tool from the existing modes, never a second copy.
+  and derives the active rail item from the workspace and selected tools tab,
+  never a second copy: like Windows, Comments selects no rail item, and Home
+  or Organize returns restore the selected tab's item.
   Home hides editor controls and panels without closing or changing the
-  document; Return to Document restores its mode and page. File picking,
-  signing and protection still use the existing native flows.
+  document; Return to Document restores its mode and page. File picking
+  and protection use the existing native flows. Sign reveals Fill & Sign.
 - `Vitela/AppDelegate.swift` — owns the view model; asks about unsaved
   changes before quitting, and passes on files Finder opens with Vitela.
 - `Vitela/VitelaCommands.swift` — the menu bar (New, Open, Open Recent, Save As, Protect,
@@ -163,11 +165,15 @@ responsibility:
   records an edit. Edit/Annotate rail and Home destinations reveal their tab.
   Inactive tab views stay mounted but disabled and hidden from accessibility,
   preserving unsubmitted field-inspector drafts without saving them.
-  Properties lives under Annotate, existing form controls and Draw Signature
-  under Fill & Sign. Folding, Home, Organize and Find preserve the selection
+  Properties lives under Annotate; existing form controls and `SigningPanel`
+  share one scrolling Fill & Sign page. Draw Signature places a visual mark;
+  Certificate File, Keychain Identity and Card or Token start the existing
+  digital-signing flows, with their existing guards and native prompts.
+  Signing refusals are shown in the panel. Sign from the rail or Home reveals
+  these choices without opening a certificate chooser or editing the document.
+  Folding, Home, Organize and Find preserve the selection
   and last width; Escape still disarms an annotation when its tab is hidden.
-  Certificate, Keychain and token choices remain in the existing native menu
-  flows; moving those choices into Fill & Sign is a separate pending slice.
+  The File menu retains direct access to all three digital-signing sources.
 - `Vitela/ViewerViewModel+Annotations.swift` — routes a drag on a page to
   the armed annotation tool, or else to text selection.
 - `Vitela/ViewerViewModel+Signature.swift`, `SignatureStore.swift`,
