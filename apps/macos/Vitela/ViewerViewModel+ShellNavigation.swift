@@ -63,13 +63,19 @@ extension ViewerViewModel {
         return true
     }
 
-    /// Derive selection from the visible workspace and tools page, never a
-    /// second navigation state. Dialog actions do not claim a workspace.
-    var activeShellSection: ShellSection {
+    /// Derive selection from the visible workspace and selected tools page,
+    /// never a second navigation state — like Windows' SelectToolPage, which
+    /// marks the rail with the page. Comments has no rail entry, so nothing
+    /// is selected. Dialog actions do not claim a workspace.
+    var activeShellSection: ShellSection? {
         if isShowingHome { return homeSection }
         if isOrganizing { return .organize }
-        if showsTools && toolsTab == .fillSign { return .sign }
-        return store.contentEditMode ? .edit : .annotate
+        switch toolsTab {
+        case .edit: return .edit
+        case .annotate: return .annotate
+        case .comments: return nil
+        case .fillSign: return .sign
+        }
     }
 
     func navigateShell(to section: ShellSection) {

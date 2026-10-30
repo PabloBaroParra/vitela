@@ -23,8 +23,9 @@ responsibility:
   above it is 176pt wide, like Windows; narrower windows use a 56pt icon
   column with the same accessibility labels and tooltips. Recent reveals
   its heading and focuses the newest visible card. The model owns navigation
-  and derives the active tool from the existing modes and visible tools tab,
-  never a second copy.
+  and derives the active rail item from the workspace and selected tools tab,
+  never a second copy: like Windows, Comments selects no rail item, and Home
+  or Organize returns restore the selected tab's item.
   Home hides editor controls and panels without closing or changing the
   document; Return to Document restores its mode and page. File picking
   and protection use the existing native flows. Sign reveals Fill & Sign.
