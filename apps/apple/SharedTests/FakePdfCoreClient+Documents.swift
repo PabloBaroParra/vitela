@@ -218,6 +218,17 @@ extension FakePdfCoreClient {
             }
         case let .removeTextBlock(block):
             for run in block.runs { replaceRun(run) { _ in [] } }
+        case let .moveSelection(selection, dx, dy):
+            func shifted(_ r: PdfRect) -> PdfRect { PdfRect(x: r.x + dx, y: r.y + dy, width: r.width, height: r.height) }
+            for run in selection.blocks.flatMap(\.runs) {
+                replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: shifted($0.bbox), resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: $0.text)] }
+            }
+            for image in selection.images { replaceImage(image) { [ContentImage(id: $0.id, page: $0.page, bbox: shifted($0.bbox), resourceXObjectName: $0.resourceXObjectName)] } }
+            for path in selection.paths { replacePath(path) { [ContentPath(id: $0.id, page: $0.page, bbox: shifted($0.bbox), paint: $0.paint)] } }
+        case let .removeSelection(selection):
+            for run in selection.blocks.flatMap(\.runs) { replaceRun(run) { _ in [] } }
+            for image in selection.images { replaceImage(image) { _ in [] } }
+            for path in selection.paths { replacePath(path) { _ in [] } }
         case let .retypeTextBlock(block, text):
             for run in block.runs.dropFirst() { replaceRun(run) { _ in [] } }
             replaceRun(block.first) { [ContentTextRun(id: $0.id, page: $0.page, bbox: $0.bbox, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: text)] }

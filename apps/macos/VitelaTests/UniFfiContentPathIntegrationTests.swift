@@ -77,3 +77,42 @@ final class UniFfiContentPathIntegrationTests: XCTestCase {
         XCTAssertEqual(undone.bbox.width, 251, accuracy: 0.5)
     } }
 }
+
+extension UniFfiContentPathIntegrationTests {
+    /// A marquee over the frame and the rule gathers both, and a drag inside
+    /// the selection moves them as one undo step (B25 T-208).
+    func testAMarqueeSelectionMovesAsOneStepAgainstTheRealCore() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: Self.framedPdf())
+        store.setContentEditMode(true)
+        func read() throws -> PageContent {
+            let request = try XCTUnwrap(store.beginPageContent(page: 0))
+            store.applyPageContent(store.pageContentResult(for: request), for: request)
+            return try XCTUnwrap(store.pageContent[0])
+        }
+        _ = try read()
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 300, y: 280), zoom: 1))
+        store.continueContentDrag(to: PdfPoint(x: 600, y: 110))
+        _ = store.endContentDrag(at: PdfPoint(x: 600, y: 110))
+        let selection = try XCTUnwrap(store.contentSelection)
+        XCTAssertEqual(selection.paths.count, 2)
+
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 400, y: 120), zoom: 1))
+        store.continueContentDrag(to: PdfPoint(x: 380, y: 140))
+        guard case let .move(request) = store.endContentDrag(at: PdfPoint(x: 380, y: 140)) else { return XCTFail("a drag moves") }
+        store.applyPageWork(store.pageWorkResult(for: request), for: request)
+        let moved = try read().paths.sorted { $0.bbox.y < $1.bbox.y }
+        XCTAssertEqual(moved.map(\.bbox.x), [299, 299], accuracy: 0.5)
+        XCTAssertEqual(store.contentSelection?.count, 2, "still selected where it landed")
+
+        store.undo()
+        if let refresh = store.beginPageRefresh() { store.applyPageWork(store.pageWorkResult(for: refresh), for: refresh) }
+        XCTAssertEqual(try read().paths.map(\.bbox.x), [319, 319], accuracy: 0.5, "one undo step for the whole selection")
+    } }
+}
+
+private func XCTAssertEqual(_ a: [Double], _ b: [Double], accuracy: Double, _ message: String = "",
+                            file: StaticString = #filePath, line: UInt = #line) {
+    XCTAssertEqual(a.count, b.count, message, file: file, line: line)
+    for (x, y) in zip(a, b) { XCTAssertEqual(x, y, accuracy: accuracy, message, file: file, line: line) }
+}

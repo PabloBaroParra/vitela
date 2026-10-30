@@ -144,6 +144,9 @@ extension ViewerStore {
         case let .editContent(.moveImage(image, _)), let .editContent(.resizeImage(image, _)),
              let .editContent(.removeImage(image)), let .editContent(.replaceImage(image, _)):
             contentEdit.editedImages.insert(ContentImageKey(page: image.page, id: image.id))
+        case let .editContent(.moveSelection(selection, _, _)), let .editContent(.removeSelection(selection)):
+            // Held like a lone image edit: the core may not fold a later one.
+            for image in selection.images { contentEdit.editedImages.insert(ContentImageKey(page: image.page, id: image.id)) }
         case .refresh:
             contentEdit.editedImages = []
             contentEdit.replaceChecked = []

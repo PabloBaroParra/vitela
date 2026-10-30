@@ -40,6 +40,11 @@ struct ContentEditState {
     /// The path an edit just landed on, selected again at its new box once
     /// its page is read back, so the next drag starts from what is painted.
     var reselectPath: ContentImageKey?
+    /// What a marquee or SHIFT+click gathered (B25 T-208), the press it
+    /// owns, and the members a move just landed, selected again once read.
+    var multiSelection: ContentSelection?
+    var selectionGesture: SelectionGesture?
+    var reselectSelection: ContentSelection?
 }
 
 /// An image's or a path's identity across reads of its page.
@@ -121,6 +126,9 @@ extension ViewerStore {
         contentEdit.pathDrag = nil
         contentEdit.selectedPath = nil
         contentEdit.reselectPath = nil
+        contentEdit.multiSelection = nil
+        contentEdit.selectionGesture = nil
+        contentEdit.reselectSelection = nil
         guard on else {
             editStatus = ContentEditing.off
             return
@@ -157,6 +165,7 @@ extension ViewerStore {
         guard request.generation == generation, case let .success(content) = result else { return }
         pageContent[request.page] = content
         reselectPath(on: request.page, in: content)
+        reselectContentSelection(on: request.page, in: content)
     }
 
     /// The run a click at `point` on `page` meant, at `zoom` — reach is in
@@ -181,10 +190,14 @@ extension ViewerStore {
     /// handles first as on Windows: the selected image's corners and body,
     /// then a line the press is inside, then an image it is inside, then the
     /// nearest line within reach. `false` when it meant nothing.
-    func beginContentPress(page: Int, at point: PdfPoint, zoom: Double) -> Bool {
+    func beginContentPress(page: Int, at point: PdfPoint, zoom: Double, extend: Bool = false) -> Bool {
         guard contentEditMode, !pageWorkInFlight, let content = pageContent[page] else { return false }
-        // A path edit that never landed must not reselect after a later one.
+        // A new press drops a gesture whose release never arrived.
+        cancelContentDrag()
+        // An edit that never landed must not reselect after a later one.
         contentEdit.reselectPath = nil
+        contentEdit.reselectSelection = nil
+        if beginSelectionGesture(page: page, at: point, zoom: zoom, extend: extend, content: content) { return true }
         if beginImageDrag(page: page, at: point, zoom: zoom, onlySelected: true) { return true }
         if let run = ContentEditing.textRun(at: point, in: content.textRuns, reach: 0) {
             contentEdit.selectedImage = nil
@@ -202,6 +215,7 @@ extension ViewerStore {
     func continueContentDrag(to point: PdfPoint) {
         if contentEdit.imageDrag != nil { return continueImageDrag(to: point) }
         if contentEdit.pathDrag != nil { return continuePathDrag(to: point) }
+        if contentEdit.selectionGesture != nil { return continueSelectionGesture(to: point) }
         guard var drag = contentDrag else { return }
         drag.current = point
         let travel = ((point.x - drag.origin.x) * (point.x - drag.origin.x) + (point.y - drag.origin.y) * (point.y - drag.origin.y)).squareRoot()
@@ -215,6 +229,7 @@ extension ViewerStore {
     func endContentDrag(at point: PdfPoint) -> ContentRelease {
         if contentEdit.imageDrag != nil { return endImageDrag(at: point) }
         if contentEdit.pathDrag != nil { return endPathDrag(at: point) }
+        if contentEdit.selectionGesture != nil { return endSelectionGesture(at: point) }
         continueContentDrag(to: point)
         guard let drag = contentDrag, let document else { return .nothing }
         contentDrag = nil
@@ -237,6 +252,7 @@ extension ViewerStore {
         contentDrag = nil
         contentEdit.imageDrag = nil
         contentEdit.pathDrag = nil
+        contentEdit.selectionGesture = nil
     }
 
     /// Starts `edit` through the page-work pipeline, or says why not.
@@ -294,6 +310,8 @@ extension ViewerStore {
         contentEdit.selectedImage = nil
         contentEdit.pathDrag = nil
         contentEdit.selectedPath = nil
+        contentEdit.multiSelection = nil
+        contentEdit.selectionGesture = nil
         pageContent = [:]
         pageContentRequested = []
     }

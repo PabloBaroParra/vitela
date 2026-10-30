@@ -56,6 +56,10 @@ responsibility:
   box's border (B25 T-206) is selected by a click, moved by a drag, reshaped
   by a corner and removed by Delete Shape or ⌫; text inside a frame keeps
   its click, and the path stays selected for the next edit without a save.
+  A press on empty page drags a marquee that gathers every block, image and
+  shape it touches; Shift-click adds or removes one item, a drag inside the
+  dashed box moves them all and Delete Selection or ⌫ removes them all,
+  each one undo step (B25 T-208, `+ContentSelection.swift`).
   All run as page work (`../apple/Shared/ViewerStore+ContentEdit.swift`,
   `+ContentImages.swift`, `+ContentPaths.swift`).
 - `Vitela/ViewerViewModel+Watermark.swift`, `Views/WatermarkSheet.swift` —

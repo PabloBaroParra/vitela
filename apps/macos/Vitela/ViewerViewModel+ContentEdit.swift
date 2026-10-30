@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// A click that placed Add Text: where the new line's top-left corner goes.
 struct PendingTextInsert: Identifiable, Equatable {
@@ -88,7 +88,8 @@ extension ViewerViewModel {
             return true
         }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom),
-              store.beginContentPress(page: page, at: point, zoom: zoom)
+              // SHIFT adds or removes one item, or a marquee's worth (T-208).
+              store.beginContentPress(page: page, at: point, zoom: zoom, extend: NSEvent.modifierFlags.contains(.shift))
         else {
             store.editStatus = ContentEditing.missed
             return true
@@ -104,7 +105,7 @@ extension ViewerViewModel {
     /// The press ends: a click opens a line, a drag moves a line or an image,
     /// a corner drag resizes an image.
     func contentReleased(page: Int, location: CGPoint, zoom: Double) {
-        guard store.contentDrag != nil || store.imageDrag != nil || store.pathDrag != nil else { return }
+        guard store.contentDrag != nil || store.imageDrag != nil || store.pathDrag != nil || store.selectionGesture != nil else { return }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
             return store.cancelContentDrag()
         }
@@ -167,6 +168,11 @@ extension ViewerViewModel {
     /// The selected image's Delete — the toolbar button and ⌫.
     func deleteSelectedImage() {
         enqueuePageWork(store.beginSelectedImageDelete())
+    }
+
+    /// Delete Selection — the panel button and ⌫ with several items selected.
+    func deleteContentSelection() {
+        enqueuePageWork(store.beginSelectionDelete())
     }
 
     /// The selected line or box's Delete Shape — the panel button and ⌫.

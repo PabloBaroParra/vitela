@@ -44,6 +44,15 @@ struct ContentEditPanel: View {
                     .help("Type the selected image's width and height, in points")
                     .disabled(model.store.pageWorkInFlight)
             }
+            if let selection = model.store.contentSelection {
+                Divider()
+                Text(ContentEditing.selected(selection.count)).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Delete Selection", action: model.deleteContentSelection)
+                    .help("Remove everything selected from the page, as one undo step (⌫)")
+                    .disabled(model.store.pageWorkInFlight)
+                Button("Deselect", action: model.store.clearContentSelection)
+            }
             if model.store.selectedContentPath != nil {
                 Divider()
                 Text(ContentEditing.pathSelected).font(.caption).foregroundStyle(.secondary)

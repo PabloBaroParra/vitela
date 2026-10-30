@@ -39,6 +39,7 @@ struct ContentOutlineOverlay: View {
             for bbox in content.textBlocks.isEmpty ? content.textRuns.map(\.bbox) : content.textBlocks.map(\.bbox) {
                 context.stroke(Path(frame(bbox, placement)), with: .color(Self.outline), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             }
+            selectionOverlay(placement, in: &context)
             // Where a dragged line would land.
             if let drag = store.contentDrag, drag.moving, drag.run.page == page {
                 context.stroke(Path(frame(drag.previewRect, placement)), with: .color(.accentColor), lineWidth: 2)
@@ -49,6 +50,28 @@ struct ContentOutlineOverlay: View {
         .onChange(of: store.contentEditMode) { _ in readIfEditing() }
         // An edit forgets every page's content; read this one again.
         .onChange(of: store.pageContent[page] == nil) { _ in readIfEditing() }
+    }
+
+    /// A marquee being dragged, and a multi-selection: its members and the
+    /// dashed box around them, shifted while it is dragged (B25 T-208).
+    private func selectionOverlay(_ placement: PagePlacement, in context: inout GraphicsContext) {
+        if let gesture = store.selectionGesture, gesture.page == page, gesture.kind == .marquee, gesture.dragging {
+            let rect = Path(frame(gesture.rect, placement))
+            context.fill(rect, with: .color(Color.accentColor.opacity(0.11)))
+            context.stroke(rect, with: .color(.accentColor), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        guard let selection = store.contentSelection, selection.page == page, let bbox = selection.bbox else { return }
+        var dx = 0.0, dy = 0.0
+        if let gesture = store.selectionGesture, gesture.kind == .drag, gesture.dragging {
+            dx = gesture.current.x - gesture.origin.x
+            dy = gesture.current.y - gesture.origin.y
+        }
+        func shifted(_ r: PdfRect) -> PdfRect { PdfRect(x: r.x + dx, y: r.y + dy, width: r.width, height: r.height) }
+        for member in selection.blocks.map(\.bbox) + selection.images.map(\.bbox) + selection.paths.map(\.bbox) {
+            context.stroke(Path(frame(shifted(member), placement)), with: .color(.accentColor), lineWidth: 1.5)
+        }
+        context.stroke(Path(frame(shifted(bbox), placement).insetBy(dx: -3, dy: -3)), with: .color(.accentColor),
+                       style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
     }
 
     /// The selected image's or path's frame and its four corner handles.

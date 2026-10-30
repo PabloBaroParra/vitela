@@ -39,24 +39,16 @@ extension UniFfiPdfCoreClient {
                 return try insertImage(handle: handle, page: page, rect: rect, bytes: bytes)
             case let .addWatermark(watermark):
                 return try addWatermark(handle: handle, watermark)
-            case let .moveTextBlock(block, dx, dy):
-                return try editText(handle) { try Vitela.moveTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init), dx: dx, dy: dy) }
-            case let .removeTextBlock(block):
-                return try editText(handle) { try Vitela.removeTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init)) }
-            case let .retypeTextBlock(block, text):
-                return try editText(handle) {
-                    try Vitela.retypeTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init), text: text,
-                                        withInsertedFont: block.substitutesFont)
-                }
             default:
+                _ = try applyGroupEdit(handle: handle, edit: edit)
                 return
             }
         }
-        try editText(handle) { try Vitela.applyEdit(handle: handle, command: command) }
+        try mapTextEditErrors(handle) { try Vitela.applyEdit(handle: handle, command: command) }
     }
 
-    /// One text edit, its failures in the reader's words.
-    private func editText(_ handle: DocumentHandle, _ edit: () throws -> Void) throws {
+    /// One content edit, its failures in the reader's words.
+    func mapTextEditErrors(_ handle: DocumentHandle, _ edit: () throws -> Void) throws {
         do {
             try edit()
         } catch let FfiError.EncodingGap(character, _) {
@@ -150,7 +142,8 @@ private extension FfiEditCommand {
             self = .removeTextRun(item: FfiContentTextRun(run))
         case let .moveText(run, rect):
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
-        case .insertText, .replaceImage, .insertImage, .addWatermark, .moveTextBlock, .removeTextBlock, .retypeTextBlock:
+        case .insertText, .replaceImage, .insertImage, .addWatermark, .moveTextBlock, .removeTextBlock, .retypeTextBlock,
+             .moveSelection, .removeSelection:
             return nil
         case let .moveImage(image, rect):
             self = .moveImage(item: FfiContentImageItem(image), to: FfiRect(rect))
@@ -165,94 +158,6 @@ private extension FfiEditCommand {
             self = .resizePath(item: FfiContentPathItem(path), to: FfiRect(rect))
         case let .removePath(path):
             self = .removePath(item: FfiContentPathItem(path))
-        }
-    }
-}
-
-private extension ContentTextRun {
-    init(_ run: FfiContentTextRun) {
-        self.init(
-            id: run.id, page: Int(run.page), bbox: PdfRect(run.bbox), resourceFontName: run.resourceFontName,
-            fontKind: ContentFontKind(run.fontKind), text: run.text
-        )
-    }
-}
-
-private extension FfiContentTextRun {
-    init(_ run: ContentTextRun) {
-        self.init(
-            id: run.id, page: UInt32(run.page), bbox: FfiRect(run.bbox), resourceFontName: run.resourceFontName,
-            fontKind: FfiFontKind(run.fontKind), text: run.text
-        )
-    }
-}
-
-private extension ContentImage {
-    init(_ image: FfiContentImageItem) {
-        self.init(id: image.id, page: Int(image.page), bbox: PdfRect(image.bbox), resourceXObjectName: image.resourceXobjectName)
-    }
-}
-
-private extension FfiContentImageItem {
-    init(_ image: ContentImage) {
-        self.init(id: image.id, page: UInt32(image.page), bbox: FfiRect(image.bbox), resourceXobjectName: image.resourceXObjectName)
-    }
-}
-
-private extension ContentTextBlock {
-    init(_ block: FfiTextBlock) {
-        self.init(runs: block.runs.map(ContentTextRun.init), bbox: PdfRect(block.bbox), text: block.text)
-    }
-}
-
-private extension ContentPath {
-    init(_ path: FfiContentPathItem) {
-        self.init(id: path.id, page: Int(path.page), bbox: PdfRect(path.bbox), paint: PathPaint(path.paint))
-    }
-}
-
-private extension FfiContentPathItem {
-    init(_ path: ContentPath) {
-        self.init(id: path.id, page: UInt32(path.page), bbox: FfiRect(path.bbox), paint: FfiPathPaint(path.paint))
-    }
-}
-
-private extension PathPaint {
-    init(_ paint: FfiPathPaint) {
-        switch paint {
-        case .stroke: self = .stroke
-        case .fill: self = .fill
-        case .fillAndStroke: self = .fillAndStroke
-        }
-    }
-}
-
-private extension FfiPathPaint {
-    init(_ paint: PathPaint) {
-        switch paint {
-        case .stroke: self = .stroke
-        case .fill: self = .fill
-        case .fillAndStroke: self = .fillAndStroke
-        }
-    }
-}
-
-private extension ContentFontKind {
-    init(_ kind: FfiFontKind) {
-        switch kind {
-        case .standard14: self = .standard14
-        case .embeddedSimple: self = .embeddedSimple
-        case .embeddedComposite: self = .embeddedComposite
-        }
-    }
-}
-
-private extension FfiFontKind {
-    init(_ kind: ContentFontKind) {
-        switch kind {
-        case .standard14: self = .standard14
-        case .embeddedSimple: self = .embeddedSimple
-        case .embeddedComposite: self = .embeddedComposite
         }
     }
 }

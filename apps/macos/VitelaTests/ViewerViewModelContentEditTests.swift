@@ -59,6 +59,8 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         readPage(model)
 
         XCTAssertTrue(model.contentPress(page: 0, location: location(400, 100), zoom: 1))
+        // Empty page starts a marquee (B25 T-208); released unmoved, a miss.
+        model.contentReleased(page: 0, location: location(400, 100), zoom: 1)
 
         XCTAssertNil(model.contentTextEditor)
         XCTAssertEqual(model.store.editStatus, ContentEditing.missed)
