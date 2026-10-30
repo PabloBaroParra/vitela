@@ -49,6 +49,7 @@ extension ViewerStore {
             hit = nil
         }
         guard let hit else { return false }
+        contentEdit.selectedPath = nil
         contentEdit.selectedImage = hit
         guard !contentEdit.editedImages.contains(ContentImageKey(page: hit.page, id: hit.id)) else {
             editStatus = Self.imageAgain

@@ -13,7 +13,7 @@ struct ContentEditPanel: View {
                 Label("Edit Content", shellIcon: .edit)
             }
             .toggleStyle(.button)
-            .help("Click the page's own text to retype, move or delete it, or an image to move, resize or delete it")
+            .help("Click the page's own text to retype, move or delete it, or an image, line or box to move, resize or delete it")
             .disabled(!model.canEditContent && !model.store.contentEditMode)
             Toggle(isOn: Binding(get: { model.textInsertArmed }, set: model.armTextInsert)) {
                 Label("Add Text", shellIcon: .text)
@@ -42,6 +42,14 @@ struct ContentEditPanel: View {
                     .disabled(model.store.pageWorkInFlight)
                 Button("Image Size…") { imageGeometry = model.selectedImageGeometry(position: false) }
                     .help("Type the selected image's width and height, in points")
+                    .disabled(model.store.pageWorkInFlight)
+            }
+            if model.store.selectedContentPath != nil {
+                Divider()
+                Text(ContentEditing.pathSelected).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Delete Shape", action: model.deleteSelectedPath)
+                    .help("Remove the selected line or box from the page (⌫)")
                     .disabled(model.store.pageWorkInFlight)
             }
         }

@@ -104,7 +104,7 @@ extension ViewerViewModel {
     /// The press ends: a click opens a line, a drag moves a line or an image,
     /// a corner drag resizes an image.
     func contentReleased(page: Int, location: CGPoint, zoom: Double) {
-        guard store.contentDrag != nil || store.imageDrag != nil else { return }
+        guard store.contentDrag != nil || store.imageDrag != nil || store.pathDrag != nil else { return }
         guard let point = annotationPoint(page: page, location: location, zoom: zoom) else {
             return store.cancelContentDrag()
         }
@@ -166,6 +166,11 @@ extension ViewerViewModel {
     /// The selected image's Delete — the toolbar button and ⌫.
     func deleteSelectedImage() {
         enqueuePageWork(store.beginSelectedImageDelete())
+    }
+
+    /// The selected line or box's Delete Shape — the panel button and ⌫.
+    func deleteSelectedPath() {
+        enqueuePageWork(store.beginSelectedPathDelete())
     }
 
     func cancelTextEdit() {

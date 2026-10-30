@@ -9,7 +9,10 @@ extension UniFfiPdfCoreClient {
     func readPageContent(document: any PdfDocument, page: Int) throws -> PageContent {
         let handle = try handle(of: document)
         let content = try Self.mapEditErrors { try handle.readPageContent(page: UInt32(page)) }
-        return PageContent(textRuns: content.textRuns.map(ContentTextRun.init), images: content.images.map(ContentImage.init))
+        // A separate read in the core so older shells' records keep their shape.
+        let paths = try Self.mapEditErrors { try handle.readPagePaths(page: UInt32(page)) }
+        return PageContent(textRuns: content.textRuns.map(ContentTextRun.init), images: content.images.map(ContentImage.init),
+                           paths: paths.map(ContentPath.init))
     }
 
     func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? {
@@ -141,6 +144,12 @@ private extension FfiEditCommand {
         case let .removeImage(image):
             // The core keeps the original for undo itself, as on Windows.
             self = .removeImage(item: FfiContentImageItem(image), source: nil)
+        case let .movePath(path, rect):
+            self = .movePath(item: FfiContentPathItem(path), to: FfiRect(rect))
+        case let .resizePath(path, rect):
+            self = .resizePath(item: FfiContentPathItem(path), to: FfiRect(rect))
+        case let .removePath(path):
+            self = .removePath(item: FfiContentPathItem(path))
         }
     }
 }
@@ -172,6 +181,38 @@ private extension ContentImage {
 private extension FfiContentImageItem {
     init(_ image: ContentImage) {
         self.init(id: image.id, page: UInt32(image.page), bbox: FfiRect(image.bbox), resourceXobjectName: image.resourceXObjectName)
+    }
+}
+
+private extension ContentPath {
+    init(_ path: FfiContentPathItem) {
+        self.init(id: path.id, page: Int(path.page), bbox: PdfRect(path.bbox), paint: PathPaint(path.paint))
+    }
+}
+
+private extension FfiContentPathItem {
+    init(_ path: ContentPath) {
+        self.init(id: path.id, page: UInt32(path.page), bbox: FfiRect(path.bbox), paint: FfiPathPaint(path.paint))
+    }
+}
+
+private extension PathPaint {
+    init(_ paint: FfiPathPaint) {
+        switch paint {
+        case .stroke: self = .stroke
+        case .fill: self = .fill
+        case .fillAndStroke: self = .fillAndStroke
+        }
+    }
+}
+
+private extension FfiPathPaint {
+    init(_ paint: PathPaint) {
+        switch paint {
+        case .stroke: self = .stroke
+        case .fill: self = .fill
+        case .fillAndStroke: self = .fillAndStroke
+        }
     }
 }
 
