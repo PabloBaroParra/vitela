@@ -63,3 +63,35 @@ final class UniFfiTextBlockIntegrationTests: XCTestCase {
         XCTAssertEqual(try read().textRuns.map(\.text), ["PRESUPUES", "TO 3"], "one undo restores both runs")
     } }
 }
+
+extension UniFfiTextBlockIntegrationTests {
+    /// #506: a moved line opens and retypes before any save — the core
+    /// writes the pending move into an in-memory base and retries.
+    func testAMovedLineRetypesBeforeASaveThroughTheCheckpoint() throws { try offMain {
+        let store = ViewerStore(client: UniFfiPdfCoreClient())
+        store.open(bytes: Self.splitLinePdf())
+        store.setContentEditMode(true)
+        func read() throws -> PageContent {
+            let request = try XCTUnwrap(store.beginPageContent(page: 0))
+            store.applyPageContent(store.pageContentResult(for: request), for: request)
+            return try XCTUnwrap(store.pageContent[0])
+        }
+        let document = try XCTUnwrap(store.document)
+        XCTAssertFalse(store.client.contentEditsCanCheckpoint(document: document), "nothing queued to checkpoint yet")
+        let block = try XCTUnwrap(try read().textBlocks.first)
+        let move = try XCTUnwrap(store.beginContentEdit(ViewerStore.textMove(block, to: PdfRect(x: block.bbox.x, y: block.bbox.y - 40,
+                                                                                               width: block.bbox.width, height: block.bbox.height))))
+        store.applyPageWork(store.pageWorkResult(for: move), for: move)
+        let moved = try XCTUnwrap(try read().textBlocks.first)
+        XCTAssertTrue(store.client.contentEditsCanCheckpoint(document: document), "an unencrypted file opened from bytes, content edits only")
+
+        let point = PdfPoint(x: moved.bbox.x + 5, y: moved.bbox.y + moved.bbox.height / 2)
+        XCTAssertTrue(store.beginContentPress(page: 0, at: point, zoom: 1))
+        guard case let .open(opened) = store.endContentDrag(at: point) else { return XCTFail("the moved line opens") }
+        let retype = try XCTUnwrap(store.beginContentEdit(ViewerStore.textRetype(opened, to: "PRESUPUESTO 5")))
+        store.applyPageWork(store.pageWorkResult(for: retype), for: retype)
+        let after = try read()
+        XCTAssertEqual(after.textRuns.map(\.text), ["PRESUPUESTO 5"], store.editStatus)
+        XCTAssertEqual(try XCTUnwrap(after.textRuns.first).bbox.y, moved.bbox.y, accuracy: 1, "retyped where it was moved")
+    } }
+}

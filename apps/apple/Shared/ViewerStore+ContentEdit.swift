@@ -238,7 +238,10 @@ extension ViewerStore {
         guard let drag = contentDrag, let document else { return .nothing }
         contentDrag = nil
         guard drag.moving else {
-            if drag.block.runs.contains(where: { client.textRunHasPendingMove(document: document, run: $0) }) {
+            // Where the core can checkpoint (#506) it retypes moved text
+            // itself; elsewhere the old save-and-reopen rule still holds.
+            if !client.contentEditsCanCheckpoint(document: document),
+               drag.block.runs.contains(where: { client.textRunHasPendingMove(document: document, run: $0) }) {
                 editStatus = ContentEditing.movedNotSaved
                 return .nothing
             }

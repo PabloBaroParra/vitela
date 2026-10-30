@@ -27,6 +27,10 @@ extension UniFfiPdfCoreClient {
         return (try? handle.textRunHasPendingMove(page: UInt32(run.page), id: run.id)) ?? false
     }
 
+    func contentEditsCanCheckpoint(document: any PdfDocument) -> Bool {
+        (try? handle(of: document))?.contentEditsCanCheckpoint() ?? false
+    }
+
     func applyContentEdit(document: any PdfDocument, edit: ContentEdit) throws {
         let handle = try handle(of: document)
         guard let command = FfiEditCommand(edit) else {

@@ -181,6 +181,8 @@ extension FakePdfCoreClient {
         return ContentClip(pdf: Data([0x25]), bbox: selection.bbox ?? PdfRect(x: 0, y: 0, width: 0, height: 0))
     }
 
+    func contentEditsCanCheckpoint(document: any PdfDocument) -> Bool { canCheckpoint }
+
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool {
         movedRuns.contains(run.id)
     }

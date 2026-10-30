@@ -119,6 +119,8 @@ protocol PdfCoreClient {
     /// Whether `run` was moved and not saved since — such a run cannot be
     /// retyped until the document is saved and reopened.
     func textRunHasPendingMove(document: any PdfDocument, run: ContentTextRun) -> Bool
+    /// Whether a re-edit is checkpointed in memory instead of refused (#506).
+    func contentEditsCanCheckpoint(document: any PdfDocument) -> Bool
     /// The core's first look for an Add watermark stamp of `kind` —
     /// `PdfCore+Watermark.swift`. Recording one is `applyContentEdit`.
     func defaultWatermarkLook(_ kind: WatermarkKind) -> WatermarkLook
