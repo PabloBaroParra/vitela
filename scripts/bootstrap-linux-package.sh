@@ -31,7 +31,7 @@ log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 
 log "Installing system packages (apt)"
 sudo apt-get update
-sudo apt-get install -y build-essential pkg-config libgtk-4-dev dpkg-dev file binutils curl libfuse2
+sudo apt-get install -y build-essential pkg-config libgtk-4-dev dpkg-dev file binutils curl libfuse2 librsvg2-bin
 
 if ! command -v rustup >/dev/null 2>&1; then
     log "Installing rustup (stable)"

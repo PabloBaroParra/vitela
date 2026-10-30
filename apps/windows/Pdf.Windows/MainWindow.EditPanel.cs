@@ -107,12 +107,13 @@ public sealed partial class MainWindow
     {
         var editor = _pump.Box;
         var block = editor is null ? _selectedTextBlock : null;
+        // Inserted text can be deleted before a save: the core writes the
+        // insertion into a new in-memory base and deletes it there, or says
+        // why it cannot.
         DeleteTextButton.IsEnabled = ContentEditButton.IsEnabled && _contentEditMode && !_deletingContentText && !_isBusy
-            && (editor is not null ? !editor.Run.IsPendingInsertion
-                : block is not null && !block.Runs.Any(run => run.IsPendingInsertion));
+            && (editor is not null || block is not null);
         _editTextHint.Text = editor is not null
-            ? editor.Run.IsPendingInsertion ? "Retype this inserted text; save and reopen before deleting it."
-                : "Text run selected — delete it, or retype it in place."
+            ? "Text run selected — delete it, or retype it in place."
             : block is not null ? TextBlockSelectedHint
             : "Click text to select it; double-click to retype it in place.";
     }

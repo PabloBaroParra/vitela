@@ -500,6 +500,7 @@ public sealed partial class MainWindow
 
     private void UpdateAnnotationControls(AnnotationState? state)
     {
+        CatchUpContentBase(state);
         UpdateCommentsPanel(state);
         SyncAnnotationToolButtons();
         // Organizing hides the pages these tools draw on; only history stays live.

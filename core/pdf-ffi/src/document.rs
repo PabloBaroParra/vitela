@@ -55,6 +55,8 @@ use crate::types::{
 };
 use crate::BitmapHandle;
 
+mod checkpoint;
+
 pub(crate) struct DocumentState {
     document: Document,
     base: LopdfDocument,
@@ -88,6 +90,10 @@ pub(crate) struct DocumentState {
     /// pages back out: a redo puts them back, and from then on every save,
     /// preview and content read has to be able to materialize them again.
     imported: Vec<(ImportedDocumentId, LopdfDocument)>,
+    /// The bases this session's edits were written into in memory, so a
+    /// second edit of an edited item needs no save and reopen. See
+    /// [`checkpoint`].
+    checkpoints: checkpoint::Checkpoints,
 }
 
 impl DocumentState {
@@ -110,6 +116,7 @@ impl DocumentState {
             next_annotation_id: 0,
             opened_rotations,
             imported: Vec::new(),
+            checkpoints: Default::default(),
         }
     }
 
@@ -1233,9 +1240,10 @@ impl DocumentHandle {
         content_editing_is_allowed(&self.lock().document)
     }
 
-    /// Whether an existing run has an unsaved movement. Shells must refuse
-    /// reopening it for retyping until save/reopen; synthetic insertions move
-    /// by amending their insertion instead and remain editable.
+    /// Whether an existing run has an unsaved movement. Retyping such a run
+    /// is no longer refused when the session can checkpoint (see
+    /// `document::checkpoint`); a shell that still gates on this keeps the
+    /// old save-and-reopen rule for sessions that cannot.
     pub fn text_run_has_pending_move(&self, page: u32, id: u64) -> Result<bool, FfiError> {
         let state = self.lock();
         let page = state.page_id(page)?;
@@ -1420,11 +1428,26 @@ impl DocumentHandle {
     }
 
     pub fn can_undo(&self) -> bool {
-        self.lock().document.pending_edits.can_undo()
+        self.lock().can_undo()
     }
 
     pub fn can_redo(&self) -> bool {
-        self.lock().document.pending_edits.can_redo()
+        self.lock().can_redo()
+    }
+
+    /// Changes whenever the core writes the pending page-content edits into
+    /// a new in-memory base, or steps back or forward across one. Every
+    /// content item read before the change is stale: re-read the pages
+    /// before building another content edit from them.
+    pub fn content_base_generation(&self) -> u64 {
+        self.lock().content_base_generation()
+    }
+
+    /// Whether a page-content edit refused because its item already has an
+    /// unsaved edit would instead be written into a new in-memory base and
+    /// retried. `false` means the old rule holds: save and reopen first.
+    pub fn content_edits_can_checkpoint(&self) -> bool {
+        self.lock().may_checkpoint()
     }
 }
 
@@ -1933,7 +1956,7 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
     }
 
     let is_set_contents = matches!(command, FfiEditCommand::SetAnnotationContents { .. });
-    let mut core_command = state.build_core_command(command)?;
+    let core_command = state.build_core_command(command)?;
     if is_set_contents {
         // Retyping a box to the text it already has edited nothing, so it
         // must not become an undo step the user has to step over.
@@ -1944,76 +1967,99 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
         }
     }
     if is_content {
-        // An item inside a queued batch (a block edit, B25 T-207) is edited
-        // again through that batch, which keeps the snapshot the file holds.
-        let folded =
-            match crate::text_blocks::fold_into_queued_batch(&state.document, &core_command) {
-                Ok(folded) => folded,
-                // Not the same kind of edit as the batch's child for this item —
-                // retyping a run of a moved block, say. It can still follow the
-                // batch as its own step if the save could replay it after it.
-                Err(refusal) => {
-                    state
-                        .with_imported_sources(|sources| {
-                            pdf_save::validate_content_command_after_pending(
-                                &state.document,
-                                &state.base,
-                                sources,
-                                &core_command,
-                            )
-                        })
-                        .map_err(|_| refusal)?;
-                    if !apply_command(&mut state.document, core_command) {
-                        return Err(FfiError::UnsupportedOperation {
-                            detail: "this edit command was rejected against the open document"
-                                .to_string(),
-                        });
-                    }
-                    return Ok(());
-                }
-            };
-        if let Some((index, batch)) = folded {
-            state.with_imported_sources(|sources| {
-                pdf_save::validate_content_command(&state.document, &state.base, sources, &batch)
-            })?;
-            if !state.document.pending_edits.amend(index, batch) {
-                return Err(FfiError::UnsupportedOperation {
-                    detail: "the pending text edit is no longer available".to_string(),
-                });
+        // Tried as it stands first: a checkpoint costs a rewrite, and most
+        // edits never need one.
+        let core_command = state.dealias(core_command);
+        return match apply_content_command(&mut state, core_command.clone()) {
+            Ok(()) => Ok(()),
+            Err(refusal) => {
+                state.retry_after_checkpoint(core_command, refusal, apply_content_command)
             }
-            return Ok(());
-        }
-        let queued = pending_text_amendment_index(&state.document, &core_command)?;
-        if let Some(index) = queued {
-            // What a caller holds is the run as `read_page_content` reads it
-            // now — the queued text edit already applied. The save replays
-            // against the untouched bytes, so the fold keeps the snapshot the
-            // queued command was built from, including repeated moves.
-            core_command =
-                with_queued_item(&state.document.pending_edits.entries()[index], core_command);
-        }
-        // Validate before recording, never only at save time — see
-        // `pdf_save::validate_content_command` for why a content command
-        // recorded unchecked can only fail later, and take every other
-        // queued edit down with it.
-        state.with_imported_sources(|sources| {
-            pdf_save::validate_content_command(&state.document, &state.base, sources, &core_command)
-        })?;
+        };
+    }
+    if !apply_command(&mut state.document, core_command) {
+        return Err(FfiError::UnsupportedOperation {
+            detail: "this edit command was rejected against the open document".to_string(),
+        });
+    }
+    Ok(())
+}
 
-        if let Some(index) = queued {
-            // Retyping, deleting a retyped run or moving again amends its queued command
-            // instead of appending another. `EditLog::amend`'s own docs carry
-            // the reasoning: a save replays content commands in order against
-            // a document it mutates as it goes, so a second command against
-            // the same run would resolve against nothing and take the whole
-            // save down.
-            if !state.document.pending_edits.amend(index, core_command) {
+/// Records one page-content edit: folded into the queued edit of the same
+/// item when there is one, validated against the base, then applied. Leaves
+/// the session untouched when it refuses, which is what lets
+/// [`DocumentState::retry_after_checkpoint`] try again.
+fn apply_content_command(
+    state: &mut DocumentState,
+    mut core_command: Command,
+) -> Result<(), FfiError> {
+    // An item inside a queued batch (a block edit, B25 T-207) is edited
+    // again through that batch, which keeps the snapshot the file holds.
+    let folded = match crate::text_blocks::fold_into_queued_batch(&state.document, &core_command) {
+        Ok(folded) => folded,
+        // Not the same kind of edit as the batch's child for this item —
+        // retyping a run of a moved block, say. It can still follow the
+        // batch as its own step if the save could replay it after it.
+        Err(refusal) => {
+            state
+                .with_imported_sources(|sources| {
+                    pdf_save::validate_content_command_after_pending(
+                        &state.document,
+                        &state.base,
+                        sources,
+                        &core_command,
+                    )
+                })
+                .map_err(|_| refusal)?;
+            if !apply_command(&mut state.document, core_command) {
                 return Err(FfiError::UnsupportedOperation {
-                    detail: "the pending text edit is no longer available".to_string(),
+                    detail: "this edit command was rejected against the open document".to_string(),
                 });
             }
             return Ok(());
         }
+    };
+    if let Some((index, batch)) = folded {
+        state.with_imported_sources(|sources| {
+            pdf_save::validate_content_command(&state.document, &state.base, sources, &batch)
+        })?;
+        if !state.document.pending_edits.amend(index, batch) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "the pending text edit is no longer available".to_string(),
+            });
+        }
+        return Ok(());
+    }
+    let queued = pending_text_amendment_index(&state.document, &core_command)?;
+    if let Some(index) = queued {
+        // What a caller holds is the run as `read_page_content` reads it
+        // now — the queued text edit already applied. The save replays
+        // against the untouched bytes, so the fold keeps the snapshot the
+        // queued command was built from, including repeated moves.
+        core_command =
+            with_queued_item(&state.document.pending_edits.entries()[index], core_command);
+    }
+    // Validate before recording, never only at save time — see
+    // `pdf_save::validate_content_command` for why a content command
+    // recorded unchecked can only fail later, and take every other
+    // queued edit down with it.
+    state.with_imported_sources(|sources| {
+        pdf_save::validate_content_command(&state.document, &state.base, sources, &core_command)
+    })?;
+
+    if let Some(index) = queued {
+        // Retyping, deleting a retyped run or moving again amends its queued command
+        // instead of appending another. `EditLog::amend`'s own docs carry
+        // the reasoning: a save replays content commands in order against
+        // a document it mutates as it goes, so a second command against
+        // the same run would resolve against nothing and take the whole
+        // save down.
+        if !state.document.pending_edits.amend(index, core_command) {
+            return Err(FfiError::UnsupportedOperation {
+                detail: "the pending text edit is no longer available".to_string(),
+            });
+        }
+        return Ok(());
     }
     if !apply_command(&mut state.document, core_command) {
         return Err(FfiError::UnsupportedOperation {
@@ -2103,6 +2149,15 @@ fn pending_text_amendment_index(
     if pdf_edit::pending_log_index(item.id).is_some() {
         if matches!(command, Command::ReplaceTextRunContent { .. }) {
             return pending_insertion_amendment_index(document, item);
+        }
+        // Only reaches the reader when the session cannot checkpoint (see
+        // `document::checkpoint`); then a save is the way out.
+        if matches!(command, Command::RemoveTextRun(_)) {
+            return Err(FfiError::UnsupportedOperation {
+                detail:
+                    "This inserted text is not saved yet — save the document before deleting it."
+                        .to_string(),
+            });
         }
         return Err(FfiError::UnsupportedOperation {
             detail: "this pending insertion cannot be edited with that text target".to_string(),
@@ -2337,22 +2392,14 @@ pub fn refresh_preview(handle: &DocumentHandle) -> Result<(), FfiError> {
 /// a command was undone (spec "Undo/Redo via EditLog").
 #[uniffi::export]
 pub fn undo(handle: &DocumentHandle) -> bool {
-    let mut state = handle.lock();
-    let mut log = std::mem::take(&mut state.document.pending_edits);
-    let undone = log.undo(&mut state.document);
-    state.document.pending_edits = log;
-    undone
+    handle.lock().undo()
 }
 
 /// Re-applies the most recently undone edit command, if any. Returns `true`
 /// if a command was redone.
 #[uniffi::export]
 pub fn redo(handle: &DocumentHandle) -> bool {
-    let mut state = handle.lock();
-    let mut log = std::mem::take(&mut state.document.pending_edits);
-    let redone = log.redo(&mut state.document);
-    state.document.pending_edits = log;
-    redone
+    handle.lock().redo()
 }
 
 /// Inserts a Stamp annotation built from raw image bytes (PNG/JPEG) at
