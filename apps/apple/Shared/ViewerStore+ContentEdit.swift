@@ -52,24 +52,27 @@ struct ContentImageKey: Hashable {
 /// line — until the pointer travels `ContentEditing.clickEpsilon` screen
 /// points; from then on it drags the line, as in Linux's and Windows' editor.
 struct ContentDrag: Equatable {
+    /// The run pressed, and the block it reads as (B25 T-207) — the unit
+    /// that moves and opens; a block of one when it joins nothing.
     let run: ContentTextRun
+    let block: ContentTextBlock
     let origin: PdfPoint
     var current: PdfPoint
     /// Screen points per page point, to measure the travel on screen.
     let zoom: Double
     var moving = false
 
-    /// Where the line would land if released here.
+    /// Where the block would land if released here.
     var previewRect: PdfRect {
-        PdfRect(x: run.bbox.x + current.x - origin.x, y: run.bbox.y + current.y - origin.y,
-                width: run.bbox.width, height: run.bbox.height)
+        PdfRect(x: block.bbox.x + current.x - origin.x, y: block.bbox.y + current.y - origin.y,
+                width: block.bbox.width, height: block.bbox.height)
     }
 }
 
 /// What releasing a press on a line comes to.
 enum ContentRelease {
-    /// A click: open the line to retype or delete it.
-    case open(ContentTextRun)
+    /// A click: open the block to retype or delete it.
+    case open(ContentTextBlock)
     /// A drag that moved the line: the move to run as page work.
     case move(ViewerStore.PageWorkRequest)
     /// Nothing to run; the status line says why when there is a why.
@@ -166,8 +169,10 @@ extension ViewerStore {
     /// A press on `page` in the mode: grabs the line under it, or returns
     /// `nil` when there is none.
     func beginContentDrag(page: Int, at point: PdfPoint, zoom: Double) -> ContentTextRun? {
-        guard contentEditMode, !pageWorkInFlight, let run = textRun(page: page, at: point, zoom: zoom) else { return nil }
-        contentDrag = ContentDrag(run: run, origin: point, current: point, zoom: max(zoom, 0.01))
+        guard contentEditMode, !pageWorkInFlight, let run = textRun(page: page, at: point, zoom: zoom),
+              let content = pageContent[page]
+        else { return nil }
+        contentDrag = ContentDrag(run: run, block: content.block(containing: run), origin: point, current: point, zoom: max(zoom, 0.01))
         return run
     }
 
@@ -184,7 +189,7 @@ extension ViewerStore {
         if let run = ContentEditing.textRun(at: point, in: content.textRuns, reach: 0) {
             contentEdit.selectedImage = nil
             contentEdit.selectedPath = nil
-            contentDrag = ContentDrag(run: run, origin: point, current: point, zoom: max(zoom, 0.01))
+            contentDrag = ContentDrag(run: run, block: content.block(containing: run), origin: point, current: point, zoom: max(zoom, 0.01))
             return true
         }
         if beginImageDrag(page: page, at: point, zoom: zoom, onlySelected: false) { return true }
@@ -214,18 +219,18 @@ extension ViewerStore {
         guard let drag = contentDrag, let document else { return .nothing }
         contentDrag = nil
         guard drag.moving else {
-            if client.textRunHasPendingMove(document: document, run: drag.run) {
+            if drag.block.runs.contains(where: { client.textRunHasPendingMove(document: document, run: $0) }) {
                 editStatus = ContentEditing.movedNotSaved
                 return .nothing
             }
-            return .open(drag.run)
+            return .open(drag.block)
         }
         let to = drag.previewRect
-        guard to != drag.run.bbox else {
+        guard to != drag.block.bbox else {
             editStatus = ContentEditing.positionUnchanged
             return .nothing
         }
-        return beginContentEdit(.moveText(drag.run, to: to)).map(ContentRelease.move) ?? .nothing
+        return beginContentEdit(Self.textMove(drag.block, to: to)).map(ContentRelease.move) ?? .nothing
     }
 
     func cancelContentDrag() {
@@ -237,15 +242,38 @@ extension ViewerStore {
     /// Starts `edit` through the page-work pipeline, or says why not.
     func beginContentEdit(_ edit: ContentEdit) -> PageWorkRequest? {
         guard let document, !pageWorkInFlight else { return nil }
-        if case let .retypeText(run, text) = edit {
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        let retype: (old: String, new: String)?
+        switch edit {
+        case let .retypeText(run, text): retype = (run.text, text)
+        case let .retypeTextBlock(block, text): retype = (block.text, text)
+        default: retype = nil
+        }
+        if let retype {
+            if retype.new.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 editStatus = ContentEditing.emptyRetype
                 return nil
             }
-            if text == run.text { return nil }
+            if retype.new == retype.old { return nil }
         }
         pageWorkInFlight = true
         return PageWorkRequest(generation: generation, document: document, work: .editContent(edit))
+    }
+
+    /// The edits a block's editor and drag record: the single-run edits for a
+    /// block of one, as before T-207, the block commands otherwise — Windows'
+    /// `IsMultiRun` split.
+    static func textMove(_ block: ContentTextBlock, to: PdfRect) -> ContentEdit {
+        block.isMultiRun
+            ? .moveTextBlock(block, dx: to.x - block.bbox.x, dy: to.y - block.bbox.y)
+            : .moveText(block.first, to: to)
+    }
+
+    static func textRetype(_ block: ContentTextBlock, to text: String) -> ContentEdit {
+        block.isMultiRun ? .retypeTextBlock(block, to: text) : .retypeText(block.first, to: text)
+    }
+
+    static func textRemoval(_ block: ContentTextBlock) -> ContentEdit {
+        block.isMultiRun ? .removeTextBlock(block) : .removeText(block.first)
     }
 
     /// Inserts `text` at `size` (as typed) with its top-left corner at

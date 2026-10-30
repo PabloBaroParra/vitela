@@ -47,8 +47,11 @@ responsibility:
   write) and the unsaved-changes guard.
 - `Vitela/ViewerViewModel+ContentEdit.swift`, `Views/ContentTextSheet.swift`,
   `Views/ContentOutlineOverlay.swift` — Edit Content: outlines of the lines,
-  images and vector paths a page paints; a click opens a line to retype or
-  delete, a drag moves a line or an image, a corner resizes an image,
+  images and vector paths a page paints. Text is outlined and edited by
+  block (B25 T-207): runs the core reads as one piece of text open, move,
+  retype and delete together as one undo step (`ContentTextBlock`), and a
+  run that joins nothing keeps the single-run edits. A click opens a block
+  to retype or delete, a drag moves a block or an image, a corner resizes an image,
   Replace Image… and Add Image… swap or place a PNG or JPEG. A line or a
   box's border (B25 T-206) is selected by a click, moved by a drag, reshaped
   by a corner and removed by Delete Shape or ⌫; text inside a frame keeps

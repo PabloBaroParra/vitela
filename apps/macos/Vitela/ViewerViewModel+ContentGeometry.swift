@@ -1,14 +1,14 @@
 import Foundation
 
-/// Typed positions and sizes for page content on macOS: a line's X/Y from
+/// Typed positions and sizes for page content on macOS: a block's X/Y from
 /// its Edit text sheet, and the selected image's Position… and Size… through
 /// the shared `GeometrySheet`. The rules are the store's
 /// (`ViewerStore+ContentGeometry.swift`).
 extension ViewerViewModel {
-    /// The Edit text sheet's Move: `run` to `x`, `y`. Returns why the sheet
+    /// The Edit text sheet's Move: `block` to `x`, `y`. Returns why the sheet
     /// must stay open, or `nil` once it is closed.
-    func moveText(_ run: ContentTextRun, toX x: Double, y: Double) -> String? {
-        let (problem, request) = store.beginTextMove(run, toX: x, y: y)
+    func moveText(_ block: ContentTextBlock, toX x: Double, y: Double) -> String? {
+        let (problem, request) = store.beginTextMove(block, toX: x, y: y)
         if let problem { return problem }
         contentTextEditor = nil
         enqueuePageWork(request)

@@ -33,7 +33,7 @@ final class ViewerViewModel: ObservableObject {
     @Published var isOrganizing = false
     /// The page text being retyped, while its sheet is up —
     /// `ViewerViewModel+ContentEdit.swift`.
-    @Published var contentTextEditor: ContentTextRun?
+    @Published var contentTextEditor: ContentTextBlock?
     /// Whether the Pages column is open — `ViewerViewModel+Navigation.swift`.
     /// Open from the start, as on Linux and Windows.
     @Published var showsPages = true

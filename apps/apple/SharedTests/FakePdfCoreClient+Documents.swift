@@ -192,7 +192,7 @@ extension FakePdfCoreClient {
         case let .insertText(page, rect, text):
             let content = pageContents[page] ?? PageContent(textRuns: [], images: [])
             let inserted = ContentTextRun(id: 1_000 + UInt64(content.textRuns.count), page: page, bbox: rect, resourceFontName: "VitelaText", fontKind: .standard14, text: text)
-            pageContents[page] = PageContent(textRuns: content.textRuns + [inserted], images: content.images, paths: content.paths)
+            pageContents[page] = PageContent(textRuns: content.textRuns + [inserted], images: content.images, paths: content.paths, textBlocks: content.textBlocks)
         case let .moveImage(image, rect), let .resizeImage(image, rect):
             replaceImage(image) { [ContentImage(id: $0.id, page: $0.page, bbox: rect, resourceXObjectName: $0.resourceXObjectName)] }
         case let .removeImage(image):
@@ -202,7 +202,7 @@ extension FakePdfCoreClient {
         case let .insertImage(page, rect, _):
             let content = pageContents[page] ?? PageContent(textRuns: [], images: [])
             let inserted = ContentImage(id: 2_000 + UInt64(content.images.count), page: page, bbox: rect, resourceXObjectName: "VitelaImage")
-            pageContents[page] = PageContent(textRuns: content.textRuns, images: content.images + [inserted], paths: content.paths)
+            pageContents[page] = PageContent(textRuns: content.textRuns, images: content.images + [inserted], paths: content.paths, textBlocks: content.textBlocks)
         case let .moveText(run, rect):
             movedRuns.insert(run.id)
             replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: rect, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: $0.text)] }
@@ -210,6 +210,17 @@ extension FakePdfCoreClient {
             replacePath(path) { [ContentPath(id: $0.id, page: $0.page, bbox: rect, paint: $0.paint)] }
         case let .removePath(path):
             replacePath(path) { _ in [] }
+        case let .moveTextBlock(block, dx, dy):
+            for run in block.runs {
+                movedRuns.insert(run.id)
+                let to = PdfRect(x: run.bbox.x + dx, y: run.bbox.y + dy, width: run.bbox.width, height: run.bbox.height)
+                replaceRun(run) { [ContentTextRun(id: $0.id, page: $0.page, bbox: to, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: $0.text)] }
+            }
+        case let .removeTextBlock(block):
+            for run in block.runs { replaceRun(run) { _ in [] } }
+        case let .retypeTextBlock(block, text):
+            for run in block.runs.dropFirst() { replaceRun(run) { _ in [] } }
+            replaceRun(block.first) { [ContentTextRun(id: $0.id, page: $0.page, bbox: $0.bbox, resourceFontName: $0.resourceFontName, fontKind: $0.fontKind, text: text)] }
         }
         recordAnnotations(currentAnnotations)
     }
@@ -219,7 +230,8 @@ extension FakePdfCoreClient {
         pageContents[image.page] = PageContent(
             textRuns: content.textRuns,
             images: content.images.flatMap { $0.id == image.id ? change($0) : [$0] },
-            paths: content.paths
+            paths: content.paths,
+            textBlocks: content.textBlocks
         )
     }
 
@@ -228,8 +240,20 @@ extension FakePdfCoreClient {
         pageContents[run.page] = PageContent(
             textRuns: content.textRuns.flatMap { $0.id == run.id ? change($0) : [$0] },
             images: content.images,
-            paths: content.paths
+            paths: content.paths,
+            textBlocks: content.textBlocks.compactMap { block in
+                // The block keeps its surviving runs, as the core regroups them.
+                let runs = block.runs.flatMap { $0.id == run.id ? change($0) : [$0] }
+                guard !runs.isEmpty else { return nil }
+                return ContentTextBlock(runs: runs, bbox: runs.dropFirst().reduce(runs[0].bbox) { Self.union($0, $1.bbox) },
+                                        text: runs.map(\.text).joined(separator: " "))
+            }
         )
+    }
+
+    private static func union(_ a: PdfRect, _ b: PdfRect) -> PdfRect {
+        let x = min(a.x, b.x), y = min(a.y, b.y)
+        return PdfRect(x: x, y: y, width: max(a.x + a.width, b.x + b.width) - x, height: max(a.y + a.height, b.y + b.height) - y)
     }
 
     private func replacePath(_ path: ContentPath, with change: (ContentPath) -> [ContentPath]) {
@@ -237,7 +261,8 @@ extension FakePdfCoreClient {
         pageContents[path.page] = PageContent(
             textRuns: content.textRuns,
             images: content.images,
-            paths: content.paths.flatMap { $0.id == path.id ? change($0) : [$0] }
+            paths: content.paths.flatMap { $0.id == path.id ? change($0) : [$0] },
+            textBlocks: content.textBlocks
         )
     }
 }

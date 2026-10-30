@@ -35,8 +35,9 @@ struct ContentOutlineOverlay: View {
             if let selected = store.selectedContentPath, selected.page == page {
                 selection(store.pathDrag.map(\.previewRect) ?? selected.bbox, color: .accentColor, placement, in: &context)
             }
-            for run in content.textRuns {
-                context.stroke(Path(frame(run.bbox, placement)), with: .color(Self.outline), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            // One outline per block — the unit a click opens — as on Windows.
+            for bbox in content.textBlocks.isEmpty ? content.textRuns.map(\.bbox) : content.textBlocks.map(\.bbox) {
+                context.stroke(Path(frame(bbox, placement)), with: .color(Self.outline), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
             }
             // Where a dragged line would land.
             if let drag = store.contentDrag, drag.moving, drag.run.page == page {

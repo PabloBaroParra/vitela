@@ -43,16 +43,16 @@ extension ViewerStore {
         return (nil, beginContentEdit(.resizeImage(image, to: to)))
     }
 
-    /// `run` with its box's bottom-left corner at `x`, `y` — the same move a
-    /// drag records, so a line moved again before a save is one more move.
-    func beginTextMove(_ run: ContentTextRun, toX x: Double, y: Double) -> (problem: String?, request: PageWorkRequest?) {
+    /// `block` with its box's bottom-left corner at `x`, `y` — the same move
+    /// a drag records, so a line moved again before a save is one more move.
+    func beginTextMove(_ block: ContentTextBlock, toX x: Double, y: Double) -> (problem: String?, request: PageWorkRequest?) {
         guard x.isFinite, y.isFinite else { return (ContentGeometry.invalidPosition, nil) }
-        let to = PdfRect(x: x, y: y, width: run.bbox.width, height: run.bbox.height)
-        guard to != run.bbox else {
+        let to = PdfRect(x: x, y: y, width: block.bbox.width, height: block.bbox.height)
+        guard to != block.bbox else {
             editStatus = ContentEditing.positionUnchanged
             return (nil, nil)
         }
-        return (nil, beginContentEdit(.moveText(run, to: to)))
+        return (nil, beginContentEdit(Self.textMove(block, to: to)))
     }
 
     /// The selected image, or why there is none to edit: nothing selected,

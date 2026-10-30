@@ -1,34 +1,35 @@
 import SwiftUI
 
-/// Retypes, moves to typed coordinates, or deletes one line the page paints
-/// — Android's retype dialog (`ContentEditDialog.kt`) plus Windows' Move
-/// text; Windows types into the page itself. Each is one undoable edit; a
-/// composite-font line says up front that its font will be replaced.
+/// Retypes, moves to typed coordinates, or deletes one text block the page
+/// paints — a run, or the runs the core reads as one piece of text (B25
+/// T-207) — Android's retype dialog (`ContentEditDialog.kt`) plus Windows'
+/// Move text; Windows types into the page itself. Each is one undoable edit;
+/// a composite-font block says up front that its font will be replaced.
 struct ContentTextSheet: View {
     @ObservedObject var model: ViewerViewModel
-    let run: ContentTextRun
+    let block: ContentTextBlock
     @State private var text: String
     @State private var x: Double
     @State private var y: Double
     @State private var moveProblem: String?
 
-    init(model: ViewerViewModel, run: ContentTextRun) {
+    init(model: ViewerViewModel, block: ContentTextBlock) {
         self.model = model
-        self.run = run
-        _text = State(initialValue: run.text)
-        _x = State(initialValue: run.bbox.x)
-        _y = State(initialValue: run.bbox.y)
+        self.block = block
+        _text = State(initialValue: block.text)
+        _x = State(initialValue: block.bbox.x)
+        _y = State(initialValue: block.bbox.y)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Edit text on page \(run.page + 1)").font(.headline)
+            Text("Edit text on page \(block.page + 1)").font(.headline)
             TextField("Text", text: $text)
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 320)
                 .onSubmit(save)
                 .accessibilityIdentifier("content-text")
-            if run.substitutesFont {
+            if block.substitutesFont {
                 Text(ContentEditing.fontSubstituted)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -40,7 +41,7 @@ struct ContentTextSheet: View {
                 Text("Position")
                 coordinate("X", $x)
                 coordinate("Y", $y)
-                Button("Move") { moveProblem = model.moveText(run, toX: x, y: y) }
+                Button("Move") { moveProblem = model.moveText(block, toX: x, y: y) }
             }
             Text(ViewerStore.ContentGeometry.textHint)
                 .font(.caption)
@@ -50,13 +51,13 @@ struct ContentTextSheet: View {
                 Text(moveProblem).foregroundColor(.red).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                Button("Delete Text", role: .destructive) { model.deleteText(run) }
+                Button("Delete Text", role: .destructive) { model.deleteText(block) }
                 Spacer()
                 Button("Cancel", role: .cancel, action: model.cancelTextEdit)
                     .keyboardShortcut(.cancelAction)
                 Button("Save", action: save)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == run.text)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == block.text)
             }
         }
         .padding()
@@ -73,6 +74,6 @@ struct ContentTextSheet: View {
     }
 
     private func save() {
-        model.retypeText(run, to: text)
+        model.retypeText(block, to: text)
     }
 }

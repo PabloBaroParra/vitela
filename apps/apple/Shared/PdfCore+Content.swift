@@ -23,6 +23,38 @@ struct ContentTextRun: Equatable, Identifiable {
     var substitutesFont: Bool { fontKind == .embeddedComposite }
 }
 
+/// Runs that read as one piece of text — on one line, in one font, no more
+/// than a space apart (B25 T-207) — mirrors `FfiTextBlock`. The core groups
+/// them; a run that joins nothing is a block of one, so every run is in
+/// exactly one block. Windows' `ContentTextBlock`.
+struct ContentTextBlock: Equatable, Identifiable {
+    /// The member runs, left to right; never empty.
+    let runs: [ContentTextRun]
+    let bbox: PdfRect
+    let text: String
+
+    /// A block of one, for a run the core reported no block for.
+    init(_ run: ContentTextRun) {
+        self.init(runs: [run], bbox: run.bbox, text: run.text)
+    }
+
+    init(runs: [ContentTextRun], bbox: PdfRect, text: String) {
+        precondition(!runs.isEmpty, "a text block has at least one run")
+        self.runs = runs
+        self.bbox = bbox
+        self.text = text
+    }
+
+    /// The run whose font, id and editor a retype of the whole block uses.
+    var first: ContentTextRun { runs[0] }
+    var id: UInt64 { first.id }
+    var page: Int { first.page }
+    /// More than one run — the case the block commands exist for. A block
+    /// of one keeps the single-run edits, exactly as before T-207.
+    var isMultiRun: Bool { runs.count > 1 }
+    var substitutesFont: Bool { first.substitutesFont }
+}
+
 /// One image the page paints — mirrors `FfiContentImageItem`.
 struct ContentImage: Equatable {
     let id: UInt64
@@ -54,6 +86,14 @@ struct PageContent: Equatable {
     let textRuns: [ContentTextRun]
     let images: [ContentImage]
     var paths: [ContentPath] = []
+    /// The core's grouping of `textRuns` (`read_page_text_blocks`).
+    var textBlocks: [ContentTextBlock] = []
+
+    /// The block `run` belongs to, or a block of one when the core grouped
+    /// none — so a shell without blocks behaves exactly as before.
+    func block(containing run: ContentTextRun) -> ContentTextBlock {
+        textBlocks.first { $0.runs.contains { $0.id == run.id } } ?? ContentTextBlock(run)
+    }
 }
 
 /// A change to what a page paints — the content half of `FfiEditCommand`.
@@ -83,6 +123,12 @@ enum ContentEdit: Equatable {
     /// A new box for the path from a corner drag; a flat axis stays flat.
     case resizePath(ContentPath, to: PdfRect)
     case removePath(ContentPath)
+    /// Moves every run of a multi-run block by `dx`, `dy` points, as one step.
+    case moveTextBlock(ContentTextBlock, dx: Double, dy: Double)
+    case removeTextBlock(ContentTextBlock)
+    /// All of the text in the block's first run, the others removed, as one
+    /// step; a composite first run is painted in a standard font instead.
+    case retypeTextBlock(ContentTextBlock, to: String)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -101,6 +147,9 @@ enum ContentEdit: Equatable {
         case .movePath: return "Shape moved."
         case .resizePath: return "Shape resized."
         case .removePath: return "Shape deleted."
+        case .moveTextBlock: return "Text moved."
+        case .removeTextBlock: return "Text deleted."
+        case .retypeTextBlock: return "Text updated."
         }
     }
 }
