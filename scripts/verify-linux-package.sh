@@ -34,6 +34,7 @@ for path in \
     "$deb_usr/lib/vitela/libpdfium.so" \
     "$deb_usr/share/applications/org.vitela.Pdf.desktop" \
     "$deb_usr/share/icons/hicolor/scalable/apps/org.vitela.Pdf.svg" \
+    "$deb_usr/share/icons/hicolor/256x256/apps/org.vitela.Pdf.png" \
     "$deb_usr/share/doc/vitela/LICENSE-MIT" \
     "$deb_usr/share/doc/vitela/LICENSE-APACHE" \
     "$deb_usr/share/doc/vitela/pdfium/LICENSE"; do
@@ -51,6 +52,8 @@ readelf -d "$deb_usr/lib/vitela/linux-gtk" > "$EVIDENCE_DIR/linux-gtk-dynamic.tx
 )
 appdir="$EVIDENCE_DIR/appimage-root/squashfs-root"
 require_executable "$appdir/AppRun"
+require_file "$appdir/.DirIcon"
+file -b -L "$appdir/.DirIcon" | grep -q '^PNG image data, 256 x 256' || fail 'AppImage .DirIcon is not the 256x256 PNG'
 require_entry "$appdir/usr/lib/vitela/libpdfium.so"
 require_entry "$appdir/usr/share/doc/vitela/pdfium/LICENSE"
 find "$appdir/usr/share/doc/vitela/pdfium/licenses" -type f -print -quit | grep -q . || fail 'AppImage lacks PDFium third-party notices'

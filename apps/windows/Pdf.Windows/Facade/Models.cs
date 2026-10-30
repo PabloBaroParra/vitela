@@ -306,6 +306,12 @@ public sealed record Comment(uint PageIndex, AnnotationRect Rect, string Content
 public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation> Annotations, bool EditingAllowed, bool CanUndo, bool CanRedo)
 {
     public IReadOnlyList<Comment> Comments { get; init; } = [];
+
+    /// <summary>
+    /// The core's content base generation when this state was read. A change
+    /// means every content item the shell holds is stale.
+    /// </summary>
+    public ulong ContentBaseGeneration { get; init; }
 }
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer,
     MetadataDate? CreationDate = null, MetadataDate? ModDate = null);
