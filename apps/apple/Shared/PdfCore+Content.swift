@@ -31,10 +31,29 @@ struct ContentImage: Equatable {
     let resourceXObjectName: String?
 }
 
-/// One page's editable content — mirrors `FfiPageContent`.
+/// How a vector path is painted — mirrors `FfiPathPaint`.
+enum PathPaint: Equatable {
+    case stroke, fill, fillAndStroke
+}
+
+/// One vector path the page paints — a table border, a rule, a shaded box
+/// (B25 T-206) — mirrors `FfiContentPathItem`. A rule's box may be flat.
+struct ContentPath: Equatable {
+    let id: UInt64
+    let page: Int
+    let bbox: PdfRect
+    let paint: PathPaint
+
+    /// Only stroked: it is its edges, not the area inside — Windows' `IsOutline`.
+    var isOutline: Bool { paint == .stroke }
+}
+
+/// One page's editable content — mirrors `FfiPageContent`, plus the paths
+/// the core reads separately (`read_page_paths`).
 struct PageContent: Equatable {
     let textRuns: [ContentTextRun]
     let images: [ContentImage]
+    var paths: [ContentPath] = []
 }
 
 /// A change to what a page paints — the content half of `FfiEditCommand`.
@@ -58,6 +77,12 @@ enum ContentEdit: Equatable {
     /// The same text or picture stamped on every page `Watermark.pages` names, as one
     /// undo step — `PdfCore+Watermark.swift`.
     case addWatermark(Watermark)
+    /// Moves `path` so its box lands at `to`; the core rewrites its
+    /// coordinates, so its line width does not change.
+    case movePath(ContentPath, to: PdfRect)
+    /// A new box for the path from a corner drag; a flat axis stays flat.
+    case resizePath(ContentPath, to: PdfRect)
+    case removePath(ContentPath)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -73,6 +98,9 @@ enum ContentEdit: Equatable {
         case .replaceImage: return "Image replaced."
         case .insertImage: return "Image inserted."
         case let .addWatermark(watermark): return Watermarking.summary(count: watermark.pages.count)
+        case .movePath: return "Shape moved."
+        case .resizePath: return "Shape resized."
+        case .removePath: return "Shape deleted."
         }
     }
 }

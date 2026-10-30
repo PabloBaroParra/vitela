@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// In Edit Text mode, the outline of every line on one page that can be
-/// retyped — the only thing the shell draws for content, as on Android and
-/// Windows: the words themselves are the renderer's. Placed with the core's
-/// turn-aware placement, like the annotation overlay.
+/// In Edit Text mode, the outline of every line, image and vector path on
+/// one page that can be edited — the only thing the shell draws for
+/// content, as on Android and Windows: the words themselves are the
+/// renderer's. Placed with the core's turn-aware placement, like the
+/// annotation overlay.
 struct ContentOutlineOverlay: View {
     @ObservedObject var store: ViewerStore
     let page: Int
@@ -13,6 +14,8 @@ struct ContentOutlineOverlay: View {
 
     private static let outline = Color.accentColor.opacity(0.7)
     private static let imageOutline = Color.orange.opacity(0.8)
+    /// Windows' `PathOutlineBrush`: faint, so a table's frame does not hide its text.
+    private static let pathOutline = Color(red: 30 / 255, green: 150 / 255, blue: 90 / 255).opacity(0.45)
 
     var body: some View {
         Canvas { context, _ in
@@ -23,15 +26,14 @@ struct ContentOutlineOverlay: View {
             for image in content.images {
                 context.stroke(Path(frame(image.bbox, placement)), with: .color(Self.imageOutline), style: StrokeStyle(lineWidth: 1, dash: [5, 3]))
             }
+            for path in content.paths where path != store.selectedContentPath {
+                context.stroke(Path(frame(path.bbox, placement)), with: .color(Self.pathOutline), style: StrokeStyle(lineWidth: 1, dash: [1, 2]))
+            }
             if let selected = store.selectedContentImage, selected.page == page {
-                let rect = store.imageDrag.map(\.previewRect) ?? selected.bbox
-                context.stroke(Path(frame(rect, placement)), with: .color(Self.imageOutline), lineWidth: 2)
-                for corner in AnnotationCorner.allCases {
-                    let point = store.client.placePoint(corner.point(of: rect), on: placement)
-                    let handle = CGRect(x: point.left - 4, y: point.top - 4, width: 8, height: 8)
-                    context.fill(Path(handle), with: .color(.white))
-                    context.stroke(Path(handle), with: .color(Self.imageOutline), lineWidth: 1)
-                }
+                selection(store.imageDrag.map(\.previewRect) ?? selected.bbox, color: Self.imageOutline, placement, in: &context)
+            }
+            if let selected = store.selectedContentPath, selected.page == page {
+                selection(store.pathDrag.map(\.previewRect) ?? selected.bbox, color: .accentColor, placement, in: &context)
             }
             for run in content.textRuns {
                 context.stroke(Path(frame(run.bbox, placement)), with: .color(Self.outline), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
@@ -46,6 +48,17 @@ struct ContentOutlineOverlay: View {
         .onChange(of: store.contentEditMode) { _ in readIfEditing() }
         // An edit forgets every page's content; read this one again.
         .onChange(of: store.pageContent[page] == nil) { _ in readIfEditing() }
+    }
+
+    /// The selected image's or path's frame and its four corner handles.
+    private func selection(_ rect: PdfRect, color: Color, _ placement: PagePlacement, in context: inout GraphicsContext) {
+        context.stroke(Path(frame(rect, placement)), with: .color(color), lineWidth: 2)
+        for corner in AnnotationCorner.allCases {
+            let point = store.client.placePoint(corner.point(of: rect), on: placement)
+            let handle = CGRect(x: point.left - 4, y: point.top - 4, width: 8, height: 8)
+            context.fill(Path(handle), with: .color(.white))
+            context.stroke(Path(handle), with: .color(color), lineWidth: 1)
+        }
     }
 
     private func frame(_ rect: PdfRect, _ placement: PagePlacement) -> CGRect {

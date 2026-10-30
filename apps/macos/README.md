@@ -44,11 +44,15 @@ responsibility:
 - `Vitela/ViewerViewModel+Save.swift` — Save As (signature warning, atomic
   write) and the unsaved-changes guard.
 - `Vitela/ViewerViewModel+ContentEdit.swift`, `Views/ContentTextSheet.swift`,
-  `Views/ContentOutlineOverlay.swift` — Edit Content: outlines of the lines
-  and images a page paints; a click opens a line to retype or delete, a drag
-  moves a line or an image, a corner resizes an image, Replace Image… and
-  Add Image… swap or place a PNG or JPEG; all run as page work
-  (`../apple/Shared/ViewerStore+ContentEdit.swift`, `+ContentImages.swift`).
+  `Views/ContentOutlineOverlay.swift` — Edit Content: outlines of the lines,
+  images and vector paths a page paints; a click opens a line to retype or
+  delete, a drag moves a line or an image, a corner resizes an image,
+  Replace Image… and Add Image… swap or place a PNG or JPEG. A line or a
+  box's border (B25 T-206) is selected by a click, moved by a drag, reshaped
+  by a corner and removed by Delete Shape or ⌫; text inside a frame keeps
+  its click, and the path stays selected for the next edit without a save.
+  All run as page work (`../apple/Shared/ViewerStore+ContentEdit.swift`,
+  `+ContentImages.swift`, `+ContentPaths.swift`).
 - `Vitela/ViewerViewModel+Watermark.swift`, `Views/WatermarkSheet.swift` —
   Add Watermark…: text or a PNG/JPEG picture, pages, size, opacity, angle
   and over/behind the content, each kind starting from the core's look; the

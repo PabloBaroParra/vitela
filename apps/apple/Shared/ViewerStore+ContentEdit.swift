@@ -33,9 +33,16 @@ struct ContentEditState {
     /// a property of the bytes, and forgotten with every new revision.
     var replaceChecked = Set<ContentImageKey>()
     var unreplaceableImages = Set<ContentImageKey>()
+    /// The vector path clicked last, whose handles show (B25 T-206).
+    var selectedPath: ContentPath?
+    /// A press on a path: a move, or a reshape by the selected path's corner.
+    var pathDrag: PathDrag?
+    /// The path an edit just landed on, selected again at its new box once
+    /// its page is read back, so the next drag starts from what is painted.
+    var reselectPath: ContentImageKey?
 }
 
-/// An image's identity across reads of its page.
+/// An image's or a path's identity across reads of its page.
 struct ContentImageKey: Hashable {
     let page: Int
     let id: UInt64
@@ -108,6 +115,9 @@ extension ViewerStore {
         contentDrag = nil
         contentEdit.imageDrag = nil
         contentEdit.selectedImage = nil
+        contentEdit.pathDrag = nil
+        contentEdit.selectedPath = nil
+        contentEdit.reselectPath = nil
         guard on else {
             editStatus = ContentEditing.off
             return
@@ -143,6 +153,7 @@ extension ViewerStore {
     func applyPageContent(_ result: Result<PageContent, EditFailure>, for request: PageContentRequest) {
         guard request.generation == generation, case let .success(content) = result else { return }
         pageContent[request.page] = content
+        reselectPath(on: request.page, in: content)
     }
 
     /// The run a click at `point` on `page` meant, at `zoom` — reach is in
@@ -167,19 +178,25 @@ extension ViewerStore {
     /// nearest line within reach. `false` when it meant nothing.
     func beginContentPress(page: Int, at point: PdfPoint, zoom: Double) -> Bool {
         guard contentEditMode, !pageWorkInFlight, let content = pageContent[page] else { return false }
+        // A path edit that never landed must not reselect after a later one.
+        contentEdit.reselectPath = nil
         if beginImageDrag(page: page, at: point, zoom: zoom, onlySelected: true) { return true }
         if let run = ContentEditing.textRun(at: point, in: content.textRuns, reach: 0) {
             contentEdit.selectedImage = nil
+            contentEdit.selectedPath = nil
             contentDrag = ContentDrag(run: run, origin: point, current: point, zoom: max(zoom, 0.01))
             return true
         }
         if beginImageDrag(page: page, at: point, zoom: zoom, onlySelected: false) { return true }
         contentEdit.selectedImage = nil
+        // Text outranks a path — a frame encloses its cells — as on Windows.
+        if beginPathDrag(page: page, at: point, zoom: zoom) { return true }
         return beginContentDrag(page: page, at: point, zoom: zoom) != nil
     }
 
     func continueContentDrag(to point: PdfPoint) {
         if contentEdit.imageDrag != nil { return continueImageDrag(to: point) }
+        if contentEdit.pathDrag != nil { return continuePathDrag(to: point) }
         guard var drag = contentDrag else { return }
         drag.current = point
         let travel = ((point.x - drag.origin.x) * (point.x - drag.origin.x) + (point.y - drag.origin.y) * (point.y - drag.origin.y)).squareRoot()
@@ -192,6 +209,7 @@ extension ViewerStore {
     /// click on one says so instead of opening it, as Windows does.
     func endContentDrag(at point: PdfPoint) -> ContentRelease {
         if contentEdit.imageDrag != nil { return endImageDrag(at: point) }
+        if contentEdit.pathDrag != nil { return endPathDrag(at: point) }
         continueContentDrag(to: point)
         guard let drag = contentDrag, let document else { return .nothing }
         contentDrag = nil
@@ -213,6 +231,7 @@ extension ViewerStore {
     func cancelContentDrag() {
         contentDrag = nil
         contentEdit.imageDrag = nil
+        contentEdit.pathDrag = nil
     }
 
     /// Starts `edit` through the page-work pipeline, or says why not.
@@ -245,6 +264,8 @@ extension ViewerStore {
         contentDrag = nil
         contentEdit.imageDrag = nil
         contentEdit.selectedImage = nil
+        contentEdit.pathDrag = nil
+        contentEdit.selectedPath = nil
         pageContent = [:]
         pageContentRequested = []
     }

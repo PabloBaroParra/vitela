@@ -102,6 +102,10 @@ extension ViewerViewModel {
                 self.deleteSelectedImage()
                 return nil
             }
+            if self.store.contentEditMode, self.store.selectedContentPath != nil {
+                self.deleteSelectedPath()
+                return nil
+            }
             if self.store.formEditMode, self.store.selectedField != nil {
                 self.enqueuePageWork(self.store.beginFieldDelete())
                 return nil
