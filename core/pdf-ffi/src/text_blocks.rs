@@ -102,8 +102,19 @@ pub(crate) fn apply_batch_edit(
     if !content_editing_is_allowed(state.document()) {
         return Err(unsupported("content editing is not permitted"));
     }
-    let command = build(&state)?;
+    let command = state.dealias(build(&state)?);
+    // Tried as it stands first, as `apply_edit` does: a checkpoint costs a
+    // rewrite, and most batches never need one.
+    match apply_batch_command(&mut state, command.clone()) {
+        Ok(()) => Ok(()),
+        Err(refusal) => state.retry_after_checkpoint(command, refusal, apply_batch_command),
+    }
+}
 
+/// Records one batch: folded into the queued batch for the same items, or
+/// checked against every pending edit and appended. Leaves the session
+/// untouched when it refuses.
+fn apply_batch_command(state: &mut DocumentState, command: Command) -> Result<(), FfiError> {
     match queued_batch(state.document(), &command) {
         // Folded into the queued batch: it keeps the snapshots the file
         // holds, so the untouched page is what it is checked against.
