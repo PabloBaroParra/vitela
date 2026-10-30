@@ -277,6 +277,8 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         try { return ((GeneratedDocument)document).Handle.TextRunHasPendingMove(pageIndex, id); }
         catch (FfiException error) { throw Translate(error); }
     }
+    public bool ContentEditsCanCheckpoint(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.ContentEditsCanCheckpoint();
+    public ulong ContentBaseGeneration(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.ContentBaseGeneration();
     public bool FormFieldEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.FormFieldEditingAllowed();
     public bool CanUndo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanUndo();
     public bool CanRedo(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.CanRedo();

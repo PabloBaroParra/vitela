@@ -18,7 +18,11 @@ public sealed partial class PdfDocumentFacade
                     return OperationResult<bool>.Failure(CreateError("The document changed. Click the text again.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
                     return OperationResult<bool>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
-                if (_core.TextRunHasPendingMove(session.Document, run.PageIndex, run.Id))
+                // A moved run is retyped after the core writes the move into
+                // a new in-memory base; only a session it cannot do that for
+                // still needs the reader to save first.
+                if (_core.TextRunHasPendingMove(session.Document, run.PageIndex, run.Id)
+                    && !_core.ContentEditsCanCheckpoint(session.Document))
                     return OperationResult<bool>.Failure(CreateError("This text was moved and not yet saved — save and reopen before retyping it.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
                 return OperationResult<bool>.Success(true);
             }

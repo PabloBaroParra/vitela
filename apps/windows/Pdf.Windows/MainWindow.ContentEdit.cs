@@ -39,6 +39,32 @@ public sealed partial class MainWindow
     /// </summary>
     private readonly HashSet<uint> _contentEditedPages = [];
 
+    /// <summary>
+    /// The core's content base generation the cached page content was read
+    /// against. See <see cref="CatchUpContentBase"/>.
+    /// </summary>
+    private ulong _contentBaseGeneration;
+
+    /// <summary>
+    /// Reads every content-edited page again when the core has written its
+    /// pending edits into a new base.
+    /// </summary>
+    /// <remarks>
+    /// The core does that, a checkpoint, when an edit targets an item that
+    /// already has an unsaved edit — moving retyped text, retyping moved text,
+    /// deleting inserted text. The new base numbers its items afresh, so the
+    /// ids cached for <em>other</em> pages, and the boxes measured for their
+    /// pending text, describe a parse that is gone. The page the edit was on
+    /// is read again by the edit itself; this catches up the rest.
+    /// </remarks>
+    private void CatchUpContentBase(AnnotationState? state)
+    {
+        if (state is null || state.ContentBaseGeneration == _contentBaseGeneration) return;
+        _contentBaseGeneration = state.ContentBaseGeneration;
+        _pendingRunBounds.Clear();
+        if (_contentEditedPages.Count > 0) InvalidateContentEditedPages();
+    }
+
     private bool _contentEditMode;
     private uint _contentModeGeneration;
 

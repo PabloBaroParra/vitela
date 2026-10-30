@@ -204,48 +204,6 @@ fn repeated_moves_save_the_final_position_and_share_one_undo_step() {
 }
 
 #[test]
-fn moved_text_refuses_retyping_with_actionable_guidance_and_preserves_history() {
-    let handle = open_single_line("Original text");
-    let original = only_run(&handle);
-    assert!(!handle.text_run_has_pending_move(0, original.id).unwrap());
-    move_run(&handle, original.clone(), 80.0, 90.0);
-    let moved = only_run(&handle);
-    assert!(handle.text_run_has_pending_move(0, moved.id).unwrap());
-    let error = apply_edit(
-        &handle,
-        FfiEditCommand::ReplaceTextRunContent {
-            item: moved.clone(),
-            after: "Refused change".to_string(),
-        },
-    )
-    .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("save and reopen before retyping"),
-        "{error}"
-    );
-    assert_eq!(only_run(&handle), moved);
-    assert!(undo(&handle));
-    assert!(!handle.text_run_has_pending_move(0, original.id).unwrap());
-    assert_eq!(only_run(&handle), original);
-    assert!(!undo(&handle));
-    assert!(redo(&handle));
-    assert!(handle.text_run_has_pending_move(0, moved.id).unwrap());
-    let saved = save_to_bytes(
-        &handle,
-        FfiSaveIntent::Default,
-        FfiSignatureAcknowledgement::Unacknowledged,
-    )
-    .unwrap();
-    let reopened = open_from_bytes(saved, None).unwrap();
-    assert!(!reopened
-        .text_run_has_pending_move(0, only_run(&reopened).id)
-        .unwrap());
-    retype(&reopened, only_run(&reopened), "Allowed after reopen");
-}
-
-#[test]
 fn moved_insertion_remains_eligible_for_retyping() {
     let handle = open_single_line("Original text");
     let inserted = insert(&handle, "InsertedFont");
@@ -273,30 +231,6 @@ fn repeated_move_does_not_consume_another_runs_later_edit() {
     assert_eq!(current[0].bbox.x, 120.0);
     assert!(undo(&handle));
     assert_eq!(handle.read_page_content(0).unwrap().text_runs, original);
-    assert!(!undo(&handle));
-}
-
-#[test]
-fn moving_after_a_retype_is_refused_without_changing_history() {
-    let handle = open_single_line("Original text");
-    let original = only_run(&handle);
-    retype(&handle, only_run(&handle), "Changed text");
-    let current = only_run(&handle);
-    let to = pdf_ffi::FfiRect {
-        x: 120.0,
-        ..current.bbox
-    };
-    assert!(apply_edit(
-        &handle,
-        FfiEditCommand::MoveTextRun {
-            item: current.clone(),
-            to
-        }
-    )
-    .is_err());
-    assert_eq!(only_run(&handle), current);
-    assert!(undo(&handle));
-    assert_eq!(only_run(&handle), original);
     assert!(!undo(&handle));
 }
 

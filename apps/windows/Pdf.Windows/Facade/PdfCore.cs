@@ -173,8 +173,22 @@ internal interface IPdfCore
     /// </summary>
     bool ContentEditingAllowed(IPdfCoreDocument document);
 
-    /// <summary>Whether an existing run must be saved and reopened before retyping after movement.</summary>
+    /// <summary>Whether an existing run has an unsaved movement.</summary>
     bool TextRunHasPendingMove(IPdfCoreDocument document, uint pageIndex, ulong id);
+
+    /// <summary>
+    /// Whether an edit refused because its item already has an unsaved edit
+    /// is instead written into a new in-memory base and retried. When it is,
+    /// no edit asks the reader to save and reopen first.
+    /// </summary>
+    bool ContentEditsCanCheckpoint(IPdfCoreDocument document);
+
+    /// <summary>
+    /// Changes whenever the core swaps the base its page content is read
+    /// from: a checkpoint, or an undo or redo across one. Every content item
+    /// read before the change is stale and has to be read again.
+    /// </summary>
+    ulong ContentBaseGeneration(IPdfCoreDocument document);
 
     /// <summary>
     /// Whether this document permits creating or restructuring a form field —
