@@ -11,8 +11,9 @@ extension UniFfiPdfCoreClient {
         let content = try Self.mapEditErrors { try handle.readPageContent(page: UInt32(page)) }
         // A separate read in the core so older shells' records keep their shape.
         let paths = try Self.mapEditErrors { try handle.readPagePaths(page: UInt32(page)) }
+        let blocks = try Self.mapEditErrors { try Vitela.readPageTextBlocks(handle: handle, page: UInt32(page)) }
         return PageContent(textRuns: content.textRuns.map(ContentTextRun.init), images: content.images.map(ContentImage.init),
-                           paths: paths.map(ContentPath.init))
+                           paths: paths.map(ContentPath.init), textBlocks: blocks.map(ContentTextBlock.init))
     }
 
     func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? {
@@ -38,12 +39,26 @@ extension UniFfiPdfCoreClient {
                 return try insertImage(handle: handle, page: page, rect: rect, bytes: bytes)
             case let .addWatermark(watermark):
                 return try addWatermark(handle: handle, watermark)
+            case let .moveTextBlock(block, dx, dy):
+                return try editText(handle) { try Vitela.moveTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init), dx: dx, dy: dy) }
+            case let .removeTextBlock(block):
+                return try editText(handle) { try Vitela.removeTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init)) }
+            case let .retypeTextBlock(block, text):
+                return try editText(handle) {
+                    try Vitela.retypeTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init), text: text,
+                                        withInsertedFont: block.substitutesFont)
+                }
             default:
                 return
             }
         }
+        try editText(handle) { try Vitela.applyEdit(handle: handle, command: command) }
+    }
+
+    /// One text edit, its failures in the reader's words.
+    private func editText(_ handle: DocumentHandle, _ edit: () throws -> Void) throws {
         do {
-            try Vitela.applyEdit(handle: handle, command: command)
+            try edit()
         } catch let FfiError.EncodingGap(character, _) {
             // Named, with the character in it: the one failure the reader can
             // clear by typing something else — Windows' and Android's wording.
@@ -135,7 +150,7 @@ private extension FfiEditCommand {
             self = .removeTextRun(item: FfiContentTextRun(run))
         case let .moveText(run, rect):
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
-        case .insertText, .replaceImage, .insertImage, .addWatermark:
+        case .insertText, .replaceImage, .insertImage, .addWatermark, .moveTextBlock, .removeTextBlock, .retypeTextBlock:
             return nil
         case let .moveImage(image, rect):
             self = .moveImage(item: FfiContentImageItem(image), to: FfiRect(rect))
@@ -181,6 +196,12 @@ private extension ContentImage {
 private extension FfiContentImageItem {
     init(_ image: ContentImage) {
         self.init(id: image.id, page: UInt32(image.page), bbox: FfiRect(image.bbox), resourceXobjectName: image.resourceXObjectName)
+    }
+}
+
+private extension ContentTextBlock {
+    init(_ block: FfiTextBlock) {
+        self.init(runs: block.runs.map(ContentTextRun.init), bbox: PdfRect(block.bbox), text: block.text)
     }
 }
 

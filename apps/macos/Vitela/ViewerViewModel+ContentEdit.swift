@@ -109,9 +109,9 @@ extension ViewerViewModel {
             return store.cancelContentDrag()
         }
         switch store.endContentDrag(at: point) {
-        case let .open(run):
-            if run.substitutesFont { store.editStatus = ContentEditing.fontSubstituted }
-            contentTextEditor = run
+        case let .open(block):
+            if block.substitutesFont { store.editStatus = ContentEditing.fontSubstituted }
+            contentTextEditor = block
         case let .move(request):
             enqueuePageWork(request)
         case .nothing:
@@ -119,14 +119,15 @@ extension ViewerViewModel {
         }
     }
 
-    func retypeText(_ run: ContentTextRun, to text: String) {
+    /// Retypes a whole block — one run, or several as one undo step.
+    func retypeText(_ block: ContentTextBlock, to text: String) {
         contentTextEditor = nil
-        enqueuePageWork(store.beginContentEdit(.retypeText(run, to: text)))
+        enqueuePageWork(store.beginContentEdit(ViewerStore.textRetype(block, to: text)))
     }
 
-    func deleteText(_ run: ContentTextRun) {
+    func deleteText(_ block: ContentTextBlock) {
         contentTextEditor = nil
-        enqueuePageWork(store.beginContentEdit(.removeText(run)))
+        enqueuePageWork(store.beginContentEdit(ViewerStore.textRemoval(block)))
     }
 
     /// Add Image…: a PNG or JPEG first, then the click that places it —

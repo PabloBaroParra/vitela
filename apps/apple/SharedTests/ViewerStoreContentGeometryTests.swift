@@ -69,7 +69,7 @@ final class ViewerStoreContentGeometryTests: XCTestCase {
     func testALineMovesToTypedCoordinates() throws {
         let (client, store) = withPhotoSelected()
 
-        try run(store, store.beginTextMove(line, toX: 300, y: 650))
+        try run(store, store.beginTextMove(ContentTextBlock(line), toX: 300, y: 650))
 
         XCTAssertEqual(client.contentEdits, [.moveText(line, to: PdfRect(x: 300, y: 650, width: 120, height: 14))])
         XCTAssertEqual(store.editStatus, "Text moved. Changes are pending save.")
@@ -78,7 +78,7 @@ final class ViewerStoreContentGeometryTests: XCTestCase {
     func testALineLeftWhereItIsSaysSo() {
         let (client, store) = withPhotoSelected()
 
-        XCTAssertNil(store.beginTextMove(line, toX: 72, y: 700).request)
+        XCTAssertNil(store.beginTextMove(ContentTextBlock(line), toX: 72, y: 700).request)
 
         XCTAssertEqual(store.editStatus, ContentEditing.positionUnchanged)
         XCTAssertTrue(client.contentEdits.isEmpty)

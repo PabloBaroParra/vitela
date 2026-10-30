@@ -190,7 +190,7 @@ final class ViewerStoreContentEditTests: XCTestCase {
 
         _ = store.beginContentDrag(page: 0, at: PdfPoint(x: 20, y: 15), zoom: 1)
         guard case let .open(opened) = store.endContentDrag(at: PdfPoint(x: 21, y: 15)) else { return XCTFail("a click opens") }
-        XCTAssertEqual(opened, line)
+        XCTAssertEqual(opened, ContentTextBlock(line))
 
         _ = store.beginContentDrag(page: 0, at: PdfPoint(x: 20, y: 15), zoom: 1)
         guard case let .move(request) = store.endContentDrag(at: PdfPoint(x: 120, y: 215)) else { return XCTFail("a drag moves") }

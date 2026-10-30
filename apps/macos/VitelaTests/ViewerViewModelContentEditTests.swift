@@ -39,7 +39,7 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         model.pageDragChanged(page: 0, location: location(151, 699), dimensions: PageDimensions(width: 612, height: 792), zoom: 1)
         model.pageDragEnded(page: 0, location: location(151, 699), zoom: 1)
 
-        XCTAssertEqual(model.contentTextEditor, line, "a press that barely moves is a click")
+        XCTAssertEqual(model.contentTextEditor, ContentTextBlock(line), "a press that barely moves is a click")
         XCTAssertNil(model.store.selection, "the click does not select text")
     }
 
@@ -69,12 +69,12 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         model.setContentEditMode(true)
         readPage(model)
 
-        model.retypeText(line, to: "Receipt")
+        model.retypeText(ContentTextBlock(line), to: "Receipt")
         waitUntil({ !model.store.pageWorkInFlight && client.contentEdits.count == 1 }, "the retype never ran")
         XCTAssertEqual(client.contentEdits.first, .retypeText(line, to: "Receipt"))
         XCTAssertNil(model.contentTextEditor)
 
-        model.deleteText(line)
+        model.deleteText(ContentTextBlock(line))
         waitUntil({ !model.store.pageWorkInFlight && client.contentEdits.count == 2 }, "the delete never ran")
         XCTAssertEqual(client.contentEdits.last, .removeText(line))
     }
@@ -91,7 +91,7 @@ final class ViewerViewModelContentEditTests: XCTestCase {
     func testCancellingSaysSoAndLeavesThePage() {
         let (client, model) = model()
         model.setContentEditMode(true)
-        model.contentTextEditor = line
+        model.contentTextEditor = ContentTextBlock(line)
 
         model.cancelTextEdit()
 
@@ -232,11 +232,11 @@ final class ViewerViewModelContentEditTests: XCTestCase {
         let (client, model) = model()
         model.setContentEditMode(true)
         readPage(model)
-        model.contentTextEditor = line
+        model.contentTextEditor = ContentTextBlock(line)
 
-        XCTAssertEqual(model.moveText(line, toX: .infinity, y: 0), ViewerStore.ContentGeometry.invalidPosition)
-        XCTAssertEqual(model.contentTextEditor, line, "a bad number keeps the sheet open")
-        XCTAssertNil(model.moveText(line, toX: 200, y: 600))
+        XCTAssertEqual(model.moveText(ContentTextBlock(line), toX: .infinity, y: 0), ViewerStore.ContentGeometry.invalidPosition)
+        XCTAssertEqual(model.contentTextEditor, ContentTextBlock(line), "a bad number keeps the sheet open")
+        XCTAssertNil(model.moveText(ContentTextBlock(line), toX: 200, y: 600))
 
         XCTAssertNil(model.contentTextEditor)
         waitUntil({ client.contentEdits == [.moveText(line, to: PdfRect(x: 200, y: 600, width: 120, height: 14))] }, "the line never moved")
