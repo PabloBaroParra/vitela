@@ -24,9 +24,8 @@ struct ContentEditState {
     var selectedImage: ContentImage?
     /// A press on the selected image: a move, or a resize by a corner.
     var imageDrag: ImageDrag?
-    /// Images moved, resized or deleted since the document was opened, by
-    /// page and id: Windows refuses a second edit of one until the document
-    /// is saved and reopened.
+    /// Images moved, resized or deleted since the last save, by page and id:
+    /// their replace waits for a save. Move, resize and delete do not.
     var editedImages = Set<ContentImageKey>()
     /// Images the core was asked about on selection, and those it said it
     /// could not read back for a replace — asked once per image, since it is
@@ -40,6 +39,8 @@ struct ContentEditState {
     /// The path an edit just landed on, selected again at its new box once
     /// its page is read back, so the next drag starts from what is painted.
     var reselectPath: ContentImageKey?
+    /// Likewise for the image an edit just landed on.
+    var reselectImage: ContentImageKey?
     /// What a marquee or SHIFT+click gathered (B25 T-208), the press it
     /// owns, and the members a move just landed, selected again once read.
     var multiSelection: ContentSelection?
@@ -126,6 +127,7 @@ extension ViewerStore {
         contentEdit.pathDrag = nil
         contentEdit.selectedPath = nil
         contentEdit.reselectPath = nil
+        contentEdit.reselectImage = nil
         contentEdit.multiSelection = nil
         contentEdit.selectionGesture = nil
         contentEdit.reselectSelection = nil
@@ -165,6 +167,7 @@ extension ViewerStore {
         guard request.generation == generation, case let .success(content) = result else { return }
         pageContent[request.page] = content
         reselectPath(on: request.page, in: content)
+        reselectImage(on: request.page, in: content)
         reselectContentSelection(on: request.page, in: content)
     }
 
@@ -196,6 +199,7 @@ extension ViewerStore {
         cancelContentDrag()
         // An edit that never landed must not reselect after a later one.
         contentEdit.reselectPath = nil
+        contentEdit.reselectImage = nil
         contentEdit.reselectSelection = nil
         if beginSelectionGesture(page: page, at: point, zoom: zoom, extend: extend, content: content) { return true }
         if beginImageDrag(page: page, at: point, zoom: zoom, onlySelected: true) { return true }

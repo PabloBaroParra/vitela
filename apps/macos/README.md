@@ -49,8 +49,10 @@ responsibility:
   block (B25 T-207): runs the core reads as one piece of text open, move,
   retype and delete together as one undo step (`ContentTextBlock`), and a
   run that joins nothing keeps the single-run edits. A click opens a block
-  to retype or delete, a drag moves a block or an image, a corner resizes an image,
-  Replace Image… and Add Image… swap or place a PNG or JPEG. A line or a
+  to retype or delete, a drag moves a block or an image, a corner resizes
+  an image, and an image can be moved, resized or deleted again before a
+  save (only Replace Image… waits for one). Replace Image… and Add Image…
+  swap or place a PNG or JPEG. A line or a
   box's border (B25 T-206) is selected by a click, moved by a drag, reshaped
   by a corner and removed by Delete Shape or ⌫; text inside a frame keeps
   its click, and the path stays selected for the next edit without a save.
