@@ -39,24 +39,16 @@ extension UniFfiPdfCoreClient {
                 return try insertImage(handle: handle, page: page, rect: rect, bytes: bytes)
             case let .addWatermark(watermark):
                 return try addWatermark(handle: handle, watermark)
-            case let .moveTextBlock(block, dx, dy):
-                return try editText(handle) { try Vitela.moveTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init), dx: dx, dy: dy) }
-            case let .removeTextBlock(block):
-                return try editText(handle) { try Vitela.removeTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init)) }
-            case let .retypeTextBlock(block, text):
-                return try editText(handle) {
-                    try Vitela.retypeTextBlock(handle: handle, runs: block.runs.map(FfiContentTextRun.init), text: text,
-                                        withInsertedFont: block.substitutesFont)
-                }
             default:
+                _ = try applyGroupEdit(handle: handle, edit: edit)
                 return
             }
         }
-        try editText(handle) { try Vitela.applyEdit(handle: handle, command: command) }
+        try mapTextEditErrors(handle) { try Vitela.applyEdit(handle: handle, command: command) }
     }
 
-    /// One text edit, its failures in the reader's words.
-    private func editText(_ handle: DocumentHandle, _ edit: () throws -> Void) throws {
+    /// One content edit, its failures in the reader's words.
+    func mapTextEditErrors(_ handle: DocumentHandle, _ edit: () throws -> Void) throws {
         do {
             try edit()
         } catch let FfiError.EncodingGap(character, _) {
@@ -150,7 +142,8 @@ private extension FfiEditCommand {
             self = .removeTextRun(item: FfiContentTextRun(run))
         case let .moveText(run, rect):
             self = .moveTextRun(item: FfiContentTextRun(run), to: FfiRect(rect))
-        case .insertText, .replaceImage, .insertImage, .addWatermark, .moveTextBlock, .removeTextBlock, .retypeTextBlock:
+        case .insertText, .replaceImage, .insertImage, .addWatermark, .moveTextBlock, .removeTextBlock, .retypeTextBlock,
+             .moveSelection, .removeSelection:
             return nil
         case let .moveImage(image, rect):
             self = .moveImage(item: FfiContentImageItem(image), to: FfiRect(rect))

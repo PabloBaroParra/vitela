@@ -98,6 +98,10 @@ extension ViewerViewModel {
                 return nil
             }
             guard Self.isDeleteKey(event), !(event.window?.firstResponder is NSText) else { return event }
+            if self.store.contentEditMode, self.store.contentSelection != nil {
+                self.deleteContentSelection()
+                return nil
+            }
             if self.store.contentEditMode, self.store.selectedContentImage != nil {
                 self.deleteSelectedImage()
                 return nil

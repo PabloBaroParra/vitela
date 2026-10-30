@@ -129,6 +129,9 @@ enum ContentEdit: Equatable {
     /// All of the text in the block's first run, the others removed, as one
     /// step; a composite first run is painted in a standard font instead.
     case retypeTextBlock(ContentTextBlock, to: String)
+    /// Moves every member of a multi-selection by `dx`, `dy`, as one step.
+    case moveSelection(ContentSelection, dx: Double, dy: Double)
+    case removeSelection(ContentSelection)
 
     /// What the status line says once the core took it — the Windows and
     /// Android wording.
@@ -150,6 +153,8 @@ enum ContentEdit: Equatable {
         case .moveTextBlock: return "Text moved."
         case .removeTextBlock: return "Text deleted."
         case .retypeTextBlock: return "Text updated."
+        case .moveSelection: return "Selection moved."
+        case .removeSelection: return "Selection deleted."
         }
     }
 }

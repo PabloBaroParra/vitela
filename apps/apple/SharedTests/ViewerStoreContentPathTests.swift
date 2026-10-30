@@ -52,8 +52,9 @@ final class ViewerStoreContentPathTests: XCTestCase {
     func testAnOutlineIsItsEdgesAndTextInsideItKeepsTheClick() {
         let cell = ContentEditFixture.run(1, PdfRect(x: 140, y: 140, width: 60, height: 12))
         let (client, store) = withPaths([frame], runs: [cell])
-        XCTAssertFalse(store.beginContentPress(page: 0, at: PdfPoint(x: 250, y: 120), zoom: 1), "inside the frame is its cell")
-        XCTAssertNil(store.selectedContentPath)
+        XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 250, y: 120), zoom: 1))
+        XCTAssertNil(store.selectedContentPath, "inside the frame is its cell")
+        XCTAssertEqual(store.selectionGesture?.kind, .marquee, "empty page there, so a marquee (T-208)")
         XCTAssertTrue(store.beginContentPress(page: 0, at: PdfPoint(x: 150, y: 145), zoom: 1))
         XCTAssertEqual(store.contentDrag?.run, cell, "text outranks the frame around it")
         XCTAssertNil(store.selectedContentPath)
@@ -67,7 +68,7 @@ final class ViewerStoreContentPathTests: XCTestCase {
         XCTAssertEqual(store.selectedContentPath, panel)
         XCTAssertTrue(drag(store, from: PdfPoint(x: 200, y: 152), to: PdfPoint(x: 200, y: 152)), "a flat rule is padded to hit")
         XCTAssertEqual(store.selectedContentPath, rule, "the rule inside the frame, not the frame")
-        XCTAssertFalse(drag(store, from: PdfPoint(x: 10, y: 10), to: PdfPoint(x: 10, y: 10)))
+        drag(store, from: PdfPoint(x: 10, y: 10), to: PdfPoint(x: 10, y: 10))
         XCTAssertNil(store.selectedContentPath, "a miss lets go of the selection")
     }
 
