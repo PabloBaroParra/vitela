@@ -110,11 +110,15 @@ data class TextInserter(
  * The retype dialog. [text] starts as the block's and, after a refusal, is what
  * the reader typed — kept with the [error], so the one failure they can fix
  * (a character the font cannot show) is fixed by typing something else.
+ * [canCheckpoint] is the core's answer as the dialog opened: can a retyped line be
+ * moved, or a moved one retyped, without a save in between. The dialog warns of
+ * the save only on a no.
  */
 data class TextBlockEditor(
     val block: ContentTextBlock,
     val text: String = block.text,
     val error: String? = null,
+    val canCheckpoint: Boolean = false,
 )
 
 /**

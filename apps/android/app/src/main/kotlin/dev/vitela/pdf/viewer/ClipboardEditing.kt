@@ -150,10 +150,11 @@ internal class ClipboardEditing(
                 if (session.document !== openDocument || state.value.contentEdit == null) return@withLock
                 // What the page held before, so the paste's own items can be told from it.
                 val before = content.contentOf(openDocument, pageIndex)?.let(::pageIdsOf) ?: return@withLock
+                val readAt = content.readGeneration
                 when (val result = withContext(session.compute) { openDocument.pasteContent(pageIndex, clip, point.x, point.y) }) {
                     is PdfCoreResult.Success -> {
                         var pasted: ContentSelection? = null
-                        content.landed(openDocument, pageIndex, CONTENT_PASTED, settled = { pasted = selectPasted(pageIndex, before) })
+                        content.landed(openDocument, pageIndex, CONTENT_PASTED, settled = { pasted = selectPasted(pageIndex, before, readAt) })
                         pasted?.let { state.value = state.value.copy(status = pastedMessage(it.count)) }
                     }
                     is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
@@ -169,8 +170,15 @@ internal class ClipboardEditing(
         state.value = state.value.copy(contentEdit = mode.copy(hasClip = true), status = status)
     }
 
-    /** Selects what the paste added to page [pageIndex], from the read just made; returns it. */
-    private fun selectPasted(pageIndex: Int, before: PageIds): ContentSelection? {
+    /**
+     * Selects what the paste added to page [pageIndex], from the read just made; returns it.
+     * Nothing is selected when the paste made the core checkpoint — the generation the pages
+     * are read at is no longer [readAt]: [before] holds ids of a parse that is gone, so a
+     * difference against it would pick the wrong items. The paste itself stands; the reader
+     * taps what they want.
+     */
+    private fun selectPasted(pageIndex: Int, before: PageIds, readAt: Long?): ContentSelection? {
+        if (content.readGeneration != readAt) return null
         val mode = state.value.contentEdit ?: return null
         val pasted = selectionOfPaste(pageIndex, before, mode.blocks[pageIndex].orEmpty(), mode.images[pageIndex].orEmpty(), mode.paths[pageIndex].orEmpty())
         state.value = state.value.copy(contentEdit = mode.copy(selection = pasted))

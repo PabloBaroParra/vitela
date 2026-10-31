@@ -74,9 +74,13 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       pliega en ese hijo. Mezclar tipos (mover un bloque retipeado) se rechaza con
       "save the document before editing it again", salvo donde el core puede tomar un
       **checkpoint en memoria** (`pdf_save::checkpoint`; Windows 2026-10-29, Linux
-      2026-10-31): escribe la cola en una base nueva y reintenta ahí, y undo/redo cruzan
-      el checkpoint de a un paso. Sesiones con PDFs importados, cifrado, firmas o páginas
-      cambiadas siguen con el rechazo.
+      2026-10-31, Android 2026-10-31 sólo con tests JVM, sin probar en emulador): escribe la
+      cola en una base nueva y reintenta ahí, y undo/redo cruzan el checkpoint de a un paso.
+      Sesiones con PDFs importados, cifrado, firmas o páginas cambiadas siguen con el
+      rechazo. Android: tras cada edición aceptada pregunta `content_base_generation`; si
+      cambió, relee todas las páginas leídas y suelta diálogo, mover armado, picker de
+      reemplazo y selección. Reemplazar imagen sigue pidiendo guardar (`image_source_bytes`
+      no hace checkpoint).
 - [ ] T-208 **P3 — Multi-selección y movimiento en bloque.** Selección = conjunto de
       `ContentItemId` (texto, imagen, trazado, grupo). Marquee: items cuyo bbox **toca**
       (interseca) el rectángulo — decidido por el usuario 2026-10-28. SHIFT+click alterna. Arrastre mueve todos
