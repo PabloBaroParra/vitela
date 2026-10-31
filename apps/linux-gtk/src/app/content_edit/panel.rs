@@ -129,7 +129,7 @@ pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str =
 /// `EditLog` this reads — across the refresh, so the answer has to be
 /// recomputed from that log every time, never remembered on the selection.
 pub(crate) const IMAGE_PENDING_EDIT: &str =
-    "This image already has a pending edit — save and reopen before editing it again.";
+    "This image has an unsaved edit — move, resize or delete it, or save before replacing it.";
 
 /// The text card's twin of the two above, maintained by the same call.
 ///

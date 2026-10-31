@@ -1,108 +1,14 @@
-//! The single door from a content-edit-mode commit to the document's
-//! undoable `EditLog`, and the validation gate in front of it.
+//! The door from a content-edit-mode commit to the document's undoable
+//! `EditLog`. Moves, retypes and removals go through the core's queue policy
+//! ([`record`], [`record_batch`] over `pdf_save::record`), the one Windows,
+//! macOS and Android share; what is left here are the image replace and
+//! insert probes and the open-time checks that turn a press away early.
 
-use pdf_document::{Command, Document, ImageItem, Rect, TextRun};
+use pdf_document::{Command, Document, ImageItem, TextRun};
 use pdf_edit::EditError;
 
 use super::PageProbe;
 use crate::app::state::DocumentSession;
-
-/// Attempts `after` as `run`'s replacement text against the real font
-/// encoder, without writing anything for real: clones the base document and
-/// feeds the clone through the exact `pdf-edit` call `pdf-save` runs at save
-/// time, discarding the clone regardless of outcome.
-///
-/// Validating *before* the command is recorded, rather than only at save
-/// time, is deliberate: `Command::apply` for every content variant is a no-op
-/// on `Document` (page content is a snapshot, never cached state — see
-/// `pdf_document::content`'s module docs), so a bad edit would otherwise only
-/// surface when the *entire* save runs, potentially failing every other
-/// queued change along with it.
-pub(super) fn validate_replacement(
-    probe: PageProbe<'_>,
-    run: &TextRun,
-    after: &str,
-) -> Result<(), EditError> {
-    let mut working = probe.document.clone();
-    let page_object = probe.object;
-    pdf_edit::replace_text_run(&mut working, page_object, run, after)?;
-    Ok(())
-}
-
-/// Attempts repositioning `run` so its origin lands at `to` against the real
-/// `pdf-edit` call — the drag-to-move twin of [`validate_replacement`], same
-/// probe-clone-then-real-call contract, writing nothing for real.
-///
-/// Worth validating up front for a reason a replacement does not have:
-/// `pdf_edit::move_text_run` refuses a run painted by the `\"` operator
-/// outright (`EditError::TextRunNotMovable`), and a whole class of real
-/// files use it. Recording that move unchecked would fail the *save* — every
-/// other queued edit along with it — long after the drag it came from.
-pub(super) fn validate_move_text(
-    probe: PageProbe<'_>,
-    run: &TextRun,
-    to: Rect,
-) -> Result<(), EditError> {
-    let mut working = probe.document.clone();
-    let page_object = probe.object;
-    pdf_edit::move_text_run(&mut working, page_object, run, to)?;
-    Ok(())
-}
-
-/// Attempts deleting `run` against the real `pdf-edit` call — the text twin
-/// of [`validate_remove`], same probe-clone-then-real-call contract, writing
-/// nothing for real.
-///
-/// Worth the probe for the same reason [`validate_move_text`] is rather than
-/// [`validate_replacement`]: `pdf_edit::remove_text_run` has to resolve the
-/// run inside the real content stream and reproduce the advance it occupied,
-/// and a run it cannot resolve fails at *save* time — taking every other
-/// queued edit down with it — long after the click that asked for it.
-pub(super) fn validate_remove_text(probe: PageProbe<'_>, run: &TextRun) -> Result<(), EditError> {
-    let mut working = probe.document.clone();
-    let page_object = probe.object;
-    pdf_edit::remove_text_run(&mut working, page_object, run)?;
-    Ok(())
-}
-
-/// Attempts moving `item` to `to` against the real `pdf-edit` call, the image
-/// twin of [`validate_replacement`] — same probe-clone-then-real-call
-/// contract, writing nothing for real.
-pub(super) fn validate_move(
-    probe: PageProbe<'_>,
-    item: &ImageItem,
-    to: Rect,
-) -> Result<(), EditError> {
-    let mut working = probe.document.clone();
-    let page_object = probe.object;
-    pdf_edit::move_image(&mut working, page_object, item, to)?;
-    Ok(())
-}
-
-/// Attempts resizing `item` to `to` against the real `pdf-edit` call.
-///
-/// Identical shape to [`validate_move`] — both probe `pdf-edit`'s single
-/// placement rewrite — kept separate because the caller's intent differs,
-/// mirroring `pdf_edit::resize_image` being kept separate from `move_image`.
-pub(super) fn validate_resize(
-    probe: PageProbe<'_>,
-    item: &ImageItem,
-    to: Rect,
-) -> Result<(), EditError> {
-    let mut working = probe.document.clone();
-    let page_object = probe.object;
-    pdf_edit::resize_image(&mut working, page_object, item, to)?;
-    Ok(())
-}
-
-/// Attempts removing `item`'s paint operation against the real `pdf-edit`
-/// call.
-pub(super) fn validate_remove(probe: PageProbe<'_>, item: &ImageItem) -> Result<(), EditError> {
-    let mut working = probe.document.clone();
-    let page_object = probe.object;
-    pdf_edit::remove_image(&mut working, page_object, item)?;
-    Ok(())
-}
 
 /// Attempts swapping `item`'s bytes for `after` against the real `pdf-edit`
 /// call — the image-source twin of [`validate_move`], same probe-clone
@@ -115,22 +21,6 @@ pub(super) fn validate_replace(
     let mut working = probe.document.clone();
     let page_object = probe.object;
     pdf_edit::replace_image_source(&mut working, page_object, item, after)?;
-    Ok(())
-}
-
-/// Attempts inserting `run` as brand-new page content against the real
-/// `pdf-edit` call — the insertion twin of [`validate_replacement`], same
-/// probe-clone-then-real-call contract, writing nothing for real (T-163).
-/// Structurally lower-risk than a replacement (batch decision 4: no existing
-/// font to collide with), but still validated up front rather than only at
-/// save time, for the same reason every other content command here is: the
-/// ten page-content `Command` variants are inert on `Document::apply`
-/// (`pdf_document::edit_log`'s own module docs), so a bad insertion recorded
-/// without checking would only surface when the whole save runs.
-pub(super) fn validate_insert_text(probe: PageProbe<'_>, run: &TextRun) -> Result<(), EditError> {
-    let mut working = probe.document.clone();
-    let page_object = probe.object;
-    pdf_edit::insert_text_run(&mut working, page_object, run)?;
     Ok(())
 }
 
@@ -309,54 +199,6 @@ pub(super) fn pending_text_command(document: &Document, target: &TextRun) -> Pen
         .map_or(PendingText::Nothing, PendingText::Amend)
 }
 
-/// The command that replaces the pending entry `existing` so the run it
-/// describes shows `after` — the amendment [`PendingText::Amend`] found the
-/// slot for.
-///
-/// Built from the *recorded* command, never from the run the shell
-/// hit-tested: the recorded one carries the original snapshot every
-/// resolution at save time keys against (and, for an insertion, the real
-/// placeholder id and font resource name rather than the synthetic id the
-/// overlay handed out). Only the text changes.
-///
-/// `None` for any other command, which [`pending_text_command`]'s own
-/// matching already rules out — an unreachable case kept total rather than
-/// asserted, since the alternative is a panic in a UI callback.
-pub(super) fn amended_command(
-    existing: &Command,
-    after: &str,
-    moved_to: Option<Rect>,
-) -> Option<Command> {
-    match existing {
-        Command::InsertTextRun(run) => {
-            let mut retyped = run.clone();
-            retyped.text = after.to_string();
-            // An insertion is the one pending shape a move folds into rather
-            // than joining: the run does not exist in any saved file yet, so
-            // moving it is not an edit of page content at all — it is the
-            // same not-yet-written run described at a different spot. The
-            // size stays whatever the insertion box already carries.
-            if let Some(to) = moved_to {
-                retyped.bbox = Rect {
-                    x: to.x,
-                    y: to.y,
-                    ..retyped.bbox
-                };
-            }
-            Some(Command::InsertTextRun(retyped))
-        }
-        // No `moved_to` arm here, and none is missing: a run with a pending
-        // replacement is refused a drag before one can start (see
-        // [`text_move_refusal`]), so this arm is only ever reached with
-        // `moved_to` at `None`.
-        Command::ReplaceTextRunContent { item, .. } => Some(Command::ReplaceTextRunContent {
-            item: item.clone(),
-            after: after.to_string(),
-        }),
-        _ => None,
-    }
-}
-
 /// Why `run` cannot be dragged right now, or `None` when it can.
 ///
 /// One case says no: a run carrying a **pending replacement** that has not
@@ -407,20 +249,6 @@ pub(super) fn pending_move_index(document: &Document, run: &TextRun) -> Option<u
     })
 }
 
-/// The command that replaces a pending [`Command::MoveTextRun`] so the run it
-/// describes lands at `to` instead — built from the *recorded* command, so
-/// the original snapshot every save-time resolution keys against is carried
-/// through untouched. Only the destination changes.
-pub(super) fn moved_text_command(existing: &Command, to: Rect) -> Option<Command> {
-    match existing {
-        Command::MoveTextRun { item, .. } => Some(Command::MoveTextRun {
-            item: item.clone(),
-            to,
-        }),
-        _ => None,
-    }
-}
-
 /// Records `command` in the document's own `EditLog`.
 ///
 /// The log lives *inside* the document it mutates, so it is moved out for the
@@ -430,17 +258,6 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
     let mut log = std::mem::take(&mut document.pending_edits);
     log.apply(document, command);
     document.pending_edits = log;
-}
-
-/// Folds `command` into the pending entry at `index`, the second door beside
-/// [`apply_command`] for an edit that must not become a new entry (see
-/// [`pending_text_command_index`]). Reports whether the log took it.
-///
-/// No `mem::take` dance here, unlike its sibling: amending a page-content
-/// command touches nothing but the log, precisely because those commands are
-/// inert on the model.
-pub(super) fn amend_command(document: &mut Document, index: usize, command: Command) -> bool {
-    document.pending_edits.amend(index, command)
 }
 
 /// Records `command` through the core's queue policy
@@ -454,6 +271,20 @@ pub(super) fn amend_command(document: &mut Document, index: usize, command: Comm
 pub(super) fn record(session: &mut DocumentSession, command: Command) -> Result<(), String> {
     record_with(session, |document, base, sources| {
         pdf_save::record_content_command(document, base, sources, command)
+    })
+}
+
+/// [`record`]'s twin for a `Command::Batch` — a text block moved, retyped or
+/// deleted as one undo step (B25 T-207), through
+/// `pdf_save::record_content_batch`. `None` is a batch `pdf-edit` could not
+/// build, which only an empty block produces.
+pub(super) fn record_batch(
+    session: &mut DocumentSession,
+    batch: Option<Command>,
+) -> Result<(), String> {
+    let batch = batch.ok_or_else(|| "There is no text there to edit.".to_string())?;
+    record_with(session, |document, base, sources| {
+        pdf_save::record_content_batch(document, base, sources, batch)
     })
 }
 
@@ -505,13 +336,6 @@ mod tests {
     use crate::app::content_edit::model;
     use pdf_document::{annotation::Rect, ContentItemId, FontKind, ImageSource, PageId};
 
-    fn first_run(base: &lopdf::Document) -> TextRun {
-        pdf_edit::read_page_content(base, PageId(0))
-            .expect("page 0 parses")
-            .text_runs
-            .remove(0)
-    }
-
     /// Mirrors `pdf-edit`'s own `image_of` test helper (`edit.rs:524-529`) —
     /// duplicated rather than imported because this crate cannot reach into
     /// `pdf-edit`'s private test module.
@@ -522,108 +346,11 @@ mod tests {
             .remove(0)
     }
 
-    #[test]
-    fn a_representable_replacement_validates_successfully() {
-        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
-        let run = first_run(&base);
-
-        assert!(validate_replacement(probe_of(&base), &run, "Adios mundo").is_ok());
-    }
-
-    #[test]
-    fn an_unrepresentable_character_is_refused_before_recording() {
-        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
-        let run = first_run(&base);
-
-        let error = validate_replacement(probe_of(&base), &run, "日本語")
-            .expect_err("Helvetica cannot encode this character");
-        assert!(matches!(error, EditError::EncodingGap { .. }));
-    }
-
     // --- validate_remove_text --------------------------------------------
-
-    #[test]
-    fn a_removal_of_a_run_the_page_holds_validates_successfully() {
-        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
-        let run = first_run(&base);
-
-        assert!(validate_remove_text(probe_of(&base), &run).is_ok());
-    }
-
-    /// The probe writes nothing for real — the point of cloning the base
-    /// rather than editing it. Asserted here and not only for the removal's
-    /// siblings because this is the one validation whose real call *deletes*:
-    /// a probe leaking through would take the run off the document every
-    /// other queued edit still resolves against.
-    #[test]
-    fn validating_a_removal_leaves_the_base_document_untouched() {
-        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
-        let run = first_run(&base);
-
-        validate_remove_text(probe_of(&base), &run).expect("the run is on the page");
-
-        let after = pdf_edit::read_page_content(&base, PageId(0))
-            .expect("page 0 still parses")
-            .text_runs;
-        assert_eq!(after.len(), 1, "the probe deleted from the base document");
-        assert_eq!(after[0].text, run.text);
-    }
 
     // --- validate_move / validate_resize / validate_remove ---------------
 
-    #[test]
-    fn a_representable_move_validates_successfully() {
-        let base = gen_fixtures::content_edit::build_image_page_document();
-        let item = first_image(&base);
-        let to = Rect {
-            x: 300.0,
-            y: 400.0,
-            width: 80.0,
-            height: 40.0,
-        };
-
-        assert!(validate_move(probe_of(&base), &item, to).is_ok());
-    }
-
-    #[test]
-    fn a_representable_resize_validates_successfully() {
-        let base = gen_fixtures::content_edit::build_image_page_document();
-        let item = first_image(&base);
-        let to = Rect {
-            x: 100.0,
-            y: 600.0,
-            width: 160.0,
-            height: 80.0,
-        };
-
-        assert!(validate_resize(probe_of(&base), &item, to).is_ok());
-    }
-
-    #[test]
-    fn a_representable_remove_validates_successfully() {
-        let base = gen_fixtures::content_edit::build_image_page_document();
-        let item = first_image(&base);
-
-        assert!(validate_remove(probe_of(&base), &item).is_ok());
-    }
-
     // --- validate_insert_text / validate_insert_image (T-163) ------------
-
-    fn new_run(text: &str) -> TextRun {
-        TextRun {
-            id: ContentItemId(0),
-            page: PageId(0),
-            bbox: Rect {
-                x: 72.0,
-                y: 100.0,
-                width: 150.0,
-                height: 14.0,
-            },
-            resource_font_name: "FInsTest".to_string(),
-            font_kind: FontKind::Standard14,
-            text: text.to_string(),
-        }
-    }
 
     fn new_image_item(name: &str) -> ImageItem {
         ImageItem {
@@ -637,22 +364,6 @@ mod tests {
             },
             source: ImageSource::Resource(name.to_string()),
         }
-    }
-
-    #[test]
-    fn a_representable_text_insertion_validates_successfully() {
-        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
-
-        assert!(validate_insert_text(probe_of(&base), &new_run("New text")).is_ok());
-    }
-
-    #[test]
-    fn an_unrepresentable_text_insertion_is_refused_before_recording() {
-        let base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
-
-        let error = validate_insert_text(probe_of(&base), &new_run("日本語"))
-            .expect_err("Standard14 cannot encode this");
-        assert!(matches!(error, EditError::EncodingGap { .. }));
     }
 
     #[test]
@@ -711,49 +422,6 @@ mod tests {
         (base, inline, control)
     }
 
-    /// The claim T-204 makes about this shell, as a gate rather than a
-    /// comment: the four validations it runs before recording an image
-    /// command do not care which of the format's two ways of painting an
-    /// image produced the item.
-    ///
-    /// Asserted against *both* images on one page, so a regression that
-    /// broke only the inline half could not hide behind the other passing.
-    #[test]
-    fn every_image_validation_treats_an_inline_image_like_any_other() {
-        let (base, inline, control) = inline_and_control();
-        let to = Rect {
-            x: 300.0,
-            y: 400.0,
-            width: 80.0,
-            height: 40.0,
-        };
-        let replacement = gen_fixtures::content_edit::replacement_image_png_bytes();
-
-        for item in [&inline, &control] {
-            let which = &item.source;
-            assert!(
-                validate_move(probe_of(&base), item, to).is_ok(),
-                "move refused for {which:?}"
-            );
-            assert!(
-                validate_resize(probe_of(&base), item, to).is_ok(),
-                "resize refused for {which:?}"
-            );
-            assert!(
-                validate_remove(probe_of(&base), item).is_ok(),
-                "remove refused for {which:?}"
-            );
-            assert!(
-                validate_replace(probe_of(&base), item, &replacement).is_ok(),
-                "replace refused for {which:?}"
-            );
-            assert!(
-                current_source_bytes(probe_of(&base), item).is_ok(),
-                "readback refused for {which:?}"
-            );
-        }
-    }
-
     /// An inline image has no resource name, so a `RemoveImage` recorded
     /// against one reserves nothing — and the next insertion on that page is
     /// free to take the first candidate. The opposite behaviour would be the
@@ -791,26 +459,6 @@ mod tests {
         assert!(is_unreplaceable(&error));
     }
 
-    /// The same image the shell refuses to *replace* still moves, resizes
-    /// and deletes — the three operations that rewrite the operator and
-    /// never read the picture. This is what makes the panel's sentence
-    /// ("move, resize or delete it") true rather than merely reassuring.
-    #[test]
-    fn an_unreplaceable_image_still_moves_resizes_and_deletes() {
-        let base = gen_fixtures::content_edit::build_unreadable_inline_image_page_document();
-        let item = first_image(&base);
-        let to = Rect {
-            x: 200.0,
-            y: 200.0,
-            width: 50.0,
-            height: 50.0,
-        };
-
-        assert!(validate_move(probe_of(&base), &item, to).is_ok());
-        assert!(validate_resize(probe_of(&base), &item, to).is_ok());
-        assert!(validate_remove(probe_of(&base), &item).is_ok());
-    }
-
     /// A refusal about *this attempt* must not latch: the replacement file
     /// is the user's next move, and greying the button out would strand a
     /// working image behind a sentence blaming its encoding.
@@ -823,26 +471,6 @@ mod tests {
             .expect_err("undecodable replacement bytes");
 
         assert!(!is_unreplaceable(&error));
-    }
-
-    /// An item whose resource name/box no longer matches anything parsed on
-    /// the page is refused — the shell is holding a stale read, and applying
-    /// the edit anyway would target whatever now occupies the position.
-    #[test]
-    fn a_stale_item_is_refused_rather_than_applied_to_the_wrong_image() {
-        let base = gen_fixtures::content_edit::build_image_page_document();
-        let mut stale = first_image(&base);
-        stale.source = ImageSource::Resource("DoesNotExist".to_string());
-        let to = Rect {
-            x: 300.0,
-            y: 400.0,
-            width: 80.0,
-            height: 40.0,
-        };
-
-        let error = validate_move(probe_of(&base), &stale, to)
-            .expect_err("stale reads must not be applied");
-        assert!(matches!(error, EditError::ItemNotFound(_)));
     }
 
     // --- image_already_edited ----------------------------------------
@@ -1097,135 +725,7 @@ mod tests {
         assert_eq!(pending_move_index(&document, &sample_run()), None);
     }
 
-    /// Amending a move keeps the snapshot the save resolves against and
-    /// changes only where the run is going — the same contract retyping has.
-    #[test]
-    fn moving_a_moved_run_keeps_the_original_item_and_swaps_the_destination() {
-        let existing = Command::MoveTextRun {
-            item: sample_run(),
-            to: a_destination(),
-        };
-        let further = Rect {
-            x: 400.0,
-            y: 100.0,
-            ..a_destination()
-        };
-
-        let Some(Command::MoveTextRun { item, to }) = moved_text_command(&existing, further) else {
-            panic!("amending a move stays a move");
-        };
-        assert_eq!(item, sample_run(), "still keyed to the run as parsed");
-        assert_eq!(to, further);
-    }
-
-    #[test]
-    fn a_command_that_is_not_a_move_has_no_moved_form() {
-        assert!(
-            moved_text_command(&Command::InsertTextRun(sample_run()), a_destination()).is_none()
-        );
-    }
-
-    /// Dragging a box that is only on the page because of a pending
-    /// insertion moves the insertion itself: there is no saved run to move,
-    /// so nothing new is recorded and the run keeps the size its box has.
-    #[test]
-    fn dragging_a_pending_insertion_moves_the_insertion_rather_than_recording_one() {
-        let existing = Command::InsertTextRun(sample_run());
-
-        let Some(Command::InsertTextRun(moved)) =
-            amended_command(&existing, "Adios", Some(a_destination()))
-        else {
-            panic!("amending an insertion stays an insertion");
-        };
-        assert_eq!((moved.bbox.x, moved.bbox.y), (300.0, 200.0));
-        assert_eq!(
-            (moved.bbox.width, moved.bbox.height),
-            (sample_run().bbox.width, sample_run().bbox.height),
-            "the insertion box keeps the size it was composed with"
-        );
-        assert_eq!(moved.text, "Adios", "and the retype rides along with it");
-    }
-
-    /// The amendment keeps the recorded snapshot — the id, box, and font the
-    /// save resolves against — and changes only the text.
-    #[test]
-    fn retyping_a_replacement_keeps_the_original_item_and_swaps_the_text() {
-        let existing = Command::ReplaceTextRunContent {
-            item: sample_run(),
-            after: "Goodbye".to_string(),
-        };
-
-        let Some(Command::ReplaceTextRunContent { item, after }) =
-            amended_command(&existing, "Adios", None)
-        else {
-            panic!("retyping a replacement stays a replacement");
-        };
-        assert_eq!(item, sample_run(), "still keyed to the run as parsed");
-        assert_eq!(after, "Adios");
-    }
-
-    #[test]
-    fn retyping_an_insertion_keeps_its_placeholder_id_and_font_resource() {
-        let mut inserted = sample_run();
-        inserted.id = ContentItemId(0);
-        inserted.resource_font_name = "FIns1".to_string();
-
-        let Some(Command::InsertTextRun(retyped)) =
-            amended_command(&Command::InsertTextRun(inserted), "Adios", None)
-        else {
-            panic!("retyping an insertion stays an insertion");
-        };
-        assert_eq!(retyped.id, ContentItemId(0));
-        assert_eq!(retyped.resource_font_name, "FIns1");
-        assert_eq!(retyped.text, "Adios");
-    }
-
-    #[test]
-    fn a_command_that_is_not_a_text_edit_has_no_retyped_form() {
-        assert!(amended_command(
-            &Command::MoveImage {
-                item: sample_image_item(),
-                to: sample_image_item().bbox,
-            },
-            "Adios",
-            None
-        )
-        .is_none());
-    }
-
     // --- amend_command ----------------------------------------------------
-
-    /// The whole point of the amend path: a second edit of one run leaves one
-    /// command behind, not two — a second `ReplaceTextRunContent` carrying the
-    /// same pre-edit snapshot would resolve against nothing at save time.
-    #[test]
-    fn amending_leaves_one_command_per_run() {
-        let mut document = Document::default();
-        let run = sample_run();
-        apply_command(
-            &mut document,
-            Command::ReplaceTextRunContent {
-                item: run.clone(),
-                after: "Goodbye".to_string(),
-            },
-        );
-        let PendingText::Amend(index) = pending_text_command(&document, &run) else {
-            panic!("a replacement was just recorded for this run");
-        };
-
-        let amended = amended_command(&document.pending_edits.entries()[index], "Adios", None)
-            .expect("a replacement has a retyped form");
-        assert!(amend_command(&mut document, index, amended));
-
-        assert_eq!(document.pending_edits.entries().len(), 1);
-        assert_eq!(
-            document.pending_edits.entries()[0],
-            Command::ReplaceTextRunContent {
-                item: run,
-                after: "Adios".to_string(),
-            }
-        );
-    }
 
     fn sample_image_item() -> ImageItem {
         ImageItem {
@@ -1271,5 +771,50 @@ mod tests {
 
         assert_eq!(document.pending_edits.entries().len(), 1);
         assert!(document.pending_edits.can_undo());
+    }
+
+    /// The trap that moved every text edit onto the core's policy (B25
+    /// T-207): once a block is retyped, its first run's edit lives inside a
+    /// batch, and retyping that run again on its own must fold into the
+    /// batch. A second entry would name text the file never held.
+    #[test]
+    fn retyping_a_run_of_a_retyped_block_folds_into_the_batch() {
+        let base = gen_fixtures::build_multi_line_page_document(&["Hello", "world"]);
+        let runs = pdf_edit::read_page_content(&base, pdf_document::PageId(0))
+            .expect("the page parses")
+            .text_runs;
+        let mut session = crate::app::test_fixtures::backed_session(base);
+
+        record_batch(
+            &mut session,
+            pdf_edit::retype_block(&runs, "Hello there", false),
+        )
+        .expect("the block retype records");
+        let shown = TextRun {
+            text: "Hello there".to_string(),
+            ..runs[0].clone()
+        };
+        record(
+            &mut session,
+            Command::ReplaceTextRunContent {
+                item: shown,
+                after: "Hello again".to_string(),
+            },
+        )
+        .expect("the single retype folds");
+
+        let entries = session
+            .document_model
+            .as_ref()
+            .expect("a model")
+            .pending_edits
+            .entries();
+        let [Command::Batch(children)] = entries else {
+            panic!("expected one batch, got {entries:?}");
+        };
+        assert!(children.contains(&Command::ReplaceTextRunContent {
+            item: runs[0].clone(),
+            after: "Hello again".to_string(),
+        }));
     }
 }

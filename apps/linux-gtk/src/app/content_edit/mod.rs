@@ -201,7 +201,10 @@ pub(crate) enum ImageControls {
     /// while moving, resizing and deleting stay on (T-204).
     NoReplace,
     /// Selected, and it already carries an edit that has not reached disk.
-    /// **Every** operation is off until a save and reopen.
+    /// Moving, resizing and deleting stay on — the core folds them into the
+    /// queued edit (B25 T-207) — but replacing is off until a save: the
+    /// picture's bytes are read back from the file, which does not hold the
+    /// edit yet.
     ///
     /// The one state here that is temporary, which is why the whole enum is
     /// recomputed rather than cached: a save→reopen clears the `EditLog`
@@ -214,7 +217,7 @@ impl ImageControls {
     /// Deleting needs a selection that nothing else is queued against, and
     /// nothing more — it rewrites the operator and never reads the picture.
     pub(crate) fn delete_enabled(self) -> bool {
-        matches!(self, Self::Ready | Self::NoReplace)
+        matches!(self, Self::Ready | Self::NoReplace | Self::PendingEdit)
     }
 
     /// Replacing needs everything deleting needs, plus bytes `pdf-edit` can
@@ -245,11 +248,11 @@ impl ImageControls {
 /// gesture, where the T-204 readback refusal had to be weighed against a
 /// full decode first.
 ///
-/// **`PendingEdit` outranks `NoReplace`** when both hold. It is the broader
-/// answer — it takes Delete away too — and it is the one the user can act
-/// on: saving clears it, while nothing clears an encoding. Reporting the
-/// narrower, permanent-sounding sentence over the wider, temporary one would
-/// send someone looking for a different image when what they need is a save.
+/// **`PendingEdit` outranks `NoReplace`** when both hold. Both take Replace
+/// away, and it is the one the user can act on: saving clears it, while
+/// nothing clears an encoding. Reporting the permanent-sounding sentence over
+/// the temporary one would send someone looking for a different image when
+/// what they need is a save.
 pub(crate) fn image_controls(
     session: Option<&crate::app::state::DocumentSession>,
 ) -> ImageControls {
@@ -804,7 +807,13 @@ pub(crate) fn handle_drag_end(
             return;
         };
         match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
-            Ok(content) => model::text_run_at(content, (x as f32, y as f32)).cloned(),
+            // A run that is part of a block (B25 T-207) opens the whole block.
+            Ok(content) => model::text_run_at(content, (x as f32, y as f32))
+                .cloned()
+                .map(|run| {
+                    let block = model::block_runs(content, &run);
+                    (model::block_stand_in(run, &block), block)
+                }),
             Err(error) => {
                 drop(state);
                 viewer.status.set_text(&error.to_string());
@@ -814,7 +823,7 @@ pub(crate) fn handle_drag_end(
     };
 
     match run {
-        Some(run) => editor::open_editor(viewer, page_index, run),
+        Some((run, block)) => editor::open_editor(viewer, page_index, run, block),
         // An empty-space click resolves whatever was open rather than
         // opening nothing and leaving it stranded.
         None => editor::commit(viewer),
@@ -940,11 +949,11 @@ mod tests {
             assert!(!controls.replace_enabled());
         }
 
-        /// The state this change exists for: a queued edit takes *both*
-        /// buttons, because `pdf-save` could not resolve a second command
-        /// against the same item.
+        /// A queued edit takes Replace only: the core folds a second move,
+        /// resize or removal into it (B25 T-207), but replacing reads the
+        /// picture back from a file that does not hold the edit yet.
         #[test]
-        fn a_selection_with_a_queued_edit_loses_both_buttons() {
+        fn a_selection_with_a_queued_edit_keeps_delete_and_loses_replace() {
             let item = an_image(1);
             let mut session = selecting(item.clone(), false);
             queue_move(&mut session, &item);
@@ -952,7 +961,7 @@ mod tests {
             let controls = image_controls(Some(&session));
 
             assert_eq!(controls, ImageControls::PendingEdit);
-            assert!(!controls.delete_enabled());
+            assert!(controls.delete_enabled());
             assert!(!controls.replace_enabled());
         }
 
@@ -969,7 +978,7 @@ mod tests {
 
         /// Precedence, stated as a test because both conditions can hold at
         /// once and only one sentence fits on the card. The queued edit wins:
-        /// it is the wider answer, and it is the one a save clears.
+        /// it is the one a save clears.
         #[test]
         fn a_queued_edit_outranks_an_unreadable_encoding() {
             let item = an_image(1);
@@ -1128,8 +1137,8 @@ mod tests {
     }
 
     /// The widget half of `ImageControls::PendingEdit`: an image carrying an
-    /// unsaved edit loses **both** buttons, and the card says which state it
-    /// is in.
+    /// unsaved edit keeps Delete and loses Replace, and the card says which
+    /// state it is in.
     ///
     /// The unit tests above own the decision; this one owns only the claim
     /// that `update_content_edit_controls` still spends it — the two
@@ -1137,7 +1146,7 @@ mod tests {
     /// regression that dropped one of them would leave the other two
     /// disagreeing with it.
     #[gtk::test]
-    fn gtk_ui_an_image_with_a_queued_edit_loses_both_buttons_and_says_why() {
+    fn gtk_ui_an_image_with_a_queued_edit_loses_replace_and_says_why() {
         use pdf_document::Command;
 
         let built = built_with_selected_image(false);
@@ -1162,7 +1171,7 @@ mod tests {
 
         crate::app::update_content_edit_controls(&built.viewer);
 
-        assert!(!built.viewer.delete_image_button.is_sensitive());
+        assert!(built.viewer.delete_image_button.is_sensitive());
         assert!(!built.viewer.replace_image_button.is_sensitive());
         assert_eq!(
             built.viewer.edit_panel.image_hint.text(),

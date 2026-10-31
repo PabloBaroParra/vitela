@@ -248,56 +248,29 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
 
     let to = committed_rect(&drag);
 
+    // Recorded through the core's queue policy (`pdf_save::record`): an
+    // image moved or resized again before a save folds into its queued edit,
+    // keeping the snapshot the file holds, so it is one undo step and the
+    // save can still find it (B25 T-207).
     let result = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
             return true;
         };
-        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
-            return true;
-        };
-        // Resolved while the model is still borrowed immutably, and released
-        // before it is taken mutably below — `page_probe`'s own doc explains
-        // why the probe does not hold on to it.
-        let Some(probe) = session.document_model.as_ref().and_then(|document| {
-            super::page_probe(document, base, &session.imported_sources, drag.item.page)
-        }) else {
-            return true;
-        };
-        let document = session
-            .document_model
-            .as_mut()
-            .expect("content_edit_refusal already required a model");
-
-        if command::image_already_edited(document, &drag.item) {
-            // `session.selected_image`/`drag.item` are never refreshed to a
-            // post-edit bbox — there is no live re-render to re-read a fresh
-            // one from (spec's stated out-of-scope) — so a second edit here
-            // would record a command still keyed to the pre-edit snapshot.
-            // `pdf-save::replay_content_edits` resolves queued commands
-            // sequentially against progressively-mutated state, so that
-            // stale item would fail to resolve at save time and take the
-            // whole save down with it. Refusing here instead turns that into
-            // an immediate, recoverable status message.
-            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
-        } else {
-            let validated = match drag.mode {
-                AnnotationDragMode::Move => command::validate_move(probe, &drag.item, to),
-                AnnotationDragMode::Resize(_) => command::validate_resize(probe, &drag.item, to),
-            };
-            match validated {
-                Ok(()) => {
-                    command::apply_command(document, command_for(drag.item.clone(), drag.mode, to));
-                    session.edit_revision += 1;
-                    // Marked when the command joins the log rather than when
-                    // `refresh_preview` lands — a refresh that
-                    // fails must still leave the document reporting dirty.
-                    session.unsaved_to_disk = true;
-                    Ok(message_for(drag.mode))
-                }
-                Err(error) => Err(error.to_string()),
+        let result = command::record(session, command_for(drag.item.clone(), drag.mode, to));
+        if result.is_ok() {
+            // The pending overlay reads the image back at `to` under the
+            // same id, so the selection follows it there and the next drag
+            // starts from what is painted.
+            if let Some(selected) = session
+                .selected_image
+                .as_mut()
+                .filter(|selected| selected.item.id == drag.item.id)
+            {
+                selected.item.bbox = to;
             }
         }
+        result.map(|()| message_for(drag.mode))
     };
 
     match result {
@@ -319,6 +292,8 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
         return;
     }
 
+    // Through the core, like a drag: a removal after a queued move or resize
+    // replaces that entry, keeping the snapshot the file holds.
     let result = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
@@ -327,58 +302,19 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
         let Some(selected) = session.selected_image.take() else {
             return;
         };
-        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
-            return;
-        };
-        // Resolved while the model is still borrowed immutably — see
-        // `page_probe`.
-        let Some(probe) = session.document_model.as_ref().and_then(|document| {
-            super::page_probe(
-                document,
-                base,
-                &session.imported_sources,
-                selected.item.page,
-            )
-        }) else {
-            return;
-        };
-        let document = session
-            .document_model
-            .as_mut()
-            .expect("content_edit_refusal already required a model");
-
-        if command::image_already_edited(document, &selected.item) {
-            // Same reason `finish_image_drag` refuses this — see its
-            // comment: a command carrying the pre-edit snapshot of an image
-            // that already has a queued edit would fail to resolve at save
-            // time and take the whole save down with it.
+        let result = command::record(
+            session,
+            Command::RemoveImage {
+                item: selected.item.clone(),
+                source: None,
+            },
+        );
+        if result.is_err() {
+            // A refusal leaves the selection exactly as it was — same posture
+            // as a refused retype leaving its editor open.
             session.selected_image = Some(selected);
-            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
-        } else {
-            match command::validate_remove(probe, &selected.item) {
-                Ok(()) => {
-                    command::apply_command(
-                        document,
-                        Command::RemoveImage {
-                            item: selected.item,
-                            source: None,
-                        },
-                    );
-                    session.edit_revision += 1;
-                    // See `finish_image_drag`: dirty at record time, not at
-                    // refresh time.
-                    session.unsaved_to_disk = true;
-                    Ok(())
-                }
-                Err(error) => {
-                    // A failed validation leaves the selection exactly as it
-                    // was — same posture as a failed content-run replacement
-                    // leaving its editor open (`editor::commit`).
-                    session.selected_image = Some(selected);
-                    Err(error.to_string())
-                }
-            }
         }
+        result
     };
 
     match result {

@@ -1015,6 +1015,11 @@ pub(crate) struct ContentEditor {
     /// for why a second command against one item could never resolve at save
     /// time.
     pub(crate) amends: Option<usize>,
+    /// Every run of the text block this editor retypes, left to right, when
+    /// it has more than one (B25 T-207); empty for a single run. With a
+    /// block, `run` stands in for the whole of it — its box and text are the
+    /// block's — and a commit records one batch over these.
+    pub(crate) block: Vec<TextRun>,
 }
 
 /// A selected annotation being moved or resized right now.
@@ -1075,6 +1080,10 @@ pub(crate) struct TextDrag {
     pub(crate) run: TextRun,
     /// Why this run cannot be moved, if it cannot.
     pub(crate) refusal: Option<&'static str>,
+    /// Every run of the block being moved, when it has more than one
+    /// (B25 T-207); empty for a single run. With a block, `run` stands in for
+    /// the whole of it, its box the block's.
+    pub(crate) block: Vec<TextRun>,
     /// Where the pointer went down, in PDF page space.
     pub(crate) origin: (f64, f64),
     /// Where the pointer is now, in PDF page space.

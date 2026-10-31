@@ -49,6 +49,43 @@ pub(crate) fn ensure_page_content<'a>(
     Ok(cache.as_ref().expect("just populated above"))
 }
 
+/// The runs of the text block `run` reads as part of (B25 T-207), left to
+/// right, when that block has more than one; empty when `run` stands alone.
+///
+/// `pdf_edit::group_text_runs` joins runs on one line, in one font, a word
+/// gap apart — a phrase a generator painted as several operators.
+pub(crate) fn block_runs(content: &PageContent, run: &TextRun) -> Vec<TextRun> {
+    pdf_edit::group_text_runs(&content.text_runs)
+        .into_iter()
+        .find(|block| block.runs.contains(&run.id))
+        .filter(|block| block.runs.len() > 1)
+        .map(|block| {
+            block
+                .runs
+                .iter()
+                .filter_map(|id| content.text_run(*id).cloned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The single run that stands in for a block on screen: the first run's
+/// font and identity, the block's whole box and text. `run` itself when
+/// `block` is empty.
+pub(crate) fn block_stand_in(run: TextRun, block: &[TextRun]) -> TextRun {
+    let (Some(first), Some(grouped)) = (
+        block.first(),
+        pdf_edit::group_text_runs(block).into_iter().next(),
+    ) else {
+        return run;
+    };
+    TextRun {
+        bbox: grouped.bbox,
+        text: grouped.text,
+        ..first.clone()
+    }
+}
+
 /// The text run whose bounding box contains `point` (in PDF page space),
 /// or `None` if it lands outside every run on the page.
 ///

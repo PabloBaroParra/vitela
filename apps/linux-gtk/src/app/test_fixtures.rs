@@ -156,6 +156,26 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
 /// positive with the comment "test fixture credential" rather than to
 /// path-filter the query. Keeping the literal in one place keeps that to a
 /// single ruling instead of one per test module.
+/// A one-page session over `base` with a real save backing, so content
+/// edits can be recorded through the core's queue policy and validated
+/// against real bytes.
+pub(crate) fn backed_session(base: lopdf::Document) -> DocumentSession {
+    use pdf_document::{Orientation, Page, PageSize, Rotation};
+    let mut session = model_session(Document::with_pages(vec![Page::base(
+        PageId(0),
+        0,
+        PageSize::A4,
+        Orientation::Portrait,
+        Rotation::None,
+    )]));
+    session.save_backing = Some(crate::app::state::SaveBacking {
+        base: pdf_manip::LopdfDocument::from_lopdf(base).into(),
+        original_bytes: Vec::new().into(),
+        password: None,
+    });
+    session
+}
+
 pub(crate) fn one_password_security() -> pdf_document::SecurityContext {
     pdf_document::SecurityContext {
         handler: pdf_document::SecurityHandler::Aes128,
