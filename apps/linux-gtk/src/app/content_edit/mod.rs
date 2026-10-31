@@ -30,6 +30,8 @@
 //!   cancel.
 //! - [`image`] is the select/move/resize/delete/replace/insert lifecycle for
 //!   an image.
+//! - [`clipboard`] is CTRL+C, CTRL+X and CTRL+V over what is selected
+//!   (B25 T-209); the clip is held by the shell, not the core.
 //! - [`multi`] is several items at once (B25 T-208): marquee, SHIFT+click,
 //!   group move and delete, each one batch.
 //! - [`path`] is the select/move/reshape/delete lifecycle for a vector path —
@@ -60,6 +62,7 @@ mod command;
 // button to `editor::delete_open_run`, the same way it wires the two image
 // buttons to `image`'s handlers. Everything else here is reached through this
 // module.
+pub(crate) mod clipboard;
 pub(crate) mod editor;
 pub(crate) mod geometry;
 pub(crate) mod image;

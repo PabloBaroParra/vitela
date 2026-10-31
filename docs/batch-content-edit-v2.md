@@ -95,7 +95,7 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       deselecciona. `ContentSelectionSmoke`. Mover a **otra página** queda para T-209
       (cortar/pegar), que es donde se copian recursos.
 - [ ] T-209 **P4 — Portapapeles de contenido.**
-      **Core + FFI + Windows hechos (2026-10-29); faltan Linux y Android (T-212).**
+      **Core + FFI + Windows hechos (2026-10-29), Linux (2026-10-31); falta Android (T-212).**
       Como quedó: `ContentClip {pdf, bbox}` es un PDF de una página (los ítems
       repintados con su CTM, colores, `w`/`J`/`j`/`M`/`d` y fuente, y copia profunda de
       los recursos que nombran). `pdf_edit::copy_selection` / `paste_clip`; pegar importa

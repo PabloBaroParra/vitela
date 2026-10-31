@@ -470,7 +470,7 @@ fn finish_group_move(viewer: &Viewer, page_index: usize, origin: (f64, f64), cur
         else {
             return;
         };
-        let result = command::record_batch(session, pdf_edit::move_selection(&members, dx, dy));
+        let result = command::record_selection_move(session, &members, dx, dy);
         if result.is_ok() {
             // The overlay reads every member back at its new box under the
             // same id, so the selection follows them there, and a second
@@ -507,7 +507,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         let Some(held) = session.content_selection.take() else {
             return true;
         };
-        let result = command::record_batch(session, pdf_edit::remove_selection(&held.members));
+        let result = command::record_selection_removal(session, &held.members);
         if result.is_err() {
             session.content_selection = Some(held);
         }

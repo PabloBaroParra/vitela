@@ -35,7 +35,13 @@ pub(crate) fn connect_paste(
     let paste = gio::SimpleAction::new("paste", None);
     paste.connect_activate({
         let viewer = viewer.clone();
-        move |_, _| paste_image(&viewer)
+        // A content clip held in content-edit mode pastes as content (B25
+        // T-209); otherwise Ctrl+V pastes a bitmap as a stamp, as before.
+        move |_, _| {
+            if !crate::app::content_edit::clipboard::try_paste(&viewer) {
+                paste_image(&viewer);
+            }
+        }
     });
     window.add_action(&paste);
     application.set_accels_for_action("win.paste", &["<Control>v"]);

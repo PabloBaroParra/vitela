@@ -19,6 +19,8 @@
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
 //! - [`content`] (T-156): replays page-content edits (Batch 21) at save
 //!   time, and reports whether the rewrite invalidates existing signatures.
+//! - [`clipboard`] (B25 T-209): the content clipboard's queue rules — copy,
+//!   paste, and what a selection edit does with a pending paste.
 //! - [`record`] (B25): how a page-content edit joins the pending queue —
 //!   folded into the queued edit of the same item, or validated and
 //!   appended. Every shell records through it.
@@ -39,6 +41,7 @@
 
 pub mod annotations;
 pub mod bridge;
+pub mod clipboard;
 pub mod clock;
 pub mod compress;
 pub mod content;
@@ -58,6 +61,10 @@ pub use bridge::{
     document_from_lopdf, has_structural_page_changes, imported_pages_from_lopdf,
     page_annotation_objects, page_object_ids, populate_document, read_page_content,
     replay_page_ops, rotation_changes, ImportedSources, ReplayOutcome,
+};
+pub use clipboard::{
+    copy_selection_content, move_pending_paste, part_of_paste, paste_not_deletable, pasted_members,
+    record_paste, selection_ids, PastedMembers,
 };
 pub use clock::{
     Clock, FixedClock, IdGenerator, RandomIdGenerator, SequentialIdGenerator, SystemClock,
