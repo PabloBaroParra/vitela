@@ -159,26 +159,28 @@ interface PdfDocument : AutoCloseable {
     fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Styling form fields is unavailable in this PDF core."))
     /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
     fun contentEditingAllowed(): Boolean = false
-    /** The text runs and images page [pageIndex] paints, pending edits included; refused when the document forbids text extraction. */
+    /** The text runs (and the blocks they group into), images and paths page [pageIndex] paints, pending edits included; refused when the document forbids text extraction. */
     fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
-     * Queues one undoable change to what [run] says, keeping its position; a
-     * composite-font run is retyped in a standard font instead. A second retype
-     * of the same run amends the queued one. The page shows it only after
-     * [refreshPreview]; the failure names a character the font cannot show.
+     * Queues one undoable retype of [block]: its first run shows all of [text]
+     * and the others are removed, so the whole line is one step. A block whose
+     * first run is a composite font is retyped in a standard one instead. The
+     * same block retyped again before a save folds into the queued edit; one
+     * with an edit of another kind pending is refused until a save. The page
+     * shows it only after [refreshPreview]; the failure names a character the font cannot show.
      */
-    fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
-     * Queues one undoable removal of [run] from its page — content editing,
-     * not a secure redaction. The page shows it only after [refreshPreview].
+     * Queues one undoable move of every run of [block] by ([dx], [dy]) points,
+     * its text, font and size kept. Moved again before a save it stays one
+     * step. The page shows it only after [refreshPreview].
      */
-    fun removeTextRun(run: ContentTextRun): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun moveTextBlock(block: ContentTextBlock, dx: Double, dy: Double): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
-     * Queues one undoable move of [run] to [to], the same box somewhere else
-     * on its page; its text, font and size are kept. The core reads only the
-     * box's origin. The page shows it only after [refreshPreview].
+     * Queues one undoable removal of every run of [block] from its page —
+     * content editing, not a secure redaction. The page shows it only after [refreshPreview].
      */
-    fun moveTextRun(run: ContentTextRun, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun removeTextBlock(block: ContentTextBlock): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
      * Queues one undoable change to the box [image] fills, to [to]; the image
      * is stretched to it. The page shows it only after [refreshPreview].

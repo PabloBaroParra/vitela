@@ -520,12 +520,12 @@ class ViewerViewModel(
     /** The reader laid out page [pageIndex] while the mode is armed. */
     fun contentPageShown(pageIndex: Int) = contentEditing.pageShown(pageIndex)
     fun tapContent(pageIndex: Int, point: AnnotationPoint, reach: Double) = contentEditing.tap(pageIndex, point, reach)
-    /** Retypes the open editor's run; [documentId] is the document the dialog was built for. */
-    fun retypeTextRun(documentId: Long, text: String) = contentEditing.text.retype(documentId, text)
-    /** Deletes the open dialog's run; [documentId] is the document the dialog was built for. */
-    fun deleteTextRun(documentId: Long) = contentEditing.text.deleteText(documentId)
-    fun dismissTextRunEditor() = contentEditing.text.dismissEditor()
-    /** Swaps the retype dialog for an armed move of its run; [documentId] is the document the dialog was built for. */
+    /** Retypes the open editor's text block; [documentId] is the document the dialog was built for. */
+    fun retypeTextBlock(documentId: Long, text: String) = contentEditing.text.retype(documentId, text)
+    /** Deletes the open dialog's text block; [documentId] is the document the dialog was built for. */
+    fun deleteTextBlock(documentId: Long) = contentEditing.text.deleteText(documentId)
+    fun dismissTextBlockEditor() = contentEditing.text.dismissEditor()
+    /** Swaps the retype dialog for an armed move of its block; [documentId] is the document the dialog was built for. */
     fun armTextMove(documentId: Long) = contentEditing.text.armMove(documentId)
     /** Resizes the open resizer's image to the typed size, in points; [documentId] is the document the dialog was built for. */
     fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.images.resize(documentId, width, height)

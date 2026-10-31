@@ -32,7 +32,7 @@ class ViewerViewModelTextMoveTest {
 
         val state = viewModel.state.value
         assertNull(state.contentEdit?.editor)
-        assertEquals(10L, state.contentEdit?.movingText?.id)
+        assertEquals(10L, state.contentEdit?.movingBlock?.id)
         assertNull("one move is armed at a time", state.contentEdit?.movingImage)
         assertEquals(textMovePrompt(0), state.status)
     }
@@ -44,16 +44,16 @@ class ViewerViewModelTextMoveTest {
         viewModel.tapContent(0, clear, reach = 0.0)
         advanceUntilIdle()
 
-        assertEquals(listOf(10L to AnnotationRect(50.0, 168.0, 40.0, 12.0)), document.textMoves.map { (run, to) -> run.id to to })
+        assertEquals("the offset from the block's corner to the tap", listOf(Triple(10L, 40.0, 18.0)), document.textMoves.map { (block, dx, dy) -> Triple(block.id, dx, dy) })
         val state = viewModel.state.value
         assertTrue(state.isDirty)
         assertTrue(state.canUndoAnnotations)
         assertEquals(TEXT_MOVED, state.status)
-        assertNull("one tap, one move", state.contentEdit?.movingText)
+        assertNull("one tap, one move", state.contentEdit?.movingBlock)
         assertEquals(
             "the outline must describe where the run now is",
             AnnotationRect(50.0, 168.0, 40.0, 12.0),
-            state.contentEdit?.runs?.get(0)?.single { it.id == 10L }?.bounds,
+            state.contentEdit?.blocks?.get(0)?.single { it.id == 10L }?.bounds,
         )
     }
 
@@ -79,7 +79,7 @@ class ViewerViewModelTextMoveTest {
         advanceUntilIdle()
 
         assertTrue(document.textMoves.isEmpty())
-        assertEquals(10L, viewModel.state.value.contentEdit?.movingText?.id)
+        assertEquals(10L, viewModel.state.value.contentEdit?.movingBlock?.id)
         assertEquals(textMovePrompt(0), viewModel.state.value.status)
     }
 
@@ -104,7 +104,7 @@ class ViewerViewModelTextMoveTest {
         assertTrue(document.textMoves.isEmpty())
         val state = viewModel.state.value
         assertFalse(state.isDirty)
-        assertNull(state.contentEdit?.movingText)
+        assertNull(state.contentEdit?.movingBlock)
         assertEquals(TEXT_POSITION_UNCHANGED, state.status)
     }
 
@@ -117,7 +117,7 @@ class ViewerViewModelTextMoveTest {
 
         val state = viewModel.state.value
         assertEquals(refusal, state.status)
-        assertNull(state.contentEdit?.movingText)
+        assertNull(state.contentEdit?.movingBlock)
         assertFalse(state.isDirty)
     }
 
@@ -129,7 +129,7 @@ class ViewerViewModelTextMoveTest {
         viewModel.undoAnnotations()
         advanceUntilIdle()
 
-        assertEquals(AnnotationRect(10.0, 150.0, 40.0, 12.0), viewModel.state.value.contentEdit?.runs?.get(0)?.single { it.id == 10L }?.bounds)
+        assertEquals(AnnotationRect(10.0, 150.0, 40.0, 12.0), viewModel.state.value.contentEdit?.blocks?.get(0)?.single { it.id == 10L }?.bounds)
     }
 
     @Test
@@ -144,7 +144,7 @@ class ViewerViewModelTextMoveTest {
         viewModel.undoAnnotations()
         advanceUntilIdle()
 
-        assertNull("the run it held may no longer be where it was", viewModel.state.value.contentEdit?.movingText)
+        assertNull("the run it held may no longer be where it was", viewModel.state.value.contentEdit?.movingBlock)
     }
 
     @Test
@@ -157,7 +157,7 @@ class ViewerViewModelTextMoveTest {
         advanceUntilIdle()
 
         assertTrue(document.textMoves.isEmpty())
-        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.run?.id)
+        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.block?.id)
     }
 
     @Test
@@ -169,7 +169,7 @@ class ViewerViewModelTextMoveTest {
         advanceUntilIdle()
 
         assertTrue("the tap went to the insert", document.textMoves.isEmpty())
-        assertNull(viewModel.state.value.contentEdit?.movingText)
+        assertNull(viewModel.state.value.contentEdit?.movingBlock)
     }
 
     @Test
@@ -180,8 +180,8 @@ class ViewerViewModelTextMoveTest {
         advanceUntilIdle()
         viewModel.armTextMove(viewModel.state.value.documentId + 1)
 
-        assertNull(viewModel.state.value.contentEdit?.movingText)
-        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.run?.id)
+        assertNull(viewModel.state.value.contentEdit?.movingBlock)
+        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.block?.id)
     }
 
     private suspend fun TestScope.armed(document: PdfDocument): ViewerViewModel = openedWith(document).also { arm(it) }

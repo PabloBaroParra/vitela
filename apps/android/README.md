@@ -385,23 +385,39 @@ corners and directions, which the turn has carried elsewhere on screen.
 ## Edit content
 
 **Edit content** arms a mode in which a tap on a line of text the page itself
-paints opens it in a dialog for retyping, moving or deleting, and a tap on an image it
+paints — a block, see below — opens it in a dialog for retyping, moving or deleting, and a tap on an image it
 paints opens it for resizing, moving, replacing or deleting, and a tap on a
 vector path — a table border, a rule, a shaded box — opens it for resizing,
 moving or deleting
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
-The run keeps its position and its font; **Retype** queues one undoable entry
+The line keeps its position and its font; **Retype** queues one undoable entry
 in the shared edit log. While armed, the mode claims every page tap — an armed
 annotation tool and a text selection are dropped, and choosing a tool leaves
 the mode. It is not offered over the Organize grid.
 
-Each page's runs come from the core's `read_page_content` as the page is
-shown, and are outlined: solid where the font is kept, dashed where it is a
-composite (CID) font the core cannot re-encode, whose retype uses a standard
-font instead (`ReplaceTextRunWithInsertedFont`) — the dialog says so before
-anything is typed. The core reports pending retypes in that read, so a retyped
-run keeps its id and shows its new text, and retyping it again amends the
-queued command rather than stacking another.
+Each page's text comes from the core's `read_page_content` as the page is
+shown, and is outlined by **block** (B25 T-207): a report generator paints one
+phrase with several show-text operators, so the adapter also reads
+`read_page_text_blocks`, which groups the runs on one line, in one font and a
+word gap apart. The outline is one box per block, and a tap on any run of it, or
+on the gap between them, opens the whole line — a run alone is just a block of
+one. The box is solid where the font is kept, dashed where the block's first
+run is a composite (CID) font the core cannot re-encode, whose retype uses a
+standard font instead (`with_inserted_font`) — the dialog says so before anything
+is typed. The core reports pending edits in that read, so a retyped block keeps
+its first run's id and shows its new text. The reads are one call: a refusal of
+either fails the page.
+
+Every text edit goes through the block API (`retype_text_block`,
+`move_text_block`, `remove_text_block`), a one-run block included, as on Linux:
+once a block is retyped its first run's edit lives inside a batch, and a per-run
+edit would no longer see it. Each is one undo step however many runs it covers;
+the same edit again before a save — a retype of the same block, a move of the
+same block — folds into the queued one, so it stays one step. A mix (moving a
+block already retyped, retyping one already moved) is refused with "This text has
+an unsaved edit — save the document before editing it again." until a save, and
+the dialog says so. Retyping puts all the new text in the first run and removes
+the others, so a line painted in pieces becomes one run. Verified by the JVM unit tests only, not yet on a device or emulator.
 
 Only the renderer can paint the new words, so a retype rebuilds the preview
 and the page redraws, like a form fill; undo and redo redraw and re-read the
@@ -410,34 +426,34 @@ run's font cannot show is refused by name and the dialog stays open with what
 was typed. Unlike the Windows shell, which writes as the reader types, a
 retype is committed once, from the dialog.
 
-**Delete** in that dialog takes the run off its page (`RemoveTextRun`) at once,
+**Delete** in that dialog takes the block off its page (`remove_text_block`) at once,
 with no second question, like an image's Delete: it is one undoable entry, and
-Undo puts it back. No font is touched, so a composite-font run is deleted as
+Undo puts it back. No font is touched, so a composite-font block is deleted as
 it stands. The dialog closes before the core answers, so a double tap queues
 one delete; a refusal — "This text cannot be deleted." — is reported in the
 status line. The delete redraws the page and re-reads it, so the outline goes
-with the run. The core checks the delete against the file as last saved, so it
-may refuse one on a run with a pending retype; save first. This is content
-editing, not a secure redaction: the dialog says so.
+with the block. A block with a pending edit of another kind is refused until a
+save, like any mix. This is content editing, not a secure redaction: the dialog
+says so.
 
 **Move** in that dialog closes it and arms the next page tap, like an image's
-Move: the run's top-left corner lands on the tap and its text, font and size
-are kept (`MoveTextRun`) — the core re-places the original show operands
-rather than re-encoding them, so a composite-font run keeps its font too, and
-the other runs on the line stay where they were. The armed run's outline is
+Move: the block's top-left corner lands on the tap and its text, font and size
+are kept (`move_text_block`, by the offset from the old corner to the tap) — the
+core re-places the original show operands rather than re-encoding them, so a
+composite-font block keeps its font too, and every run of the line goes by the
+same offset. The armed block's outline is
 drawn heavier and **Cancel move** disarms it. Instead of tapping, the armed
 outline can be dragged: the run's pixels, lifted off the rendered page, follow
 the finger, and lifting it sends the same edit a tap on the new corner would — a
 drag that starts off the outline still scrolls. The same goes for an armed
-image. One move, of a run or an image,
+image. One move, of a block, an image or a shape,
 is armed at a time, and arming an insert drops it. A tap on another page moves
-nothing and leaves the move armed; a tap on the corner the run already has
+nothing and leaves the move armed; a tap on the corner the block already has
 queues nothing ("Text position unchanged."). The move is spent before the core
 answers, so a double tap queues one, and an undo or redo disarms a pending
-move, since the run may no longer be where it was. Like a delete, it is checked
-against the file as last saved, so the core may refuse a run with a pending
-retype or move — "This text cannot be moved." — until it is saved; it also refuses a
-run painted by the `"` operator, whose spacing a plain move would drop.
+move, since the block may no longer be where it was. Moving a block again before a
+save folds into the queued move; the core also refuses a run painted by the `"`
+operator ("This text cannot be moved."), whose spacing a plain move would drop.
 
 The same read reports the page's images — resource and inline alike — with
 pending resizes and moves applied, and each is outlined in green; a pending
@@ -450,7 +466,9 @@ box (`ResizeImage`). Unlike a field it is not kept on the page, since an image
 may already hang off it. A size that is not a finite, positive number, or a
 refusal from the core, keeps the dialog open with what was typed. A resize is
 one undoable entry, redraws the page and re-reads the outline; the gate is the
-same `content_editing_allowed`.
+same `content_editing_allowed`. Resizing it again before a save folds into the
+queued edit (B25 T-207), so an image can be edited as often as the reader likes
+and stays one undo step; the shell never guarded this, only the core did.
 
 **Move** in that dialog closes it and arms the next page tap, the way a form
 field is moved: the image's outline thickens, and the tap puts its top-left
@@ -461,18 +479,17 @@ answers, so a double tap queues one edit; a refusal is reported in the status
 line. **Cancel move** next to Done editing disarms it, and an undo or redo
 disarms it too, since the image it held may have moved back. A move is one
 undoable entry and redraws the page like a resize. Moving it again before a
-save amends the queued move, so all the moves stay one undo step; a resize
-after a pending move (or a move after a pending resize) may still be refused
-until saved.
+save folds into the queued move, so all the moves stay one undo step, and so does
+a resize after a pending move or a move after a pending resize.
 
 **Delete** in that dialog takes the image off its page (`RemoveImage`, resource
 and inline alike) at once, with no second question: it is one undoable entry,
 and Undo puts it back. The dialog closes before the core answers, so a double
 tap queues one delete; a refusal is reported in the status line. The delete
 redraws the page and re-reads it, so the outline goes with the image; the gate
-is the same `content_editing_allowed`. The core checks a delete against the
-file as last saved (`validate_content_command`), so it refuses one on an image
-with a pending move or resize — "This image cannot be deleted."; save first.
+is the same `content_editing_allowed`. An image with a pending move or resize can
+be deleted: the core folds the delete into the queued edit (B25 T-207), so it
+stays one undo step. Only **Replace** below still needs a save first.
 
 **Replace** in that dialog swaps the image's picture for a PNG or JPEG, keeping
 its box: a different aspect ratio stretches to it (`ReplaceImageSource`). The

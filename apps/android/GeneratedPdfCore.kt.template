@@ -33,6 +33,7 @@ import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
+import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.DocumentInfo
@@ -66,6 +67,7 @@ import dev.vitela.pdf.uniffi.FfiCompressRefusal
 import dev.vitela.pdf.uniffi.FfiContentImageItem
 import dev.vitela.pdf.uniffi.FfiContentPathItem
 import dev.vitela.pdf.uniffi.FfiContentTextRun
+import dev.vitela.pdf.uniffi.FfiTextBlock
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
 import dev.vitela.pdf.uniffi.FfiExportFormat
@@ -97,6 +99,10 @@ import dev.vitela.pdf.uniffi.redo as ffiRedo
 import dev.vitela.pdf.uniffi.refreshPreview as ffiRefreshPreview
 import dev.vitela.pdf.uniffi.undo as ffiUndo
 import dev.vitela.pdf.uniffi.applyEdit as ffiApplyEdit
+import dev.vitela.pdf.uniffi.readPageTextBlocks as ffiReadPageTextBlocks
+import dev.vitela.pdf.uniffi.retypeTextBlock as ffiRetypeTextBlock
+import dev.vitela.pdf.uniffi.moveTextBlock as ffiMoveTextBlock
+import dev.vitela.pdf.uniffi.removeTextBlock as ffiRemoveTextBlock
 import dev.vitela.pdf.uniffi.outputSnapshot as ffiOutputSnapshot
 import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
@@ -377,9 +383,12 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
 
     override fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = try {
         val content = handle.readPageContent(pageIndex.toUInt())
-        // A separate read, behind the same text-extraction gate, so one refusal covers both.
+        // Separate reads, behind the same text-extraction gate, so one refusal covers all of them.
         val paths = handle.readPagePaths(pageIndex.toUInt())
-        PdfCoreResult.Success(PageContent(content.textRuns.map { it.toTextRun() }, content.images.map { it.toImage() }, paths.map { it.toPath() }))
+        val blocks = ffiReadPageTextBlocks(handle, pageIndex.toUInt())
+        PdfCoreResult.Success(
+            PageContent(content.textRuns.map { it.toTextRun() }, content.images.map { it.toImage() }, paths.map { it.toPath() }, blocks.map { it.toBlock() }),
+        )
     } catch (error: FfiException.UnsupportedOperation) {
         // The only refusal here is the /P bit forbidding text extraction.
         PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be read."))
@@ -387,50 +396,52 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
-    // A composite (CID) font cannot be re-encoded, so its run is retyped in the
-    // core's inserted-text font; the viewer says so before the reader types.
-    override fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> = try {
-        val item = run.toFfi()
-        ffiApplyEdit(
-            handle,
-            if (run.fontKind == ContentFontKind.EmbeddedComposite) FfiEditCommand.ReplaceTextRunWithInsertedFont(item, text)
-            else FfiEditCommand.ReplaceTextRunContent(item, text),
-        )
+    // A composite (CID) font cannot be re-encoded, so a block whose first run is
+    // one is retyped in the core's inserted-text font; the viewer says so before
+    // the reader types. Every text edit goes through the block API, a one-run
+    // block included: once a block is retyped its first run's edit lives inside
+    // a batch, which a per-run edit would no longer see.
+    override fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> = try {
+        val insertedFont = block.runs.first().fontKind == ContentFontKind.EmbeddedComposite
+        ffiRetypeTextBlock(handle, block.runs.map { it.toFfi() }, text, insertedFont)
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.EncodingGap) {
         // Named, with the character in it: the one failure the reader can
         // clear themselves, by typing something else. The Windows wording.
         PdfCoreResult.Failure(PdfCoreError.Failed("This text's font cannot show \"${error.character}\". Try different characters."))
     } catch (error: FfiException.UnsupportedOperation) {
-        // The /P bit, or `pdf_edit` declining this run or its stream encoding;
-        // the core's own sentence is a developer's, not a reader's.
-        val sentence = if (handle.contentEditingAllowed()) "This text cannot be edited." else "This document does not permit content changes."
-        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, "edited")))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
-    // No font is touched, so a composite-font run needs no substitute to be deleted.
-    override fun removeTextRun(run: ContentTextRun): PdfCoreResult<Unit> = try {
-        ffiApplyEdit(handle, FfiEditCommand.RemoveTextRun(run.toFfi()))
-        PdfCoreResult.Success(Unit)
-    } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This text cannot be deleted." else "This document does not permit content changes."
-        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
-    } catch (error: Throwable) {
-        PdfCoreResult.Failure(error.toPdfCoreError())
-    }
-
-    // The original show operands are re-placed, not re-encoded, so a composite-font run keeps its font too.
-    override fun moveTextRun(run: ContentTextRun, to: AnnotationRect): PdfCoreResult<Unit> = try {
-        ffiApplyEdit(handle, FfiEditCommand.MoveTextRun(run.toFfi(), to.toFfi()))
+    // The original show operands are re-placed, not re-encoded, so a composite-font block keeps its font too.
+    override fun moveTextBlock(block: ContentTextBlock, dx: Double, dy: Double): PdfCoreResult<Unit> = try {
+        ffiMoveTextBlock(handle, block.runs.map { it.toFfi() }, dx, dy)
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
         // Also a run painted by the `"` operator, whose spacing a move would drop.
-        val sentence = if (handle.contentEditingAllowed()) "This text cannot be moved." else "This document does not permit content changes."
-        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, "moved")))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // No font is touched, so a composite-font block needs no substitute to be deleted.
+    override fun removeTextBlock(block: ContentTextBlock): PdfCoreResult<Unit> = try {
+        ffiRemoveTextBlock(handle, block.runs.map { it.toFfi() })
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, "deleted")))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core's sentences are a developer's, except the one that tells the reader
+    // to save first (a block with an unsaved edit of another kind): that one is kept.
+    private fun textBlockRefusal(detail: String, verb: String): String = when {
+        !handle.contentEditingAllowed() -> "This document does not permit content changes."
+        "save the document" in detail -> detail.replaceFirstChar { it.uppercase() }.trimEnd('.') + "."
+        else -> "This text cannot be $verb."
     }
 
     // The core stretches the image to `to`; the viewer picks the box, keeping its top-left corner.
@@ -899,6 +910,8 @@ private fun PageEdit.toFfi(): FfiEditCommand = when (this) {
         else FfiEditCommand.RemovePages(pageIndex.toUInt(), count.toUInt())
     is PageEdit.InsertBlank -> FfiEditCommand.InsertBlankPage(index.toUInt(), FfiPageSize.A4, if (landscape) FfiOrientation.LANDSCAPE else FfiOrientation.PORTRAIT)
 }
+
+private fun FfiTextBlock.toBlock() = ContentTextBlock(runs.map { it.toTextRun() }, bbox.toRect(), text)
 
 private fun FfiContentTextRun.toTextRun() = ContentTextRun(id.toLong(), page.toInt(), bbox.toRect(), resourceFontName, fontKind.toFontKind(), text)
 
