@@ -61,7 +61,7 @@ fn opposite(corner: Corner) -> Corner {
 /// the opposite corner stays put, and the result is normalised so dragging a
 /// corner past its opposite flips the rect rather than inverting it — mirrors
 /// `annotations::geometry::resized_rect`.
-fn resized_rect(rect: Rect, corner: Corner, point: (f64, f64)) -> Rect {
+pub(super) fn resized_rect(rect: Rect, corner: Corner, point: (f64, f64)) -> Rect {
     let (anchor_x, anchor_y) = corner_point(rect, opposite(corner));
     Rect {
         x: anchor_x.min(point.0),

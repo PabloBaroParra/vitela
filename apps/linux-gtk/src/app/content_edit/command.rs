@@ -5,6 +5,7 @@ use pdf_document::{Command, Document, ImageItem, Rect, TextRun};
 use pdf_edit::EditError;
 
 use super::PageProbe;
+use crate::app::state::DocumentSession;
 
 /// Attempts `after` as `run`'s replacement text against the real font
 /// encoder, without writing anything for real: clones the base document and
@@ -440,6 +441,52 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
 /// inert on the model.
 pub(super) fn amend_command(document: &mut Document, index: usize, command: Command) -> bool {
     document.pending_edits.amend(index, command)
+}
+
+/// Records `command` through the core's queue policy
+/// (`pdf_save::record_content_command`) — the same fold, validation and
+/// wording Windows, macOS and Android record through, rather than one more
+/// copy of it here. On success the session is marked edited and dirty; on a
+/// refusal nothing changes and the reason comes back for the status line.
+///
+/// Newer content gestures go through this door. The text and image ones above
+/// still use their own validation, and move here as each is ported.
+pub(super) fn record(session: &mut DocumentSession, command: Command) -> Result<(), String> {
+    record_with(session, |document, base, sources| {
+        pdf_save::record_content_command(document, base, sources, command)
+    })
+}
+
+fn record_with(
+    session: &mut DocumentSession,
+    record: impl FnOnce(
+        &mut Document,
+        &pdf_manip::LopdfDocument,
+        pdf_save::ImportedSources<'_, '_>,
+    ) -> Result<(), pdf_save::RecordError>,
+) -> Result<(), String> {
+    let (Some(document), Some(backing)) = (
+        session.document_model.as_mut(),
+        session.save_backing.as_ref(),
+    ) else {
+        return Err("Open a PDF to edit its content.".to_string());
+    };
+    let sources: Vec<_> = session
+        .imported_sources
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect();
+    record(
+        document,
+        &backing.base,
+        pdf_save::ImportedSources::new(&sources),
+    )
+    .map_err(|error| error.to_string())?;
+    session.edit_revision += 1;
+    // Dirty when the command joins the log, not when the refresh lands — a
+    // refresh that fails must still leave the document reporting dirty.
+    session.unsaved_to_disk = true;
+    Ok(())
 }
 
 #[cfg(test)]

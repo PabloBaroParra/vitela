@@ -199,6 +199,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         insert_image: insert_image_button,
         delete_image: delete_image_button,
         replace_image: replace_image_button,
+        delete_path: delete_path_button,
         add_watermark: add_watermark_button,
         panel: edit_panel,
     } = edit_controls;
@@ -407,6 +408,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         insert_image_button,
         delete_image_button,
         replace_image_button,
+        delete_path_button,
         add_watermark_button,
         edit_panel,
         forms: form_field_toolbar,
@@ -465,6 +467,12 @@ fn build_ui(application: &Application) -> BuiltUi {
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
         move |_| content_edit::image::delete_selected(&viewer)
+    });
+    viewer.delete_path_button.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| {
+            content_edit::path::delete_selected(&viewer);
+        }
     });
     viewer.replace_image_button.connect_clicked({
         let window = window.clone();
@@ -718,6 +726,9 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
                 .as_ref()
                 .is_some_and(|editor| !editor.is_insertion)
     });
+    let paths_enabled = state.session.as_ref().is_some_and(|session| {
+        session.content_edit_access.refusal().is_none() && session.selected_path.is_some()
+    });
     drop(state);
     viewer
         .delete_image_button
@@ -726,7 +737,15 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
         .replace_image_button
         .set_sensitive(images.replace_enabled());
     viewer.edit_panel.image_hint.set_text(images.hint());
+    viewer.delete_path_button.set_sensitive(paths_enabled);
+    viewer.edit_panel.path_hint.set_text(if paths_enabled {
+        content_edit::path::PATH_SELECTED
+    } else {
+        content_edit::panel::NO_SHAPE_SELECTED
+    });
     viewer.delete_text_button.set_sensitive(text_enabled);
+    // The Delete key's action is enabled off the path selection too.
+    annotations::update_annotation_controls(viewer);
     viewer.edit_panel.text_hint.set_text(if text_enabled {
         content_edit::panel::TEXT_SELECTED
     } else {

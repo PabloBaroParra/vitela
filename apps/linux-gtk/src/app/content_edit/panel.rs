@@ -76,6 +76,9 @@ pub(crate) const NO_DOCUMENT_NOTICE: &str = "Open a PDF to edit the text and ima
 /// gates the buttons themselves, so the sentence and the sensitivity can
 /// never disagree.
 pub(crate) const NO_IMAGE_SELECTED: &str = "Click an image on the page to select it.";
+/// The shapes card with no path selected (B25 T-206).
+pub(crate) const NO_SHAPE_SELECTED: &str =
+    "Click a line, border or shaded box on the page to select it.";
 pub(crate) const IMAGE_SELECTED: &str = "Image selected — replace or delete it.";
 
 /// The third state of the same pair (T-204): an image is selected and three
@@ -219,6 +222,7 @@ pub(crate) struct EditContent {
     pub(crate) insert_image: ToggleButton,
     pub(crate) delete_image: Button,
     pub(crate) replace_image: Button,
+    pub(crate) delete_path: Button,
     pub(crate) add_watermark: Button,
     pub(crate) panel: EditPanel,
 }
@@ -231,7 +235,9 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
     let root = GtkBox::new(Orientation::Vertical, 10);
 
     root.append(&panel_heading("Edit PDF"));
-    root.append(&hint("Change the text and images already on the page."));
+    root.append(&hint(
+        "Change the text, images and shapes already on the page.",
+    ));
 
     let availability = Label::new(Some(NO_DOCUMENT_NOTICE));
     availability.set_wrap(true);
@@ -322,6 +328,21 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
     image_card.append(&image_hint);
     root.append(&image_card);
 
+    // --- shapes ------------------------------------------------------------
+    let (path_card, path_row) = card("Shapes");
+    let delete_path = Button::new();
+    tile(
+        &delete_path,
+        "Delete shape",
+        Icon::Delete,
+        "Remove the selected line, border or box from the page",
+    );
+    delete_path.set_sensitive(false);
+    path_row.append(&delete_path);
+    let path_hint = hint(NO_SHAPE_SELECTED);
+    path_card.append(&path_hint);
+    root.append(&path_card);
+
     // --- pages -------------------------------------------------------------
     let (pages_card, pages_row) = card("Pages");
     let add_watermark = Button::new();
@@ -346,10 +367,12 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
             insert_image,
             delete_image,
             replace_image,
+            delete_path,
             add_watermark,
             panel: EditPanel {
                 availability,
                 image_hint,
+                path_hint,
                 text_hint,
             },
         },

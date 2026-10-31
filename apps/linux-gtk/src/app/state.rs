@@ -18,7 +18,7 @@ use gtk::{
 };
 use pdf_document::{
     AnnotationId, Document, FieldValue, FormFieldId, ImageItem, ImportedDocumentId, PageContent,
-    PageId, PdfDateOffset, TextRun,
+    PageId, PathItem, PdfDateOffset, TextRun,
 };
 use pdf_manip::LopdfDocument;
 use pdf_render::{
@@ -117,6 +117,9 @@ pub(crate) struct Viewer {
     /// Slice 2). Sensitivity is owned by `update_content_edit_controls`
     /// alongside `delete_image_button` — the same selection gates both.
     pub(crate) replace_image_button: Button,
+    /// Deletes the selected vector path in content-edit mode (B25 T-206).
+    /// Sensitivity is owned by `update_content_edit_controls`.
+    pub(crate) delete_path_button: Button,
     /// Opens the Add watermark dialog (`content_edit::watermark`). Gated by
     /// `content_edit::update_controls` on the content-edit permission alone.
     pub(crate) add_watermark_button: Button,
@@ -902,6 +905,9 @@ pub(crate) struct EditPanel {
     /// Maintained by `crate::app::update_content_edit_controls`, off the same
     /// image selection that gates the buttons.
     pub(crate) image_hint: Label,
+    /// The shapes card's twin of [`Self::image_hint`], off the path
+    /// selection.
+    pub(crate) path_hint: Label,
     /// The text card's twin of [`Self::image_hint`], off the open inline
     /// editor rather than off an image selection — the same call maintains
     /// both, so the card that has a target and the card that does not always
@@ -1118,6 +1124,27 @@ pub(crate) struct SelectedImage {
     /// move, a resize and a delete rewrite the operator, never the samples,
     /// so none of them needs to read the picture back.
     pub(crate) replace_refused: bool,
+}
+
+/// A vector path selected in content-edit mode — a table border, a rule, a
+/// shaded box (B25 T-206). Held by value for the same reason as
+/// [`SelectedImage`]: a `PathItem` is a parser's snapshot, not addressable
+/// page state.
+pub(crate) struct SelectedPath {
+    pub(crate) page_index: usize,
+    pub(crate) item: PathItem,
+}
+
+/// The selected path being moved, or reshaped by a corner, right now — the
+/// path twin of [`ImageDrag`].
+pub(crate) struct PathDrag {
+    pub(crate) page_index: usize,
+    pub(crate) item: PathItem,
+    pub(crate) mode: AnnotationDragMode,
+    /// Where the pointer went down, in PDF page space.
+    pub(crate) origin: (f64, f64),
+    /// Where the pointer is now, in PDF page space.
+    pub(crate) current: (f64, f64),
 }
 
 /// A form field being moved or resized right now, in forms-edit mode
@@ -1438,6 +1465,11 @@ pub(crate) struct DocumentSession {
     /// flight. Lives on the session for the same reason `annotation_drag`
     /// does: nothing reaches the `EditLog` until the pointer comes up.
     pub(crate) image_drag: Option<ImageDrag>,
+    /// The selected vector path in content-edit mode, if any (B25 T-206).
+    /// At most one of this, `selected_image` and `content_editor` is live.
+    pub(crate) selected_path: Option<SelectedPath>,
+    /// The selected path being moved or reshaped right now, if any.
+    pub(crate) path_drag: Option<PathDrag>,
     /// The text run being dragged across the page right now, if any. Same
     /// reasoning as `image_drag`, and mutually exclusive with it in
     /// practice: a press is claimed by at most one item.

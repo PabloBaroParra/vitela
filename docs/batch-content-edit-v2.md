@@ -36,8 +36,8 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
 
 ## Fases propuestas
 
-- [x] T-206 **P1 — Trazados vectoriales como item.** Core + FFI + Windows (2026-10-28).
-      Linux y Android siguen pendientes (van en T-212). Como quedó:
+- [x] T-206 **P1 — Trazados vectoriales como item.** Core + FFI + Windows (2026-10-28),
+      Linux (2026-10-31). Android sigue pendiente (va en T-212). Como quedó:
       `PathItem {id, page, bbox, paint}` en `PageContent.paths`; el FFI lo lee aparte con
       `read_page_paths` para no cambiar `FfiPageContent` en los shells que todavía no
       editan trazados. Mover y redimensionar reescriben las coordenadas (no se usa `cm`).

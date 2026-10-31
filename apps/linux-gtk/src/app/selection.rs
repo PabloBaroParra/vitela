@@ -69,6 +69,13 @@ const CONTENT_IMAGE_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.55
 /// The selected image's outline/handles, brighter than an unselected one —
 /// same posture as `SELECTED_ANNOTATION_ALPHA` vs `ANNOTATION_ALPHA`.
 const SELECTED_CONTENT_IMAGE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.85);
+/// Outline for a vector path in content-edit mode (B25 T-206): faint and
+/// dashed, because a page can paint hundreds of table rules and every one of
+/// them outlined solid would bury the text it frames.
+const CONTENT_PATH_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.35);
+const CONTENT_PATH_DASH: [f64; 2] = [2.0, 3.0];
+/// The selected path, solid and brighter, with its handles.
+const SELECTED_CONTENT_PATH_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.90);
 /// Outline for a form field in forms-edit mode (T-141) — an amber distinct
 /// from every other overlay colour, so a field never reads as an annotation,
 /// an image, or a content-run outline.
@@ -184,6 +191,8 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
     draw_form_field_values(context, page, session, page_index, scale);
 
     if content_edit::mode_is_active(viewer) {
+        // Paths first: a frame sits under the text and pictures it holds.
+        draw_content_path_outlines(context, page, session, page_index);
         draw_content_run_outlines(context, page, session, page_index);
         draw_content_image_outlines(context, page, session, page_index);
     }
@@ -459,6 +468,63 @@ fn draw_content_image_outlines(
             draw_corner_handles(context, rect, page.placement());
         }
     }
+}
+
+/// Paints one outline per vector path on `page` while content-edit mode is
+/// on — the path twin of [`draw_content_image_outlines`] (B25 T-206). The
+/// selected path is painted at its live rect, from the same
+/// `content_edit::path::dragged_rect` the release records, with its handles.
+fn draw_content_path_outlines(
+    context: &cairo::Context,
+    page: &PageSlot,
+    session: &DocumentSession,
+    page_index: usize,
+) {
+    let Some(content) = page.content.as_ref() else {
+        return;
+    };
+    let selected_id = session
+        .selected_path
+        .as_ref()
+        .filter(|selected| selected.page_index == page_index)
+        .map(|selected| selected.item.id);
+    let live_rect = session
+        .path_drag
+        .as_ref()
+        .filter(|drag| drag.page_index == page_index)
+        .map(content_edit::path::dragged_rect);
+
+    for path in &content.paths {
+        let selected = selected_id == Some(path.id);
+        let rect = if selected {
+            live_rect.unwrap_or(path.bbox)
+        } else {
+            path.bbox
+        };
+        let placed = place_rect(
+            TextRect {
+                x_pt: rect.x as f32,
+                y_pt: rect.y as f32,
+                width_pt: rect.width as f32,
+                height_pt: rect.height as f32,
+            },
+            page.placement(),
+        );
+        let (red, green, blue, alpha) = if selected {
+            context.set_dash(&[], 0.0);
+            SELECTED_CONTENT_PATH_RGBA
+        } else {
+            context.set_dash(&CONTENT_PATH_DASH, 0.0);
+            CONTENT_PATH_OUTLINE_RGBA
+        };
+        context.set_source_rgba(red, green, blue, alpha);
+        context.rectangle(placed.left, placed.top, placed.width, placed.height);
+        let _ = context.stroke();
+        if selected {
+            draw_corner_handles(context, rect, page.placement());
+        }
+    }
+    context.set_dash(&[], 0.0);
 }
 
 /// Paints the four corner handles of a selected rect — shared by every
