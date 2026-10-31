@@ -139,4 +139,31 @@ final class ViewerViewModelRecentsTests: XCTestCase {
         waitUntil({ model.store.state == .loaded }, "the card never opened")
         XCTAssertEqual(model.documentName, "card.pdf")
     }
+
+    func testTheFileStoreKeepsABookmarkAndOpensTheCardThroughIt() throws {
+        let file = try pdf("kept.pdf")
+        let recents = FileRecentDocumentStore(url: folder.appendingPathComponent("recent-documents.json"))
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        let model = ViewerViewModel(store: ViewerStore(client: client), recentStore: recents, sampleLoader: { Data([1]) })
+
+        model.recordRecent(file.path)
+
+        waitUntil({ model.recentDocuments.first?.bookmark != nil }, "the card never kept a bookmark")
+        let stored = try XCTUnwrap(recents.load().first)
+        XCTAssertNotNil(stored.bookmark, "the bookmark must be written with the list")
+        XCTAssertEqual(recents.withAccess(to: stored) { try? Data(contentsOf: $0) }, Data("%PDF-1.7".utf8))
+        model.openRecent(stored)
+        waitUntil({ model.store.state == .loaded }, "the card never opened through its bookmark")
+        XCTAssertEqual(model.documentName, "kept.pdf")
+    }
+
+    func testACardWhoseBookmarkNoLongerResolvesStillReadsItsPath() throws {
+        let file = try pdf("plain.pdf")
+        let recents = FileRecentDocumentStore(url: folder.appendingPathComponent("recent-documents.json"))
+        let document = RecentDocument(path: file.path, openedAt: Date(), bookmark: Data([0, 1, 2]))
+
+        XCTAssertTrue(recents.canReach(document))
+        XCTAssertFalse(recents.canReach(RecentDocument(path: folder.appendingPathComponent("gone.pdf").path,
+                                                       openedAt: Date(), bookmark: Data([0]))))
+    }
 }

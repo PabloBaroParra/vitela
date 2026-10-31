@@ -20,6 +20,7 @@ on:
       - "core/**"
       - "Cargo.lock"
       - "scripts/build-macos.sh"
+      - "scripts/package-macos.sh"
       - ".github/workflows/macos.yml"
   pull_request:
     paths:
@@ -28,6 +29,7 @@ on:
       - "core/**"
       - "Cargo.lock"
       - "scripts/build-macos.sh"
+      - "scripts/package-macos.sh"
       - ".github/workflows/macos.yml"
   workflow_dispatch:
 
@@ -89,6 +91,7 @@ jobs:
         run: |
           bash apps/macos/Tests/test-build-macos.sh
           bash apps/macos/Tests/test-bundle-integrity.sh
+          bash apps/macos/Tests/test-package-macos.sh
       # Also regenerates the Swift bindings and asserts all three generated
       # artifacts exist — the app cannot link without the header and modulemap,
       # not just pdf_ffi.swift.

@@ -27,9 +27,11 @@ struct SigningPanel: View {
                 Button("Keychain Identity…", action: model.signWithKeychainIdentity)
                     .help("Sign with an identity in this Mac's keychains; its private key stays there")
                     .accessibilityIdentifier("sign-keychain")
-                Button("Card or Token…", action: model.signWithToken)
-                    .help("Sign using a PKCS#11 module; its private key stays on the card or token")
-                    .accessibilityIdentifier("sign-token")
+                if model.offersTokenSigning {
+                    Button("Card or Token…", action: model.signWithToken)
+                        .help("Sign using a PKCS#11 module; its private key stays on the card or token")
+                        .accessibilityIdentifier("sign-token")
+                }
             }
             .disabled(certificateDisabled)
             if let refusal = store.signingRefusal {

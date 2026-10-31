@@ -6,6 +6,10 @@ import Foundation
 struct RecentDocument: Equatable, Codable {
     let path: String
     let openedAt: Date
+    /// What lets a sandboxed shell read the file again after a relaunch (a
+    /// security-scoped bookmark on macOS); `nil` where none was made. Lists
+    /// written before it existed decode with `nil`.
+    var bookmark: Data? = nil
 
     var url: URL { URL(fileURLWithPath: path) }
     var name: String { url.lastPathComponent }
@@ -20,11 +24,14 @@ enum RecentDocuments {
     static let capacity = 30
 
     /// `list` with `path` opened at `date`: moved to the front, never twice,
-    /// and the oldest dropped past `capacity`.
-    static func recording(_ path: String, at date: Date, in list: [RecentDocument]) -> [RecentDocument] {
+    /// and the oldest dropped past `capacity`. Without a new `bookmark` the
+    /// entry keeps the one it had, so a reopen that could not make one does
+    /// not lose access the list already holds.
+    static func recording(_ path: String, at date: Date, in list: [RecentDocument], bookmark: Data? = nil) -> [RecentDocument] {
         let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        let kept = bookmark ?? list.first { $0.path == standardized }?.bookmark
         let rest = list.filter { $0.path != standardized }
-        return Array(([RecentDocument(path: standardized, openedAt: date)] + rest).prefix(capacity))
+        return Array(([RecentDocument(path: standardized, openedAt: date, bookmark: kept)] + rest).prefix(capacity))
     }
 
     /// `list` without `path`.

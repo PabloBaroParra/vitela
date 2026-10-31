@@ -23,6 +23,23 @@ final class RecentDocumentsTests: XCTestCase {
         XCTAssertEqual(recorded.first?.openedAt, now)
     }
 
+    func testRecordingKeepsTheBookmarkUnlessANewOneIsGiven() throws {
+        let old = Data([1]), new = Data([2])
+        let list = [RecentDocument(path: "/a.pdf", openedAt: now.addingTimeInterval(-60), bookmark: old)]
+
+        XCTAssertEqual(RecentDocuments.recording("/a.pdf", at: now, in: list).first?.bookmark, old)
+        XCTAssertEqual(RecentDocuments.recording("/a.pdf", at: now, in: list, bookmark: new).first?.bookmark, new)
+        XCTAssertNil(RecentDocuments.recording("/b.pdf", at: now, in: list).first?.bookmark)
+    }
+
+    func testAListWrittenBeforeBookmarksStillDecodes() throws {
+        let json = Data(#"[{"path":"/a.pdf","openedAt":0}]"#.utf8)
+
+        let decoded = try JSONDecoder().decode([RecentDocument].self, from: json)
+
+        XCTAssertEqual(decoded, [RecentDocument(path: "/a.pdf", openedAt: Date(timeIntervalSinceReferenceDate: 0))])
+    }
+
     func testRecordingStandardizesThePathAndKeepsTheCapacity() {
         let list = (0..<RecentDocuments.capacity).map { doc("/d\($0).pdf", hoursAgo: Double($0)) }
 

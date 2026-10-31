@@ -99,6 +99,10 @@ final class ViewerViewModel: ObservableObject {
     let operationQueue: OperationQueue
     let prompts: SavePrompts
     let signingPrompts: SigningPrompts
+    /// Whether File ▸ Sign with Card or Token… and its Fill & Sign button are
+    /// offered — `ViewerViewModel+TokenSigning.swift` says why the sandboxed
+    /// build leaves them out.
+    let offersTokenSigning: Bool
     private let sampleLoader: () throws -> Data
     private var subscriptions = Set<AnyCancellable>()
     /// The pending viewport size report — see `ViewerViewModel+Zoom.swift`.
@@ -120,6 +124,7 @@ final class ViewerViewModel: ObservableObject {
         recentStore: RecentDocumentStore = InMemoryRecentDocumentStore(),
         sharePrompts: SharePrompts = .modal,
         signatures: SignatureStore = FileSignatureStore(url: FileSignatureStore.defaultURL),
+        offersTokenSigning: Bool = !AppSandbox.isActive,
         sampleLoader: @escaping () throws -> Data = ViewerViewModel.loadBundledSample
     ) {
         self.store = store
@@ -129,6 +134,7 @@ final class ViewerViewModel: ObservableObject {
         self.recentStore = recentStore
         self.sharePrompts = sharePrompts
         self.signatures = signatures
+        self.offersTokenSigning = offersTokenSigning
         self.sampleLoader = sampleLoader
         operationQueue = OperationQueue()
         operationQueue.maxConcurrentOperationCount = 1
@@ -221,7 +227,8 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    private func loadAndOpen(name: String, recentPath: String? = nil, _ load: @escaping () throws -> Data) {
+    /// Not `private`: Recent opens its cards through it, inside their access.
+    func loadAndOpen(name: String, recentPath: String? = nil, _ load: @escaping () throws -> Data) {
         operationQueue.cancelAllOperations()
         operationQueue.addOperation { [weak self] in
             guard let self else { return }

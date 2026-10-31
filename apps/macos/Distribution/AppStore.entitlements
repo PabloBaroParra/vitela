@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The Mac App Store build (scripts/package-macos.sh app-store). The App
+  Sandbox is mandatory there; every other key is a door the app needs:
+  - user-selected.read-write: open, save, export and split into what the
+    reader picks in a panel, drops on the window or opens from Finder.
+  - bookmarks.app-scope: Recent reopens those files after a relaunch
+    (FileRecentDocumentStore).
+  - print: the print panel and printers.
+  No network, camera or other entitlement: Vitela works offline. Card or
+  token signing (PKCS#11) is left out of this build; see
+  ViewerViewModel+TokenSigning.swift.
+  The signing step adds com.apple.application-identifier and
+  com.apple.developer.team-identifier from the provisioning profile.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+	<key>com.apple.security.print</key>
+	<true/>
+</dict>
+</plist>

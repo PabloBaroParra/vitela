@@ -36,9 +36,15 @@ enum TokenSigningPrompts {
 /// certificate" source (`MainWindow.SigningSources.cs`,
 /// `AskTokenSigningCertificateAsync`). The core loads the module and keeps
 /// the keys on the token.
+///
+/// The Mac App Store build does not offer it (`offersTokenSigning`): a
+/// PKCS#11 module is native code from the token vendor, loaded from outside
+/// the app bundle, which the App Sandbox and App Review do not allow. The
+/// Developer ID build keeps it, and both builds still sign with a
+/// certificate file or a Keychain identity.
 extension ViewerViewModel {
     func signWithToken() {
-        guard store.document != nil, !isSaving else { return }
+        guard offersTokenSigning, store.document != nil, !isSaving else { return }
         if let refusal = store.signingRefusal {
             store.editStatus = refusal
             return

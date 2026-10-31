@@ -40,8 +40,10 @@ struct VitelaCommands: Commands {
                 .disabled(model.store.document == nil || model.isSaving)
             Button("Sign with Certificate…", action: model.signWithCertificateFile)
                 .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
-            Button("Sign with Card or Token…", action: model.signWithToken)
-                .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
+            if model.offersTokenSigning {
+                Button("Sign with Card or Token…", action: model.signWithToken)
+                    .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
+            }
             Button("Sign with Keychain Identity…", action: model.signWithKeychainIdentity)
                 .disabled(model.store.document == nil || model.isSaving || model.store.signingRefusal != nil)
         }

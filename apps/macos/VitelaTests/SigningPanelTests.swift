@@ -85,6 +85,33 @@ final class SigningPanelTests: XCTestCase {
         XCTAssertTrue(client.signedAs.isEmpty)
     }
 
+    func testTheSandboxedBuildOffersNoCardOrTokenSigning() throws {
+        XCTAssertTrue(AppSandbox.isActive(environment: ["APP_SANDBOX_CONTAINER_ID": "dev.vitela.viewer"]))
+        XCTAssertFalse(AppSandbox.isActive(environment: [:]))
+
+        let client = FakePdfCoreClient(pages: [PageDimensions(width: 612, height: 792)])
+        var tokens = 0
+        let signing = SigningPrompts(
+            chooseCertificate: { nil }, askPassword: { _ in nil }, chooseIdentity: { _ in nil },
+            chooseTokenModule: { tokens += 1; return nil },
+            openKeychain: { throw EditFailure.failed("unused") })
+        let model = ViewerViewModel(store: ViewerStore(client: client), signingPrompts: signing, offersTokenSigning: false)
+        model.store.open(bytes: Data([1]))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 220, height: 500),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: SigningPanel(model: model).buttonStyle(SigningTestButtonStyle()))
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+
+        XCTAssertEqual(nativeControls(host).compactMap { $0 as? NSButton }.count, 3,
+                       "drawn signature, certificate file and Keychain identity only")
+        model.signWithToken()
+        XCTAssertEqual(tokens, 0, "a menu shortcut must not reach the token flow either")
+    }
+
     private func scrollViews(_ view: NSView) -> [NSScrollView] {
         ((view as? NSScrollView).map { [$0] } ?? []) + view.subviews.flatMap(scrollViews)
     }

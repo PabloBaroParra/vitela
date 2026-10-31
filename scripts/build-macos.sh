@@ -28,6 +28,13 @@ and its bundled Frameworks directory. These commands require macOS tools when
 given real Mach-O files.
 
 --assemble requires PDFIUM_DYLIB to name the pinned libpdfium.dylib.
+Optional --assemble inputs:
+  VITELA_VERSION       release semver (CFBundleShortVersionString, Home footer)
+  VITELA_BUILD_NUMBER  CFBundleVersion; App Store Connect needs it to grow
+  VITELA_BUNDLE_ID     bundle identifier (default dev.vitela.viewer)
+  VITELA_UNIVERSAL=1   arm64 + x86_64 (needs both Rust apple-darwin targets)
+
+Distribution signing is scripts/package-macos.sh, run on this bundle.
 EOF
 }
 
@@ -41,6 +48,10 @@ bundle_layout() {
   [[ -f "$app_path/Contents/Frameworks/libpdf_ffi.dylib" ]] || die "missing bundled libpdf_ffi.dylib"
   [[ -f "$app_path/Contents/Frameworks/libpdfium.dylib" ]] || die "missing bundled libpdfium.dylib"
   [[ -f "$app_path/Contents/Resources/vitela-sample.pdf" ]] || die "missing bundled sample document"
+  # Both are what App Store Connect checks first: the compiled AppIcon and
+  # the privacy manifest (scripts/package-macos.sh).
+  [[ -f "$app_path/Contents/Resources/Assets.car" ]] || die "missing compiled app icon (Assets.car)"
+  [[ -f "$app_path/Contents/Resources/PrivacyInfo.xcprivacy" ]] || die "missing privacy manifest"
 }
 
 collect_bundle_binaries() {
@@ -86,7 +97,23 @@ assemble() {
   export PDFIUM_DYLIB="$pdfium_path"
 
   mkdir -p "$repo_root/build"
-  cargo build -p pdf-ffi --release --locked
+  local archs='$(NATIVE_ARCH_ACTUAL)'
+  if [[ "${VITELA_UNIVERSAL:-}" == "1" ]]; then
+    # A distributed build runs on Intel Macs too. PDFium is already the
+    # universal build; the core is built once per architecture and joined
+    # where Xcode and generate_bindings expect the host build.
+    local target
+    for target in aarch64-apple-darwin x86_64-apple-darwin; do
+      cargo build -p pdf-ffi --release --locked --target "$target"
+    done
+    cargo build -p pdf-ffi --release --locked
+    lipo -create -output "$repo_root/target/release/libpdf_ffi.dylib" \
+      "$repo_root/target/aarch64-apple-darwin/release/libpdf_ffi.dylib" \
+      "$repo_root/target/x86_64-apple-darwin/release/libpdf_ffi.dylib"
+    archs="arm64 x86_64"
+  else
+    cargo build -p pdf-ffi --release --locked
+  fi
 
   # rustc stamps a cdylib's install name with its bare file name, which dyld
   # would resolve against the working directory. Rewriting it before Xcode
@@ -98,9 +125,15 @@ assemble() {
 
   # VITELA_VERSION is the release tag's semver when a release hands one in;
   # empty, Home's footer says the build is a development one (AppVersion.swift).
+  # It is also the version the Mac App Store shows, and VITELA_BUILD_NUMBER
+  # the build number App Store Connect requires to grow with every upload.
+  local settings=(VITELA_VERSION="${VITELA_VERSION:-}" ARCHS="$archs" ONLY_ACTIVE_ARCH=NO)
+  [[ -z "${VITELA_VERSION:-}" ]] || settings+=(MARKETING_VERSION="$VITELA_VERSION")
+  [[ -z "${VITELA_BUILD_NUMBER:-}" ]] || settings+=(CURRENT_PROJECT_VERSION="$VITELA_BUILD_NUMBER")
+  [[ -z "${VITELA_BUNDLE_ID:-}" ]] || settings+=(PRODUCT_BUNDLE_IDENTIFIER="$VITELA_BUNDLE_ID")
   xcodebuild -project "$repo_root/apps/macos/Vitela.xcodeproj" -scheme Vitela \
     -configuration Release -derivedDataPath "$repo_root/apps/macos/DerivedData" \
-    VITELA_VERSION="${VITELA_VERSION:-}" build
+    "${settings[@]}" build
   local built_app="$repo_root/apps/macos/DerivedData/Build/Products/Release/Vitela.app"
   [[ -d "$built_app" ]] || die "Xcode did not produce Vitela.app"
   rm -rf "$app_path"
@@ -109,6 +142,7 @@ assemble() {
   # Ad-hoc signature, not a distribution one: arm64 refuses to execute an
   # entirely unsigned Mach-O, so without this the "development artifact" could
   # not be opened on any Apple Silicon Mac. Nested code is signed first.
+  # scripts/package-macos.sh replaces it with a Developer ID or App Store one.
   codesign --force --sign - "$app_path/Contents/Frameworks/libpdf_ffi.dylib"
   codesign --force --sign - "$app_path/Contents/Frameworks/libpdfium.dylib"
   codesign --force --sign - "$app_path"
