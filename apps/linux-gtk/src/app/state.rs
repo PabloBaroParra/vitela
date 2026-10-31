@@ -1156,6 +1156,29 @@ pub(crate) struct PathDrag {
     pub(crate) current: (f64, f64),
 }
 
+/// Several content items selected at once on one page (B25 T-208), by a
+/// marquee or SHIFT+click. The members are held as the page reads them now,
+/// which is what `pdf_edit::selection` builds its batches from.
+pub(crate) struct ContentSelection {
+    pub(crate) page_index: usize,
+    pub(crate) members: pdf_edit::Selection,
+}
+
+/// A marquee being drawn, or a selection being dragged, right now — in PDF
+/// page space.
+pub(crate) enum SelectionGesture {
+    Marquee {
+        page_index: usize,
+        origin: (f64, f64),
+        current: (f64, f64),
+    },
+    Move {
+        page_index: usize,
+        origin: (f64, f64),
+        current: (f64, f64),
+    },
+}
+
 /// A form field being moved or resized right now, in forms-edit mode
 /// (T-141) — the forms twin of [`AnnotationDrag`].
 ///
@@ -1479,6 +1502,11 @@ pub(crate) struct DocumentSession {
     pub(crate) selected_path: Option<SelectedPath>,
     /// The selected path being moved or reshaped right now, if any.
     pub(crate) path_drag: Option<PathDrag>,
+    /// Several items selected at once (B25 T-208). Mutually exclusive with
+    /// `selected_image`, `selected_path` and `content_editor`.
+    pub(crate) content_selection: Option<ContentSelection>,
+    /// The marquee or group drag in flight, if any.
+    pub(crate) selection_gesture: Option<SelectionGesture>,
     /// The text run being dragged across the page right now, if any. Same
     /// reasoning as `image_drag`, and mutually exclusive with it in
     /// practice: a press is claimed by at most one item.

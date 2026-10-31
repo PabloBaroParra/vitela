@@ -76,6 +76,12 @@ const CONTENT_PATH_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.35)
 const CONTENT_PATH_DASH: [f64; 2] = [2.0, 3.0];
 /// The selected path, solid and brighter, with its handles.
 const SELECTED_CONTENT_PATH_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.90);
+/// Several selected items and the box around them (B25 T-208): the handle
+/// blue, so the selection reads as chrome the user can grab.
+const SELECTED_CONTENT_SELECTION_RGBA: (f64, f64, f64, f64) = (0.10, 0.35, 0.85, 0.90);
+const SELECTION_DASH: [f64; 2] = [5.0, 3.0];
+/// How far the dashed box sits outside the members, in PDF points.
+const SELECTION_MARGIN_PT: f64 = 2.0;
 /// Outline for a form field in forms-edit mode (T-141) — an amber distinct
 /// from every other overlay colour, so a field never reads as an annotation,
 /// an image, or a content-run outline.
@@ -117,7 +123,14 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
     let drag = GestureDrag::new();
     drag.connect_drag_begin({
         let viewer = viewer.clone();
-        move |_, x, y| begin_selection(&viewer, page_index, x, y)
+        move |gesture, x, y| {
+            // Read at the press itself: SHIFT turns a content-edit press into
+            // a toggle of the item under it (B25 T-208).
+            let shift = gesture
+                .current_event_state()
+                .contains(gtk::gdk::ModifierType::SHIFT_MASK);
+            begin_selection(&viewer, page_index, x, y, shift)
+        }
     });
     drag.connect_drag_update({
         let viewer = viewer.clone();
@@ -195,6 +208,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         draw_content_path_outlines(context, page, session, page_index);
         draw_content_run_outlines(context, page, session, page_index);
         draw_content_image_outlines(context, page, session, page_index);
+        draw_content_selection(context, page, session, page_index);
     }
 
     if forms::mode_is_active(viewer) {
@@ -534,6 +548,91 @@ fn draw_content_path_outlines(
         if selected {
             draw_corner_handles(context, rect, page.placement());
         }
+    }
+    context.set_dash(&[], 0.0);
+}
+
+/// Paints several selected items (B25 T-208): each member's box, the dashed
+/// box around all of them a drag grabs, and the marquee being drawn. A group
+/// drag in flight paints the members where the pointer has them.
+fn draw_content_selection(
+    context: &cairo::Context,
+    page: &PageSlot,
+    session: &DocumentSession,
+    page_index: usize,
+) {
+    use crate::app::state::SelectionGesture;
+
+    let placed = |rect: Rect| {
+        place_rect(
+            TextRect {
+                x_pt: rect.x as f32,
+                y_pt: rect.y as f32,
+                width_pt: rect.width as f32,
+                height_pt: rect.height as f32,
+            },
+            page.placement(),
+        )
+    };
+    let (red, green, blue, alpha) = SELECTED_CONTENT_SELECTION_RGBA;
+    context.set_source_rgba(red, green, blue, alpha);
+
+    if let Some(SelectionGesture::Marquee {
+        page_index: on,
+        origin,
+        current,
+    }) = session.selection_gesture.as_ref()
+    {
+        if *on == page_index {
+            let area = placed(content_edit::multi::marquee_rect(*origin, *current));
+            context.set_dash(&SELECTION_DASH, 0.0);
+            context.rectangle(area.left, area.top, area.width, area.height);
+            let _ = context.stroke();
+        }
+    }
+
+    let Some(held) = session
+        .content_selection
+        .as_ref()
+        .filter(|held| held.page_index == page_index)
+    else {
+        context.set_dash(&[], 0.0);
+        return;
+    };
+    let members = match session.selection_gesture.as_ref() {
+        Some(SelectionGesture::Move {
+            page_index: on,
+            origin,
+            current,
+        }) if *on == page_index => content_edit::multi::translated(
+            &held.members,
+            current.0 - origin.0,
+            current.1 - origin.1,
+        ),
+        _ => held.members.clone(),
+    };
+    context.set_dash(&[], 0.0);
+    for bbox in members
+        .runs
+        .iter()
+        .map(|run| run.bbox)
+        .chain(members.images.iter().map(|image| image.bbox))
+        .chain(members.paths.iter().map(|path| path.bbox))
+    {
+        let rect = placed(bbox);
+        context.rectangle(rect.left, rect.top, rect.width, rect.height);
+        let _ = context.stroke();
+    }
+    if let Some(union) = content_edit::multi::union(&members) {
+        let rect = placed(Rect {
+            x: union.x - SELECTION_MARGIN_PT,
+            y: union.y - SELECTION_MARGIN_PT,
+            width: union.width + 2.0 * SELECTION_MARGIN_PT,
+            height: union.height + 2.0 * SELECTION_MARGIN_PT,
+        });
+        context.set_dash(&SELECTION_DASH, 0.0);
+        context.rectangle(rect.left, rect.top, rect.width, rect.height);
+        let _ = context.stroke();
     }
     context.set_dash(&[], 0.0);
 }
@@ -1178,14 +1277,20 @@ fn fill_all(
     let _ = context.fill();
 }
 
-fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64) {
+fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64, shift: bool) {
     // Content-edit mode claims the whole gesture. An image press is
     // live-claimed right here (T-162's `content_edit::begin_drag`, so its
     // drag has a live preview); a text-run click still has none and only
     // resolves later, on `drag_end` (`content_edit::handle_drag_end`).
     if content_edit::mode_is_active(viewer) {
         if let Some(point) = pointer_to_pdf(viewer, page_index, x, y) {
-            content_edit::begin_drag(viewer, page_index, point, handle_reach(viewer, page_index));
+            content_edit::begin_drag(
+                viewer,
+                page_index,
+                point,
+                handle_reach(viewer, page_index),
+                shift,
+            );
         }
         return;
     }
