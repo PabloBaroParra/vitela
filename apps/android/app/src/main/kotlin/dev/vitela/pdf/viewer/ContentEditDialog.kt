@@ -41,7 +41,14 @@ internal class ContentEditActions(
     val onDismissResizer: () -> Unit,
     /** documentId: swaps the resize dialog for a move armed on the next page tap. */
     val onMove: (Long) -> Unit,
-    /** Disarms a move of a run or an image. */
+    /** documentId, width, height as typed, in points: the document is the one the dialog was built for. */
+    val onResizePath: (Long, String, String) -> Unit,
+    val onDismissShaper: () -> Unit,
+    /** documentId: swaps the shape dialog for a move armed on the next page tap. */
+    val onMovePath: (Long) -> Unit,
+    /** documentId: deletes the dialog's path; the document is the one the dialog was built for. */
+    val onDeletePath: (Long) -> Unit,
+    /** Disarms a move of a run, an image or a path. */
     val onCancelMove: () -> Unit,
     /** documentId: deletes the dialog's image; the document is the one the dialog was built for. */
     val onDelete: (Long) -> Unit,
@@ -168,9 +175,10 @@ internal fun TextInserterDialog(inserter: TextInserter, documentId: Long, action
 
 /** A size in points, typed with a decimal keyboard; shared by the content and annotation dialogs. */
 @Composable
-internal fun PointsField(label: String, value: String, onValueChange: (String) -> Unit, isError: Boolean, modifier: Modifier) {
+internal fun PointsField(label: String, value: String, onValueChange: (String) -> Unit, isError: Boolean, modifier: Modifier, enabled: Boolean = true) {
     OutlinedTextField(
         value = value,
+        enabled = enabled,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
