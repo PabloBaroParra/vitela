@@ -1427,6 +1427,15 @@ pub(crate) struct DocumentSession {
     /// in the model. They belong to the session rather than the pure model and
     /// must survive preview refreshes so save/undo/redo can materialize them.
     pub(crate) imported_sources: Vec<ImportedSource>,
+    /// The bases `save_backing` replaced when the core wrote this session's
+    /// pending page-content edits into memory, so a second edit of an edited
+    /// item needs no save and reopen, and undo can step back across one.
+    /// See `pdf_save::checkpoint` and `content_edit::checkpoint`.
+    ///
+    /// Belongs with `save_backing`: whatever installs a backing of its own
+    /// (an open, a disk-save reopen) starts this empty, and the preview
+    /// refresh, which keeps the backing, keeps this with it.
+    pub(crate) content_checkpoints: pdf_save::Checkpoints<SaveBacking>,
     /// Form-field renames already surfaced for the current edit state. A
     /// preview refresh replays every imported page from the original backing,
     /// so the core reports the same collision again until a real save resets

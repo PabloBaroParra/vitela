@@ -49,17 +49,20 @@ fn history(viewer: &Viewer, undo: bool) {
         let Some(session) = state.session.as_mut() else {
             return;
         };
-        let Some(document) = session.document_model.as_mut() else {
+        let Some(document) = session.document_model.as_ref() else {
             return;
         };
         // Peeked *before* stepping: `EditLog::peek_undo`/`peek_redo` are
         // read-only (T-163), so this looks at the command about to move
-        // without consuming it — `step_history` still has to see it fresh a
-        // moment later to actually apply the inverse.
+        // without consuming it — `step_session` still has to see it fresh a
+        // moment later to actually apply the inverse. Through the content
+        // checkpoints, so a step back across one still reads the edit it
+        // undoes (`content_edit::checkpoint`).
+        let checkpoints = &session.content_checkpoints;
         let next_command = if undo {
-            document.pending_edits.peek_undo()
+            checkpoints.peek_undo(&document.pending_edits)
         } else {
-            document.pending_edits.peek_redo()
+            checkpoints.peek_redo(&document.pending_edits)
         };
         let is_content_edit = next_command.is_some_and(Command::is_content_edit);
         // Same reason a content edit needs one: pdfium draws a form field
@@ -88,7 +91,17 @@ fn history(viewer: &Viewer, undo: bool) {
             _ => Vec::new(),
         };
 
-        match step_history(document, session.selected_annotation, undo) {
+        let generation = session.content_checkpoints.generation();
+        let stepped = step_session(session, undo);
+        if session.content_checkpoints.generation() != generation {
+            // The step crossed a checkpoint and swapped the base: every page's
+            // parsed content names the one it left.
+            crate::app::content_edit::checkpoint::forget_page_content(session);
+        }
+        let Some(document) = session.document_model.as_ref() else {
+            return;
+        };
+        match stepped {
             Some(surviving) => {
                 session.selected_annotation = surviving;
                 // The log is shared: an undo/redo step here may just as
@@ -197,6 +210,28 @@ fn history(viewer: &Viewer, undo: bool) {
             "Edit redone. Changes are pending save."
         });
     }
+}
+
+/// [`step_history`] for a whole session: through `pdf_save::checkpoint` when
+/// the session has a backing, so an undo that empties the live queue steps
+/// back across the in-memory base the core wrote it into, and a redo steps
+/// forward again.
+pub(crate) fn step_session(
+    session: &mut DocumentSession,
+    undo: bool,
+) -> Option<Option<AnnotationId>> {
+    let selected = session.selected_annotation;
+    if session.save_backing.is_none() {
+        return step_history(session.document_model.as_mut()?, selected, undo);
+    }
+    let mut live = crate::app::content_edit::checkpoint::Live::of(session)?;
+    let changed = if undo {
+        pdf_save::checkpoint::undo(&mut live)
+    } else {
+        pdf_save::checkpoint::redo(&mut live)
+    };
+    let document = session.document_model.as_ref()?;
+    changed.then(|| selected.filter(|id| document.annotations.get(*id).is_some()))
 }
 
 /// Replays one step of `document`'s edit history and reports the selection

@@ -7,6 +7,7 @@
 use pdf_document::{Command, Document, ImageItem, TextRun};
 use pdf_edit::EditError;
 
+use super::checkpoint::{forget_page_content, Live};
 use super::PageProbe;
 use crate::app::state::DocumentSession;
 
@@ -268,9 +269,17 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
 ///
 /// Newer content gestures go through this door. The text and image ones above
 /// still use their own validation, and move here as each is ported.
+///
+/// An edit the queue refuses because its item already has an unsaved edit is
+/// retried after a checkpoint when the core allows one (`super::checkpoint`):
+/// the queue is written into a new in-memory base, which becomes
+/// `save_backing`, and every page's parsed content is forgotten, since it
+/// names the old base.
 pub(super) fn record(session: &mut DocumentSession, command: Command) -> Result<(), String> {
-    record_with(session, |document, base, sources| {
-        pdf_save::record_content_command(document, base, sources, command)
+    record_checkpointed(session, command, |live, command| {
+        live.record(|document, base, sources| {
+            pdf_save::record_content_command(document, base, sources, command)
+        })
     })
 }
 
@@ -283,8 +292,10 @@ pub(super) fn record_batch(
     batch: Option<Command>,
 ) -> Result<(), String> {
     let batch = batch.ok_or_else(|| "There is no text there to edit.".to_string())?;
-    record_with(session, |document, base, sources| {
-        pdf_save::record_content_batch(document, base, sources, batch)
+    record_checkpointed(session, batch, |live, batch| {
+        live.record(|document, base, sources| {
+            pdf_save::record_content_batch(document, base, sources, batch)
+        })
     })
 }
 
@@ -376,6 +387,28 @@ pub(super) fn paste(
     record_with(session, |document, base, sources| {
         pdf_save::record_paste(document, base, sources, page, clip, left, top)
     })
+}
+
+/// Records `command` through `apply` by way of `pdf_save::checkpoint::record`:
+/// dealiased, tried as it stands, and retried once after a checkpoint when
+/// `apply` refuses it and the session may take one.
+fn record_checkpointed(
+    session: &mut DocumentSession,
+    command: Command,
+    apply: impl FnMut(&mut Live<'_>, Command) -> Result<(), pdf_save::RecordError>,
+) -> Result<(), String> {
+    let generation = session.content_checkpoints.generation();
+    let mut live =
+        Live::of(session).ok_or_else(|| "Open a PDF to edit its content.".to_string())?;
+    pdf_save::checkpoint::record(&mut live, command, apply).map_err(|error| error.to_string())?;
+    if session.content_checkpoints.generation() != generation {
+        forget_page_content(session);
+    }
+    session.edit_revision += 1;
+    // Dirty when the command joins the log, not when the refresh lands — a
+    // refresh that fails must still leave the document reporting dirty.
+    session.unsaved_to_disk = true;
+    Ok(())
 }
 
 fn record_with(

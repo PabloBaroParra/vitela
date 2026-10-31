@@ -103,13 +103,10 @@ pub(crate) fn apply_batch_edit(
     if !content_editing_is_allowed(state.document()) {
         return Err(unsupported("content editing is not permitted"));
     }
-    let command = state.dealias(build(&state)?);
+    let command = build(&state)?;
     // Tried as it stands first, as `apply_edit` does: a checkpoint costs a
     // rewrite, and most batches never need one.
-    match apply_batch_command(&mut state, command.clone()) {
-        Ok(()) => Ok(()),
-        Err(refusal) => state.retry_after_checkpoint(command, refusal, apply_batch_command),
-    }
+    state.record_with_checkpoint(command, apply_batch_command)
 }
 
 /// Records one batch through `pdf_save::record_content_batch`: folded into

@@ -721,6 +721,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             rendered_field_values,
             save_backing: document.save_backing,
             imported_sources: Vec::new(),
+            content_checkpoints: Default::default(),
             import_warning_revision: None,
             // Freshly shown: whatever is on screen right now is exactly what
             // this session's bytes came from, which for an ordinary open or a

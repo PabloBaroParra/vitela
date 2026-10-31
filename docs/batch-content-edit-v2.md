@@ -72,7 +72,11 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       undo, igual que retipear un bloque otra vez mientras se escribe, y una edición suelta
       del mismo tipo sobre un run de un batch en cola (p. ej. retipear el run que quedó) se
       pliega en ese hijo. Mezclar tipos (mover un bloque retipeado) se rechaza con
-      "save the document before editing it again".
+      "save the document before editing it again", salvo donde el core puede tomar un
+      **checkpoint en memoria** (`pdf_save::checkpoint`; Windows 2026-10-29, Linux
+      2026-10-31): escribe la cola en una base nueva y reintenta ahí, y undo/redo cruzan
+      el checkpoint de a un paso. Sesiones con PDFs importados, cifrado, firmas o páginas
+      cambiadas siguen con el rechazo.
 - [ ] T-208 **P3 — Multi-selección y movimiento en bloque.** Selección = conjunto de
       `ContentItemId` (texto, imagen, trazado, grupo). Marquee: items cuyo bbox **toca**
       (interseca) el rectángulo — decidido por el usuario 2026-10-28. SHIFT+click alterna. Arrastre mueve todos

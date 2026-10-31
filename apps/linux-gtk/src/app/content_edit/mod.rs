@@ -62,6 +62,7 @@ mod command;
 // button to `editor::delete_open_run`, the same way it wires the two image
 // buttons to `image`'s handlers. Everything else here is reached through this
 // module.
+pub(crate) mod checkpoint;
 pub(crate) mod clipboard;
 pub(crate) mod editor;
 pub(crate) mod geometry;

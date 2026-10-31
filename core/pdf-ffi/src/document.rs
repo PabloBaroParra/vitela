@@ -93,7 +93,7 @@ pub(crate) struct DocumentState {
     /// The bases this session's edits were written into in memory, so a
     /// second edit of an edited item needs no save and reopen. See
     /// [`checkpoint`].
-    checkpoints: checkpoint::Checkpoints,
+    checkpoints: pdf_save::Checkpoints<checkpoint::Base>,
 }
 
 impl DocumentState {
@@ -1992,13 +1992,7 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
     if is_content {
         // Tried as it stands first: a checkpoint costs a rewrite, and most
         // edits never need one.
-        let core_command = state.dealias(core_command);
-        return match apply_content_command(&mut state, core_command.clone()) {
-            Ok(()) => Ok(()),
-            Err(refusal) => {
-                state.retry_after_checkpoint(core_command, refusal, apply_content_command)
-            }
-        };
+        return state.record_with_checkpoint(core_command, apply_content_command);
     }
     if !apply_command(&mut state.document, core_command) {
         return Err(FfiError::UnsupportedOperation {
@@ -2011,7 +2005,7 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
 /// Records one page-content edit through `pdf_save::record_content_command`
 /// — folded into the queued edit of the same item, or validated and
 /// appended. Leaves the session untouched when it refuses, which is what lets
-/// [`DocumentState::retry_after_checkpoint`] try again.
+/// `pdf_save::checkpoint::retry_after_checkpoint` try again.
 fn apply_content_command(state: &mut DocumentState, core_command: Command) -> Result<(), FfiError> {
     state.record(|document, base, sources| {
         pdf_save::record_content_command(document, base, sources, core_command)
