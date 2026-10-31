@@ -167,9 +167,10 @@ its Swift tests and verifies the bundle; for iOS (still marked experimental) it
 builds the shell, runs its unit tests on a simulator, and fails closed on the
 iOS 15 floor the produced binaries actually declare. That is real automated
 evidence, but it is not the same as a validated product — no test has yet run
-on a physical Mac or iPhone, and signing, notarization, provisioning and public
-distribution all remain unverified and deferred behind a paid Apple Developer
-account. The two shells share their model layer (`apps/apple/Shared`); only the
+on a physical Mac or iPhone. Each release attaches an unsigned universal Mac
+build to its GitHub Release; notarization, the Mac App Store and any iOS
+distribution wait for a paid Apple Developer account
+([docs/macos-distribution.md](docs/macos-distribution.md)). The two shells share their model layer (`apps/apple/Shared`); only the
 app entry point, document picking and views are per-platform.
 
 Android's `✅` cells were each exercised end to end on an Android emulator

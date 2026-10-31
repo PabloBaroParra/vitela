@@ -1,15 +1,31 @@
 name: macos
 
-# Builds and verifies an ad-hoc signed, development-only Vitela.app — not
-# notarized, not distributable, and deliberately NOT published: the job proves
-# the shell assembles and clears the deployment gate, nothing more. Uploading
-# an artifact waits for T-059's distribution signing and notarization.
+# Builds and verifies an ad-hoc signed Vitela.app. On a pull request that is
+# all it does. When release.yml calls it with a version, the bundle is built
+# universal (arm64 + x86_64) with that version and uploaded as an artifact,
+# which release.yml attaches to the GitHub Release as an unsigned download:
+# not notarized, so macOS asks the reader to allow it once
+# (docs/macos-distribution.md, "Without a paid account"). Developer ID and
+# Mac App Store builds need the maintainer's Apple credentials and are made
+# with scripts/package-macos.sh.
 #
 # Path-filtered on purpose — see the same note in ios.yml. macOS runners bill at
 # 10x on a private repo. Use workflow_dispatch to force a run.
 on:
   # release.yml runs this suite on the tagged commit before publishing anything.
+  # Its rehearsal (no tag) passes no version: built and tested, not uploaded.
   workflow_call:
+    inputs:
+      app-version:
+        description: Release semver (release-version.sh <tag> semver); empty for a test-only run
+        required: false
+        default: ''
+        type: string
+      build-number:
+        description: CFBundleVersion, growing with every release (the Android version code)
+        required: false
+        default: ''
+        type: string
   push:
     branches: [main]
     # Duplicated rather than shared with a YAML anchor: the Actions workflow
@@ -57,6 +73,9 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
+          # x86_64 only matters for a release's universal bundle; adding it
+          # always keeps the cache key and the toolchain step identical.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - name: Cache cargo registry and build artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -96,12 +115,32 @@ jobs:
       # artifacts exist — the app cannot link without the header and modulemap,
       # not just pdf_ffi.swift.
       - name: Assemble development bundle
+        env:
+          VITELA_VERSION: ${{ inputs.app-version }}
+          VITELA_BUILD_NUMBER: ${{ inputs.build-number }}
+          VITELA_UNIVERSAL: ${{ inputs.app-version != '' && '1' || '' }}
         run: bash scripts/build-macos.sh --assemble
       - name: Run Swift unit and interaction tests
         run: xcodebuild -project apps/macos/Vitela.xcodeproj -scheme Vitela -destination 'platform=macOS' test
       - name: Fail closed on actual Mach-O deployment and bundle linkage
         run: bash scripts/build-macos.sh --verify-bundle "$GITHUB_WORKSPACE/build/Vitela.app"
-      # No upload step on purpose. The bundle is built and fully verified here,
-      # but nothing is published yet: publishing is what T-059 gates behind
-      # distribution signing and notarization. Restoring it is one
-      # actions/upload-artifact step against build/Vitela.app.
+      # ditto, as Apple recommends for app bundles: it keeps the symlinks and
+      # metadata the code signature covers, which a plain zip may not.
+      - name: Package the unsigned download
+        if: inputs.app-version != ''
+        env:
+          APP_VERSION: ${{ inputs.app-version }}
+        run: |
+          for binary in build/Vitela.app/Contents/MacOS/Vitela build/Vitela.app/Contents/Frameworks/*.dylib; do
+            lipo "$binary" -verify_arch arm64 x86_64 || { echo "$binary is not universal" >&2; exit 1; }
+          done
+          codesign --verify --deep --strict build/Vitela.app
+          mkdir -p build/macos-release
+          ditto -c -k --keepParent build/Vitela.app "build/macos-release/Vitela-$APP_VERSION-macos-unsigned.zip"
+      - name: Upload the unsigned download for the release
+        if: inputs.app-version != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-app
+          path: build/macos-release/*.zip
+          if-no-files-found: error

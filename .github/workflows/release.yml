@@ -9,7 +9,8 @@ name: release
 #      the same workflows that gate pull requests, called rather than copied,
 #   3. publishes only if all of them passed: the signed APT repository and
 #      GitHub Release (linux-release.yml), the Microsoft Store
-#      (windows-store.yml) and Google Play (android-release.yml).
+#      (windows-store.yml), Google Play (android-release.yml) and the
+#      unsigned macOS download on that same GitHub Release (publish-macos).
 #
 # The publish workflows have no trigger of their own, so there is no path from
 # a tag to users that skips step 2. Each publish target is independent: if one
@@ -133,6 +134,10 @@ jobs:
     name: macOS
     needs: version
     uses: ./.github/workflows/macos.yml
+    with:
+      # Empty on a rehearsal: built and tested, not uploaded.
+      app-version: ${{ needs.version.outputs.semver }}
+      build-number: ${{ needs.version.outputs.android-code }}
 
   ios:
     name: iOS
@@ -172,3 +177,41 @@ jobs:
     with:
       play-track: ${{ needs.version.outputs.play-track }}
     secrets: inherit
+
+  # The universal .app macos.yml built and tested, attached to the release
+  # publish-linux created. Ad-hoc signed only: notarization needs a paid Apple
+  # Developer account (docs/macos-distribution.md), so the notes say how to
+  # open it the first time.
+  publish-macos:
+    name: Publish macOS (GitHub Release, unsigned)
+    if: github.ref_type == 'tag'
+    needs: [version, publish-linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: macos-app
+          path: macos
+      - name: Attach the download and say how to open it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" macos/*.zip --clobber
+          gh release view "$GITHUB_REF_NAME" --json body --jq .body > notes.md
+          grep -q '^## macOS' notes.md || cat >> notes.md <<'NOTES'
+
+          ## macOS
+
+          `Vitela-*-macos-unsigned.zip` runs on Apple silicon and Intel Macs with macOS 12 or later. It is not notarized by Apple yet, so the first time:
+
+          1. Unzip it and move **Vitela** to Applications.
+          2. Open it. macOS says it cannot verify the app; choose **Done** (or **Cancel**).
+          3. Open **System Settings ▸ Privacy & Security**, scroll to Security and click **Open Anyway** next to Vitela, then confirm.
+
+          After that it opens normally. On macOS 14 and earlier, Control-click the app and choose **Open** instead.
+          NOTES
+          gh release edit "$GITHUB_REF_NAME" --notes-file notes.md

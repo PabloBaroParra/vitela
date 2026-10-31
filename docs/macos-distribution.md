@@ -14,11 +14,32 @@ the app bundle. The App Sandbox and App Review guideline 2.5.2 do not allow
 that, so the sandboxed build hides "Sign with Card or Token…". Certificate
 files and Keychain identities still work.
 
+## Without a paid account: the unsigned download
+
+Until there is a membership, every release tag still ships a Mac build:
+`release.yml` passes the version to `macos.yml`, which assembles the
+universal bundle, tests it and uploads it; `publish-macos` attaches
+`Vitela-<version>-macos-unsigned.zip` to the GitHub Release that
+`publish-linux` created and appends opening instructions to its notes.
+
+It carries only the ad-hoc signature, so Gatekeeper rejects it the first time
+("Apple could not verify…"). The reader allows it once in **System Settings ▸
+Privacy & Security ▸ Open Anyway** (Control-click ▸ Open on macOS 14 and
+earlier); after that it opens like any app. Nothing about the app itself
+differs from the Developer ID build: it is not sandboxed and keeps card or
+token signing.
+
+The same membership covers iOS. There is no free way to distribute the iOS
+app: a free Apple ID only installs it on your own device from Xcode, for
+seven days.
+
+## With the Apple Developer Program
+
 Everything below needs a **paid Apple Developer Program membership**
 (99 USD/year). None of it can be done by an agent: it is the account holder's
 identity, payment and private keys. Nothing here is ever committed.
 
-## 1. Join the Apple Developer Program
+### 1. Join the Apple Developer Program
 
 1. Sign in at <https://developer.apple.com/account> with the Apple ID that
    will own the app (two-factor authentication must be on).
@@ -28,7 +49,7 @@ identity, payment and private keys. Nothing here is ever committed.
 3. Note your **Team ID** (Membership details): ten characters, such as
    `AB12CD34EF`. It appears in every certificate name below.
 
-## 2. Certificates
+### 2. Certificates
 
 Create them on the Mac that will sign, so the private key is generated in its
 login keychain: **Xcode ▸ Settings ▸ Accounts ▸ (your team) ▸ Manage
@@ -50,7 +71,7 @@ security find-identity -v -p basic | grep Installer
 Back up each one (Keychain Access ▸ right-click ▸ Export, as `.p12` with a
 strong password). A lost Developer ID private key cannot be downloaded again.
 
-## 3. Bundle identifier and App Store record
+### 3. Bundle identifier and App Store record
 
 1. **Certificates, Identifiers & Profiles ▸ Identifiers ▸ +** ▸ App IDs ▸
    App ▸ platform macOS, *Explicit* bundle ID. The project uses
@@ -70,7 +91,7 @@ strong password). A lost Developer ID private key cannot be downloaded again.
    you must file the yearly self-classification report with the US BIS is
    your call as the publisher.
 
-## 4. Credentials for notarization and upload
+### 4. Credentials for notarization and upload
 
 Create an **App Store Connect API key**: App Store Connect ▸ Users and
 Access ▸ Integrations ▸ App Store Connect API ▸ Team Keys ▸ **+**, role
@@ -95,7 +116,7 @@ then `VITELA_NOTARY_PROFILE=vitela-notary`. (An app-specific password from
 <https://account.apple.com> also works with `store-credentials --apple-id`,
 but the API key serves upload as well.)
 
-## 5. Build, sign and ship
+### 5. Build, sign and ship
 
 ```bash
 export PDFIUM_DYLIB="$PWD/core/pdf-render/vendor/pdfium/lib/libpdfium.dylib"
@@ -126,7 +147,7 @@ The upload appears in App Store Connect ▸ TestFlight after processing (about
 15 minutes). Test it there through TestFlight for Mac, then attach the build
 to a version and **Submit for Review**.
 
-## Before the first submission: check the sandboxed build by hand
+### Before the first submission: check the sandboxed build by hand
 
 The automated gates cannot exercise powerbox grants. On a TestFlight install,
 confirm:
