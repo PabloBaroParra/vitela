@@ -332,19 +332,15 @@ pub(crate) fn update_annotation_controls(viewer: &Viewer) {
     buttons
         .delete_action
         .set_enabled(deletable && !search_has_focus(viewer));
-    let history = session
-        .document_model
-        .as_ref()
-        .map(|document| &document.pending_edits);
-    viewer
-        .undo_action
-        .set_enabled(history.is_some_and(|log| log.can_undo()));
+    // Through the checkpoints too: once the core has written the queue into
+    // an in-memory base (`content_edit::checkpoint`), the live log can be
+    // empty while there is still an edit to undo and to save.
+    let can_undo = crate::app::content_edit::checkpoint::can_undo(session);
+    viewer.undo_action.set_enabled(can_undo);
     viewer
         .redo_action
-        .set_enabled(history.is_some_and(|log| log.can_redo()));
-    viewer
-        .save_button
-        .set_sensitive(history.is_some_and(|log| log.can_undo()));
+        .set_enabled(crate::app::content_edit::checkpoint::can_redo(session));
+    viewer.save_button.set_sensitive(can_undo);
 }
 
 #[cfg(test)]

@@ -66,6 +66,7 @@ pub(super) struct EditState {
     base_name: String,
     save_backing: Option<SaveBacking>,
     imported_sources: Vec<ImportedSource>,
+    content_checkpoints: pdf_save::Checkpoints<SaveBacking>,
     import_warning_revision: Option<u64>,
     next_annotation_id: u64,
     selected_annotation: Option<pdf_document::AnnotationId>,
@@ -117,6 +118,10 @@ pub(super) fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
         base_name: session.base_name.clone(),
         save_backing: session.save_backing.take(),
         imported_sources: std::mem::take(&mut session.imported_sources),
+        // Kept with the backing it belongs to: the refresh reopens from bytes
+        // written against that backing, and undo must still be able to step
+        // back across the bases it replaced.
+        content_checkpoints: std::mem::take(&mut session.content_checkpoints),
         import_warning_revision: session.import_warning_revision,
         next_annotation_id: session.next_annotation_id,
         selected_annotation: session.selected_annotation,
@@ -160,6 +165,7 @@ pub(super) fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) 
                 session.base_name = preserved.base_name;
                 session.save_backing = preserved.save_backing;
                 session.imported_sources = preserved.imported_sources;
+                session.content_checkpoints = preserved.content_checkpoints;
                 session.import_warning_revision = preserved.import_warning_revision;
                 session.next_annotation_id = preserved.next_annotation_id;
                 session.selected_annotation = selected_annotation;

@@ -101,11 +101,16 @@ pub(crate) fn begin_text_drag(viewer: &Viewer, page_index: usize, point: (f64, f
     // a run unmovable is a *pending command*, and the log cannot change
     // while the pointer is down. A block's runs are the core's to judge when
     // the batch is recorded.
+    //
+    // Only where the core cannot checkpoint: where it can, the queue refuses
+    // the move, writes the retype into a new in-memory base and retries the
+    // move there (`super::checkpoint`).
     let refusal = if block.is_empty() {
         session
             .document_model
             .as_ref()
             .and_then(|document| text_move_refusal(document, &run))
+            .filter(|_| !super::checkpoint::may_checkpoint(session))
     } else {
         None
     };

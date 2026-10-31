@@ -96,16 +96,20 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
     //
     // A block's runs are the core's to judge when its batch is recorded
     // (`pdf_save::record_content_batch`), so these checks are a single run's.
+    //
+    // A run moved this session is refused only where the core cannot
+    // checkpoint: where it can, the retype is refused by the queue, written
+    // into a new in-memory base with the move, and retried there
+    // (`super::checkpoint`).
     let (pending, moved) = {
         let state = viewer.state.borrow();
-        let document = state
-            .session
-            .as_ref()
-            .and_then(|session| session.document_model.as_ref());
-        match document {
-            Some(document) if block.is_empty() => (
+        let session = state.session.as_ref();
+        let document = session.and_then(|session| session.document_model.as_ref());
+        match (session, document) {
+            (Some(session), Some(document)) if block.is_empty() => (
                 pending_text_command(document, &run),
-                pending_move_index(document, &run).is_some(),
+                pending_move_index(document, &run).is_some()
+                    && !super::checkpoint::may_checkpoint(session),
             ),
             _ => (PendingText::Nothing, false),
         }

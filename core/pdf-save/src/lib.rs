@@ -41,6 +41,7 @@
 
 pub mod annotations;
 pub mod bridge;
+pub mod checkpoint;
 pub mod clipboard;
 pub mod clock;
 pub mod compress;
@@ -62,6 +63,7 @@ pub use bridge::{
     page_annotation_objects, page_object_ids, populate_document, read_page_content,
     replay_page_ops, rotation_changes, ImportedSources, ReplayOutcome,
 };
+pub use checkpoint::{CheckpointSession, Checkpoints};
 pub use clipboard::{
     copy_selection_content, move_pending_paste, part_of_paste, paste_not_deletable, pasted_members,
     record_paste, selection_ids, PastedMembers,

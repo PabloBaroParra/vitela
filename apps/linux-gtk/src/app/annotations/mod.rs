@@ -25,7 +25,7 @@
 //! - [`edit`] and [`style`] implement the operations on an existing selection.
 
 mod builder;
-mod command;
+pub(crate) mod command;
 mod edit;
 mod freetext;
 mod geometry;
