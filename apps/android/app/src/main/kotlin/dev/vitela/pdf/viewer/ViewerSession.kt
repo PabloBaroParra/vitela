@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.core.ContentClip
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
 import kotlinx.coroutines.CoroutineDispatcher
@@ -32,6 +33,13 @@ internal class ViewerSession(
 
     val state = MutableStateFlow(initial)
     var document: PdfDocument? = null
+
+    /**
+     * The content copied or cut last (B25 T-209), kept here — not in [state], which
+     * a new document rebuilds — so it pastes into the next document too. The core
+     * keeps no clipboard; the clip is a self-contained one-page PDF.
+     */
+    var contentClip: ContentClip? = null
 
     /** Serializes mutation, save, and replacement snapshots for this ViewModel's lifecycle. */
     val documentLane = Mutex()

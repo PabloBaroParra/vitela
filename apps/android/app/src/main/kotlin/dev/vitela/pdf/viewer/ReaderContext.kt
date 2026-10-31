@@ -43,6 +43,8 @@ internal data class ContextActions(
     val onCancelInsert: () -> Unit,
     val onDeleteSelection: () -> Unit,
     val onClearSelection: () -> Unit,
+    val onCopySelection: () -> Unit,
+    val onCutSelection: () -> Unit,
 ) {
     fun run(chip: ContextChip) = when (chip) {
         ContextChip.ReadNote -> onReadNote()
@@ -50,6 +52,8 @@ internal data class ContextActions(
         ContextChip.CancelMove -> onCancelMove()
         ContextChip.CancelInsert -> onCancelInsert()
         ContextChip.Selected -> Unit
+        ContextChip.CopySelection -> onCopySelection()
+        ContextChip.CutSelection -> onCutSelection()
         ContextChip.DeleteSelection -> onDeleteSelection()
         ContextChip.ClearSelection -> onClearSelection()
         ContextChip.Grow -> onGrow()
@@ -65,8 +69,8 @@ internal enum class ContextChip(val label: String) {
     ReadNote("Read note"), EditText("Edit text"), CancelMove("Cancel move"), CancelInsert("Cancel insert"),
     Grow("Grow"), Resize("Resize"), MoveTo("Move to"), Red("Red"), Gold("Gold"), Delete("Delete"),
 
-    /** The count of a multi-selection (B25 T-208): a label, not an action. Copy and Cut join it with T-209. */
-    Selected("Selected"), DeleteSelection("Delete"), ClearSelection("Clear"),
+    /** The count of a multi-selection (B25 T-208): a label, not an action. Copy and Cut are its clipboard (T-209). */
+    Selected("Selected"), CopySelection("Copy"), CutSelection("Cut"), DeleteSelection("Delete"), ClearSelection("Clear"),
 }
 
 /** The text on [this] chip: the count chip reads "N selected", every other its fixed label. */
@@ -82,7 +86,7 @@ internal fun contextChips(state: ViewerState, controls: AnnotationControls): Lis
     if (selected?.kind == AnnotationKind.FreeText && state.annotationEditingAllowed) add(ContextChip.EditText)
     if (state.contentEdit?.moving != null) add(ContextChip.CancelMove)
     if (state.contentEdit?.adding != null) add(ContextChip.CancelInsert)
-    if (state.contentEdit?.selection != null) addAll(listOf(ContextChip.Selected, ContextChip.DeleteSelection, ContextChip.ClearSelection))
+    if (state.contentEdit?.selection != null) addAll(listOf(ContextChip.Selected, ContextChip.CopySelection, ContextChip.CutSelection, ContextChip.DeleteSelection, ContextChip.ClearSelection))
     if (controls.canGrow) add(ContextChip.Grow)
     if (controls.canResize) add(ContextChip.Resize)
     if (controls.canMove) add(ContextChip.MoveTo)

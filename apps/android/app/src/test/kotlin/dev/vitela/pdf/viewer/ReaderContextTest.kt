@@ -57,12 +57,14 @@ class ReaderContextTest {
     }
 
     @Test
-    fun aSelectionOfSeveralItemsOffersItsCountDeleteAndClear() {
+    fun aSelectionOfSeveralItemsOffersItsCountCopyCutDeleteAndClear() {
         val selection = ContentSelection(0, images = listOf(ContentImage(30, 0, AnnotationRect(10.0, 20.0, 30.0, 30.0), "Im1")), paths = listOf(ContentPath(40, 0, AnnotationRect(10.0, 80.0, 60.0, 0.0), PathPaint.Stroke)))
         val state = ViewerState(pageCount = 1, contentEdit = ContentEditState(selection = selection))
 
-        assertEquals(listOf(ContextChip.Selected, ContextChip.DeleteSelection, ContextChip.ClearSelection), chips(state))
+        assertEquals(listOf(ContextChip.Selected, ContextChip.CopySelection, ContextChip.CutSelection, ContextChip.DeleteSelection, ContextChip.ClearSelection), chips(state))
         assertEquals("2 selected", ContextChip.Selected.labelFor(state))
         assertEquals("Delete", ContextChip.DeleteSelection.labelFor(state))
+        assertEquals("Copy", ContextChip.CopySelection.labelFor(state))
+        assertEquals("Cut", ContextChip.CutSelection.labelFor(state))
     }
 }

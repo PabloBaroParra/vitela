@@ -95,6 +95,8 @@ internal fun EditTools(state: ViewerState, controls: AnnotationControls, actions
         if (editing) {
             ToolTile("Add text", R.drawable.ic_shell_new_file, accent, actions.contentEdit.onAddText, selected = state.contentEdit?.adding != null)
             ToolTile("Add image", R.drawable.ic_shell_image, accent, actions.contentEdit.onAddImage)
+            // Named apart from Paste, which stamps the system clipboard's picture: this puts down what Copy or Cut held.
+            ToolTile("Paste content", R.drawable.ic_shell_new_file, accent, actions.contentEdit.onPasteContent, enabled = state.contentEdit?.hasClip == true, selected = state.contentEdit?.adding == ContentAddition.Paste)
         }
         for ((tool, label, icon) in ANNOTATION_TOOLS) {
             ToolTile(label, icon, ToolHue.Annotate, { actions.onTool(tool) }, enabled = controls.canCreate, selected = armed == tool && tool != AnnotationTool.Pointer)

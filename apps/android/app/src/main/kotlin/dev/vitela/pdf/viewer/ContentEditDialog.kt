@@ -72,6 +72,12 @@ internal class ContentEditActions(
     /** Deletes the selection, one undo step. */
     val onDeleteSelection: () -> Unit,
     val onClearSelection: () -> Unit,
+    /** Copies the selection into the clip. */
+    val onCopySelection: () -> Unit,
+    /** Copies the selection into the clip and deletes it, one undo step. */
+    val onCutSelection: () -> Unit,
+    /** Arms the next page tap to paste the held clip. */
+    val onPasteContent: () -> Unit,
 )
 
 /**
