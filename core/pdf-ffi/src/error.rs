@@ -152,6 +152,15 @@ impl From<pdf_render::RenderError> for FfiError {
     }
 }
 
+impl From<pdf_save::RecordError> for FfiError {
+    fn from(err: pdf_save::RecordError) -> Self {
+        match err {
+            pdf_save::RecordError::Refused(detail) => FfiError::UnsupportedOperation { detail },
+            pdf_save::RecordError::Invalid(err) => err.into(),
+        }
+    }
+}
+
 impl From<pdf_save::SaveError> for FfiError {
     fn from(err: pdf_save::SaveError) -> Self {
         use pdf_save::SaveError as E;

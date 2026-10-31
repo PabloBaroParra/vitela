@@ -697,6 +697,29 @@ impl DocumentState {
         f(pdf_save::ImportedSources::new(&sources))
     }
 
+    /// Runs one of `pdf_save::record`'s entry points over this session's
+    /// model, base and imported PDFs — the queue policy every shell shares.
+    pub(crate) fn record(
+        &mut self,
+        f: impl FnOnce(
+            &mut Document,
+            &LopdfDocument,
+            pdf_save::ImportedSources<'_, '_>,
+        ) -> Result<(), pdf_save::RecordError>,
+    ) -> Result<(), FfiError> {
+        let sources: Vec<(ImportedDocumentId, &LopdfDocument)> = self
+            .imported
+            .iter()
+            .map(|(id, document)| (*id, document))
+            .collect();
+        f(
+            &mut self.document,
+            &self.base,
+            pdf_save::ImportedSources::new(&sources),
+        )
+        .map_err(Into::into)
+    }
+
     /// The id the next imported PDF gets: one past the highest this session
     /// has used, so an id is never handed out twice — not even after an undo
     /// removed the pages that wore it, since the redo still needs it.
@@ -1985,355 +2008,14 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
     Ok(())
 }
 
-/// Records one page-content edit: folded into the queued edit of the same
-/// item when there is one, validated against the base, then applied. Leaves
-/// the session untouched when it refuses, which is what lets
+/// Records one page-content edit through `pdf_save::record_content_command`
+/// — folded into the queued edit of the same item, or validated and
+/// appended. Leaves the session untouched when it refuses, which is what lets
 /// [`DocumentState::retry_after_checkpoint`] try again.
-fn apply_content_command(
-    state: &mut DocumentState,
-    mut core_command: Command,
-) -> Result<(), FfiError> {
-    // An item inside a queued batch (a block edit, B25 T-207) is edited
-    // again through that batch, which keeps the snapshot the file holds.
-    let folded = match crate::text_blocks::fold_into_queued_batch(&state.document, &core_command) {
-        Ok(folded) => folded,
-        // Not the same kind of edit as the batch's child for this item —
-        // retyping a run of a moved block, say. It can still follow the
-        // batch as its own step if the save could replay it after it.
-        Err(refusal) => {
-            state
-                .with_imported_sources(|sources| {
-                    pdf_save::validate_content_command_after_pending(
-                        &state.document,
-                        &state.base,
-                        sources,
-                        &core_command,
-                    )
-                })
-                .map_err(|_| refusal)?;
-            if !apply_command(&mut state.document, core_command) {
-                return Err(FfiError::UnsupportedOperation {
-                    detail: "this edit command was rejected against the open document".to_string(),
-                });
-            }
-            return Ok(());
-        }
-    };
-    if let Some((index, batch)) = folded {
-        state.with_imported_sources(|sources| {
-            pdf_save::validate_content_command(&state.document, &state.base, sources, &batch)
-        })?;
-        if !state.document.pending_edits.amend(index, batch) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "the pending text edit is no longer available".to_string(),
-            });
-        }
-        return Ok(());
-    }
-    let queued = pending_text_amendment_index(&state.document, &core_command)?;
-    if let Some(index) = queued {
-        // What a caller holds is the run as `read_page_content` reads it
-        // now — the queued text edit already applied. The save replays
-        // against the untouched bytes, so the fold keeps the snapshot the
-        // queued command was built from, including repeated moves.
-        core_command =
-            with_queued_item(&state.document.pending_edits.entries()[index], core_command);
-    }
-    // Validate before recording, never only at save time — see
-    // `pdf_save::validate_content_command` for why a content command
-    // recorded unchecked can only fail later, and take every other
-    // queued edit down with it.
-    state.with_imported_sources(|sources| {
-        pdf_save::validate_content_command(&state.document, &state.base, sources, &core_command)
-    })?;
-
-    if let Some(index) = queued {
-        // Retyping, deleting a retyped run or moving again amends its queued command
-        // instead of appending another. `EditLog::amend`'s own docs carry
-        // the reasoning: a save replays content commands in order against
-        // a document it mutates as it goes, so a second command against
-        // the same run would resolve against nothing and take the whole
-        // save down.
-        if !state.document.pending_edits.amend(index, core_command) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "the pending text edit is no longer available".to_string(),
-            });
-        }
-        return Ok(());
-    }
-    if !apply_command(&mut state.document, core_command) {
-        return Err(FfiError::UnsupportedOperation {
-            detail: "this edit command was rejected against the open document".to_string(),
-        });
-    }
-    Ok(())
-}
-
-/// The queued command `command` should replace rather than follow, if any.
-///
-/// A replacement or removal of a retyped run folds into that run's pending
-/// replacement. The original snapshot is retained for validation and save.
-/// Repeated moves retain their original snapshot and only change destination.
-/// Synthetic insertion targets amend the insertion itself when retyping or moving.
-/// An image moved again folds into its queued move the same way: what the
-/// caller holds is the image already at its new place, which the untouched
-/// bytes a save replays against do not contain.
-/// A path moved, resized or removed after a queued move or resize folds into
-/// that geometry edit for the same reason (B25 T-206).
-fn pending_text_amendment_index(
-    document: &Document,
-    command: &Command,
-) -> Result<Option<usize>, FfiError> {
-    if let Command::MovePath { item, .. }
-    | Command::ResizePath { item, .. }
-    | Command::RemovePath(item) = command
-    {
-        return Ok(document.pending_edits.entries().iter().position(|queued| {
-            matches!(queued,
-                Command::MovePath { item: target, .. } | Command::ResizePath { item: target, .. }
-                    if target.id == item.id && target.page == item.page)
-        }));
-    }
-    if let Command::MoveImage { to, .. } | Command::ResizeImage { to, .. } = command {
-        if !to.x.is_finite() || !to.y.is_finite() || !to.width.is_finite() || !to.height.is_finite()
-        {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "Image coordinates must be finite.".to_string(),
-            });
-        }
-    }
-    if let Command::MoveImage { item, .. }
-    | Command::ResizeImage { item, .. }
-    | Command::RemoveImage { item, .. } = command
-    {
-        return Ok(document.pending_edits.entries().iter().position(|queued| {
-            matches!(queued,
-                Command::MoveImage { item: target, .. } | Command::ResizeImage { item: target, .. }
-                    if target.id == item.id && target.page == item.page)
-        }));
-    }
-    if let Command::MoveTextRun { item, to } = command {
-        if !to.x.is_finite() || !to.y.is_finite() {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "Text coordinates must be finite.".to_string(),
-            });
-        }
-        if pdf_edit::pending_log_index(item.id).is_some() {
-            return pending_insertion_amendment_index(document, item);
-        }
-        // A replacement's estimated box is not a safe save-time move target.
-        // Match Linux's refusal even when a move precedes that replacement.
-        if document.pending_edits.entries().iter().any(|queued| {
-            matches!(queued,
-                Command::ReplaceTextRunContent { item: target, .. }
-                    | Command::ReplaceTextRunWithInsertedFont { item: target, .. }
-                    if target.id == item.id && target.page == item.page)
-        }) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "This text has an unsaved edit — save the document before moving it."
-                    .to_string(),
-            });
-        }
-        return Ok(document.pending_edits.entries().iter().position(|queued| {
-            matches!(queued, Command::MoveTextRun { item: target, .. }
-                if target.id == item.id && target.page == item.page)
-        }));
-    }
-    let item = match command {
-        Command::ReplaceTextRunContent { item, .. }
-        | Command::ReplaceTextRunWithInsertedFont { item, .. }
-        | Command::RemoveTextRun(item) => item,
-        _ => return Ok(None),
-    };
-
-    if pdf_edit::pending_log_index(item.id).is_some() {
-        if matches!(command, Command::ReplaceTextRunContent { .. }) {
-            return pending_insertion_amendment_index(document, item);
-        }
-        // Only reaches the reader when the session cannot checkpoint (see
-        // `document::checkpoint`); then a save is the way out.
-        if matches!(command, Command::RemoveTextRun(_)) {
-            return Err(FfiError::UnsupportedOperation {
-                detail:
-                    "This inserted text is not saved yet — save the document before deleting it."
-                        .to_string(),
-            });
-        }
-        return Err(FfiError::UnsupportedOperation {
-            detail: "this pending insertion cannot be edited with that text target".to_string(),
-        });
-    }
-    if matches!(
-        command,
-        Command::ReplaceTextRunContent { .. } | Command::ReplaceTextRunWithInsertedFont { .. }
-    ) && document.pending_edits.entries().iter().any(|queued| {
-        matches!(queued, Command::MoveTextRun { item: target, .. }
-                if target.id == item.id && target.page == item.page)
-    }) {
-        return Err(FfiError::UnsupportedOperation {
-            detail: "This text was moved and not yet saved — save and reopen before retyping it."
-                .to_string(),
-        });
-    }
-    Ok(document.pending_edits.entries().iter().position(|queued| {
-        matches!(
-            queued,
-            Command::ReplaceTextRunContent { item: queued_item, .. }
-                | Command::ReplaceTextRunWithInsertedFont { item: queued_item, .. }
-                if queued_item.id == item.id && queued_item.page == item.page
-        )
-    }))
-}
-
-/// Resolves synthetic targets without letting a reused log slot redirect an edit.
-fn pending_insertion_amendment_index(
-    document: &Document,
-    item: &TextRun,
-) -> Result<Option<usize>, FfiError> {
-    let index = pdf_edit::pending_log_index(item.id);
-    // Text and measured width can differ during typing, but page, resource and
-    // placement identify the insertion that the caller originally targeted.
-    if let Some(index) = index {
-        if matches!(document.pending_edits.entries().get(index),
-            Some(Command::InsertTextRun(run))
-                if run.page == item.page
-                    && run.resource_font_name == item.resource_font_name
-                    && run.font_kind == item.font_kind
-                    && run.bbox.x == item.bbox.x && run.bbox.y == item.bbox.y
-                    && run.bbox.height == item.bbox.height)
-        {
-            return Ok(Some(index));
-        }
-    }
-    Err(FfiError::UnsupportedOperation {
-        detail: "this pending insertion cannot be edited with that text target".to_string(),
+fn apply_content_command(state: &mut DocumentState, core_command: Command) -> Result<(), FfiError> {
+    state.record(|document, base, sources| {
+        pdf_save::record_content_command(document, base, sources, core_command)
     })
-}
-
-/// A path edit folded into the queued geometry edit of the same path, keyed
-/// to the snapshot the file still holds.
-///
-/// The caller's item is the path at its pending box, so the destination is
-/// read off it: a move keeps that box's size. Two moves stay a move; any
-/// resize in the pair makes the fold a resize from the original box straight
-/// to the final one, which a move is a special case of. A removal simply
-/// replaces the queued edit. Successive edits coalesce into one undo step —
-/// the cost `EditLog::amend` documents.
-fn with_queued_path(queued: &Command, command: &Command) -> Option<Command> {
-    let (Command::MovePath { item: original, .. } | Command::ResizePath { item: original, .. }) =
-        queued
-    else {
-        return None;
-    };
-    let original = original.clone();
-    Some(match command {
-        Command::RemovePath(_) => Command::RemovePath(original),
-        Command::MovePath { item, to } => {
-            let to = pdf_document::annotation::Rect {
-                x: to.x,
-                y: to.y,
-                ..item.bbox
-            };
-            if matches!(queued, Command::MovePath { .. }) {
-                Command::MovePath { item: original, to }
-            } else {
-                Command::ResizePath { item: original, to }
-            }
-        }
-        Command::ResizePath { to, .. } => Command::ResizePath {
-            item: original,
-            to: *to,
-        },
-        _ => return None,
-    })
-}
-
-/// An image edit folded into the queued geometry edit of the same image,
-/// keyed to the snapshot the file still holds — the image twin of
-/// [`with_queued_path`].
-///
-/// A move or a resize carries its whole destination box, so the fold takes
-/// it as is. Two moves stay a move; any resize in the pair makes the fold a
-/// resize, which a move is a special case of. A removal replaces the queued
-/// edit outright, painting operation and all.
-fn with_queued_image(queued: &Command, command: &Command) -> Option<Command> {
-    let (Command::MoveImage { item: original, .. } | Command::ResizeImage { item: original, .. }) =
-        queued
-    else {
-        return None;
-    };
-    let item = original.clone();
-    Some(match command {
-        Command::RemoveImage { source, .. } => Command::RemoveImage {
-            item,
-            source: source.clone(),
-        },
-        Command::MoveImage { to, .. } if matches!(queued, Command::MoveImage { .. }) => {
-            Command::MoveImage { item, to: *to }
-        }
-        Command::MoveImage { to, .. } | Command::ResizeImage { to, .. } => {
-            Command::ResizeImage { item, to: *to }
-        }
-        _ => return None,
-    })
-}
-
-/// `command` carrying `queued`'s run snapshot in place of its own.
-///
-/// Only called for a pair [`pending_text_amendment_index`] matched: retyping
-/// an insertion, replacing/removing a run with a queued replacement, or moving
-/// a run or an image with a queued move.
-fn with_queued_item(queued: &Command, command: Command) -> Command {
-    if let Some(folded) = with_queued_path(queued, &command) {
-        return folded;
-    }
-    if let Some(folded) = with_queued_image(queued, &command) {
-        return folded;
-    }
-    if let (Command::InsertTextRun(run), Command::MoveTextRun { to, .. }) = (queued, &command) {
-        return Command::InsertTextRun(TextRun {
-            bbox: pdf_document::annotation::Rect {
-                x: to.x,
-                y: to.y,
-                ..run.bbox
-            },
-            ..run.clone()
-        });
-    }
-    if let (Command::MoveTextRun { item, .. }, Command::MoveTextRun { to, .. }) = (queued, &command)
-    {
-        return Command::MoveTextRun {
-            item: item.clone(),
-            to: *to,
-        };
-    }
-    if let (Command::InsertTextRun(run), Command::ReplaceTextRunContent { after, .. }) =
-        (queued, &command)
-    {
-        return Command::InsertTextRun(TextRun {
-            text: after.clone(),
-            ..run.clone()
-        });
-    }
-    let original = match queued {
-        Command::ReplaceTextRunContent { item, .. }
-        | Command::ReplaceTextRunWithInsertedFont { item, .. } => item.clone(),
-        _ => return command,
-    };
-    match command {
-        Command::ReplaceTextRunContent { after, .. } => Command::ReplaceTextRunContent {
-            item: original,
-            after,
-        },
-        Command::ReplaceTextRunWithInsertedFont { after, .. } => {
-            Command::ReplaceTextRunWithInsertedFont {
-                item: original,
-                after,
-            }
-        }
-        Command::RemoveTextRun(_) => Command::RemoveTextRun(original),
-        other => other,
-    }
 }
 
 /// Re-derives the render-side document from the pending edits, so

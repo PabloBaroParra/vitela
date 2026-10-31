@@ -15,6 +15,7 @@
 
 use pdf_document::{Command, ContentClip, ContentItemId, Document, PageId, Rect};
 use pdf_edit::Selection;
+use pdf_save::{target, Target};
 
 use crate::content_selection::{remove_content_selection, FfiContentSelection};
 use crate::document::{
@@ -22,7 +23,6 @@ use crate::document::{
     DocumentState,
 };
 use crate::error::FfiError;
-use crate::text_blocks::{target, Target};
 use crate::types::FfiRect;
 
 /// Content copied out of a page: a self-contained one-page PDF, and the box

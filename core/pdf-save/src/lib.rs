@@ -19,6 +19,9 @@
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
 //! - [`content`] (T-156): replays page-content edits (Batch 21) at save
 //!   time, and reports whether the rewrite invalidates existing signatures.
+//! - [`record`] (B25): how a page-content edit joins the pending queue —
+//!   folded into the queued edit of the same item, or validated and
+//!   appended. Every shell records through it.
 //! - [`compress`] (T-195, Batch 24): the compressed-save entry point — when
 //!   `pdf-compress` runs over what the writer produced, and the two gates
 //!   that decide whether it may.
@@ -45,6 +48,7 @@ pub mod forms;
 pub mod imported_sources;
 pub mod metadata;
 pub mod origin;
+pub mod record;
 pub mod rewrite;
 pub mod security;
 pub mod strategy;
@@ -78,6 +82,7 @@ pub use origin::{
     page_backing, page_font_families_of, read_page_content_of, read_pending_page_content_of,
     PageBacking,
 };
+pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{
