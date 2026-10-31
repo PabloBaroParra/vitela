@@ -78,7 +78,7 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       (interseca) el rectángulo — decidido por el usuario 2026-10-28. SHIFT+click alterna. Arrastre mueve todos
       con un único comando atómico (un paso de undo, igual criterio que `MovePages`).
       Un "objeto tabla" = trazados + texto dentro de su bbox, armado por esta selección.
-      **Core + FFI + Windows hechos (2026-10-29); faltan Linux y Android (T-212).**
+      **Core + FFI + Windows hechos (2026-10-29), Linux (2026-10-31); falta Android (T-212).**
       Como quedó: `pdf_edit::selection` arma un `Command::Batch` de `MoveTextRun`/
       `MoveImage`/`MovePath` (o los `Remove*`) de una sola página; el FFI expone
       `move_content_selection` / `remove_content_selection` con un

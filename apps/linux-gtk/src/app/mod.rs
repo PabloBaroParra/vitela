@@ -542,6 +542,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     input::connect_paste(application, &window, &viewer);
     input::connect_window_file_drop(&page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
+    content_edit::multi::connect_clear_shortcut(application, &window, &viewer);
     annotations::connect_history_shortcuts(application, &window, &viewer);
     zoom_out.connect_clicked({
         let viewer = viewer.clone();

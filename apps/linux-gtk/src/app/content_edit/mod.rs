@@ -30,6 +30,8 @@
 //!   cancel.
 //! - [`image`] is the select/move/resize/delete/replace/insert lifecycle for
 //!   an image.
+//! - [`multi`] is several items at once (B25 T-208): marquee, SHIFT+click,
+//!   group move and delete, each one batch.
 //! - [`path`] is the select/move/reshape/delete lifecycle for a vector path —
 //!   a table border, a rule, a shaded box (B25 T-206) — recorded through the
 //!   core's queue policy (`pdf_save::record`).
@@ -62,6 +64,7 @@ pub(crate) mod editor;
 pub(crate) mod geometry;
 pub(crate) mod image;
 mod model;
+pub(crate) mod multi;
 pub(crate) mod panel;
 pub(crate) mod path;
 pub(crate) mod text;
@@ -516,6 +519,8 @@ fn clear_selected_image(viewer: &Viewer) {
         session.image_drag = None;
         session.selected_path = None;
         session.path_drag = None;
+        session.content_selection = None;
+        session.selection_gesture = None;
     }
 }
 
@@ -533,6 +538,10 @@ fn clear_selected_image(viewer: &Viewer) {
 /// A vector path (B25 T-206) is asked last: a frame encloses the text of
 /// its cells, so text outranks it, and so does a picture drawn over it.
 ///
+/// Several items at once (B25 T-208) come around all of that: SHIFT makes a
+/// press a toggle, a press inside the selection's box drags all of it, and a
+/// press nothing claimed starts a marquee.
+///
 /// Returns whether any claimed the press. `false` leaves the gesture to
 /// resolve on `drag_end` as a click, which is what opens the inline editor.
 pub(crate) fn begin_drag(
@@ -540,7 +549,15 @@ pub(crate) fn begin_drag(
     page_index: usize,
     point: (f64, f64),
     reach: f64,
+    shift: bool,
 ) -> bool {
+    if shift {
+        return multi::toggle_at(viewer, page_index, point, reach);
+    }
+    if multi::begin_group_move(viewer, page_index, point, reach) {
+        return true;
+    }
+    multi::clear(viewer);
     if image::begin_image_drag(viewer, page_index, point, reach)
         || text::begin_text_drag(viewer, page_index, point)
     {
@@ -548,6 +565,13 @@ pub(crate) fn begin_drag(
         return true;
     }
     path::begin_path_drag(viewer, page_index, point, reach)
+        || multi::begin_marquee(viewer, page_index, point)
+}
+
+/// The Delete key in content-edit mode: the selection, then a selected
+/// shape. Returns whether either was there to delete.
+pub(crate) fn delete_selection(viewer: &Viewer) -> bool {
+    multi::delete_selected(viewer) || path::delete_selected(viewer)
 }
 
 /// Drops the path selection when a press went to something else.
@@ -570,6 +594,7 @@ fn clear_selected_path(viewer: &Viewer) {
 pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
     image::extend_image_drag(viewer, point)
         || path::extend_path_drag(viewer, point)
+        || multi::extend(viewer, point)
         || text::extend_text_drag(viewer, point)
 }
 
@@ -723,7 +748,7 @@ pub(crate) fn handle_drag_end(
     offset_x: f64,
     offset_y: f64,
 ) {
-    if image::finish_image_drag(viewer) || path::finish_path_drag(viewer) {
+    if image::finish_image_drag(viewer) || path::finish_path_drag(viewer) || multi::finish(viewer) {
         return;
     }
 
