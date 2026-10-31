@@ -159,6 +159,17 @@ interface PdfDocument : AutoCloseable {
     fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Styling form fields is unavailable in this PDF core."))
     /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
     fun contentEditingAllowed(): Boolean = false
+    /**
+     * Changes whenever the core writes the pending content edits into a new in-memory base, or an undo
+     * or redo steps across one. Every content item read before the change is stale — ids are renumbered —
+     * so the pages must be read again before another edit is built from them. 0 for a core that never does.
+     */
+    fun contentBaseGeneration(): Long = 0
+    /**
+     * Whether an edit refused because its item already has an unsaved edit is written into a new in-memory base
+     * and retried instead. When it is not, the old rule holds: the reader must save first.
+     */
+    fun contentEditsCanCheckpoint(): Boolean = false
     /** The text runs (and the blocks they group into), images and paths page [pageIndex] paints, pending edits included; refused when the document forbids text extraction. */
     fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
@@ -166,7 +177,8 @@ interface PdfDocument : AutoCloseable {
      * and the others are removed, so the whole line is one step. A block whose
      * first run is a composite font is retyped in a standard one instead. The
      * same block retyped again before a save folds into the queued edit; one
-     * with an edit of another kind pending is refused until a save. The page
+     * with an edit of another kind pending is checkpointed by the core where
+     * [contentEditsCanCheckpoint], else refused until a save. The page
      * shows it only after [refreshPreview]; the failure names a character the font cannot show.
      */
     fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
