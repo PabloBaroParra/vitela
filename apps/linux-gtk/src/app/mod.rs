@@ -424,6 +424,7 @@ fn build_ui(application: &Application) -> BuiltUi {
             active_tool: None,
             content_edit_mode: false,
             content_insert_mode: None,
+            content_clip: None,
             preview_refresh_in_flight: false,
             preview_refresh_pending: None,
             form_edit_mode: false,
@@ -543,6 +544,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     input::connect_window_file_drop(&page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
     content_edit::multi::connect_clear_shortcut(application, &window, &viewer);
+    content_edit::clipboard::connect_cut_shortcut(application, &window, &viewer);
     annotations::connect_history_shortcuts(application, &window, &viewer);
     zoom_out.connect_clicked({
         let viewer = viewer.clone();
@@ -747,6 +749,7 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     viewer.delete_text_button.set_sensitive(text_enabled);
     // The Delete key's action is enabled off the path selection too.
     annotations::update_annotation_controls(viewer);
+    content_edit::clipboard::update_cut_action(viewer);
     viewer.edit_panel.text_hint.set_text(if text_enabled {
         content_edit::panel::TEXT_SELECTED
     } else {

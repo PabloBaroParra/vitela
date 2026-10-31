@@ -288,6 +288,96 @@ pub(super) fn record_batch(
     })
 }
 
+/// Moves every member of `selection` by `(dx, dy)` as one undo step (B25
+/// T-208). A selection that is exactly what a pending paste added moves the
+/// paste itself (T-209), so pasting and then dragging into place stays one
+/// step; part of a pending paste is refused.
+pub(super) fn record_selection_move(
+    session: &mut DocumentSession,
+    selection: &pdf_edit::Selection,
+    dx: f64,
+    dy: f64,
+) -> Result<(), String> {
+    if let Some(index) = whole_paste(session, selection)? {
+        let document = session
+            .document_model
+            .as_mut()
+            .ok_or_else(|| "Open a PDF to edit its content.".to_string())?;
+        pdf_save::move_pending_paste(document, index, dx, dy).map_err(|error| error.to_string())?;
+        session.edit_revision += 1;
+        session.unsaved_to_disk = true;
+        return Ok(());
+    }
+    record_batch(session, pdf_edit::move_selection(selection, dx, dy))
+}
+
+/// Removes every member of `selection` as one undo step. A pending paste is
+/// refused: undo is what takes it back.
+pub(super) fn record_selection_removal(
+    session: &mut DocumentSession,
+    selection: &pdf_edit::Selection,
+) -> Result<(), String> {
+    if whole_paste(session, selection)?.is_some() {
+        return Err(pdf_save::paste_not_deletable().to_string());
+    }
+    record_batch(session, pdf_edit::remove_selection(selection))
+}
+
+/// The log index of the pending paste `selection` is all of, if it is one.
+fn whole_paste(
+    session: &DocumentSession,
+    selection: &pdf_edit::Selection,
+) -> Result<Option<usize>, String> {
+    let Some(document) = session.document_model.as_ref() else {
+        return Ok(None);
+    };
+    match pdf_save::pasted_members(document, &pdf_save::selection_ids(selection)) {
+        Ok(pdf_save::PastedMembers::Whole(index)) => Ok(Some(index)),
+        Ok(pdf_save::PastedMembers::None) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Copies `selection` out of its page into a clip (B25 T-209), refusing
+/// members with an unsaved edit — the clip is copied from the file.
+pub(super) fn copy(
+    session: &DocumentSession,
+    selection: &pdf_edit::Selection,
+) -> Result<pdf_document::ContentClip, String> {
+    let (Some(document), Some(backing)) = (
+        session.document_model.as_ref(),
+        session.save_backing.as_ref(),
+    ) else {
+        return Err("Open a PDF to copy its content.".to_string());
+    };
+    let sources: Vec<_> = session
+        .imported_sources
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect();
+    pdf_save::copy_selection_content(
+        document,
+        &backing.base,
+        pdf_save::ImportedSources::new(&sources),
+        selection,
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// Pastes `clip` onto `page` with its top-left corner at `(left, top)`, as
+/// one undo step.
+pub(super) fn paste(
+    session: &mut DocumentSession,
+    page: pdf_document::PageId,
+    clip: pdf_document::ContentClip,
+    left: f64,
+    top: f64,
+) -> Result<(), String> {
+    record_with(session, |document, base, sources| {
+        pdf_save::record_paste(document, base, sources, page, clip, left, top)
+    })
+}
+
 fn record_with(
     session: &mut DocumentSession,
     record: impl FnOnce(

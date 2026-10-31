@@ -120,6 +120,24 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         }
     });
 
+    // Where Ctrl+V pastes content in content-edit mode (B25 T-209).
+    let motion = gtk::EventControllerMotion::new();
+    motion.connect_motion({
+        let viewer = viewer.clone();
+        move |_, x, y| {
+            if !content_edit::mode_is_active(&viewer) {
+                return;
+            }
+            let Some(point) = pointer_to_pdf(&viewer, page_index, x, y) else {
+                return;
+            };
+            if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
+                session.content_pointer = Some((page_index, point));
+            }
+        }
+    });
+    area.add_controller(motion);
+
     let drag = GestureDrag::new();
     drag.connect_drag_begin({
         let viewer = viewer.clone();
@@ -1546,7 +1564,13 @@ pub(crate) fn connect_copy(
     let copy = gio::SimpleAction::new("copy", None);
     copy.connect_activate({
         let viewer = viewer.clone();
-        move |_, _| copy_selection(&viewer)
+        // Content-edit mode's selection is copied as content (B25 T-209);
+        // otherwise Ctrl+C copies the selected page text, as before.
+        move |_, _| {
+            if !content_edit::clipboard::try_copy(&viewer) {
+                copy_selection(&viewer);
+            }
+        }
     });
     window.add_action(&copy);
     application.set_accels_for_action("win.copy", &["<Control>c"]);

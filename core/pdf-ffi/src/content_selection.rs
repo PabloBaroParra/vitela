@@ -8,7 +8,9 @@
 
 use pdf_edit::Selection;
 
-use crate::content_clipboard::{move_pending_paste, pasted_members, PastedMembers};
+use pdf_save::PastedMembers;
+
+use crate::content_clipboard::{move_pending_paste, pasted_members};
 use crate::document::DocumentHandle;
 use crate::error::FfiError;
 use crate::text_blocks::apply_batch_edit;
@@ -58,9 +60,7 @@ pub fn remove_content_selection(
     selection: FfiContentSelection,
 ) -> Result<(), FfiError> {
     if let PastedMembers::Whole(_) = pasted_members(&handle.lock(), &selection)? {
-        return Err(unsupported(
-            "Undo the paste to take it back, or save the document before deleting it.",
-        ));
+        return Err(pdf_save::paste_not_deletable().into());
     }
     apply_selection_edit(handle, selection, pdf_edit::remove_selection)
 }

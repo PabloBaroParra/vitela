@@ -313,6 +313,10 @@ pub(crate) struct ViewerState {
     /// the two never disagree about whether content-edit mode is active —
     /// only about what a click inside it does.
     pub(crate) content_insert_mode: Option<ContentInsertKind>,
+    /// What CTRL+C or CTRL+X last copied out of a page in content-edit mode
+    /// (B25 T-209): a self-contained one-page PDF and its box. Shell state,
+    /// so it outlives the page — and the document — it came from.
+    pub(crate) content_clip: Option<pdf_document::ContentClip>,
     /// Whether a `write::refresh_preview` preview refresh
     /// (save-to-buffer, reopen, rebuild every page widget) is currently
     /// running.
@@ -1507,6 +1511,9 @@ pub(crate) struct DocumentSession {
     pub(crate) content_selection: Option<ContentSelection>,
     /// The marquee or group drag in flight, if any.
     pub(crate) selection_gesture: Option<SelectionGesture>,
+    /// Where the pointer last was over a page in content-edit mode, in PDF
+    /// page space — where CTRL+V pastes (B25 T-209).
+    pub(crate) content_pointer: Option<(usize, (f64, f64))>,
     /// The text run being dragged across the page right now, if any. Same
     /// reasoning as `image_drag`, and mutually exclusive with it in
     /// practice: a press is claimed by at most one item.
