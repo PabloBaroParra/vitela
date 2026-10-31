@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.DocumentInfo
@@ -541,6 +542,14 @@ class ViewerViewModel(
     fun deletePath(documentId: Long) = contentEditing.paths.delete(documentId)
     /** Disarms a move of a run, an image or a path. */
     fun cancelContentMove() = contentEditing.cancelMove()
+    /** A long-press and drag on page [pageIndex]: selects everything whose box touches [area], in PDF points. */
+    fun marqueeContent(pageIndex: Int, area: AnnotationRect) = contentEditing.selections.marquee(pageIndex, area)
+    /** A long-press that did not move: selects the item at [point], [reach] points of slack included. */
+    fun pressContent(pageIndex: Int, point: AnnotationPoint, reach: Double) = contentEditing.selections.press(pageIndex, point, reach)
+    /** Moves the selection by ([dx], [dy]) points as one undo step. */
+    fun moveContentSelection(pageIndex: Int, dx: Double, dy: Double) = contentEditing.selections.move(pageIndex, dx, dy)
+    fun deleteContentSelection() = contentEditing.selections.delete()
+    fun clearContentSelection() = contentEditing.selections.clear()
     /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
     fun deleteImage(documentId: Long) = contentEditing.images.delete(documentId)
     /** Checks the open dialog's image can be replaced; true means open the picker. [documentId] is the document the dialog was built for. */
