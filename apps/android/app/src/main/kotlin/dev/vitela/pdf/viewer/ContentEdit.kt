@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
+import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.ContentTextBlock
 import kotlin.math.max
 
@@ -15,7 +16,8 @@ import kotlin.math.max
  * border, a rule, a shaded box — opens it for resizing, moving or deleting, and
  * Add text or Add image claims the next tap for something new. [blocks],
  * [images] and [paths] hold each page's content as last read — only pages that were shown or tapped — so the outlines
- * describe what the page now shows.
+ * describe what the page now shows. A long-press, or a long-press and drag, gathers
+ * several items into a [selection] instead.
  */
 data class ContentEditState(
     val blocks: Map<Int, List<ContentTextBlock>> = emptyMap(),
@@ -46,7 +48,18 @@ data class ContentEditState(
     val adding: ContentAddition? = null,
     /** The new line being typed, or null while no insert dialog is open. */
     val inserter: TextInserter? = null,
+    /**
+     * Several items on one page, gathered by a marquee or a long-press and kept
+     * by taps (B25 T-208), moved or deleted as one undo step; null while
+     * nothing is selected. Members are held as last read. Never set with a
+     * dialog open, [moving] or [adding]: every place that opens one drops it.
+     */
+    val selection: ContentSelection? = null,
 ) {
+    /** Whether nothing is open or armed, so a selection may start. */
+    val idle: Boolean get() = editor == null && resizer == null && shaper == null && inserter == null &&
+        moving == null && replacingImage == null && adding == null
+
     /** The text block an armed move will place, if what is armed is a block. */
     val movingBlock: ContentTextBlock? get() = (moving as? ContentTarget.Block)?.block
 

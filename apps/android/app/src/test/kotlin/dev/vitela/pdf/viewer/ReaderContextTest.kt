@@ -3,6 +3,10 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.core.ContentImage
+import dev.vitela.pdf.core.ContentPath
+import dev.vitela.pdf.core.ContentSelection
+import dev.vitela.pdf.core.PathPaint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -50,5 +54,15 @@ class ReaderContextTest {
         val adding = ViewerState(pageCount = 1, contentEdit = ContentEditState(adding = ContentAddition.Text))
 
         assertEquals(listOf(ContextChip.CancelInsert), chips(adding))
+    }
+
+    @Test
+    fun aSelectionOfSeveralItemsOffersItsCountDeleteAndClear() {
+        val selection = ContentSelection(0, images = listOf(ContentImage(30, 0, AnnotationRect(10.0, 20.0, 30.0, 30.0), "Im1")), paths = listOf(ContentPath(40, 0, AnnotationRect(10.0, 80.0, 60.0, 0.0), PathPaint.Stroke)))
+        val state = ViewerState(pageCount = 1, contentEdit = ContentEditState(selection = selection))
+
+        assertEquals(listOf(ContextChip.Selected, ContextChip.DeleteSelection, ContextChip.ClearSelection), chips(state))
+        assertEquals("2 selected", ContextChip.Selected.labelFor(state))
+        assertEquals("Delete", ContextChip.DeleteSelection.labelFor(state))
     }
 }

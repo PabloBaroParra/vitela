@@ -41,12 +41,17 @@ internal data class ContextActions(
     val onColor: (AnnotationColor) -> Unit,
     val onCancelMove: () -> Unit,
     val onCancelInsert: () -> Unit,
+    val onDeleteSelection: () -> Unit,
+    val onClearSelection: () -> Unit,
 ) {
     fun run(chip: ContextChip) = when (chip) {
         ContextChip.ReadNote -> onReadNote()
         ContextChip.EditText -> onEditText()
         ContextChip.CancelMove -> onCancelMove()
         ContextChip.CancelInsert -> onCancelInsert()
+        ContextChip.Selected -> Unit
+        ContextChip.DeleteSelection -> onDeleteSelection()
+        ContextChip.ClearSelection -> onClearSelection()
         ContextChip.Grow -> onGrow()
         ContextChip.Resize -> onResize()
         ContextChip.MoveTo -> onPosition()
@@ -59,7 +64,14 @@ internal data class ContextActions(
 internal enum class ContextChip(val label: String) {
     ReadNote("Read note"), EditText("Edit text"), CancelMove("Cancel move"), CancelInsert("Cancel insert"),
     Grow("Grow"), Resize("Resize"), MoveTo("Move to"), Red("Red"), Gold("Gold"), Delete("Delete"),
+
+    /** The count of a multi-selection (B25 T-208): a label, not an action. Copy and Cut join it with T-209. */
+    Selected("Selected"), DeleteSelection("Delete"), ClearSelection("Clear"),
 }
+
+/** The text on [this] chip: the count chip reads "N selected", every other its fixed label. */
+internal fun ContextChip.labelFor(state: ViewerState): String =
+    if (this == ContextChip.Selected) "${state.contentEdit?.selection?.count ?: 0} selected" else label
 
 private val RED_ANNOTATION_COLOR = AnnotationColor(220, 40, 40)
 
@@ -70,6 +82,7 @@ internal fun contextChips(state: ViewerState, controls: AnnotationControls): Lis
     if (selected?.kind == AnnotationKind.FreeText && state.annotationEditingAllowed) add(ContextChip.EditText)
     if (state.contentEdit?.moving != null) add(ContextChip.CancelMove)
     if (state.contentEdit?.adding != null) add(ContextChip.CancelInsert)
+    if (state.contentEdit?.selection != null) addAll(listOf(ContextChip.Selected, ContextChip.DeleteSelection, ContextChip.ClearSelection))
     if (controls.canGrow) add(ContextChip.Grow)
     if (controls.canResize) add(ContextChip.Resize)
     if (controls.canMove) add(ContextChip.MoveTo)
@@ -88,8 +101,16 @@ internal fun ContextChips(state: ViewerState, controls: AnnotationControls, acti
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        chips.forEach { chip -> AssistChip(onClick = { actions.run(chip) }, label = { Text(chip.label) }) }
+        chips.forEach { chip ->
+            // The count is a label, not a button: tapping it would only look like it did something.
+            if (chip == ContextChip.Selected) {
+                Text(chip.labelFor(state), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 4.dp))
+            } else {
+                AssistChip(onClick = { actions.run(chip) }, label = { Text(chip.labelFor(state)) })
+            }
+        }
     }
 }
 

@@ -527,6 +527,39 @@ the page and re-reads it; the gate is the same `content_editing_allowed`, and
 an undo or redo drops an open shape dialog and an armed move. Verified by the
 JVM unit tests only, not yet on a device or emulator.
 
+**Several at once** (B25 T-208,
+[`viewer/SelectionEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/SelectionEditing.kt),
+[`viewer/ContentSelections.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentSelections.kt),
+[`viewer/SelectionGestures.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/SelectionGestures.kt)).
+The Windows marquee and SHIFT+click become touch gestures. **Long-press, then
+drag** rubber-bands a box and, on lifting, selects every text block, image and
+shape on that page whose box touches it — touches, not contained, so a hairline
+rule a marquee only crosses is gathered, the Windows rule. A long-press that does
+not move selects the item under it. Either replaces any selection there was, and
+an empty one says "Nothing there to select." While a selection exists a **tap on
+an item of the same page adds it or takes it out**, which is the SHIFT+click; a
+tap on empty page, or on another page, ends the selection and does nothing else
+(no dialog opens over a selection). The members are outlined in blue under one
+dashed box. **A drag that starts inside the dashed box** — or within the usual
+grab reach of it — carries all of it, each member's pixels lifted off the page
+following the finger, and lifting sends one `move_content_selection` by the
+finger's travel; a drag that starts elsewhere still scrolls, and one begun after
+holding as long as a long-press is a new marquee. Chips over the page read
+**N selected**, **Delete** (`remove_content_selection`) and **Clear**; Copy and
+Cut will join them. A move or delete is one undo step however many items it
+covers, and a selection dragged again before a save folds into the queued one.
+After a move the members are looked up again by id in the fresh read, so the
+selection stays on what moved, as on Windows; after a delete it ends, and a
+refusal ("This text cannot be moved.", "This document does not permit content
+changes.") is reported in the status line with the selection kept. A selection
+never coexists with a dialog, an armed move or an armed insert — each of them
+drops it and none can start while one is open — and an undo or redo drops it
+too, since its members may not be what the page now paints. Moving to another
+page is T-209's. The pure decisions — the touch test, toggling, the union box,
+the re-lookup — are unit tested; the gesture detectors themselves are Compose
+pointer input, which the JVM tests cannot drive. Verified by the JVM unit tests
+only, not yet on a device or emulator.
+
 **Add text** and **Add image** next to Done editing arm the next page tap for
 something new, painted as page content rather than as an annotation
 ([`viewer/ContentInserting.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentInserting.kt)).

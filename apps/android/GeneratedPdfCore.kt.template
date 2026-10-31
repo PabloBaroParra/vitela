@@ -33,6 +33,7 @@ import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
+import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.DocumentBlock
@@ -66,6 +67,7 @@ import dev.vitela.pdf.uniffi.FfiCompressPreset
 import dev.vitela.pdf.uniffi.FfiCompressRefusal
 import dev.vitela.pdf.uniffi.FfiContentImageItem
 import dev.vitela.pdf.uniffi.FfiContentPathItem
+import dev.vitela.pdf.uniffi.FfiContentSelection
 import dev.vitela.pdf.uniffi.FfiContentTextRun
 import dev.vitela.pdf.uniffi.FfiTextBlock
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
@@ -103,6 +105,8 @@ import dev.vitela.pdf.uniffi.readPageTextBlocks as ffiReadPageTextBlocks
 import dev.vitela.pdf.uniffi.retypeTextBlock as ffiRetypeTextBlock
 import dev.vitela.pdf.uniffi.moveTextBlock as ffiMoveTextBlock
 import dev.vitela.pdf.uniffi.removeTextBlock as ffiRemoveTextBlock
+import dev.vitela.pdf.uniffi.moveContentSelection as ffiMoveContentSelection
+import dev.vitela.pdf.uniffi.removeContentSelection as ffiRemoveContentSelection
 import dev.vitela.pdf.uniffi.outputSnapshot as ffiOutputSnapshot
 import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
@@ -509,6 +513,35 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The members go as the page last read them; a block is sent as its runs. The core builds one batch,
+    // so the move or delete is one undo step however many items it covers, and a selection dragged again
+    // before a save folds into the queued one.
+    override fun moveContentSelection(selection: ContentSelection, dx: Double, dy: Double): PdfCoreResult<Unit> = try {
+        ffiMoveContentSelection(handle, selection.toFfi(), dx, dy)
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(selectionRefusal(error.detail, "moved")))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun removeContentSelection(selection: ContentSelection): PdfCoreResult<Unit> = try {
+        ffiRemoveContentSelection(handle, selection.toFfi())
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(selectionRefusal(error.detail, "deleted")))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core's sentences are a developer's, except the one that tells the reader to save first (a member
+    // with an unsaved edit of another kind) and the one about unsaved pasted content, which are kept.
+    private fun selectionRefusal(detail: String, verb: String): String = when {
+        !handle.contentEditingAllowed() -> "This document does not permit content changes."
+        "save the document" in detail -> detail.replaceFirstChar { it.uppercase() }.trimEnd('.') + "."
+        else -> "These items cannot be $verb."
     }
 
     // The original is read only to learn it can be: the core refuses an image
@@ -933,6 +966,12 @@ private fun PathPaint.toFfi(): FfiPathPaint = when (this) {
     PathPaint.Fill -> FfiPathPaint.FILL
     PathPaint.FillAndStroke -> FfiPathPaint.FILL_AND_STROKE
 }
+
+private fun ContentSelection.toFfi() = FfiContentSelection(
+    blocks.flatMap { block -> block.runs.map { it.toFfi() } },
+    images.map { it.toFfi() },
+    paths.map { it.toFfi() },
+)
 
 private fun ContentImage.toFfi() = FfiContentImageItem(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), resourceName)
 
