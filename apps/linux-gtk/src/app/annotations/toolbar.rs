@@ -126,7 +126,13 @@ pub(crate) fn connect_delete_shortcut(
     action.set_enabled(false);
     action.connect_activate({
         let viewer = viewer.clone();
-        move |_, _| delete(&viewer)
+        // In content-edit mode the same key deletes the selected shape
+        // (B25 T-206); otherwise it is the selected annotation's.
+        move |_, _| {
+            if !crate::app::content_edit::path::delete_selected(&viewer) {
+                delete(&viewer);
+            }
+        }
     });
     window.add_action(action);
     application.set_accels_for_action("win.delete-annotation", &["Delete"]);
@@ -318,10 +324,12 @@ pub(crate) fn update_annotation_controls(viewer: &Viewer) {
     buttons.delete_selection.set_sensitive(has_selection);
     // The key and the button delete the same thing, so they light up together
     // — except while the search entry has focus, where Delete belongs to the
-    // text being typed and the accelerator must stand down.
+    // text being typed and the accelerator must stand down. A selected shape
+    // in content-edit mode (B25 T-206) is the key's too.
+    let deletable = has_selection || session.selected_path.is_some();
     buttons
         .delete_action
-        .set_enabled(has_selection && !search_has_focus(viewer));
+        .set_enabled(deletable && !search_has_focus(viewer));
     let history = session
         .document_model
         .as_ref()

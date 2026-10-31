@@ -30,6 +30,9 @@
 //!   cancel.
 //! - [`image`] is the select/move/resize/delete/replace/insert lifecycle for
 //!   an image.
+//! - [`path`] is the select/move/reshape/delete lifecycle for a vector path —
+//!   a table border, a rule, a shaded box (B25 T-206) — recorded through the
+//!   core's queue policy (`pdf_save::record`).
 //! - [`text`] is the page-gesture half of moving a run — press, drag,
 //!   release — plus `record_move`, the single door every reposition goes
 //!   through, whichever gesture asked for it.
@@ -60,6 +63,7 @@ pub(crate) mod geometry;
 pub(crate) mod image;
 mod model;
 pub(crate) mod panel;
+pub(crate) mod path;
 pub(crate) mod text;
 pub(crate) mod watermark;
 
@@ -499,14 +503,16 @@ fn clear_text_drag(viewer: &Viewer) {
     }
 }
 
-/// Clears whatever image is selected (and any drag in flight), if any —
-/// the T-162 twin of `editor::commit`'s own resolve-and-close, but an image
+/// Clears whatever image or path is selected (and any drag in flight), if
+/// any — the T-162 twin of `editor::commit`'s own resolve-and-close, but a
 /// selection has nothing to validate on the way out, only to drop.
 fn clear_selected_image(viewer: &Viewer) {
     let mut state = viewer.state.borrow_mut();
     if let Some(session) = state.session.as_mut() {
         session.selected_image = None;
         session.image_drag = None;
+        session.selected_path = None;
+        session.path_drag = None;
     }
 }
 
@@ -521,7 +527,10 @@ fn clear_selected_image(viewer: &Viewer) {
 /// asking text first could hand that press to a run that happens to sit
 /// under the handle.
 ///
-/// Returns whether either claimed the press. `false` leaves the gesture to
+/// A vector path (B25 T-206) is asked last: a frame encloses the text of
+/// its cells, so text outranks it, and so does a picture drawn over it.
+///
+/// Returns whether any claimed the press. `false` leaves the gesture to
 /// resolve on `drag_end` as a click, which is what opens the inline editor.
 pub(crate) fn begin_drag(
     viewer: &Viewer,
@@ -529,14 +538,36 @@ pub(crate) fn begin_drag(
     point: (f64, f64),
     reach: f64,
 ) -> bool {
-    image::begin_image_drag(viewer, page_index, point, reach)
+    if image::begin_image_drag(viewer, page_index, point, reach)
         || text::begin_text_drag(viewer, page_index, point)
+    {
+        clear_selected_path(viewer);
+        return true;
+    }
+    path::begin_path_drag(viewer, page_index, point, reach)
+}
+
+/// Drops the path selection when a press went to something else.
+fn clear_selected_path(viewer: &Viewer) {
+    let deselected = {
+        let mut state = viewer.state.borrow_mut();
+        state
+            .session
+            .as_mut()
+            .is_some_and(|session| session.selected_path.take().is_some())
+    };
+    if deselected {
+        crate::app::update_content_edit_controls(viewer);
+        redraw(viewer);
+    }
 }
 
 /// Delegates a page's drag-update to whichever item gesture is in flight.
 /// Returns whether one was.
 pub(crate) fn extend_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
-    image::extend_image_drag(viewer, point) || text::extend_text_drag(viewer, point)
+    image::extend_image_drag(viewer, point)
+        || path::extend_path_drag(viewer, point)
+        || text::extend_text_drag(viewer, point)
 }
 
 /// Re-does the mode's per-document work for a session that has just been
@@ -689,7 +720,7 @@ pub(crate) fn handle_drag_end(
     offset_x: f64,
     offset_y: f64,
 ) {
-    if image::finish_image_drag(viewer) {
+    if image::finish_image_drag(viewer) || path::finish_path_drag(viewer) {
         return;
     }
 

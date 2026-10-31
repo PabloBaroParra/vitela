@@ -118,6 +118,8 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         content_editor: None,
         selected_image: None,
         image_drag: None,
+        selected_path: None,
+        path_drag: None,
         text_drag: None,
         physical_width: 800,
         physical_height: 600,
