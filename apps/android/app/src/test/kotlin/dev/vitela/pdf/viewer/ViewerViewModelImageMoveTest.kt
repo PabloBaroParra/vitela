@@ -152,6 +152,24 @@ class ViewerViewModelImageMoveTest {
     }
 
     @Test
+    fun anImageMovedAgainBeforeASaveSendsBothMoves() = runTest {
+        // The core folds a second move into the queued one (B25 T-207), so the shell does not stop it.
+        val document = RetypableDocument()
+        val viewModel = armed(document)
+        viewModel.tapContent(0, clear, reach = 0.0)
+        advanceUntilIdle()
+        viewModel.tapContent(0, AnnotationPoint(60.0, 160.0), reach = 0.0)
+        advanceUntilIdle()
+        viewModel.armImageMove(viewModel.state.value.documentId)
+        viewModel.tapContent(0, AnnotationPoint(10.0, 190.0), reach = 0.0)
+        advanceUntilIdle()
+
+        assertEquals(listOf(AnnotationRect(50.0, 150.0, 30.0, 30.0), AnnotationRect(10.0, 160.0, 30.0, 30.0)), document.moves.map { it.second })
+        assertEquals("the second move is sent for the image as the core now reports it", AnnotationRect(50.0, 150.0, 30.0, 30.0), document.moves.last().first.bounds)
+        assertEquals(IMAGE_MOVED, viewModel.state.value.status)
+    }
+
+    @Test
     fun closingTheModeDisarmsAMove() = runTest {
         val document = RetypableDocument()
         val viewModel = armed(document)

@@ -42,7 +42,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draganddrop.DragAndDropEvent
@@ -474,19 +473,7 @@ private fun PageSlot(
                         style = Stroke(if (moving) 5f else 2f),
                     )
                 }
-                // Solid where the run keeps its font, dashed where a retype swaps in a standard one:
-                // otherwise nothing tells the two apart before the reader has typed.
-                state.contentEdit?.runs?.get(pageIndex)?.forEach { run ->
-                    val moving = state.contentEdit.movingText?.id == run.id
-                    val bounds = if (moving && dragged != null) dragged else run.bounds
-                    val placed = placement.placeRect(bounds)
-                    drawRect(
-                        if (run.substitutesFont) Color(if (moving) 0xFFAA5ADC else 0x99AA5ADC) else Color(if (moving) 0xFF2878EB else 0x992878EB),
-                        placed.topLeft,
-                        placed.size,
-                        style = Stroke(if (moving) 5f else 2f, pathEffect = if (run.substitutesFont) PathEffect.dashPathEffect(floatArrayOf(6f, 4f)) else null),
-                    )
-                }
+                state.contentEdit?.blocks?.get(pageIndex)?.let { drawTextOutlines(it, state.contentEdit.movingBlock, dragged, placement) }
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->
                     val placed = placement.placeRect(rect)
                     drawRect(SELECTION_COLOR.copy(alpha = .33f), placed.topLeft, placed.size)

@@ -28,7 +28,7 @@ class ViewerViewModelTextDeleteTest {
     fun deleteRemovesTheRunAndItsOutline() = runTest {
         val document = RetypableDocument()
         val viewModel = opened(document)
-        viewModel.deleteTextRun(viewModel.state.value.documentId)
+        viewModel.deleteTextBlock(viewModel.state.value.documentId)
         advanceUntilIdle()
 
         assertEquals(listOf(10L), document.textDeletes.map { it.id })
@@ -37,7 +37,7 @@ class ViewerViewModelTextDeleteTest {
         assertTrue(state.canUndoAnnotations)
         assertEquals(TEXT_DELETED, state.status)
         assertNull(state.contentEdit?.editor)
-        assertEquals("the outline must go with the run", listOf(11L), state.contentEdit?.runs?.get(0)?.map { it.id })
+        assertEquals("the outline must go with the run", listOf(11L), state.contentEdit?.blocks?.get(0)?.map { it.id })
     }
 
     @Test
@@ -45,7 +45,7 @@ class ViewerViewModelTextDeleteTest {
         val document = RetypableDocument()
         val viewModel = opened(document)
         val renders = document.drawn.size
-        viewModel.deleteTextRun(viewModel.state.value.documentId)
+        viewModel.deleteTextBlock(viewModel.state.value.documentId)
         advanceUntilIdle()
 
         val redrawn = document.drawn.drop(renders).last { it.first == 0 }
@@ -56,8 +56,8 @@ class ViewerViewModelTextDeleteTest {
     fun aDoubleTapOnDeleteQueuesOneEdit() = runTest {
         val document = RetypableDocument()
         val viewModel = opened(document)
-        viewModel.deleteTextRun(viewModel.state.value.documentId)
-        viewModel.deleteTextRun(viewModel.state.value.documentId)
+        viewModel.deleteTextBlock(viewModel.state.value.documentId)
+        viewModel.deleteTextBlock(viewModel.state.value.documentId)
         advanceUntilIdle()
 
         assertEquals("the second tap found the dialog already spent", 1, document.textDeletes.size)
@@ -67,35 +67,35 @@ class ViewerViewModelTextDeleteTest {
     fun aRefusedDeleteSaysWhyAndKeepsTheRun() = runTest {
         val refusal = "This text cannot be deleted."
         val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
-        viewModel.deleteTextRun(viewModel.state.value.documentId)
+        viewModel.deleteTextBlock(viewModel.state.value.documentId)
         advanceUntilIdle()
 
         val state = viewModel.state.value
         assertEquals(refusal, state.status)
         assertFalse(state.isDirty)
-        assertEquals(listOf(10L, 11L), state.contentEdit?.runs?.get(0)?.map { it.id })
+        assertEquals(listOf(10L, 11L), state.contentEdit?.blocks?.get(0)?.map { it.id })
     }
 
     @Test
     fun undoingADeleteBringsTheOutlineBack() = runTest {
         val viewModel = opened(RetypableDocument())
-        viewModel.deleteTextRun(viewModel.state.value.documentId)
+        viewModel.deleteTextBlock(viewModel.state.value.documentId)
         advanceUntilIdle()
         viewModel.undoAnnotations()
         advanceUntilIdle()
 
-        assertEquals(listOf(10L, 11L), viewModel.state.value.contentEdit?.runs?.get(0)?.map { it.id })
+        assertEquals(listOf(10L, 11L), viewModel.state.value.contentEdit?.blocks?.get(0)?.map { it.id })
     }
 
     @Test
     fun deleteFromADialogBuiltForAReplacedDocumentDeletesNothing() = runTest {
         val document = RetypableDocument()
         val viewModel = opened(document)
-        viewModel.deleteTextRun(viewModel.state.value.documentId + 1)
+        viewModel.deleteTextBlock(viewModel.state.value.documentId + 1)
         advanceUntilIdle()
 
         assertTrue(document.textDeletes.isEmpty())
-        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.run?.id)
+        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.block?.id)
     }
 
     /** Open, with Edit content armed and the retype dialog open on page 0's "Hello". */

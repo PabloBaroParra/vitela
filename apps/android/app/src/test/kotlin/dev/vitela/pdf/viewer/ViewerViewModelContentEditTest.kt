@@ -33,7 +33,7 @@ class ViewerViewModelContentEditTest {
         viewModel.contentPageShown(0)
         advanceUntilIdle()
 
-        assertEquals(listOf("Hello", "World"), viewModel.state.value.contentEdit?.runs?.get(0)?.map { it.text })
+        assertEquals(listOf("Hello", "World"), viewModel.state.value.contentEdit?.blocks?.get(0)?.map { it.text })
     }
 
     @Test
@@ -57,7 +57,7 @@ class ViewerViewModelContentEditTest {
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
 
-        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.run?.id)
+        assertEquals(10L, viewModel.state.value.contentEdit?.editor?.block?.id)
     }
 
     @Test
@@ -88,10 +88,10 @@ class ViewerViewModelContentEditTest {
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Howdy")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Howdy")
         advanceUntilIdle()
 
-        assertEquals(listOf(10L to "Howdy"), document.retypes.map { (run, text) -> run.id to text })
+        assertEquals(listOf(10L to "Howdy"), document.retypes.map { (block, text) -> block.id to text })
         val state = viewModel.state.value
         assertTrue(state.isDirty)
         assertTrue(state.canUndoAnnotations)
@@ -108,29 +108,29 @@ class ViewerViewModelContentEditTest {
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Howdy")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Howdy")
         advanceUntilIdle()
 
         assertEquals("rendering reads the preview, so it must be rebuilt", listOf("Howdy", "World"), document.drawn.last { it.first == 0 }.second)
-        assertEquals("the outline must describe the text now shown", listOf("Howdy", "World"), viewModel.state.value.contentEdit?.runs?.get(0)?.map { it.text })
+        assertEquals("the outline must describe the text now shown", listOf("Howdy", "World"), viewModel.state.value.contentEdit?.blocks?.get(0)?.map { it.text })
     }
 
     @Test
-    fun aSecondRetypeSendsTheRunAsItNowReads() = runTest {
+    fun aSecondRetypeSendsTheBlockAsItNowReads() = runTest {
         val document = RetypableDocument()
         val viewModel = openedWith(document)
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Howdy")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Howdy")
         advanceUntilIdle()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Hi")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Hi")
         advanceUntilIdle()
 
-        // The core amends the queued command when the run carries its id and the text it now shows.
-        assertEquals(listOf(10L to "Hello", 10L to "Howdy"), document.retypes.map { (run, _) -> run.id to run.text })
+        // The core amends the queued command when the block carries its first run's id and the text it now shows.
+        assertEquals(listOf(10L to "Hello", 10L to "Howdy"), document.retypes.map { (block, _) -> block.id to block.text })
     }
 
     @Test
@@ -141,7 +141,7 @@ class ViewerViewModelContentEditTest {
         viewModel.openContentEdit()
         viewModel.tapContent(0, onWorld, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Earth")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Earth")
         advanceUntilIdle()
 
         assertEquals("a retype moves no page", 1, viewModel.state.value.searchHits.size)
@@ -154,7 +154,7 @@ class ViewerViewModelContentEditTest {
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Hello")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Hello")
         advanceUntilIdle()
 
         assertTrue(document.retypes.isEmpty())
@@ -169,7 +169,7 @@ class ViewerViewModelContentEditTest {
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Olé")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Olé")
         advanceUntilIdle()
 
         val editor = viewModel.state.value.contentEdit?.editor
@@ -187,12 +187,12 @@ class ViewerViewModelContentEditTest {
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(viewModel.state.value.documentId, "Howdy")
+        viewModel.retypeTextBlock(viewModel.state.value.documentId, "Howdy")
         advanceUntilIdle()
         viewModel.undoAnnotations()
         advanceUntilIdle()
 
-        assertEquals(listOf("Hello", "World"), viewModel.state.value.contentEdit?.runs?.get(0)?.map { it.text })
+        assertEquals(listOf("Hello", "World"), viewModel.state.value.contentEdit?.blocks?.get(0)?.map { it.text })
         assertEquals(listOf("Hello", "World"), document.drawn.last { it.first == 0 }.second)
     }
 
@@ -209,7 +209,7 @@ class ViewerViewModelContentEditTest {
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
-        viewModel.retypeTextRun(staleId, "Howdy")
+        viewModel.retypeTextBlock(staleId, "Howdy")
         advanceUntilIdle()
 
         assertTrue(first.retypes.isEmpty())

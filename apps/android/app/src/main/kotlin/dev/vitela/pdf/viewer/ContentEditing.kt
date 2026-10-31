@@ -9,9 +9,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Edit content: retyping a line of text the page itself paints, keeping its
- * position and — unless it is a composite font — its font; moving one,
- * keeping its text, font and size; or deleting it;
+ * Edit content: retyping a line of text the page itself paints — a block, the
+ * runs the core groups on one line — keeping its position and, unless its first
+ * run is a composite font, its font; moving one, keeping its text, font and
+ * size; or deleting it;
  * resizing an image it paints, keeping its top-left corner; moving one,
  * keeping its size; replacing its picture, keeping its box; and deleting
  * one; and the same resize, move and delete for a vector path — a table
@@ -20,15 +21,16 @@ import kotlinx.coroutines.withContext
  * Nothing is drawn in place of the words or the picture: only the renderer can
  * paint them, so an edit rebuilds the preview and the page re-renders showing
  * it — the Windows shell's approach. What this shell draws is the outline of
- * each run, image and path, from the content as the core last reported it.
+ * each block, image and path, from the content as the core last reported it.
  *
  * Unlike the Windows shell, which writes as the reader types, a retype here is
- * committed from a dialog: one tap, one edit. A second retype of the same run
- * sends the run as the core now reports it — same id, new text — and the core
- * amends the queued command instead of stacking another.
+ * committed from a dialog: one tap, one edit. A second retype of the same block
+ * sends the block as the core now reports it — same first run, new text — and the
+ * core folds it into the queued edit instead of stacking another; so does moving
+ * a block again, or an image.
  *
  * This class owns the mode — arming it, reading pages, routing a tap and
- * landing an accepted edit. The edits themselves live in [TextRunEditing],
+ * landing an accepted edit. The edits themselves live in [TextBlockEditing],
  * [ImageEditing], [PathEditing] and [ContentInserting].
  */
 internal class ContentEditing(
@@ -42,8 +44,8 @@ internal class ContentEditing(
     /** Pages whose content is being read, so a page shown twice in a row is read once. */
     private val reading = mutableSetOf<Int>()
 
-    /** Retyping, moving and deleting text runs. */
-    val text = TextRunEditing(session, this)
+    /** Retyping, moving and deleting text blocks. */
+    val text = TextBlockEditing(session, this)
 
     /** Resizing, moving, replacing and deleting images. */
     val images = ImageEditing(session, this)
@@ -87,7 +89,7 @@ internal class ContentEditing(
         if (state.value.contentEdit != null) state.value = state.value.copy(contentEdit = null, status = CONTENT_EDIT_OFF)
     }
 
-    /** Disarms a move of a run, an image or a path: the next tap opens what it hits. */
+    /** Disarms a move of a text block, an image or a path: the next tap opens what it hits. */
     fun cancelMove() {
         val mode = state.value.contentEdit ?: return
         if (mode.moving != null) state.value = state.value.copy(contentEdit = mode.copy(moving = null), status = MOVE_CANCELLED)
@@ -97,11 +99,11 @@ internal class ContentEditing(
     fun pageShown(pageIndex: Int) {
         val openDocument = session.document ?: return
         val mode = state.value.contentEdit ?: return
-        if (pageIndex in mode.runs || !reading.add(pageIndex)) return
+        if (pageIndex in mode.blocks || !reading.add(pageIndex)) return
         session.scope.launch {
             try {
                 session.documentLane.withLock {
-                    if (session.document === openDocument && state.value.contentEdit?.runs?.containsKey(pageIndex) == false) read(openDocument, pageIndex)
+                    if (session.document === openDocument && state.value.contentEdit?.blocks?.containsKey(pageIndex) == false) read(openDocument, pageIndex)
                 }
             } finally {
                 reading.remove(pageIndex)
@@ -111,7 +113,7 @@ internal class ContentEditing(
 
     /**
      * A tap at [point] on page [pageIndex]: places an armed insert or move,
-     * else opens the run or image it meant, reading the page first if it has not been. [reach] is how far off an
+     * else opens the block, image or path it meant, reading the page first if it has not been. [reach] is how far off an
      * item, in points, a tap may land and still mean it.
      */
     fun tap(pageIndex: Int, point: AnnotationPoint, reach: Double) {
@@ -119,7 +121,7 @@ internal class ContentEditing(
         val armed = state.value.contentEdit ?: return
         armed.adding?.let { addition -> return inserts.place(openDocument, addition, pageIndex, point) }
         when (val moving = armed.moving) {
-            is ContentTarget.Run -> return text.move(openDocument, moving.run, pageIndex, point)
+            is ContentTarget.Block -> return text.move(openDocument, moving.block, pageIndex, point)
             is ContentTarget.Image -> return images.move(openDocument, moving.image, pageIndex, point)
             is ContentTarget.Path -> return paths.move(openDocument, moving.path, pageIndex, point)
             null -> Unit
@@ -128,13 +130,13 @@ internal class ContentEditing(
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
                 val known = state.value.contentEdit?.let { mode ->
-                    mode.runs[pageIndex]?.let { runs -> PageContent(runs, mode.images[pageIndex].orEmpty(), mode.paths[pageIndex].orEmpty()) }
+                    mode.blocks[pageIndex]?.let { blocks -> PageContent(emptyList(), mode.images[pageIndex].orEmpty(), mode.paths[pageIndex].orEmpty(), blocks) }
                 }
                 val content = known ?: read(openDocument, pageIndex) ?: return@withLock
                 val mode = state.value.contentEdit ?: return@withLock
-                state.value = when (val hit = contentAt(content.textRuns, content.images, point, reach, content.paths)) {
+                state.value = when (val hit = contentAt(content.blocks, content.images, point, reach, content.paths)) {
                     null -> state.value.copy(status = CONTENT_EDIT_MISSED)
-                    is ContentTarget.Run -> state.value.copy(contentEdit = mode.copy(editor = TextRunEditor(hit.run), resizer = null, shaper = null))
+                    is ContentTarget.Block -> state.value.copy(contentEdit = mode.copy(editor = TextBlockEditor(hit.block), resizer = null, shaper = null))
                     is ContentTarget.Image -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = ImageResizer(hit.image), shaper = null))
                     is ContentTarget.Path -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = PathShaper(hit.path)))
                 }
@@ -166,11 +168,11 @@ internal class ContentEditing(
      */
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
-        // An armed move or an open replacement picker holds the run, image or path
+        // An armed move or an open replacement picker holds the block, image or path
         // as it was; it may no longer be there. An armed insert and its dialog
         // hold only a spot on a page, which survives.
         state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = null, moving = null, replacingImage = null))
-        for (pageIndex in mode.runs.keys) read(document, pageIndex)
+        for (pageIndex in mode.blocks.keys) read(document, pageIndex)
     }
 
     /**
@@ -188,7 +190,7 @@ internal class ContentEditing(
             is PdfCoreResult.Success -> result.value.also { content ->
                 state.value = state.value.copy(
                     contentEdit = mode.copy(
-                        runs = mode.runs + (pageIndex to content.textRuns),
+                        blocks = mode.blocks + (pageIndex to content.blocks),
                         images = mode.images + (pageIndex to content.images),
                         paths = mode.paths + (pageIndex to content.paths),
                     ),
@@ -197,7 +199,7 @@ internal class ContentEditing(
             is PdfCoreResult.Failure -> {
                 state.value = state.value.copy(
                     contentEdit = mode.copy(
-                        runs = mode.runs + (pageIndex to emptyList()),
+                        blocks = mode.blocks + (pageIndex to emptyList()),
                         images = mode.images + (pageIndex to emptyList()),
                         paths = mode.paths + (pageIndex to emptyList()),
                     ),

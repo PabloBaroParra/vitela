@@ -5,30 +5,30 @@ import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
-import dev.vitela.pdf.core.ContentTextRun
+import dev.vitela.pdf.core.ContentTextBlock
 import kotlin.math.max
 
 /**
- * Edit content mode: a tap on a line of text the page itself paints opens it
- * for retyping, moving or deleting, a tap on an image it paints opens it for
+ * Edit content mode: a tap on a line of text the page itself paints opens the
+ * whole line — a block of runs — for retyping, moving or deleting, a tap on an image it paints opens it for
  * resizing, moving, replacing or deleting, a tap on a vector path — a table
  * border, a rule, a shaded box — opens it for resizing, moving or deleting, and
- * Add text or Add image claims the next tap for something new. [runs],
+ * Add text or Add image claims the next tap for something new. [blocks],
  * [images] and [paths] hold each page's content as last read — only pages that were shown or tapped — so the outlines
  * describe what the page now shows.
  */
 data class ContentEditState(
-    val runs: Map<Int, List<ContentTextRun>> = emptyMap(),
+    val blocks: Map<Int, List<ContentTextBlock>> = emptyMap(),
     val images: Map<Int, List<ContentImage>> = emptyMap(),
     val paths: Map<Int, List<ContentPath>> = emptyMap(),
-    /** The run being retyped, or null while no editor is open. */
-    val editor: TextRunEditor? = null,
+    /** The text block being retyped, or null while no editor is open. */
+    val editor: TextBlockEditor? = null,
     /** The image being resized, or null while no resizer is open. Never open with [editor]. */
     val resizer: ImageResizer? = null,
     /** The vector path being reshaped, or null while no shape dialog is open. Never open with [editor] or [resizer]. */
     val shaper: PathShaper? = null,
     /**
-     * The run, image or path the next page tap moves, armed from its dialog's Move;
+     * The text block, image or path the next page tap moves, armed from its dialog's Move;
      * null while no move is armed. One field, so only one move is ever armed.
      * Never armed with a dialog open.
      */
@@ -47,8 +47,8 @@ data class ContentEditState(
     /** The new line being typed, or null while no insert dialog is open. */
     val inserter: TextInserter? = null,
 ) {
-    /** The run an armed move will place, if what is armed is a run. */
-    val movingText: ContentTextRun? get() = (moving as? ContentTarget.Run)?.run
+    /** The text block an armed move will place, if what is armed is a block. */
+    val movingBlock: ContentTextBlock? get() = (moving as? ContentTarget.Block)?.block
 
     /** The image an armed move will place, if what is armed is an image. */
     val movingImage: ContentImage? get() = (moving as? ContentTarget.Image)?.image
@@ -74,7 +74,7 @@ sealed interface ContentAddition {
  * The insert dialog, for a line whose top-left corner is [at] on page
  * [pageIndex]. [text] and [size] start empty and at the default size and,
  * after a refusal, are what the reader typed — kept with the [error], like
- * [TextRunEditor.text].
+ * [TextBlockEditor.text].
  */
 data class TextInserter(
     val pageIndex: Int,
@@ -85,20 +85,20 @@ data class TextInserter(
 )
 
 /**
- * The retype dialog. [text] starts as the run's and, after a refusal, is what
+ * The retype dialog. [text] starts as the block's and, after a refusal, is what
  * the reader typed — kept with the [error], so the one failure they can fix
  * (a character the font cannot show) is fixed by typing something else.
  */
-data class TextRunEditor(
-    val run: ContentTextRun,
-    val text: String = run.text,
+data class TextBlockEditor(
+    val block: ContentTextBlock,
+    val text: String = block.text,
     val error: String? = null,
 )
 
 /**
  * The resize dialog. [width] and [height] start as the image's, in points, and
  * after a refusal are what the reader typed — kept with the [error], like
- * [TextRunEditor.text].
+ * [TextBlockEditor.text].
  */
 data class ImageResizer(
     val image: ContentImage,
@@ -109,15 +109,15 @@ data class ImageResizer(
 
 /** What a tap in the mode landed on. */
 sealed interface ContentTarget {
-    data class Run(val run: ContentTextRun) : ContentTarget
+    data class Block(val block: ContentTextBlock) : ContentTarget
     data class Image(val image: ContentImage) : ContentTarget
     data class Path(val path: ContentPath) : ContentTarget
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
+internal const val CONTENT_EDIT_ARMED = "Tap a line of text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
 internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
+internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap a line of text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
 internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
 internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
 internal const val TEXT_DELETED = "Text deleted. Save to keep the change."
@@ -146,27 +146,29 @@ internal const val DEFAULT_INSERTED_TEXT_SIZE = 14.0
 /** What an armed move asks for; the image stays on its own page. */
 internal fun imageMovePrompt(pageIndex: Int) = "Drag the image, or tap page ${pageIndex + 1} where its top-left corner should go."
 
-/** What an armed text move asks for; the run stays on its own page. */
+/** What an armed text move asks for; the block stays on its own page. */
 internal fun textMovePrompt(pageIndex: Int) = "Drag the text, or tap page ${pageIndex + 1} where its top-left corner should go."
 internal const val FONT_SUBSTITUTED = "This text's font cannot be kept. What you type will use a standard font."
 
 /**
- * The core cannot re-encode a composite (CID) font, so a retype of such a run
- * swaps in a standard font. Worth saying before the reader types: nothing on
- * the page tells that run apart from any other.
+ * The core cannot re-encode a composite (CID) font, so a retype of a block whose
+ * first run is one — the run that takes all the text — swaps in a standard font.
+ * Worth saying before the reader types: nothing on the page tells that block
+ * apart from any other.
  */
-internal val ContentTextRun.substitutesFont: Boolean get() = fontKind == ContentFontKind.EmbeddedComposite
+internal val ContentTextBlock.substitutesFont: Boolean get() = runs.first().fontKind == ContentFontKind.EmbeddedComposite
 
 /**
- * The run a tap at [point] meant: one it lands inside, else the nearest within
- * [reach] points — a finger is wider than a line of small print. Among runs
- * equally near (a run drawn over a wider one), the smallest wins: it is the
- * one whose edges the reader can see.
+ * The block a tap at [point] meant: one it lands inside — on any of its runs or
+ * the word gap between them — else the nearest within [reach] points, a finger
+ * being wider than a line of small print. Among blocks equally near (a block
+ * drawn over a wider one), the smallest wins: it is the one whose edges the
+ * reader can see.
  */
-internal fun textRunAt(runs: List<ContentTextRun>, point: AnnotationPoint, reach: Double): ContentTextRun? =
-    runs.map { it to distance(it.bounds, point) }
+internal fun textBlockAt(blocks: List<ContentTextBlock>, point: AnnotationPoint, reach: Double): ContentTextBlock? =
+    blocks.map { it to distance(it.bounds, point) }
         .filter { (_, distance) -> distance <= reach }
-        .minWithOrNull(compareBy<Pair<ContentTextRun, Double>> { it.second }.thenBy { it.first.bounds.width * it.first.bounds.height })
+        .minWithOrNull(compareBy<Pair<ContentTextBlock, Double>> { it.second }.thenBy { it.first.bounds.width * it.first.bounds.height })
         ?.first
 
 /**
@@ -178,16 +180,16 @@ internal fun textRunAt(runs: List<ContentTextRun>, point: AnnotationPoint, reach
  * rescues a tap that hit none of them.
  */
 internal fun contentAt(
-    runs: List<ContentTextRun>,
+    blocks: List<ContentTextBlock>,
     images: List<ContentImage>,
     point: AnnotationPoint,
     reach: Double,
     paths: List<ContentPath> = emptyList(),
 ): ContentTarget? =
-    textRunAt(runs, point, 0.0)?.let(ContentTarget::Run)
+    textBlockAt(blocks, point, 0.0)?.let(ContentTarget::Block)
         ?: imageAt(images, point, 0.0)?.let(ContentTarget::Image)
         ?: pathAt(paths, point, 0.0)?.let(ContentTarget::Path)
-        ?: textRunAt(runs, point, reach)?.let(ContentTarget::Run)
+        ?: textBlockAt(blocks, point, reach)?.let(ContentTarget::Block)
         ?: imageAt(images, point, reach)?.let(ContentTarget::Image)
         ?: pathAt(paths, point, reach)?.let(ContentTarget::Path)
 
@@ -209,7 +211,7 @@ internal fun resizedImageRect(bounds: AnnotationRect, width: Double, height: Dou
 }
 
 /**
- * Where a tap at [tap] moves a run, an image or a path now at [bounds]: its top-left
+ * Where a tap at [tap] moves a text block, an image or a path now at [bounds]: its top-left
  * corner to the tap, its size kept — the corner a form field's move lands on
  * too. Like a resize, not kept on the page: the corner tapped is the corner sent.
  */
@@ -227,18 +229,18 @@ internal fun draggedCorner(bounds: AnnotationRect, from: AnnotationPoint, to: An
 /** Whether a finger down at [point] grabs the box at [bounds]: inside it, or within [reach] points. */
 internal fun grabs(bounds: AnnotationRect, point: AnnotationPoint, reach: Double): Boolean = distance(bounds, point) <= reach
 
-/** The box a run, an image or a path now fills; a path's is its geometry, not padded: see [drawnBounds]. */
+/** The box a text block, an image or a path now fills; a path's is its geometry, not padded: see [drawnBounds]. */
 internal val ContentTarget.bounds: AnnotationRect
     get() = when (this) {
-        is ContentTarget.Run -> run.bounds
+        is ContentTarget.Block -> block.bounds
         is ContentTarget.Image -> image.bounds
         is ContentTarget.Path -> path.bounds
     }
 
-/** The page a run, an image or a path is on. */
+/** The page a text block, an image or a path is on. */
 internal val ContentTarget.pageIndex: Int
     get() = when (this) {
-        is ContentTarget.Run -> run.pageIndex
+        is ContentTarget.Block -> block.pageIndex
         is ContentTarget.Image -> image.pageIndex
         is ContentTarget.Path -> path.pageIndex
     }
