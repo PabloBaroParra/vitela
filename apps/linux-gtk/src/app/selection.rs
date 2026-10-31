@@ -288,7 +288,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
     );
 }
 
-/// Paints one outline per text run on `page`, while content-edit mode is on.
+/// Paints one outline per text block on `page`, while content-edit mode is on.
 ///
 /// A no-op until the page's content has been parsed at least once
 /// (`content_edit::load_visible_page_content` does this for the pages in view
@@ -319,11 +319,22 @@ fn draw_content_run_outlines(
         draw_dragged_run(context, page, drag);
     }
 
-    for run in &content.text_runs {
-        let dragging = dragged.filter(|drag| drag.run.id == run.id);
+    // One outline per text block (B25 T-207), the unit a press grabs: a
+    // phrase painted as several operators reads, and outlines, as one.
+    for block in pdf_edit::group_text_runs(&content.text_runs) {
+        let Some(first) = block.runs.first().and_then(|id| content.text_run(*id)) else {
+            continue;
+        };
+        let composite = block.runs.iter().any(|id| {
+            content
+                .text_run(*id)
+                .is_some_and(|run| run.font_kind == FontKind::EmbeddedComposite)
+        });
+        // A dragged block's stand-in carries its first run's id.
+        let dragging = dragged.filter(|drag| drag.run.id == first.id);
         let rect = match dragging {
             Some(drag) => content_edit::text::dragged_origin(drag),
-            None => run.bbox,
+            None => block.bbox,
         };
         let placed = place_rect(
             TextRect {
@@ -334,7 +345,7 @@ fn draw_content_run_outlines(
             },
             page.placement(),
         );
-        if run.font_kind == FontKind::EmbeddedComposite {
+        if composite {
             let (red, green, blue, alpha) = COMPOSITE_RUN_OUTLINE_RGBA;
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&COMPOSITE_RUN_DASH, 0.0);

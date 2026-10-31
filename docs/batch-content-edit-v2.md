@@ -55,7 +55,7 @@ Se decodificó el content stream de la página 1 (68 `Tj`, 20 `TJ`, 19 `re`, 18 
       alineadas forman párrafo. Es agrupación para **seleccionar/mover/borrar/retipear**,
       no reflow: el "Fuera de scope" de B21 sigue vigente. Retipear un bloque partido en
       varios runs = reescribir el primero y vaciar el resto.
-      **Core + FFI + Windows hechos (2026-10-29); faltan Linux, Android (T-212) y los párrafos.**
+      **Core + FFI + Windows hechos (2026-10-29), Linux (2026-10-31); faltan Android (T-212) y los párrafos.**
       Windows: Edit content contornea bloques; clic = un editor sobre el bloque entero
       (escribe con `retype_text_block`, cada pausa se pliega en el mismo undo); arrastrar
       más de 4 px mueve el bloque; Delete en el editor borra el bloque. `TextBlockSmoke`.

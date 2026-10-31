@@ -38,10 +38,7 @@ use crate::app::state::{ContentEditor, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
-use super::command::{
-    amend_command, amended_command, apply_command, pending_move_index, pending_text_command,
-    validate_insert_text, validate_remove_text, validate_replacement, PendingText,
-};
+use super::command::{self, pending_move_index, pending_text_command, PendingText};
 use super::model;
 use super::CLICK_EPSILON_PX;
 
@@ -69,13 +66,18 @@ const INSERT_TEXT_HEIGHT_PT: f64 = 14.0;
 /// what the page shows. What changes is where the commit lands: `amends`
 /// carries the log entry to fold the result into, rather than a second
 /// command being appended.
-pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
+pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, block: Vec<TextRun>) {
     commit(viewer);
     if keep_refused_editor(viewer) {
         return;
     }
 
-    if run.font_kind == FontKind::EmbeddedComposite {
+    // `run` stands in for `block` when there is one (B25 T-207): its box and
+    // text are the block's, and every member must be retypeable.
+    if let Some(run) = std::iter::once(&run)
+        .chain(&block)
+        .find(|run| run.font_kind == FontKind::EmbeddedComposite)
+    {
         viewer.status.set_text(
             &EditError::CompositeFontNotEditable {
                 resource_font_name: run.resource_font_name.clone(),
@@ -91,6 +93,9 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
     // way its next edit amends the command already describing it instead of
     // queueing a second one no save could resolve; see
     // `command::pending_text_command`.
+    //
+    // A block's runs are the core's to judge when its batch is recorded
+    // (`pdf_save::record_content_batch`), so these checks are a single run's.
     let (pending, moved) = {
         let state = viewer.state.borrow();
         let document = state
@@ -98,11 +103,11 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
             .as_ref()
             .and_then(|session| session.document_model.as_ref());
         match document {
-            Some(document) => (
+            Some(document) if block.is_empty() => (
                 pending_text_command(document, &run),
                 pending_move_index(document, &run).is_some(),
             ),
-            None => (PendingText::Nothing, false),
+            _ => (PendingText::Nothing, false),
         }
     };
     let amends = match pending {
@@ -161,6 +166,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun) {
             frame,
             is_insertion: false,
             amends,
+            block,
         });
 
         entry
@@ -270,6 +276,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             entry: entry.clone(),
             frame,
             is_insertion: true,
+            block: Vec::new(),
             // Nothing to amend: this run has no command of its own yet. The
             // one this commit records is what a *later* click on the same
             // text will amend, via the synthetic id the overlay mints for it.
@@ -682,166 +689,44 @@ pub(crate) fn commit(viewer: &Viewer) {
     }
 
     let is_insertion = editor.is_insertion;
-    let amends = editor.amends;
     let run = editor.run.clone();
-    let base = &session
-        .save_backing
-        .as_ref()
-        .expect("content_edit_refusal already required a model, which requires save_backing")
-        .base;
-    let Some(document) = session.document_model.as_ref() else {
-        return;
+    let block = editor.block.clone();
+
+    // Recorded through the core's queue policy (`pdf_save::record`), which
+    // decides where the retype goes: a run the overlay shows because of a
+    // pending insertion or retype is folded into that entry, keeping the
+    // snapshot the file holds, and a block is one batch (B25 T-207).
+    let (recorded, message) = if !block.is_empty() {
+        (
+            command::record_batch(session, pdf_edit::retype_block(&block, &after, false)),
+            "Text updated.",
+        )
+    } else if is_insertion {
+        (
+            command::record(
+                session,
+                Command::InsertTextRun(TextRun { text: after, ..run }),
+            ),
+            "Text inserted.",
+        )
+    } else {
+        (
+            command::record(session, Command::ReplaceTextRunContent { item: run, after }),
+            "Text updated.",
+        )
     };
-    // Resolved through the run's own page rather than through a position:
-    // an imported page's bytes are in the PDF it came from
-    // (`super::page_probe`). A page this session cannot reach is one no
-    // command against it could be validated on, so the edit is refused
-    // rather than probed against the wrong document.
-    let Some(probe) = super::page_probe(document, base, &session.imported_sources, run.page) else {
-        let editor = session.content_editor.take().expect("checked above");
-        drop(state);
-        detach(viewer, &editor);
-        viewer
-            .status
-            .set_text("That page cannot be edited — nothing was recorded.");
-        return;
-    };
 
-    // Checked before `is_insertion`, and it wins: a run that came off the
-    // overlay is a retype of something already queued whether that something
-    // was an insertion or a replacement, and the entry it amends is what
-    // decides which. `is_insertion` only describes how *this* editor was
-    // opened, which for a second edit is always "over an existing run".
-    if let Some(index) = amends {
-        let existing = session
-            .document_model
-            .as_ref()
-            .and_then(|document| document.pending_edits.entries().get(index))
-            .cloned();
-        // Both `None` cases mean the log moved on underneath an editor opened
-        // against it (the model was dropped, or the entry is no longer a text
-        // command). Closing without recording is the honest outcome: there is
-        // no entry left to amend, and recording a fresh command instead would
-        // be the very duplicate this path exists to avoid.
-        let Some(amended) = existing
-            .as_ref()
-            .and_then(|existing| amended_command(existing, &after, None))
-        else {
-            let editor = session.content_editor.take().expect("checked above");
-            drop(state);
-            detach(viewer, &editor);
-            // Said out loud rather than swallowed: the user typed something
-            // and it is not being recorded, which is exactly the outcome that
-            // must never happen quietly.
-            viewer
-                .status
-                .set_text("That edit is no longer available — nothing was recorded.");
-            return;
-        };
-
-        let validated = match &amended {
-            Command::InsertTextRun(run) => validate_insert_text(probe, run),
-            Command::ReplaceTextRunContent { item, after } => {
-                validate_replacement(probe, item, after)
-            }
-            // `amended_command` produces no other shape.
-            _ => Ok(()),
-        };
-
-        match validated {
-            Ok(()) => {
-                let document = session
-                    .document_model
-                    .as_mut()
-                    .expect("read through the same field just above");
-                // The log's own refusal is honoured rather than assumed away:
-                // claiming "Text updated." over an amendment it declined would
-                // mark the document dirty and re-render it unchanged, which
-                // reads to the user as their retype vanishing.
-                let recorded = amend_command(document, index, amended);
-                let editor = session.content_editor.take().expect("checked above");
-                if !recorded {
-                    drop(state);
-                    detach(viewer, &editor);
-                    viewer
-                        .status
-                        .set_text("That edit is no longer available — nothing was recorded.");
-                    return;
-                }
-                session.edit_revision += 1;
-                // Same reason as every other branch: recorded now, so a
-                // failed refresh cannot leave a dirty document reporting clean.
-                session.unsaved_to_disk = true;
-                drop(state);
-                detach(viewer, &editor);
-                refresh_preview(viewer, "Text updated.");
-            }
-            Err(error) => {
-                drop(state);
-                viewer.status.set_text(&error.to_string());
-            }
-        }
-        return;
-    }
-
-    if is_insertion {
-        let mut new_run = run;
-        new_run.text = after;
-        match validate_insert_text(probe, &new_run) {
-            Ok(()) => {
-                let document = session
-                    .document_model
-                    .as_mut()
-                    .expect("content_edit_refusal already required a model");
-                apply_command(document, Command::InsertTextRun(new_run));
-                session.edit_revision += 1;
-                // Marked here, at the moment the command joins the log, not
-                // when `refresh_preview` lands: a refresh that
-                // fails still leaves a recorded edit behind, and a document
-                // that reports itself clean is one the open-another-document
-                // guard will discard without asking.
-                session.unsaved_to_disk = true;
-                let editor = session.content_editor.take().expect("checked above");
-                drop(state);
-                detach(viewer, &editor);
-                refresh_preview(viewer, "Text inserted.");
-            }
-            Err(error) => {
-                drop(state);
-                viewer.status.set_text(&error.to_string());
-            }
-        }
-        return;
-    }
-
-    match validate_replacement(probe, &run, &after) {
+    match recorded {
         Ok(()) => {
-            let document = session
-                .document_model
-                .as_mut()
-                .expect("content_edit_refusal already required a model");
-            apply_command(
-                document,
-                Command::ReplaceTextRunContent {
-                    item: run,
-                    after: after.clone(),
-                },
-            );
-            session.edit_revision += 1;
-            // Same reason as the insertion branch above: recorded now, so a
-            // failed refresh cannot leave a dirty document reporting clean.
-            session.unsaved_to_disk = true;
             let editor = session.content_editor.take().expect("checked above");
             drop(state);
             detach(viewer, &editor);
-            refresh_preview(viewer, "Text updated.");
+            refresh_preview(viewer, message);
         }
+        // The editor stays open holding what was typed, and says why.
         Err(error) => {
-            // A move recorded just above stays recorded: it validated on its
-            // own and undo can still remove it. Only the retype failed, and
-            // the editor stays open holding it.
             drop(state);
-            viewer.status.set_text(&error.to_string());
+            viewer.status.set_text(&error);
         }
     }
 }
@@ -860,46 +745,19 @@ pub(crate) fn commit(viewer: &Viewer) {
 pub(crate) const INSERTION_NOT_DELETABLE: &str =
     "This text hasn't been saved yet — undo the insertion to remove it.";
 
-/// Said when the log moved on underneath an editor opened against it — the
-/// same wording, and the same reasoning, [`commit`]'s two amendment dead ends
-/// already use.
-const NOTHING_RECORDED: &str = "That edit is no longer available — nothing was recorded.";
-
-/// Removes the run the open inline editor sits on, recording
-/// [`Command::RemoveTextRun`] — the Edit page's "Delete text", and the text
-/// half of what the image card has had since T-162.
+/// Removes the run the open inline editor sits on — or its whole block, as
+/// one undo step (B25 T-207) — the Edit page's "Delete text".
 ///
 /// Whatever is in the box is discarded rather than committed first: a delete
-/// supersedes a retype of the same run, and recording both would queue two
-/// commands against one item — the duplicate `EditLog::amend` exists to
-/// prevent.
-///
-/// # The run's one pending command decides where this lands
-///
-/// - **Nothing queued** (the ordinary case): the run is as the file last
-///   saved it, and a `RemoveTextRun` is appended.
-/// - **A queued retype** (`ReplaceTextRunContent`): that entry is *amended*
-///   into the removal, carrying the original snapshot the recorded command
-///   holds rather than the run this shell hit-tested. Appending instead would
-///   leave a removal whose `item` describes text the replacement already
-///   replaced — resolvable against nothing at save time.
-/// - **A queued insertion**: refused, see [`INSERTION_NOT_DELETABLE`].
-///
-/// A run with a queued **move** is not a case here: `open_editor` refuses to
-/// open over one at all, so no editor is ever sitting on it for this button
-/// to act through.
+/// supersedes a retype of the same run. Where the removal lands is the
+/// core's to decide (`pdf_save::record`): a run with a queued retype has that
+/// entry amended into the removal, keeping the snapshot the file holds. A
+/// run that is only an unsaved insertion is refused here, see
+/// [`INSERTION_NOT_DELETABLE`].
 pub(crate) fn delete_open_run(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(refusal);
         return;
-    }
-
-    /// What this delete does to the log, and the run it does it with. The
-    /// run differs between the two: an amendment must carry the *recorded*
-    /// snapshot, never the one the overlay handed the shell.
-    enum Removal {
-        Append(TextRun),
-        Amend(usize, TextRun),
     }
 
     let mut state = viewer.state.borrow_mut();
@@ -909,102 +767,34 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     let Some(editor) = session.content_editor.as_ref() else {
         return;
     };
-    // A blank insertion box has no run on the page to remove — nothing has
-    // been recorded for it yet, and `Escape` is what closes it. The button is
-    // already insensitive for one (`update_content_edit_controls`); this is
-    // the guard behind that, not a path a click reaches.
     if editor.is_insertion {
         return;
     }
-    let amends = editor.amends;
     let run = editor.run.clone();
-
-    let removal = match amends {
-        None => Removal::Append(run),
-        Some(index) => {
-            let existing = session
-                .document_model
-                .as_ref()
-                .and_then(|document| document.pending_edits.entries().get(index))
-                .cloned();
-            match existing {
-                Some(Command::ReplaceTextRunContent { item, .. }) => Removal::Amend(index, item),
-                Some(Command::InsertTextRun(_)) => {
-                    drop(state);
-                    viewer.status.set_text(INSERTION_NOT_DELETABLE);
-                    return;
-                }
-                _ => {
-                    drop(state);
-                    viewer.status.set_text(NOTHING_RECORDED);
-                    return;
-                }
-            }
-        }
-    };
-
-    let target = match &removal {
-        Removal::Append(run) | Removal::Amend(_, run) => run,
-    };
-    let base = &session
-        .save_backing
-        .as_ref()
-        .expect("content_edit_refusal already required a model, which requires save_backing")
-        .base;
-    let Some(document) = session.document_model.as_ref() else {
-        return;
-    };
-    let Some(probe) = super::page_probe(document, base, &session.imported_sources, target.page)
-    else {
+    let block = editor.block.clone();
+    if block.is_empty() && model::pending_log_index(run.id).is_some() {
         drop(state);
-        viewer
-            .status
-            .set_text("That page cannot be edited — nothing was recorded.");
-        return;
-    };
-    if let Err(error) = validate_remove_text(probe, target) {
-        // The editor stays open holding the run, exactly as a failed
-        // replacement leaves it — the delete did not happen, so the target
-        // has not stopped being one.
-        drop(state);
-        viewer.status.set_text(&error.to_string());
+        viewer.status.set_text(INSERTION_NOT_DELETABLE);
         return;
     }
 
-    let document = session
-        .document_model
-        .as_mut()
-        .expect("content_edit_refusal already required a model");
-    let recorded = match removal {
-        Removal::Append(target) => {
-            apply_command(document, Command::RemoveTextRun(target));
-            true
-        }
-        // The log's own refusal is honoured rather than assumed away, the
-        // same posture `commit`'s amendment branch takes: reporting a
-        // deletion the log declined would mark the document dirty and
-        // re-render it unchanged, which reads as the text coming back.
-        Removal::Amend(index, target) => {
-            amend_command(document, index, Command::RemoveTextRun(target))
-        }
+    let recorded = if block.is_empty() {
+        command::record(session, Command::RemoveTextRun(run))
+    } else {
+        command::record_batch(session, pdf_edit::remove_block(&block))
     };
-
-    let editor = session.content_editor.take().expect("checked above");
-    if !recorded {
-        drop(state);
-        detach(viewer, &editor);
-        viewer.status.set_text(NOTHING_RECORDED);
-        return;
+    match recorded {
+        Ok(()) => {
+            let editor = session.content_editor.take().expect("checked above");
+            drop(state);
+            detach(viewer, &editor);
+            refresh_preview(viewer, "Text deleted.");
+        }
+        Err(error) => {
+            drop(state);
+            viewer.status.set_text(&error);
+        }
     }
-    session.edit_revision += 1;
-    // Dirty at record time, not at refresh time — same reason every other
-    // branch in this module gives: a refresh that fails still leaves a
-    // recorded edit behind, and a document reporting itself clean is one the
-    // open-another-document guard discards without asking.
-    session.unsaved_to_disk = true;
-    drop(state);
-    detach(viewer, &editor);
-    refresh_preview(viewer, "Text deleted.");
 }
 
 /// Discards the open editor without recording anything (Escape, or content
@@ -1483,7 +1273,7 @@ mod tests {
                 .map(|editor| (editor.run.text.clone(), editor.entry.clone()))
         };
 
-        open_editor(&built.viewer, 0, runs[0].clone());
+        open_editor(&built.viewer, 0, runs[0].clone(), Vec::new());
         let (_, entry) = open_entry(&built.viewer).expect("the first click opens a box");
         entry.set_text("Kőszeg");
         entry.emit_activate();
@@ -1495,7 +1285,7 @@ mod tests {
             built.viewer.status.text()
         );
 
-        open_editor(&built.viewer, 0, runs[1].clone());
+        open_editor(&built.viewer, 0, runs[1].clone(), Vec::new());
         pump();
 
         let (run_text, still_open) =
