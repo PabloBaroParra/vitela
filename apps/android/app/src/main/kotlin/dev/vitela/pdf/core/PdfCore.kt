@@ -226,6 +226,24 @@ interface PdfDocument : AutoCloseable {
      */
     fun removeContentSelection(selection: ContentSelection): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
+     * Copies every member of [selection] into a clip, changing nothing in the
+     * document. Refused for a member with an unsaved edit — the clip is read
+     * from the file — and for a document that does not permit copying.
+     */
+    fun copyContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Copies [selection] and queues one undoable removal of it, so the cut is
+     * one undo step. The page shows it only after [refreshPreview].
+     */
+    fun cutContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable paste of [clip] onto page [pageIndex], the top-left
+     * corner of the clip's box at ([left], [top]) in PDF points. The page shows
+     * it only after [refreshPreview]; until a save its items are read back like
+     * any other, and dragging all of them moves the paste itself.
+     */
+    fun pasteContent(pageIndex: Int, clip: ContentClip, left: Double, top: Double): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
      * Checks that [image]'s original can be recovered for an undo, before a
      * picker opens; refused for an image with a pending edit or an encoding
      * that cannot round-trip without loss.

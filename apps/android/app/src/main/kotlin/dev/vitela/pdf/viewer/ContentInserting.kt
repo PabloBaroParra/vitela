@@ -36,7 +36,8 @@ internal class ContentInserting(
 
     fun cancel() {
         val mode = state.value.contentEdit ?: return
-        if (mode.adding != null) state.value = state.value.copy(contentEdit = mode.copy(adding = null), status = INSERT_CANCELLED)
+        val adding = mode.adding ?: return
+        state.value = state.value.copy(contentEdit = mode.copy(adding = null), status = if (adding == ContentAddition.Paste) CONTENT_PASTE_CANCELLED else INSERT_CANCELLED)
     }
 
     fun dismissInserter() {
@@ -57,6 +58,8 @@ internal class ContentInserting(
                 state.value = state.value.copy(contentEdit = mode.copy(adding = null))
                 insertImage(openDocument, addition.bytes, pageIndex, point)
             }
+            // A paste is placed by [ClipboardEditing]; [ContentEditing.tap] never sends one here.
+            ContentAddition.Paste -> Unit
         }
     }
 
