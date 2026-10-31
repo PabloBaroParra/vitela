@@ -11,11 +11,26 @@ protocol RecentDocumentStore {
     func noteOpened(_ url: URL)
     /// Tells the system the list was cleared. Main thread.
     func noteCleared()
+    /// What lets this app read `url` again after a relaunch, made while it
+    /// still may; `nil` when no bookmark is kept or none could be made.
+    func bookmark(for url: URL) -> Data?
+    /// Runs `body` with `document`'s file readable, then gives that access
+    /// back.
+    func withAccess<T>(to document: RecentDocument, _ body: (URL) throws -> T) rethrows -> T
 }
 
 extension RecentDocumentStore {
     func noteOpened(_ url: URL) {}
     func noteCleared() {}
+    func bookmark(for url: URL) -> Data? { nil }
+    func withAccess<T>(to document: RecentDocument, _ body: (URL) throws -> T) rethrows -> T {
+        try body(document.url)
+    }
+
+    /// Whether the card's file is still there to open.
+    func canReach(_ document: RecentDocument) -> Bool {
+        withAccess(to: document) { FileManager.default.fileExists(atPath: $0.path) }
+    }
 }
 
 /// Vitela's own list, one JSON file under Application Support — local to
@@ -27,6 +42,12 @@ extension RecentDocumentStore {
 /// store with open dates to read, so the list is Vitela's own — which also
 /// means removing a card simply removes it, with no second list. Each open is
 /// still noted with `NSDocumentController`, so the Dock menu lists it too.
+///
+/// In the App Sandbox (the Mac App Store build) a path alone opens nothing
+/// after a relaunch: the access the open panel, a drop or Finder granted ends
+/// with the process. So each entry keeps a security-scoped bookmark, and a
+/// card's file is read inside that bookmark's access. Outside the sandbox the
+/// bookmark resolves to the same file and changes nothing.
 struct FileRecentDocumentStore: RecentDocumentStore {
     let url: URL
 
@@ -43,6 +64,23 @@ struct FileRecentDocumentStore: RecentDocumentStore {
 
     func noteCleared() {
         NSDocumentController.shared.clearRecentDocuments(nil)
+    }
+
+    func bookmark(for url: URL) -> Data? {
+        try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+
+    /// The card's own path is what is read: a bookmark that now resolves to
+    /// a file moved elsewhere grants access to that file, not to the card.
+    func withAccess<T>(to document: RecentDocument, _ body: (URL) throws -> T) rethrows -> T {
+        var stale = false
+        guard let bookmark = document.bookmark,
+              let scoped = try? URL(resolvingBookmarkData: bookmark, options: .withSecurityScope,
+                                    relativeTo: nil, bookmarkDataIsStale: &stale)
+        else { return try body(document.url) }
+        let granted = scoped.startAccessingSecurityScopedResource()
+        defer { if granted { scoped.stopAccessingSecurityScopedResource() } }
+        return try body(document.url)
     }
 
     func load() -> [RecentDocument] {

@@ -22,7 +22,7 @@ extension ViewerViewModel {
     func loadRecentDocuments() {
         let store = recentStore
         recentStorageQueue.addOperation { [weak self] in
-            let documents = store.load().filter { FileManager.default.fileExists(atPath: $0.path) }
+            let documents = store.load().filter { store.canReach($0) }
             DispatchQueue.main.async { self?.recentDocuments = documents }
         }
     }
@@ -48,8 +48,10 @@ extension ViewerViewModel {
         let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
         recentPreviews[standardized] = nil
         recentPreviewsRequested.remove(standardized)
-        recentStore.noteOpened(URL(fileURLWithPath: path))
-        changeRecents(failure: nil) { RecentDocuments.recording(path, at: date, in: $0) }
+        let url = URL(fileURLWithPath: path)
+        recentStore.noteOpened(url)
+        let store = recentStore
+        changeRecents(failure: nil) { RecentDocuments.recording(path, at: date, in: $0, bookmark: store.bookmark(for: url)) }
     }
 
     /// "Remove from Recent": off this list only.
@@ -67,10 +69,14 @@ extension ViewerViewModel {
         changeRecents(failure: "Could not clear Recent.") { _ in [] }
     }
 
-    /// Opens a Recent card's document, after the unsaved-changes question.
+    /// Opens a Recent card's document, after the unsaved-changes question,
+    /// reading it inside the access its bookmark holds.
     func openRecent(_ document: RecentDocument) {
+        let store = recentStore
         proceedPastUnsavedChanges { [weak self] in
-            self?.open(url: document.url)
+            self?.loadAndOpen(name: document.name, recentPath: document.path) {
+                try store.withAccess(to: document) { try Data(contentsOf: $0) }
+            }
         }
     }
 
@@ -83,13 +89,14 @@ extension ViewerViewModel {
     /// operation queue, so Home coming back on screen retries them.
     func loadRecentPreviews(scale: Double, retry: Bool = false) {
         let client = store.client
+        let recents = recentStore
         let dpi = Self.recentPreviewDpi(scale: scale)
         if retry { recentPreviewsRequested.removeAll() }
         for document in recentDocuments
         where recentPreviews[document.path] == nil && !recentPreviewsRequested.contains(document.path) {
             recentPreviewsRequested.insert(document.path)
             operationQueue.addOperation { [weak self] in
-                guard let bytes = try? Data(contentsOf: document.url),
+                guard let bytes = recents.withAccess(to: document, { try? Data(contentsOf: $0) }),
                       let opened = try? client.open(bytes: bytes, password: nil),
                       !opened.pages.isEmpty
                 else { return }
@@ -108,7 +115,7 @@ extension ViewerViewModel {
         recentStorageQueue.addOperation { [weak self] in
             let documents = change(store.load())
             let saved = store.save(documents)
-            let shown = documents.filter { FileManager.default.fileExists(atPath: $0.path) }
+            let shown = documents.filter { store.canReach($0) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.recentDocuments = shown

@@ -25,6 +25,8 @@ write_complete_bundle() {
   touch "$app/Contents/Frameworks/libpdfium.dylib"
   mkdir -p "$app/Contents/Resources"
   touch "$app/Contents/Resources/vitela-sample.pdf"
+  touch "$app/Contents/Resources/Assets.car"
+  touch "$app/Contents/Resources/PrivacyInfo.xcprivacy"
 }
 
 # Each case removes exactly one required member from an otherwise complete
@@ -51,5 +53,7 @@ assert_rejects_missing "Contents/MacOS/Vitela" "missing application executable"
 # A bundle without Info.plist passes every Mach-O check and still cannot launch.
 assert_rejects_missing "Contents/Info.plist" "missing Contents/Info.plist"
 assert_rejects_missing "Contents/Resources/vitela-sample.pdf" "missing bundled sample document"
+assert_rejects_missing "Contents/Resources/Assets.car" "missing compiled app icon"
+assert_rejects_missing "Contents/Resources/PrivacyInfo.xcprivacy" "missing privacy manifest"
 
-printf 'PASS: bundle layout requires the app executable, Info.plist, FFI, PDFium dylibs, and the sample document\n'
+printf 'PASS: bundle layout requires the app executable, Info.plist, FFI, PDFium dylibs, the sample document, the app icon and the privacy manifest\n'

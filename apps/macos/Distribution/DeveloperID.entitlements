@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The Developer ID build (scripts/package-macos.sh developer-id): signed with
+  the hardened runtime and notarized, downloaded from GitHub Releases rather
+  than the Mac App Store, so it runs outside the App Sandbox.
+  - disable-library-validation: card or token signing loads the vendor's
+    PKCS#11 module, a dylib signed by another team (or by none). The hardened
+    runtime refuses such a library without this exception. It is the only
+    one this build takes.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
