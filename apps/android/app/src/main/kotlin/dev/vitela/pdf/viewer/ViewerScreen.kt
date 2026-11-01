@@ -231,6 +231,7 @@ internal fun ViewerScreen(
                                     onPosition = onAnnotationPosition, onDelete = onAnnotationDelete, onColor = onAnnotationColor,
                                     onCancelMove = contentEdit.onCancelMove, onCancelInsert = contentEdit.onCancelInsert,
                                     onDeleteSelection = contentEdit.onDeleteSelection, onClearSelection = contentEdit.onClearSelection,
+                                    onCopySelection = contentEdit.onCopySelection, onCutSelection = contentEdit.onCutSelection,
                                 ),
                             )
                             Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Vitela.colors.canvas)) {

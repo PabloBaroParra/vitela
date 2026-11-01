@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
+import dev.vitela.pdf.core.ContentClip
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
@@ -38,6 +39,8 @@ import dev.vitela.pdf.core.SearchHit
 internal class RetypableDocument(
     private val editingAllowed: Boolean = true,
     private val refusal: PdfCoreError? = null,
+    /** Refuses only a paste, so a copy before it can still succeed. */
+    private val pasteRefusal: PdfCoreError? = null,
 ) : PdfDocument {
     private var runs = listOf(
         ContentTextRun(10, 0, AnnotationRect(10.0, 150.0, 40.0, 12.0), "F1", ContentFontKind.Standard14, "Hello"),
@@ -77,6 +80,10 @@ internal class RetypableDocument(
     val selectionMoves = mutableListOf<Triple<ContentSelection, Double, Double>>()
     /** Each selection delete the core accepted: the selection as the shell sent it. */
     val selectionDeletes = mutableListOf<ContentSelection>()
+    /** Each selection copied and cut, as the shell sent it; and each paste: the page, the clip and the corner (left, top) sent. */
+    val copies = mutableListOf<ContentSelection>()
+    val cuts = mutableListOf<ContentSelection>()
+    val pastes = mutableListOf<Triple<Int, ContentClip, Pair<Double, Double>>>()
     /** Each image whose original the core recovered before a picker opened. */
     val prepared = mutableListOf<ContentImage>()
     /** Each source replacement the core accepted: the image as the shell sent it, and the new bytes. */
@@ -220,6 +227,11 @@ internal class RetypableDocument(
     override fun removeContentSelection(selection: ContentSelection): PdfCoreResult<Unit> {
         refusal?.let { return PdfCoreResult.Failure(it) }
         selectionDeletes += selection
+        drop(selection)
+        return PdfCoreResult.Success(Unit)
+    }
+
+    private fun drop(selection: ContentSelection) {
         val runIds = selection.blocks.flatMap { block -> block.runs.map { it.id } }.toSet()
         val imageIds = selection.images.map { it.id }.toSet()
         val pathIds = selection.paths.map { it.id }.toSet()
@@ -228,7 +240,42 @@ internal class RetypableDocument(
             images = images.filter { it.id !in imageIds }
             paths = paths.filter { it.id !in pathIds }
         }
+    }
+
+    override fun copyContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        copies += selection
+        return PdfCoreResult.Success(clipOf(selection))
+    }
+
+    // Copy, then the same removal as a delete: one undo step, like the core's.
+    override fun cutContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        cuts += selection
+        return clipOf(selection).also { drop(selection) }.let { PdfCoreResult.Success(it) }
+    }
+
+    // The items come back as new ones on [pageIndex], the clip box's top-left corner on (left, top).
+    override fun pasteContent(pageIndex: Int, clip: ContentClip, left: Double, top: Double): PdfCoreResult<Unit> {
+        (pasteRefusal ?: refusal)?.let { return PdfCoreResult.Failure(it) }
+        pastes += Triple(pageIndex, clip, left to top)
+        val held = clipped.getValue(clip.pdf)
+        fun AnnotationRect.landed() = copy(x = x + left - clip.bounds.x, y = y + top - clip.bounds.y - clip.bounds.height)
+        record {
+            runs = runs + held.runs.map { it.copy(id = nextId++, pageIndex = pageIndex, bounds = it.bounds.landed()) }
+            images = images + held.images.map { it.copy(id = nextId++, pageIndex = pageIndex, bounds = it.bounds.landed()) }
+            paths = paths + held.paths.map { it.copy(id = nextId++, pageIndex = pageIndex, bounds = it.bounds.landed()) }
+        }
         return PdfCoreResult.Success(Unit)
+    }
+
+    private fun clipOf(selection: ContentSelection): ContentClip {
+        val runIds = selection.blocks.flatMap { block -> block.runs.map { it.id } }.toSet()
+        val held = Content(runs.filter { it.id in runIds }, images.filter { i -> selection.images.any { it.id == i.id } }, paths.filter { p -> selection.paths.any { it.id == p.id } })
+        val boxes = held.runs.map { it.bounds } + held.images.map { it.bounds } + held.paths.map { it.bounds }
+        val (left, bottom) = boxes.minOf { it.x } to boxes.minOf { it.y }
+        val box = AnnotationRect(left, bottom, boxes.maxOf { it.x + it.width } - left, boxes.maxOf { it.y + it.height } - bottom)
+        return ContentClip(byteArrayOf(nextId.toByte()), box).also { clipped[it.pdf] = held }
     }
 
     override fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> {
@@ -289,6 +336,11 @@ internal class RetypableDocument(
         runs = content.runs
         images = content.images
         paths = content.paths
+    }
+
+    private companion object {
+        /** What each clip made by any such document holds, by the clip's own bytes, so a paste — into another document too — can put the same items back. */
+        val clipped = mutableMapOf<ByteArray, Content>()
     }
 
     private data class Content(val runs: List<ContentTextRun>, val images: List<ContentImage>, val paths: List<ContentPath>)

@@ -32,7 +32,7 @@ import kotlinx.coroutines.withContext
  * This class owns the mode — arming it, reading pages, routing a tap and
  * landing an accepted edit. The edits themselves live in [TextBlockEditing],
  * [ImageEditing], [PathEditing], [ContentInserting] and, for several items at
- * once, [SelectionEditing].
+ * once, [SelectionEditing] and [ClipboardEditing].
  */
 internal class ContentEditing(
     private val session: ViewerSession,
@@ -60,6 +60,9 @@ internal class ContentEditing(
     /** Gathering several items on a page, then moving or deleting them at once. */
     val selections = SelectionEditing(session, this)
 
+    /** Copying, cutting and pasting the selection. */
+    val clipboard = ClipboardEditing(session, this)
+
     /**
      * Arms the mode. Not over the Organize grid, which hides the pages a
      * retype would redraw. One mode claims a page tap at a time, so an armed
@@ -74,7 +77,7 @@ internal class ContentEditing(
         if (state.value.pageCount == 0 || state.value.organize != null || state.value.contentEdit != null) return
         selection.clear()
         state.value = state.value.copy(
-            contentEdit = ContentEditState(),
+            contentEdit = ContentEditState(hasClip = session.contentClip != null),
             activeAnnotationTool = AnnotationTool.Pointer,
             selectedAnnotationId = null,
             status = CONTENT_EDIT_ARMED,
@@ -123,7 +126,9 @@ internal class ContentEditing(
     fun tap(pageIndex: Int, point: AnnotationPoint, reach: Double) {
         val openDocument = session.document ?: return
         val armed = state.value.contentEdit ?: return
-        armed.adding?.let { addition -> return inserts.place(openDocument, addition, pageIndex, point) }
+        armed.adding?.let { addition ->
+            return if (addition == ContentAddition.Paste) clipboard.place(openDocument, pageIndex, point) else inserts.place(openDocument, addition, pageIndex, point)
+        }
         when (val moving = armed.moving) {
             is ContentTarget.Block -> return text.move(openDocument, moving.block, pageIndex, point)
             is ContentTarget.Image -> return images.move(openDocument, moving.image, pageIndex, point)

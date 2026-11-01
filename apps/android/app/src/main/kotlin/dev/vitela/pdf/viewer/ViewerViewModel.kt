@@ -550,6 +550,12 @@ class ViewerViewModel(
     fun moveContentSelection(pageIndex: Int, dx: Double, dy: Double) = contentEditing.selections.move(pageIndex, dx, dy)
     fun deleteContentSelection() = contentEditing.selections.delete()
     fun clearContentSelection() = contentEditing.selections.clear()
+    /** Copies the selection into the clip held for Paste content. */
+    fun copyContentSelection() = contentEditing.clipboard.copy()
+    /** Copies the selection into the clip and deletes it, one undo step. */
+    fun cutContentSelection() = contentEditing.clipboard.cut()
+    /** Arms the next page tap to paste the held clip; nothing while none is held. */
+    fun armContentPaste() = contentEditing.clipboard.armPaste()
     /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
     fun deleteImage(documentId: Long) = contentEditing.images.delete(documentId)
     /** Checks the open dialog's image can be replaced; true means open the picker. [documentId] is the document the dialog was built for. */

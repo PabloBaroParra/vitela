@@ -498,6 +498,9 @@ private fun VitelaApp(
                 onMoveSelection = viewModel::moveContentSelection,
                 onDeleteSelection = viewModel::deleteContentSelection,
                 onClearSelection = viewModel::clearContentSelection,
+                onCopySelection = viewModel::copyContentSelection,
+                onCutSelection = viewModel::cutContentSelection,
+                onPasteContent = viewModel::armContentPaste,
             )
         },
         watermark = remember(viewModel) {

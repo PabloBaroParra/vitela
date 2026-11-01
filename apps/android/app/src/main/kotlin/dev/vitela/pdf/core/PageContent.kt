@@ -116,3 +116,14 @@ data class ContentSelection(
     /** How many items it holds, a block counting as one. */
     val count: Int get() = blocks.size + images.size + paths.size
 }
+
+/**
+ * Page content copied out of a page (B25 T-209): a self-contained one-page PDF,
+ * [pdf], and the box the copied items covered on their page, [bounds] in PDF
+ * points. Holds no id of the document it came from, so the shell keeps it past
+ * a page edit and past the document, and it pastes into another one.
+ *
+ * Not a data class: two copies of the same items are two clips, and array
+ * equality would compare contents.
+ */
+class ContentClip(val pdf: ByteArray, val bounds: AnnotationRect)

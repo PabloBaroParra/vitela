@@ -29,6 +29,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.PdfComment
+import dev.vitela.pdf.core.ContentClip
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.ContentImage
@@ -65,6 +66,7 @@ import dev.vitela.pdf.uniffi.FfiColor
 import dev.vitela.pdf.uniffi.FfiCompressOutcome
 import dev.vitela.pdf.uniffi.FfiCompressPreset
 import dev.vitela.pdf.uniffi.FfiCompressRefusal
+import dev.vitela.pdf.uniffi.FfiContentClip
 import dev.vitela.pdf.uniffi.FfiContentImageItem
 import dev.vitela.pdf.uniffi.FfiContentPathItem
 import dev.vitela.pdf.uniffi.FfiContentSelection
@@ -107,6 +109,9 @@ import dev.vitela.pdf.uniffi.moveTextBlock as ffiMoveTextBlock
 import dev.vitela.pdf.uniffi.removeTextBlock as ffiRemoveTextBlock
 import dev.vitela.pdf.uniffi.moveContentSelection as ffiMoveContentSelection
 import dev.vitela.pdf.uniffi.removeContentSelection as ffiRemoveContentSelection
+import dev.vitela.pdf.uniffi.copyContentSelection as ffiCopyContentSelection
+import dev.vitela.pdf.uniffi.cutContentSelection as ffiCutContentSelection
+import dev.vitela.pdf.uniffi.pasteContent as ffiPasteContent
 import dev.vitela.pdf.uniffi.outputSnapshot as ffiOutputSnapshot
 import dev.vitela.pdf.uniffi.saveToBytes as ffiSaveToBytes
 import dev.vitela.pdf.uniffi.stampPlacement as ffiStampPlacement
@@ -534,6 +539,41 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(PdfCoreError.Failed(selectionRefusal(error.detail, "deleted")))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The clip is the core's own one-page PDF and the box it covered; the shell holds it and hands it back to paste.
+    override fun copyContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = try {
+        PdfCoreResult.Success(ffiCopyContentSelection(handle, selection.toFfi()).toClip())
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, "These items cannot be copied.")))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun cutContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = try {
+        PdfCoreResult.Success(ffiCutContentSelection(handle, selection.toFfi()).toClip())
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, "These items cannot be cut.")))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun pasteContent(pageIndex: Int, clip: ContentClip, left: Double, top: Double): PdfCoreResult<Unit> = try {
+        ffiPasteContent(handle, pageIndex.toUInt(), clip.toFfi(), left, top)
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, "This content cannot be pasted here.")))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core's sentences are a developer's. Kept are the ones that tell the reader what to do — save first for a
+    // member with an unsaved edit, and undo the paste for a fresh paste that cannot be cut — and a permission is
+    // named for what it forbids: copying, or changing the content (a paste and a cut are both changes).
+    private fun clipboardRefusal(detail: String, otherwise: String): String = when {
+        "not permitted" in detail -> if (!handle.contentEditingAllowed() || "paste" in otherwise) "This document does not permit content changes." else "This document does not permit copying content."
+        "save the document" in detail.lowercase() || "undo the paste" in detail.lowercase() -> detail.replaceFirstChar { it.uppercase() }.trimEnd('.') + "."
+        else -> otherwise
     }
 
     // The core's sentences are a developer's, except the one that tells the reader to save first (a member
@@ -966,6 +1006,10 @@ private fun PathPaint.toFfi(): FfiPathPaint = when (this) {
     PathPaint.Fill -> FfiPathPaint.FILL
     PathPaint.FillAndStroke -> FfiPathPaint.FILL_AND_STROKE
 }
+
+private fun FfiContentClip.toClip() = ContentClip(pdf, bbox.toRect())
+
+private fun ContentClip.toFfi() = FfiContentClip(pdf, bounds.toFfi())
 
 private fun ContentSelection.toFfi() = FfiContentSelection(
     blocks.flatMap { block -> block.runs.map { it.toFfi() } },

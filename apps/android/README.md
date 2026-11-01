@@ -545,8 +545,8 @@ grab reach of it — carries all of it, each member's pixels lifted off the page
 following the finger, and lifting sends one `move_content_selection` by the
 finger's travel; a drag that starts elsewhere still scrolls, and one begun after
 holding as long as a long-press is a new marquee. Chips over the page read
-**N selected**, **Delete** (`remove_content_selection`) and **Clear**; Copy and
-Cut will join them. A move or delete is one undo step however many items it
+**N selected**, **Copy**, **Cut** (see below), **Delete**
+(`remove_content_selection`) and **Clear**. A move or delete is one undo step however many items it
 covers, and a selection dragged again before a save folds into the queued one.
 After a move the members are looked up again by id in the fresh read, so the
 selection stays on what moved, as on Windows; after a delete it ends, and a
@@ -555,10 +555,37 @@ changes.") is reported in the status line with the selection kept. A selection
 never coexists with a dialog, an armed move or an armed insert — each of them
 drops it and none can start while one is open — and an undo or redo drops it
 too, since its members may not be what the page now paints. Moving to another
-page is T-209's. The pure decisions — the touch test, toggling, the union box,
+page is the clipboard's, below. The pure decisions — the touch test, toggling, the union box,
 the re-lookup — are unit tested; the gesture detectors themselves are Compose
 pointer input, which the JVM tests cannot drive. Verified by the JVM unit tests
 only, not yet on a device or emulator.
+
+**Copy, Cut and Paste content** (B25 T-209,
+[`viewer/ClipboardEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ClipboardEditing.kt)).
+The selection's **Copy** chip calls `copy_content_selection` and **Cut**
+`cut_content_selection` (a copy plus the T-208 delete, one undo step); the
+clip they hand back — a self-contained one-page PDF and the box the items
+covered — is held by the viewer session, not by the document, so it survives
+opening another PDF and pastes into it. The core keeps no clipboard. Copy changes
+nothing and keeps the selection; Cut ends it, redraws the page and lights Undo; a
+refusal ("Save the document before copying content you have edited.", "This
+document does not permit copying content.") is shown in the status line and the
+selection kept. **Paste content**, a tile beside Add text and Add image (named
+apart from Paste, which stamps the system clipboard's picture), is enabled only
+while a clip is held and arms the next page tap: that tap is where the clip box's
+top-left corner goes (`paste_content`), on any page, and Cancel insert disarms it.
+A paste is one undo step. Afterwards the items it added are selected — found as
+the items the fresh read has that the page's previous read did not, since the
+core does not say which are the paste's — so a drag moves all of them and the
+core folds that into the paste instead of queuing a second step. A block that
+grouped with a run already on the page is selected whole, and the core then
+refuses to move it without the rest. The core also refuses to edit part of a
+fresh paste, to delete it before a save ("Undo the paste to take it back, or save
+the document before deleting it.") and to copy it before a save; those sentences
+are shown as the core words them. The pure decision (which items a paste added) and the ViewModel flow
+are unit tested against a fake core; the real clip round trip is the core's and
+FFI's tests, and the Kotlin adapter is only type-checked locally. Verified by the
+JVM unit tests only, not yet on a device or emulator.
 
 **Add text** and **Add image** next to Done editing arm the next page tap for
 something new, painted as page content rather than as an annotation

@@ -14,7 +14,7 @@ import kotlin.math.max
  * whole line — a block of runs — for retyping, moving or deleting, a tap on an image it paints opens it for
  * resizing, moving, replacing or deleting, a tap on a vector path — a table
  * border, a rule, a shaded box — opens it for resizing, moving or deleting, and
- * Add text or Add image claims the next tap for something new. [blocks],
+ * Add text, Add image or Paste content claims the next tap for something new. [blocks],
  * [images] and [paths] hold each page's content as last read — only pages that were shown or tapped — so the outlines
  * describe what the page now shows. A long-press, or a long-press and drag, gathers
  * several items into a [selection] instead.
@@ -55,6 +55,12 @@ data class ContentEditState(
      * dialog open, [moving] or [adding]: every place that opens one drops it.
      */
     val selection: ContentSelection? = null,
+    /**
+     * Whether a clip is held for Paste content (B25 T-209). The clip itself is the
+     * session's, so it outlives the document: this is only what the tiles read, set
+     * when the mode opens and when a copy or cut fills the clip.
+     */
+    val hasClip: Boolean = false,
 ) {
     /** Whether nothing is open or armed, so a selection may start. */
     val idle: Boolean get() = editor == null && resizer == null && shaper == null && inserter == null &&
@@ -81,6 +87,9 @@ sealed interface ContentAddition {
      * equality would compare contents.
      */
     class Image(val bytes: ByteArray) : ContentAddition
+
+    /** The clip the session holds, its top-left corner on the tap: pasted at once, no dialog. */
+    data object Paste : ContentAddition
 }
 
 /**
