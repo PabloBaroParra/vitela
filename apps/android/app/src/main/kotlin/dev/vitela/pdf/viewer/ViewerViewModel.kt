@@ -532,7 +532,14 @@ class ViewerViewModel(
     fun dismissImageResizer() = contentEditing.images.dismissResizer()
     /** Swaps the resize dialog for an armed move of its image; [documentId] is the document the dialog was built for. */
     fun armImageMove(documentId: Long) = contentEditing.images.armMove(documentId)
-    /** Disarms a move of a run or an image. */
+    /** Reshapes the open dialog's path to the typed size, in points; [documentId] is the document the dialog was built for. */
+    fun resizePath(documentId: Long, width: String, height: String) = contentEditing.paths.resize(documentId, width, height)
+    fun dismissPathShaper() = contentEditing.paths.dismissShaper()
+    /** Swaps the shape dialog for an armed move of its path; [documentId] is the document the dialog was built for. */
+    fun armPathMove(documentId: Long) = contentEditing.paths.armMove(documentId)
+    /** Deletes the open dialog's path; [documentId] is the document the dialog was built for. */
+    fun deletePath(documentId: Long) = contentEditing.paths.delete(documentId)
+    /** Disarms a move of a run, an image or a path. */
     fun cancelContentMove() = contentEditing.cancelMove()
     /** Deletes the open dialog's image; [documentId] is the document the dialog was built for. */
     fun deleteImage(documentId: Long) = contentEditing.images.delete(documentId)

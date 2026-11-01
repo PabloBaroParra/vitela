@@ -5,9 +5,11 @@ import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
+import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.core.PathPaint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
@@ -18,7 +20,7 @@ import dev.vitela.pdf.core.SearchHit
  * A two-page document whose pages paint text runs: "Hello" and "World" on
  * page 0 — the second in a composite font the core substitutes — and
  * "Page two" on page 1. Page 0 also paints one image, clear of both runs.
- * Every retype, text delete or move, insert, resize, move, image delete and image replacement is
+ * Every retype, text delete or move, insert, resize, move, image delete, image replacement and path move, reshape or delete is
  * undoable, like the core's. An inserted image is placed the way the core
  * places one: 40 by 20 points, its top-left corner on the anchor.
  *
@@ -40,6 +42,10 @@ internal class RetypableDocument(
     private var images = listOf(
         ContentImage(30, 0, AnnotationRect(10.0, 20.0, 30.0, 30.0), "Im1"),
     )
+    private var paths = listOf(
+        ContentPath(40, 0, AnnotationRect(10.0, 80.0, 60.0, 0.0), PathPaint.Stroke),
+        ContentPath(41, 0, AnnotationRect(60.0, 90.0, 30.0, 20.0), PathPaint.Fill),
+    )
     private val undoable = ArrayDeque<Pair<Content, Content>>()
     private val redoable = ArrayDeque<Pair<Content, Content>>()
     /** Each retype the core accepted: the run as the shell sent it, and the new text. */
@@ -54,6 +60,12 @@ internal class RetypableDocument(
     val moves = mutableListOf<Pair<ContentImage, AnnotationRect>>()
     /** Each delete the core accepted: the image as the shell sent it. */
     val deletes = mutableListOf<ContentImage>()
+    /** Each path move the core accepted: the path as the shell sent it, and the box sent. */
+    val pathMoves = mutableListOf<Pair<ContentPath, AnnotationRect>>()
+    /** Each path reshape the core accepted: the path as the shell sent it, and the box it now fills. */
+    val pathResizes = mutableListOf<Pair<ContentPath, AnnotationRect>>()
+    /** Each path delete the core accepted: the path as the shell sent it. */
+    val pathDeletes = mutableListOf<ContentPath>()
     /** Each image whose original the core recovered before a picker opened. */
     val prepared = mutableListOf<ContentImage>()
     /** Each source replacement the core accepted: the image as the shell sent it, and the new bytes. */
@@ -88,7 +100,7 @@ internal class RetypableDocument(
 
     override fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> {
         reads += pageIndex
-        return PdfCoreResult.Success(PageContent(runs.filter { it.pageIndex == pageIndex }, images.filter { it.pageIndex == pageIndex }))
+        return PdfCoreResult.Success(PageContent(runs.filter { it.pageIndex == pageIndex }, images.filter { it.pageIndex == pageIndex }, paths.filter { it.pageIndex == pageIndex }))
     }
 
     override fun retypeTextRun(run: ContentTextRun, text: String): PdfCoreResult<Unit> {
@@ -130,6 +142,28 @@ internal class RetypableDocument(
         refusal?.let { return PdfCoreResult.Failure(it) }
         deletes += image
         record { images = images.filter { it.id != image.id } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    // Like the core, a move keeps the size: the box's origin is all that is read.
+    override fun movePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        pathMoves += path to to
+        record { paths = paths.map { if (it.id == path.id) it.copy(bounds = it.bounds.copy(x = to.x, y = to.y)) else it } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun resizePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        pathResizes += path to to
+        record { paths = paths.map { if (it.id == path.id) it.copy(bounds = to) else it } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun removePath(path: ContentPath): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        pathDeletes += path
+        record { paths = paths.filter { it.id != path.id } }
         return PdfCoreResult.Success(Unit)
     }
 
@@ -181,18 +215,19 @@ internal class RetypableDocument(
     }
 
     private fun record(edit: () -> Unit) {
-        val before = Content(runs, images)
+        val before = Content(runs, images, paths)
         edit()
-        undoable.addLast(before to Content(runs, images))
+        undoable.addLast(before to Content(runs, images, paths))
         redoable.clear()
     }
 
     private fun restore(content: Content) {
         runs = content.runs
         images = content.images
+        paths = content.paths
     }
 
-    private data class Content(val runs: List<ContentTextRun>, val images: List<ContentImage>)
+    private data class Content(val runs: List<ContentTextRun>, val images: List<ContentImage>, val paths: List<ContentPath>)
 
     override fun close() = Unit
 }

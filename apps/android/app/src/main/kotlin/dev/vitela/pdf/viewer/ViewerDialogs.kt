@@ -70,6 +70,7 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
     if (state.needsPassword) PasswordDialog(state.passwordMessage, actions.onPassword, actions.onPasswordCancel)
     state.contentEdit?.editor?.let { TextRunEditorDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.resizer?.let { ImageResizerDialog(it, state.documentId, actions.contentEdit) }
+    state.contentEdit?.shaper?.let { PathShaperDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.inserter?.let { TextInserterDialog(it, state.documentId, actions.contentEdit) }
     state.freeText?.let { FreeTextDialog(it, state.documentId, onConfirm = actions.onFreeTextConfirm, onCancel = actions.onFreeTextCancel) }
     state.notePlacement?.let { NoteDialog(it, state.documentId, onAdd = actions.onNoteAdd, onCancel = actions.onNoteCancel) }

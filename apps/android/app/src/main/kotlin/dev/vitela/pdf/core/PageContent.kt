@@ -37,8 +37,33 @@ data class ContentImage(
     val resourceName: String?,
 )
 
-/** What page content editing can act on: one page's text runs and images, from one parse. */
+/** How a vector path is painted, which decides where a tap on it means it. */
+enum class PathPaint { Stroke, Fill, FillAndStroke }
+
+/**
+ * One vector path a page's own content stream paints — a table border, a rule,
+ * a shaded box — as the core parsed it with every pending edit layered on top:
+ * a moved or reshaped path keeps its [id] and reports the box it now fills.
+ * [bounds] are in PDF points and cover the geometry only, not the stroke, so a
+ * hairline rule is a box of height zero.
+ *
+ * Handed back unchanged to [PdfDocument.movePath], [PdfDocument.resizePath]
+ * and [PdfDocument.removePath], like a [ContentImage].
+ */
+data class ContentPath(
+    val id: Long,
+    val pageIndex: Int,
+    val bounds: AnnotationRect,
+    val paint: PathPaint,
+)
+
+/**
+ * What page content editing can act on: one page's text runs, images and vector
+ * paths, from one parse. [paths] defaults to none, so a core that cannot read
+ * them still describes a page.
+ */
 data class PageContent(
     val textRuns: List<ContentTextRun>,
     val images: List<ContentImage>,
+    val paths: List<ContentPath> = emptyList(),
 )

@@ -454,8 +454,14 @@ private fun PageSlot(
                 // While an armed move is dragged, where its box would land now.
                 val dragged = movingHere?.let { target -> moveDrag?.let { drag -> movedRect(target.bounds, draggedCorner(target.bounds, drag.from, drag.to)) } }
                 // Only the renderer paints the words or the picture, so the drag lifts them off the page's own bitmap.
-                if (movingHere != null && dragged != null) (page ?: bridge)?.let { bitmap -> drawLifted(bitmap, placement.placeRect(movingHere.bounds), placement.placeRect(dragged)) }
-                // Images first, so a caption's outline sits on top of the photo it is printed over.
+                // A path is lifted by its padded box, the one it is outlined and hit in: a hairline rule has no height of its own.
+                if (movingHere != null && dragged != null) (page ?: bridge)?.let { bitmap ->
+                    val landing = if (movingHere is ContentTarget.Path) dragged.padded(PATH_PAD) else dragged
+                    drawLifted(bitmap, placement.placeRect(movingHere.drawnBounds), placement.placeRect(landing))
+                }
+                // Paths first, under the images, so a caption's outline sits on top of the frame it is printed in.
+                state.contentEdit?.paths?.get(pageIndex)?.let { drawPathOutlines(it, state.contentEdit.movingPath, dragged, placement) }
+                // Images next, so a caption's outline sits on top of the photo it is printed over.
                 // The run or image an armed move will place is drawn heavier, so the reader sees what the next tap moves.
                 state.contentEdit?.images?.get(pageIndex)?.forEach { image ->
                     val moving = state.contentEdit.movingImage?.id == image.id

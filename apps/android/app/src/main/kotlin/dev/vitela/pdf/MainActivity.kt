@@ -479,6 +479,10 @@ private fun VitelaApp(
                 onResize = viewModel::resizeImage,
                 onDismissResizer = viewModel::dismissImageResizer,
                 onMove = viewModel::armImageMove,
+                onResizePath = viewModel::resizePath,
+                onDismissShaper = viewModel::dismissPathShaper,
+                onMovePath = viewModel::armPathMove,
+                onDeletePath = viewModel::deletePath,
                 onCancelMove = viewModel::cancelContentMove,
                 onDelete = viewModel::deleteImage,
                 // The core decodes PNG and JPEG; anything else is refused when it lands.

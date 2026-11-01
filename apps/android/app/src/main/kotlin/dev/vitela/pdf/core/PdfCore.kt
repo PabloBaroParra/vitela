@@ -195,6 +195,23 @@ interface PdfDocument : AutoCloseable {
      */
     fun removeImage(image: ContentImage): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
     /**
+     * Queues one undoable move of [path] to [to]: its box's origin goes to
+     * [to]'s, its size kept — so a flat rule stays flat. The page shows it
+     * only after [refreshPreview].
+     */
+    fun movePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable reshape of [path] to the box [to]: its coordinates
+     * are rewritten, its line width kept, and a flat axis is never scaled. The
+     * page shows it only after [refreshPreview].
+     */
+    fun resizePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
+     * Queues one undoable removal of [path] from its page. The page shows it
+     * only after [refreshPreview].
+     */
+    fun removePath(path: ContentPath): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    /**
      * Checks that [image]'s original can be recovered for an undo, before a
      * picker opens; refused for an image with a pending edit or an encoding
      * that cannot round-trip without loss.

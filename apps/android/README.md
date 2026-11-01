@@ -386,7 +386,9 @@ corners and directions, which the turn has carried elsewhere on screen.
 
 **Edit content** arms a mode in which a tap on a line of text the page itself
 paints opens it in a dialog for retyping, moving or deleting, and a tap on an image it
-paints opens it for resizing, moving, replacing or deleting
+paints opens it for resizing, moving, replacing or deleting, and a tap on a
+vector path — a table border, a rule, a shaded box — opens it for resizing,
+moving or deleting
 ([`viewer/ContentEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentEditing.kt)).
 The run keeps its position and its font; **Retype** queues one undoable entry
 in the shared edit log. While armed, the mode claims every page tap — an armed
@@ -485,6 +487,28 @@ the core answers, so a second one queues nothing, and an undo or redo while the
 picker is open drops the replacement, since the image it held may have
 changed. A replacement is one undoable entry, redraws the page and keeps the
 outline; the gate is the same `content_editing_allowed`.
+
+A **shape** is a vector path the page paints. The adapter reads them with
+`read_page_paths` beside `read_page_content` — a separate read, behind the same
+text-extraction gate, so one refusal covers both — and outlines them in orange
+under the images and the text
+([`viewer/ContentPaths.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/ContentPaths.kt),
+[`viewer/PathEditing.kt`](app/src/main/kotlin/dev/vitela/pdf/viewer/PathEditing.kt)).
+The core's box covers the geometry only, so a hairline rule is a box of height
+zero: both the outline and the hit test pad it by 4 pt. A tap goes to text
+under the finger, then an image, then a shape, and only then to the nearest of
+the three within reach, so a frame never steals a tap from the text inside it;
+an outline (`Stroke`) is hit only near its edges, not in its cell, as on
+Windows, and among overlapping shapes the smallest wins. The **Edit shape**
+dialog takes a width and a height in points; the shape keeps its top-left
+corner and its line width (`ResizePath`), and a flat axis — a rule's height —
+is shown, disabled and never read back, since the core moves such an axis and
+never scales it. **Move** arms a tap or a drag like an image's (`MovePath`,
+top-left corner on the tap, size kept, same page only), and **Delete** takes it
+off the page at once (`RemovePath`). Each is one undoable entry that redraws
+the page and re-reads it; the gate is the same `content_editing_allowed`, and
+an undo or redo drops an open shape dialog and an armed move. Verified by the
+JVM unit tests only, not yet on a device or emulator.
 
 **Add text** and **Add image** next to Done editing arm the next page tap for
 something new, painted as page content rather than as an annotation

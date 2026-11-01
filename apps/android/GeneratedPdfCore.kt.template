@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.toPdfCoreError
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreFactory
+import dev.vitela.pdf.core.PathPaint
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PageRotation
 import dev.vitela.pdf.core.PageSize
@@ -31,6 +32,7 @@ import dev.vitela.pdf.core.PdfComment
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.ContentImage
+import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.DocumentInfo
@@ -62,6 +64,7 @@ import dev.vitela.pdf.uniffi.FfiCompressOutcome
 import dev.vitela.pdf.uniffi.FfiCompressPreset
 import dev.vitela.pdf.uniffi.FfiCompressRefusal
 import dev.vitela.pdf.uniffi.FfiContentImageItem
+import dev.vitela.pdf.uniffi.FfiContentPathItem
 import dev.vitela.pdf.uniffi.FfiContentTextRun
 import dev.vitela.pdf.uniffi.FfiDocumentInfo
 import dev.vitela.pdf.uniffi.FfiEditCommand
@@ -73,6 +76,7 @@ import dev.vitela.pdf.uniffi.FfiFontFamily
 import dev.vitela.pdf.uniffi.FfiFormField
 import dev.vitela.pdf.uniffi.FfiFormFieldKind
 import dev.vitela.pdf.uniffi.FfiOrientation
+import dev.vitela.pdf.uniffi.FfiPathPaint
 import dev.vitela.pdf.uniffi.FfiPageCharacters
 import dev.vitela.pdf.uniffi.FfiPageSize
 import dev.vitela.pdf.uniffi.FfiPoint
@@ -373,7 +377,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
 
     override fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = try {
         val content = handle.readPageContent(pageIndex.toUInt())
-        PdfCoreResult.Success(PageContent(content.textRuns.map { it.toTextRun() }, content.images.map { it.toImage() }))
+        // A separate read, behind the same text-extraction gate, so one refusal covers both.
+        val paths = handle.readPagePaths(pageIndex.toUInt())
+        PdfCoreResult.Success(PageContent(content.textRuns.map { it.toTextRun() }, content.images.map { it.toImage() }, paths.map { it.toPath() }))
     } catch (error: FfiException.UnsupportedOperation) {
         // The only refusal here is the /P bit forbidding text extraction.
         PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be read."))
@@ -457,6 +463,38 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
         val sentence = if (handle.contentEditingAllowed()) "This image cannot be deleted." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core rewrites the path's coordinates, keeping its line width; a flat axis is moved, never scaled.
+    override fun resizePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.ResizePath(path.toFfi(), to.toFfi()))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This shape cannot be resized." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The box's origin goes to `to`'s; the size is the path's own.
+    override fun movePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.MovePath(path.toFfi(), to.toFfi()))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This shape cannot be moved." else "This document does not permit content changes."
+        PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    override fun removePath(path: ContentPath): PdfCoreResult<Unit> = try {
+        ffiApplyEdit(handle, FfiEditCommand.RemovePath(path.toFfi()))
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        val sentence = if (handle.contentEditingAllowed()) "This shape cannot be deleted." else "This document does not permit content changes."
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -866,6 +904,22 @@ private fun FfiContentTextRun.toTextRun() = ContentTextRun(id.toLong(), page.toI
 
 // Rebuilt field for field: the core matches a retype against the parse it came from.
 private fun FfiContentImageItem.toImage() = ContentImage(id.toLong(), page.toInt(), bbox.toRect(), resourceXobjectName)
+
+private fun FfiContentPathItem.toPath() = ContentPath(id.toLong(), page.toInt(), bbox.toRect(), paint.toPaint())
+
+private fun ContentPath.toFfi() = FfiContentPathItem(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), paint.toFfi())
+
+private fun FfiPathPaint.toPaint(): PathPaint = when (this) {
+    FfiPathPaint.STROKE -> PathPaint.Stroke
+    FfiPathPaint.FILL -> PathPaint.Fill
+    FfiPathPaint.FILL_AND_STROKE -> PathPaint.FillAndStroke
+}
+
+private fun PathPaint.toFfi(): FfiPathPaint = when (this) {
+    PathPaint.Stroke -> FfiPathPaint.STROKE
+    PathPaint.Fill -> FfiPathPaint.FILL
+    PathPaint.FillAndStroke -> FfiPathPaint.FILL_AND_STROKE
+}
 
 private fun ContentImage.toFfi() = FfiContentImageItem(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), resourceName)
 

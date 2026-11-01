@@ -14,12 +14,13 @@ import kotlinx.coroutines.withContext
  * keeping its text, font and size; or deleting it;
  * resizing an image it paints, keeping its top-left corner; moving one,
  * keeping its size; replacing its picture, keeping its box; and deleting
- * one. Each is one undoable entry in the shared edit log.
+ * one; and the same resize, move and delete for a vector path — a table
+ * border, a rule, a shaded box. Each is one undoable entry in the shared edit log.
  *
  * Nothing is drawn in place of the words or the picture: only the renderer can
  * paint them, so an edit rebuilds the preview and the page re-renders showing
  * it — the Windows shell's approach. What this shell draws is the outline of
- * each run and image, from the content as the core last reported it.
+ * each run, image and path, from the content as the core last reported it.
  *
  * Unlike the Windows shell, which writes as the reader types, a retype here is
  * committed from a dialog: one tap, one edit. A second retype of the same run
@@ -28,7 +29,7 @@ import kotlinx.coroutines.withContext
  *
  * This class owns the mode — arming it, reading pages, routing a tap and
  * landing an accepted edit. The edits themselves live in [TextRunEditing],
- * [ImageEditing] and [ContentInserting].
+ * [ImageEditing], [PathEditing] and [ContentInserting].
  */
 internal class ContentEditing(
     private val session: ViewerSession,
@@ -46,6 +47,9 @@ internal class ContentEditing(
 
     /** Resizing, moving, replacing and deleting images. */
     val images = ImageEditing(session, this)
+
+    /** Resizing, moving and deleting vector paths. */
+    val paths = PathEditing(session, this)
 
     /** Adding new text and images. */
     val inserts = ContentInserting(session, this)
@@ -83,7 +87,7 @@ internal class ContentEditing(
         if (state.value.contentEdit != null) state.value = state.value.copy(contentEdit = null, status = CONTENT_EDIT_OFF)
     }
 
-    /** Disarms a move of a run or an image: the next tap opens what it hits. */
+    /** Disarms a move of a run, an image or a path: the next tap opens what it hits. */
     fun cancelMove() {
         val mode = state.value.contentEdit ?: return
         if (mode.moving != null) state.value = state.value.copy(contentEdit = mode.copy(moving = null), status = MOVE_CANCELLED)
@@ -117,20 +121,22 @@ internal class ContentEditing(
         when (val moving = armed.moving) {
             is ContentTarget.Run -> return text.move(openDocument, moving.run, pageIndex, point)
             is ContentTarget.Image -> return images.move(openDocument, moving.image, pageIndex, point)
+            is ContentTarget.Path -> return paths.move(openDocument, moving.path, pageIndex, point)
             null -> Unit
         }
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
                 val known = state.value.contentEdit?.let { mode ->
-                    mode.runs[pageIndex]?.let { runs -> PageContent(runs, mode.images[pageIndex].orEmpty()) }
+                    mode.runs[pageIndex]?.let { runs -> PageContent(runs, mode.images[pageIndex].orEmpty(), mode.paths[pageIndex].orEmpty()) }
                 }
                 val content = known ?: read(openDocument, pageIndex) ?: return@withLock
                 val mode = state.value.contentEdit ?: return@withLock
-                state.value = when (val hit = contentAt(content.textRuns, content.images, point, reach)) {
+                state.value = when (val hit = contentAt(content.textRuns, content.images, point, reach, content.paths)) {
                     null -> state.value.copy(status = CONTENT_EDIT_MISSED)
-                    is ContentTarget.Run -> state.value.copy(contentEdit = mode.copy(editor = TextRunEditor(hit.run), resizer = null))
-                    is ContentTarget.Image -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = ImageResizer(hit.image)))
+                    is ContentTarget.Run -> state.value.copy(contentEdit = mode.copy(editor = TextRunEditor(hit.run), resizer = null, shaper = null))
+                    is ContentTarget.Image -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = ImageResizer(hit.image), shaper = null))
+                    is ContentTarget.Path -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = PathShaper(hit.path)))
                 }
             }
         }
@@ -160,10 +166,10 @@ internal class ContentEditing(
      */
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
-        // An armed move or an open replacement picker holds the run or image
+        // An armed move or an open replacement picker holds the run, image or path
         // as it was; it may no longer be there. An armed insert and its dialog
         // hold only a spot on a page, which survives.
-        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, moving = null, replacingImage = null))
+        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = null, moving = null, replacingImage = null))
         for (pageIndex in mode.runs.keys) read(document, pageIndex)
     }
 
@@ -181,12 +187,20 @@ internal class ContentEditing(
         return when (result) {
             is PdfCoreResult.Success -> result.value.also { content ->
                 state.value = state.value.copy(
-                    contentEdit = mode.copy(runs = mode.runs + (pageIndex to content.textRuns), images = mode.images + (pageIndex to content.images)),
+                    contentEdit = mode.copy(
+                        runs = mode.runs + (pageIndex to content.textRuns),
+                        images = mode.images + (pageIndex to content.images),
+                        paths = mode.paths + (pageIndex to content.paths),
+                    ),
                 )
             }
             is PdfCoreResult.Failure -> {
                 state.value = state.value.copy(
-                    contentEdit = mode.copy(runs = mode.runs + (pageIndex to emptyList()), images = mode.images + (pageIndex to emptyList())),
+                    contentEdit = mode.copy(
+                        runs = mode.runs + (pageIndex to emptyList()),
+                        images = mode.images + (pageIndex to emptyList()),
+                        paths = mode.paths + (pageIndex to emptyList()),
+                    ),
                     status = userMessage(result.error),
                 )
                 null

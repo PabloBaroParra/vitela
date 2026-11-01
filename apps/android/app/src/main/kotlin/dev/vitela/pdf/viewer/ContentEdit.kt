@@ -4,26 +4,31 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
+import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentTextRun
 import kotlin.math.max
 
 /**
  * Edit content mode: a tap on a line of text the page itself paints opens it
  * for retyping, moving or deleting, a tap on an image it paints opens it for
- * resizing, moving, replacing or deleting, and Add text or Add image claims the next tap
- * for something new. [runs] and [images] hold each page's content
- * as last read — only pages that were shown or tapped — so the outlines
+ * resizing, moving, replacing or deleting, a tap on a vector path — a table
+ * border, a rule, a shaded box — opens it for resizing, moving or deleting, and
+ * Add text or Add image claims the next tap for something new. [runs],
+ * [images] and [paths] hold each page's content as last read — only pages that were shown or tapped — so the outlines
  * describe what the page now shows.
  */
 data class ContentEditState(
     val runs: Map<Int, List<ContentTextRun>> = emptyMap(),
     val images: Map<Int, List<ContentImage>> = emptyMap(),
+    val paths: Map<Int, List<ContentPath>> = emptyMap(),
     /** The run being retyped, or null while no editor is open. */
     val editor: TextRunEditor? = null,
     /** The image being resized, or null while no resizer is open. Never open with [editor]. */
     val resizer: ImageResizer? = null,
+    /** The vector path being reshaped, or null while no shape dialog is open. Never open with [editor] or [resizer]. */
+    val shaper: PathShaper? = null,
     /**
-     * The run or image the next page tap moves, armed from its dialog's Move;
+     * The run, image or path the next page tap moves, armed from its dialog's Move;
      * null while no move is armed. One field, so only one move is ever armed.
      * Never armed with a dialog open.
      */
@@ -47,6 +52,9 @@ data class ContentEditState(
 
     /** The image an armed move will place, if what is armed is an image. */
     val movingImage: ContentImage? get() = (moving as? ContentTarget.Image)?.image
+
+    /** The path an armed move will place, if what is armed is a path. */
+    val movingPath: ContentPath? get() = (moving as? ContentTarget.Path)?.path
 }
 
 /** What an armed tap adds to the page, its top-left corner on the tap. */
@@ -103,12 +111,13 @@ data class ImageResizer(
 sealed interface ContentTarget {
     data class Run(val run: ContentTextRun) : ContentTarget
     data class Image(val image: ContentImage) : ContentTarget
+    data class Path(val path: ContentPath) : ContentTarget
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap text to retype, move or delete it, or an image to resize, move, replace or delete it."
+internal const val CONTENT_EDIT_ARMED = "Tap text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
 internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype, move or delete it, or an image to resize, move, replace or delete it."
+internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
 internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
 internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
 internal const val TEXT_DELETED = "Text deleted. Save to keep the change."
@@ -162,15 +171,25 @@ internal fun textRunAt(runs: List<ContentTextRun>, point: AnnotationPoint, reach
 
 /**
  * What a tap at [point] meant. Text wins where the finger landed on it — a
- * caption printed over a photo — then an image the tap is inside, then the
- * nearest text within [reach], then an image within it. An image is a large
- * target and text a thin one, so reach only rescues a tap that hit neither.
+ * caption printed over a photo — then an image the tap is inside, then a
+ * path it is on, then the nearest text within [reach], then an image within
+ * it, then a path. An image is a large target and text a thin one, and a
+ * path is under both — the frame around a block of text — so reach only
+ * rescues a tap that hit none of them.
  */
-internal fun contentAt(runs: List<ContentTextRun>, images: List<ContentImage>, point: AnnotationPoint, reach: Double): ContentTarget? =
+internal fun contentAt(
+    runs: List<ContentTextRun>,
+    images: List<ContentImage>,
+    point: AnnotationPoint,
+    reach: Double,
+    paths: List<ContentPath> = emptyList(),
+): ContentTarget? =
     textRunAt(runs, point, 0.0)?.let(ContentTarget::Run)
         ?: imageAt(images, point, 0.0)?.let(ContentTarget::Image)
+        ?: pathAt(paths, point, 0.0)?.let(ContentTarget::Path)
         ?: textRunAt(runs, point, reach)?.let(ContentTarget::Run)
         ?: imageAt(images, point, reach)?.let(ContentTarget::Image)
+        ?: pathAt(paths, point, reach)?.let(ContentTarget::Path)
 
 private fun imageAt(images: List<ContentImage>, point: AnnotationPoint, reach: Double): ContentImage? =
     images.map { it to distance(it.bounds, point) }
@@ -190,7 +209,7 @@ internal fun resizedImageRect(bounds: AnnotationRect, width: Double, height: Dou
 }
 
 /**
- * Where a tap at [tap] moves a run or an image now at [bounds]: its top-left
+ * Where a tap at [tap] moves a run, an image or a path now at [bounds]: its top-left
  * corner to the tap, its size kept — the corner a form field's move lands on
  * too. Like a resize, not kept on the page: the corner tapped is the corner sent.
  */
@@ -208,18 +227,20 @@ internal fun draggedCorner(bounds: AnnotationRect, from: AnnotationPoint, to: An
 /** Whether a finger down at [point] grabs the box at [bounds]: inside it, or within [reach] points. */
 internal fun grabs(bounds: AnnotationRect, point: AnnotationPoint, reach: Double): Boolean = distance(bounds, point) <= reach
 
-/** The box a run or an image now fills. */
+/** The box a run, an image or a path now fills; a path's is its geometry, not padded: see [drawnBounds]. */
 internal val ContentTarget.bounds: AnnotationRect
     get() = when (this) {
         is ContentTarget.Run -> run.bounds
         is ContentTarget.Image -> image.bounds
+        is ContentTarget.Path -> path.bounds
     }
 
-/** The page a run or an image is on. */
+/** The page a run, an image or a path is on. */
 internal val ContentTarget.pageIndex: Int
     get() = when (this) {
         is ContentTarget.Run -> run.pageIndex
         is ContentTarget.Image -> image.pageIndex
+        is ContentTarget.Path -> path.pageIndex
     }
 
 /**
