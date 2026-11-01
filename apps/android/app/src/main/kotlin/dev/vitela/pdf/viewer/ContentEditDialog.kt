@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.AnnotationRect
 
 /** What Edit content asks of the ViewModel, bundled like [FormFieldActions]. */
 internal class ContentEditActions(
@@ -62,6 +63,15 @@ internal class ContentEditActions(
     /** documentId, text, size as typed, in points: the document is the one the dialog was built for. */
     val onInsertText: (Long, String, String) -> Unit,
     val onDismissInserter: () -> Unit,
+    /** pageIndex and the marquee's box, in PDF points: selects everything it touches. */
+    val onMarquee: (Int, AnnotationRect) -> Unit,
+    /** pageIndex, point and reach, in PDF points: a long-press that did not move selects the item under it. */
+    val onPress: (Int, AnnotationPoint, Double) -> Unit,
+    /** pageIndex and the drag's offset, in PDF points: moves the selection. */
+    val onMoveSelection: (Int, Double, Double) -> Unit,
+    /** Deletes the selection, one undo step. */
+    val onDeleteSelection: () -> Unit,
+    val onClearSelection: () -> Unit,
 )
 
 /**

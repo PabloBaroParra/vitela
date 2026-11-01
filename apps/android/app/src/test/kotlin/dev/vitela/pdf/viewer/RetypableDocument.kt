@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
+import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.PageContent
@@ -72,6 +73,10 @@ internal class RetypableDocument(
     val pathResizes = mutableListOf<Pair<ContentPath, AnnotationRect>>()
     /** Each path delete the core accepted: the path as the shell sent it. */
     val pathDeletes = mutableListOf<ContentPath>()
+    /** Each selection move the core accepted: the selection as the shell sent it, and the offset sent. */
+    val selectionMoves = mutableListOf<Triple<ContentSelection, Double, Double>>()
+    /** Each selection delete the core accepted: the selection as the shell sent it. */
+    val selectionDeletes = mutableListOf<ContentSelection>()
     /** Each image whose original the core recovered before a picker opened. */
     val prepared = mutableListOf<ContentImage>()
     /** Each source replacement the core accepted: the image as the shell sent it, and the new bytes. */
@@ -193,6 +198,36 @@ internal class RetypableDocument(
         refusal?.let { return PdfCoreResult.Failure(it) }
         pathDeletes += path
         record { paths = paths.filter { it.id != path.id } }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    // One undo step for the whole selection, like the core's batch.
+    override fun moveContentSelection(selection: ContentSelection, dx: Double, dy: Double): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        selectionMoves += Triple(selection, dx, dy)
+        val runIds = selection.blocks.flatMap { block -> block.runs.map { it.id } }.toSet()
+        val imageIds = selection.images.map { it.id }.toSet()
+        val pathIds = selection.paths.map { it.id }.toSet()
+        fun AnnotationRect.shifted() = copy(x = x + dx, y = y + dy)
+        record {
+            runs = runs.map { if (it.id in runIds) it.copy(bounds = it.bounds.shifted()) else it }
+            images = images.map { if (it.id in imageIds) it.copy(bounds = it.bounds.shifted()) else it }
+            paths = paths.map { if (it.id in pathIds) it.copy(bounds = it.bounds.shifted()) else it }
+        }
+        return PdfCoreResult.Success(Unit)
+    }
+
+    override fun removeContentSelection(selection: ContentSelection): PdfCoreResult<Unit> {
+        refusal?.let { return PdfCoreResult.Failure(it) }
+        selectionDeletes += selection
+        val runIds = selection.blocks.flatMap { block -> block.runs.map { it.id } }.toSet()
+        val imageIds = selection.images.map { it.id }.toSet()
+        val pathIds = selection.paths.map { it.id }.toSet()
+        record {
+            runs = runs.filter { it.id !in runIds }
+            images = images.filter { it.id !in imageIds }
+            paths = paths.filter { it.id !in pathIds }
+        }
         return PdfCoreResult.Success(Unit)
     }
 

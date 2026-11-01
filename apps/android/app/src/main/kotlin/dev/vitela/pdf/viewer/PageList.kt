@@ -263,6 +263,9 @@ private fun PageSlot(
     var pageWidthPx by remember { mutableStateOf(0) }
     var pageCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var moveDrag by remember { mutableStateOf<MoveDrag?>(null) }
+    // A marquee being dragged, and a multi-selection being carried, on this page (B25 T-208).
+    var marqueeDrag by remember { mutableStateOf<PageDrag?>(null) }
+    var selectionDrag by remember { mutableStateOf<PageDrag?>(null) }
     // A long-press or handle drag is under way: the selection toolbar hides until the finger lifts.
     var selecting by remember { mutableStateOf(false) }
     var toolbarSize by remember { mutableStateOf(IntSize.Zero) }
@@ -275,6 +278,9 @@ private fun PageSlot(
         // So does a field placement or move the Form fields panel armed.
         val formMode = state.formFields?.armed != null
         val tapMode = contentMode || formMode
+        // Long-press then drag gathers a marquee, and a long-press alone one item — while nothing is open or armed.
+        val gathering = contentMode && state.contentEdit?.idle == true
+        val multiHere = state.contentEdit?.selection?.takeIf { it.pageIndex == pageIndex }
         // Selecting text — long-press, double tap, handles, the toolbar — belongs to the plain reader, as the long-press always did.
         val selectionTools = state.activeAnnotationTool == AnnotationTool.Pointer && !tapMode
         LaunchedEffect(pageIndex, contentMode) { if (contentMode) contentEdit.onPageShown(pageIndex) }
@@ -311,8 +317,8 @@ private fun PageSlot(
             val placement = PagePlacement(size, scale)
             fun point(offset: Offset) = placement.pointToPdf(offset.x.toDouble(), offset.y.toDouble())
             val knobRadiusPx = SELECTION_KNOB_RADIUS_DP * density
-            val selectionHere = state.textSelection?.takeIf { it.pageIndex == pageIndex && selectionTools }
-            val handleSpots = selectionHere?.let { selectionHandleSpots(it, placement, knobRadiusPx) }.orEmpty()
+            val textSelectionHere = state.textSelection?.takeIf { it.pageIndex == pageIndex && selectionTools }
+            val handleSpots = textSelectionHere?.let { selectionHandleSpots(it, placement, knobRadiusPx) }.orEmpty()
             // The handle detector outlives recompositions — every step of its own drag republishes the selection.
             val currentHandleSpots by rememberUpdatedState(handleSpots)
             androidx.compose.foundation.Canvas(
@@ -326,13 +332,13 @@ private fun PageSlot(
                         val at = dropPosition(event, coordinates)
                         onFileDrop(pageIndex, point(at), event)
                     }
-                    .pointerInput(pageNumber, placement, state.activeAnnotationTool, state.selectedAnnotationId, contentMode, formMode) {
+                    .pointerInput(pageNumber, placement, state.activeAnnotationTool, state.selectedAnnotationId, contentMode, formMode, gathering) {
                         detectTapGestures(
                             // In pointer mode a long-press belongs to text
                             // selection below. Declaring it here is what stops
                             // the finger lifting from also counting as a tap,
                             // which would clear the selection it just made.
-                            onLongPress = if (selectionTools) ({ }) else null,
+                            onLongPress = if (selectionTools || gathering) ({ }) else null,
                             // A double tap selects the word under it, as a long-press that never moves does.
                             onDoubleTap = if (selectionTools) ({ offset ->
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -369,6 +375,16 @@ private fun PageSlot(
                             if (completed && end != null) contentEdit.onTap(pageIndex, draggedCorner(target.bounds, from, end), reach)
                         }
                     }
+                    .marqueeGesture(
+                        gathering, placement, haptics, onPreview = { marqueeDrag = it },
+                        onSelect = { area -> contentEdit.onMarquee(pageIndex, area) },
+                        onPress = { at -> contentEdit.onPress(pageIndex, at, handleReachPoints(HANDLE_REACH_DP, density, scale)) },
+                    )
+                    // After the marquee, so it sees the touch first: a drag that starts in the selection carries it.
+                    .dragSelection(
+                        multiHere, placement, handleReachPoints(HANDLE_REACH_DP, density, scale), onPreview = { selectionDrag = it },
+                        onDrop = { dx, dy -> contentEdit.onMoveSelection(pageIndex, dx, dy) },
+                    )
                     .pointerInput(pageNumber, placement, state.activeAnnotationTool, tapMode) {
                         // Long-press, then drag: the Android text-selection
                         // gesture. A plain drag stays the list's scroll — it
@@ -474,6 +490,7 @@ private fun PageSlot(
                     )
                 }
                 state.contentEdit?.blocks?.get(pageIndex)?.let { drawTextOutlines(it, state.contentEdit.movingBlock, dragged, placement) }
+                drawSelection(multiHere, selectionDrag, marqueeDrag, page ?: bridge, placement)
                 state.textSelection?.takeIf { it.pageIndex == pageIndex }?.rects?.forEach { rect ->
                     val placed = placement.placeRect(rect)
                     drawRect(SELECTION_COLOR.copy(alpha = .33f), placed.topLeft, placed.size)
@@ -513,7 +530,7 @@ private fun PageSlot(
             }
             // The bar over the selection, once the finger has let go of it. Measured on its first frame,
             // so that frame places it as if it had no size; the next one has the real one.
-            if (selectionHere != null && !selecting) {
+            if (textSelectionHere != null && !selecting) {
                 val origin = selectionToolbarOrigin(
                     handleSpots,
                     toolbarSize.width.toDouble(),
@@ -546,7 +563,7 @@ private class MoveDrag(val from: AnnotationPoint, val to: AnnotationPoint)
  * glyphs or an image's own pixels — to [to]. Clipped to the page: a box that
  * hangs off it has no pixels there to lift.
  */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLifted(bitmap: ImageBitmap, from: PlacedRect, to: PlacedRect) {
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLifted(bitmap: ImageBitmap, from: PlacedRect, to: PlacedRect) {
     val left = from.left.coerceAtLeast(0.0)
     val top = from.top.coerceAtLeast(0.0)
     val right = (from.left + from.width).coerceAtMost(size.width.toDouble())

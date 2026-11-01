@@ -493,6 +493,11 @@ private fun VitelaApp(
                 onCancelInsert = viewModel::cancelInsert,
                 onInsertText = viewModel::insertText,
                 onDismissInserter = viewModel::dismissTextInserter,
+                onMarquee = viewModel::marqueeContent,
+                onPress = viewModel::pressContent,
+                onMoveSelection = viewModel::moveContentSelection,
+                onDeleteSelection = viewModel::deleteContentSelection,
+                onClearSelection = viewModel::clearContentSelection,
             )
         },
         watermark = remember(viewModel) {

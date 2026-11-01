@@ -31,7 +31,8 @@ import kotlinx.coroutines.withContext
  *
  * This class owns the mode — arming it, reading pages, routing a tap and
  * landing an accepted edit. The edits themselves live in [TextBlockEditing],
- * [ImageEditing], [PathEditing] and [ContentInserting].
+ * [ImageEditing], [PathEditing], [ContentInserting] and, for several items at
+ * once, [SelectionEditing].
  */
 internal class ContentEditing(
     private val session: ViewerSession,
@@ -55,6 +56,9 @@ internal class ContentEditing(
 
     /** Adding new text and images. */
     val inserts = ContentInserting(session, this)
+
+    /** Gathering several items on a page, then moving or deleting them at once. */
+    val selections = SelectionEditing(session, this)
 
     /**
      * Arms the mode. Not over the Organize grid, which hides the pages a
@@ -126,13 +130,12 @@ internal class ContentEditing(
             is ContentTarget.Path -> return paths.move(openDocument, moving.path, pageIndex, point)
             null -> Unit
         }
+        // With a selection a tap adds to it, takes from it or ends it; it opens no dialog.
+        armed.selection?.let { return selections.tap(openDocument, it, pageIndex, point, reach) }
         session.scope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                val known = state.value.contentEdit?.let { mode ->
-                    mode.blocks[pageIndex]?.let { blocks -> PageContent(emptyList(), mode.images[pageIndex].orEmpty(), mode.paths[pageIndex].orEmpty(), blocks) }
-                }
-                val content = known ?: read(openDocument, pageIndex) ?: return@withLock
+                val content = contentOf(openDocument, pageIndex) ?: return@withLock
                 val mode = state.value.contentEdit ?: return@withLock
                 state.value = when (val hit = contentAt(content.blocks, content.images, point, reach, content.paths)) {
                     null -> state.value.copy(status = CONTENT_EDIT_MISSED)
@@ -149,16 +152,17 @@ internal class ContentEditing(
      * Undo lights up — the edit sits in the shared log — and the page is read
      * again, so its outlines follow the core's word for what it now paints.
      * [spend] closes the dialog the edit came from, before Undo is refreshed;
-     * [status] is shown once the page has redrawn. Called with the document
-     * lane held.
+     * [settled] runs once the page has been read again, before [status] is
+     * shown — once the page has redrawn. Called with the document lane held.
      */
-    suspend fun landed(document: PdfDocument, pageIndex: Int, status: String, spend: () -> Unit = {}) {
+    suspend fun landed(document: PdfDocument, pageIndex: Int, status: String, spend: () -> Unit = {}, settled: () -> Unit = {}) {
         layout.markRedrawn()
         state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
         spend()
         annotations.refresh(document)
         val redrawn = layout.redraw(document)
         read(document, pageIndex)
+        settled()
         if (redrawn) state.value = state.value.copy(status = status)
     }
 
@@ -168,11 +172,22 @@ internal class ContentEditing(
      */
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
-        // An armed move or an open replacement picker holds the block, image or path
-        // as it was; it may no longer be there. An armed insert and its dialog
-        // hold only a spot on a page, which survives.
-        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = null, moving = null, replacingImage = null))
+        // An armed move, an open replacement picker or a selection holds the block,
+        // image or path as it was; it may no longer be there. An armed insert and
+        // its dialog hold only a spot on a page, which survives.
+        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = null, moving = null, replacingImage = null, selection = null))
         for (pageIndex in mode.blocks.keys) read(document, pageIndex)
+    }
+
+    /**
+     * Page [pageIndex]'s content as the mode last read it, reading it first if
+     * it has not; null when the core refused or the mode closed. Called with
+     * the document lane held.
+     */
+    suspend fun contentOf(document: PdfDocument, pageIndex: Int): PageContent? {
+        val mode = state.value.contentEdit
+        val known = mode?.blocks?.get(pageIndex)?.let { blocks -> PageContent(emptyList(), mode.images[pageIndex].orEmpty(), mode.paths[pageIndex].orEmpty(), blocks) }
+        return known ?: read(document, pageIndex)
     }
 
     /**

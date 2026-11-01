@@ -96,3 +96,23 @@ data class PageContent(
     val paths: List<ContentPath> = emptyList(),
     val blocks: List<ContentTextBlock> = emptyList(),
 )
+
+/**
+ * What a marquee or a tap-to-add gathered on one page (B25 T-208): text
+ * [blocks], [images] and vector [paths], each exactly as it was last read, so
+ * the core can match the edit against that same parse. A block is sent as its
+ * runs. A selection edits one page at a time: [pageIndex] is that page, and the
+ * core refuses members from two.
+ *
+ * Handed to [PdfDocument.moveContentSelection] and
+ * [PdfDocument.removeContentSelection], each of which is one undo step.
+ */
+data class ContentSelection(
+    val pageIndex: Int,
+    val blocks: List<ContentTextBlock> = emptyList(),
+    val images: List<ContentImage> = emptyList(),
+    val paths: List<ContentPath> = emptyList(),
+) {
+    /** How many items it holds, a block counting as one. */
+    val count: Int get() = blocks.size + images.size + paths.size
+}
