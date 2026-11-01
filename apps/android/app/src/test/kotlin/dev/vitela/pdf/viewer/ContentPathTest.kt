@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
+import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.PathPaint
 import org.junit.Assert.assertEquals
@@ -63,22 +64,24 @@ class ContentPathTest {
     fun aPathYieldsToTextAndImagesTheTapIsInside() {
         val shade = path(1, 0.0, 0.0, 200.0, 200.0)
         val run = ContentTextRun(2, 0, AnnotationRect(10.0, 10.0, 40.0, 12.0), "F1", ContentFontKind.Standard14, "x")
+        val block = ContentTextBlock(listOf(run), run.bounds, "x")
         val image = ContentImage(3, 0, AnnotationRect(100.0, 100.0, 30.0, 30.0), null)
 
-        assertEquals(ContentTarget.Run(run), contentAt(listOf(run), listOf(image), AnnotationPoint(20.0, 15.0), 0.0, listOf(shade)))
-        assertEquals(ContentTarget.Image(image), contentAt(listOf(run), listOf(image), AnnotationPoint(110.0, 110.0), 0.0, listOf(shade)))
-        assertEquals(ContentTarget.Path(shade), contentAt(listOf(run), listOf(image), AnnotationPoint(150.0, 20.0), 0.0, listOf(shade)))
+        assertEquals(ContentTarget.Block(block), contentAt(listOf(block), listOf(image), AnnotationPoint(20.0, 15.0), 0.0, listOf(shade)))
+        assertEquals(ContentTarget.Image(image), contentAt(listOf(block), listOf(image), AnnotationPoint(110.0, 110.0), 0.0, listOf(shade)))
+        assertEquals(ContentTarget.Path(shade), contentAt(listOf(block), listOf(image), AnnotationPoint(150.0, 20.0), 0.0, listOf(shade)))
     }
 
     @Test
     fun aPathUnderTheFingerBeatsTextOnlyWithinReach() {
         val rule = path(1, 0.0, 80.0, 100.0, 0.0, PathPaint.Stroke)
         val run = ContentTextRun(2, 0, AnnotationRect(10.0, 90.0, 40.0, 12.0), "F1", ContentFontKind.Standard14, "x")
+        val block = ContentTextBlock(listOf(run), run.bounds, "x")
 
         // On the rule, 10 pt below the run: the rule is under the finger, the run only within reach.
-        assertEquals(ContentTarget.Path(rule), contentAt(listOf(run), emptyList(), AnnotationPoint(30.0, 80.0), 12.0, listOf(rule)))
+        assertEquals(ContentTarget.Path(rule), contentAt(listOf(block), emptyList(), AnnotationPoint(30.0, 80.0), 12.0, listOf(rule)))
         // Off both, nearer the run: reach has to be used, and the run is the nearer.
-        assertEquals(ContentTarget.Run(run), contentAt(listOf(run), emptyList(), AnnotationPoint(30.0, 88.0), 12.0, listOf(rule)))
+        assertEquals(ContentTarget.Block(block), contentAt(listOf(block), emptyList(), AnnotationPoint(30.0, 88.0), 12.0, listOf(rule)))
     }
 
     @Test

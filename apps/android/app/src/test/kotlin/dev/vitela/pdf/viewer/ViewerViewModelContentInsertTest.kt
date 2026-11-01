@@ -74,7 +74,7 @@ class ViewerViewModelContentInsertTest {
         assertTrue(state.canUndoAnnotations)
         assertEquals(TEXT_INSERTED, state.status)
         assertNull(state.contentEdit?.inserter)
-        assertTrue("the new run is outlined as the core reports it", state.contentEdit?.runs?.get(0).orEmpty().any { it.text == "New line" })
+        assertTrue("the new run is outlined as the core reports it", state.contentEdit?.blocks?.get(0).orEmpty().any { it.text == "New line" })
     }
 
     @Test
@@ -152,7 +152,7 @@ class ViewerViewModelContentInsertTest {
         viewModel.undoAnnotations()
         advanceUntilIdle()
 
-        assertFalse(viewModel.state.value.contentEdit?.runs?.get(0).orEmpty().any { it.text == "New line" })
+        assertFalse(viewModel.state.value.contentEdit?.blocks?.get(0).orEmpty().any { it.text == "New line" })
     }
 
     @Test
@@ -220,7 +220,7 @@ class ViewerViewModelContentInsertTest {
         advanceUntilIdle()
 
         assertTrue(document.imageInserts.isEmpty())
-        assertEquals("Hello", viewModel.state.value.contentEdit?.editor?.run?.text)
+        assertEquals("Hello", viewModel.state.value.contentEdit?.editor?.block?.text)
     }
 
     @Test

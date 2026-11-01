@@ -68,7 +68,7 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
         )
     }
     if (state.needsPassword) PasswordDialog(state.passwordMessage, actions.onPassword, actions.onPasswordCancel)
-    state.contentEdit?.editor?.let { TextRunEditorDialog(it, state.documentId, actions.contentEdit) }
+    state.contentEdit?.editor?.let { TextBlockEditorDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.resizer?.let { ImageResizerDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.shaper?.let { PathShaperDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.inserter?.let { TextInserterDialog(it, state.documentId, actions.contentEdit) }

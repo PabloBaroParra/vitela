@@ -31,7 +31,7 @@ internal class ContentEditActions(
     val onTap: (Int, AnnotationPoint, Double) -> Unit,
     /** documentId, text: the document is the one the dialog was built for. */
     val onRetype: (Long, String) -> Unit,
-    /** documentId: deletes the dialog's run; the document is the one the dialog was built for. */
+    /** documentId: deletes the dialog's text block; the document is the one the dialog was built for. */
     val onDeleteText: (Long) -> Unit,
     /** documentId: swaps the retype dialog for a move armed on the next page tap. */
     val onMoveText: (Long) -> Unit,
@@ -48,7 +48,7 @@ internal class ContentEditActions(
     val onMovePath: (Long) -> Unit,
     /** documentId: deletes the dialog's path; the document is the one the dialog was built for. */
     val onDeletePath: (Long) -> Unit,
-    /** Disarms a move of a run, an image or a path. */
+    /** Disarms a move of a text block, an image or a path. */
     val onCancelMove: () -> Unit,
     /** documentId: deletes the dialog's image; the document is the one the dialog was built for. */
     val onDelete: (Long) -> Unit,
@@ -65,23 +65,24 @@ internal class ContentEditActions(
 )
 
 /**
- * The retype dialog: the run's text, ready to change. Keyed on the editor, so
- * a refusal — which comes back with what was typed — reopens with it rather
- * than with the run's old text. Move leaves it for a page tap that places the
- * run, like an image's Move. Delete takes the run off the page at once, like
- * an image's Delete: it is one undoable entry.
+ * The retype dialog: the text of the whole line — the block of runs the tap
+ * landed in — ready to change; a block painted as several runs is retyped as one
+ * piece of text. Keyed on the editor, so a refusal — which comes back with what
+ * was typed — reopens with it rather than with the block's old text. Move leaves
+ * it for a page tap that places the block, like an image's Move. Delete takes
+ * the block off the page at once, like an image's Delete: it is one undoable entry.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun TextRunEditorDialog(editor: TextRunEditor, documentId: Long, actions: ContentEditActions) {
+internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, actions: ContentEditActions) {
     var text by remember(editor) { mutableStateOf(editor.text) }
     AlertDialog(
         onDismissRequest = actions.onDismiss,
         title = { Text("Edit text") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (editor.run.substitutesFont) Text(FONT_SUBSTITUTED, style = MaterialTheme.typography.bodySmall)
-                Text("Move lets you drag this text, or tap where it should go, keeping its font and size; save first if it already has a pending edit. Delete takes it off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
+                if (editor.block.substitutesFont) Text(FONT_SUBSTITUTED, style = MaterialTheme.typography.bodySmall)
+                Text("Move lets you drag this text, or tap where it should go, keeping its font and size. Moving a line you already retyped, or retyping one you already moved, needs a save first. Delete takes it off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },

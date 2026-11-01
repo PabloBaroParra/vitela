@@ -9,8 +9,9 @@ enum class ContentFontKind { Standard14, EmbeddedSimple, EmbeddedComposite }
  * reports the text it now shows. [pageIndex] is the page's zero-based position
  * in the current order; [bounds] are in PDF points.
  *
- * Handed back unchanged to [PdfDocument.retypeTextRun] and
- * [PdfDocument.removeTextRun]: the core matches the edit against exactly this parse.
+ * Never edited on its own: it is read as part of a [ContentTextBlock], and the
+ * block is handed back unchanged to the block edits, which match it against
+ * exactly this parse.
  */
 data class ContentTextRun(
     val id: Long,
@@ -20,6 +21,33 @@ data class ContentTextRun(
     val fontKind: ContentFontKind,
     val text: String,
 )
+
+/**
+ * Text runs that read as one line — on one line, in one font, no more than a
+ * word gap apart — as the core grouped them (B25 T-207). A report generator
+ * paints one phrase with several show-text operators; the reader sees, selects,
+ * moves, retypes and deletes it as one piece, each an undo step of its own.
+ *
+ * [runs] are left to right, exactly as the page's content read them, and every
+ * run of a page is in exactly one block. [bounds] is the union of their boxes and
+ * [text] their text joined, with a space put back where the file left a word gap
+ * out of it. A one-run block is just a block.
+ *
+ * Handed back unchanged to [PdfDocument.retypeTextBlock],
+ * [PdfDocument.moveTextBlock] and [PdfDocument.removeTextBlock]: the core
+ * matches the edit against exactly this parse.
+ */
+data class ContentTextBlock(
+    val runs: List<ContentTextRun>,
+    val bounds: AnnotationRect,
+    val text: String,
+) {
+    /** The first run's id, which names the block: a retyped or moved block keeps it. */
+    val id: Long get() = runs.first().id
+
+    /** The page the block is on, its runs' page. */
+    val pageIndex: Int get() = runs.first().pageIndex
+}
 
 /**
  * One image a page's own content stream paints, as the core parsed it with
@@ -58,12 +86,13 @@ data class ContentPath(
 )
 
 /**
- * What page content editing can act on: one page's text runs, images and vector
- * paths, from one parse. [paths] defaults to none, so a core that cannot read
- * them still describes a page.
+ * What page content editing can act on: one page's text runs and the [blocks]
+ * they group into, images and vector paths, from one parse. [paths] and
+ * [blocks] default to none, so a core that cannot read them still describes a page.
  */
 data class PageContent(
     val textRuns: List<ContentTextRun>,
     val images: List<ContentImage>,
     val paths: List<ContentPath> = emptyList(),
+    val blocks: List<ContentTextBlock> = emptyList(),
 )
