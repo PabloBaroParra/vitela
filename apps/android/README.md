@@ -414,9 +414,13 @@ once a block is retyped its first run's edit lives inside a batch, and a per-run
 edit would no longer see it. Each is one undo step however many runs it covers;
 the same edit again before a save — a retype of the same block, a move of the
 same block — folds into the queued one, so it stays one step. A mix (moving a
-block already retyped, retyping one already moved) is refused with "This text has
-an unsaved edit — save the document before editing it again." until a save, and
-the dialog says so. Retyping puts all the new text in the first run and removes
+block already retyped, retyping one already moved) is no longer refused where the
+core can **checkpoint**: it writes the queued edits into a new in-memory base,
+retries the edit there and the reader notices nothing (see *Checkpoints* below).
+Where it cannot — a session with imported pages, signatures, encryption or
+reordered pages — the refusal "This text has an unsaved edit — save the document
+before editing it again." stands, and the dialog warns of it only then (it asks
+`content_edits_can_checkpoint` each time it opens). Retyping puts all the new text in the first run and removes
 the others, so a line painted in pieces becomes one run. Verified by the JVM unit tests only, not yet on a device or emulator.
 
 Only the renderer can paint the new words, so a retype rebuilds the preview
@@ -489,7 +493,9 @@ tap queues one delete; a refusal is reported in the status line. The delete
 redraws the page and re-reads it, so the outline goes with the image; the gate
 is the same `content_editing_allowed`. An image with a pending move or resize can
 be deleted: the core folds the delete into the queued edit (B25 T-207), so it
-stays one undo step. Only **Replace** below still needs a save first.
+stays one undo step. Only **Replace** below still needs a save first: its
+original is read through `image_source_bytes`, which refuses an image with a
+pending edit and has no checkpoint of its own.
 
 **Replace** in that dialog swaps the image's picture for a PNG or JPEG, keeping
 its box: a different aspect ratio stretches to it (`ReplaceImageSource`). The
@@ -608,8 +614,30 @@ placement, before anything is queued.
 Each insert is one undoable entry: it redraws the page and re-reads it, so the
 new line or image is outlined like any other. The gate is the same
 `content_editing_allowed`. The core checks every content edit against the file
-as last saved, where an inserted item does not exist yet, so retyping, moving,
-resizing or deleting one before a save is refused; save first, or Undo it.
+as last saved, where an inserted item does not exist yet; so retyping, moving,
+resizing or deleting one before a save goes through a checkpoint where the core
+can take one (below), and is refused — save first, or Undo it — where it cannot.
+
+**Checkpoints** (B25 T-207 follow-up, core #506, Windows #506, macOS #515, Linux
+#523). When a content edit is refused because its item already has an unsaved
+edit, the core writes the pending queue into a new in-memory base, empties the
+log, rebinds the edit's items and retries, inside the one FFI call. It does that
+only for a log of content edits alone on an unencrypted, unsigned file with no
+imports and its own page order. The new base numbers every item afresh, so
+everything this shell read before is stale. The adapter exposes
+`content_base_generation` (changes on a checkpoint, and when an undo or redo
+steps across one) and `content_edits_can_checkpoint`. After each accepted edit
+the mode asks for the generation — one cheap call under the document lane — and
+if it moved it reads **every** page it had read again, not only the edited one,
+and drops what it held as read: an open dialog, an armed move, a replacement
+picker and the **selection**. The selection is dropped rather than re-matched to
+the new items by geometry, since a wrong match would move the wrong thing. Undo
+and redo already re-read every page and drop the same things, and Undo/Redo
+availability comes from the handle's own `can_undo`/`can_redo`, which count the
+checkpoint. A paste that checkpoints still lands, but its items are not
+selected: the ids it would be told apart by are gone. Verified by JVM unit tests
+against a fake core that renumbers its ids and refuses an old one; not run
+against the real core, and not on a device or emulator.
 
 ## Native prerequisite
 

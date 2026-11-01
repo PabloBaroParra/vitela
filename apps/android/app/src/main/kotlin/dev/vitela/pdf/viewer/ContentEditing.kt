@@ -45,6 +45,17 @@ internal class ContentEditing(
     /** Pages whose content is being read, so a page shown twice in a row is read once. */
     private val reading = mutableSetOf<Int>()
 
+    /**
+     * The core's content base generation every page this mode holds was read at;
+     * null until the first read of this mode. A different answer means the core
+     * wrote the pending edits into a new in-memory base, which renumbers every
+     * item: see [catchUp]. Read and written with the document lane held.
+     */
+    private var baseGeneration: Long? = null
+
+    /** [baseGeneration], so a caller can tell whether a [landed] edit had to catch the pages up. */
+    val readGeneration: Long? get() = baseGeneration
+
     /** Retyping, moving and deleting text blocks. */
     val text = TextBlockEditing(session, this)
 
@@ -76,6 +87,7 @@ internal class ContentEditing(
         val openDocument = session.document ?: return
         if (state.value.pageCount == 0 || state.value.organize != null || state.value.contentEdit != null) return
         selection.clear()
+        baseGeneration = null
         state.value = state.value.copy(
             contentEdit = ContentEditState(hasClip = session.contentClip != null),
             activeAnnotationTool = AnnotationTool.Pointer,
@@ -93,6 +105,7 @@ internal class ContentEditing(
     }
 
     fun close() {
+        baseGeneration = null
         if (state.value.contentEdit != null) state.value = state.value.copy(contentEdit = null, status = CONTENT_EDIT_OFF)
     }
 
@@ -144,7 +157,11 @@ internal class ContentEditing(
                 val mode = state.value.contentEdit ?: return@withLock
                 state.value = when (val hit = contentAt(content.blocks, content.images, point, reach, content.paths)) {
                     null -> state.value.copy(status = CONTENT_EDIT_MISSED)
-                    is ContentTarget.Block -> state.value.copy(contentEdit = mode.copy(editor = TextBlockEditor(hit.block), resizer = null, shaper = null))
+                    is ContentTarget.Block -> {
+                        // Asked as the dialog opens, not once per mode: an annotation, an import or a signature since changes the answer.
+                        val canCheckpoint = withContext(session.compute) { openDocument.contentEditsCanCheckpoint() }
+                        state.value.copy(contentEdit = mode.copy(editor = TextBlockEditor(hit.block, canCheckpoint = canCheckpoint), resizer = null, shaper = null))
+                    }
                     is ContentTarget.Image -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = ImageResizer(hit.image), shaper = null))
                     is ContentTarget.Path -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = PathShaper(hit.path)))
                 }
@@ -159,6 +176,11 @@ internal class ContentEditing(
      * [spend] closes the dialog the edit came from, before Undo is refreshed;
      * [settled] runs once the page has been read again, before [status] is
      * shown — once the page has redrawn. Called with the document lane held.
+     *
+     * An edit on an item that already had an unsaved edit may have made the core
+     * checkpoint, which renumbers every item on every page: then all the pages
+     * read so far are read again and what the mode holds is dropped ([catchUp]),
+     * before [settled] runs — so a [settled] that looks at the selection finds none.
      */
     suspend fun landed(document: PdfDocument, pageIndex: Int, status: String, spend: () -> Unit = {}, settled: () -> Unit = {}) {
         layout.markRedrawn()
@@ -166,7 +188,7 @@ internal class ContentEditing(
         spend()
         annotations.refresh(document)
         val redrawn = layout.redraw(document)
-        read(document, pageIndex)
+        if (checkpointed(document)) catchUp(document, pageIndex) else read(document, pageIndex)
         settled()
         if (redrawn) state.value = state.value.copy(status = status)
     }
@@ -177,12 +199,41 @@ internal class ContentEditing(
      */
     suspend fun reread(document: PdfDocument) {
         val mode = state.value.contentEdit ?: return
-        // An armed move, an open replacement picker or a selection holds the block,
-        // image or path as it was; it may no longer be there. An armed insert and
-        // its dialog hold only a spot on a page, which survives.
-        state.value = state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = null, moving = null, replacingImage = null, selection = null))
+        state.value = state.value.copy(contentEdit = mode.withoutHeldItems())
         for (pageIndex in mode.blocks.keys) read(document, pageIndex)
     }
+
+    /**
+     * Whether the core swapped the base the pages were read from since they were —
+     * a checkpoint, which an accepted edit may have taken. One question to the
+     * core per landed edit; false before anything was read.
+     */
+    private suspend fun checkpointed(document: PdfDocument): Boolean {
+        val known = baseGeneration ?: return false
+        return withContext(session.compute) { document.contentBaseGeneration() } != known
+    }
+
+    /**
+     * Reads again every page already read, and [pageIndex] too: after a checkpoint
+     * their ids describe a parse that is gone, so an edit built from them would go
+     * to the core by its alias, once, at best. What the mode held is dropped — the
+     * selection with it; re-resolving it would mean matching old items to new by
+     * geometry, and a wrong match moves the wrong thing. Called with the lane held.
+     */
+    private suspend fun catchUp(document: PdfDocument, pageIndex: Int) {
+        val mode = state.value.contentEdit ?: return
+        state.value = state.value.copy(contentEdit = mode.withoutHeldItems())
+        for (page in mode.blocks.keys + pageIndex) read(document, page)
+    }
+
+    /**
+     * The mode without the block, image or path it holds as it was read: an open
+     * dialog, an armed move, a replacement picker, a selection — each may no
+     * longer be there, or be numbered differently. An armed insert and its dialog
+     * hold only a spot on a page, which survives.
+     */
+    private fun ContentEditState.withoutHeldItems() =
+        copy(editor = null, resizer = null, shaper = null, moving = null, replacingImage = null, selection = null)
 
     /**
      * Page [pageIndex]'s content as the mode last read it, reading it first if
@@ -203,9 +254,11 @@ internal class ContentEditing(
      * lane held.
      */
     private suspend fun read(document: PdfDocument, pageIndex: Int): PageContent? {
-        val result = withContext(session.compute) { document.pageContent(pageIndex) }
+        // The generation is asked in the same call as the read, so the pair cannot straddle a checkpoint.
+        val (generation, result) = withContext(session.compute) { document.contentBaseGeneration() to document.pageContent(pageIndex) }
         val mode = state.value.contentEdit ?: return null
         if (session.document !== document) return null
+        baseGeneration = generation
         return when (result) {
             is PdfCoreResult.Success -> result.value.also { content ->
                 state.value = state.value.copy(

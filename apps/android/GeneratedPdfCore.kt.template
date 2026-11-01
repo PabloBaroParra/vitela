@@ -389,6 +389,8 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     override fun contentEditingAllowed(): Boolean = handle.contentEditingAllowed()
+    override fun contentBaseGeneration(): Long = handle.contentBaseGeneration().toLong()
+    override fun contentEditsCanCheckpoint(): Boolean = handle.contentEditsCanCheckpoint()
 
     override fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = try {
         val content = handle.readPageContent(pageIndex.toUInt())

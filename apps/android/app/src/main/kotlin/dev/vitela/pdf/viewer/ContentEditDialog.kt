@@ -81,6 +81,16 @@ internal class ContentEditActions(
 )
 
 /**
+ * What the retype dialog says about its actions. The save warning is only for a
+ * document the core cannot checkpoint — one with imported pages, signatures or
+ * encryption; elsewhere it writes the earlier edit into memory and carries on.
+ */
+internal fun textDialogHelp(canCheckpoint: Boolean): String =
+    "Move lets you drag this text, or tap where it should go, keeping its font and size. " +
+        (if (canCheckpoint) "" else "Moving a line you already retyped, or retyping one you already moved, needs a save first. ") +
+        "Delete takes it off the page; Undo puts it back. It is not a secure redaction."
+
+/**
  * The retype dialog: the text of the whole line — the block of runs the tap
  * landed in — ready to change; a block painted as several runs is retyped as one
  * piece of text. Keyed on the editor, so a refusal — which comes back with what
@@ -98,7 +108,7 @@ internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, ac
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (editor.block.substitutesFont) Text(FONT_SUBSTITUTED, style = MaterialTheme.typography.bodySmall)
-                Text("Move lets you drag this text, or tap where it should go, keeping its font and size. Moving a line you already retyped, or retyping one you already moved, needs a save first. Delete takes it off the page; Undo puts it back. It is not a secure redaction.", style = MaterialTheme.typography.bodySmall)
+                Text(textDialogHelp(editor.canCheckpoint), style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
