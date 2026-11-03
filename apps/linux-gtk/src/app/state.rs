@@ -104,9 +104,9 @@ pub(crate) struct Viewer {
     /// had since T-162, and the reason `pdf-edit::remove_text_run` was
     /// reachable from `pdf-save` but from no gesture in this shell.
     ///
-    /// Gated on an editor being open over an *existing* run, not on a
-    /// selection: content-edit mode has no text selection, a click on a run
-    /// opens an editor over it instead. Sensitivity is owned by
+    /// Gated on a selected text block, or on an editor being open over an
+    /// *existing* run: a click on a run selects its block, and F2 or a
+    /// double click opens the editor over it. Sensitivity is owned by
     /// `update_content_edit_controls` alongside the image pair.
     pub(crate) delete_text_button: Button,
     /// Deletes the selected image in content-edit mode (T-162 Slice 1).
@@ -1139,6 +1139,24 @@ pub(crate) struct SelectedImage {
     pub(crate) replace_refused: bool,
 }
 
+/// A text block selected by a click in content-edit mode — the Windows
+/// `_selectedTextBlock`. Delete removes it, F2 or a double click opens the
+/// inline editor over it (`content_edit::block`).
+///
+/// Holds exactly what [`ContentEditor`] is opened with, so retyping a
+/// selection is the same call a click used to make. Held by value for the
+/// same reason as [`SelectedImage`]: the runs are the parser's snapshot of
+/// the page, which is also why every refresh of that page drops it.
+pub(crate) struct SelectedTextBlock {
+    pub(crate) page_index: usize,
+    /// The block's stand-in (`content_edit::model::block_stand_in`): the
+    /// first run's font and id with the block's box and text — or the run
+    /// itself when it stands alone.
+    pub(crate) run: TextRun,
+    /// Every run of the block, empty when `run` stands alone.
+    pub(crate) block: Vec<TextRun>,
+}
+
 /// A vector path selected in content-edit mode — a table border, a rule, a
 /// shaded box (B25 T-206). Held by value for the same reason as
 /// [`SelectedImage`]: a `PathItem` is a parser's snapshot, not addressable
@@ -1510,6 +1528,10 @@ pub(crate) struct DocumentSession {
     /// flight. Lives on the session for the same reason `annotation_drag`
     /// does: nothing reaches the `EditLog` until the pointer comes up.
     pub(crate) image_drag: Option<ImageDrag>,
+    /// The text block a click selected in content-edit mode, if any. At most
+    /// one of this, `selected_image`, `selected_path`, `content_selection`
+    /// and `content_editor` is live.
+    pub(crate) selected_text_block: Option<SelectedTextBlock>,
     /// The selected vector path in content-edit mode, if any (B25 T-206).
     /// At most one of this, `selected_image` and `content_editor` is live.
     pub(crate) selected_path: Option<SelectedPath>,

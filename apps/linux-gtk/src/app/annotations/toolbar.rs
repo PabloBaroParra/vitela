@@ -113,8 +113,8 @@ pub(crate) fn connect_annotation_toolbar(viewer: &Viewer) {
 /// first.
 ///
 /// An accelerator has the opposite hazard: it is resolved ahead of the focus
-/// chain, so a live `Delete` accel would take the key away from the search
-/// entry mid-word. Hence the enabled state, maintained by
+/// chain, so a live `Delete` accel would take the key away from any text
+/// field mid-word. Hence the enabled state, maintained by
 /// [`update_annotation_controls`] — a *disabled* action does not consume its
 /// accelerator, so the key travels on to the entry exactly as before.
 pub(crate) fn connect_delete_shortcut(
@@ -139,21 +139,24 @@ pub(crate) fn connect_delete_shortcut(
 
     // Watched on the window, not on the entry: focus moving anywhere changes
     // whether the accelerator may fire, and the entry's own focus signal never
-    // reports the case that matters (see [`search_has_focus`]).
+    // reports the case that matters (see [`text_input_has_focus`]).
     window.connect_focus_widget_notify({
         let viewer = viewer.clone();
         move |_| update_annotation_controls(&viewer)
     });
 }
 
-/// Whether the keyboard focus is inside the search entry.
+/// Whether the keyboard focus is in a text field of the main window — the
+/// search entry, the inline content editor, a form-fill or metadata entry, a
+/// spin button.
 ///
 /// Deliberately not `Entry::has_focus`. A `GtkEntry` delegates focus to an
 /// internal `GtkText` child, so the entry itself never reports holding it —
 /// the guard built on that call was dead, and Delete deleted the selected
 /// annotation out from under someone typing a search term. Ask the window who
-/// actually holds focus and whether the entry contains them.
-fn search_has_focus(viewer: &Viewer) -> bool {
+/// actually holds focus and whether it edits text: that inner `GtkText` is a
+/// `GtkEditable`, and so is every other single-line field.
+pub(crate) fn text_input_has_focus(viewer: &Viewer) -> bool {
     let focused = viewer
         .search_entry
         .root()
@@ -161,10 +164,7 @@ fn search_has_focus(viewer: &Viewer) -> bool {
         // `focus` is ambiguous here: `RootExt` has one too, and it is the
         // window's notion of the focus widget that is wanted.
         .and_then(|window| gtk::prelude::GtkWindowExt::focus(&window));
-    focused.is_some_and(|focused| {
-        focused == *viewer.search_entry.upcast_ref::<gtk::Widget>()
-            || focused.is_ancestor(&viewer.search_entry)
-    })
+    focused.is_some_and(|focused| focused.is::<gtk::Editable>() || focused.is::<gtk::TextView>())
 }
 
 fn connect(viewer: &Viewer, button: &Button, action: fn(&Viewer)) {
@@ -323,15 +323,19 @@ pub(crate) fn update_annotation_controls(viewer: &Viewer) {
         .set_sensitive(enabled && selected.is_some_and(is_text_box));
     buttons.delete_selection.set_sensitive(has_selection);
     // The key and the button delete the same thing, so they light up together
-    // — except while the search entry has focus, where Delete belongs to the
+    // — except while a text field has focus, where Delete belongs to the
     // text being typed and the accelerator must stand down. A selected shape
     // or several selected items in content-edit mode (B25 T-206, T-208) are
-    // the key's too.
-    let deletable =
-        has_selection || session.selected_path.is_some() || session.content_selection.is_some();
+    // the key's too, and so are a selected image the Edit card could delete
+    // and a text block a click selected.
+    let deletable = has_selection
+        || session.selected_text_block.is_some()
+        || session.selected_path.is_some()
+        || session.content_selection.is_some()
+        || crate::app::content_edit::image_controls(Some(session)).delete_enabled();
     buttons
         .delete_action
-        .set_enabled(deletable && !search_has_focus(viewer));
+        .set_enabled(deletable && !text_input_has_focus(viewer));
     // Through the checkpoints too: once the core has written the queue into
     // an in-memory base (`content_edit::checkpoint`), the live log can be
     // empty while there is still an edit to undo and to save.

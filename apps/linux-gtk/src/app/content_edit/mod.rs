@@ -1,16 +1,16 @@
-//! Content-edit mode: click an existing text run to retype it in place,
-//! preserving its font, size, and position (T-161); drag that same box to
-//! move the run somewhere else on the page; select, move, resize, delete,
-//! and replace-via-file-picker an existing page image (T-162); arm
+//! Content-edit mode: click existing text to select it, then press F2 or
+//! double-click to retype it in place, preserving its font, size, and
+//! position (T-161), or press Delete to remove it; drag it to move it
+//! somewhere else on the page; select, move, resize, delete, and
+//! replace-via-file-picker an existing page image (T-162); arm
 //! "insert text"/"insert image" to add brand-new page content instead of
 //! targeting whatever is already there (T-163).
 //!
-//! Text has one gesture where an image has two: the editor box is both the
-//! thing you type in and the thing you drag, told apart by how far the
-//! pointer travels ([`CLICK_EPSILON_PX`], the same threshold this module
-//! already used to collapse a short page drag into a click). A press that
-//! stays put places the caret; one that moves takes the box with it. See
-//! `editor::wire_drag`.
+//! A press on text is told apart by how far the pointer travels
+//! ([`CLICK_EPSILON_PX`], the same threshold this module already used to
+//! collapse a short page drag into a click): one that stays put selects the
+//! block, one that moves takes it with it. A blank insertion's box is the
+//! one exception that is dragged as a widget — see `editor::wire_drag`.
 //!
 //! Wires `core/pdf-edit` (Batch 21's content-stream editor) into this shell
 //! directly, the same bypass-`pdf-ffi` posture `annotations` already has.
@@ -28,6 +28,8 @@
 //! - [`editor`] is the inline `Entry` lifecycle for a text run: open (over an
 //!   existing run, or blank for an insertion), drag to reposition, commit,
 //!   cancel.
+//! - [`block`] is the text block a click selects, and the keys and the
+//!   double click that act on it: Delete, F2, Esc.
 //! - [`image`] is the select/move/resize/delete/replace/insert lifecycle for
 //!   an image.
 //! - [`clipboard`] is CTRL+C, CTRL+X and CTRL+V over what is selected
@@ -59,9 +61,10 @@
 
 mod command;
 // `pub(crate)` for one reason: `build_ui` wires the Edit page's "Delete text"
-// button to `editor::delete_open_run`, the same way it wires the two image
+// button to `block::delete_text`, the same way it wires the two image
 // buttons to `image`'s handlers. Everything else here is reached through this
 // module.
+pub(crate) mod block;
 pub(crate) mod checkpoint;
 pub(crate) mod clipboard;
 pub(crate) mod editor;
@@ -421,7 +424,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         load_visible_page_content(viewer);
         viewer
             .status
-            .set_text("Edit content armed — click a text run to retype it.");
+            .set_text("Edit content armed — click text to select it, double-click to retype it.");
     } else {
         editor::commit(viewer);
         clear_selected_image(viewer);
@@ -488,7 +491,7 @@ pub(crate) fn set_insert_mode(viewer: &Viewer, kind: Option<ContentInsertKind>) 
         Some(ContentInsertKind::Image) => {
             "Insert image armed — click the page to insert a picture."
         }
-        None => "Edit content armed — click a text run to retype it.",
+        None => "Edit content armed — click text to select it, double-click to retype it.",
     });
     crate::app::update_content_edit_controls(viewer);
     redraw(viewer);
@@ -513,8 +516,8 @@ fn clear_text_drag(viewer: &Viewer) {
     }
 }
 
-/// Clears whatever image or path is selected (and any drag in flight), if
-/// any — the T-162 twin of `editor::commit`'s own resolve-and-close, but a
+/// Clears whatever image, path or text block is selected (and any drag in
+/// flight), if any — the T-162 twin of `editor::commit`'s own resolve-and-close, but a
 /// selection has nothing to validate on the way out, only to drop.
 fn clear_selected_image(viewer: &Viewer) {
     let mut state = viewer.state.borrow_mut();
@@ -525,6 +528,7 @@ fn clear_selected_image(viewer: &Viewer) {
         session.path_drag = None;
         session.content_selection = None;
         session.selection_gesture = None;
+        session.selected_text_block = None;
     }
 }
 
@@ -546,8 +550,13 @@ fn clear_selected_image(viewer: &Viewer) {
 /// press a toggle, a press inside the selection's box drags all of it, and a
 /// press nothing claimed starts a marquee.
 ///
+/// A selected text block survives a press on text, which the release turns
+/// into a selection or a move either way, and a marquee, which only decides
+/// what it means once it has grown; a press that took an image or a shape
+/// lets go of it.
+///
 /// Returns whether any claimed the press. `false` leaves the gesture to
-/// resolve on `drag_end` as a click, which is what opens the inline editor.
+/// resolve on `drag_end` as a click, which is what selects text.
 pub(crate) fn begin_drag(
     viewer: &Viewer,
     page_index: usize,
@@ -562,20 +571,40 @@ pub(crate) fn begin_drag(
         return true;
     }
     multi::clear(viewer);
-    if image::begin_image_drag(viewer, page_index, point, reach)
-        || text::begin_text_drag(viewer, page_index, point)
-    {
+    if image::begin_image_drag(viewer, page_index, point, reach) {
+        clear_selected_path(viewer);
+        block::clear(viewer);
+        return true;
+    }
+    if text::begin_text_drag(viewer, page_index, point) {
         clear_selected_path(viewer);
         return true;
     }
-    path::begin_path_drag(viewer, page_index, point, reach)
-        || multi::begin_marquee(viewer, page_index, point)
+    if path::begin_path_drag(viewer, page_index, point, reach) {
+        block::clear(viewer);
+        return true;
+    }
+    multi::begin_marquee(viewer, page_index, point)
 }
 
-/// The Delete key in content-edit mode: the selection, then a selected
-/// shape. Returns whether either was there to delete.
+/// The Delete key in content-edit mode: the selection, then a selected text
+/// block, shape or image — Windows' order. At most one of them is selected
+/// at a time. Returns whether any was there to delete.
 pub(crate) fn delete_selection(viewer: &Viewer) -> bool {
-    multi::delete_selected(viewer) || path::delete_selected(viewer)
+    multi::delete_selected(viewer)
+        || block::delete_selected(viewer)
+        || path::delete_selected(viewer)
+        || delete_selected_image(viewer)
+}
+
+/// The key deletes an image exactly when the card's Delete button would —
+/// both read [`ImageControls::delete_enabled`].
+fn delete_selected_image(viewer: &Viewer) -> bool {
+    let deletable = image_controls(viewer.state.borrow().session.as_ref()).delete_enabled();
+    if deletable {
+        image::delete_selected(viewer);
+    }
+    deletable
 }
 
 /// Drops the path selection when a press went to something else.
@@ -740,11 +769,8 @@ pub(crate) fn load_visible_page_content(viewer: &Viewer) {
 /// Tries [`image::finish_image_drag`] first (T-162): if an image drag was in
 /// flight — claimed back at `begin_drag` — it validates and records
 /// whatever the drag did (or nothing, for a click that only selected the
-/// image) and this function stops, never touching the text-run editor
-/// below. Only when no image drag existed does this fall through to the
-/// original T-161 behaviour: a text-run edit has no live preview to paint
-/// while the pointer is down, so it claims the whole gesture and resolves it
-/// as a click here, on `drag_end`.
+/// image) and this function stops. Then the other item gestures, then a
+/// text move; what is left is a click, resolved by [`resolve_click`].
 pub(crate) fn handle_drag_end(
     viewer: &Viewer,
     page_index: usize,
@@ -758,7 +784,7 @@ pub(crate) fn handle_drag_end(
 
     // A text drag that never travelled reports `false` rather than claiming
     // the gesture, precisely so the press it began on can still resolve as
-    // the click that opens the editor below.
+    // the click that selects the text below.
     if text::finish_text_drag(viewer, offset_x, offset_y) {
         return;
     }
@@ -767,23 +793,33 @@ pub(crate) fn handle_drag_end(
         // A real drag in content-edit mode targets nothing — resolve whatever
         // was already open and stop, rather than leaving it stranded.
         editor::commit(viewer);
+        block::clear(viewer);
         return;
     }
     let Some((start_x, start_y)) = gesture.start_point() else {
         return;
     };
-    let Some((x, y)) = pointer_to_pdf(viewer, page_index, start_x + offset_x, start_y + offset_y)
+    let Some(point) = pointer_to_pdf(viewer, page_index, start_x + offset_x, start_y + offset_y)
     else {
         return;
     };
+    resolve_click(viewer, page_index, point);
+}
 
+/// A click at `point` (PDF page space) that no item gesture claimed.
+///
+/// While an insert kind is armed it places new content (T-163); otherwise a
+/// click on text selects its block — Delete removes it, F2 or a double click
+/// opens the editor (`block`) — and a click anywhere else resolves whatever
+/// was open or selected.
+fn resolve_click(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
     // T-163: while an insert kind is armed, a click anywhere on the page
     // (that did not land on an existing image — `image::finish_image_drag`
-    // above already returned for that case) composes brand-new content
-    // instead of targeting whatever, if anything, is already at the point.
-    // Deliberately skips `text_run_at` entirely rather than falling back to
-    // it on a miss: while this sub-mode is armed, a click is *always* about
-    // creating something new, never about retyping whatever happens to sit
+    // already returned for that case) composes brand-new content instead
+    // of targeting whatever, if anything, is already at the point.
+    // Deliberately skips the text hit-test entirely rather than falling back
+    // to it on a miss: while this sub-mode is armed, a click is *always*
+    // about creating something new, never about whatever happens to sit
     // under the pointer.
     //
     // Read into an owned value first and let the borrow end here: a `match`
@@ -795,7 +831,7 @@ pub(crate) fn handle_drag_end(
     let insert_kind = viewer.state.borrow().content_insert_mode;
     match insert_kind {
         Some(ContentInsertKind::Text) => {
-            editor::open_insert_editor(viewer, page_index, (x, y));
+            editor::open_insert_editor(viewer, page_index, point);
             return;
         }
         Some(ContentInsertKind::Image) => {
@@ -805,57 +841,22 @@ pub(crate) fn handle_drag_end(
                     .set_text("The application window is unavailable.");
                 return;
             };
-            image::insert_at(&window, viewer, page_index, (x, y));
+            image::insert_at(&window, viewer, page_index, point);
             return;
         }
         None => {}
     }
 
-    let run = {
-        let mut state = viewer.state.borrow_mut();
-        let Some(session) = state.session.as_mut() else {
-            return;
-        };
-        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
-            return;
-        };
-        let Some(document) = session.document_model.as_ref() else {
-            return;
-        };
-        let pending = Some(&document.pending_edits);
-        // See `content_page`.
-        let Some(page_id) = content_page(session, page_index) else {
-            return;
-        };
-        // Before the mutable `pages` borrow below: the probe reads other
-        // fields of the same session.
-        let Some(probe) = page_probe(document, base, &session.imported_sources, page_id) else {
-            return;
-        };
-        let Some(page) = session.pages.get_mut(page_index) else {
-            return;
-        };
-        match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
-            // A run that is part of a block (B25 T-207) opens the whole block.
-            Ok(content) => model::text_run_at(content, (x as f32, y as f32))
-                .cloned()
-                .map(|run| {
-                    let block = model::block_runs(content, &run);
-                    (model::block_stand_in(run, &block), block)
-                }),
-            Err(error) => {
-                drop(state);
-                viewer.status.set_text(&error.to_string());
-                return;
-            }
-        }
-    };
-
-    match run {
-        Some((run, block)) => editor::open_editor(viewer, page_index, run, block),
+    match block::text_block_at(viewer, page_index, point) {
+        block::TextHit::Block(run, runs) => block::select(viewer, page_index, run, runs),
         // An empty-space click resolves whatever was open rather than
         // opening nothing and leaving it stranded.
-        None => editor::commit(viewer),
+        block::TextHit::Miss => {
+            editor::commit(viewer);
+            block::clear(viewer);
+        }
+        block::TextHit::Unreadable(error) => viewer.status.set_text(&error),
+        block::TextHit::Unavailable => {}
     }
 }
 
@@ -1075,10 +1076,10 @@ mod tests {
     /// the button leave the factory disabled — they cannot see whether it was
     /// ever wired to anything. This one goes through `build_ui`, which is the
     /// only place `update_content_edit_controls` and the button are joined
-    /// up, and with no document open there is no editor either: the control
-    /// is off and the card says what would turn it on.
+    /// up, and with no document open there is no selected block and no editor:
+    /// the control is off and the card says what would turn it on.
     #[gtk::test]
-    fn gtk_ui_delete_text_is_off_until_a_run_is_being_edited() {
+    fn gtk_ui_delete_text_is_off_until_text_is_selected() {
         let built = built_ui();
 
         crate::app::update_content_edit_controls(&built.viewer);
@@ -1206,6 +1207,34 @@ mod tests {
             built.viewer.edit_panel.image_hint.text(),
             panel::IMAGE_PENDING_EDIT
         );
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
+    }
+
+    /// The Delete key reaches a selected image, as on Windows: its action
+    /// lights up with the card's Delete button and the key's handler claims
+    /// the image instead of falling through to the annotation delete.
+    #[gtk::test]
+    fn gtk_ui_the_delete_key_claims_a_selected_image() {
+        let built = built_with_selected_image(false);
+        let action = &built.viewer.annotation_buttons.delete_action;
+
+        assert!(action.is_enabled());
+        assert!(delete_selection(&built.viewer));
+
+        built
+            .viewer
+            .state
+            .borrow_mut()
+            .session
+            .as_mut()
+            .expect("the fixture installed one")
+            .selected_image = None;
+        crate::app::update_content_edit_controls(&built.viewer);
+
+        assert!(!action.is_enabled());
+        assert!(!delete_selection(&built.viewer));
 
         built.viewer.state.borrow_mut().session = None;
         built.window.close();

@@ -53,9 +53,14 @@ const HANDLE_PX: f64 = 8.0;
 const HANDLE_RGB: (f64, f64, f64) = (0.10, 0.35, 0.85);
 /// Outline for a content-edit-mode text run that can be retyped.
 const CONTENT_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.55);
-/// The run being dragged right now, brighter than a resting one — same
-/// posture as `SELECTED_CONTENT_IMAGE_RGBA` beside its own resting colour.
+/// The run being dragged or selected right now, brighter than a resting one
+/// — same posture as `SELECTED_CONTENT_IMAGE_RGBA` beside its own resting
+/// colour.
 const DRAGGED_CONTENT_RUN_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.90);
+/// A selected text block's outline is drawn this much heavier than a resting
+/// one, in device pixels, the way Windows doubles its stroke: a block has no
+/// handles to mark it, so the line itself has to.
+const SELECTED_CONTENT_RUN_LINE_WIDTH: f64 = 3.0;
 /// Outline for a composite-font run: distinct colour *and* dashed, so the
 /// difference reads even to a colour-blind user — T-161's "shown
 /// distinguishable" requirement for runs `pdf-edit` will never accept an edit
@@ -179,6 +184,9 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         }
     });
     area.add_controller(drag);
+    // A double click on text opens its inline editor in content-edit mode;
+    // a single one selects it, through the drag gesture above.
+    content_edit::block::connect_double_click(&area, viewer, page_index);
     super::input::connect_file_drop(&area, viewer, page_index);
     area
 }
@@ -344,6 +352,14 @@ fn draw_content_run_outlines(
         .text_drag
         .as_ref()
         .filter(|drag| drag.page_index == page_index && drag.refusal.is_none());
+    // The block a click selected. Its stand-in carries the first run's id,
+    // as a dragged block's does.
+    let selected_id = session
+        .selected_text_block
+        .as_ref()
+        .filter(|selected| selected.page_index == page_index)
+        .map(|selected| selected.run.id);
+    let resting_width = context.line_width();
 
     // The carried pixels go down before any outline, so no box is buried
     // under the patch that is meant to sit inside it.
@@ -377,12 +393,13 @@ fn draw_content_run_outlines(
             },
             page.placement(),
         );
+        let selected = dragging.is_none() && selected_id == Some(first.id);
         if composite {
             let (red, green, blue, alpha) = COMPOSITE_RUN_OUTLINE_RGBA;
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&COMPOSITE_RUN_DASH, 0.0);
         } else {
-            let (red, green, blue, alpha) = if dragging.is_some() {
+            let (red, green, blue, alpha) = if dragging.is_some() || selected {
                 DRAGGED_CONTENT_RUN_RGBA
             } else {
                 CONTENT_RUN_OUTLINE_RGBA
@@ -390,9 +407,16 @@ fn draw_content_run_outlines(
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&[], 0.0);
         }
+        context.set_line_width(if selected {
+            SELECTED_CONTENT_RUN_LINE_WIDTH
+        } else {
+            resting_width
+        });
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
     }
+    context.set_line_width(resting_width);
+    context.set_dash(&[], 0.0);
 }
 
 /// Carries the dragged run's own pixels with the pointer: the page as

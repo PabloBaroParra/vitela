@@ -67,6 +67,10 @@ pub(super) fn swap_in_place(viewer: &Viewer, reopened: OpenedDocument) -> Option
         session.rendered_field_values = rendered_field_values(reopened.document_model.as_ref());
         session.selection = None;
         session.search = None;
+        // A selected text block is a snapshot of the page content every slot
+        // has just dropped (`reset_slot`), as on Windows, where any block
+        // edit lets go of the selection.
+        session.selected_text_block = None;
         session.unsaved_to_disk = true;
         session.last_visible = None;
     }

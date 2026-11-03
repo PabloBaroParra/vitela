@@ -47,7 +47,7 @@ pub(crate) use gesture::{
 };
 pub(crate) use toolbar::{
     add_annotation_toolbar, connect_annotation_toolbar, connect_delete_shortcut, disarm,
-    update_annotation_controls,
+    text_input_has_focus, update_annotation_controls,
 };
 pub(crate) use tooltip::note_tooltip;
 

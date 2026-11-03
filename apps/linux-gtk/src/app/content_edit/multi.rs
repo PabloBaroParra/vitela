@@ -27,10 +27,11 @@ use crate::app::state::{ContentSelection, SelectionGesture, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
-use super::{command, editor, geometry, model, path};
+use super::{block, command, editor, geometry, model, path};
 
-/// The window action Esc is bound to while a selection exists.
-const CLEAR_ACTION: &str = "clear-content-selection";
+/// The window action Esc is bound to while a selection exists — this one or
+/// a single selected text block (`super::block`).
+pub(super) const CLEAR_ACTION: &str = "clear-content-selection";
 
 /// A marquee or a group drag shorter than this, in PDF points on both axes,
 /// is a click.
@@ -243,10 +244,10 @@ fn with_content<R>(
 }
 
 /// SHIFT+click: adds the item under `point` to the selection, or takes it
-/// out. An image or shape already selected on its own joins first, so the
-/// gesture extends what the reader can see is selected. Claims the press
-/// whenever content editing is possible, so a SHIFT press never starts
-/// something else.
+/// out. A text block, image or shape already selected on its own joins
+/// first, as on Windows, so the gesture extends what the reader can see is
+/// selected. Claims the press whenever content editing is possible, so a
+/// SHIFT press never starts something else.
 pub(crate) fn toggle_at(viewer: &Viewer, page_index: usize, point: (f64, f64), reach: f64) -> bool {
     if viewer.content_edit_refusal().is_some()
         || viewer.state.borrow().content_insert_mode.is_some()
@@ -281,6 +282,16 @@ pub(crate) fn toggle_at(viewer: &Viewer, page_index: usize, point: (f64, f64), r
         if let Some(path) = session.selected_path.take() {
             if path.page_index == page_index {
                 current = toggled(current, Member::Path(path.item));
+            }
+        }
+        if let Some(selected) = session.selected_text_block.take() {
+            if selected.page_index == page_index {
+                let runs = if selected.block.is_empty() {
+                    vec![selected.run]
+                } else {
+                    selected.block
+                };
+                current = toggled(current, Member::Runs(runs));
             }
         }
         session.image_drag = None;
@@ -431,6 +442,7 @@ fn finish_marquee(
         if let Some(session) = state.session.as_mut() {
             session.selected_image = None;
             session.selected_path = None;
+            session.selected_text_block = None;
             session.content_selection = (!members.is_empty()).then(|| ContentSelection {
                 page_index,
                 members: members.clone(),
@@ -545,9 +557,10 @@ pub(crate) fn has_selection(viewer: &Viewer) -> bool {
         .is_some_and(|session| session.content_selection.is_some())
 }
 
-/// Esc clears the selection. The action is enabled only while there is one,
-/// and a disabled action does not consume its accelerator, so Esc still
-/// reaches an open editor or dialog the rest of the time.
+/// Esc clears the selection, or the text block a click selected. The action
+/// is enabled only while there is one, and a disabled action does not
+/// consume its accelerator, so Esc still reaches an open editor or dialog
+/// the rest of the time.
 pub(crate) fn connect_clear_shortcut(
     application: &gtk::Application,
     window: &gtk::ApplicationWindow,
@@ -559,6 +572,7 @@ pub(crate) fn connect_clear_shortcut(
         let viewer = viewer.clone();
         move |_, _| {
             clear(&viewer);
+            block::clear(&viewer);
             viewer.status.set_text("Selection cleared.");
         }
     });
@@ -566,8 +580,11 @@ pub(crate) fn connect_clear_shortcut(
     application.set_accels_for_action(&format!("win.{CLEAR_ACTION}"), &["Escape"]);
 }
 
-fn selection_changed(viewer: &Viewer) {
-    let selected = has_selection(viewer);
+/// Enables Esc exactly while there is a selection for it to clear. Run from
+/// `update_content_edit_controls`, which every change to either selection
+/// already reaches.
+pub(crate) fn update_clear_action(viewer: &Viewer) {
+    let selected = has_selection(viewer) || block::has_selection(viewer);
     if let Some(action) = viewer
         .window()
         .and_then(|window| window.lookup_action(CLEAR_ACTION))
@@ -575,6 +592,9 @@ fn selection_changed(viewer: &Viewer) {
     {
         action.set_enabled(selected);
     }
+}
+
+fn selection_changed(viewer: &Viewer) {
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
 }

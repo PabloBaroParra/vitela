@@ -119,6 +119,7 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         content_editor: None,
         selected_image: None,
         image_drag: None,
+        selected_text_block: None,
         selected_path: None,
         path_drag: None,
         content_selection: None,
@@ -239,5 +240,33 @@ pub(crate) fn one_password_security() -> pdf_document::SecurityContext {
         credential: pdf_document::Credential::User,
         credentials: pdf_document::EncryptionCredentials::user("only-the-user-password"),
         permissions: pdf_document::Permissions(0xFFFF_FFFC),
+    }
+}
+
+/// An A4 page slot around `overlay`, drawn 1:1 and never
+/// rendered — what a test that hit-tests a page or hangs an editor box on it
+/// needs, without pdfium. Pair it with a session whose backing holds the
+/// page's real bytes, so its content still parses.
+pub(crate) fn page_slot(overlay: gtk::Overlay) -> super::state::PageSlot {
+    super::state::PageSlot {
+        overlay,
+        picture: gtk::Picture::new(),
+        highlights: gtk::DrawingArea::new(),
+        characters: None,
+        characters_requested: false,
+        content: None,
+        width_pt: 595.0,
+        height_pt: 842.0,
+        rotation: pdf_render::PageRotation::None,
+        state: super::state::PageState::Idle,
+        target_dpi: 72,
+        budget: super::layout::TileBudget {
+            factor: 1.0,
+            base_dpi: 72,
+        },
+        tiles: Default::default(),
+        tile_dpi: 0,
+        tile_generation: 0,
+        tile_failed_dpi: 0,
     }
 }
