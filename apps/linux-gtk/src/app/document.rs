@@ -742,6 +742,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             content_editor: None,
             selected_image: None,
             image_drag: None,
+            selected_text_block: None,
             selected_path: None,
             path_drag: None,
             content_selection: None,

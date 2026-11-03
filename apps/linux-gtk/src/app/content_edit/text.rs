@@ -28,8 +28,8 @@ use super::{editor, model, CLICK_EPSILON_PX};
 /// follow moves it.
 ///
 /// Returns whether a run took the press. `false` leaves the gesture to
-/// whatever comes next — which, on release, is the click that opens the
-/// inline editor.
+/// whatever comes next — which, on release, is the click that selects the
+/// text.
 ///
 /// Two presses are deliberately not claimed. One that lands while an insert
 /// kind is armed belongs to the insertion (a click there is always about
@@ -271,7 +271,7 @@ pub(crate) fn extend_text_drag(viewer: &Viewer, point: (f64, f64)) -> bool {
 /// `offset_x`/`offset_y` are the gesture's own device-pixel offsets, which is
 /// what decides whether this was a move at all: below [`CLICK_EPSILON_PX`]
 /// the press was a click, and saying so (`false`) is what lets the click go
-/// on to open the inline editor. Screen space rather than page space on
+/// on to select the text. Screen space rather than page space on
 /// purpose — the threshold is about how steady the user's hand was, not
 /// about how far the page thinks that is at the current zoom.
 ///
@@ -296,7 +296,7 @@ pub(crate) fn finish_text_drag(viewer: &Viewer, offset_x: f64, offset_y: f64) ->
 
     // Held back until the drag proves to be one: reporting at press time
     // would put the message up for every click on the run, including the
-    // ones that only wanted to open the editor.
+    // ones that only wanted to select it.
     if let Some(refusal) = drag.refusal {
         viewer.status.set_text(refusal);
         selection::redraw(viewer);
@@ -309,11 +309,19 @@ pub(crate) fn finish_text_drag(viewer: &Viewer, offset_x: f64, offset_y: f64) ->
         let Some(session) = state.session.as_mut() else {
             return true;
         };
-        record_move(session, &drag, to)
+        let outcome = record_move(session, &drag, to);
+        if outcome.is_ok() {
+            // A selected block is a snapshot of the page the move rewrites.
+            session.selected_text_block = None;
+        }
+        outcome
     };
 
     match outcome {
-        Ok(()) => crate::app::write::refresh_preview(viewer, "Text moved."),
+        Ok(()) => {
+            crate::app::update_content_edit_controls(viewer);
+            crate::app::write::refresh_preview(viewer, "Text moved.");
+        }
         Err(message) => {
             viewer.status.set_text(&message);
             selection::redraw(viewer);

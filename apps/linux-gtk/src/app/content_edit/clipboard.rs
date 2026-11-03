@@ -27,10 +27,24 @@ use crate::app::write::refresh_preview;
 use super::{command, mode_is_active, model, multi};
 
 /// What a copy or a cut would take: the several-item selection, or a single
-/// selected image or shape — with the page they are on.
+/// selected text block, image or shape — with the page they are on.
 fn current_selection(session: &DocumentSession) -> Option<(usize, Selection)> {
     if let Some(held) = session.content_selection.as_ref() {
         return Some((held.page_index, held.members.clone()));
+    }
+    if let Some(selected) = session.selected_text_block.as_ref() {
+        let runs = if selected.block.is_empty() {
+            vec![selected.run.clone()]
+        } else {
+            selected.block.clone()
+        };
+        return Some((
+            selected.page_index,
+            Selection {
+                runs,
+                ..Selection::default()
+            },
+        ));
     }
     if let Some(image) = session.selected_image.as_ref() {
         return Some((
@@ -119,6 +133,7 @@ pub(crate) fn try_cut(viewer: &Viewer) -> bool {
         });
         if cut.is_ok() {
             session.content_selection = None;
+            session.selected_text_block = None;
             session.selected_image = None;
             session.selected_path = None;
         }
@@ -256,6 +271,7 @@ fn select_pasted(session: &mut DocumentSession, page_index: usize) {
             .cloned()
             .collect(),
     };
+    session.selected_text_block = None;
     session.selected_image = None;
     session.selected_path = None;
     session.content_selection = (!members.is_empty()).then_some(ContentSelection {

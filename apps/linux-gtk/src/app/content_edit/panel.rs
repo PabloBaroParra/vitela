@@ -37,11 +37,10 @@
 //! had none, so a page's text could be retyped, moved and inserted, but
 //! never taken off.
 //!
-//! It is gated differently from its image twin, and unavoidably so:
-//! content-edit mode has no text *selection*. Clicking a run opens an editor
-//! over it, so "the run this button acts on" is "the run the open editor is
-//! sitting on" — see `editor::delete_open_run`, and see [`build_edit_content`]
-//! for why this one button must refuse the focus a click would give it.
+//! It acts on whichever of two targets exists: the text block a click
+//! selected (`block::delete_selected`), or the run an open editor is sitting
+//! on (`editor::delete_open_run`) — see [`build_edit_content`] for why this
+//! one button must refuse the focus a click would give it.
 //!
 //! ## Shape
 //!
@@ -133,14 +132,16 @@ pub(crate) const IMAGE_PENDING_EDIT: &str =
 
 /// The text card's twin of the two above, maintained by the same call.
 ///
-/// The "nothing picked yet" half is the sentence this card already carried as
-/// a fixed hint, kept word for word: describing the page gesture *is* the
-/// answer to "what does Delete text need", so a second permanent line
-/// restating it would be noise. What is new is that the sentence now changes
-/// once the gesture has been made, the way the image card's already did.
+/// Three states, Windows' three sentences: nothing picked yet — describing
+/// the page gesture *is* the answer to "what does Delete text need" — a
+/// block a click selected, and a block being retyped in the inline editor.
 pub(crate) const NO_TEXT_SELECTED: &str =
-    "Click a text run to retype it in place, or drag it to move it.";
-pub(crate) const TEXT_SELECTED: &str = "Text run selected — delete it, or retype it in place.";
+    "Click text to select it; double-click to retype it in place, or drag it to move it.";
+/// Also what the status line says when a click selects text.
+pub(crate) const TEXT_SELECTED: &str =
+    "Text selected — drag to move it, press Delete to remove it, double-click or F2 to retype it.";
+pub(crate) const TEXT_EDITING: &str =
+    "Retyping text — press Enter to keep it or Esc to cancel, or delete it.";
 
 /// This page's own styling, installed alongside `shell::SHELL_CSS` and
 /// `home::HOME_CSS` by `shell::install_shell_css`.
@@ -252,7 +253,7 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
         mode.upcast_ref(),
         "Edit content",
         Icon::Edit,
-        "Turn on content editing, then click a text run on the page",
+        "Turn on content editing, then click text on the page to select it",
     );
     mode.set_sensitive(false);
     let insert_text = ToggleButton::new();
@@ -268,13 +269,13 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
         &delete_text,
         "Delete text",
         Icon::Delete,
-        "Remove the text run being edited from the page",
+        "Remove the selected text, or the text being retyped, from the page",
     );
     delete_text.set_sensitive(false);
     // The one control on this page that must not take the keyboard focus when
     // it is clicked, and the reason is the gate it sits behind.
     //
-    // "Delete text" acts on the run whose inline editor is open, and that
+    // "Delete text" can act on the run whose inline editor is open, and that
     // editor closes itself on focus-out (`editor::wire_entry` commits from
     // `EventControllerFocus::leave` — clicking anywhere else is how you
     // finish an edit). A focus-taking button would therefore tear down its
@@ -483,7 +484,7 @@ mod tests {
     /// The property the whole "Delete text" gate rests on, pinned because
     /// nothing about the button looks different when it is lost.
     ///
-    /// The run this button deletes is the one whose inline editor is open,
+    /// One target this button deletes is the run whose inline editor is open,
     /// and that editor commits and closes itself the moment the entry loses
     /// focus. A button that took the focus on click would therefore destroy
     /// its own target mid-press and drop the `clicked` signal — a control

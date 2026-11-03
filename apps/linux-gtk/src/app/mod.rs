@@ -463,7 +463,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     organize::connect_organize_panel(&window, &viewer);
     viewer.delete_text_button.connect_clicked({
         let viewer = viewer.clone();
-        move |_| content_edit::editor::delete_open_run(&viewer)
+        move |_| content_edit::block::delete_text(&viewer)
     });
     viewer.delete_image_button.connect_clicked({
         let viewer = viewer.clone();
@@ -544,6 +544,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     input::connect_window_file_drop(&page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
     content_edit::multi::connect_clear_shortcut(application, &window, &viewer);
+    content_edit::block::connect_retype_shortcut(application, &window, &viewer);
     content_edit::clipboard::connect_cut_shortcut(application, &window, &viewer);
     annotations::connect_history_shortcuts(application, &window, &viewer);
     zoom_out.connect_clicked({
@@ -697,11 +698,11 @@ fn connect_standard_shortcuts(
 /// The three do not share a gate, only a shape. "Delete image" and "Replace
 /// image" (T-162) wait on an image being **selected** — and on two further
 /// conditions of their own, which [`content_edit::ImageControls`] owns;
-/// "Delete text" waits on an inline editor being **open over an existing
-/// run**, because content-edit mode has no text selection at all — clicking a
-/// run opens an editor over it instead of marking it. Both halves still
-/// answer the same question, so they are answered in one place: a control
-/// that is off, and a sentence saying what it is waiting for.
+/// "Delete text" waits on a text block being **selected** by a click, or on
+/// an inline editor being **open over an existing run** (F2, a double
+/// click). Both halves still answer the same question, so they are answered
+/// in one place: a control that is off, and a sentence saying what it is
+/// waiting for.
 ///
 /// Called wherever `update_annotation_controls` already is (document
 /// open/close, content-edit mode toggle, and every undo/redo step —
@@ -720,15 +721,20 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     // for it is to spend that value on widgets. The text half is still
     // answered inline because its only question is the one below.
     let images = content_edit::image_controls(state.session.as_ref());
-    let text_enabled = state.session.as_ref().is_some_and(|session| {
-        session.content_edit_access.refusal().is_none()
-            // An insertion's blank box is not a target: there is no run on
-            // the page to remove, and nothing recorded for it to undo.
-            && session
-                .content_editor
-                .as_ref()
-                .is_some_and(|editor| !editor.is_insertion)
+    let editable = state
+        .session
+        .as_ref()
+        .filter(|session| session.content_edit_access.refusal().is_none());
+    // An insertion's blank box is not a target: there is no run on the page
+    // to remove, and nothing recorded for it to undo.
+    let text_editing = editable.is_some_and(|session| {
+        session
+            .content_editor
+            .as_ref()
+            .is_some_and(|editor| !editor.is_insertion)
     });
+    let text_selected = editable.is_some_and(|session| session.selected_text_block.is_some());
+    let text_enabled = text_editing || text_selected;
     let paths_enabled = state.session.as_ref().is_some_and(|session| {
         session.content_edit_access.refusal().is_none() && session.selected_path.is_some()
     });
@@ -747,10 +753,15 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
         content_edit::panel::NO_SHAPE_SELECTED
     });
     viewer.delete_text_button.set_sensitive(text_enabled);
-    // The Delete key's action is enabled off the path selection too.
+    // The Delete key's action is enabled off the path, image and text block
+    // selections too; Esc and F2 off the selections they act on.
     annotations::update_annotation_controls(viewer);
     content_edit::clipboard::update_cut_action(viewer);
-    viewer.edit_panel.text_hint.set_text(if text_enabled {
+    content_edit::multi::update_clear_action(viewer);
+    content_edit::block::update_retype_action(viewer);
+    viewer.edit_panel.text_hint.set_text(if text_editing {
+        content_edit::panel::TEXT_EDITING
+    } else if text_selected {
         content_edit::panel::TEXT_SELECTED
     } else {
         content_edit::panel::NO_TEXT_SELECTED

@@ -98,6 +98,11 @@ fn history(viewer: &Viewer, undo: bool) {
             // parsed content names the one it left.
             crate::app::content_edit::checkpoint::forget_page_content(session);
         }
+        if is_content_edit {
+            // A selected text block is a snapshot of the page content this
+            // step has just changed under it.
+            session.selected_text_block = None;
+        }
         let Some(document) = session.document_model.as_ref() else {
             return;
         };

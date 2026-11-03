@@ -1,4 +1,5 @@
-//! The inline text editor a content-edit-mode click opens over a text run.
+//! The inline text editor F2 or a double click opens over a selected text
+//! run or block in content-edit mode.
 //!
 //! First widget-over-page-coordinates pattern in this shell: annotations are
 //! painted on the highlights `DrawingArea`, never real widgets, and the
@@ -34,7 +35,7 @@ use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 use pdf_edit::EditError;
 use pdf_render::{place_point, point_to_pdf, PagePlacement, PageRotation};
 
-use crate::app::state::{ContentEditor, Viewer};
+use crate::app::state::{ContentEditor, DocumentSession, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
@@ -147,6 +148,18 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         }
     };
 
+    // The editor takes over from a selected block (F2, a double click): at
+    // most one of the two is ever live, so Delete and F2 stand down while
+    // the box is open and its keys stay the box's. Only here, past every
+    // refusal above, so a block that cannot be retyped stays selected.
+    // A double click on text over an image has already selected the image
+    // on its first press; that goes too, or Delete would remove the picture
+    // instead of a character.
+    super::block::clear(viewer);
+    if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
+        session.selected_image = None;
+    }
+
     let entry = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
@@ -202,6 +215,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
     if keep_refused_editor(viewer) {
         return;
     }
+    super::block::clear(viewer);
 
     let entry = {
         let mut state = viewer.state.borrow_mut();
@@ -776,18 +790,8 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     }
     let run = editor.run.clone();
     let block = editor.block.clone();
-    if block.is_empty() && model::pending_log_index(run.id).is_some() {
-        drop(state);
-        viewer.status.set_text(INSERTION_NOT_DELETABLE);
-        return;
-    }
 
-    let recorded = if block.is_empty() {
-        command::record(session, Command::RemoveTextRun(run))
-    } else {
-        command::record_batch(session, pdf_edit::remove_block(&block))
-    };
-    match recorded {
+    match record_removal(session, run, &block) {
         Ok(()) => {
             let editor = session.content_editor.take().expect("checked above");
             drop(state);
@@ -798,6 +802,25 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
             drop(state);
             viewer.status.set_text(&error);
         }
+    }
+}
+
+/// Records the removal of `run` — or of its whole `block`, as one batch —
+/// through the core's queue policy. Shared by the open editor's delete and
+/// a selected block's (`super::block::delete_selected`), so the two refuse
+/// exactly the same things, [`INSERTION_NOT_DELETABLE`] among them.
+pub(super) fn record_removal(
+    session: &mut DocumentSession,
+    run: TextRun,
+    block: &[TextRun],
+) -> Result<(), String> {
+    if block.is_empty() && model::pending_log_index(run.id).is_some() {
+        return Err(INSERTION_NOT_DELETABLE.to_string());
+    }
+    if block.is_empty() {
+        command::record(session, Command::RemoveTextRun(run))
+    } else {
+        command::record_batch(session, pdf_edit::remove_block(block))
     }
 }
 
@@ -1215,7 +1238,7 @@ mod tests {
     /// does not have: none of this needs a raster.
     #[gtk::test]
     fn gtk_ui_a_refused_retype_keeps_its_box_when_another_run_is_clicked() {
-        use crate::app::state::{PageSlot, PageState, SaveBacking};
+        use crate::app::state::SaveBacking;
         use crate::app::test_fixtures::model_session;
         use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
 
@@ -1242,27 +1265,9 @@ mod tests {
         let overlay = Overlay::new();
         overlay.set_child(Some(&Picture::new()));
         built.viewer.pages.append(&overlay);
-        session.pages.push(PageSlot {
-            overlay: overlay.clone(),
-            picture: Picture::new(),
-            highlights: gtk::DrawingArea::new(),
-            characters: None,
-            characters_requested: false,
-            content: None,
-            width_pt: 595.0,
-            height_pt: 842.0,
-            rotation: PageRotation::None,
-            state: PageState::Idle,
-            target_dpi: 72,
-            budget: crate::app::layout::TileBudget {
-                factor: 1.0,
-                base_dpi: 72,
-            },
-            tiles: Default::default(),
-            tile_dpi: 0,
-            tile_generation: 0,
-            tile_failed_dpi: 0,
-        });
+        session
+            .pages
+            .push(crate::app::test_fixtures::page_slot(overlay.clone()));
         session.page_heights.push(842);
         built.viewer.state.borrow_mut().session = Some(session);
         pump();
