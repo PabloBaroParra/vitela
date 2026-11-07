@@ -30,6 +30,7 @@ use gtk::{
 };
 
 use crate::app::document::{new_blank_document, open_sample, show_file_chooser, SampleKind};
+use crate::app::i18n::tr;
 use crate::app::icons::{
     build_icon, Icon, ACCENT_TINT, ANNOTATE_TINT, COMPRESS_TINT, EDIT_TINT, MUTED_TINT,
     ORGANIZE_TINT, PROTECT_TINT, SIGN_TINT,
@@ -39,6 +40,7 @@ use crate::app::tools_panel::{property_row, ANNOTATE_PAGE, EDIT_PAGE, FILL_SIGN_
 
 /// One tile: its label, the tool it opens (`None` for a section this shell
 /// has no feature behind yet), its icon and accent, and what it is for.
+/// Label and description are message ids (`app::i18n`), not text.
 ///
 /// A `None` entry is kept visible and disabled rather than dropped — a
 /// disabled control with a tooltip says "later", an absent one says "never",
@@ -50,56 +52,56 @@ use crate::app::tools_panel::{property_row, ANNOTATE_PAGE, EDIT_PAGE, FILL_SIGN_
 /// only by a row a future section adds. It is still exercised — see
 /// [`build_tile`] for why that needed a function of its own.
 struct ToolTile {
-    label: &'static str,
+    label_key: &'static str,
     tool: Option<HomeTool>,
     icon: Icon,
     tint: &'static str,
-    description: &'static str,
+    description_key: &'static str,
 }
 
 /// The grid, in reading order.
 const TOOLS: [ToolTile; 6] = [
     ToolTile {
-        label: "Edit",
+        label_key: "home-tool-edit",
         tool: Some(HomeTool::Edit),
         icon: Icon::Edit,
         tint: EDIT_TINT,
-        description: "Retype text and replace images",
+        description_key: "home-tool-edit-description",
     },
     ToolTile {
-        label: "Annotate",
+        label_key: "home-tool-annotate",
         tool: Some(HomeTool::Annotate),
         icon: Icon::Annotate,
         tint: ANNOTATE_TINT,
-        description: "Highlight, draw, and add notes",
+        description_key: "home-tool-annotate-description",
     },
     ToolTile {
-        label: "Sign",
+        label_key: "home-tool-sign",
         tool: Some(HomeTool::Sign),
         icon: Icon::Sign,
         tint: SIGN_TINT,
-        description: "Sign with a certificate, card, or token",
+        description_key: "home-tool-sign-description",
     },
     ToolTile {
-        label: "Organize",
+        label_key: "home-tool-organize",
         tool: Some(HomeTool::Organize),
         icon: Icon::Organize,
         tint: ORGANIZE_TINT,
-        description: "Reorder and delete pages",
+        description_key: "home-tool-organize-description",
     },
     ToolTile {
-        label: "Compress",
+        label_key: "home-tool-compress",
         tool: Some(HomeTool::Compress),
         icon: Icon::Compress,
         tint: COMPRESS_TINT,
-        description: "Write a smaller copy of the file",
+        description_key: "home-tool-compress-description",
     },
     ToolTile {
-        label: "Protect",
+        label_key: "home-tool-protect",
         tool: Some(HomeTool::Protect),
         icon: Icon::Protect,
         tint: PROTECT_TINT,
-        description: "Require a password to open the document",
+        description_key: "home-tool-protect-description",
     },
 ];
 
@@ -133,11 +135,11 @@ pub(crate) fn build_tools_card(window: &ApplicationWindow, viewer: &Viewer) -> T
         .map(|entry| {
             let tile = build_tile(window, viewer, entry);
             grid.append(&tile);
-            (entry.label.to_lowercase(), tile)
+            (tr(entry.label_key).to_lowercase(), tile)
         })
         .collect();
 
-    let root = card("Tools");
+    let root = card(&tr("home-tools-title"));
     root.append(&grid);
 
     ToolsCard {
@@ -161,17 +163,18 @@ fn build_tile(window: &ApplicationWindow, viewer: &Viewer, entry: &ToolTile) -> 
     let content = GtkBox::new(Orientation::Vertical, 6);
     content.set_halign(Align::Center);
     content.append(&build_icon(entry.icon, TILE_ICON_PX, tile_tint(entry)));
-    content.append(&Label::new(Some(entry.label)));
+    let label = tr(entry.label_key);
+    content.append(&Label::new(Some(&label)));
 
     let tile = Button::new();
     tile.set_child(Some(&content));
     tile.add_css_class("tool-tile");
     // Set explicitly: a `Button` given a custom child no longer has a
     // label of its own for the accessibility layer to fall back on.
-    tile.update_property(&[gtk::accessible::Property::Label(entry.label)]);
+    tile.update_property(&[gtk::accessible::Property::Label(&label)]);
     match entry.tool {
         Some(tool) => {
-            tile.set_tooltip_text(Some(entry.description));
+            tile.set_tooltip_text(Some(&tr(entry.description_key)));
             tile.connect_clicked({
                 let window = window.clone();
                 let viewer = viewer.clone();
@@ -180,7 +183,7 @@ fn build_tile(window: &ApplicationWindow, viewer: &Viewer, entry: &ToolTile) -> 
         }
         None => {
             tile.set_sensitive(false);
-            tile.set_tooltip_text(Some("Not available yet"));
+            tile.set_tooltip_text(Some(&tr("home-tool-unavailable")));
         }
     }
     tile
@@ -293,11 +296,12 @@ pub(crate) fn apply(viewer: &Viewer, tool: HomeTool) {
 
 /// The three commands that need no open document, as flat rows.
 pub(crate) fn build_quick_actions(window: &ApplicationWindow, viewer: &Viewer) -> GtkBox {
-    let root = card("Quick actions");
+    let root = card(&tr("home-quick-actions-title"));
     for action in QuickAction::ALL {
         let row = GtkBox::new(Orientation::Horizontal, 8);
         row.append(&build_icon(action.icon(), ROW_ICON_PX, ACCENT_TINT));
-        let caption = Label::new(Some(action.label()));
+        let label = action.label();
+        let caption = Label::new(Some(&label));
         caption.set_xalign(0.0);
         row.append(&caption);
 
@@ -305,7 +309,7 @@ pub(crate) fn build_quick_actions(window: &ApplicationWindow, viewer: &Viewer) -
         button.set_child(Some(&row));
         button.add_css_class("home-link");
         button.set_halign(Align::Start);
-        button.update_property(&[gtk::accessible::Property::Label(action.label())]);
+        button.update_property(&[gtk::accessible::Property::Label(&label)]);
         button.connect_clicked({
             let window = window.clone();
             let viewer = viewer.clone();
@@ -333,12 +337,12 @@ impl QuickAction {
         QuickAction::Sample,
     ];
 
-    fn label(self) -> &'static str {
-        match self {
-            QuickAction::NewBlank => "New blank PDF",
-            QuickAction::Open => "Open file…",
-            QuickAction::Sample => "Open the sample",
-        }
+    fn label(self) -> String {
+        tr(match self {
+            QuickAction::NewBlank => "home-quick-new-blank",
+            QuickAction::Open => "home-quick-open",
+            QuickAction::Sample => "home-quick-sample",
+        })
     }
 
     fn icon(self) -> Icon {
@@ -363,15 +367,15 @@ impl QuickAction {
 /// A shell with no menu bar has nowhere else to show them, and the launch
 /// screen is the one place the user is reading rather than working.
 pub(crate) fn build_shortcuts_card() -> GtkBox {
-    let root = card("Keyboard shortcuts");
-    for (action, keys) in [
-        ("Open", "Ctrl+O"),
-        ("New", "Ctrl+N"),
-        ("Save", "Ctrl+S"),
-        ("Find", "Ctrl+F"),
-        ("Print", "Ctrl+P"),
+    let root = card(&tr("home-shortcuts-title"));
+    for (action_key, keys) in [
+        ("home-shortcut-open", "Ctrl+O"),
+        ("home-shortcut-new", "Ctrl+N"),
+        ("home-shortcut-save", "Ctrl+S"),
+        ("home-shortcut-find", "Ctrl+F"),
+        ("home-shortcut-print", "Ctrl+P"),
     ] {
-        property_row(&root, action).set_text(keys);
+        property_row(&root, &tr(action_key)).set_text(keys);
     }
     root
 }
@@ -411,25 +415,25 @@ mod tests {
     /// the same branch through a tile the table does not contain. What is
     /// asserted here instead is the thing that replaced it: a live tile has a
     /// tooltip that describes the tool rather than apologises for it, and an
-    /// empty `description` would be a silent regression otherwise.
+    /// empty description would be a silent regression otherwise.
     #[gtk::test]
     fn gtk_ui_every_tool_tile_is_live_and_says_what_it_does() {
         let built = built_ui();
         let card = build_tools_card(&built.window, &built.viewer);
 
         for entry in TOOLS.iter() {
-            let tile = tile(&card, &entry.label.to_lowercase());
-            assert!(tile.is_sensitive(), "{} must be live", entry.label);
+            let label = tr(entry.label_key);
+            let description = tr(entry.description_key);
+            let tile = tile(&card, &label.to_lowercase());
+            assert!(tile.is_sensitive(), "{label} must be live");
             assert_eq!(
                 tile.tooltip_text().as_deref(),
-                Some(entry.description),
-                "{} must describe itself",
-                entry.label
+                Some(description.as_str()),
+                "{label} must describe itself"
             );
             assert!(
-                !entry.description.is_empty(),
-                "{} must have something to describe",
-                entry.label
+                !description.is_empty(),
+                "{label} must have something to describe"
             );
         }
 
@@ -450,12 +454,14 @@ mod tests {
     #[gtk::test]
     fn gtk_ui_a_tool_with_no_feature_behind_it_is_disabled_not_missing() {
         let built = built_ui();
+        // Any existing message id will do for the label: the row is this
+        // test's own, and only its `tool: None` matters.
         let unbuilt = ToolTile {
-            label: "Later",
+            label_key: "home-tool-compress",
             tool: None,
             icon: Icon::Compress,
             tint: COMPRESS_TINT,
-            description: "",
+            description_key: "home-tool-compress-description",
         };
 
         let tile = build_tile(&built.window, &built.viewer, &unbuilt);

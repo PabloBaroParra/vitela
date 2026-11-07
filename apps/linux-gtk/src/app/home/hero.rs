@@ -7,6 +7,7 @@ use gtk::{
 };
 
 use crate::app::document::{open_file, show_file_chooser};
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 
 use super::is_pdf_path;
@@ -19,18 +20,18 @@ const DROP_ACTIVE: &str = "drop-active";
 pub(crate) fn build_hero(window: &ApplicationWindow, viewer: &Viewer) -> GtkBox {
     let hero = GtkBox::new(Orientation::Vertical, 6);
 
-    let title = Label::new(Some("Welcome to Vitela"));
+    let title = Label::new(Some(&tr("home-welcome-title")));
     title.set_xalign(0.0);
     title.add_css_class("home-hero-title");
     hero.append(&title);
 
-    let subtitle = Label::new(Some("Your fast, private PDF workspace."));
+    let subtitle = Label::new(Some(&tr("home-welcome-subtitle")));
     subtitle.set_xalign(0.0);
     subtitle.add_css_class("home-hero-subtitle");
     subtitle.set_margin_bottom(10);
     hero.append(&subtitle);
 
-    let heading = Label::new(Some("Start a new task"));
+    let heading = Label::new(Some(&tr("home-start-task")));
     heading.set_xalign(0.0);
     heading.add_css_class("home-section-title");
     heading.set_margin_bottom(6);
@@ -45,15 +46,15 @@ fn build_drop_zone(window: &ApplicationWindow, viewer: &Viewer) -> GtkBox {
     zone.add_css_class("home-dropzone");
     zone.set_halign(Align::Fill);
 
-    let prompt = Label::new(Some("Drag and drop a PDF here"));
+    let prompt = Label::new(Some(&tr("home-drop-prompt")));
     prompt.add_css_class("home-hero-subtitle");
     zone.append(&prompt);
 
-    let hint = Label::new(Some("or click anywhere in this area to open one"));
+    let hint = Label::new(Some(&tr("home-drop-hint")));
     hint.add_css_class("recent-meta");
     zone.append(&hint);
 
-    let choose = Button::with_label("Select file");
+    let choose = Button::with_label(&tr("home-select-file"));
     choose.add_css_class("home-primary");
     choose.set_halign(Align::Center);
     choose.connect_clicked({
@@ -136,15 +137,11 @@ fn accept_drop(viewer: &Viewer, value: &gtk::glib::Value) -> bool {
         return false;
     };
     let Some(path) = file.path() else {
-        viewer
-            .status
-            .set_text("Only local files can be dropped here.");
+        viewer.status.set_text(&tr("home-drop-not-local"));
         return false;
     };
     if !is_pdf_path(&path) {
-        viewer
-            .status
-            .set_text("Only PDF files can be opened from the Home screen.");
+        viewer.status.set_text(&tr("home-drop-not-pdf"));
         return false;
     }
     open_file(viewer, path);

@@ -15,6 +15,7 @@ mod export;
 mod forms;
 mod freetext_overlay;
 mod home;
+mod i18n;
 mod icons;
 mod input;
 mod layout;

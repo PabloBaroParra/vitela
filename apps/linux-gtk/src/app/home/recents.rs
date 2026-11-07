@@ -43,6 +43,7 @@ use gtk::{
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError, RenderOptions};
 
 use crate::app::document::open_file;
+use crate::app::i18n::{tr, tr_args};
 use crate::app::render::render_result;
 use crate::app::state::{RenderedPage, Viewer};
 
@@ -74,12 +75,12 @@ enum Bucket {
 impl Bucket {
     const ALL: [Bucket; 3] = [Bucket::Today, Bucket::Yesterday, Bucket::Earlier];
 
-    fn chip(self) -> &'static str {
-        match self {
-            Bucket::Today => "Today",
-            Bucket::Yesterday => "Yesterday",
-            Bucket::Earlier => "Earlier",
-        }
+    fn chip(self) -> String {
+        tr(match self {
+            Bucket::Today => "home-recent-today",
+            Bucket::Yesterday => "home-recent-yesterday",
+            Bucket::Earlier => "home-recent-earlier",
+        })
     }
 }
 
@@ -146,7 +147,7 @@ pub(crate) struct RecentsSection {
 /// so a PDF opened elsewhere while this window is up appears without the user
 /// having to do anything.
 pub(crate) fn build_recents_section(viewer: &Viewer) -> RecentsSection {
-    let heading = Label::new(Some("Recent"));
+    let heading = Label::new(Some(&tr("home-recent-title")));
     heading.set_xalign(0.0);
     heading.set_hexpand(true);
     heading.add_css_class("home-section-title");
@@ -222,7 +223,7 @@ impl RecentsSection {
             flow.set_row_spacing(10);
             flow.set_column_spacing(10);
 
-            let chip = Label::new(Some(bucket.chip()));
+            let chip = Label::new(Some(&bucket.chip()));
             chip.set_xalign(0.0);
             chip.set_halign(Align::Start);
             chip.add_css_class("day-chip");
@@ -281,9 +282,10 @@ impl RecentsSection {
                 .await
                 .unwrap_or(false);
             if !hidden {
-                viewer
-                    .status
-                    .set_text(&format!("Could not remove {name} from Recent."));
+                viewer.status.set_text(&tr_args(
+                    "home-recent-remove-failed",
+                    &[("name", name.into())],
+                ));
                 return;
             }
             section.rebuild(&viewer);
@@ -318,11 +320,11 @@ impl RecentsSection {
             shown += group_shown;
         }
         self.empty.set_visible(shown == 0);
-        self.empty.set_text(if nothing_at_all {
-            "No recent documents yet. Open a PDF and it will show up here."
+        self.empty.set_text(&tr(if nothing_at_all {
+            "home-recent-empty"
         } else {
-            "No recent document matches that search."
-        });
+            "home-recent-no-match"
+        }));
     }
 
     /// Renders each visible card's first page, one document at a time.
@@ -413,9 +415,9 @@ fn build_card(
     button.set_child(Some(&content));
     button.add_css_class("recent-card");
     button.set_tooltip_text(Some(&entry.path.to_string_lossy()));
-    button.update_property(&[gtk::accessible::Property::Label(&format!(
-        "Open {}",
-        entry.name
+    button.update_property(&[gtk::accessible::Property::Label(&tr_args(
+        "home-recent-open-card",
+        &[("name", entry.name.as_str().into())],
     ))]);
     button.connect_clicked({
         let viewer = viewer.clone();
@@ -446,7 +448,7 @@ fn connect_remove(section: &RecentsSection, button: &Button, path: &Path, viewer
         let viewer = viewer.clone();
         let path = path.to_path_buf();
         move |button: &Button, x: f64, y: f64| {
-            let remove = Button::with_label("Remove from Recent");
+            let remove = Button::with_label(&tr("home-recent-remove"));
             remove.add_css_class("flat");
             let popover = Popover::new();
             popover.set_child(Some(&remove));
@@ -612,20 +614,27 @@ fn opened_text(visited: &glib::DateTime, now: &glib::DateTime) -> String {
             .map(|text| text.to_string())
             .unwrap_or_default()
     };
+    // The date itself is formatted by GLib, so it follows `LC_TIME` on its
+    // own (`7 nov` under a Spanish locale); only the words around it are ours.
     match bucket_of(visited, now) {
-        Bucket::Today => format!("Opened today, {}", format("%H:%M")),
-        Bucket::Yesterday => format!("Opened yesterday, {}", format("%H:%M")),
-        Bucket::Earlier => format!("Opened {}", format("%e %b")).replace("  ", " "),
+        Bucket::Today => tr_args(
+            "home-recent-opened-today",
+            &[("time", format("%H:%M").into())],
+        ),
+        Bucket::Yesterday => tr_args(
+            "home-recent-opened-yesterday",
+            &[("time", format("%H:%M").into())],
+        ),
+        Bucket::Earlier => tr_args(
+            "home-recent-opened-on",
+            &[("date", format("%e %b").trim().to_owned().into())],
+        ),
     }
 }
 
-/// `"1 page"` / `"12 pages"`.
+/// `"1 page"` / `"12 pages"`, pluralised by the active language's rules.
 fn page_count_text(pages: u32) -> String {
-    if pages == 1 {
-        "1 page".to_string()
-    } else {
-        format!("{pages} pages")
-    }
+    tr_args("home-recent-page-count", &[("count", pages.into())])
 }
 
 struct Preview {
@@ -763,6 +772,13 @@ mod tests {
         assert_eq!(page_count_text(1), "1 page");
         assert_eq!(page_count_text(12), "12 pages");
         assert_eq!(page_count_text(0), "0 pages");
+    }
+
+    #[test]
+    fn page_counts_follow_spanish_plural_rules() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        assert_eq!(page_count_text(1), "1 página");
+        assert_eq!(page_count_text(12), "12 páginas");
     }
 
     /// The whole point of taking the *smaller* fit: a landscape page must

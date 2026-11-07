@@ -10,6 +10,7 @@ use gtk::prelude::*;
 use gtk::{Align, ApplicationWindow, Box as GtkBox, Button, Orientation, SearchEntry};
 
 use crate::app::document::show_file_chooser;
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 
 /// Natural width of the search entry. Wide enough to read a filename back,
@@ -34,22 +35,21 @@ pub(crate) fn build_home_header(window: &ApplicationWindow, viewer: &Viewer) -> 
 
     let search = SearchEntry::new();
     search.add_css_class("home-search");
-    search.set_placeholder_text(Some("Search recent files and tools"));
+    let search_label = tr("home-search-placeholder");
+    search.set_placeholder_text(Some(&search_label));
     search.set_hexpand(true);
     search.set_halign(Align::Center);
     search.set_size_request(SEARCH_WIDTH, -1);
     // A placeholder is not an accessible name — it is announced as content,
     // not as a label, and disappears the moment anything is typed. Same
     // treatment the editor toolbar's own search entry gets.
-    search.update_property(&[gtk::accessible::Property::Label(
-        "Search recent files and tools",
-    )]);
+    search.update_property(&[gtk::accessible::Property::Label(&search_label)]);
     root.append(&search);
 
-    let open = Button::with_label("Open file");
+    let open = Button::with_label(&tr("home-open-file"));
     open.add_css_class("home-primary");
     open.set_valign(Align::Center);
-    open.set_tooltip_text(Some("Open a PDF (Ctrl+O)"));
+    open.set_tooltip_text(Some(&tr("home-open-file-tooltip")));
     open.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
