@@ -3,9 +3,17 @@ use der::{
     DateTime, Decode, Encode,
 };
 use p12_keystore::{Certificate, KeyStore, KeyStoreEntry, PrivateKey, PrivateKeyChain};
+// p256 0.14 is built on the newer RustCrypto trait crates (pkcs8 0.11,
+// spki 0.8, signature 3, rand_core 0.10) while rsa 0.9 still uses the
+// previous ones, so p256's traits are imported anonymously next to the
+// rsa-generation ones below, and P-256 keys come from p256's own `Generate`
+// (backed by the system RNG) instead of rsa's `OsRng`.
+use p256::ecdsa::signature::hazmat::PrehashVerifier as _;
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
+use p256::elliptic_curve::Generate as _;
+use p256::pkcs8::{EncodePrivateKey as _, EncodePublicKey as _};
 use pdf_sign::{CertificateSourcePort, DigestAlgorithm, DocumentDigest, SigningAlgorithm};
 use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 use rsa::rand_core::OsRng;
@@ -83,7 +91,7 @@ fn pfx_identity_lists_its_certificate_and_signs_a_sha256_digest_in_process() {
 
 #[test]
 fn pfx_identity_signs_a_sha512_digest_with_p256_as_der_ecdsa() {
-    let key = P256SigningKey::random(&mut OsRng);
+    let key = P256SigningKey::generate();
     let pfx = pfx_with_identity(
         key.to_pkcs8_der()
             .expect("test P-256 key should encode as PKCS#8")
@@ -151,8 +159,8 @@ fn pfx_with_mismatched_rsa_key_and_leaf_certificate_is_refused_with_the_reason()
 
 #[test]
 fn pfx_with_mismatched_p256_key_and_leaf_certificate_is_refused_with_the_reason() {
-    let key = P256SigningKey::random(&mut OsRng);
-    let certificate_key = P256SigningKey::random(&mut OsRng);
+    let key = P256SigningKey::generate();
+    let certificate_key = P256SigningKey::generate();
     let pfx = pfx_with_identity(
         key.to_pkcs8_der()
             .expect("test P-256 key should encode")
