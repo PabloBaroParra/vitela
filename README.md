@@ -1,7 +1,42 @@
-# Vitela
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/vitela-app-mark-dark.svg">
+    <img src="assets/brand/vitela-app-mark.svg" alt="Vitela logo" width="120">
+  </picture>
+</p>
 
-An offline-first, cross-platform PDF editor with a Rust core. View, annotate,
-sign, and reorganize PDFs — without your documents ever leaving your machine.
+<h1 align="center">Vitela</h1>
+
+<p align="center">
+  <strong>An offline-first, cross-platform PDF editor with a Rust core.</strong><br>
+  View, annotate, sign, and reorganize PDFs — without your documents ever leaving your machine.
+</p>
+
+<p align="center">
+  <a href="https://github.com/PabloBaroParra/vitela/actions/workflows/core.yml"><img src="https://img.shields.io/github/actions/workflow/status/PabloBaroParra/vitela/core.yml?branch=main&label=core&logo=rust" alt="Core CI status"></a>
+  <a href="https://github.com/PabloBaroParra/vitela/releases"><img src="https://img.shields.io/github/v/release/PabloBaroParra/vitela?include_prereleases&label=release" alt="Latest release"></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue" alt="License: MIT OR Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/telemetry-none-brightgreen" alt="Zero telemetry">
+  <img src="https://img.shields.io/badge/platforms-Windows%20%C2%B7%20Linux%20%C2%B7%20Android%20%C2%B7%20macOS%20%C2%B7%20iOS-lightgrey" alt="Platforms">
+</p>
+
+<p align="center">
+  <a href="https://apps.microsoft.com/detail/9n5cxsh1t5dm"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52"></a>
+</p>
+
+<p align="center">
+  <img src="docs/store/screenshots/01-read.png" alt="Vitela on Windows: an open PDF with the page list on the left and the annotation tools on the right" width="880">
+</p>
+
+<p align="center">
+  <a href="#tools--features">Features</a> ·
+  <a href="#platform-status">Platforms</a> ·
+  <a href="#installing-on-windows">Install</a> ·
+  <a href="#building">Build</a> ·
+  <a href="#roadmap">Roadmap</a>
+</p>
+
+---
 
 *Vitela* is Spanish for vellum — the finest parchment, a writing support made
 to last centuries. That is how this editor treats your documents: annotations
