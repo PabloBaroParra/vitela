@@ -11,7 +11,12 @@ use std::fs;
 use std::path::Path;
 
 use p12_keystore::{error::Error as KeyStoreError, KeyStore, KeyStoreEntry, Pkcs12ImportPolicy};
+// p256 0.14 is built on the newer RustCrypto trait crates (pkcs8 0.11,
+// spki 0.8, signature 3) while rsa 0.9 still uses the previous ones, so both
+// generations of these traits are imported anonymously, side by side.
+use p256::ecdsa::signature::hazmat::PrehashSigner as _;
 use p256::ecdsa::{Signature as P256Signature, SigningKey as P256SigningKey};
+use p256::pkcs8::{DecodePrivateKey as _, EncodePublicKey as _};
 use pdf_sign::{
     CertificateSourcePort, DigestAlgorithm, SignError, SigningAlgorithm, SigningIdentity,
 };
@@ -218,12 +223,22 @@ impl StoredKey {
         else {
             return false;
         };
+        // The two key types encode through different spki versions, so each
+        // arm reduces its own document to bytes before comparing.
         let public_key_der = match self {
-            Self::Rsa(key) => key.to_public_key().to_public_key_der(),
-            Self::P256(key) => key.verifying_key().to_public_key_der(),
+            Self::Rsa(key) => key
+                .to_public_key()
+                .to_public_key_der()
+                .map(|der| der.as_bytes().to_vec())
+                .ok(),
+            Self::P256(key) => key
+                .verifying_key()
+                .to_public_key_der()
+                .map(|der| der.as_bytes().to_vec())
+                .ok(),
         };
 
-        public_key_der.is_ok_and(|public_key_der| public_key_der.as_bytes() == certificate_spki_der)
+        public_key_der.is_some_and(|public_key_der| public_key_der == certificate_spki_der)
     }
 
     fn from_pkcs8(der: &[u8]) -> Result<(Self, Vec<SigningAlgorithm>), &'static str> {

@@ -3,7 +3,12 @@
 //! options produce either import and sign, or are refused with a reason the
 //! person who chose the file can act on — never an empty identity list.
 
+// p256 0.14 is built on the newer RustCrypto trait crates (spki 0.8,
+// signature 3) while rsa 0.9 still uses the previous ones, so p256's traits
+// are imported anonymously next to the rsa-generation ones below.
+use p256::ecdsa::signature::hazmat::PrehashVerifier as _;
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
+use p256::pkcs8::DecodePublicKey as _;
 use pdf_sign::{CertificateSourcePort, DigestAlgorithm, DocumentDigest, SigningAlgorithm};
 use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 use rsa::{
