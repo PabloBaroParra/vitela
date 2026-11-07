@@ -33,7 +33,7 @@ rsa = { version = "0.9.8", features = ["sha2"] }
 [dev-dependencies]
 cms = { version = "0.2.3", default-features = false, features = ["std"] }
 der = { version = "0.7.10", features = ["alloc", "derive", "oid", "std"] }
-p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8"] }
+p256 = { version = "0.14.0", features = ["ecdsa", "pkcs8"] }
 sha2 = "0.10.9"
 signature = "2.2.0"
 x509-cert = { version = "0.2.5", default-features = false, features = ["std"] }

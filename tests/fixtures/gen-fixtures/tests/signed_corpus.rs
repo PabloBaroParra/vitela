@@ -20,7 +20,12 @@ use der::{
 };
 use gen_fixtures::signed::{generate_signed_corpus, SignedAlgorithm, SIGNED_CORPUS};
 use lopdf::{Document, Object};
+// p256 0.14 is built on the newer RustCrypto trait crates (spki 0.8,
+// signature 3) while rsa 0.9 still uses the previous ones, so p256's traits
+// are imported anonymously next to the rsa-generation ones below.
+use p256::ecdsa::signature::hazmat::PrehashVerifier as _;
 use p256::ecdsa::{Signature as P256Signature, VerifyingKey as P256VerifyingKey};
+use p256::pkcs8::DecodePublicKey as _;
 use rsa::{
     pkcs1v15::{Signature as RsaSignature, VerifyingKey as RsaVerifyingKey},
     pkcs8::DecodePublicKey,
