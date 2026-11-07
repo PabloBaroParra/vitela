@@ -36,6 +36,12 @@ sha2 = "0.10.9"
 # document and probing `pdf-edit`'s real encoder against it — same version
 # `pdf-edit` itself depends on.
 lopdf = "0.45"
+# User-facing text (`app::i18n`): Fluent messages embedded from `locales/`,
+# selected by the POSIX locale. Non-concurrent bundles — GTK is one thread.
+fluent-bundle = "0.16"
+unic-langid = "0.9"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 gen-fixtures = { path = "../../tests/fixtures/gen-fixtures" }
+# The `.ftl` parity test walks the parsed AST; same crate `fluent-bundle` uses.
+fluent-syntax = "0.12"

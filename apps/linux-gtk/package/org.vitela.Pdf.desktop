@@ -1,7 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=Vitela
+Name[es]=Vitela
 Comment=View PDF documents
+Comment[es]=Ver documentos PDF
 Exec=vitela %F
 Icon=org.vitela.Pdf
 Categories=Office;Viewer;
