@@ -54,6 +54,20 @@ android {
         }
     }
 
+    buildTypes {
+        getByName("release") {
+            // Play Console flags a release whose DEX is not optimised
+            // (obfuscation 0 %). R8 shrinks, optimises and obfuscates the app
+            // code; proguard-rules.pro keeps what JNA/UniFFI reach by name.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
