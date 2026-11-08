@@ -91,6 +91,10 @@ jobs:
         with:
           name: android-bundle
           path: bundle
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-mapping
+          path: mapping
 
       # jarsigner is how Play expects an upload key on a bundle. The keystore
       # exists only in $RUNNER_TEMP and is removed whatever happens next.
@@ -123,6 +127,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: dev.vitela.pdf
           releaseFiles: bundle/app-release.aab
+          mappingFile: mapping/mapping.txt
           track: ${{ inputs.play-track }}
           status: ${{ vars.PLAY_RELEASE_STATUS || 'completed' }}
           whatsNewDirectory: whatsnew
