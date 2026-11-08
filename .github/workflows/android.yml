@@ -204,3 +204,13 @@ jobs:
           name: android-bundle
           path: apps/android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+      # R8 renames the release classes; Play needs this map to deobfuscate
+      # crash and ANR stack traces. A separate artifact keeps the bundle's
+      # path inside `android-bundle` unchanged.
+      - name: Upload the R8 mapping file
+        if: inputs.version-code != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-mapping
+          path: apps/android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
