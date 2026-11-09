@@ -76,6 +76,31 @@ fn gtk_ui_starts_with_find_navigation_disabled() {
 }
 
 #[gtk::test]
+fn gtk_ui_spanish_editor_search_controls_and_prompts() {
+    let _spanish = super::i18n::speak(super::i18n::Language::Spanish);
+    let built = built_ui();
+    assert_eq!(
+        built.viewer.status.text(),
+        "Elige un archivo PDF para verlo o abre el ejemplo integrado."
+    );
+    assert_eq!(
+        built.viewer.search_entry.placeholder_text().as_deref(),
+        Some("Buscar en el documento")
+    );
+    super::search::run_search(&built.viewer);
+    assert_eq!(
+        built.viewer.status.text(),
+        "Introduce el texto que quieras buscar."
+    );
+    built.viewer.search_entry.set_text("texto");
+    super::search::run_search(&built.viewer);
+    assert_eq!(built.viewer.status.text(), "Abre un PDF antes de buscar.");
+    assert!(!built.viewer.find_next.is_sensitive());
+    built.window.close();
+    drain_main_context();
+}
+
+#[gtk::test]
 fn gtk_ui_find_shortcut_opens_the_search_popover_and_can_reopen_it() {
     let built = built_ui();
     built.viewer.view_stack.set_visible_child_name("editor");

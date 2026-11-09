@@ -17,6 +17,9 @@
 //!
 //! Tests always run in English, whatever the developer's locale; a test that
 //! needs Spanish takes a [`speak`] guard.
+//!
+//! Migrated surfaces: Home, the navigation rail, editor toolbar and search.
+//! Feature panels, document workflows and core error details are not yet localized.
 
 mod bundle;
 mod locale;
@@ -172,5 +175,20 @@ mod tests {
             assert_eq!(tr("home-tools-title"), "Herramientas");
         }
         assert_eq!(tr("home-tools-title"), "Tools");
+    }
+
+    #[test]
+    fn spanish_search_messages_keep_arguments_verbatim() {
+        let _spanish = speak(Language::Spanish);
+        for (key, expected) in [
+            ("search-running", "Buscando «{PDF} á»..."),
+            ("search-no-matches", "No hay coincidencias para «{PDF} á»."),
+        ] {
+            assert_eq!(tr_args(key, &[("query", "{PDF} á".into())]), expected);
+        }
+        assert_eq!(
+            tr_args("search-failed", &[("error", "PDFium: {detail}".into())]),
+            "No se pudo buscar: PDFium: {detail}"
+        );
     }
 }

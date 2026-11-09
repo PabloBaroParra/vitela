@@ -57,6 +57,7 @@ use document::{
 };
 use editor_toolbar::build_editor_toolbar;
 use home::{build_home, EDITOR_PAGE, HOME_PAGE};
+use i18n::tr;
 use layout::{current_zoom_factor, refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
@@ -159,9 +160,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         find_next,
     } = build_editor_toolbar();
 
-    let status = Label::new(Some(
-        "Choose a PDF file to view, or open the built-in sample.",
-    ));
+    let status = Label::new(Some(&tr("editor-idle-status")));
     status.set_xalign(0.0);
     // A status line is the least important thing on screen and the widest
     // string in the shell, and an un-ellipsized `Label` reports its full text
@@ -249,7 +248,7 @@ fn build_ui(application: &Application) -> BuiltUi {
 
     let page_navigation = GtkBox::new(Orientation::Vertical, 4);
     page_navigation.add_css_class("page-navigation");
-    page_navigation.update_property(&[gtk::accessible::Property::Label("Pages")]);
+    page_navigation.update_property(&[gtk::accessible::Property::Label(&tr("editor-pages"))]);
     let page_navigation_scroll = ScrolledWindow::builder()
         .vexpand(true)
         .hscrollbar_policy(PolicyType::Never)
@@ -259,7 +258,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     navigation_panel.add_css_class("navigation-panel");
     navigation_panel.set_hexpand(false);
     navigation_panel.set_width_request(144);
-    let navigation_heading = Label::new(Some("Pages"));
+    let navigation_heading = Label::new(Some(&tr("editor-pages")));
     navigation_heading.set_xalign(0.0);
     navigation_heading.add_css_class("panel-heading");
     navigation_panel.append(&navigation_heading);
@@ -275,7 +274,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     );
     let tools_panel = GtkBox::new(Orientation::Vertical, 10);
     tools_panel.add_css_class("tools-panel");
-    tools_panel.update_property(&[gtk::accessible::Property::Label("Tools and properties")]);
+    tools_panel.update_property(&[gtk::accessible::Property::Label(&tr("editor-tools-panel"))]);
     tools_panel.set_hexpand(false);
     // No `width_request`. The 220 that used to be here was never the real
     // floor anyway — the tab strip's own 400px was — and now that the strip
