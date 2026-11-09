@@ -116,6 +116,13 @@ limits. Zoom follows the pointer, keeping the same page point under the cursor
 where the scroll limits allow. Without Ctrl, the wheel scrolls normally; side
 panels keep their own scrolling.
 
+On Linux and Windows, hold **Space** and drag with the left mouse button over the
+document to pan it in both directions, or drag with the middle button without
+Space. The pointer shows a hand while Space is held and changes while dragging
+(a closed hand on Linux, a move cursor on Windows). Space still types into a
+focused text field, and a left press without Space reaches the page tools as
+before.
+
 This is the full set of tools Vitela targets. The core engine (`pdf-manip`,
 `pdf-save`, `pdf-annotate`, `pdf-render`) already implements the operations
 marked **Core ready**; those become available in each platform shell as the

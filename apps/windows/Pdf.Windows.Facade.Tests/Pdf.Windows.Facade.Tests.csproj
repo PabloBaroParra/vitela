@@ -55,6 +55,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\ImageExportWording.cs" Link="Viewer\ImageExportWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ExtractPagesWording.cs" Link="Viewer\ExtractPagesWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageZoom.cs" Link="Viewer\PageZoom.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\HandTool.cs" Link="Viewer\HandTool.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\SideColumn.cs" Link="Viewer\SideColumn.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageRenderPlan.cs" Link="Viewer\PageRenderPlan.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PageWindow.cs" Link="Viewer\PageWindow.cs" />
