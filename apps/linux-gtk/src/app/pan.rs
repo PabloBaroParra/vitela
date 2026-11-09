@@ -76,8 +76,13 @@ pub(super) fn connect(window: &gtk::ApplicationWindow, page_area: &gtk::Overlay,
     drag.set_propagation_phase(PropagationPhase::Capture);
     drag.connect_drag_begin({
         let hand = hand.clone();
-        move |gesture, _, _| {
-            let state = if hand.begin(gesture.current_button()) {
+        let page_area = page_area.clone();
+        move |gesture, x, y| {
+            // GTK hands the press an implicit grab on the deepest widget under
+            // the pointer, and while it lasts the cursor lookup stops at that
+            // widget, so the scroller's cursor alone would never show.
+            let grabbed = page_area.pick(x, y, gtk::PickFlags::DEFAULT);
+            let state = if hand.begin(gesture.current_button(), grabbed) {
                 EventSequenceState::Claimed
             } else {
                 EventSequenceState::Denied
@@ -110,6 +115,9 @@ struct State {
     drag: Option<Drag>,
     /// The scroller's own cursor, kept while the hand's is shown.
     saved_cursor: Option<Option<gdk::Cursor>>,
+    /// The widget holding the press's implicit grab, with its own cursor,
+    /// while it shows the closed hand.
+    grabbed: Option<(gtk::Widget, Option<gdk::Cursor>)>,
 }
 
 #[derive(Clone, Copy)]
@@ -167,17 +175,28 @@ impl Hand {
     }
 
     /// A button went down over the document. True claims the press.
-    fn begin(&self, button: u32) -> bool {
+    /// `grabbed`: the widget the press landed on, which holds the grab.
+    fn begin(&self, button: u32, grabbed: Option<gtk::Widget>) -> bool {
         let space = self.state.borrow().space;
         if !math::grabs(button, space) || !has_pages(&self.viewer) {
             return false;
         }
         let scroll = &self.viewer.scroll;
-        self.state.borrow_mut().drag = Some(Drag {
-            start: (scroll.hadjustment().value(), scroll.vadjustment().value()),
-            needs_space: button != math::MIDDLE,
-            live: true,
-        });
+        {
+            let mut state = self.state.borrow_mut();
+            state.drag = Some(Drag {
+                start: (scroll.hadjustment().value(), scroll.vadjustment().value()),
+                needs_space: button != math::MIDDLE,
+                live: true,
+            });
+            // The scroller's cursor is already handled on its own.
+            state.grabbed = grabbed
+                .filter(|widget| widget != scroll.upcast_ref::<gtk::Widget>())
+                .map(|widget| {
+                    let own = widget.cursor();
+                    (widget, own)
+                });
+        }
         self.show_cursor();
         true
     }
@@ -202,7 +221,7 @@ impl Hand {
         self.show_cursor();
     }
 
-    /// Drop everything: the window lost focus.
+    /// Drop everything: the window lost focus, or a text field took Space.
     fn reset(&self) {
         {
             let mut state = self.state.borrow_mut();
@@ -236,6 +255,15 @@ impl Hand {
                     scroll.set_cursor(saved.as_ref());
                 }
             }
+        }
+        // Only the closed hand needs the grab holder; once the drag is over,
+        // or has stopped panning, it gets its own cursor back for good.
+        if name == Some(GRABBING) {
+            if let Some((widget, _)) = &state.grabbed {
+                widget.set_cursor_from_name(Some(GRABBING));
+            }
+        } else if let Some((widget, own)) = state.grabbed.take() {
+            widget.set_cursor(own.as_ref());
         }
     }
 }
@@ -338,7 +366,10 @@ mod tests {
 
         hand.release_space();
         assert_eq!(cursor(&built), None);
-        assert!(!hand.begin(PRIMARY), "one release disarms after any repeat");
+        assert!(
+            !hand.begin(PRIMARY, None),
+            "one release disarms after any repeat"
+        );
         built.window.close();
     }
 
@@ -350,7 +381,7 @@ mod tests {
 
         assert_eq!(hand.press_space(false), glib::Propagation::Proceed);
         assert_eq!(cursor(&built), None);
-        assert!(!hand.begin(PRIMARY));
+        assert!(!hand.begin(PRIMARY, None));
         built.window.close();
     }
 
@@ -365,7 +396,7 @@ mod tests {
 
         assert_eq!(hand.press_space(true), glib::Propagation::Proceed);
         assert_eq!(cursor(&built), None);
-        assert!(!hand.begin(PRIMARY));
+        assert!(!hand.begin(PRIMARY, None));
 
         let text = gtk::TextView::new();
         built.viewer.pages.append(&text);
@@ -387,7 +418,7 @@ mod tests {
         // The next autorepeat press now belongs to the field.
         assert_eq!(hand.press_space(true), glib::Propagation::Proceed);
         assert_eq!(cursor(&built), None);
-        assert!(!hand.begin(PRIMARY));
+        assert!(!hand.begin(PRIMARY, None));
         built.window.close();
     }
 
@@ -403,7 +434,7 @@ mod tests {
             built.viewer.state.borrow_mut().session = session;
             let hand = Hand::new(&built.viewer);
             assert_eq!(hand.press_space(true), glib::Propagation::Proceed);
-            assert!(!hand.begin(MIDDLE));
+            assert!(!hand.begin(MIDDLE, None));
             assert_eq!(cursor(&built), None);
         }
         built.window.close();
@@ -415,7 +446,7 @@ mod tests {
         with_page(&built);
         let hand = Hand::new(&built.viewer);
 
-        assert!(!hand.begin(PRIMARY));
+        assert!(!hand.begin(PRIMARY, None));
         hand.update(50.0, 50.0);
         assert_eq!(values(&built), (400.0, 400.0));
         assert_eq!(cursor(&built), None);
@@ -429,7 +460,7 @@ mod tests {
         let hand = Hand::new(&built.viewer);
         hand.press_space(true);
 
-        assert!(hand.begin(PRIMARY));
+        assert!(hand.begin(PRIMARY, None));
         assert_eq!(cursor(&built).as_deref(), Some(GRABBING));
         hand.update(30.0, -40.0);
         assert_eq!(values(&built), (370.0, 440.0));
@@ -453,13 +484,16 @@ mod tests {
         with_page(&built);
         let hand = Hand::new(&built.viewer);
 
-        assert!(hand.begin(MIDDLE));
+        assert!(hand.begin(MIDDLE, None));
         assert_eq!(cursor(&built).as_deref(), Some(GRABBING));
         hand.update(-25.0, 25.0);
         assert_eq!(values(&built), (425.0, 375.0));
         hand.end();
         assert_eq!(cursor(&built), None);
-        assert!(!hand.begin(3), "the secondary button stays with the tools");
+        assert!(
+            !hand.begin(3, None),
+            "the secondary button stays with the tools"
+        );
         built.window.close();
     }
 
@@ -469,7 +503,7 @@ mod tests {
         with_page(&built);
         let hand = Hand::new(&built.viewer);
         hand.press_space(true);
-        assert!(hand.begin(PRIMARY));
+        assert!(hand.begin(PRIMARY, None));
         hand.update(10.0, 10.0);
 
         hand.release_space();
@@ -487,7 +521,7 @@ mod tests {
         with_page(&built);
         let hand = Hand::new(&built.viewer);
         hand.press_space(true);
-        assert!(hand.begin(MIDDLE));
+        assert!(hand.begin(MIDDLE, None));
 
         hand.release_space();
         hand.update(10.0, 10.0);
@@ -504,13 +538,13 @@ mod tests {
         with_page(&built);
         let hand = Hand::new(&built.viewer);
         hand.press_space(true);
-        assert!(hand.begin(PRIMARY));
+        assert!(hand.begin(PRIMARY, None));
 
         hand.reset();
         assert_eq!(cursor(&built), None);
         hand.update(50.0, 50.0);
         assert_eq!(values(&built), (400.0, 400.0));
-        assert!(!hand.begin(PRIMARY), "Space is no longer held");
+        assert!(!hand.begin(PRIMARY, None), "Space is no longer held");
         built.window.close();
     }
 
@@ -522,10 +556,52 @@ mod tests {
         let hand = Hand::new(&built.viewer);
 
         hand.press_space(true);
-        assert!(hand.begin(PRIMARY));
+        assert!(hand.begin(PRIMARY, None));
         hand.end();
         hand.release_space();
         assert_eq!(cursor(&built).as_deref(), Some("crosshair"));
+        built.window.close();
+    }
+
+    fn name_of(widget: &impl IsA<gtk::Widget>) -> Option<String> {
+        widget
+            .cursor()
+            .and_then(|cursor| cursor.name())
+            .map(String::from)
+    }
+
+    #[gtk::test]
+    fn gtk_ui_pan_closed_hand_also_shows_on_the_widget_holding_the_press() {
+        let built = built_ui();
+        with_page(&built);
+        let hand = Hand::new(&built.viewer);
+        // The cursor lookup stops at the implicit grab's widget, so the
+        // closed hand must be on the page the press landed on too.
+        let page = gtk::Picture::new();
+        page.set_cursor_from_name(Some("text"));
+        built.viewer.pages.append(&page);
+
+        hand.press_space(true);
+        assert_eq!(
+            name_of(&page).as_deref(),
+            Some("text"),
+            "Space alone keeps it"
+        );
+        assert!(hand.begin(PRIMARY, Some(page.clone().upcast())));
+        assert_eq!(name_of(&page).as_deref(), Some(GRABBING));
+        hand.end();
+        assert_eq!(name_of(&page).as_deref(), Some("text"));
+
+        // Space let go mid-drag: no more panning, so no more closed hand.
+        assert!(hand.begin(PRIMARY, Some(page.clone().upcast())));
+        hand.release_space();
+        assert_eq!(name_of(&page).as_deref(), Some("text"));
+        hand.end();
+        assert_eq!(name_of(&page).as_deref(), Some("text"));
+
+        assert!(hand.begin(MIDDLE, Some(page.clone().upcast())));
+        hand.reset();
+        assert_eq!(name_of(&page).as_deref(), Some("text"));
         built.window.close();
     }
 }
