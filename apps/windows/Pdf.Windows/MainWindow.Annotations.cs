@@ -145,12 +145,18 @@ public sealed partial class MainWindow
         // single click only selects (see `MainWindow.TextBlocks.cs`).
         slot.Annotations.DoubleTapped += async (_, args) =>
         {
-            if (!_contentEditMode) return;
+            // A double-click with Space held is two pan presses, not an edit.
+            if (!_contentEditMode || _hand.SpaceHeld || _hand.Dragging) return;
             args.Handled = true;
             await OpenContentEditorOnDoubleTapAsync((uint)pageIndex, ToPdf(slot, pageIndex, args.GetPosition(slot.Annotations)));
         };
         slot.Annotations.PointerPressed += (_, args) =>
         {
+            // The hand tool goes first: WinUI 3 has no tunneling pointer
+            // events, so this is the only spot that sees a page press before
+            // the tools below. A claimed press is captured by the scroller and
+            // never reaches them. See `MainWindow.Pan.cs`.
+            if (TryBeginPan(args)) return;
             if (_isBusy || _dialogOpen) return;
             if (BeginFormFieldPlacement(slot, pageIndex, args)) return;
             // Content editing is asked first, and answers for the whole

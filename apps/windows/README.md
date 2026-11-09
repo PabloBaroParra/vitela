@@ -20,6 +20,26 @@ busy/modal/empty guards without changing document history. It injects mouse and
 keyboard input, so run it in an interactive desktop without using the mouse
 until it exits. Set `VITELA_SMOKE_OUTPUT` to an existing directory for its log.
 
+Hold Space over the document and drag with the left button, or drag with the
+middle button, to pan both axes: the content follows the pointer, clamped to the
+scroll extents. `MainWindow.Pan.cs` ports the GTK shell's `app/pan.rs`; its rules
+(which press is claimed, Space autorepeat, Space released mid-drag, the clamp)
+live in `Viewer/HandTool.cs` and are covered by the facade suite. WinUI 3 has no
+tunneling pointer events, so the page overlay asks the pan before any page tool,
+and the scroller listens with `handledEventsToo` for presses between pages. A
+claimed press is marked handled and captured by the scroller, so neither it nor
+its moves and release reach annotation placement, selection, content edit or
+forms; a Space+left press whose Space comes up early stays captured, without
+panning, until the button is released. Space arms the hand only while the system
+cursor is over the scroller, never while a text field has focus, and is
+swallowed (down and up) so a focused button does not activate. Window
+deactivation and capture loss reset it; with no pages there is nothing to pan.
+WinUI has no grab/grabbing cursor: the scroller shows `Hand` while Space is held
+and `SizeAll` while dragging, set through the protected `ProtectedCursor` by
+reflection because `ScrollViewer` is sealed. `Tests/PanSmoke.targets` is an
+opt-in native-input harness for the same cases; like the wheel harness it needs
+an interactive desktop left alone until it exits.
+
 ## Document lifecycle dialogs
 
 Home, the editor toolbar and Ctrl+O share one native PDF picker and its
