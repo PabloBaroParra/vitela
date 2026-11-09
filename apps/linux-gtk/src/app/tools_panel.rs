@@ -23,10 +23,11 @@ use gtk::{
     Box as GtkBox, FlowBox, Label, Orientation, ScrolledWindow, SelectionMode, Stack, ToggleButton,
 };
 
+use super::i18n::tr;
 use super::icons::{build_icon, Icon, NEUTRAL_TINT};
 
 /// The panel's pages, in strip order: the `Stack` child name, the label its
-/// tab carries, and the icon it shows — the same one the app rail uses for
+/// tab carries (a Fluent key), and the icon it shows — the same one the app rail uses for
 /// the section that reaches this tab (`Icon::Annotate`/`Edit`/`Sign`), so a
 /// user who clicked a rail button recognises the tab that answered it.
 /// `Comments` has no rail button of its own, so it gets an icon of its own.
@@ -37,10 +38,10 @@ use super::icons::{build_icon, Icon, NEUTRAL_TINT};
 /// only presentation: the page that opens by default is the `Stack`'s first
 /// child (Annotate, see `build_tools_panel`), not the first tab.
 const TABS: [(&str, &str, Icon); 4] = [
-    (EDIT_PAGE, "Edit", Icon::Edit),
-    (ANNOTATE_PAGE, "Annotate", Icon::Annotate),
-    ("comments", "Comments", Icon::Comments),
-    (FILL_SIGN_PAGE, "Fill & Sign", Icon::Sign),
+    (EDIT_PAGE, "tools-tab-edit", Icon::Edit),
+    (ANNOTATE_PAGE, "tools-tab-annotate", Icon::Annotate),
+    ("comments", "tools-tab-comments", Icon::Comments),
+    (FILL_SIGN_PAGE, "tools-tab-fill-sign", Icon::Sign),
 ];
 
 /// The `Stack` child name for the "Fill & Sign" page — shared with `build_ui`
@@ -96,7 +97,7 @@ pub(crate) fn build_tools_panel(
     metadata_content: &GtkBox,
 ) -> (GtkBox, Stack) {
     let annotate_page = GtkBox::new(Orientation::Vertical, 10);
-    annotate_page.append(&panel_heading("Annotations"));
+    annotate_page.append(&panel_heading(&tr("tools-annotations")));
     annotate_page.append(annotation_row);
     annotate_page.append(metadata_content);
 
@@ -115,7 +116,7 @@ pub(crate) fn build_tools_panel(
     stack.add_named(&annotate_page, Some(ANNOTATE_PAGE));
     stack.add_named(edit_content, Some(EDIT_PAGE));
     stack.add_named(
-        &placeholder_page("Comments aren't available in this shell yet."),
+        &placeholder_page(&tr("tools-comments-unavailable")),
         Some("comments"),
     );
     // T-141 fills `forms_content` with the field-placement toolbar and style
@@ -172,14 +173,15 @@ fn build_tab_switcher(stack: &Stack) -> FlowBox {
 
     let toggles: Rc<Vec<(&'static str, ToggleButton)>> = Rc::new(
         TABS.iter()
-            .map(|(name, title, icon)| {
+            .map(|(name, title_key, icon)| {
+                let title = tr(title_key);
                 let toggle = ToggleButton::new();
-                toggle.set_child(Some(&tab_content(*icon, title)));
-                toggle.set_tooltip_text(Some(*title));
+                toggle.set_child(Some(&tab_content(*icon, &title)));
+                toggle.set_tooltip_text(Some(&title));
                 // A custom child leaves the button with no label of its own
                 // for the accessibility layer to fall back on — same fix as
                 // `shell::rail_item`'s.
-                toggle.update_property(&[gtk::accessible::Property::Label(title)]);
+                toggle.update_property(&[gtk::accessible::Property::Label(&title)]);
                 switcher.append(&toggle);
                 (*name, toggle)
             })
@@ -403,21 +405,68 @@ mod tests {
     fn gtk_ui_tab_toggles_keep_accessible_names_and_tooltips() {
         use gtk::glib::translate::{from_glib_full, ToGlibPtr};
 
-        let toggles = tab_toggles(&build_tab_switcher(&stack_of_tabs()));
-
-        for (toggle, (_, title, _)) in toggles.iter().zip(TABS.iter()) {
-            let accessible: &gtk::Accessible = toggle.as_ref();
-            let expected = <str as ToGlibPtr<'_, *const std::ffi::c_char>>::to_glib_none(*title);
-            let mismatch: Option<gtk::glib::GString> = unsafe {
-                from_glib_full(gtk::ffi::gtk_test_accessible_check_property(
-                    accessible.to_glib_none().0,
-                    gtk::ffi::GTK_ACCESSIBLE_PROPERTY_LABEL,
-                    expected.0,
-                ))
-            };
-            assert!(mismatch.is_none(), "{title}: {mismatch:?}");
-            assert_eq!(toggle.tooltip_text().as_deref(), Some(*title));
+        for (language, titles) in [
+            (
+                crate::app::i18n::Language::English,
+                ["Edit", "Annotate", "Comments", "Fill & Sign"],
+            ),
+            (
+                crate::app::i18n::Language::Spanish,
+                ["Editar", "Anotar", "Comentarios", "Rellenar y firmar"],
+            ),
+        ] {
+            let _language = crate::app::i18n::speak(language);
+            let toggles = tab_toggles(&build_tab_switcher(&stack_of_tabs()));
+            for (toggle, title) in toggles.iter().zip(titles) {
+                let accessible: &gtk::Accessible = toggle.as_ref();
+                let expected = <str as ToGlibPtr<'_, *const std::ffi::c_char>>::to_glib_none(title);
+                let mismatch: Option<gtk::glib::GString> = unsafe {
+                    from_glib_full(gtk::ffi::gtk_test_accessible_check_property(
+                        accessible.to_glib_none().0,
+                        gtk::ffi::GTK_ACCESSIBLE_PROPERTY_LABEL,
+                        expected.0,
+                    ))
+                };
+                assert!(mismatch.is_none(), "{title}: {mismatch:?}");
+                assert_eq!(toggle.tooltip_text().as_deref(), Some(title));
+                let label = toggle
+                    .child()
+                    .unwrap()
+                    .last_child()
+                    .unwrap()
+                    .downcast::<Label>()
+                    .unwrap();
+                assert_eq!(label.text(), title);
+            }
         }
+    }
+
+    #[gtk::test]
+    fn gtk_ui_spanish_panel_preserves_page_ids_and_tab_sync() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        let (stack, _) = built_panel();
+        let toggles = tab_toggles(&build_tab_switcher(&stack));
+        assert_eq!(stack.visible_child_name().as_deref(), Some(ANNOTATE_PAGE));
+        let heading = stack
+            .visible_child()
+            .unwrap()
+            .first_child()
+            .unwrap()
+            .downcast::<Label>()
+            .unwrap();
+        assert_eq!(heading.text(), "Anotaciones");
+        for (toggle, (name, _, _)) in toggles.iter().zip(TABS) {
+            toggle.emit_clicked();
+            assert_eq!(stack.visible_child_name().as_deref(), Some(name));
+            assert_eq!(toggles.iter().filter(|tab| tab.is_active()).count(), 1);
+        }
+        stack.set_visible_child_name("comments");
+        let message = stack.visible_child().unwrap().downcast::<Label>().unwrap();
+        assert_eq!(
+            message.text(),
+            "Los comentarios aún no están disponibles en esta versión."
+        );
+        assert!(toggles[2].is_active());
     }
 
     /// The strip leads with Edit, like the rail and Home's Tools card, while

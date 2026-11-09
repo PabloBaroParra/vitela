@@ -72,9 +72,8 @@ use crate::app::state::{
     DocumentSession, MetadataPanel, SaveBacking, Viewer, CONTENT_MODEL_UNAVAILABLE,
 };
 
+use super::i18n::{tr, tr_args};
 use super::tools_panel::{panel_heading, property_row, EMPTY};
-
-const NO_DOCUMENT: &str = "Open a PDF before editing its properties.";
 
 /// Which of the two date fields a [`commit_date`] call is targeting.
 #[derive(Clone, Copy)]
@@ -94,19 +93,19 @@ enum DateField {
 /// `tools_panel::build_tools_panel` to place).
 pub(crate) fn build_metadata_panel() -> (MetadataPanel, GtkBox) {
     let container = GtkBox::new(Orientation::Vertical, 6);
-    container.append(&panel_heading("Document properties"));
+    container.append(&panel_heading(&tr("metadata-heading")));
 
-    let pages = property_row(&container, "Pages");
-    let title = entry_row(&container, "Title");
-    let author = entry_row(&container, "Author");
-    let subject = entry_row(&container, "Subject");
-    let keywords = entry_row(&container, "Keywords");
-    let creator = entry_row(&container, "Creator");
-    let producer = entry_row(&container, "Producer");
-    let creation_date = entry_row(&container, "Created");
-    let mod_date = entry_row(&container, "Modified");
+    let pages = property_row(&container, &tr("metadata-pages"));
+    let title = entry_row(&container, &tr("metadata-title"));
+    let author = entry_row(&container, &tr("metadata-author"));
+    let subject = entry_row(&container, &tr("metadata-subject"));
+    let keywords = entry_row(&container, &tr("metadata-keywords"));
+    let creator = entry_row(&container, &tr("metadata-creator"));
+    let producer = entry_row(&container, &tr("metadata-producer"));
+    let creation_date = entry_row(&container, &tr("metadata-created"));
+    let mod_date = entry_row(&container, &tr("metadata-modified"));
     for date_entry in [&creation_date, &mod_date] {
-        date_entry.set_placeholder_text(Some("YYYY-MM-DD HH:MM:SS"));
+        date_entry.set_placeholder_text(Some(&tr("metadata-date-placeholder")));
     }
 
     let panel = MetadataPanel {
@@ -285,19 +284,20 @@ fn parse_friendly_date(raw: &str) -> Result<Option<FriendlyDate>, String> {
         date_fields
             .next()
             .filter(|field| !field.is_empty())
-            .ok_or_else(|| format!("expected YYYY-MM-DD, missing {name}"))?
+            .ok_or_else(|| tr_args("metadata-date-missing", &[("field", tr(name).into())]))?
             .parse::<u32>()
-            .map_err(|_| format!("expected YYYY-MM-DD, \"{name}\" is not a number"))
+            .map_err(|_| tr_args("metadata-date-not-number", &[("field", tr(name).into())]))
     };
-    let year = next_date_field("year")?;
-    let month = next_date_field("month")?;
-    let day = next_date_field("day")?;
+    let year = next_date_field("metadata-year")?;
+    let month = next_date_field("metadata-month")?;
+    let day = next_date_field("metadata-day")?;
     if date_fields.next().is_some() {
-        return Err("expected YYYY-MM-DD, found extra \"-\"-separated parts".to_string());
+        return Err(tr("metadata-date-extra"));
     }
-    let year = u16::try_from(year).map_err(|_| format!("year {year} does not fit"))?;
-    let month = in_range(month, 1, 12, "month")?;
-    let day = in_range(day, 1, 31, "day")?;
+    let year = u16::try_from(year)
+        .map_err(|_| tr_args("metadata-year-overflow", &[("year", year.into())]))?;
+    let month = in_range(month, 1, 12, "metadata-month")?;
+    let day = in_range(day, 1, 31, "metadata-day")?;
 
     let (hour, minute, second) = if time_part.is_empty() {
         (0, 0, 0)
@@ -307,27 +307,28 @@ fn parse_friendly_date(raw: &str) -> Result<Option<FriendlyDate>, String> {
             time_fields
                 .next()
                 .filter(|field| !field.is_empty())
-                .ok_or_else(|| format!("expected HH:MM or HH:MM:SS, missing {name}"))?
+                .ok_or_else(|| tr_args("metadata-time-missing", &[("field", tr(name).into())]))?
                 .parse::<u32>()
-                .map_err(|_| format!("expected HH:MM or HH:MM:SS, \"{name}\" is not a number"))
+                .map_err(|_| tr_args("metadata-time-not-number", &[("field", tr(name).into())]))
         };
-        let hour = next_time_field("hour")?;
-        let minute = next_time_field("minute")?;
+        let hour = next_time_field("metadata-hour")?;
+        let minute = next_time_field("metadata-minute")?;
         let second = match time_fields.next() {
             Some(field) => field.parse::<u32>().map_err(|_| {
-                "expected HH:MM or HH:MM:SS, \"second\" is not a number".to_string()
+                tr_args(
+                    "metadata-time-not-number",
+                    &[("field", tr("metadata-second").into())],
+                )
             })?,
             None => 0,
         };
         if time_fields.next().is_some() {
-            return Err(
-                "expected HH:MM or HH:MM:SS, found extra \":\"-separated parts".to_string(),
-            );
+            return Err(tr("metadata-time-extra"));
         }
         (
-            in_range(hour, 0, 23, "hour")?,
-            in_range(minute, 0, 59, "minute")?,
-            in_range(second, 0, 59, "second")?,
+            in_range(hour, 0, 23, "metadata-hour")?,
+            in_range(minute, 0, 59, "metadata-minute")?,
+            in_range(second, 0, 59, "metadata-second")?,
         )
     };
 
@@ -343,7 +344,15 @@ fn parse_friendly_date(raw: &str) -> Result<Option<FriendlyDate>, String> {
 
 fn in_range(value: u32, min: u8, max: u8, name: &'static str) -> Result<u8, String> {
     if value < min as u32 || value > max as u32 {
-        return Err(format!("{name} {value} is out of range ({min}-{max})"));
+        return Err(tr_args(
+            "metadata-component-range",
+            &[
+                ("field", tr(name).into()),
+                ("value", value.into()),
+                ("min", min.into()),
+                ("max", max.into()),
+            ],
+        ));
     }
     Ok(value as u8)
 }
@@ -413,7 +422,7 @@ fn command(
         let mut state = viewer.state.borrow_mut();
         match state.session.as_mut() {
             Some(session) => operation(session),
-            None => Err(NO_DOCUMENT.to_string()),
+            None => Err(tr("metadata-open-first")),
         }
     };
     match result {
@@ -459,11 +468,11 @@ fn set_info(viewer: &Viewer, mutate: impl FnOnce(&mut DocumentInfo)) {
         let mut after = before.clone();
         mutate(&mut after);
         if after == before {
-            return Ok("No change to record.".to_string());
+            return Ok(tr("metadata-unchanged"));
         }
         let document = model(session)?;
         apply_command(document, Command::SetDocumentInfo { before, after });
-        Ok("Document properties updated. Changes are pending save.".to_string())
+        Ok(tr("metadata-updated"))
     });
 }
 
@@ -518,9 +527,10 @@ fn commit_date(viewer: &Viewer, raw: String, which: DateField) {
                 DateField::Mod => info.mod_date = date,
             });
         }
-        Err(error) => viewer
-            .status
-            .set_text(&format!("Invalid date, reverted: {error}")),
+        Err(error) => viewer.status.set_text(&tr_args(
+            "metadata-invalid-date",
+            &[("error", error.into())],
+        )),
     }
     refresh(viewer);
 }
@@ -726,6 +736,187 @@ mod tests {
     #[test]
     fn parse_friendly_date_rejects_a_missing_day() {
         assert!(parse_friendly_date("2026-09").is_err());
+    }
+
+    #[test]
+    fn date_diagnostics_are_localized_without_changing_accepted_formats() {
+        use crate::app::i18n::{speak, Language};
+        for (raw, english, spanish) in [
+            (
+                "2026-09",
+                "expected YYYY-MM-DD, missing day",
+                "se esperaba AAAA-MM-DD; falta el campo «día»",
+            ),
+            (
+                "2026-x-01",
+                "expected YYYY-MM-DD, \"month\" is not a number",
+                "se esperaba AAAA-MM-DD; el campo «mes» no es un número",
+            ),
+            (
+                "2026-09-01-02",
+                "expected YYYY-MM-DD, found extra \"-\"-separated parts",
+                "se esperaba AAAA-MM-DD; hay partes adicionales separadas por «-»",
+            ),
+            (
+                "65536-01-01",
+                "year 65536 does not fit",
+                "el año 65536 no cabe en el rango admitido",
+            ),
+            (
+                "2026-09-01 08",
+                "expected HH:MM or HH:MM:SS, missing minute",
+                "se esperaba HH:MM o HH:MM:SS; falta el campo «minuto»",
+            ),
+            (
+                "2026-09-01 08:x",
+                "expected HH:MM or HH:MM:SS, \"minute\" is not a number",
+                "se esperaba HH:MM o HH:MM:SS; el campo «minuto» no es un número",
+            ),
+            (
+                "2026-09-01 08:30:x",
+                "expected HH:MM or HH:MM:SS, \"second\" is not a number",
+                "se esperaba HH:MM o HH:MM:SS; el campo «segundo» no es un número",
+            ),
+            (
+                "2026-09-01 08:30:45:00",
+                "expected HH:MM or HH:MM:SS, found extra \":\"-separated parts",
+                "se esperaba HH:MM o HH:MM:SS; hay partes adicionales separadas por «:»",
+            ),
+            (
+                "2026-13-01",
+                "month 13 is out of range (1-12)",
+                "el campo «mes» tiene el valor 13, fuera del rango (1-12)",
+            ),
+        ] {
+            for (language, expected) in [(Language::English, english), (Language::Spanish, spanish)]
+            {
+                let _language = speak(language);
+                assert_eq!(parse_friendly_date(raw).unwrap_err(), expected, "{raw}");
+                assert_eq!(
+                    parse_friendly_date("2026-09-01 08:30:45"),
+                    Ok(Some(a_friendly_date(2026, 9, 1, 8, 30, 45)))
+                );
+            }
+        }
+    }
+
+    #[gtk::test]
+    fn gtk_ui_spanish_metadata_labels_do_not_translate_document_values() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        let (panel, container) = build_metadata_panel();
+        let labels: Vec<_> =
+            std::iter::successors(container.first_child(), |child| child.next_sibling())
+                .map(|widget| {
+                    widget
+                        .downcast::<gtk::Label>()
+                        .unwrap_or_else(|row| row.first_child().unwrap().downcast().unwrap())
+                        .text()
+                        .to_string()
+                })
+                .collect();
+        assert_eq!(
+            labels,
+            [
+                "Propiedades del documento",
+                "Páginas",
+                "Título",
+                "Autor",
+                "Asunto",
+                "Palabras clave",
+                "Creador",
+                "Productor",
+                "Creado",
+                "Modificado"
+            ]
+        );
+        assert!(!panel.title.is_sensitive());
+        assert_eq!(
+            panel.creation_date.placeholder_text().as_deref(),
+            Some("AAAA-MM-DD HH:MM:SS")
+        );
+        assert_eq!(
+            panel.mod_date.placeholder_text(),
+            panel.creation_date.placeholder_text()
+        );
+        set(
+            &panel,
+            3,
+            &DocumentInfo {
+                title: Some("Title {PDF} á".to_string()),
+                author: Some("Author".to_string()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(panel.title.text(), "Title {PDF} á");
+        assert_eq!(panel.author.text(), "Author");
+        assert_eq!(panel.pages.text(), "3");
+    }
+
+    #[gtk::test]
+    fn gtk_ui_spanish_metadata_edits_keep_values_offsets_and_validation_rollback() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        let built = crate::app::ui_tests::built_ui();
+        let offset = PdfDateOffset::Plus {
+            hours: 5,
+            minutes: 30,
+        };
+        let date = PdfDate {
+            offset,
+            ..a_date(2026)
+        };
+        let document = document_with_log(vec![Command::SetDocumentInfo {
+            before: DocumentInfo::default(),
+            after: DocumentInfo {
+                creation_date: Some(date),
+                ..Default::default()
+            },
+        }]);
+        built.viewer.state.borrow_mut().session =
+            Some(crate::app::test_fixtures::model_session(document));
+        refresh(&built.viewer);
+        built.viewer.metadata.title.set_text("Title {PDF} á");
+        assert_eq!(
+            built.viewer.status.text(),
+            "Propiedades del documento actualizadas. Los cambios están pendientes de guardar."
+        );
+        commit_date(&built.viewer, "2026-13-01".to_string(), DateField::Creation);
+        assert_eq!(built.viewer.status.text(), "Fecha no válida; se ha restaurado el valor anterior: el campo «mes» tiene el valor 13, fuera del rango (1-12)");
+        assert_eq!(
+            built.viewer.metadata.creation_date.text(),
+            "2026-01-01 00:00:00"
+        );
+        commit_date(
+            &built.viewer,
+            "2026-09-01 08:30".to_string(),
+            DateField::Creation,
+        );
+        assert_eq!(
+            built.viewer.metadata.creation_date.text(),
+            "2026-09-01 08:30:00"
+        );
+        commit_date(
+            &built.viewer,
+            "2026-09-01 08:30".to_string(),
+            DateField::Creation,
+        );
+        assert_eq!(built.viewer.status.text(), "No hay cambios que registrar.");
+        let state = built.viewer.state.borrow();
+        let session = state.session.as_ref().unwrap();
+        let info = current_document_info(session.document_model.as_ref(), None);
+        assert_eq!(info.title.as_deref(), Some("Title {PDF} á"));
+        assert_eq!(info.creation_date.unwrap().offset, offset);
+        assert_eq!(
+            session
+                .document_model
+                .as_ref()
+                .unwrap()
+                .pending_edits
+                .entries()
+                .len(),
+            3
+        );
+        drop(state);
+        built.window.close();
     }
 
     #[test]
