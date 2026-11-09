@@ -107,17 +107,6 @@ impl Anchor {
     }
 }
 
-pub(super) fn event_point(viewer: &Viewer, event: &gdk::Event) -> Option<(f32, f32)> {
-    let (x, y) = event.position()?;
-    let native = viewer.scroll.native()?;
-    let (dx, dy) = native.surface_transform();
-    let point = native.compute_point(
-        &viewer.scroll,
-        &graphene::Point::new((x + dx) as f32, (y + dy) as f32),
-    )?;
-    Some((point.x(), point.y()))
-}
-
 pub(super) fn connect(area: &gtk::Overlay, viewer: &Viewer) -> Rc<Cell<Option<Anchor>>> {
     let pending = Rc::new(Cell::new(None::<Anchor>));
     let connection = Rc::new(RefCell::new(
