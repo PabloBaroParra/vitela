@@ -10,13 +10,18 @@
 use gtk::prelude::*;
 use gtk::{Align, Label};
 
+use crate::app::i18n::{tr, tr_args};
+
 /// The version this binary was built as, if the build was given one.
 const BUILD_VERSION: Option<&str> = option_env!("VITELA_VERSION");
 
 /// The footer's text for a build `version`; an unset or blank one is `dev`.
 fn version_label(version: Option<&str>) -> String {
-    let version = version.map(str::trim).filter(|version| !version.is_empty());
-    format!("Vitela {}", version.unwrap_or("dev"))
+    let version = version
+        .map(str::trim)
+        .filter(|version| !version.is_empty())
+        .map_or_else(|| tr("home-version-dev"), str::to_owned);
+    tr_args("home-version", &[("version", version.into())])
 }
 
 pub(super) fn build_version_footer() -> Label {
