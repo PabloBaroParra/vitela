@@ -2,13 +2,20 @@
 
 mod anchor;
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gtk::prelude::*;
-use gtk::{gdk, glib, EventControllerScroll, EventControllerScrollFlags, PropagationPhase};
+use gtk::{
+    gdk, glib, EventControllerMotion, EventControllerScroll, EventControllerScrollFlags,
+    PropagationPhase,
+};
 
 use super::state::Viewer;
 
 pub(super) fn connect(page_area: &gtk::Overlay, viewer: &Viewer) {
     let pending = anchor::connect(page_area, viewer);
+    let pointer = track_pointer(&viewer.scroll);
     let scroll = EventControllerScroll::new(
         EventControllerScrollFlags::BOTH_AXES | EventControllerScrollFlags::DISCRETE,
     );
@@ -17,9 +24,7 @@ pub(super) fn connect(page_area: &gtk::Overlay, viewer: &Viewer) {
     scroll.connect_scroll({
         let viewer = viewer.clone();
         move |controller, _, dy| {
-            let pointer = controller
-                .current_event()
-                .and_then(|event| anchor::event_point(&viewer, &event));
+            let pointer = pointer.get();
             handle_at(
                 &viewer,
                 &pending,
@@ -32,9 +37,35 @@ pub(super) fn connect(page_area: &gtk::Overlay, viewer: &Viewer) {
     page_area.add_controller(scroll);
 }
 
+/// The pointer, in `scroll`'s own coordinates, as the anchor expects it.
+///
+/// Not read off the wheel event: GDK's scroll event type has no position
+/// accessor (`gdk_scroll_event_info` leaves `get_position` unset), so
+/// `gdk::Event::position` is always `None` for it. Reading it there left every
+/// wheel step unanchored, zooming from the viewport's top-left corner — the
+/// very behaviour anchoring was meant to end.
+fn track_pointer(scroll: &gtk::ScrolledWindow) -> Rc<Cell<Option<(f32, f32)>>> {
+    let pointer = Rc::new(Cell::new(None));
+    let motion = EventControllerMotion::new();
+    // Capture, so motion over the pages reaches it before any page handler.
+    motion.set_propagation_phase(PropagationPhase::Capture);
+    let set = {
+        let pointer = pointer.clone();
+        move |_: &EventControllerMotion, x: f64, y: f64| pointer.set(Some((x as f32, y as f32)))
+    };
+    motion.connect_enter(set.clone());
+    motion.connect_motion(set);
+    motion.connect_leave({
+        let pointer = pointer.clone();
+        move |_| pointer.set(None)
+    });
+    scroll.add_controller(motion);
+    pointer
+}
+
 fn handle_at(
     viewer: &Viewer,
-    pending: &std::cell::Cell<Option<anchor::Anchor>>,
+    pending: &Cell<Option<anchor::Anchor>>,
     modifiers: gdk::ModifierType,
     dy: f64,
     pointer: Option<(f32, f32)>,
@@ -94,6 +125,22 @@ fn handle_scroll(
 mod tests {
     use super::*;
     use crate::app::{layout::Zoom, test_fixtures, ui_tests::built_ui};
+
+    #[gtk::test]
+    fn gtk_ui_wheel_zoom_reads_the_pointer_from_motion_over_the_document() {
+        let built = built_ui();
+        let controllers = built.viewer.scroll.observe_controllers();
+        let motion = (0..controllers.n_items())
+            .find_map(|index| {
+                controllers
+                    .item(index)?
+                    .downcast::<EventControllerMotion>()
+                    .ok()
+            })
+            .expect("the scroller must track the pointer; wheel events carry no position");
+        assert_eq!(motion.propagation_phase(), PropagationPhase::Capture);
+        built.window.close();
+    }
 
     #[gtk::test]
     fn gtk_ui_wheel_zoom_without_control_and_horizontal_wheel_keep_normal_scrolling() {
