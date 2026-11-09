@@ -109,8 +109,9 @@ public sealed partial class MainWindow
     /// Re-lays out at a new zoom, keeping the reader where they were: the
     /// page under the top of the viewport, and how far into it they had
     /// scrolled, both survive the change.
+    /// Wheel zoom can instead pin a page-local point under the pointer.
     /// </summary>
-    private void ApplyZoom(ZoomSetting zoom)
+    private void ApplyZoom(ZoomSetting zoom, WheelZoomAnchor? wheelAnchor = null)
     {
         _zoom = zoom;
         if (_session is null || _slots.Count == 0)
@@ -124,8 +125,15 @@ public sealed partial class MainWindow
             _deferPrefetchUntilVisibleSettles = true;
         }
         PageScroller.UpdateLayout();
-        var span = _spans[Math.Clamp(anchor.PageIndex, 0, _spans.Count - 1)];
-        PageScroller.ChangeView(null, span.Top + (anchor.Fraction * span.Height), null, disableAnimation: true);
+        if (wheelAnchor is { } pointer)
+        {
+            RestoreWheelZoomAnchor(pointer);
+        }
+        else
+        {
+            var span = _spans[Math.Clamp(anchor.PageIndex, 0, _spans.Count - 1)];
+            PageScroller.ChangeView(null, span.Top + (anchor.Fraction * span.Height), null, disableAnimation: true);
+        }
         UpdateViewport(intermediate: false);
         // Annotation visuals are sized in screen pixels from `slot.Scale`, which
         // `LayoutPages` just moved. Unlike the page bitmap — which the Image

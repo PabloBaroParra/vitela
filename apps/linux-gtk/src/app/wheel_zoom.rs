@@ -1,11 +1,14 @@
 //! Native Ctrl+wheel input; layout and rendering remain on the toolbar zoom path.
 
+mod anchor;
+
 use gtk::prelude::*;
 use gtk::{gdk, glib, EventControllerScroll, EventControllerScrollFlags, PropagationPhase};
 
 use super::state::Viewer;
 
 pub(super) fn connect(page_area: &gtk::Overlay, viewer: &Viewer) {
+    let pending = anchor::connect(page_area, viewer);
     let scroll = EventControllerScroll::new(
         EventControllerScrollFlags::BOTH_AXES | EventControllerScrollFlags::DISCRETE,
     );
@@ -13,12 +16,59 @@ pub(super) fn connect(page_area: &gtk::Overlay, viewer: &Viewer) {
     scroll.set_propagation_phase(PropagationPhase::Capture);
     scroll.connect_scroll({
         let viewer = viewer.clone();
-        move |controller, _, dy| handle_scroll(&viewer, controller.current_event_state(), dy)
+        move |controller, _, dy| {
+            let pointer = controller
+                .current_event()
+                .and_then(|event| anchor::event_point(&viewer, &event));
+            handle_at(
+                &viewer,
+                &pending,
+                controller.current_event_state(),
+                dy,
+                pointer,
+            )
+        }
     });
     page_area.add_controller(scroll);
 }
 
-fn handle_scroll(viewer: &Viewer, modifiers: gdk::ModifierType, dy: f64) -> glib::Propagation {
+fn handle_at(
+    viewer: &Viewer,
+    pending: &std::cell::Cell<Option<anchor::Anchor>>,
+    modifiers: gdk::ModifierType,
+    dy: f64,
+    pointer: Option<(f32, f32)>,
+) -> glib::Propagation {
+    if !modifiers.contains(gdk::ModifierType::CONTROL_MASK) {
+        pending.set(None);
+        return glib::Propagation::Proceed;
+    }
+    let saved = pending.take().filter(|saved| saved.is_current(viewer));
+    let saved = saved
+        .filter(|saved| Some(saved.viewport) == pointer)
+        .or_else(|| pointer.and_then(|point| anchor::Anchor::capture(viewer, point)));
+    let result = handle_scroll(
+        viewer,
+        modifiers,
+        dy,
+        saved.and_then(|anchor| anchor.factor(viewer)),
+    );
+    if result == glib::Propagation::Stop {
+        if let Some(mut saved) = saved {
+            saved.retarget(viewer);
+            pending.set(Some(saved));
+            viewer.scroll.queue_allocate();
+        }
+    }
+    result
+}
+
+fn handle_scroll(
+    viewer: &Viewer,
+    modifiers: gdk::ModifierType,
+    dy: f64,
+    factor: Option<f64>,
+) -> glib::Propagation {
     if !modifiers.contains(gdk::ModifierType::CONTROL_MASK) || !dy.is_finite() || dy == 0.0 {
         return glib::Propagation::Proceed;
     }
@@ -31,7 +81,11 @@ fn handle_scroll(viewer: &Viewer, modifiers: gdk::ModifierType, dy: f64) -> glib
     if !has_pages {
         return glib::Propagation::Proceed;
     }
-    super::step_zoom(viewer, dy < 0.0);
+    super::step_zoom_from(
+        viewer,
+        dy < 0.0,
+        factor.unwrap_or_else(|| super::current_zoom_factor(viewer)),
+    );
     // Consume even at the zoom limits, rather than also scrolling the document.
     glib::Propagation::Stop
 }
@@ -58,11 +112,11 @@ mod tests {
             .flags()
             .contains(EventControllerScrollFlags::DISCRETE));
         assert_eq!(
-            handle_scroll(&built.viewer, gdk::ModifierType::empty(), -1.0),
+            handle_scroll(&built.viewer, gdk::ModifierType::empty(), -1.0, None),
             glib::Propagation::Proceed
         );
         assert_eq!(
-            handle_scroll(&built.viewer, gdk::ModifierType::CONTROL_MASK, 0.0),
+            handle_scroll(&built.viewer, gdk::ModifierType::CONTROL_MASK, 0.0, None),
             glib::Propagation::Proceed
         );
         built.window.close();
@@ -79,7 +133,7 @@ mod tests {
         ] {
             built.viewer.state.borrow_mut().session = session;
             assert_eq!(
-                handle_scroll(&built.viewer, gdk::ModifierType::CONTROL_MASK, -1.0),
+                handle_scroll(&built.viewer, gdk::ModifierType::CONTROL_MASK, -1.0, None),
                 glib::Propagation::Proceed
             );
         }
@@ -104,14 +158,14 @@ mod tests {
         ] {
             super::super::layout::set_zoom(&built.viewer, Zoom::Custom(start));
             assert_eq!(
-                handle_scroll(&built.viewer, gdk::ModifierType::empty(), dy),
+                handle_scroll(&built.viewer, gdk::ModifierType::empty(), dy, None),
                 glib::Propagation::Proceed
             );
             assert!(
                 built.viewer.state.borrow().session.as_ref().unwrap().zoom == Zoom::Custom(start)
             );
             assert_eq!(
-                handle_scroll(&built.viewer, gdk::ModifierType::CONTROL_MASK, dy),
+                handle_scroll(&built.viewer, gdk::ModifierType::CONTROL_MASK, dy, None),
                 glib::Propagation::Stop
             );
             let state = built.viewer.state.borrow();

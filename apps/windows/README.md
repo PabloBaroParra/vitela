@@ -11,6 +11,8 @@ maths that does not need a UI runtime lives beside them in `Viewer/` — `PageZo
 suite can cover it.
 
 Ctrl+wheel over the document uses the same 10%–800% zoom steps as the toolbar.
+It keeps the page point under the cursor stationary on both axes, within the
+document's scroll limits; toolbar zoom keeps its existing reading-position anchor.
 Wheel input over side panels stays local; the unmodified wheel still scrolls.
 `Tests/WheelZoomSmoke.targets` is an opt-in native-input harness covering both
 zoom directions, fit mode, limits, normal scrolling, side-panel isolation and
