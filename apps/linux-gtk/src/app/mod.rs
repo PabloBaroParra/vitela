@@ -21,6 +21,7 @@ mod input;
 mod layout;
 mod metadata;
 mod organize;
+mod pan;
 mod print;
 mod protect;
 mod render;
@@ -544,6 +545,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     input::connect_paste(application, &window, &viewer);
     input::connect_window_file_drop(&page_area, &viewer);
     wheel_zoom::connect(&page_area, &viewer);
+    pan::connect(&window, &page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
     content_edit::multi::connect_clear_shortcut(application, &window, &viewer);
     content_edit::block::connect_retype_shortcut(application, &window, &viewer);
