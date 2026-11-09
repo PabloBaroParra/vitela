@@ -151,3 +151,48 @@ search-no-matches = No matches for "{ $query }".
 search-failed = Could not search: { $error }
 # $index, $total (Number) - one-based match index and total matches.
 search-match = Match { $index } of { $total } for "{ $query }".
+
+## Tools panel: navigation (page identifiers stay language-independent)
+
+tools-tab-edit = Edit
+tools-tab-annotate = Annotate
+tools-tab-comments = Comments
+tools-tab-fill-sign = Fill & Sign
+tools-annotations = Annotations
+tools-comments-unavailable = Comments aren't available in this shell yet.
+
+## Document properties: labels and edit results
+
+metadata-heading = Document properties
+metadata-pages = Pages
+metadata-title = Title
+metadata-author = Author
+metadata-subject = Subject
+metadata-keywords = Keywords
+metadata-creator = Creator
+metadata-producer = Producer
+metadata-created = Created
+metadata-modified = Modified
+# Display hint only: the accepted date/time format stays YYYY-MM-DD HH:MM:SS.
+metadata-date-placeholder = YYYY-MM-DD HH:MM:SS
+metadata-open-first = Open a PDF before editing its properties.
+metadata-unchanged = No change to record.
+metadata-updated = Document properties updated. Changes are pending save.
+metadata-invalid-date = Invalid date, reverted: { $error }
+
+## Document properties: date validation (field names are localized arguments)
+
+metadata-year = year
+metadata-month = month
+metadata-day = day
+metadata-hour = hour
+metadata-minute = minute
+metadata-second = second
+metadata-date-missing = expected YYYY-MM-DD, missing { $field }
+metadata-date-not-number = expected YYYY-MM-DD, "{ $field }" is not a number
+metadata-date-extra = expected YYYY-MM-DD, found extra "-"-separated parts
+metadata-year-overflow = year { $year } does not fit
+metadata-time-missing = expected HH:MM or HH:MM:SS, missing { $field }
+metadata-time-not-number = expected HH:MM or HH:MM:SS, "{ $field }" is not a number
+metadata-time-extra = expected HH:MM or HH:MM:SS, found extra ":"-separated parts
+metadata-component-range = { $field } { $value } is out of range ({ $min }-{ $max })

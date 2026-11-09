@@ -141,3 +141,48 @@ search-running = Buscando «{ $query }»...
 search-no-matches = No hay coincidencias para «{ $query }».
 search-failed = No se pudo buscar: { $error }
 search-match = Coincidencia { $index } de { $total } para «{ $query }».
+
+## Tools panel: navigation (page identifiers stay language-independent)
+
+tools-tab-edit = Editar
+tools-tab-annotate = Anotar
+tools-tab-comments = Comentarios
+tools-tab-fill-sign = Rellenar y firmar
+tools-annotations = Anotaciones
+tools-comments-unavailable = Los comentarios aún no están disponibles en esta versión.
+
+## Document properties: labels and edit results
+
+metadata-heading = Propiedades del documento
+metadata-pages = Páginas
+metadata-title = Título
+metadata-author = Autor
+metadata-subject = Asunto
+metadata-keywords = Palabras clave
+metadata-creator = Creador
+metadata-producer = Productor
+metadata-created = Creado
+metadata-modified = Modificado
+# Display hint only: the accepted date/time format stays YYYY-MM-DD HH:MM:SS.
+metadata-date-placeholder = AAAA-MM-DD HH:MM:SS
+metadata-open-first = Abre un PDF antes de editar sus propiedades.
+metadata-unchanged = No hay cambios que registrar.
+metadata-updated = Propiedades del documento actualizadas. Los cambios están pendientes de guardar.
+metadata-invalid-date = Fecha no válida; se ha restaurado el valor anterior: { $error }
+
+## Document properties: date validation (field names are localized arguments)
+
+metadata-year = año
+metadata-month = mes
+metadata-day = día
+metadata-hour = hora
+metadata-minute = minuto
+metadata-second = segundo
+metadata-date-missing = se esperaba AAAA-MM-DD; falta el campo «{ $field }»
+metadata-date-not-number = se esperaba AAAA-MM-DD; el campo «{ $field }» no es un número
+metadata-date-extra = se esperaba AAAA-MM-DD; hay partes adicionales separadas por «-»
+metadata-year-overflow = el año { $year } no cabe en el rango admitido
+metadata-time-missing = se esperaba HH:MM o HH:MM:SS; falta el campo «{ $field }»
+metadata-time-not-number = se esperaba HH:MM o HH:MM:SS; el campo «{ $field }» no es un número
+metadata-time-extra = se esperaba HH:MM o HH:MM:SS; hay partes adicionales separadas por «:»
+metadata-component-range = el campo «{ $field }» tiene el valor { $value }, fuera del rango ({ $min }-{ $max })
