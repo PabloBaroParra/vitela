@@ -22,6 +22,7 @@ use gtk::{gdk, gio, glib, DrawingArea, GestureClick};
 use pdf_document::TextRun;
 
 use crate::app::annotations;
+use crate::app::i18n::tr;
 use crate::app::selection::{self, pointer_to_pdf};
 use crate::app::state::{SelectedTextBlock, Viewer};
 use crate::app::update_content_edit_controls;
@@ -114,7 +115,7 @@ pub(crate) fn select(viewer: &Viewer, page_index: usize, run: TextRun, block: Ve
         });
     }
     claim_page_focus(viewer);
-    viewer.status.set_text(panel::TEXT_SELECTED);
+    viewer.status.set_text(&tr(panel::TEXT_SELECTED));
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
 }
@@ -419,10 +420,10 @@ mod tests {
             None,
             "a click no longer opens the editor"
         );
-        assert_eq!(fixture.viewer().status.text(), panel::TEXT_SELECTED);
+        assert_eq!(fixture.viewer().status.text(), tr(panel::TEXT_SELECTED));
         assert_eq!(
             fixture.viewer().edit_panel.text_hint.text(),
-            panel::TEXT_SELECTED
+            tr(panel::TEXT_SELECTED)
         );
         assert!(fixture.viewer().delete_text_button.is_sensitive());
     }
@@ -604,7 +605,7 @@ mod tests {
         assert!(fixture.viewer().delete_text_button.is_sensitive());
         assert_eq!(
             fixture.viewer().edit_panel.text_hint.text(),
-            panel::TEXT_EDITING
+            tr(panel::TEXT_EDITING)
         );
     }
 

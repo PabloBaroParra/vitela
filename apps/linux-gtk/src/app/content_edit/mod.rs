@@ -81,6 +81,7 @@ use gtk::prelude::*;
 use gtk::{GestureDrag, ToggleButton};
 
 use crate::app::annotations;
+use crate::app::i18n::tr;
 use crate::app::selection::{pointer_to_pdf, redraw};
 use crate::app::state::{ContentInsertKind, Viewer};
 
@@ -239,13 +240,13 @@ impl ImageControls {
     /// The sentence the card shows underneath them. Every state has one:
     /// a greyed control with no stated reason is what
     /// [`panel`]'s module doc exists to argue against.
-    pub(crate) fn hint(self) -> &'static str {
-        match self {
+    pub(crate) fn hint(self) -> String {
+        tr(match self {
             Self::Nothing => panel::NO_IMAGE_SELECTED,
             Self::Ready => panel::IMAGE_SELECTED,
             Self::NoReplace => panel::IMAGE_SELECTED_NO_REPLACE,
             Self::PendingEdit => panel::IMAGE_PENDING_EDIT,
-        }
+        })
     }
 }
 
@@ -359,14 +360,14 @@ fn connect_insert_toggle(viewer: &Viewer, button: &ToggleButton, kind: ContentIn
 pub(crate) fn update_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
     let refusal = match state.session.as_ref() {
-        Some(session) => session.content_edit_access.refusal(),
-        None => Some(NO_DOCUMENT_NOTICE),
+        Some(session) => session.content_edit_access.refusal().map(str::to_owned),
+        None => Some(tr(NO_DOCUMENT_NOTICE)),
     };
     drop(state);
     let enabled = refusal.is_none();
     match refusal {
         Some(reason) => {
-            viewer.edit_panel.availability.set_text(reason);
+            viewer.edit_panel.availability.set_text(&reason);
             viewer.edit_panel.availability.set_visible(true);
         }
         // Hidden rather than emptied: an empty notice still carries its own
@@ -422,9 +423,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         // this is what stops it being *shown*.
         clear_text_selection(viewer);
         load_visible_page_content(viewer);
-        viewer
-            .status
-            .set_text("Edit content armed — click text to select it, double-click to retype it.");
+        viewer.status.set_text(&tr("edit-mode-armed"));
     } else {
         editor::commit(viewer);
         clear_selected_image(viewer);
@@ -440,7 +439,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         }
         viewer.insert_text_button.set_active(false);
         viewer.insert_image_button.set_active(false);
-        viewer.status.set_text("Edit content disarmed.");
+        viewer.status.set_text(&tr("edit-mode-disarmed"));
     }
     crate::app::update_content_edit_controls(viewer);
     redraw(viewer);
@@ -484,15 +483,11 @@ pub(crate) fn set_insert_mode(viewer: &Viewer, kind: Option<ContentInsertKind>) 
         .insert_image_button
         .set_active(kind == Some(ContentInsertKind::Image));
 
-    viewer.status.set_text(match kind {
-        Some(ContentInsertKind::Text) => {
-            "Insert text armed — click the page to place a new text box."
-        }
-        Some(ContentInsertKind::Image) => {
-            "Insert image armed — click the page to insert a picture."
-        }
-        None => "Edit content armed — click text to select it, double-click to retype it.",
-    });
+    viewer.status.set_text(&tr(match kind {
+        Some(ContentInsertKind::Text) => "edit-insert-text-armed",
+        Some(ContentInsertKind::Image) => "edit-insert-image-armed",
+        None => "edit-mode-armed",
+    }));
     crate::app::update_content_edit_controls(viewer);
     redraw(viewer);
 }
@@ -865,6 +860,64 @@ mod tests {
     use super::*;
     use crate::app::ui_tests::built_ui;
 
+    #[gtk::test]
+    fn gtk_ui_spanish_edit_hints_and_modes_follow_existing_state() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        let built = built_with_selected_image(false);
+        let viewer = &built.viewer;
+        update_controls(viewer);
+        assert!(!viewer.edit_panel.availability.get_visible());
+        assert_eq!(
+            viewer.edit_panel.image_hint.text(),
+            "Imagen seleccionada: puedes reemplazarla o eliminarla."
+        );
+        assert!(viewer.delete_image_button.is_sensitive());
+        assert!(viewer.replace_image_button.is_sensitive());
+        {
+            let mut state = viewer.state.borrow_mut();
+            let session = state.session.as_mut().unwrap();
+            session.selected_image.as_mut().unwrap().replace_refused = true;
+        }
+        crate::app::update_content_edit_controls(viewer);
+        assert_eq!(
+            viewer.edit_panel.image_hint.text(),
+            tr(panel::IMAGE_SELECTED_NO_REPLACE)
+        );
+        assert!(viewer.delete_image_button.is_sensitive());
+        assert!(!viewer.replace_image_button.is_sensitive());
+        for (kind, message) in [
+            (Some(ContentInsertKind::Text), "Inserción de texto activada: haz clic en la página para colocar un nuevo cuadro de texto."),
+            (Some(ContentInsertKind::Image), "Inserción de imágenes activada: haz clic en la página para insertar una imagen."),
+            (None, "Edición de contenido activada: haz clic en el texto para seleccionarlo o haz doble clic para reescribirlo."),
+        ] {
+            set_insert_mode(viewer, kind);
+            assert_eq!(viewer.status.text(), message);
+            assert!(mode_is_active(viewer));
+            assert_eq!(viewer.state.borrow().content_insert_mode, kind);
+            assert_eq!(viewer.insert_text_button.is_active(), kind == Some(ContentInsertKind::Text));
+            assert_eq!(viewer.insert_image_button.is_active(), kind == Some(ContentInsertKind::Image));
+        }
+        set_mode(viewer, false);
+        assert_eq!(viewer.status.text(), "Edición de contenido desactivada.");
+        viewer.state.borrow_mut().session = None;
+        update_controls(viewer);
+        crate::app::update_content_edit_controls(viewer);
+        assert!(viewer.edit_panel.availability.get_visible());
+        assert_eq!(
+            viewer.edit_panel.availability.text(),
+            "Abre un PDF para editar el texto y las imágenes de sus páginas."
+        );
+        assert_eq!(
+            viewer.edit_panel.image_hint.text(),
+            "Haz clic en una imagen de la página para seleccionarla."
+        );
+        assert_eq!(viewer.edit_panel.path_hint.text(), "Haz clic en una línea, un borde o un recuadro sombreado de la página para seleccionarlo.");
+        assert_eq!(viewer.edit_panel.text_hint.text(), "Haz clic en el texto para seleccionarlo; haz doble clic para reescribirlo o arrástralo para moverlo.");
+        assert!(!viewer.content_edit_button.is_sensitive());
+        assert!(!viewer.delete_image_button.is_sensitive());
+        built.window.close();
+    }
+
     // --- image_controls ---------------------------------------------------
     //
     // No GTK here: the whole point of resolving the card's state into a value
@@ -1060,7 +1113,7 @@ mod tests {
         assert!(built.viewer.edit_panel.availability.get_visible());
         assert_eq!(
             built.viewer.edit_panel.availability.text(),
-            NO_DOCUMENT_NOTICE
+            tr(NO_DOCUMENT_NOTICE)
         );
         assert!(!built.viewer.content_edit_button.is_sensitive());
         assert!(!built.viewer.insert_text_button.is_sensitive());
@@ -1087,7 +1140,7 @@ mod tests {
         assert!(!built.viewer.delete_text_button.is_sensitive());
         assert_eq!(
             built.viewer.edit_panel.text_hint.text(),
-            panel::NO_TEXT_SELECTED
+            tr(panel::NO_TEXT_SELECTED)
         );
 
         built.window.close();
@@ -1136,7 +1189,7 @@ mod tests {
         assert!(built.viewer.replace_image_button.is_sensitive());
         assert_eq!(
             built.viewer.edit_panel.image_hint.text(),
-            panel::IMAGE_SELECTED
+            tr(panel::IMAGE_SELECTED)
         );
 
         built.window.close();
@@ -1160,7 +1213,7 @@ mod tests {
         assert!(!built.viewer.replace_image_button.is_sensitive());
         assert_eq!(
             built.viewer.edit_panel.image_hint.text(),
-            panel::IMAGE_SELECTED_NO_REPLACE
+            tr(panel::IMAGE_SELECTED_NO_REPLACE)
         );
 
         built.window.close();
@@ -1205,7 +1258,7 @@ mod tests {
         assert!(!built.viewer.replace_image_button.is_sensitive());
         assert_eq!(
             built.viewer.edit_panel.image_hint.text(),
-            panel::IMAGE_PENDING_EDIT
+            tr(panel::IMAGE_PENDING_EDIT)
         );
 
         built.viewer.state.borrow_mut().session = None;
@@ -1306,7 +1359,7 @@ mod tests {
         assert!(!built.viewer.replace_image_button.is_sensitive());
         assert_eq!(
             built.viewer.edit_panel.image_hint.text(),
-            panel::IMAGE_SELECTED_NO_REPLACE
+            tr(panel::IMAGE_SELECTED_NO_REPLACE)
         );
         assert!(
             built.viewer.delete_image_button.is_sensitive(),
@@ -1371,7 +1424,7 @@ mod tests {
 
         assert_eq!(
             built.viewer.status.text(),
-            panel::IMAGE_PENDING_EDIT,
+            tr(panel::IMAGE_PENDING_EDIT),
             "the queued edit was not answered before the picker"
         );
         {

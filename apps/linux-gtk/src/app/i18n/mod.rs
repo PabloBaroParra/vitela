@@ -18,8 +18,9 @@
 //! Tests always run in English, whatever the developer's locale; a test that
 //! needs Spanish takes a [`speak`] guard.
 //!
-//! Migrated surfaces: Home, navigation rail, editor toolbar, search, tools tabs
-//! and document properties. Other feature panels, document workflows and shared
+//! Migrated surfaces: Home, navigation rail, editor toolbar, search, tools tabs,
+//! document properties, and the Edit PDF panel with its selection hints and mode
+//! messages. Other feature panels, edit dialogs, document workflows and shared
 //! permission/core error details are not yet localized.
 
 mod bundle;
