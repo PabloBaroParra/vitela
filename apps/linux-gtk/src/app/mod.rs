@@ -33,6 +33,7 @@ mod signature;
 mod state;
 mod theme;
 mod tools_panel;
+mod wheel_zoom;
 mod write;
 
 #[cfg(test)]
@@ -542,6 +543,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     selection::connect_copy(application, &window, &viewer);
     input::connect_paste(application, &window, &viewer);
     input::connect_window_file_drop(&page_area, &viewer);
+    wheel_zoom::connect(&page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
     content_edit::multi::connect_clear_shortcut(application, &window, &viewer);
     content_edit::block::connect_retype_shortcut(application, &window, &viewer);

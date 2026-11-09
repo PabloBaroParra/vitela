@@ -247,6 +247,7 @@
                 Background="{ThemeResource VitelaCanvasBackgroundBrush}"
                 HorizontalScrollBarVisibility="Auto"
                 VerticalScrollBarVisibility="Auto"
+                ZoomMode="Disabled"
                 Visibility="Collapsed"
                 ViewChanged="PageScroller_ViewChanged"
                 SizeChanged="PageScroller_SizeChanged">
