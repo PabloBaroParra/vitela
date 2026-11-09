@@ -20,7 +20,7 @@ public partial class App : Application
         try
         {
             await _window.WheelZoomSmokeAsync();
-            File.WriteAllText(log, "PASS native Ctrl+wheel in/out; fit-mode stepping; 10%-800% limits; normal/horizontal wheel; sidebar isolation; busy/modal/empty guards; unchanged history; no native ScrollViewer scaling.");
+            File.WriteAllText(log, "PASS native Ctrl+wheel in/out; cursor anchor on both axes across pages and repeated steps; fit-mode stepping; 10%-800% limits; normal/horizontal wheel; sidebar isolation; busy/modal/empty guards; unchanged history; no native ScrollViewer scaling.");
         }
         catch (Exception error) { File.WriteAllText(log, "FAIL " + error); }
         finally { _window.Close(); }
@@ -52,6 +52,22 @@ public sealed partial class MainWindow
         await SendWheelAsync(PageScroller, 120);
         Check(_zoom == next, "Fit mode did not step from the effective zoom.");
 
+        ApplyZoom(ZoomSetting.Custom(1.5));
+        PageScroller.ChangeView(150, _spans[1].Top - 80, null, disableAnimation: true);
+        await Task.Delay(250);
+        var pointer = new global::Windows.Foundation.Point(PageScroller.ViewportWidth * .65, 160);
+        foreach (var delta in new[] { 120, 120, -120, -120 })
+        {
+            var page = _slots[1].Container;
+            var local = PageScroller.TransformToVisual(page).TransformPoint(pointer);
+            var fraction = new global::Windows.Foundation.Point(local.X / page.ActualWidth, local.Y / page.ActualHeight);
+            await SendWheelAsync(PageScroller, delta, pointer: pointer);
+            var landed = page.TransformToVisual(PageScroller).TransformPoint(
+                new global::Windows.Foundation.Point(fraction.X * page.ActualWidth, fraction.Y * page.ActualHeight));
+            Check(Math.Abs(landed.X - pointer.X) < 2 && Math.Abs(landed.Y - pointer.Y) < 2,
+                $"Cursor anchor drifted at {delta}: ({landed.X}, {landed.Y}) vs ({pointer.X}, {pointer.Y}).");
+        }
+
         ApplyZoom(ZoomSetting.Custom(1));
         await SendWheelAsync(PageScroller, -120, control: false);
         Check(_zoom == ZoomSetting.Custom(1) && PageScroller.VerticalOffset > 0, "Normal wheel no longer scrolls.");
@@ -79,9 +95,10 @@ public sealed partial class MainWindow
             && before.Annotations.SequenceEqual(after.Annotations), "Wheel zoom changed document history.");
     }
 
-    private async Task SendWheelAsync(FrameworkElement target, int delta, bool control = true, bool horizontal = false)
+    private async Task SendWheelAsync(FrameworkElement target, int delta, bool control = true, bool horizontal = false,
+        global::Windows.Foundation.Point? pointer = null)
     {
-        var point = target.TransformToVisual(null).TransformPoint(new global::Windows.Foundation.Point(40, 80));
+        var point = target.TransformToVisual(null).TransformPoint(pointer ?? new global::Windows.Foundation.Point(40, 80));
         var scale = Content.XamlRoot.RasterizationScale;
         var screen = new WheelPoint { X = (int)(point.X * scale), Y = (int)(point.Y * scale) };
         if (!WheelClientToScreen(WinRT.Interop.WindowNative.GetWindowHandle(this), ref screen)

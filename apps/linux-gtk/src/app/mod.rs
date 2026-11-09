@@ -771,10 +771,13 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {
+    step_zoom_from(viewer, increase, current_zoom_factor(viewer));
+}
+
+fn step_zoom_from(viewer: &Viewer, increase: bool, current: f64) {
     const LADDER: [f64; 12] = [
         0.10, 0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 2.00, 3.00, 4.00, 6.00, 8.00,
     ];
-    let current = current_zoom_factor(viewer);
     let factor = if increase {
         LADDER
             .into_iter()

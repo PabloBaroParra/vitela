@@ -112,8 +112,9 @@ Key design decisions and per-batch acceptance criteria are documented in
 
 On Linux and Windows, hold **Ctrl** and turn the mouse wheel over the document
 to zoom in (wheel up) or out (wheel down), using the toolbar's zoom steps and
-limits. Without Ctrl, the wheel scrolls normally; side panels keep their own
-scrolling.
+limits. Zoom follows the pointer, keeping the same page point under the cursor
+where the scroll limits allow. Without Ctrl, the wheel scrolls normally; side
+panels keep their own scrolling.
 
 This is the full set of tools Vitela targets. The core engine (`pdf-manip`,
 `pdf-save`, `pdf-annotate`, `pdf-render`) already implements the operations
