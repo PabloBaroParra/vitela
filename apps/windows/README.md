@@ -10,6 +10,14 @@ maths that does not need a UI runtime lives beside them in `Viewer/` — `PageZo
 `PageWindow.cs`, `PageRenderPlan.cs`, `ViewportTilePlan.cs` — which is why the facade
 suite can cover it.
 
+Ctrl+wheel over the document uses the same 10%–800% zoom steps as the toolbar.
+Wheel input over side panels stays local; the unmodified wheel still scrolls.
+`Tests/WheelZoomSmoke.targets` is an opt-in native-input harness covering both
+zoom directions, fit mode, limits, normal scrolling, side-panel isolation and
+busy/modal/empty guards without changing document history. It injects mouse and
+keyboard input, so run it in an interactive desktop without using the mouse
+until it exits. Set `VITELA_SMOKE_OUTPUT` to an existing directory for its log.
+
 ## Document lifecycle dialogs
 
 Home, the editor toolbar and Ctrl+O share one native PDF picker and its
