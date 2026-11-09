@@ -82,3 +82,72 @@ home-shortcut-print = Print
 # $version (String) - the release version, or home-version-dev.
 home-version = Vitela { $version }
 home-version-dev = dev
+
+## Persistent navigation rail
+
+rail-sections = Vitela sections
+rail-home = Home
+rail-recent = Recent
+rail-files = My files
+rail-edit = Edit PDF
+rail-annotate = Annotate
+rail-sign = Sign
+rail-organize = Organize pages
+rail-protect = Protect
+
+## Editor: toolbar groups (accessible names)
+
+editor-group-document = Document
+editor-group-output = Output
+editor-group-history = History
+editor-group-position = Position
+editor-group-zoom = Zoom
+editor-group-fit = Fit
+editor-group-panels = Panels
+editor-group-find = Find
+
+## Editor: document commands, navigation and search
+
+editor-open = Open PDF
+editor-open-short = Open
+editor-open-tooltip = Open PDF (Ctrl+O)
+editor-sample = Open sample
+editor-sample-plain = Vitela sample
+# Keep the sample passwords unchanged: users enter them to open the files.
+editor-sample-aes128 = AES-128 sample (user-aes-pass)
+editor-sample-rc4128 = RC4-128 sample (user-rc4-pass)
+editor-save = Save as
+editor-save-tooltip = Save as (Ctrl+S)
+editor-print = Print
+editor-print-tooltip = Print (Ctrl+P)
+editor-export = Export images
+editor-export-tooltip = Export pages as images
+editor-undo = Undo
+editor-redo = Redo
+editor-page-position-tooltip = Current page / total pages
+editor-zoom-out = Zoom out
+editor-zoom-in = Zoom in
+editor-fit-width = Fit width
+editor-fit-page = Fit page
+editor-pages = Pages
+editor-tools = Tools
+editor-find = Find in document
+editor-find-tooltip = Find in document (Ctrl+F)
+editor-search-document = Search document
+editor-find-previous = Previous match
+editor-find-next = Next match
+editor-find-hint = Case-sensitive. Press Enter to search.
+editor-idle-status = Choose a PDF file to view, or open the built-in sample.
+editor-tools-panel = Tools and properties
+
+## Search: status messages
+
+search-enter-text = Enter text to find.
+search-open-first = Open a PDF before searching.
+# $query (String) - the user's search text, kept verbatim.
+search-running = Searching for "{ $query }"...
+search-no-matches = No matches for "{ $query }".
+# $error (String) - technical detail from the renderer, kept verbatim.
+search-failed = Could not search: { $error }
+# $index, $total (Number) - one-based match index and total matches.
+search-match = Match { $index } of { $total } for "{ $query }".

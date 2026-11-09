@@ -25,6 +25,7 @@ use gtk::{Box as GtkBox, Button, Label, Orientation, Separator};
 use super::brand::build_brand_lockup;
 use super::content_edit::panel::EDIT_CSS;
 use super::home::HOME_CSS;
+use super::i18n::tr;
 use super::icons::{build_icon, Icon, NEUTRAL_TINT};
 use super::organize::ORGANIZE_CSS;
 
@@ -339,7 +340,7 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     // grow, unlike its neighbors in `build_ui`'s two `Paned`s.
     rail.set_hexpand(false);
     rail.set_width_request(112);
-    rail.update_property(&[gtk::accessible::Property::Label("Vitela sections")]);
+    rail.update_property(&[gtk::accessible::Property::Label(&tr("rail-sections"))]);
 
     // The real mark, not a coloured word. This is now the *only* place the
     // shell identifies itself: Home's header carried a second lockup for one
@@ -348,10 +349,10 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     rail.append(&build_brand_lockup());
 
     // Navigate. `home` starts marked active because the window opens on Home.
-    let home = rail_item(&rail, "Home", Icon::Home);
+    let home = rail_item(&rail, &tr("rail-home"), Icon::Home);
     home.add_css_class("app-rail-active");
-    let recent = rail_item(&rail, "Recent", Icon::Recent);
-    let files = rail_item(&rail, "My files", Icon::Files);
+    let recent = rail_item(&rail, &tr("rail-recent"), Icon::Recent);
+    let files = rail_item(&rail, &tr("rail-files"), Icon::Files);
 
     let separator = Separator::new(Orientation::Horizontal);
     separator.add_css_class("app-rail-separator");
@@ -360,14 +361,14 @@ pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
     // Act on the open document. Same order as Home's Tools card
     // (`home::tools`) and the Windows rail, so a section sits in the
     // same slot whichever screen or device the user is looking at.
-    let edit_pdf = rail_item(&rail, "Edit PDF", Icon::Edit);
-    let annotate = rail_item(&rail, "Annotate", Icon::Annotate);
+    let edit_pdf = rail_item(&rail, &tr("rail-edit"), Icon::Edit);
+    let annotate = rail_item(&rail, &tr("rail-annotate"), Icon::Annotate);
     // T-186: Batch B23's signing flow (Fases 1-4) is wired end to end, so
     // this is no longer a "nothing behind it yet" section like its Protect
     // neighbor.
-    let sign = rail_item(&rail, "Sign", Icon::Sign);
-    let organize = rail_item(&rail, "Organize pages", Icon::Organize);
-    let protect = rail_item(&rail, "Protect", Icon::Protect);
+    let sign = rail_item(&rail, &tr("rail-sign"), Icon::Sign);
+    let organize = rail_item(&rail, &tr("rail-organize"), Icon::Organize);
+    let protect = rail_item(&rail, &tr("rail-protect"), Icon::Protect);
 
     (
         AppRail {
@@ -450,6 +451,30 @@ pub(crate) fn install_shell_css() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gtk::test]
+    fn gtk_ui_rail_shows_spanish_sections_in_the_same_order() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        let (_, rail) = build_app_rail();
+        let labels: Vec<_> =
+            std::iter::successors(rail.first_child(), |child| child.next_sibling())
+                .filter_map(|child| child.downcast::<Button>().ok())
+                .filter_map(|button| rail_label(&button))
+                .collect();
+        assert_eq!(
+            labels,
+            [
+                "Inicio",
+                "Recientes",
+                "Mis archivos",
+                "Editar PDF",
+                "Anotar",
+                "Firmar",
+                "Organizar páginas",
+                "Proteger"
+            ]
+        );
+    }
 
     /// T-186's own regression lock: a disabled "Sign" section is what
     /// this batch changes to `true` — a silent revert back to `false` would

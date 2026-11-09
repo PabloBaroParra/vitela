@@ -5,6 +5,7 @@ use gtk::prelude::*;
 use gtk::{gio, glib};
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError, TextMatch};
 
+use super::i18n::{tr, tr_args};
 use super::layout::page_top;
 use super::state::{SearchState, Viewer};
 
@@ -12,7 +13,7 @@ pub(crate) fn run_search(viewer: &Viewer) {
     let query = viewer.search_entry.text().to_string();
     if query.is_empty() {
         clear_search(viewer);
-        viewer.status.set_text("Enter text to find.");
+        viewer.status.set_text(&tr("search-enter-text"));
         return;
     }
     // Search reads the document's text, so it answers to the same
@@ -26,13 +27,14 @@ pub(crate) fn run_search(viewer: &Viewer) {
         return;
     }
     let Some((document, search_id)) = begin_search(viewer) else {
-        viewer.status.set_text("Open a PDF before searching.");
+        viewer.status.set_text(&tr("search-open-first"));
         return;
     };
 
-    viewer
-        .status
-        .set_text(&format!("Searching for \"{query}\"..."));
+    viewer.status.set_text(&tr_args(
+        "search-running",
+        &[("query", query.as_str().into())],
+    ));
     glib::spawn_future_local({
         let viewer = viewer.clone();
         let job_query = query.clone();
@@ -84,7 +86,7 @@ fn apply_search_result(
         match result {
             Ok(matches) if matches.is_empty() => {
                 session.search = None;
-                format!("No matches for \"{query}\".")
+                tr_args("search-no-matches", &[("query", query.as_str().into())])
             }
             Ok(matches) => {
                 let status = search_status(&query, 0, matches.len());
@@ -98,7 +100,7 @@ fn apply_search_result(
             }
             Err(error) => {
                 session.search = None;
-                format!("Could not search: {error}")
+                tr_args("search-failed", &[("error", error.to_string().into())])
             }
         }
     };
@@ -193,7 +195,14 @@ fn step_index(current: usize, delta: i32, len: usize) -> usize {
 }
 
 fn search_status(query: &str, index: usize, total: usize) -> String {
-    format!("Match {} of {total} for \"{query}\".", index + 1)
+    tr_args(
+        "search-match",
+        &[
+            ("index", (index + 1).into()),
+            ("total", total.into()),
+            ("query", query.into()),
+        ],
+    )
 }
 
 #[cfg(test)]
@@ -215,5 +224,14 @@ mod tests {
     #[test]
     fn search_status_is_one_based_for_humans() {
         assert_eq!(search_status("hi", 0, 3), "Match 1 of 3 for \"hi\".");
+    }
+
+    #[test]
+    fn spanish_search_status_preserves_the_query_and_one_based_index() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        assert_eq!(
+            search_status("{PDF} \"á\"", 1, 3),
+            "Coincidencia 2 de 3 para «{PDF} \"á\"»."
+        );
     }
 }
