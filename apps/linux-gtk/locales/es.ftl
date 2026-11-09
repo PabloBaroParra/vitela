@@ -186,3 +186,46 @@ metadata-time-missing = se esperaba HH:MM o HH:MM:SS; falta el campo «{ $field 
 metadata-time-not-number = se esperaba HH:MM o HH:MM:SS; el campo «{ $field }» no es un número
 metadata-time-extra = se esperaba HH:MM o HH:MM:SS; hay partes adicionales separadas por «:»
 metadata-component-range = el campo «{ $field }» tiene el valor { $value }, fuera del rango ({ $min }-{ $max })
+
+## Edit PDF: panel controls, tooltips and gesture hints
+
+edit-heading = Editar PDF
+edit-description = Modifica el texto, las imágenes y las formas que ya están en la página.
+edit-card-text = Texto
+edit-card-images = Imágenes
+edit-card-shapes = Formas
+edit-card-pages = Páginas
+edit-mode = Editar contenido
+edit-mode-tooltip = Activa la edición de contenido y haz clic en el texto de la página para seleccionarlo
+edit-insert-text = Insertar texto
+edit-insert-text-tooltip = Haz clic en la página para colocar un nuevo cuadro de texto
+edit-delete-text = Eliminar texto
+edit-delete-text-tooltip = Elimina de la página el texto seleccionado o el que estás reescribiendo
+edit-insert-image = Insertar imagen
+edit-insert-image-tooltip = Haz clic en la página para insertar una imagen
+edit-replace-image = Reemplazar imagen
+edit-replace-image-tooltip = Sustituye la imagen seleccionada por un archivo del disco
+edit-delete-image = Eliminar imagen
+edit-delete-image-tooltip = Elimina de la página la imagen seleccionada
+edit-delete-shape = Eliminar forma
+edit-delete-shape-tooltip = Elimina de la página la línea, el borde o el recuadro seleccionado
+edit-watermark = Añadir marca de agua
+edit-watermark-tooltip = Aplica el mismo texto en las páginas que elijas
+edit-watermark-hint = La marca de agua se incorpora al contenido de las páginas y se deshace en un solo paso.
+edit-no-document = Abre un PDF para editar el texto y las imágenes de sus páginas.
+edit-no-text-selected = Haz clic en el texto para seleccionarlo; haz doble clic para reescribirlo o arrástralo para moverlo.
+edit-text-selected = Texto seleccionado: arrástralo para moverlo, pulsa Supr para eliminarlo o haz doble clic o pulsa F2 para reescribirlo.
+edit-text-editing = Reescribiendo texto: pulsa Intro para conservarlo o Esc para cancelar, o elimínalo.
+edit-no-image-selected = Haz clic en una imagen de la página para seleccionarla.
+edit-image-selected = Imagen seleccionada: puedes reemplazarla o eliminarla.
+edit-image-no-replace = Imagen seleccionada: puedes moverla, cambiar su tamaño o eliminarla. No se puede reemplazar porque no es posible recuperar su codificación actual para deshacer el cambio.
+edit-image-pending = Esta imagen tiene un cambio sin guardar: puedes moverla, cambiar su tamaño o eliminarla, o guardar antes de reemplazarla.
+edit-no-shape-selected = Haz clic en una línea, un borde o un recuadro sombreado de la página para seleccionarlo.
+edit-shape-selected = Forma seleccionada: arrástrala para moverla, arrastra una esquina para cambiar su tamaño o pulsa Supr.
+
+## Edit PDF: mode activation messages
+
+edit-mode-armed = Edición de contenido activada: haz clic en el texto para seleccionarlo o haz doble clic para reescribirlo.
+edit-mode-disarmed = Edición de contenido desactivada.
+edit-insert-text-armed = Inserción de texto activada: haz clic en la página para colocar un nuevo cuadro de texto.
+edit-insert-image-armed = Inserción de imágenes activada: haz clic en la página para insertar una imagen.

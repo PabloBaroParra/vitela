@@ -56,6 +56,7 @@
 use gtk::prelude::*;
 use gtk::{Align, Box as GtkBox, Button, FlowBox, Label, Orientation, SelectionMode, ToggleButton};
 
+use crate::app::i18n::tr;
 use crate::app::icons::{build_icon, Icon, ACCENT_TINT, MUTED_TINT};
 use crate::app::state::EditPanel;
 use crate::app::tools_panel::panel_heading;
@@ -65,20 +66,19 @@ use crate::app::tools_panel::panel_heading;
 /// commands, not as a launch grid of destinations like Home's 24px tiles.
 const EDIT_ICON_PX: i32 = 16;
 
-/// Shown while there is no document to edit. Stated rather than left to the
-/// greyed-out controls, which say "not now" without ever saying why.
-pub(crate) const NO_DOCUMENT_NOTICE: &str = "Open a PDF to edit the text and images on its pages.";
+/// Fluent key shown while there is no document to edit. Stated rather than
+/// left to greyed-out controls, which say "not now" without ever saying why.
+pub(crate) const NO_DOCUMENT_NOTICE: &str = "edit-no-document";
 
-/// What the image controls need before they can do anything, and what they
-/// can do once they have it. Maintained by
+/// Fluent keys for what the image controls need before they can do anything,
+/// and what they can do once they have it. Maintained by
 /// `crate::app::update_content_edit_controls`, off the same selection that
 /// gates the buttons themselves, so the sentence and the sensitivity can
 /// never disagree.
-pub(crate) const NO_IMAGE_SELECTED: &str = "Click an image on the page to select it.";
+pub(crate) const NO_IMAGE_SELECTED: &str = "edit-no-image-selected";
 /// The shapes card with no path selected (B25 T-206).
-pub(crate) const NO_SHAPE_SELECTED: &str =
-    "Click a line, border or shaded box on the page to select it.";
-pub(crate) const IMAGE_SELECTED: &str = "Image selected — replace or delete it.";
+pub(crate) const NO_SHAPE_SELECTED: &str = "edit-no-shape-selected";
+pub(crate) const IMAGE_SELECTED: &str = "edit-image-selected";
 
 /// The third state of the same pair (T-204): an image is selected and three
 /// of its four operations are available, but replacing it is not.
@@ -100,9 +100,7 @@ pub(crate) const IMAGE_SELECTED: &str = "Image selected — replace or delete it
 /// Says nothing about how the image is stored, and that is the point: this
 /// is the same sentence whether the samples sit in an XObject or inline in
 /// the content stream. What decides is the encoding, not the packaging.
-pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str =
-    "Image selected — move, resize or delete it. It cannot be replaced: its current \
-     encoding cannot be read back, so the swap could not be undone.";
+pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str = "edit-image-no-replace";
 
 /// The fourth state, and the only temporary one: this image already carries
 /// an edit that has not reached disk, so **nothing** can be recorded against
@@ -127,21 +125,17 @@ pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str =
 /// `write::preview::edits` carries `document_model` — and with it the
 /// `EditLog` this reads — across the refresh, so the answer has to be
 /// recomputed from that log every time, never remembered on the selection.
-pub(crate) const IMAGE_PENDING_EDIT: &str =
-    "This image has an unsaved edit — move, resize or delete it, or save before replacing it.";
+pub(crate) const IMAGE_PENDING_EDIT: &str = "edit-image-pending";
 
 /// The text card's twin of the two above, maintained by the same call.
 ///
 /// Three states, Windows' three sentences: nothing picked yet — describing
 /// the page gesture *is* the answer to "what does Delete text need" — a
 /// block a click selected, and a block being retyped in the inline editor.
-pub(crate) const NO_TEXT_SELECTED: &str =
-    "Click text to select it; double-click to retype it in place, or drag it to move it.";
+pub(crate) const NO_TEXT_SELECTED: &str = "edit-no-text-selected";
 /// Also what the status line says when a click selects text.
-pub(crate) const TEXT_SELECTED: &str =
-    "Text selected — drag to move it, press Delete to remove it, double-click or F2 to retype it.";
-pub(crate) const TEXT_EDITING: &str =
-    "Retyping text — press Enter to keep it or Esc to cancel, or delete it.";
+pub(crate) const TEXT_SELECTED: &str = "edit-text-selected";
+pub(crate) const TEXT_EDITING: &str = "edit-text-editing";
 
 /// This page's own styling, installed alongside `shell::SHELL_CSS` and
 /// `home::HOME_CSS` by `shell::install_shell_css`.
@@ -235,41 +229,39 @@ pub(crate) struct EditContent {
 pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
     let root = GtkBox::new(Orientation::Vertical, 10);
 
-    root.append(&panel_heading("Edit PDF"));
-    root.append(&hint(
-        "Change the text, images and shapes already on the page.",
-    ));
+    root.append(&panel_heading(&tr("edit-heading")));
+    root.append(&hint(&tr("edit-description")));
 
-    let availability = Label::new(Some(NO_DOCUMENT_NOTICE));
+    let availability = Label::new(Some(&tr(NO_DOCUMENT_NOTICE)));
     availability.set_wrap(true);
     availability.set_xalign(0.0);
     availability.add_css_class("edit-notice");
     root.append(&availability);
 
     // --- text --------------------------------------------------------------
-    let (text_card, text_row) = card("Text");
+    let (text_card, text_row) = card(&tr("edit-card-text"));
     let mode = ToggleButton::new();
     tile(
         mode.upcast_ref(),
-        "Edit content",
+        &tr("edit-mode"),
         Icon::Edit,
-        "Turn on content editing, then click text on the page to select it",
+        &tr("edit-mode-tooltip"),
     );
     mode.set_sensitive(false);
     let insert_text = ToggleButton::new();
     tile(
         insert_text.upcast_ref(),
-        "Insert text",
+        &tr("edit-insert-text"),
         Icon::Text,
-        "Click the page to place a new text box",
+        &tr("edit-insert-text-tooltip"),
     );
     insert_text.set_sensitive(false);
     let delete_text = Button::new();
     tile(
         &delete_text,
-        "Delete text",
+        &tr("edit-delete-text"),
         Icon::Delete,
-        "Remove the selected text, or the text being retyped, from the page",
+        &tr("edit-delete-text-tooltip"),
     );
     delete_text.set_sensitive(false);
     // The one control on this page that must not take the keyboard focus when
@@ -292,72 +284,70 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
     text_row.append(&mode);
     text_row.append(&insert_text);
     text_row.append(&delete_text);
-    let text_hint = hint(NO_TEXT_SELECTED);
+    let text_hint = hint(&tr(NO_TEXT_SELECTED));
     text_card.append(&text_hint);
     root.append(&text_card);
 
     // --- images ------------------------------------------------------------
-    let (image_card, image_row) = card("Images");
+    let (image_card, image_row) = card(&tr("edit-card-images"));
     let insert_image = ToggleButton::new();
     tile(
         insert_image.upcast_ref(),
-        "Insert image",
+        &tr("edit-insert-image"),
         Icon::Image,
-        "Click the page to insert a picture",
+        &tr("edit-insert-image-tooltip"),
     );
     insert_image.set_sensitive(false);
     let replace_image = Button::new();
     tile(
         &replace_image,
-        "Replace image",
+        &tr("edit-replace-image"),
         Icon::Image,
-        "Swap the selected image for a file on disk",
+        &tr("edit-replace-image-tooltip"),
     );
     replace_image.set_sensitive(false);
     let delete_image = Button::new();
     tile(
         &delete_image,
-        "Delete image",
+        &tr("edit-delete-image"),
         Icon::Delete,
-        "Remove the selected image from the page",
+        &tr("edit-delete-image-tooltip"),
     );
     delete_image.set_sensitive(false);
     image_row.append(&insert_image);
     image_row.append(&replace_image);
     image_row.append(&delete_image);
-    let image_hint = hint(NO_IMAGE_SELECTED);
+    let image_hint = hint(&tr(NO_IMAGE_SELECTED));
     image_card.append(&image_hint);
     root.append(&image_card);
 
     // --- shapes ------------------------------------------------------------
-    let (path_card, path_row) = card("Shapes");
+    let (path_card, path_row) = card(&tr("edit-card-shapes"));
     let delete_path = Button::new();
     tile(
         &delete_path,
-        "Delete shape",
+        &tr("edit-delete-shape"),
         Icon::Delete,
-        "Remove the selected line, border or box from the page",
+        &tr("edit-delete-shape-tooltip"),
     );
     delete_path.set_sensitive(false);
     path_row.append(&delete_path);
-    let path_hint = hint(NO_SHAPE_SELECTED);
+    let path_hint = hint(&tr(NO_SHAPE_SELECTED));
     path_card.append(&path_hint);
     root.append(&path_card);
 
     // --- pages -------------------------------------------------------------
-    let (pages_card, pages_row) = card("Pages");
+    let (pages_card, pages_row) = card(&tr("edit-card-pages"));
     let add_watermark = Button::new();
     tile(
         &add_watermark,
-        "Add watermark",
+        &tr("edit-watermark"),
         Icon::Text,
-        "Stamp the same text across the pages you choose",
+        &tr("edit-watermark-tooltip"),
     );
     add_watermark.set_sensitive(false);
     pages_row.append(&add_watermark);
-    pages_card.append(&hint(
-        "A watermark is painted into the pages themselves and is one undo step.",
-    ));
+    pages_card.append(&hint(&tr("edit-watermark-hint")));
     root.append(&pages_card);
 
     (
@@ -462,6 +452,110 @@ fn tile(button: &Button, label: &str, icon: Icon, tooltip: &str) {
 mod tests {
     use super::*;
 
+    #[gtk::test]
+    fn gtk_ui_edit_tiles_keep_localized_labels_tooltips_and_accessible_names() {
+        use crate::app::i18n::{speak, Language};
+        use gtk::glib::translate::{from_glib_full, ToGlibPtr};
+
+        for language in [Language::English, Language::Spanish] {
+            let _language = speak(language);
+            let (content, root) = build_edit_content();
+            let spanish = language == Language::Spanish;
+            let heading = root.first_child().unwrap().downcast::<Label>().unwrap();
+            assert_eq!(
+                heading.text(),
+                if spanish { "Editar PDF" } else { "Edit PDF" }
+            );
+            let cards: Vec<_> = std::iter::successors(root.first_child(), |w| w.next_sibling())
+                .filter(|w| w.has_css_class("edit-card"))
+                .map(|w| w.first_child().unwrap().downcast::<Label>().unwrap().text())
+                .collect();
+            assert_eq!(
+                cards,
+                if spanish {
+                    ["Texto", "Imágenes", "Formas", "Páginas"]
+                } else {
+                    ["Text", "Images", "Shapes", "Pages"]
+                }
+            );
+            for (button, key, english, spanish_label) in [
+                (
+                    content.mode.upcast_ref::<Button>(),
+                    "edit-mode",
+                    "Edit content",
+                    "Editar contenido",
+                ),
+                (
+                    content.insert_text.upcast_ref(),
+                    "edit-insert-text",
+                    "Insert text",
+                    "Insertar texto",
+                ),
+                (
+                    &content.delete_text,
+                    "edit-delete-text",
+                    "Delete text",
+                    "Eliminar texto",
+                ),
+                (
+                    content.insert_image.upcast_ref(),
+                    "edit-insert-image",
+                    "Insert image",
+                    "Insertar imagen",
+                ),
+                (
+                    &content.replace_image,
+                    "edit-replace-image",
+                    "Replace image",
+                    "Reemplazar imagen",
+                ),
+                (
+                    &content.delete_image,
+                    "edit-delete-image",
+                    "Delete image",
+                    "Eliminar imagen",
+                ),
+                (
+                    &content.delete_path,
+                    "edit-delete-shape",
+                    "Delete shape",
+                    "Eliminar forma",
+                ),
+                (
+                    &content.add_watermark,
+                    "edit-watermark",
+                    "Add watermark",
+                    "Añadir marca de agua",
+                ),
+            ] {
+                let expected = if spanish { spanish_label } else { english };
+                let label = button
+                    .child()
+                    .unwrap()
+                    .last_child()
+                    .unwrap()
+                    .downcast::<Label>()
+                    .unwrap();
+                assert_eq!(label.text(), expected);
+                assert_eq!(
+                    button.tooltip_text().as_deref(),
+                    Some(tr(&format!("{key}-tooltip")).as_str())
+                );
+                let accessible: &gtk::Accessible = button.as_ref();
+                let expected =
+                    <str as ToGlibPtr<'_, *const std::ffi::c_char>>::to_glib_none(expected);
+                let mismatch: Option<gtk::glib::GString> = unsafe {
+                    from_glib_full(gtk::ffi::gtk_test_accessible_check_property(
+                        accessible.to_glib_none().0,
+                        gtk::ffi::GTK_ACCESSIBLE_PROPERTY_LABEL,
+                        expected.0,
+                    ))
+                };
+                assert!(mismatch.is_none(), "{key}: {mismatch:?}");
+            }
+        }
+    }
+
     /// Every control on this page starts unusable, because every one of them
     /// needs a document — and the page says so in words rather than leaving
     /// five greyed tiles to be interpreted.
@@ -476,9 +570,9 @@ mod tests {
         assert!(!content.delete_image.is_sensitive());
         assert!(!content.replace_image.is_sensitive());
         assert!(!content.add_watermark.is_sensitive());
-        assert_eq!(content.panel.availability.text(), NO_DOCUMENT_NOTICE);
-        assert_eq!(content.panel.image_hint.text(), NO_IMAGE_SELECTED);
-        assert_eq!(content.panel.text_hint.text(), NO_TEXT_SELECTED);
+        assert_eq!(content.panel.availability.text(), tr(NO_DOCUMENT_NOTICE));
+        assert_eq!(content.panel.image_hint.text(), tr(NO_IMAGE_SELECTED));
+        assert_eq!(content.panel.text_hint.text(), tr(NO_TEXT_SELECTED));
     }
 
     /// The property the whole "Delete text" gate rests on, pinned because

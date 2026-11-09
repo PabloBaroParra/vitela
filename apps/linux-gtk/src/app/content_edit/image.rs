@@ -393,7 +393,9 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
     // condition happens to drop.
     let controls = super::image_controls(viewer.state.borrow().session.as_ref());
     if controls == super::ImageControls::PendingEdit {
-        viewer.status.set_text(super::panel::IMAGE_PENDING_EDIT);
+        viewer
+            .status
+            .set_text(&crate::app::i18n::tr(super::panel::IMAGE_PENDING_EDIT));
         return;
     }
 
@@ -511,7 +513,7 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
             // that already has a queued edit would fail to resolve at save
             // time and take the whole save down with it.
             session.selected_image = Some(selected);
-            Err(super::panel::IMAGE_PENDING_EDIT.to_string())
+            Err(crate::app::i18n::tr(super::panel::IMAGE_PENDING_EDIT))
         } else {
             // `before` has to come from the *original* bytes, read back
             // through `pdf-edit` before anything is written — it is the only

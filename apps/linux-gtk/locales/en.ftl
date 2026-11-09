@@ -196,3 +196,46 @@ metadata-time-missing = expected HH:MM or HH:MM:SS, missing { $field }
 metadata-time-not-number = expected HH:MM or HH:MM:SS, "{ $field }" is not a number
 metadata-time-extra = expected HH:MM or HH:MM:SS, found extra ":"-separated parts
 metadata-component-range = { $field } { $value } is out of range ({ $min }-{ $max })
+
+## Edit PDF: panel controls, tooltips and gesture hints
+
+edit-heading = Edit PDF
+edit-description = Change the text, images and shapes already on the page.
+edit-card-text = Text
+edit-card-images = Images
+edit-card-shapes = Shapes
+edit-card-pages = Pages
+edit-mode = Edit content
+edit-mode-tooltip = Turn on content editing, then click text on the page to select it
+edit-insert-text = Insert text
+edit-insert-text-tooltip = Click the page to place a new text box
+edit-delete-text = Delete text
+edit-delete-text-tooltip = Remove the selected text, or the text being retyped, from the page
+edit-insert-image = Insert image
+edit-insert-image-tooltip = Click the page to insert a picture
+edit-replace-image = Replace image
+edit-replace-image-tooltip = Swap the selected image for a file on disk
+edit-delete-image = Delete image
+edit-delete-image-tooltip = Remove the selected image from the page
+edit-delete-shape = Delete shape
+edit-delete-shape-tooltip = Remove the selected line, border or box from the page
+edit-watermark = Add watermark
+edit-watermark-tooltip = Stamp the same text across the pages you choose
+edit-watermark-hint = A watermark is painted into the pages themselves and is one undo step.
+edit-no-document = Open a PDF to edit the text and images on its pages.
+edit-no-text-selected = Click text to select it; double-click to retype it in place, or drag it to move it.
+edit-text-selected = Text selected — drag to move it, press Delete to remove it, double-click or F2 to retype it.
+edit-text-editing = Retyping text — press Enter to keep it or Esc to cancel, or delete it.
+edit-no-image-selected = Click an image on the page to select it.
+edit-image-selected = Image selected — replace or delete it.
+edit-image-no-replace = Image selected — move, resize or delete it. It cannot be replaced: its current encoding cannot be read back, so the swap could not be undone.
+edit-image-pending = This image has an unsaved edit — move, resize or delete it, or save before replacing it.
+edit-no-shape-selected = Click a line, border or shaded box on the page to select it.
+edit-shape-selected = Shape selected — drag it, drag a corner to resize it, or press Delete.
+
+## Edit PDF: mode activation messages
+
+edit-mode-armed = Edit content armed — click text to select it, double-click to retype it.
+edit-mode-disarmed = Edit content disarmed.
+edit-insert-text-armed = Insert text armed — click the page to place a new text box.
+edit-insert-image-armed = Insert image armed — click the page to insert a picture.

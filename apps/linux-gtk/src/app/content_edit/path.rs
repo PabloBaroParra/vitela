@@ -20,6 +20,7 @@
 
 use pdf_document::{Command, PathItem, PathPaint, Rect};
 
+use crate::app::i18n::tr;
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, PathDrag, SelectedPath, Viewer};
 use crate::app::update_content_edit_controls;
@@ -27,8 +28,8 @@ use crate::app::write::refresh_preview;
 
 use super::{command, editor, geometry, model};
 
-pub(crate) const PATH_SELECTED: &str =
-    "Shape selected — drag it, drag a corner to resize it, or press Delete.";
+/// Fluent key shared by the selection status and the Edit panel hint.
+pub(crate) const PATH_SELECTED: &str = "edit-shape-selected";
 
 /// Whether a press at `point` means `path`: anywhere on a filled shape, but
 /// only within `reach` of an outline's edges — further inside a frame is its
@@ -219,7 +220,7 @@ pub(crate) fn begin_path_drag(
         current: point,
     });
     drop(state);
-    viewer.status.set_text(PATH_SELECTED);
+    viewer.status.set_text(&tr(PATH_SELECTED));
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
     true

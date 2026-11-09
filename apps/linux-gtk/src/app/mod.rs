@@ -747,13 +747,13 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     viewer
         .replace_image_button
         .set_sensitive(images.replace_enabled());
-    viewer.edit_panel.image_hint.set_text(images.hint());
+    viewer.edit_panel.image_hint.set_text(&images.hint());
     viewer.delete_path_button.set_sensitive(paths_enabled);
-    viewer.edit_panel.path_hint.set_text(if paths_enabled {
+    viewer.edit_panel.path_hint.set_text(&tr(if paths_enabled {
         content_edit::path::PATH_SELECTED
     } else {
         content_edit::panel::NO_SHAPE_SELECTED
-    });
+    }));
     viewer.delete_text_button.set_sensitive(text_enabled);
     // The Delete key's action is enabled off the path, image and text block
     // selections too; Esc and F2 off the selections they act on.
@@ -761,13 +761,13 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     content_edit::clipboard::update_cut_action(viewer);
     content_edit::multi::update_clear_action(viewer);
     content_edit::block::update_retype_action(viewer);
-    viewer.edit_panel.text_hint.set_text(if text_editing {
+    viewer.edit_panel.text_hint.set_text(&tr(if text_editing {
         content_edit::panel::TEXT_EDITING
     } else if text_selected {
         content_edit::panel::TEXT_SELECTED
     } else {
         content_edit::panel::NO_TEXT_SELECTED
-    });
+    }));
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {
