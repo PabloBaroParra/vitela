@@ -229,3 +229,82 @@ edit-mode-armed = Edición de contenido activada: haz clic en el texto para sele
 edit-mode-disarmed = Edición de contenido desactivada.
 edit-insert-text-armed = Inserción de texto activada: haz clic en la página para colocar un nuevo cuadro de texto.
 edit-insert-image-armed = Inserción de imágenes activada: haz clic en la página para insertar una imagen.
+
+## Signing: certificate section, choosers and unlock prompts
+# Adapter and module error details arrive untranslated as { $error }.
+
+sign-heading = Firma digital
+sign-choose-pfx = Elegir certificado de firma (.pfx)…
+sign-use-token = Usar tarjeta o token…
+sign-use-nss = Usar un certificado de este equipo…
+sign-signed-indicator = ✓ Este documento está firmado digitalmente.
+sign-open = Abrir
+sign-cancel = Cancelar
+sign-unlock = Desbloquear
+sign-not-local-file = La ubicación seleccionada no es un archivo local.
+sign-not-local-folder = La ubicación seleccionada no es una carpeta local.
+sign-pfx-filter = Certificados PKCS#12
+sign-pfx-chooser-title = Elegir certificado de firma
+sign-pfx-password-title = Se necesita la contraseña del certificado
+sign-pfx-reading = Leyendo el archivo de certificado...
+sign-pfx-no-identities = Este archivo de certificado no contiene identidades de firma utilizables.
+sign-pfx-waiting = Esperando la contraseña del certificado.
+sign-pfx-wrong-password = La contraseña no es correcta o el archivo no es un certificado PKCS#12 válido.
+sign-pfx-read-failed = No se pudo leer el archivo de certificado: { $error }
+sign-certificate-cancelled = Selección de certificado cancelada.
+sign-found-identities =
+    { $count ->
+        [one] Se encontró { $count } identidad de firma: { $names }
+       *[other] Se encontraron { $count } identidades de firma: { $names }
+    }
+sign-pkcs11-filter = Módulos PKCS#11
+sign-pkcs11-chooser-title = Elegir módulo PKCS#11
+sign-pkcs11-pin-title = Se necesita el PIN de la tarjeta o el token
+sign-pkcs11-reading = Leyendo la tarjeta o el token...
+sign-pkcs11-waiting = Esperando el PIN del token.
+sign-pkcs11-no-identities = No se encontraron identidades de firma. Comprueba el PIN y que la tarjeta o el token contenga un certificado.
+sign-pkcs11-load-failed = No se pudo cargar el módulo PKCS#11: { $error }
+sign-pkcs11-cancelled = Selección de tarjeta o token cancelada.
+sign-nss-filter = Módulos NSS
+sign-nss-module-chooser-title = Elegir el módulo de certificados NSS (libsoftokn3.so)
+sign-nss-profile-chooser-title = Elegir la carpeta de la base de datos de certificados
+sign-nss-password-title = Contraseña de la base de datos de certificados
+sign-nss-password-hint = Déjalo en blanco si tus certificados no tienen contraseña.
+sign-nss-reading = Leyendo la base de datos de certificados...
+sign-nss-waiting = Esperando la contraseña de la base de datos de certificados.
+sign-nss-no-identities = No se encontraron certificados de firma. Comprueba la contraseña y que este equipo tenga certificados importados.
+sign-nss-load-failed = No se pudo cargar la base de datos de certificados: { $error }
+sign-nss-invalid-path = No se puede usar la ruta de la base de datos de certificados { $path }.
+
+## Signing: identity picker and signing refusals
+
+sign-picker-title = Elegir una identidad de firma
+sign-picker-prompt = Firmar este documento con:
+sign-picker-sign = Firmar
+sign-picker-none-chosen = Elige una identidad de firma.
+sign-cancelled = Firma cancelada.
+sign-no-document = Abre un PDF antes de firmar.
+sign-unsaved-changes = Guarda los cambios antes de firmar este documento.
+sign-not-signable = Este documento no se puede firmar.
+
+## Drawn signature: entry, pad, saved-signature offer and placement
+
+signature-draw = Dibujar firma…
+signature-draw-tooltip = Dibuja tu firma con el ratón y haz clic en una página para colocarla como imagen
+signature-pad-title = Dibuja tu firma
+signature-remember = Recordar en este equipo
+signature-clear = Borrar
+signature-cancel = Cancelar
+signature-use = Usar
+signature-offer-title = Tu firma
+signature-offer-preview = Tu firma guardada
+signature-offer-unshowable = Esta firma guardada ya no se puede mostrar.
+signature-draw-new = Dibujar otra
+signature-delete = Eliminar
+signature-no-document = Abre un PDF antes de dibujar una firma.
+signature-unrenderable = No se pudo convertir la firma en una imagen.
+signature-not-remembered = No se pudo recordar tu firma. Haz clic en una página para colocarla.
+signature-forgotten = Tu firma guardada se ha eliminado de este equipo.
+signature-armed = Haz clic en una página para colocar tu firma.
+signature-disarmed = Firma desactivada.
+signature-stale = Esa firma se dibujó para otro documento. Vuelve a dibujarla para colocarla.

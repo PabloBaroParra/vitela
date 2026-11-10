@@ -42,23 +42,24 @@ pub(crate) mod test_support;
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Button};
 
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 use crate::app::tools_panel::FILL_SIGN_PAGE;
 
 pub(crate) use armed::place_armed;
 pub(crate) use store::{default_store, SignatureStore};
 
-const DRAW_LABEL: &str = "Draw signature…";
-const DRAW_TOOLTIP: &str =
-    "Draw your signature with the mouse, then click a page to place it as an image";
+// Fluent keys for the entry's label and tooltip.
+const DRAW_LABEL: &str = "signature-draw";
+const DRAW_TOOLTIP: &str = "signature-draw-tooltip";
 
 /// Builds the **Draw signature** entry and appends it to the Sign section.
 ///
 /// Insensitive until a document that permits annotation is open —
 /// [`update_draw_signature_control`] owns every transition out of that state.
 pub(crate) fn build_draw_signature_button(sign_content: &GtkBox) -> Button {
-    let button = Button::with_label(DRAW_LABEL);
-    button.set_tooltip_text(Some(DRAW_TOOLTIP));
+    let button = Button::with_label(&tr(DRAW_LABEL));
+    button.set_tooltip_text(Some(&tr(DRAW_TOOLTIP)));
     button.set_sensitive(false);
     sign_content.append(&button);
     button
@@ -117,7 +118,10 @@ mod tests {
         let built = Built::new();
         let viewer = built.viewer();
 
-        assert_eq!(viewer.draw_signature.label().as_deref(), Some(DRAW_LABEL));
+        assert_eq!(
+            viewer.draw_signature.label().as_deref(),
+            Some(tr(DRAW_LABEL).as_str())
+        );
         assert!(!viewer.draw_signature.is_sensitive());
         assert!(
             viewer.draw_signature.is_ancestor(&viewer.tools_stack),

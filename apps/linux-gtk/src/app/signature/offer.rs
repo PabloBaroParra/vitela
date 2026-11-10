@@ -7,17 +7,19 @@
 use gtk::prelude::*;
 use gtk::{cairo, Box as GtkBox, Button, DrawingArea, Orientation, Window};
 
+use crate::app::i18n::tr;
 use crate::app::selection::stamp_surface;
 use crate::app::state::Viewer;
 
 use super::flow;
 
-const TITLE: &str = "Your signature";
+// Fluent keys for the dialog title and the unreadable-file apology.
+const TITLE: &str = "signature-offer-title";
 const PREVIEW_WIDTH: i32 = 360;
 const PREVIEW_HEIGHT: i32 = 160;
 const PREVIEW_PADDING: f64 = 12.0;
 const MARGIN: i32 = 12;
-const UNSHOWABLE: &str = "This saved signature can no longer be shown.";
+const UNSHOWABLE: &str = "signature-offer-unshowable";
 
 /// The offer dialog and its buttons.
 #[derive(Clone)]
@@ -42,15 +44,17 @@ pub(super) fn open(viewer: &Viewer, session_id: u64, png: Vec<u8>) -> OfferView 
     preview.set_content_width(PREVIEW_WIDTH);
     preview.set_content_height(PREVIEW_HEIGHT);
     preview.set_hexpand(true);
-    preview.update_property(&[gtk::accessible::Property::Label("Your saved signature")]);
+    preview.update_property(&[gtk::accessible::Property::Label(&tr(
+        "signature-offer-preview",
+    ))]);
     preview.set_draw_func(move |_, context, width, height| {
         paint(picture.as_ref(), context, width, height)
     });
 
-    let delete = Button::with_label("Delete");
-    let draw_new = Button::with_label("Draw new");
-    let cancel = Button::with_label("Cancel");
-    let use_button = Button::with_label("Use");
+    let delete = Button::with_label(&tr("signature-delete"));
+    let draw_new = Button::with_label(&tr("signature-draw-new"));
+    let cancel = Button::with_label(&tr("signature-cancel"));
+    let use_button = Button::with_label(&tr("signature-use"));
     use_button.add_css_class("suggested-action");
     use_button.set_sensitive(can_show);
 
@@ -69,7 +73,10 @@ pub(super) fn open(viewer: &Viewer, session_id: u64, png: Vec<u8>) -> OfferView 
     content.append(&preview);
     content.append(&buttons);
 
-    let mut dialog = Window::builder().modal(true).title(TITLE).child(&content);
+    let mut dialog = Window::builder()
+        .modal(true)
+        .title(tr(TITLE))
+        .child(&content);
     if let Some(window) = viewer.window() {
         dialog = dialog.transient_for(&window);
     }
@@ -115,7 +122,7 @@ fn paint(picture: Option<&cairo::ImageSurface>, context: &cairo::Context, width:
     let Some(picture) = picture else {
         context.set_source_rgb(0.0, 0.0, 0.0);
         context.move_to(PREVIEW_PADDING, f64::from(height) / 2.0);
-        let _ = context.show_text(UNSHOWABLE);
+        let _ = context.show_text(&tr(UNSHOWABLE));
         return;
     };
     let (picture_width, picture_height) = (f64::from(picture.width()), f64::from(picture.height()));
@@ -153,11 +160,29 @@ mod tests {
 
         let offer = open(viewer, the_session(viewer), a_png());
 
-        assert_eq!(offer.window.title().as_deref(), Some(TITLE));
+        assert_eq!(offer.window.title().as_deref(), Some(tr(TITLE).as_str()));
         assert_eq!(offer.use_button.label().as_deref(), Some("Use"));
         assert_eq!(offer.draw_new.label().as_deref(), Some("Draw new"));
         assert_eq!(offer.delete.label().as_deref(), Some("Delete"));
         assert!(offer.use_button.is_sensitive());
+    }
+
+    #[gtk::test]
+    fn gtk_ui_the_offer_speaks_spanish() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+        let built = Built::new();
+        let viewer = built.viewer();
+        open_document(viewer);
+
+        let offer = open(viewer, the_session(viewer), a_png());
+
+        assert_eq!(offer.window.title().as_deref(), Some("Tu firma"));
+        assert_eq!(offer.use_button.label().as_deref(), Some("Usar"));
+        assert_eq!(offer.draw_new.label().as_deref(), Some("Dibujar otra"));
+        assert_eq!(offer.delete.label().as_deref(), Some("Eliminar"));
+        assert_eq!(offer.cancel.label().as_deref(), Some("Cancelar"));
     }
 
     #[gtk::test]

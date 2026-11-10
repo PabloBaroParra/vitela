@@ -239,3 +239,82 @@ edit-mode-armed = Edit content armed — click text to select it, double-click t
 edit-mode-disarmed = Edit content disarmed.
 edit-insert-text-armed = Insert text armed — click the page to place a new text box.
 edit-insert-image-armed = Insert image armed — click the page to insert a picture.
+
+## Signing: certificate section, choosers and unlock prompts
+# Adapter and module error details arrive untranslated as { $error }.
+
+sign-heading = Signing
+sign-choose-pfx = Choose signing certificate (.pfx)…
+sign-use-token = Use card or token…
+sign-use-nss = Use a certificate from this computer…
+sign-signed-indicator = ✓ This document is digitally signed.
+sign-open = Open
+sign-cancel = Cancel
+sign-unlock = Unlock
+sign-not-local-file = The selected location is not a local file.
+sign-not-local-folder = The selected location is not a local folder.
+sign-pfx-filter = PKCS#12 certificates
+sign-pfx-chooser-title = Choose signing certificate
+sign-pfx-password-title = Certificate password required
+sign-pfx-reading = Reading certificate file...
+sign-pfx-no-identities = This certificate file has no usable signing identities.
+sign-pfx-waiting = Waiting for the certificate password.
+sign-pfx-wrong-password = The password is incorrect, or the file is not a valid PKCS#12 certificate.
+sign-pfx-read-failed = Could not read the certificate file: { $error }
+sign-certificate-cancelled = Certificate selection cancelled.
+sign-found-identities =
+    { $count ->
+        [one] Found { $count } signing identity: { $names }
+       *[other] Found { $count } signing identities: { $names }
+    }
+sign-pkcs11-filter = PKCS#11 modules
+sign-pkcs11-chooser-title = Choose PKCS#11 module
+sign-pkcs11-pin-title = Card or token PIN required
+sign-pkcs11-reading = Reading card or token...
+sign-pkcs11-waiting = Waiting for the token PIN.
+sign-pkcs11-no-identities = No signing identities were found. Check the PIN and that the card or token holds a certificate.
+sign-pkcs11-load-failed = Could not load the PKCS#11 module: { $error }
+sign-pkcs11-cancelled = Card or token selection cancelled.
+sign-nss-filter = NSS modules
+sign-nss-module-chooser-title = Choose the NSS certificate module (libsoftokn3.so)
+sign-nss-profile-chooser-title = Choose the certificate database folder
+sign-nss-password-title = Certificate database password
+sign-nss-password-hint = Leave this blank if your certificates have no password set.
+sign-nss-reading = Reading certificate database...
+sign-nss-waiting = Waiting for the certificate database password.
+sign-nss-no-identities = No signing certificates were found. Check the password and that this computer has certificates imported.
+sign-nss-load-failed = Could not load the certificate database: { $error }
+sign-nss-invalid-path = The certificate database path { $path } cannot be used.
+
+## Signing: identity picker and signing refusals
+
+sign-picker-title = Choose a signing identity
+sign-picker-prompt = Sign this document with:
+sign-picker-sign = Sign
+sign-picker-none-chosen = Choose a signing identity.
+sign-cancelled = Signing cancelled.
+sign-no-document = Open a PDF before signing.
+sign-unsaved-changes = Save your changes before signing this document.
+sign-not-signable = This document cannot be signed.
+
+## Drawn signature: entry, pad, saved-signature offer and placement
+
+signature-draw = Draw signature…
+signature-draw-tooltip = Draw your signature with the mouse, then click a page to place it as an image
+signature-pad-title = Draw your signature
+signature-remember = Remember on this computer
+signature-clear = Clear
+signature-cancel = Cancel
+signature-use = Use
+signature-offer-title = Your signature
+signature-offer-preview = Your saved signature
+signature-offer-unshowable = This saved signature can no longer be shown.
+signature-draw-new = Draw new
+signature-delete = Delete
+signature-no-document = Open a PDF before drawing a signature.
+signature-unrenderable = The signature could not be turned into an image.
+signature-not-remembered = Your signature could not be remembered. Click a page to place it.
+signature-forgotten = Your saved signature was deleted from this computer.
+signature-armed = Click a page to place your signature.
+signature-disarmed = Signature disarmed.
+signature-stale = That signature was drawn for another document. Draw it again to place it.

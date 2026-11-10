@@ -16,13 +16,15 @@ use gtk::{
     cairo, Box as GtkBox, Button, CheckButton, DrawingArea, GestureDrag, Orientation, Window,
 };
 
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 
 use super::flow;
 use super::ink::{self, Pad, Point};
 
-const TITLE: &str = "Draw your signature";
-const REMEMBER_LABEL: &str = "Remember on this computer";
+// Fluent keys for the dialog title and the remember check.
+const TITLE: &str = "signature-pad-title";
+const REMEMBER_LABEL: &str = "signature-remember";
 const PAD_WIDTH: i32 = 480;
 const PAD_HEIGHT: i32 = 200;
 const MARGIN: i32 = 12;
@@ -91,12 +93,12 @@ pub(super) fn open(viewer: &Viewer, session_id: u64) -> PadView {
         move |_, context, width, height| paint(&pad.borrow(), context, width, height)
     });
 
-    let remember = CheckButton::with_label(REMEMBER_LABEL);
+    let remember = CheckButton::with_label(&tr(REMEMBER_LABEL));
     remember.set_active(true);
 
-    let clear = Button::with_label("Clear");
-    let cancel = Button::with_label("Cancel");
-    let use_button = Button::with_label("Use");
+    let clear = Button::with_label(&tr("signature-clear"));
+    let cancel = Button::with_label(&tr("signature-cancel"));
+    let use_button = Button::with_label(&tr("signature-use"));
     use_button.add_css_class("suggested-action");
     // Nothing to use and nothing to clear until the pen has drawn a line.
     use_button.set_sensitive(false);
@@ -117,7 +119,10 @@ pub(super) fn open(viewer: &Viewer, session_id: u64) -> PadView {
     content.append(&remember);
     content.append(&buttons);
 
-    let mut dialog = Window::builder().modal(true).title(TITLE).child(&content);
+    let mut dialog = Window::builder()
+        .modal(true)
+        .title(tr(TITLE))
+        .child(&content);
     if let Some(window) = viewer.window() {
         dialog = dialog.transient_for(&window);
     }
@@ -242,8 +247,26 @@ mod tests {
 
         assert!(!view.use_button.is_sensitive());
         assert!(!view.clear.is_sensitive());
-        assert_eq!(view.window.title().as_deref(), Some(TITLE));
+        assert_eq!(view.window.title().as_deref(), Some(tr(TITLE).as_str()));
         assert!(view.window.is_modal());
+    }
+
+    #[gtk::test]
+    fn gtk_ui_the_pad_speaks_spanish() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+        let built = Built::new();
+        let view = a_pad(&built);
+
+        assert_eq!(view.window.title().as_deref(), Some("Dibuja tu firma"));
+        assert_eq!(
+            view.remember.label().as_deref(),
+            Some("Recordar en este equipo")
+        );
+        assert_eq!(view.clear.label().as_deref(), Some("Borrar"));
+        assert_eq!(view.cancel.label().as_deref(), Some("Cancelar"));
+        assert_eq!(view.use_button.label().as_deref(), Some("Usar"));
     }
 
     #[gtk::test]
@@ -298,7 +321,10 @@ mod tests {
         let view = a_pad(&built);
 
         assert!(view.remember.is_active());
-        assert_eq!(view.remember.label().as_deref(), Some(REMEMBER_LABEL));
+        assert_eq!(
+            view.remember.label().as_deref(),
+            Some(tr(REMEMBER_LABEL).as_str())
+        );
     }
 
     #[gtk::test]
