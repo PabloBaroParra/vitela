@@ -34,7 +34,10 @@ impl Fixture {
         let overlay = Overlay::new();
         overlay.set_child(Some(&Picture::new()));
         built.viewer.pages.append(&overlay);
-        let mut slot = crate::app::test_fixtures::page_slot(overlay);
+        let mut slot = crate::app::test_fixtures::page_slot(overlay.clone());
+        // On the page as `document` puts it, so a point on the layer can be
+        // carried onto the canvas the way `quick_actions` carries it.
+        overlay.add_overlay(&slot.highlights);
         if matches!(
             rotation,
             PageRotation::Clockwise90 | PageRotation::Clockwise270

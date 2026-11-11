@@ -1554,6 +1554,9 @@ pub(crate) fn copy_selection(viewer: &Viewer) {
 /// costs a dirty flag, whereas working out which pages are on screen would
 /// duplicate `layout::visible_range` for no gain.
 pub(crate) fn redraw(viewer: &Viewer) {
+    // Every selection change and every drag step ends here, so this is where
+    // the quick-action bar learns to move, hide or come back.
+    content_edit::quick_actions::sync(viewer);
     let state = viewer.state.borrow();
     let Some(session) = state.session.as_ref() else {
         return;

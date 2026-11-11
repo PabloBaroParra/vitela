@@ -126,6 +126,9 @@ pub(crate) struct Viewer {
     pub(crate) add_watermark_button: Button,
     /// The "Edit" tools page's explanatory labels — see [`EditPanel`].
     pub(crate) edit_panel: EditPanel,
+    /// The floating bar beside a content-edit selection, on the canvas
+    /// overlay — see `content_edit::quick_actions`.
+    pub(crate) content_quick_actions: crate::app::content_edit::quick_actions::QuickActions,
     /// The forms toolbar (T-141): the mode toggle, the four placement
     /// toggles, and the style inspector for the selected field.
     pub(crate) forms: FormFieldToolbar,

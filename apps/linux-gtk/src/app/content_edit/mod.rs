@@ -44,6 +44,9 @@
 //!   through, whichever gesture asked for it.
 //! - [`hover`] is what the pointer rests on: the outline round the item a
 //!   press would grab, and the move cursor and whole-item move on its edge.
+//! - [`quick_actions`] is the floating bar beside a selection: retype,
+//!   replace, cut, copy and delete, each the same handler its key or Edit
+//!   card button already calls.
 //! - [`panel`] is the "Edit" page of the right-hand tools panel: the five
 //!   controls above, the cards they sit in, and the two sentences that say
 //!   what each gesture does and why a control is unavailable. It owns
@@ -77,6 +80,7 @@ mod model;
 pub(crate) mod multi;
 pub(crate) mod panel;
 pub(crate) mod path;
+pub(crate) mod quick_actions;
 #[cfg(test)]
 mod test_support;
 pub(crate) mod text;
