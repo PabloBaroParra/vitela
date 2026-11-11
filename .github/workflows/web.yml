@@ -1,0 +1,101 @@
+name: web
+
+# The web shell (apps/web, B26). The core crates stay gated by core.yml; this
+# workflow builds the WASM the worker loads, then runs Vitest and the
+# Playwright flows (Chromium, Firefox and WebKit) against the production build.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "tests/fixtures/**"
+      - ".github/workflows/web.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "tests/fixtures/**"
+      - ".github/workflows/web.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  # Bump together with apps/web/render-wasm/Cargo.toml's wasm-bindgen pin and
+  # apps/web/scripts/build-wasm.sh.
+  WASM_BINDGEN_VERSION: "0.2.130"
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: build, Vitest, Playwright (chromium/firefox/webkit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust (stable) with the wasm32 target
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - name: Cache cargo registry, render-wasm build and wasm-bindgen-cli
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # `.crates.toml` / `.crates2.json` travel with the binary, or
+          # `cargo install` refuses to overwrite a binary it has no record of.
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/wasm-bindgen-test-runner
+            ~/.cargo/bin/wasm2es6js
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            apps/web/render-wasm/target
+          key: ${{ runner.os }}-web-wasm-${{ env.WASM_BINDGEN_VERSION }}-${{ hashFiles('apps/web/render-wasm/Cargo.lock') }}
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
+      - name: render-wasm fmt + clippy
+        run: |
+          cargo fmt --manifest-path render-wasm/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path render-wasm/Cargo.toml --target wasm32-unknown-unknown
+
+      - name: Cache pdfium WASM (sha256-checked by build-wasm.sh either way)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/generated/pdfium
+          key: pdfium-wasm-${{ hashFiles('apps/web/scripts/build-wasm.sh') }}
+      - name: Build the WASM modules
+        run: npm run build:wasm
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Vitest
+        run: npm test
+      - name: Type-check and production build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Playwright (chromium, firefox, webkit)
+        run: npx playwright test
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7

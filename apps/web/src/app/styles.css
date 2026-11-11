@@ -1,0 +1,77 @@
+:root {
+  color-scheme: light dark;
+  --surface: #f4f3ef;
+  --text: #1d1d1b;
+  --accent: #7a4a2b;
+  --on-accent: #ffffff;
+  --error: #a32020;
+  --page-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+  font: 15px/1.5 system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1e1d1b;
+    --text: #ecebe6;
+    --accent: #d9a27a;
+    --on-accent: #1e1d1b;
+    --error: #ff8a80;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.app__title {
+  font-size: 1.4rem;
+  margin: 0 0 12px;
+}
+
+.file-picker {
+  position: relative;
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+
+.file-picker:focus-within {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.file-picker[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.file-picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.status-line--error {
+  color: var(--error);
+}
+
+.page-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: #fff;
+  box-shadow: var(--page-shadow);
+}
