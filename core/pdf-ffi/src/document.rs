@@ -39,8 +39,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials,
-    ImageItem, ImportedDocumentId, Orientation, Page, PageId, PageOrigin, Permissions, Rotation,
-    SecurityContext, SecurityHandler, TextRun,
+    ImageItem, ImportedDocumentId, Page, PageId, PageOrigin, Permissions, SecurityContext,
+    SecurityHandler, TextRun,
 };
 use pdf_manip::LopdfDocument;
 
@@ -78,11 +78,11 @@ pub(crate) struct DocumentState {
     /// never logged, and dies with the handle.
     render_password: Option<String>,
     next_annotation_id: u64,
-    /// Each base page's rotation as the file was opened, indexed like
-    /// `base`'s pages. `base.page_dimensions()` already has that turn baked
-    /// in, so [`DocumentState::page_dimensions`] needs it to tell whether a
-    /// pending rotation has put a page on its side since.
-    opened_rotations: Vec<Rotation>,
+    /// Each base page's rotation as the file was opened, which
+    /// [`DocumentState::page_dimensions`] hands to
+    /// `pdf_manip::current_page_dimensions` to tell whether a pending
+    /// rotation has put a page on its side since.
+    opened_rotations: pdf_manip::OpenedRotations,
     /// Every PDF [`crate::import_pdf`] brought into this session, under the
     /// id its pages' `PageOrigin::Imported` names.
     ///
@@ -106,7 +106,7 @@ impl DocumentState {
     ) -> Self {
         // Read before any edit exists: at open every page is a base page
         // sitting at its own base index, so position and base index agree.
-        let opened_rotations = document.pages.iter().map(|page| page.rotation).collect();
+        let opened_rotations = pdf_manip::OpenedRotations::capture(&document);
         DocumentState {
             document,
             base,
@@ -179,53 +179,12 @@ impl DocumentState {
 
     /// Every page's size in points, in the order the document has them
     /// **now** — what a shell lays out once `refresh_preview` shows a
-    /// reorder, insertion or rotation.
-    ///
-    /// Built from the model rather than asked of pdfium so that an untouched
-    /// document reports exactly what it always has: a base page keeps the
-    /// size `base` gives it, and only swaps width and height when a pending
-    /// rotation has turned it a quarter from how it opened. A page with no
-    /// base counterpart is sized from its own recorded paper size.
+    /// reorder, insertion or rotation. The rule lives in
+    /// `pdf_manip::current_page_dimensions`.
     fn page_dimensions(&self) -> Vec<FfiPageDimensions> {
-        let opened = self.base.page_dimensions();
-        self.document
-            .pages
-            .iter()
-            .map(|page| {
-                let base = match page.origin {
-                    PageOrigin::Base { page_index } => opened
-                        .get(page_index as usize)
-                        .zip(self.opened_rotations.get(page_index as usize)),
-                    _ => None,
-                };
-                let ((width_pt, height_pt), opened_rotation) = match base {
-                    Some((dimensions, rotation)) => {
-                        ((dimensions.width_pt, dimensions.height_pt), *rotation)
-                    }
-                    None => {
-                        let (width, height) = page.size.dimensions_pt();
-                        let upright = match page.orientation {
-                            Orientation::Portrait => (width, height),
-                            Orientation::Landscape => (height, width),
-                        };
-                        (upright, Rotation::None)
-                    }
-                };
-                let rotation = page.rotation.into();
-                if is_sideways(page.rotation) == is_sideways(opened_rotation) {
-                    FfiPageDimensions {
-                        width_pt,
-                        height_pt,
-                        rotation,
-                    }
-                } else {
-                    FfiPageDimensions {
-                        width_pt: height_pt,
-                        height_pt: width_pt,
-                        rotation,
-                    }
-                }
-            })
+        pdf_manip::current_page_dimensions(&self.document, &self.base, &self.opened_rotations)
+            .into_iter()
+            .map(Into::into)
             .collect()
     }
 
@@ -832,6 +791,21 @@ impl DocumentState {
     pub(crate) fn text_extraction_allowed(&self) -> bool {
         text_extraction_is_allowed(&self.document)
     }
+
+    /// Refuses unless this document permits text extraction — the gate in
+    /// front of every text read, applied by `pdf-manip`.
+    fn ensure_text_extraction_allowed(&self) -> Result<(), FfiError> {
+        pdf_manip::ensure_text_extraction_allowed(self.document.security.as_ref())
+            .map_err(Into::into)
+    }
+
+    /// The render-side document a text read runs against, behind the
+    /// extraction gate: the permission is checked first, so a restricted
+    /// document is refused even when it has nothing to render.
+    fn text_render_doc(&self) -> Result<pdf_render::DocumentHandle, FfiError> {
+        self.ensure_text_extraction_allowed()?;
+        self.render_doc.ok_or(FfiError::DocumentNotFound)
+    }
 }
 
 /// Applies `pdf-manip`'s permission rule to this handle's document.
@@ -938,10 +912,6 @@ fn is_page_structure_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::RemovePages { .. }
             | FfiEditCommand::MovePages { .. }
     )
-}
-
-fn is_sideways(rotation: Rotation) -> bool {
-    matches!(rotation, Rotation::Clockwise90 | Rotation::Clockwise270)
 }
 
 fn is_annotation_command(command: &FfiEditCommand) -> bool {
@@ -1051,15 +1021,7 @@ impl DocumentHandle {
     /// Extracts the text runs for one 0-indexed page. Each run has one
     /// PDF-space rectangle per Unicode scalar in its text.
     pub fn text_runs(&self, page_index: u32) -> Result<Vec<FfiTextRun>, FfiError> {
-        let render_doc = {
-            let state = self.lock();
-            if !text_extraction_is_allowed(&state.document) {
-                return Err(FfiError::UnsupportedOperation {
-                    detail: "text extraction is not permitted".to_string(),
-                });
-            }
-            state.render_doc.ok_or(FfiError::DocumentNotFound)?
-        };
+        let render_doc = self.lock().text_render_doc()?;
         pdf_render::PdfiumRenderer::new()
             .text_runs(render_doc, page_index, pdf_render::Priority::Visible)
             .wait()
@@ -1075,15 +1037,7 @@ impl DocumentHandle {
     /// stripped out. Callers should hold the returned handle for the life
     /// of one drag rather than reloading it per pointer-move.
     pub fn page_characters(&self, page_index: u32) -> Result<Arc<FfiPageCharacters>, FfiError> {
-        let render_doc = {
-            let state = self.lock();
-            if !text_extraction_is_allowed(&state.document) {
-                return Err(FfiError::UnsupportedOperation {
-                    detail: "text extraction is not permitted".to_string(),
-                });
-            }
-            state.render_doc.ok_or(FfiError::DocumentNotFound)?
-        };
+        let render_doc = self.lock().text_render_doc()?;
         let runs = pdf_render::PdfiumRenderer::new()
             .text_runs(render_doc, page_index, pdf_render::Priority::Visible)
             .wait()
@@ -1108,15 +1062,7 @@ impl DocumentHandle {
             return Ok(Vec::new());
         }
 
-        let render_doc = {
-            let state = self.lock();
-            if !text_extraction_is_allowed(&state.document) {
-                return Err(FfiError::UnsupportedOperation {
-                    detail: "text extraction is not permitted".to_string(),
-                });
-            }
-            state.render_doc.ok_or(FfiError::DocumentNotFound)?
-        };
+        let render_doc = self.lock().text_render_doc()?;
         pdf_render::PdfiumRenderer::new()
             .search(render_doc, query, pdf_render::Priority::Visible)
             .wait()
@@ -1295,11 +1241,7 @@ impl DocumentHandle {
     /// edit for the same page.
     pub fn read_page_content(&self, page: u32) -> Result<FfiPageContent, FfiError> {
         let state = self.lock();
-        if !text_extraction_is_allowed(&state.document) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "text extraction is not permitted".to_string(),
-            });
-        }
+        state.ensure_text_extraction_allowed()?;
         // Resolved through the page's origin, not through its position: an
         // imported page is read from the PDF it came from, never from
         // whichever base page happens to sit at that index.
@@ -1341,11 +1283,7 @@ impl DocumentHandle {
     /// that shell offers path editing.
     pub fn read_page_paths(&self, page: u32) -> Result<Vec<FfiContentPathItem>, FfiError> {
         let state = self.lock();
-        if !text_extraction_is_allowed(&state.document) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "text extraction is not permitted".to_string(),
-            });
-        }
+        state.ensure_text_extraction_allowed()?;
         let page_id = state.page_id(page)?;
         let content = state.with_imported_sources(|sources| {
             pdf_save::read_pending_page_content_of(&state.document, page_id, &state.base, sources)
@@ -1421,11 +1359,7 @@ impl DocumentHandle {
     /// this too.
     pub fn page_font_families(&self, page: u32) -> Result<HashMap<String, String>, FfiError> {
         let state = self.lock();
-        if !text_extraction_is_allowed(&state.document) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "text extraction is not permitted".to_string(),
-            });
-        }
+        state.ensure_text_extraction_allowed()?;
         let page_id = state.page_id(page)?;
         state
             .with_imported_sources(|sources| {
@@ -1731,11 +1665,22 @@ pub fn open_from_bytes(
     bytes: Vec<u8>,
     password: Option<String>,
 ) -> Result<Arc<DocumentHandle>, FfiError> {
-    let (base, security) = pdf_manip::open_document_from_bytes(&bytes, password.as_deref())?;
+    open_with_credentials(bytes, password.into())
+}
+
+/// The one open path behind every bytes-based entrypoint: the lopdf model
+/// first, then pdfium under the password `pdf_manip::OpenCredentials` picks
+/// for it, kept so the render side can be rebuilt later.
+fn open_with_credentials(
+    bytes: Vec<u8>,
+    credentials: pdf_manip::OpenCredentials,
+) -> Result<Arc<DocumentHandle>, FfiError> {
+    let (base, security) =
+        pdf_manip::open_document_with_credentials_from_bytes(&bytes, &credentials)?;
     let document = pdf_save::document_from_lopdf(&base, security)?;
     let render_doc = Some(open_render_doc_from_bytes(
         bytes.clone(),
-        password.as_deref(),
+        credentials.render_password(),
     )?);
 
     Ok(DocumentHandle::new(DocumentState::new(
@@ -1743,7 +1688,7 @@ pub fn open_from_bytes(
         base,
         Some(bytes),
         render_doc,
-        password,
+        credentials.into_render_password(),
     )))
 }
 
@@ -1774,24 +1719,13 @@ pub fn open_with_passwords_from_bytes(
     user_password: String,
     owner_password: String,
 ) -> Result<Arc<DocumentHandle>, FfiError> {
-    let (base, security) = pdf_manip::open_document_with_passwords_from_bytes(
-        &bytes,
-        &user_password,
-        &owner_password,
-    )?;
-    let document = pdf_save::document_from_lopdf(&base, security)?;
-    let render_doc = Some(open_render_doc_from_bytes(
-        bytes.clone(),
-        Some(&owner_password),
-    )?);
-
-    Ok(DocumentHandle::new(DocumentState::new(
-        document,
-        base,
-        Some(bytes),
-        render_doc,
-        Some(owner_password),
-    )))
+    open_with_credentials(
+        bytes,
+        pdf_manip::OpenCredentials::UserAndOwner {
+            user: user_password,
+            owner: owner_password,
+        },
+    )
 }
 
 /// Creates a new, blank PDF (zero pages) with the given default page size/
