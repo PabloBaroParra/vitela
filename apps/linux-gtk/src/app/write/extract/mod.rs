@@ -55,6 +55,7 @@ use pdf_document::Document;
 
 use super::chooser::choose_destination;
 use super::EXTRACT;
+use crate::app::i18n::tr;
 use crate::app::state::{ImportedSource, SaveBacking, Viewer};
 
 /// The snapshot an extraction carries from the live session onto the worker
@@ -100,15 +101,11 @@ pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
             .and_then(|session| session.document_model.as_ref())
             .map(|document| document.pages.len() as u32)
     }) else {
-        viewer
-            .status
-            .set_text("Open a PDF before extracting pages from it.");
+        viewer.status.set_text(&tr("extract-no-document"));
         return;
     };
     if total_pages == 0 {
-        viewer
-            .status
-            .set_text("This document has no pages to extract.");
+        viewer.status.set_text(&tr("extract-no-pages"));
         return;
     }
 
@@ -117,7 +114,7 @@ pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
         total_pages,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(EXTRACT.cancelled)
+            move || viewer.status.set_text(&EXTRACT.cancelled())
         },
         {
             let viewer = viewer.clone();
@@ -146,19 +143,15 @@ fn extract_to(viewer: &Viewer, pages: Vec<u32>, destination: PathBuf) {
     let request = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
-            viewer
-                .status
-                .set_text("Open a PDF before extracting pages from it.");
+            viewer.status.set_text(&tr("extract-no-document"));
             return;
         };
         let Some(document) = session.document_model.clone() else {
-            viewer
-                .status
-                .set_text("This document cannot be extracted from as an editable PDF.");
+            viewer.status.set_text(&tr("extract-not-editable"));
             return;
         };
         let Some(backing) = session.save_backing.clone() else {
-            viewer.status.set_text("This document has no save backing.");
+            viewer.status.set_text(&tr("write-no-save-backing"));
             return;
         };
         // The selection was parsed against the page count the dialog opened
@@ -169,9 +162,7 @@ fn extract_to(viewer: &Viewer, pages: Vec<u32>, destination: PathBuf) {
             .iter()
             .any(|&page| page as usize >= document.pages.len())
         {
-            viewer.status.set_text(
-                "The document changed while the destination was being chosen. Try again.",
-            );
+            viewer.status.set_text(&tr("extract-document-changed"));
             return;
         }
         ExtractRequest {

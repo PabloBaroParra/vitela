@@ -30,12 +30,13 @@ use super::super::worker::{atomic_write, save_worker_result, validate_written_by
 use super::super::{imported_sources, SPLIT};
 use super::options;
 use super::SplitRequest;
+use crate::app::i18n::tr_args;
 use crate::app::state::Viewer;
 use pdf_document::prune::prune_to;
 
 /// Writes every part on a worker thread and reports the result.
 pub(super) fn spawn_split(viewer: &Viewer, request: SplitRequest, folder: PathBuf) {
-    viewer.status.set_text(SPLIT.busy);
+    viewer.status.set_text(&SPLIT.busy());
 
     let generation = request.generation;
     let parts = request.parts.len();
@@ -53,9 +54,7 @@ pub(super) fn spawn_split(viewer: &Viewer, request: SplitRequest, folder: PathBu
                 Ok(()) => viewer
                     .status
                     .set_text(&options::split_summary(parts, &shown, signed)),
-                Err(error) => viewer
-                    .status
-                    .set_text(&format!("{}: {error}", SPLIT.failed)),
+                Err(error) => viewer.status.set_text(&SPLIT.failed(&error)),
             }
         }
     });
@@ -110,7 +109,14 @@ fn write_parts(request: SplitRequest, folder: &Path) -> Result<(), String> {
             &keep,
             &folder.join(&name),
         )
-        .map_err(|error| format!("{name} could not be written: {error}"))?;
+        .map_err(|error| {
+            // Rendered on the worker thread, in the same language: every
+            // thread picks it from the same locale environment.
+            tr_args(
+                "split-part-failed",
+                &[("name", name.as_str().into()), ("error", error.into())],
+            )
+        })?;
     }
     Ok(())
 }

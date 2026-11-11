@@ -49,6 +49,7 @@ use gtk::ApplicationWindow;
 use pdf_document::Document;
 
 use super::SPLIT;
+use crate::app::i18n::tr;
 use crate::app::state::{ImportedSource, SaveBacking, Viewer};
 
 /// The snapshot a split carries from the live session onto the worker thread.
@@ -96,7 +97,7 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
             .and_then(|session| session.document_model.as_ref())
             .map(|document| document.pages.len() as u32)
     }) else {
-        viewer.status.set_text("Open a PDF before splitting it.");
+        viewer.status.set_text(&tr("split-no-document"));
         return;
     };
     // A split has to leave something on both sides of a cut, so the floor is
@@ -105,15 +106,11 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
     // said in two sentences, because "no pages" and "one page" are different
     // documents and a user looking at either should be told which they have.
     if total_pages == 0 {
-        viewer
-            .status
-            .set_text("This document has no pages to split.");
+        viewer.status.set_text(&tr("split-no-pages"));
         return;
     }
     if total_pages < 2 {
-        viewer
-            .status
-            .set_text("A document of one page cannot be split.");
+        viewer.status.set_text(&tr("split-one-page"));
         return;
     }
 
@@ -122,7 +119,7 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
         total_pages,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(SPLIT.cancelled)
+            move || viewer.status.set_text(&SPLIT.cancelled())
         },
         {
             let viewer = viewer.clone();
@@ -145,21 +142,21 @@ fn build_request(viewer: &Viewer, cuts: &[u32], asked_pages: u32) -> Result<Spli
     let session = state
         .session
         .as_ref()
-        .ok_or("Open a PDF before splitting it.")?;
+        .ok_or_else(|| tr("split-no-document"))?;
     let document = session
         .document_model
         .clone()
-        .ok_or("This document cannot be split as an editable PDF.")?;
+        .ok_or_else(|| tr("split-not-editable"))?;
     let backing = session
         .save_backing
         .clone()
-        .ok_or("This document has no save backing.")?;
+        .ok_or_else(|| tr("write-no-save-backing"))?;
     // The cuts were parsed against the page count the dialog opened on. A
     // delete landing while the dialog was up would leave them naming a
     // boundary that no longer exists, and the parts computed from it would
     // run past the end of the model.
     if document.pages.len() as u32 != asked_pages {
-        return Err("The document changed while the cuts were being chosen. Try again.".to_owned());
+        return Err(tr("split-document-changed"));
     }
     Ok(SplitRequest {
         signed: pdf_manip::document_has_signatures(&backing.base),

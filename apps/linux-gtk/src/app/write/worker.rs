@@ -46,7 +46,7 @@ pub(super) fn spawn_write<W>(
 ) where
     W: FnOnce() -> Result<OpenedDocument, String> + Send + 'static,
 {
-    viewer.status.set_text(operation.busy);
+    viewer.status.set_text(&operation.busy());
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
@@ -54,7 +54,7 @@ pub(super) fn spawn_write<W>(
             match result {
                 Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
                     show_document(&viewer, generation, reopened);
-                    viewer.status.set_text(operation.done);
+                    viewer.status.set_text(&operation.done());
                     // Last: the continuation may replace this document, and
                     // its own status text should be what remains on screen.
                     if let Some(after) = after {
@@ -62,9 +62,9 @@ pub(super) fn spawn_write<W>(
                     }
                 }
                 Ok(reopened) => close_document_in_background(reopened.document),
-                Err(error) if session_matches(&viewer, token) => viewer
-                    .status
-                    .set_text(&format!("{}: {error}", operation.failed)),
+                Err(error) if session_matches(&viewer, token) => {
+                    viewer.status.set_text(&operation.failed(&error))
+                }
                 Err(_) => {}
             }
         }

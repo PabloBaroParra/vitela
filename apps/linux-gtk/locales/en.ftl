@@ -432,3 +432,126 @@ organize-import-anyway = Import anyway
 organize-import-apply-failed = Could not add the selected PDFs.
 # $count (Number) - pages imported. English keeps "pages" for every count.
 organize-imported-pages = Imported { $count } pages.
+
+## Write chains: shared by Compress, Split and Extract
+
+write-no-save-backing = This document has no save backing.
+
+## Compress: refusals, dialog, presets and sizes
+# The destination chooser, its replace prompt and the signature warning are
+# shared with Save and stay English for now.
+
+compress-no-document = Open a PDF before compressing it.
+compress-not-editable = This document cannot be saved as an editable PDF.
+compress-dialog-title = Compress PDF
+# $size (String) - the file's size, already formatted (compress-size-*).
+compress-current-size = This file is { $size } on disk.
+compress-preset-lossless = Lossless
+compress-preset-lossless-description = Repack the file only. Every page renders exactly as it does now.
+compress-preset-balanced = Balanced
+# Keep "150 DPI": a test pins the number against the preset.
+compress-preset-balanced-description = Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk.
+compress-preset-small = Small
+# Keep "96 DPI": a test pins the number against the preset.
+compress-preset-small-description = Also bring images down to 96 DPI. For when the file has to fit through something and the pixels matter less than that.
+compress-cancel = Cancel
+compress-accept = Compress
+compress-writing = Writing the compressed PDF...
+# $whole, $tenth (String) - integer and first decimal digit of the size in MB.
+compress-size-megabytes = { $whole }.{ $tenth } MB
+# $size (String) - the size in kB, already rounded.
+compress-size-kilobytes = { $size } kB
+# $count (Number) - the size in bytes, under 1000.
+compress-size-bytes =
+    { $count ->
+        [one] { $count } byte
+       *[other] { $count } bytes
+    }
+
+## Compress: results
+
+# $reasons (String) - the core's refusal sentences, kept verbatim.
+compress-refusals = Not everything could be done: { $reasons }.
+# $before, $after (String) - formatted sizes; $percent (Number) - whole percent saved.
+compress-reduced = { $before } uncompressed → { $after } compressed ({ $percent }% smaller). Choose where to write it.
+# $size (String) - formatted size.
+compress-no-gain = Nothing to gain: this document compresses to the same { $size } an uncompressed save writes, so no file was written.
+# $path (String) - destination path; $before, $after (String); $percent (Number).
+compress-written = Compressed PDF written to { $path } ({ $before } → { $after }, { $percent }% smaller).
+compress-chooser-title = Save compressed PDF
+compress-cancelled = Compression cancelled.
+compress-busy = Compressing PDF...
+compress-done = PDF compressed.
+# $error (String) - technical detail, kept verbatim.
+compress-failed = Could not compress PDF: { $error }
+
+## Split: refusals, dialog, folder and results
+# Cut-list parsing errors come from the core and stay English.
+
+split-no-document = Open a PDF before splitting it.
+split-no-pages = This document has no pages to split.
+split-one-page = A document of one page cannot be split.
+split-not-editable = This document cannot be split as an editable PDF.
+split-document-changed = The document changed while the cuts were being chosen. Try again.
+split-dialog-title = Split PDF
+split-cuts-label = Split after page
+# $total (Number) - pages in the document, always two or more.
+split-range-hint = This document has { $total } pages. Each cut starts a new file.
+split-cancel = Cancel
+split-accept = Split
+split-not-local-folder = The selected location is not a local folder.
+# $name (String) - part file name; $error (String) - technical detail, kept verbatim.
+split-check-failed = Could not check whether { $name } already exists: { $error }
+# $count (Number) - part files that already exist in the folder.
+split-replace-title =
+    { $count ->
+        [one] Replace { $count } existing PDF?
+       *[other] Replace { $count } existing PDFs?
+    }
+# $total (Number) - files the split writes; $count (Number) - those that already exist.
+split-replace-detail = Splitting into this folder writes { $total } files named after the document, and { $count } of them already exist there.
+split-replace = Replace
+# $name (String) - part file name; $error (String) - technical detail, kept verbatim.
+split-part-failed = { $name } could not be written: { $error }
+# $count (Number) - files written, always two or more; $folder (String) - folder path.
+split-summary = Split into { $count } PDFs in { $folder }.
+split-signed-note = The original document is signed, so the signature in each part no longer verifies.
+split-chooser-title = Split PDF into folder
+split-cancelled = Split cancelled.
+split-busy = Splitting PDF...
+split-done = PDF split.
+# $error (String) - technical detail, kept verbatim.
+split-failed = Could not split PDF: { $error }
+
+## Extract: refusals, dialog and results
+# Page-range parsing errors come from the core and stay English.
+
+extract-no-document = Open a PDF before extracting pages from it.
+extract-no-pages = This document has no pages to extract.
+extract-not-editable = This document cannot be extracted from as an editable PDF.
+extract-document-changed = The document changed while the destination was being chosen. Try again.
+# Keep "1-3,7" as typed: it is an example of the accepted page-range syntax.
+extract-empty-selection = Type which pages to extract, for example 1-3,7.
+extract-dialog-title = Extract pages
+extract-pages-label = Pages to extract
+# $count (Number) - pages in the document.
+extract-range-hint =
+    { $count ->
+        [one] This document has { $count } page.
+       *[other] This document has { $count } pages.
+    }
+extract-cancel = Cancel
+extract-accept = Extract
+# $count (Number) - pages extracted; $path (String) - destination path.
+extract-summary =
+    { $count ->
+        [one] Extracted { $count } page to { $path }.
+       *[other] Extracted { $count } pages to { $path }.
+    }
+extract-signed-note = The original document is signed, so the extracted PDF's signature no longer verifies.
+extract-chooser-title = Save extracted PDF
+extract-cancelled = Extraction cancelled.
+extract-busy = Extracting pages...
+extract-done = Pages extracted.
+# $error (String) - technical detail, kept verbatim.
+extract-failed = Could not extract pages: { $error }

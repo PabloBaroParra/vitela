@@ -41,7 +41,7 @@ use crate::app::state::Viewer;
 
 /// Writes the extracted PDF on a worker thread and reports the result.
 pub(super) fn spawn_extract(viewer: &Viewer, request: ExtractRequest, destination: PathBuf) {
-    viewer.status.set_text(EXTRACT.busy);
+    viewer.status.set_text(&EXTRACT.busy());
 
     let generation = request.generation;
     let count = request.pages.len();
@@ -59,9 +59,7 @@ pub(super) fn spawn_extract(viewer: &Viewer, request: ExtractRequest, destinatio
                 Ok(()) => viewer
                     .status
                     .set_text(&options::extract_summary(count, &shown, signed)),
-                Err(error) => viewer
-                    .status
-                    .set_text(&format!("{}: {error}", EXTRACT.failed)),
+                Err(error) => viewer.status.set_text(&EXTRACT.failed(&error)),
             }
         }
     });

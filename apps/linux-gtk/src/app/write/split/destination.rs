@@ -18,26 +18,25 @@ use gtk::{gio, AlertDialog, ApplicationWindow, FileDialog};
 
 use super::super::SPLIT;
 use super::{options, worker, SplitRequest};
+use crate::app::i18n::{tr, tr_args};
 use crate::app::state::Viewer;
 
 /// Asks which folder the parts go into.
 pub(super) fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request: SplitRequest) {
     let chooser = FileDialog::builder()
-        .title(SPLIT.title)
-        .accept_label("Split")
+        .title(SPLIT.title())
+        .accept_label(tr("split-accept"))
         .build();
     chooser.select_folder(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
         move |result| {
             let Ok(folder) = result else {
-                viewer.status.set_text(SPLIT.cancelled);
+                viewer.status.set_text(&SPLIT.cancelled());
                 return;
             };
             let Some(folder) = folder.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local folder.");
+                viewer.status.set_text(&tr("split-not-local-folder"));
                 return;
             };
             confirm_overwrites(&window, &viewer, request, folder);
@@ -72,8 +71,12 @@ fn confirm_overwrites(
             Ok(true) => existing += 1,
             Ok(false) => {}
             Err(error) => {
-                viewer.status.set_text(&format!(
-                    "Could not check whether {name} already exists: {error}"
+                viewer.status.set_text(&tr_args(
+                    "split-check-failed",
+                    &[
+                        ("name", name.as_str().into()),
+                        ("error", error.to_string().into()),
+                    ],
                 ));
                 return;
             }
@@ -84,14 +87,16 @@ fn confirm_overwrites(
         return;
     }
 
-    let files = if existing == 1 { "PDF" } else { "PDFs" };
     let dialog = AlertDialog::builder()
-        .message(format!("Replace {existing} existing {files}?"))
-        .detail(format!(
-            "Splitting into this folder writes {total} files named after the \
-             document, and {existing} of them already exist there."
+        .message(tr_args(
+            "split-replace-title",
+            &[("count", existing.into())],
         ))
-        .buttons(["Cancel", "Replace"])
+        .detail(tr_args(
+            "split-replace-detail",
+            &[("total", total.into()), ("count", existing.into())],
+        ))
+        .buttons(vec![tr("split-cancel"), tr("split-replace")])
         .cancel_button(0)
         .default_button(0)
         .modal(true)
@@ -106,7 +111,7 @@ fn confirm_overwrites(
         move |response| match (response == Ok(1), pending.take()) {
             (true, Some((request, folder))) => worker::spawn_split(&viewer, request, folder),
             (true, None) => {}
-            (false, _) => viewer.status.set_text(SPLIT.cancelled),
+            (false, _) => viewer.status.set_text(&SPLIT.cancelled()),
         }
     });
 }

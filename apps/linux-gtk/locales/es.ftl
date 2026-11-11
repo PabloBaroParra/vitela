@@ -415,3 +415,104 @@ organize-imported-pages =
         [one] { $count } página importada.
        *[other] { $count } páginas importadas.
     }
+
+## Write chains: shared by Compress, Split and Extract
+
+write-no-save-backing = Este documento no tiene una copia base desde la que guardarse.
+
+## Compress: refusals, dialog, presets and sizes
+
+compress-no-document = Abre un PDF antes de comprimirlo.
+compress-not-editable = Este documento no se puede guardar como un PDF editable.
+compress-dialog-title = Comprimir PDF
+compress-current-size = Este archivo ocupa { $size } en el disco.
+compress-preset-lossless = Sin pérdida
+compress-preset-lossless-description = Solo reorganiza el archivo. Todas las páginas se ven exactamente igual que ahora.
+compress-preset-balanced = Equilibrado
+compress-preset-balanced-description = Además, reduce las imágenes a 150 DPI. En pantalla no se aprecia la diferencia y en el disco ocupa bastante menos.
+compress-preset-small = Pequeño
+compress-preset-small-description = Además, reduce las imágenes a 96 DPI. Para cuando el archivo tiene que caber en algún sitio y los píxeles importan menos que eso.
+compress-cancel = Cancelar
+compress-accept = Comprimir
+compress-writing = Escribiendo el PDF comprimido...
+compress-size-megabytes = { $whole },{ $tenth } MB
+compress-size-kilobytes = { $size } kB
+compress-size-bytes =
+    { $count ->
+        [one] { $count } byte
+       *[other] { $count } bytes
+    }
+
+## Compress: results
+
+compress-refusals = No se pudo hacer todo: { $reasons }.
+compress-reduced = { $before } sin comprimir → { $after } comprimido ({ $percent } % menos). Elige dónde guardarlo.
+compress-no-gain = No hay nada que ganar: comprimido, este documento ocupa los mismos { $size } que al guardarlo sin comprimir, así que no se ha escrito ningún archivo.
+compress-written = PDF comprimido guardado en { $path } ({ $before } → { $after }, { $percent } % menos).
+compress-chooser-title = Guardar el PDF comprimido
+compress-cancelled = Compresión cancelada.
+compress-busy = Comprimiendo el PDF...
+compress-done = PDF comprimido.
+compress-failed = No se pudo comprimir el PDF: { $error }
+
+## Split: refusals, dialog, folder and results
+
+split-no-document = Abre un PDF antes de dividirlo.
+split-no-pages = Este documento no tiene páginas que dividir.
+split-one-page = Un documento de una sola página no se puede dividir.
+split-not-editable = Este documento no se puede dividir como un PDF editable.
+split-document-changed = El documento cambió mientras se elegían los cortes. Inténtalo de nuevo.
+split-dialog-title = Dividir PDF
+split-cuts-label = Dividir después de la página
+split-range-hint = Este documento tiene { $total } páginas. Cada corte empieza un archivo nuevo.
+split-cancel = Cancelar
+split-accept = Dividir
+split-not-local-folder = La ubicación seleccionada no es una carpeta local.
+split-check-failed = No se pudo comprobar si { $name } ya existe: { $error }
+split-replace-title =
+    { $count ->
+        [one] ¿Reemplazar { $count } PDF existente?
+       *[other] ¿Reemplazar { $count } PDF existentes?
+    }
+split-replace-detail =
+    { $count ->
+        [one] Al dividir en esta carpeta se escriben { $total } archivos con el nombre del documento, y { $count } de ellos ya existe allí.
+       *[other] Al dividir en esta carpeta se escriben { $total } archivos con el nombre del documento, y { $count } de ellos ya existen allí.
+    }
+split-replace = Reemplazar
+split-part-failed = No se pudo escribir { $name }: { $error }
+split-summary = PDF dividido en { $count } archivos en { $folder }.
+split-signed-note = El documento original está firmado, así que la firma de cada parte ya no es válida.
+split-chooser-title = Dividir el PDF en una carpeta
+split-cancelled = División cancelada.
+split-busy = Dividiendo el PDF...
+split-done = PDF dividido.
+split-failed = No se pudo dividir el PDF: { $error }
+
+## Extract: refusals, dialog and results
+
+extract-no-document = Abre un PDF antes de extraer páginas de él.
+extract-no-pages = Este documento no tiene páginas que extraer.
+extract-not-editable = No se pueden extraer páginas de este documento como un PDF editable.
+extract-document-changed = El documento cambió mientras se elegía el destino. Inténtalo de nuevo.
+extract-empty-selection = Escribe qué páginas quieres extraer, por ejemplo 1-3,7.
+extract-dialog-title = Extraer páginas
+extract-pages-label = Páginas que extraer
+extract-range-hint =
+    { $count ->
+        [one] Este documento tiene { $count } página.
+       *[other] Este documento tiene { $count } páginas.
+    }
+extract-cancel = Cancelar
+extract-accept = Extraer
+extract-summary =
+    { $count ->
+        [one] Se ha extraído { $count } página en { $path }.
+       *[other] Se han extraído { $count } páginas en { $path }.
+    }
+extract-signed-note = El documento original está firmado, así que la firma del PDF extraído ya no es válida.
+extract-chooser-title = Guardar el PDF extraído
+extract-cancelled = Extracción cancelada.
+extract-busy = Extrayendo páginas...
+extract-done = Páginas extraídas.
+extract-failed = No se pudieron extraer las páginas: { $error }

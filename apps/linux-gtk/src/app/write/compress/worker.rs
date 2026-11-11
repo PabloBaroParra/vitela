@@ -37,6 +37,7 @@ use super::super::worker::{atomic_write, save_worker_result, validate_written_by
 use super::super::{imported_sources, COMPRESS};
 use super::options;
 use super::{save_input, CompressRequest};
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 
 /// Runs the compression on a worker thread, then reports and — when there is
@@ -48,7 +49,7 @@ pub(super) fn spawn_compress(
     preset: CompressPreset,
     signatures: pdf_save::SignatureAcknowledgement,
 ) {
-    viewer.status.set_text(COMPRESS.busy);
+    viewer.status.set_text(&COMPRESS.busy());
     let generation = request.generation;
 
     glib::spawn_future_local({
@@ -65,9 +66,7 @@ pub(super) fn spawn_compress(
                     offer_destination(&window, &viewer, bytes, report, generation);
                 }
                 Ok((_, report)) => viewer.status.set_text(&options::no_gain_summary(&report)),
-                Err(error) => viewer
-                    .status
-                    .set_text(&format!("{}: {error}", COMPRESS.failed)),
+                Err(error) => viewer.status.set_text(&COMPRESS.failed(&error)),
             }
         }
     });
@@ -145,7 +144,7 @@ fn spawn_write(
     destination: PathBuf,
     generation: u64,
 ) {
-    viewer.status.set_text(options::WRITING);
+    viewer.status.set_text(&tr(options::WRITING));
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
@@ -160,9 +159,7 @@ fn spawn_write(
                 Ok(()) => viewer
                     .status
                     .set_text(&options::written_summary(&report, &written)),
-                Err(error) => viewer
-                    .status
-                    .set_text(&format!("{}: {error}", COMPRESS.failed)),
+                Err(error) => viewer.status.set_text(&COMPRESS.failed(&error)),
             }
         }
     });

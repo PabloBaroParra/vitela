@@ -12,6 +12,8 @@
 
 use std::path::Path;
 
+use crate::app::i18n::{tr, tr_args};
+
 /// The cuts `typed` names, as ascending deduplicated **zero-based** indices of
 /// the page each cut falls *after*, or the message to show instead.
 ///
@@ -69,12 +71,16 @@ pub(super) fn parts(cuts: &[u32], total_pages: u32) -> Vec<(u32, u32)> {
 /// a signature covering a page set it no longer has, so a reader will report
 /// it invalid.
 pub(super) fn split_summary(parts: usize, folder: &Path, signed: bool) -> String {
-    let mut summary = format!("Split into {parts} PDFs in {}.", folder.display());
+    let mut summary = tr_args(
+        "split-summary",
+        &[
+            ("count", parts.into()),
+            ("folder", folder.display().to_string().into()),
+        ],
+    );
     if signed {
-        summary.push_str(
-            " The original document is signed, so the signature in each part \
-             no longer verifies.",
-        );
+        summary.push(' ');
+        summary.push_str(&tr("split-signed-note"));
     }
     summary
 }

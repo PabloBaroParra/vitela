@@ -64,6 +64,7 @@ mod worker;
 
 use gtk::FileFilter;
 
+use super::i18n::{tr, tr_args};
 use super::state::ImportedSource;
 
 pub(crate) use compress::begin_compress;
@@ -104,6 +105,9 @@ pub(crate) fn pdf_filter() -> FileFilter {
 /// literals through its own copy of the chooser and the replace guard — is
 /// what had three separately maintained dialogs saying the same sentence in
 /// the first place.
+///
+/// Read the strings through the methods below, never the fields: whether a
+/// field is English text or a Fluent message id depends on [`Self::localized`].
 #[derive(Clone, Copy)]
 struct WriteOperation {
     /// The destination chooser's title.
@@ -115,8 +119,51 @@ struct WriteOperation {
     busy: &'static str,
     /// Shown once the written document has been reopened and installed.
     done: &'static str,
-    /// Prefixed to the worker's own error text, as `"{failed}: {error}"`.
+    /// Prefixed to the worker's own error text, as `"{failed}: {error}"` — or,
+    /// when [`Self::localized`], a message that takes it as `{ $error }`.
     failed: &'static str,
+    /// Whether the five strings above are Fluent message ids rather than
+    /// English text. Transitional: Compress, Split and Extract speak through
+    /// the catalogs; Save, Sign and Protect still carry literals.
+    localized: bool,
+}
+
+impl WriteOperation {
+    fn title(self) -> String {
+        self.text(self.title)
+    }
+
+    fn cancelled(self) -> String {
+        self.text(self.cancelled)
+    }
+
+    fn busy(self) -> String {
+        self.text(self.busy)
+    }
+
+    fn done(self) -> String {
+        self.text(self.done)
+    }
+
+    /// The failure sentence for the worker's own `error` text, which stays
+    /// verbatim.
+    fn failed(self, error: &str) -> String {
+        if self.localized {
+            tr_args(self.failed, &[("error", error.into())])
+        } else {
+            format!("{}: {error}", self.failed)
+        }
+    }
+
+    /// One of this operation's own strings, in the user's language when it
+    /// has been localized.
+    fn text(self, field: &'static str) -> String {
+        if self.localized {
+            tr(field)
+        } else {
+            field.to_owned()
+        }
+    }
 }
 
 const SAVE: WriteOperation = WriteOperation {
@@ -125,6 +172,7 @@ const SAVE: WriteOperation = WriteOperation {
     busy: "Saving PDF...",
     done: "PDF saved and reopened.",
     failed: "Could not save PDF",
+    localized: false,
 };
 
 const SIGN: WriteOperation = WriteOperation {
@@ -133,6 +181,7 @@ const SIGN: WriteOperation = WriteOperation {
     busy: "Signing PDF...",
     done: "PDF signed and reopened.",
     failed: "Could not sign PDF",
+    localized: false,
 };
 
 const PROTECT: WriteOperation = WriteOperation {
@@ -141,6 +190,7 @@ const PROTECT: WriteOperation = WriteOperation {
     busy: "Protecting PDF...",
     done: "PDF protected, saved and reopened.",
     failed: "Could not protect PDF",
+    localized: false,
 };
 
 /// The last two operations' vocabulary — and the two entries in this table
@@ -152,22 +202,24 @@ const PROTECT: WriteOperation = WriteOperation {
 /// than made optional to keep one shape for all six; `done` stays the slot it
 /// is for the three chains that reach `worker::spawn_write`.
 const EXTRACT: WriteOperation = WriteOperation {
-    title: "Save extracted PDF",
-    cancelled: "Extraction cancelled.",
-    busy: "Extracting pages...",
-    done: "Pages extracted.",
-    failed: "Could not extract pages",
+    title: "extract-chooser-title",
+    cancelled: "extract-cancelled",
+    busy: "extract-busy",
+    done: "extract-done",
+    failed: "extract-failed",
+    localized: true,
 };
 
 /// `title` here names a **folder** chooser rather than a save dialog — see
 /// [`split`] for why a chain that writes one file per cut has no single
 /// destination to ask for.
 const SPLIT: WriteOperation = WriteOperation {
-    title: "Split PDF into folder",
-    cancelled: "Split cancelled.",
-    busy: "Splitting PDF...",
-    done: "PDF split.",
-    failed: "Could not split PDF",
+    title: "split-chooser-title",
+    cancelled: "split-cancelled",
+    busy: "split-busy",
+    done: "split-done",
+    failed: "split-failed",
+    localized: true,
 };
 
 /// The third entry whose `done` the user never sees, and for a sharper reason
@@ -177,10 +229,14 @@ const SPLIT: WriteOperation = WriteOperation {
 /// compression itself; the shorter write that follows has its own line in
 /// `compress::options`, because "Compressing PDF..." shown twice reads as the
 /// work starting over.
+///
+/// [`EXTRACT`], [`SPLIT`] and this one hold message ids (`localized`); the
+/// English text lives in `locales/en.ftl`.
 const COMPRESS: WriteOperation = WriteOperation {
-    title: "Save compressed PDF",
-    cancelled: "Compression cancelled.",
-    busy: "Compressing PDF...",
-    done: "PDF compressed.",
-    failed: "Could not compress PDF",
+    title: "compress-chooser-title",
+    cancelled: "compress-cancelled",
+    busy: "compress-busy",
+    done: "compress-done",
+    failed: "compress-failed",
+    localized: true,
 };
