@@ -11,13 +11,14 @@ use gtk::{
 };
 use pdf_document::{Command, ImportedDocumentId, Page, PageId};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::state::{ImportedSource, SessionToken, Viewer};
 
 use super::command::{apply_command, command, model};
 use super::grid::populate_grid;
 use super::NO_DOCUMENT;
 
-const IMPORT_CANCELLED: &str = "PDF import cancelled.";
+const IMPORT_CANCELLED: &str = "organize-import-cancelled";
 
 #[derive(Clone)]
 struct PreparedImport {
@@ -53,13 +54,13 @@ pub(super) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
     let filter = FileFilter::new();
-    filter.set_name(Some("PDF files"));
+    filter.set_name(Some(&tr("organize-import-filter")));
     filter.add_mime_type("application/pdf");
     filter.add_pattern("*.pdf");
     filter.add_pattern("*.PDF");
     let chooser = FileDialog::builder()
-        .title("Add PDFs")
-        .accept_label("Add")
+        .title(tr("organize-import-chooser-title"))
+        .accept_label(tr("organize-import-accept"))
         .default_filter(&filter)
         .build();
     chooser.open_multiple(Some(window), None::<&gio::Cancellable>, {
@@ -67,7 +68,7 @@ pub(super) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         let viewer = viewer.clone();
         move |result| {
             let Ok(files) = result else {
-                viewer.status.set_text(IMPORT_CANCELLED);
+                viewer.status.set_text(&tr(IMPORT_CANCELLED));
                 return;
             };
             let paths: Result<Vec<_>, _> = (0..files.n_items())
@@ -76,13 +77,13 @@ pub(super) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                         .item(index)
                         .and_then(|item| item.downcast::<gio::File>().ok())
                         .and_then(|file| file.path())
-                        .ok_or("Every selected PDF must be a local file.")
+                        .ok_or("organize-import-not-local")
                 })
                 .collect();
             match paths {
                 Ok(paths) if !paths.is_empty() => start(window.clone(), viewer.clone(), paths),
-                Ok(_) => viewer.status.set_text(IMPORT_CANCELLED),
-                Err(error) => viewer.status.set_text(error),
+                Ok(_) => viewer.status.set_text(&tr(IMPORT_CANCELLED)),
+                Err(key) => viewer.status.set_text(&tr(key)),
             }
         }
     });
@@ -103,7 +104,7 @@ pub(super) fn cancel(viewer: &Viewer) {
         dialog.destroy();
     }
     finish(viewer);
-    viewer.status.set_text(IMPORT_CANCELLED);
+    viewer.status.set_text(&tr(IMPORT_CANCELLED));
 }
 
 fn import_refusal(viewer: &Viewer) -> Option<&'static str> {
@@ -115,7 +116,7 @@ fn import_refusal(viewer: &Viewer) -> Option<&'static str> {
 
 fn start(window: ApplicationWindow, viewer: Viewer, paths: Vec<PathBuf>) {
     let Some((token, first_source_id, first_page_id)) = import_ids(&viewer) else {
-        viewer.status.set_text(NO_DOCUMENT);
+        viewer.status.set_text(&tr(NO_DOCUMENT));
         return;
     };
     let cancellation = Arc::new(AtomicBool::new(false));
@@ -205,7 +206,7 @@ fn run(window: ApplicationWindow, viewer: Viewer, request: ImportRequest) {
                 finish(&viewer);
                 viewer
                     .status
-                    .set_text("PDF import worker stopped unexpectedly.");
+                    .set_text(&tr("organize-import-worker-stopped"));
             }
             _ => finish_if_owned(&viewer, &request.cancellation),
         }
@@ -267,14 +268,12 @@ fn prepare(
         check_cancelled(cancellation)?;
         let source_id = first_source_id
             .checked_add(offset as u64)
-            .ok_or_else(|| failed("Imported PDF id space is exhausted."))?;
+            .ok_or_else(|| failed("organize-import-source-ids-exhausted"))?;
         let name = path
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("Selected PDF")
-            .to_owned();
-        let bytes = std::fs::read(&path)
-            .map_err(|error| failed(format!("Could not import {name}: {error}")))?;
+            .map_or_else(|| tr("organize-import-unnamed"), str::to_owned);
+        let bytes = std::fs::read(&path).map_err(|error| source_failed(&name, error))?;
         check_cancelled(cancellation)?;
         let password = passwords.get(&path).map(String::as_str);
         // The source's own copy permission is the core's rule, not this
@@ -286,21 +285,17 @@ fn prepare(
                 return Err(PrepareError::PasswordRequired { path, name });
             }
             Err(pdf_manip::ManipError::SourceForbidsCopying) => {
-                return Err(failed(format!(
-                    "Could not import {name}: the PDF does not permit copying its pages."
-                )));
+                return Err(named_failure("organize-import-no-copying", &name));
             }
-            Err(error) => return Err(failed(format!("Could not import {name}: {error}"))),
+            Err(error) => return Err(source_failed(&name, error)),
         };
         check_cancelled(cancellation)?;
         let selected: Vec<usize> = (0..document.page_count()).collect();
         if selected.is_empty() {
-            return Err(failed(format!(
-                "Could not import {name}: the PDF has no pages."
-            )));
+            return Err(named_failure("organize-import-no-pages", &name));
         }
         let graft = pdf_manip::graft_report(&document, &selected)
-            .map_err(|error| failed(format!("Could not import {name}: {error}")))?;
+            .map_err(|error| source_failed(&name, error))?;
         warnings.extend(
             graft
                 .warnings()
@@ -313,12 +308,12 @@ fn prepare(
             ImportedDocumentId(source_id),
             PageId(next_page_id),
         )
-        .map_err(|error| failed(format!("Could not import {name}: {error}")))?;
-        let imported_count = u32::try_from(imported.len())
-            .map_err(|_| failed("The selected PDFs have too many pages."))?;
+        .map_err(|error| source_failed(&name, error))?;
+        let imported_count =
+            u32::try_from(imported.len()).map_err(|_| failed("organize-import-too-many-pages"))?;
         next_page_id = next_page_id
             .checked_add(imported_count)
-            .ok_or_else(|| failed("Page id space is exhausted."))?;
+            .ok_or_else(|| failed("organize-import-page-ids-exhausted"))?;
         pages.extend(imported);
         sources.push(ImportedSource {
             id: ImportedDocumentId(source_id),
@@ -345,8 +340,26 @@ fn check_cancelled(cancellation: &AtomicBool) -> Result<(), PrepareError> {
     }
 }
 
-fn failed(message: impl Into<String>) -> PrepareError {
-    PrepareError::Failed(message.into())
+// The three below render on the import worker, not the GTK thread. That is
+// the same language: each thread picks it from the same locale environment
+// (`i18n` module doc), and tests speak English on every thread.
+
+/// A failure that names no source: message `key`.
+fn failed(key: &str) -> PrepareError {
+    PrepareError::Failed(tr(key))
+}
+
+/// A failure about source `name`: message `key`.
+fn named_failure(key: &str, name: &str) -> PrepareError {
+    PrepareError::Failed(tr_args(key, &[("name", name.into())]))
+}
+
+/// Source `name` could not be read or converted; `error` stays verbatim.
+fn source_failed(name: &str, error: impl std::fmt::Display) -> PrepareError {
+    PrepareError::Failed(tr_args(
+        "organize-import-failed",
+        &[("name", name.into()), ("error", error.to_string().into())],
+    ))
 }
 
 fn current(viewer: &Viewer, request: &ImportRequest) -> bool {
@@ -373,7 +386,7 @@ fn set_running(viewer: &Viewer, total: usize) {
     viewer.organize.import_progress.set_show_text(true);
     viewer.organize.import_progress.set_visible(true);
     viewer.organize.cancel_import_button.set_visible(true);
-    viewer.status.set_text("Checking selected PDFs...");
+    viewer.status.set_text(&tr("organize-import-checking"));
 }
 
 fn update_progress(viewer: &Viewer, progress: ImportProgress) {
@@ -393,7 +406,13 @@ fn update_progress(viewer: &Viewer, progress: ImportProgress) {
 }
 
 fn progress_text(progress: ImportProgress) -> String {
-    format!("{} of {} PDFs", progress.completed, progress.total)
+    tr_args(
+        "organize-import-progress",
+        &[
+            ("completed", progress.completed.into()),
+            ("total", progress.total.into()),
+        ],
+    )
 }
 
 fn finish(viewer: &Viewer) {
@@ -436,7 +455,7 @@ fn finish_if_owned(viewer: &Viewer, cancellation: &Arc<AtomicBool>) {
 
 fn cancelled(viewer: &Viewer) {
     finish(viewer);
-    viewer.status.set_text(IMPORT_CANCELLED);
+    viewer.status.set_text(&tr(IMPORT_CANCELLED));
 }
 
 fn prompt_for_password(
@@ -454,20 +473,23 @@ fn prompt_for_password(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Password required")
+        .title(tr("organize-import-password-title"))
         .child(&content)
         .build();
-    let prompt = Label::new(Some(&format!("Enter the password for {name}.")));
+    let prompt = Label::new(Some(&tr_args(
+        "organize-import-password-prompt",
+        &[("name", name.as_str().into())],
+    )));
     prompt.set_xalign(0.0);
     let password_entry = PasswordEntry::builder().show_peek_icon(true).build();
     let error = Label::new(None);
     error.set_xalign(0.0);
     if request.passwords.contains_key(&path) {
-        error.set_text("The password is incorrect. Try again.");
+        error.set_text(&tr("organize-import-password-wrong"));
     }
     let buttons = GtkBox::new(Orientation::Horizontal, 8);
-    let cancel_button = Button::with_label("Cancel import");
-    let unlock = Button::with_label("Unlock");
+    let cancel_button = Button::with_label(&tr("organize-import-password-cancel"));
+    let unlock = Button::with_label(&tr("organize-import-unlock"));
     buttons.append(&cancel_button);
     buttons.append(&unlock);
     content.append(&prompt);
@@ -476,9 +498,10 @@ fn prompt_for_password(
     content.append(&buttons);
     password_entry.grab_focus();
     viewer.state.borrow_mut().import_password_dialog = Some(dialog.clone());
-    viewer
-        .status
-        .set_text(&format!("Waiting for the password for {name}."));
+    viewer.status.set_text(&tr_args(
+        "organize-import-password-waiting",
+        &[("name", name.as_str().into())],
+    ));
 
     let request = Rc::new(std::cell::RefCell::new(Some(request)));
     let submit: Rc<dyn Fn()> = Rc::new({
@@ -495,7 +518,7 @@ fn prompt_for_password(
                 .passwords
                 .insert(path.clone(), password_entry.text().to_string());
             dismiss_password_dialog(&viewer, &dialog);
-            viewer.status.set_text("Checking selected PDFs...");
+            viewer.status.set_text(&tr("organize-import-checking"));
             run(window.clone(), viewer.clone(), request);
         }
     });
@@ -528,9 +551,12 @@ fn confirm(
 ) {
     let detail = prepared.warnings.join("\n");
     let dialog = AlertDialog::builder()
-        .message("Some document-level information will stay behind")
+        .message(tr("organize-import-warning-title"))
         .detail(&detail)
-        .buttons(["Cancel", "Import anyway"])
+        .buttons(vec![
+            tr("organize-import-warning-cancel"),
+            tr("organize-import-anyway"),
+        ])
         .cancel_button(0)
         .default_button(0)
         .modal(true)
@@ -541,7 +567,7 @@ fn confirm(
             if response == Ok(1) {
                 apply(&viewer, token, prepared.clone());
             } else {
-                viewer.status.set_text(IMPORT_CANCELLED);
+                viewer.status.set_text(&tr(IMPORT_CANCELLED));
             }
         }
     });
@@ -557,9 +583,7 @@ fn token_matches(viewer: &Viewer, token: SessionToken) -> bool {
 
 fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
     if !token_matches(viewer, token) {
-        viewer
-            .status
-            .set_text("PDF import cancelled because the document changed.");
+        viewer.status.set_text(&tr("organize-import-changed"));
         return;
     }
     let count = prepared.pages.len();
@@ -572,14 +596,17 @@ fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
                 pages: prepared.pages,
             },
         ) {
-            return Err("Could not add the selected PDFs.".to_string());
+            return Err(tr("organize-import-apply-failed"));
         }
         session.imported_sources.extend(prepared.sources);
         // Nothing to bump: applying `ImportPages` claimed every id it
         // carried, so the model's counter is already past the batch — and
         // past it whether or not this shell counted the pages correctly.
         session.import_warning_revision = Some(session.edit_revision.saturating_add(1));
-        Ok(format!("Imported {count} pages."))
+        Ok(tr_args(
+            "organize-imported-pages",
+            &[("count", count.into())],
+        ))
     });
     if result {
         populate_grid(viewer);

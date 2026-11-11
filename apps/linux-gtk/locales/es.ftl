@@ -308,3 +308,110 @@ signature-forgotten = Tu firma guardada se ha eliminado de este equipo.
 signature-armed = Haz clic en una página para colocar tu firma.
 signature-disarmed = Firma desactivada.
 signature-stale = Esa firma se dibujó para otro documento. Vuelve a dibujarla para colocarla.
+
+## Organize: header, view switch and hints
+
+organize-heading = Organizar páginas
+organize-import-progress-name = Progreso de la importación de PDF
+organize-cancel-import = Cancelar
+organize-undo = Deshacer
+organize-redo = Rehacer
+organize-add-pdfs = Añadir PDF
+organize-extract = Extraer
+organize-extract-tooltip = Guardar las páginas elegidas como un PDF nuevo
+organize-split = Dividir
+organize-split-tooltip = Dividir este PDF en varios PDF nuevos
+organize-save = Guardar
+organize-view-documents = Documentos
+organize-view-pages = Páginas
+organize-documents-hint = Arrastra un documento para mover todas sus páginas.
+organize-pages-hint = Arrastra una página para cambiarla de posición.
+
+## Organize: page and document cards (accessible names and tooltips)
+
+organize-block-title-part = { $name } — Parte { $part }
+organize-block-meta-one = 1 página · { $first }
+organize-block-meta = { $count } páginas · { $first }–{ $last }
+organize-block-name = { $title }, { $meta }, documento { $position } de { $total }
+organize-block-move-up = Subir: { $name }
+organize-block-move-down = Bajar: { $name }
+organize-block-rotate-left = Girar a la izquierda: { $name }
+organize-block-rotate-right = Girar a la derecha: { $name }
+organize-block-delete = Eliminar { $name }
+organize-blank-pages = Páginas en blanco
+organize-blank-page = Página en blanco
+organize-imported-pdf = PDF importado
+organize-page-rotate-left = Girar la página a la izquierda
+organize-page-rotate-right = Girar la página a la derecha
+organize-page-delete = Eliminar la página
+
+## Organize: page operation results and refusals
+
+organize-no-document = Abre un PDF antes de organizar sus páginas.
+organize-invalid-position = La posición de la página no es válida.
+organize-page-gone = La página ya no existe.
+organize-pages-gone = Esas páginas ya no existen.
+organize-move-page-failed = No se pudo mover la página.
+organize-move-document-failed = No se pudo mover el documento.
+organize-delete-page-failed = No se pudo eliminar la página.
+organize-delete-document-failed = No se pudo eliminar el documento.
+organize-rotate-page-failed = No se pudo girar la página.
+organize-rotate-document-failed = No se pudo girar el documento.
+organize-moved-page = Página { $from } movida a la posición { $to }.
+organize-moved-pages =
+    { $count ->
+        [one] { $count } página movida a la posición { $to }.
+       *[other] { $count } páginas movidas a la posición { $to }.
+    }
+organize-deleted-page = Página { $page } eliminada.
+organize-deleted-pages =
+    { $count ->
+        [one] { $count } página eliminada.
+       *[other] { $count } páginas eliminadas.
+    }
+organize-rotated-page-left = Página { $page } girada a la izquierda.
+organize-rotated-page-right = Página { $page } girada a la derecha.
+organize-rotated-pages-left =
+    { $count ->
+        [one] { $count } página girada a la izquierda.
+       *[other] { $count } páginas giradas a la izquierda.
+    }
+organize-rotated-pages-right =
+    { $count ->
+        [one] { $count } página girada a la derecha.
+       *[other] { $count } páginas giradas a la derecha.
+    }
+
+## Organize: adding PDFs (chooser, progress, passwords and results)
+
+organize-import-filter = Archivos PDF
+organize-import-chooser-title = Añadir PDF
+organize-import-accept = Añadir
+organize-import-cancelled = Importación de PDF cancelada.
+organize-import-changed = Importación de PDF cancelada porque el documento ha cambiado.
+organize-import-not-local = Todos los PDF seleccionados deben ser archivos locales.
+organize-import-checking = Comprobando los PDF seleccionados...
+organize-import-progress = { $completed } de { $total } PDF
+organize-import-worker-stopped = El proceso de importación de PDF se detuvo de forma inesperada.
+organize-import-unnamed = PDF seleccionado
+organize-import-failed = No se pudo importar { $name }: { $error }
+organize-import-no-copying = No se pudo importar { $name }: el PDF no permite copiar sus páginas.
+organize-import-no-pages = No se pudo importar { $name }: el PDF no tiene páginas.
+organize-import-too-many-pages = Los PDF seleccionados tienen demasiadas páginas.
+organize-import-source-ids-exhausted = Se han agotado los identificadores de PDF importados.
+organize-import-page-ids-exhausted = Se han agotado los identificadores de página.
+organize-import-password-title = Se necesita una contraseña
+organize-import-password-prompt = Introduce la contraseña de { $name }.
+organize-import-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
+organize-import-password-cancel = Cancelar la importación
+organize-import-unlock = Desbloquear
+organize-import-password-waiting = Esperando la contraseña de { $name }.
+organize-import-warning-title = Parte de la información del documento no se conservará
+organize-import-warning-cancel = Cancelar
+organize-import-anyway = Importar de todos modos
+organize-import-apply-failed = No se pudieron añadir los PDF seleccionados.
+organize-imported-pages =
+    { $count ->
+        [one] { $count } página importada.
+       *[other] { $count } páginas importadas.
+    }

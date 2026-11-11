@@ -11,6 +11,7 @@ use gtk::prelude::*;
 use gtk::{gdk, glib, Box as GtkBox, Button, DragSource, FlowBox, Label, Orientation, Picture};
 use pdf_document::{BlockSource, PageId};
 
+use crate::app::i18n::tr;
 use crate::app::icons::{build_icon, Icon, ACCENT_TINT};
 use crate::app::state::{Card, Cards, Viewer};
 
@@ -77,12 +78,12 @@ pub(super) fn build_card(viewer: &Viewer, grid: &FlowBox, cards: &Cards, id: Pag
     // stays at the end of the row, where it was before the turns joined it.
     // (`super::super::tests::delete_button` reads it as the footer's last
     // child, and so, more importantly, does a user's muscle memory.)
-    let rotate_left_button = footer_button(Icon::RotateLeft, "Rotate page left");
+    let rotate_left_button = footer_button(Icon::RotateLeft, &tr("organize-page-rotate-left"));
     footer.append(&rotate_left_button);
-    let rotate_right_button = footer_button(Icon::RotateRight, "Rotate page right");
+    let rotate_right_button = footer_button(Icon::RotateRight, &tr("organize-page-rotate-right"));
     footer.append(&rotate_right_button);
 
-    let delete_button = footer_button(Icon::Delete, "Delete page");
+    let delete_button = footer_button(Icon::Delete, &tr("organize-page-delete"));
     footer.append(&delete_button);
     card.append(&footer);
 
@@ -217,6 +218,8 @@ fn source_names(viewer: &Viewer) -> Vec<Option<String>> {
     }
     sources
         .into_iter()
-        .map(|source| Some(source_name(session, source).unwrap_or_else(|| "Blank page".to_owned())))
+        .map(|source| {
+            Some(source_name(session, source).unwrap_or_else(|| tr("organize-blank-page")))
+        })
         .collect()
 }

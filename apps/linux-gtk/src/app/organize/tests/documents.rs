@@ -11,6 +11,7 @@ use pdf_document::{
 
 use super::super::documents::{DOCUMENTS_HINT, DOCUMENTS_VIEW, PAGES_HINT, PAGES_VIEW};
 use super::with_documents;
+use crate::app::i18n::tr;
 use crate::app::state::{ImportedSource, Viewer};
 
 pub(super) fn base_page(id: u32) -> Page {
@@ -114,7 +115,7 @@ fn gtk_ui_organize_opens_on_the_documents_view() {
             viewer.organize.views.visible_child_name().as_deref(),
             Some(DOCUMENTS_VIEW)
         );
-        assert_eq!(viewer.organize.hint.text(), DOCUMENTS_HINT);
+        assert_eq!(viewer.organize.hint.text(), tr(DOCUMENTS_HINT));
         // The Pages view is built but empty until it is asked for: opening
         // the screen must not pay for a render per page.
         assert!(viewer.organize.cards.snapshot().is_empty());
@@ -131,7 +132,7 @@ fn gtk_ui_the_selector_switches_views_and_the_hint_follows() {
             viewer.organize.views.visible_child_name().as_deref(),
             Some(PAGES_VIEW)
         );
-        assert_eq!(viewer.organize.hint.text(), PAGES_HINT);
+        assert_eq!(viewer.organize.hint.text(), tr(PAGES_HINT));
         assert_eq!(viewer.organize.cards.snapshot().len(), 5);
 
         viewer.organize.documents_toggle.set_active(true);
@@ -140,7 +141,7 @@ fn gtk_ui_the_selector_switches_views_and_the_hint_follows() {
             viewer.organize.views.visible_child_name().as_deref(),
             Some(DOCUMENTS_VIEW)
         );
-        assert_eq!(viewer.organize.hint.text(), DOCUMENTS_HINT);
+        assert_eq!(viewer.organize.hint.text(), tr(DOCUMENTS_HINT));
     });
 }
 

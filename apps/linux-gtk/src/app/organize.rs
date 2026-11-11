@@ -50,7 +50,8 @@ pub(crate) const ORGANIZE_PAGE: &str = "organize";
 
 pub(crate) use documents::ORGANIZE_CSS;
 
-const NO_DOCUMENT: &str = "Open a PDF before organizing its pages.";
+/// Fluent key for the refusal when no document is open.
+const NO_DOCUMENT: &str = "organize-no-document";
 mod autoscroll;
 pub(in crate::app::organize) mod cache;
 mod command;

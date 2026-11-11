@@ -28,6 +28,7 @@ use gtk::prelude::*;
 use pdf_document::{derive_blocks, BlockSource, PageId};
 use pdf_render::DocumentHandle;
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::state::{DocumentSession, Viewer};
 
 use card::build_card;
@@ -42,8 +43,9 @@ pub(crate) use style::ORGANIZE_CSS;
 pub(super) const DOCUMENTS_VIEW: &str = "documents";
 pub(super) const PAGES_VIEW: &str = "pages";
 
-pub(super) const DOCUMENTS_HINT: &str = "Drag a document to move all of its pages.";
-pub(super) const PAGES_HINT: &str = "Drag a page to reorder it.";
+/// Fluent keys for the hint under the view switch.
+pub(super) const DOCUMENTS_HINT: &str = "organize-documents-hint";
+pub(super) const PAGES_HINT: &str = "organize-pages-hint";
 
 /// One block, flattened into everything a card needs and nothing that needs
 /// the session borrow held open.
@@ -66,7 +68,10 @@ impl Row {
     /// "report.pdf" or "report.pdf — Part 2", the card's title.
     pub(super) fn title(&self) -> String {
         match self.part {
-            Some(part) => format!("{} — Part {part}", self.name),
+            Some(part) => tr_args(
+                "organize-block-title-part",
+                &[("name", self.name.as_str().into()), ("part", part.into())],
+            ),
             None => self.name.clone(),
         }
     }
@@ -74,13 +79,19 @@ impl Row {
     /// "7 pages · 3–9", the card's second line: how big the block is and
     /// where it currently sits in the assembled document.
     pub(super) fn meta(&self) -> String {
-        let pages = if self.count == 1 { "page" } else { "pages" };
         let first = self.start + 1;
         let last = self.start + self.count;
         if self.count == 1 {
-            format!("1 {pages} · {first}")
+            tr_args("organize-block-meta-one", &[("first", first.into())])
         } else {
-            format!("{} {pages} · {first}–{last}", self.count)
+            tr_args(
+                "organize-block-meta",
+                &[
+                    ("count", self.count.into()),
+                    ("first", first.into()),
+                    ("last", last.into()),
+                ],
+            )
         }
     }
 }
@@ -125,7 +136,7 @@ pub(super) fn source_name(session: &DocumentSession, source: BlockSource) -> Opt
                 .imported_sources
                 .iter()
                 .find(|source| source.id == id)
-                .map_or_else(|| "Imported PDF".to_owned(), |source| source.name.clone()),
+                .map_or_else(|| tr("organize-imported-pdf"), |source| source.name.clone()),
         ),
     }
 }
@@ -144,7 +155,7 @@ pub(super) fn rows(viewer: &Viewer) -> Option<(Vec<Row>, DocumentHandle)> {
             let row = Row {
                 anchor: block.anchor,
                 name: source_name(session, block.source)
-                    .unwrap_or_else(|| "Blank pages".to_owned()),
+                    .unwrap_or_else(|| tr("organize-blank-pages")),
                 part: block.part,
                 start,
                 count: block.pages.len(),
@@ -205,5 +216,35 @@ mod tests {
 
         assert_eq!(single.title(), "cover.pdf");
         assert_eq!(single.meta(), "1 page · 1");
+    }
+
+    #[test]
+    fn spanish_card_lines_and_block_results() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        let split = Row {
+            anchor: PageId(4),
+            name: "report.pdf".to_owned(),
+            part: Some(2),
+            start: 2,
+            count: 7,
+            cover: None,
+        };
+        assert_eq!(split.title(), "report.pdf — Parte 2");
+        assert_eq!(split.meta(), "7 páginas · 3–9");
+        assert_eq!(
+            tr(DOCUMENTS_HINT),
+            "Arrastra un documento para mover todas sus páginas."
+        );
+        assert_eq!(
+            tr_args("organize-rotated-pages-left", &[("count", 1.into())]),
+            "1 página girada a la izquierda."
+        );
+        assert_eq!(
+            tr_args(
+                "organize-moved-pages",
+                &[("count", 3.into()), ("to", 5.into())]
+            ),
+            "3 páginas movidas a la posición 5."
+        );
     }
 }
