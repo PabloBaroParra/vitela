@@ -9,6 +9,10 @@ const t0 = performance.now();
 const bust = new URLSearchParams(location.search).has('cold') ? '?t=' + Date.now() : '';
 const stage = (name) => self.postMessage({ stage: name, atMs: performance.now() - t0 });
 self.SPIKE_DEBUG = new URLSearchParams(location.search).has('debug');
+// Stage times are stamped where each promise settles, not where onmessage
+// awaits it, so a module that was ready before the message arrived is not
+// reported as late.
+const marks = {};
 const pdfiumReady = new Promise((resolve, reject) => {
   self.Module = {
     locateFile: (path) => 'pdfium/' + path + bust,
@@ -19,6 +23,7 @@ const pdfiumReady = new Promise((resolve, reject) => {
       // chromium/7763 build exports neither, only the real
       // `_FPDF_InitLibrary`, so alias it. (wasm_bindings.rs:1652-1668)
       self.Module._PDFium_Init = self.Module._FPDF_InitLibrary;
+      marks.pdfiumReadyMs = performance.now() - t0;
       resolve(self.Module);
     },
     // Without this a failed runtime (404 on pdfium.wasm, bad module, OOM)
@@ -30,9 +35,8 @@ importScripts('pdfium/pdfium.js' + bust, 'pkg/web_wasm_spike.js' + bust);
 
 self.onmessage = async ({ data }) => {
   try {
-    const marks = {};
     const [pdfiumModule, rustModule, bytes] = await Promise.all([
-      pdfiumReady.then((m) => { marks.pdfiumReadyMs = performance.now() - t0; return m; }),
+      pdfiumReady,
       wasm_bindgen({ module_or_path: 'pkg/web_wasm_spike_bg.wasm' + bust }).then((m) => { marks.rustReadyMs = performance.now() - t0; return m; }),
       fetch(data.fixture + bust).then((r) => {
         if (!r.ok) throw new Error(`fixture ${data.fixture}: HTTP ${r.status}`);

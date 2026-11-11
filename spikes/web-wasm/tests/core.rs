@@ -15,7 +15,10 @@ fn opens_fixture_and_counts_pages() {
 #[wasm_bindgen_test]
 fn encrypted_fixture_needs_password() {
     let bytes = include_bytes!("../../../tests/fixtures/encrypted/aes_128_user_and_owner.pdf");
-    assert!(pdf_manip::open_document_from_bytes(bytes, None).is_err());
+    assert!(matches!(
+        pdf_manip::open_document_from_bytes(bytes, None),
+        Err(pdf_manip::ManipError::PasswordRequired)
+    ));
 }
 
 #[wasm_bindgen_test]

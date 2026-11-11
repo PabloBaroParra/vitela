@@ -15,6 +15,14 @@ WASM inside a Web Worker. Fixture: <code id="name"></code></p>
   document.getElementById('name').textContent = fixture;
   const log = document.getElementById('log');
   const worker = new Worker('worker.js' + location.search);
+  // A worker whose scripts fail to load (or that throws outside onmessage)
+  // never posts a message; report it so the page cannot stay on "loading…".
+  worker.onerror = (event) => {
+    event.preventDefault();
+    const error = 'worker failed: ' + (event.message || 'script did not load');
+    log.textContent = 'ERROR: ' + error;
+    window.spikeResult = { error };
+  };
   worker.onmessage = ({ data }) => {
     if (data.stage) { log.textContent += '\n' + data.stage + ' @ ' + data.atMs.toFixed(0) + 'ms'; return; }
     if (data.error) { log.textContent = 'ERROR: ' + data.error; window.spikeResult = data; return; }

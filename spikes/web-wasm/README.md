@@ -55,16 +55,19 @@ The worker reports its own stages. Page: `reportlab_acroform.pdf` at
 
 | Run | pdfium ready | Rust ready | core open | pdfium render | **pixels on canvas** |
 |---|---:|---:|---:|---:|---:|
-| cold 1 | 45 ms | 52 ms | 17.5 ms | 64 ms | **160 ms** |
-| cold 2 | 41 ms | 37 ms | 8.3 ms | 78 ms | **144 ms** |
-| cold 3 | 37 ms | 42 ms | 9.7 ms | 84 ms | **153 ms** |
-| warm 1 | 35 ms | 41 ms | 9.0 ms | 66 ms | **134 ms** |
-| warm 2 | 30 ms | 35 ms | 8.5 ms | 62 ms | **121 ms** |
-| 500-page PDF, last page | 34 ms | 39 ms | 36 ms | 68 ms | 163 ms |
-| 75 MB PDF, page 20 | 37 ms | 42 ms | 40 ms | 166 ms | 398 ms |
+| cold 1 | 50 ms | 58 ms | 13.4 ms | 43 ms | **192 ms** |
+| cold 2 | 54 ms | 39 ms | 8.8 ms | 62 ms | **143 ms** |
+| cold 3 | 44 ms | 38 ms | 8.9 ms | 63 ms | **132 ms** |
+| warm 1 | 34 ms | 40 ms | 8.7 ms | 81 ms | **147 ms** |
+| warm 2 | 30 ms | 36 ms | 9.4 ms | 64 ms | **128 ms** |
+| 500-page PDF, last page | 34 ms* | 39 ms | 36 ms | 68 ms | 163 ms |
+| 75 MB PDF, page 20 | 37 ms* | 42 ms | 40 ms | 166 ms | 398 ms |
 
 The "ready" times are measured from worker start, and pdfium and the Rust
-module load in parallel. **Caveats, not verified:**
+module load in parallel. The pdfium time is stamped in
+`onRuntimeInitialized`. \*The two large-PDF rows came from an earlier build of
+`worker.js` that stamped it only once `onmessage` awaited it, so for those rows
+it is an upper bound. **Caveats, not verified:**
 
 - Everything was served from `127.0.0.1`, so download time is ~0. "Cold" means
   the four module URLs (both `.js` and both `.wasm`) were cache-busted
@@ -202,7 +205,7 @@ The page therefore measures as soon as `putImageData` returns.
   base-14 fonts rendered. Non-embedded, non-base-14 fonts (CJK above all) were
   not tried and will fall back to substitutes.
 - **Per-call overhead.** Every `FPDF_*` call crosses JS (`ccall`). That is
-  fine for one render (~60-80 ms per page at 1200 px), but text extraction or
+  fine for one render (~40-80 ms per page at 1200 px), but text extraction or
   hit-testing that makes thousands of calls per page has not been measured.
 - **Upstream fragility.** The init alias depends on pdfium-render's lookup
   order. Fix it upstream, or pin the version and test the alias.
@@ -224,7 +227,7 @@ pdf.js's bundle size was not measured.
 ## Reproduce
 
 Requires `rustup target add wasm32-unknown-unknown`, wasm-bindgen-cli 0.2.130,
-`gh` (to download pdfium), `gzip` and Python. Run from `spikes/web-wasm/`:
+`gh` (to download pdfium), `sha256sum`, `gzip` and Python. Run from `spikes/web-wasm/`:
 
 ```bash
 cargo test --target wasm32-unknown-unknown   # Node runner, via .cargo/config.toml
