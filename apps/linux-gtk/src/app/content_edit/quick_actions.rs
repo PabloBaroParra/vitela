@@ -601,13 +601,38 @@ mod tests {
 
         select_first_block(&fixture);
         settle();
+        assert_bar_beside_first_block(&fixture);
 
+        block::retype_selected(viewer);
+        settle();
+        assert!(!root.get_visible(), "hidden under the editor");
+        super::super::editor::cancel(viewer);
+    }
+
+    /// Asserts the bar is shown where [`bar_origin`] puts it beside the
+    /// first block's box as the page's placement draws it.
+    fn assert_bar_beside_first_block(fixture: &Fixture) {
+        let root = &fixture.viewer().content_quick_actions.root;
         assert!(root.get_visible());
         let bbox = fixture.runs[0].bbox;
-        let (layer_x, layer_y) = layer_origin(&fixture);
-        let (left, top) = fixture.on_screen((bbox.x, bbox.y + bbox.height));
-        let (right, bottom) = fixture.on_screen((bbox.x + bbox.width, bbox.y));
-        let anchor = rect(layer_x + left, layer_y + top, right - left, bottom - top);
+        let placed = {
+            let state = fixture.viewer().state.borrow();
+            let page = &state.session.as_ref().expect("a session").pages[0];
+            let bbox = TextRect {
+                x_pt: bbox.x as f32,
+                y_pt: bbox.y as f32,
+                width_pt: bbox.width as f32,
+                height_pt: bbox.height as f32,
+            };
+            place_rect(bbox, page.placement())
+        };
+        let (layer_x, layer_y) = layer_origin(fixture);
+        let anchor = rect(
+            layer_x + placed.left,
+            layer_y + placed.top,
+            placed.width,
+            placed.height,
+        );
         let canvas = root.parent().expect("on the canvas");
         let canvas = (f64::from(canvas.width()), f64::from(canvas.height()));
         let (x, y) = (root.margin_start(), root.margin_top());
@@ -626,11 +651,6 @@ mod tests {
             f64::from(x + width) <= canvas.0,
             "the bar fits on the canvas"
         );
-
-        block::retype_selected(viewer);
-        settle();
-        assert!(!root.get_visible(), "hidden under the editor");
-        super::super::editor::cancel(viewer);
     }
 
     /// On a page turned a quarter the same block is drawn where the turn
@@ -661,6 +681,17 @@ mod tests {
             "the fixture's turned block is off the canvas"
         );
         assert!(!root.get_visible());
+    }
+
+    /// Turned the other way, the same block is drawn near the canvas's left
+    /// edge, in view: the bar shows beside it as the turned page draws it.
+    #[gtk::test]
+    fn gtk_ui_the_bar_shows_beside_a_block_on_a_turned_page() {
+        let fixture = Fixture::new(PageRotation::Clockwise270);
+        select_first_block(&fixture);
+        settle();
+
+        assert_bar_beside_first_block(&fixture);
     }
 
     /// The buttons call the doors they stand for: Delete removes the
