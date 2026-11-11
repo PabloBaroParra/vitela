@@ -20,9 +20,11 @@
 //!
 //! Migrated surfaces: Home, navigation rail, editor toolbar, search, tools tabs,
 //! document properties, the Edit PDF panel with its selection hints and mode
-//! messages, and signing: certificate/card/token signing and the drawn
-//! signature. Other feature panels, edit dialogs, document workflows and shared
-//! permission/core error details are not yet localized.
+//! messages, signing: certificate/card/token signing and the drawn signature,
+//! and the Organize screen: its header, Documents and Pages views, card
+//! controls, page-operation results and the Add PDFs flow. Other feature
+//! panels, edit dialogs, document workflows and shared permission/core error
+//! details are not yet localized.
 
 mod bundle;
 mod locale;

@@ -45,6 +45,7 @@ use gtk::{
 };
 
 use super::import;
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 use crate::app::tools_panel::panel_heading;
 use crate::app::write::{begin_extract, begin_split, show_save_chooser};
@@ -72,7 +73,7 @@ pub(super) struct Controls {
 /// follows which.
 pub(super) fn build() -> (GtkBox, Controls) {
     let header = GtkBox::new(Orientation::Horizontal, 12);
-    let heading = panel_heading("Organize pages");
+    let heading = panel_heading(&tr("organize-heading"));
     heading.set_hexpand(true);
     // The first thing to give up width when there is not enough — see the
     // module doc. Without it the heading holds 100px it does not need while
@@ -83,28 +84,30 @@ pub(super) fn build() -> (GtkBox, Controls) {
     let import_progress = ProgressBar::new();
     import_progress.set_hexpand(true);
     import_progress.set_visible(false);
-    import_progress.update_property(&[gtk::accessible::Property::Label("PDF import progress")]);
+    import_progress.update_property(&[gtk::accessible::Property::Label(&tr(
+        "organize-import-progress-name",
+    ))]);
     header.append(&import_progress);
-    let cancel_import = Button::with_label("Cancel");
+    let cancel_import = Button::with_label(&tr("organize-cancel-import"));
     cancel_import.set_visible(false);
     header.append(&cancel_import);
 
     let actions = build_actions();
     header.append(&actions);
-    for (label, action) in [("Undo", "win.undo"), ("Redo", "win.redo")] {
-        let button = Button::with_label(label);
+    for (label, action) in [("organize-undo", "win.undo"), ("organize-redo", "win.redo")] {
+        let button = Button::with_label(&tr(label));
         button.set_action_name(Some(action));
         actions.append(&button);
     }
-    let add_pdfs = Button::with_label("Add PDFs");
+    let add_pdfs = Button::with_label(&tr("organize-add-pdfs"));
     actions.append(&add_pdfs);
-    let extract = Button::with_label("Extract");
-    extract.set_tooltip_text(Some("Save chosen pages as a new PDF"));
+    let extract = Button::with_label(&tr("organize-extract"));
+    extract.set_tooltip_text(Some(&tr("organize-extract-tooltip")));
     actions.append(&extract);
-    let split = Button::with_label("Split");
-    split.set_tooltip_text(Some("Cut this PDF into several new PDFs"));
+    let split = Button::with_label(&tr("organize-split"));
+    split.set_tooltip_text(Some(&tr("organize-split-tooltip")));
     actions.append(&split);
-    let save = Button::with_label("Save");
+    let save = Button::with_label(&tr("organize-save"));
     save.add_css_class("home-primary");
     actions.append(&save);
 

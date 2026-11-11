@@ -318,3 +318,117 @@ signature-forgotten = Your saved signature was deleted from this computer.
 signature-armed = Click a page to place your signature.
 signature-disarmed = Signature disarmed.
 signature-stale = That signature was drawn for another document. Draw it again to place it.
+
+## Organize: header, view switch and hints
+
+organize-heading = Organize pages
+organize-import-progress-name = PDF import progress
+organize-cancel-import = Cancel
+organize-undo = Undo
+organize-redo = Redo
+organize-add-pdfs = Add PDFs
+organize-extract = Extract
+organize-extract-tooltip = Save chosen pages as a new PDF
+organize-split = Split
+organize-split-tooltip = Cut this PDF into several new PDFs
+organize-save = Save
+organize-view-documents = Documents
+organize-view-pages = Pages
+organize-documents-hint = Drag a document to move all of its pages.
+organize-pages-hint = Drag a page to reorder it.
+
+## Organize: page and document cards (accessible names and tooltips)
+
+# $name (String) - the file name of the source PDF.
+# $part (Number) - which run of that file's pages this card is.
+organize-block-title-part = { $name } — Part { $part }
+# $first (Number) - one-based position of the block's only page.
+organize-block-meta-one = 1 page · { $first }
+# $count, $first, $last (Number) - block size and one-based first/last position.
+organize-block-meta = { $count } pages · { $first }–{ $last }
+# $title, $meta (String) - the card's two lines; $position, $total (Number).
+organize-block-name = { $title }, { $meta }, document { $position } of { $total }
+organize-block-move-up = Move up: { $name }
+organize-block-move-down = Move down: { $name }
+organize-block-rotate-left = Rotate left: { $name }
+organize-block-rotate-right = Rotate right: { $name }
+organize-block-delete = Delete { $name }
+organize-blank-pages = Blank pages
+organize-blank-page = Blank page
+organize-imported-pdf = Imported PDF
+organize-page-rotate-left = Rotate page left
+organize-page-rotate-right = Rotate page right
+organize-page-delete = Delete page
+
+## Organize: page operation results and refusals
+
+organize-no-document = Open a PDF before organizing its pages.
+organize-invalid-position = Invalid page position.
+organize-page-gone = Page no longer exists.
+organize-pages-gone = Those pages no longer exist.
+organize-move-page-failed = Could not move the page.
+organize-move-document-failed = Could not move the document.
+organize-delete-page-failed = Could not delete the page.
+organize-delete-document-failed = Could not delete the document.
+organize-rotate-page-failed = Could not rotate the page.
+organize-rotate-document-failed = Could not rotate the document.
+# $from, $to (Number) - one-based page positions.
+organize-moved-page = Moved page { $from } to position { $to }.
+# $count (Number) - pages moved; $to (Number) - one-based destination.
+organize-moved-pages =
+    { $count ->
+        [one] Moved { $count } page to position { $to }.
+       *[other] Moved { $count } pages to position { $to }.
+    }
+# $page (Number) - one-based page position.
+organize-deleted-page = Deleted page { $page }.
+organize-deleted-pages =
+    { $count ->
+        [one] Deleted { $count } page.
+       *[other] Deleted { $count } pages.
+    }
+organize-rotated-page-left = Rotated page { $page } left.
+organize-rotated-page-right = Rotated page { $page } right.
+organize-rotated-pages-left =
+    { $count ->
+        [one] Rotated { $count } page left.
+       *[other] Rotated { $count } pages left.
+    }
+organize-rotated-pages-right =
+    { $count ->
+        [one] Rotated { $count } page right.
+       *[other] Rotated { $count } pages right.
+    }
+
+## Organize: adding PDFs (chooser, progress, passwords and results)
+
+organize-import-filter = PDF files
+organize-import-chooser-title = Add PDFs
+organize-import-accept = Add
+organize-import-cancelled = PDF import cancelled.
+organize-import-changed = PDF import cancelled because the document changed.
+organize-import-not-local = Every selected PDF must be a local file.
+organize-import-checking = Checking selected PDFs...
+# $completed, $total (Number) - PDFs prepared so far, out of the selection.
+organize-import-progress = { $completed } of { $total } PDFs
+organize-import-worker-stopped = PDF import worker stopped unexpectedly.
+organize-import-unnamed = Selected PDF
+# $name (String) - file name; $error (String) - technical detail, kept verbatim.
+organize-import-failed = Could not import { $name }: { $error }
+organize-import-no-copying = Could not import { $name }: the PDF does not permit copying its pages.
+organize-import-no-pages = Could not import { $name }: the PDF has no pages.
+organize-import-too-many-pages = The selected PDFs have too many pages.
+organize-import-source-ids-exhausted = Imported PDF id space is exhausted.
+organize-import-page-ids-exhausted = Page id space is exhausted.
+organize-import-password-title = Password required
+organize-import-password-prompt = Enter the password for { $name }.
+organize-import-password-wrong = The password is incorrect. Try again.
+organize-import-password-cancel = Cancel import
+organize-import-unlock = Unlock
+organize-import-password-waiting = Waiting for the password for { $name }.
+organize-import-warning-title = Some document-level information will stay behind
+organize-import-warning-cancel = Cancel
+organize-import-anyway = Import anyway
+organize-import-apply-failed = Could not add the selected PDFs.
+# $count (Number) - pages imported. English keeps "pages" for every count.
+organize-imported-pages = Imported { $count } pages.

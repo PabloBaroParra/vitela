@@ -10,6 +10,7 @@
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Label, Orientation, ToggleButton};
 
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 
 use super::documents::{self, DOCUMENTS_HINT, DOCUMENTS_VIEW, PAGES_HINT, PAGES_VIEW};
@@ -28,9 +29,9 @@ pub(super) fn build_switch() -> (GtkBox, ToggleButton, ToggleButton) {
     switch.add_css_class("organize-view-switch");
     switch.set_halign(gtk::Align::Start);
 
-    let documents = ToggleButton::with_label("Documents");
+    let documents = ToggleButton::with_label(&tr("organize-view-documents"));
     documents.set_active(true);
-    let pages = ToggleButton::with_label("Pages");
+    let pages = ToggleButton::with_label(&tr("organize-view-pages"));
     pages.set_group(Some(&documents));
     switch.append(&documents);
     switch.append(&pages);
@@ -74,11 +75,14 @@ pub(super) fn show(viewer: &Viewer, view: &str) {
     // [`motion::clear_entrance`].
     motion::clear_entrance(viewer);
     viewer.organize.views.set_visible_child_name(view);
-    viewer.organize.hint.set_text(if view == DOCUMENTS_VIEW {
-        DOCUMENTS_HINT
-    } else {
-        PAGES_HINT
-    });
+    viewer
+        .organize
+        .hint
+        .set_text(&tr(if view == DOCUMENTS_VIEW {
+            DOCUMENTS_HINT
+        } else {
+            PAGES_HINT
+        }));
     populate_visible(viewer);
     motion::run_entrance(viewer);
 }
@@ -104,7 +108,7 @@ pub(super) fn showing_documents(viewer: &Viewer) -> bool {
 
 /// The line under the header describing the gesture the view on show offers.
 pub(super) fn build_hint() -> Label {
-    let hint = Label::new(Some(DOCUMENTS_HINT));
+    let hint = Label::new(Some(&tr(DOCUMENTS_HINT)));
     hint.set_xalign(0.0);
     hint.add_css_class("recent-meta");
     hint

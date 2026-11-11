@@ -5,6 +5,7 @@ use gtk::prelude::*;
 use gtk::{gdk, glib, Align, Box as GtkBox, Button, DragSource, Label, Orientation, Picture};
 use pdf_render::DocumentHandle;
 
+use crate::app::i18n::tr_args;
 use crate::app::icons::{build_icon, Icon, ACCENT_TINT};
 use crate::app::state::Viewer;
 
@@ -43,11 +44,14 @@ pub(super) fn build_card(
     let card = GtkBox::new(Orientation::Horizontal, 12);
     card.add_css_class("organize-block");
     card.set_focusable(true);
-    card.update_property(&[gtk::accessible::Property::Label(&format!(
-        "{}, {}, document {} of {total}",
-        row.title(),
-        row.meta(),
-        position + 1
+    card.update_property(&[gtk::accessible::Property::Label(&tr_args(
+        "organize-block-name",
+        &[
+            ("title", row.title().into()),
+            ("meta", row.meta().into()),
+            ("position", (position + 1).into()),
+            ("total", total.into()),
+        ],
     ))]);
 
     card.append(&build_cover(viewer, row, handle));
@@ -75,14 +79,14 @@ pub(super) fn build_card(
         viewer,
         row,
         Icon::MoveUp,
-        "Move up",
+        "organize-block-move-up",
         position.checked_sub(1),
     ));
     controls.append(&move_button(
         viewer,
         row,
         Icon::MoveDown,
-        "Move down",
+        "organize-block-move-down",
         (position + 2 <= total).then_some(position + 2),
     ));
     // The two turns sit between the moves and the delete, so the destructive
@@ -92,14 +96,14 @@ pub(super) fn build_card(
         viewer,
         row,
         Icon::RotateLeft,
-        "Rotate left",
+        "organize-block-rotate-left",
         -QUARTER_TURN_DEGREES,
     ));
     controls.append(&rotate_button(
         viewer,
         row,
         Icon::RotateRight,
-        "Rotate right",
+        "organize-block-rotate-right",
         QUARTER_TURN_DEGREES,
     ));
     controls.append(&delete_button(viewer, row));
@@ -168,12 +172,13 @@ fn build_cover(viewer: &Viewer, row: &Row, handle: DocumentHandle) -> GtkBox {
 }
 
 /// A Move up/Move down button for `row`, insensitive when `slot` is `None` —
-/// the first block cannot move up, the last cannot move down.
+/// the first block cannot move up, the last cannot move down. `label` is the
+/// Fluent key of its accessible name.
 fn move_button(viewer: &Viewer, row: &Row, icon: Icon, label: &str, slot: Option<usize>) -> Button {
     let button = Button::new();
     button.set_child(Some(&build_icon(icon, 16, ACCENT_TINT)));
     button.add_css_class("flat");
-    let name = format!("{label}: {}", row.title());
+    let name = named(label, row);
     button.update_property(&[gtk::accessible::Property::Label(&name)]);
     button.set_tooltip_text(Some(&name));
     button.set_sensitive(slot.is_some());
@@ -210,7 +215,7 @@ fn rotate_button(
     let button = Button::new();
     button.set_child(Some(&build_icon(icon, 16, ACCENT_TINT)));
     button.add_css_class("flat");
-    let name = format!("{label}: {}", row.title());
+    let name = named(label, row);
     button.update_property(&[gtk::accessible::Property::Label(&name)]);
     button.set_tooltip_text(Some(&name));
     button.connect_clicked({
@@ -239,7 +244,7 @@ fn delete_button(viewer: &Viewer, row: &Row) -> Button {
     let button = Button::new();
     button.set_child(Some(&build_icon(Icon::Delete, 16, ACCENT_TINT)));
     button.add_css_class("flat");
-    let name = format!("Delete {}", row.title());
+    let name = named("organize-block-delete", row);
     button.update_property(&[gtk::accessible::Property::Label(&name)]);
     button.set_tooltip_text(Some(&name));
     button.connect_clicked({
@@ -259,4 +264,9 @@ fn delete_button(viewer: &Viewer, row: &Row) -> Button {
         }
     });
     button
+}
+
+/// A control's accessible name and tooltip: message `key` about `row`.
+fn named(key: &str, row: &Row) -> String {
+    tr_args(key, &[("name", row.title().into())])
 }

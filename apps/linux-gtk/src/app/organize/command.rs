@@ -27,6 +27,7 @@
 
 use pdf_document::{Command, Document, PageId};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::state::{DocumentSession, Viewer, CONTENT_MODEL_UNAVAILABLE};
 
 use super::NO_DOCUMENT;
@@ -87,7 +88,7 @@ fn commit(
         let mut state = viewer.state.borrow_mut();
         match state.session.as_mut() {
             Some(session) => operation(session),
-            None => Err(NO_DOCUMENT.to_string()),
+            None => Err(tr(NO_DOCUMENT)),
         }
     };
     match result {
@@ -142,12 +143,15 @@ pub(super) fn move_page(viewer: &Viewer, from: usize, to: usize) -> bool {
     command(viewer, |session| {
         let document = model(session)?;
         if from >= document.pages.len() || to >= document.pages.len() {
-            return Err("Invalid page position.".to_string());
+            return Err(tr("organize-invalid-position"));
         }
         if !apply_command(document, Command::MovePage { from, to }) {
-            return Err("Could not move the page.".to_string());
+            return Err(tr("organize-move-page-failed"));
         }
-        Ok(format!("Moved page {} to position {}.", from + 1, to + 1))
+        Ok(tr_args(
+            "organize-moved-page",
+            &[("from", (from + 1).into()), ("to", (to + 1).into())],
+        ))
     })
 }
 
@@ -166,12 +170,11 @@ pub(super) fn move_block(viewer: &Viewer, from: usize, count: usize, to: usize) 
     command(viewer, |session| {
         let document = model(session)?;
         if !apply_command(document, Command::MovePages { from, count, to }) {
-            return Err("Could not move the document.".to_string());
+            return Err(tr("organize-move-document-failed"));
         }
-        Ok(format!(
-            "Moved {count} page{} to position {}.",
-            if count == 1 { "" } else { "s" },
-            to + 1
+        Ok(tr_args(
+            "organize-moved-pages",
+            &[("count", count.into()), ("to", (to + 1).into())],
         ))
     })
 }
@@ -186,13 +189,13 @@ pub(super) fn delete_block(viewer: &Viewer, index: usize, count: usize) -> bool 
         // with what was drawn on it and the removal cannot strand an
         // annotation on a page id `pdf-save` would then refuse to write.
         let removal = Command::remove_pages(document, index, count)
-            .ok_or_else(|| "Those pages no longer exist.".to_string())?;
+            .ok_or_else(|| tr("organize-pages-gone"))?;
         if !apply_command(document, removal) {
-            return Err("Could not delete the document.".to_string());
+            return Err(tr("organize-delete-document-failed"));
         }
-        Ok(format!(
-            "Deleted {count} page{}.",
-            if count == 1 { "" } else { "s" }
+        Ok(tr_args(
+            "organize-deleted-pages",
+            &[("count", count.into())],
         ))
     })
 }
@@ -220,7 +223,7 @@ pub(super) fn rotate_page(viewer: &Viewer, page: PageId, delta_degrees: i32) -> 
             .pages
             .iter()
             .position(|candidate| candidate.id == page)
-            .ok_or_else(|| "Page no longer exists.".to_string())?;
+            .ok_or_else(|| tr("organize-page-gone"))?;
         if !apply_command(
             document,
             Command::RotatePage {
@@ -228,13 +231,14 @@ pub(super) fn rotate_page(viewer: &Viewer, page: PageId, delta_degrees: i32) -> 
                 delta_degrees,
             },
         ) {
-            return Err("Could not rotate the page.".to_string());
+            return Err(tr("organize-rotate-page-failed"));
         }
-        Ok(format!(
-            "Rotated page {} {}.",
-            position + 1,
-            if delta_degrees < 0 { "left" } else { "right" }
-        ))
+        let key = if delta_degrees < 0 {
+            "organize-rotated-page-left"
+        } else {
+            "organize-rotated-page-right"
+        };
+        Ok(tr_args(key, &[("page", (position + 1).into())]))
     });
     if rotated {
         // Before the reopen `commit` has just scheduled, and only for this
@@ -267,7 +271,7 @@ pub(super) fn rotate_block(
     delta_degrees: i32,
 ) -> bool {
     let Some(pages) = block_page_ids(viewer, start, count) else {
-        viewer.status.set_text("Those pages no longer exist.");
+        viewer.status.set_text(&tr("organize-pages-gone"));
         return false;
     };
     let turned = rotation_command(viewer, {
@@ -281,13 +285,14 @@ pub(super) fn rotate_block(
                     delta_degrees,
                 },
             ) {
-                return Err("Could not rotate the document.".to_string());
+                return Err(tr("organize-rotate-document-failed"));
             }
-            Ok(format!(
-                "Rotated {count} page{} {}.",
-                if count == 1 { "" } else { "s" },
-                if delta_degrees < 0 { "left" } else { "right" }
-            ))
+            let key = if delta_degrees < 0 {
+                "organize-rotated-pages-left"
+            } else {
+                "organize-rotated-pages-right"
+            };
+            Ok(tr_args(key, &[("count", count.into())]))
         }
     });
     if turned {
@@ -324,11 +329,14 @@ pub(super) fn delete_page(viewer: &Viewer, index: usize) -> bool {
         // brings the page back with what was drawn on it, and the removal
         // cannot strand an annotation on a page id `pdf-save` will refuse to
         // write (which would leave the document unsaveable, not just untidy).
-        let removal = Command::remove_page(document, index)
-            .ok_or_else(|| "Page no longer exists.".to_string())?;
+        let removal =
+            Command::remove_page(document, index).ok_or_else(|| tr("organize-page-gone"))?;
         if !apply_command(document, removal) {
-            return Err("Could not delete the page.".to_string());
+            return Err(tr("organize-delete-page-failed"));
         }
-        Ok(format!("Deleted page {}.", index + 1))
+        Ok(tr_args(
+            "organize-deleted-page",
+            &[("page", (index + 1).into())],
+        ))
     })
 }
