@@ -5,6 +5,7 @@ use gtk::prelude::*;
 use gtk::{gdk, ColorDialog};
 use pdf_document::{Annotation, AnnotationKind, Color, Command};
 
+use crate::app::i18n::tr;
 use crate::app::state::{SessionToken, Viewer};
 
 use super::command::{apply_command, command, model};
@@ -70,7 +71,7 @@ pub(super) fn choose_restyle_color(viewer: &Viewer) {
         .root()
         .and_then(|root| root.downcast::<gtk::Window>().ok());
     let dialog = ColorDialog::builder()
-        .title("Choose annotation color")
+        .title(tr("annotate-color-title"))
         .modal(true)
         .with_alpha(false)
         .build();
@@ -118,14 +119,14 @@ pub(super) fn choose_restyle_color(viewer: &Viewer) {
                         .as_ref()
                         .and_then(|document| document.annotations.get(id));
                     if current != Some(&before) {
-                        return Ok("Color selection is no longer current.".to_string());
+                        return Ok(tr("annotate-color-stale"));
                     }
                     let mut after = before.clone();
                     pdf_annotate::restyle_annotation(&mut after, color)
                         .map_err(|error| error.to_string())?;
                     let document = model(session)?;
                     apply_command(document, Command::ReplaceAnnotation { before, after });
-                    Ok("Annotation restyled. Changes are pending save.".to_string())
+                    Ok(tr("annotate-restyled"))
                 });
             }
         },

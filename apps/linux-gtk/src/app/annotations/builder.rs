@@ -5,6 +5,7 @@
 
 use pdf_document::{Annotation, AnnotationId, Color, Command, PageId, Rect};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::{Placement, Tool, Viewer};
 
@@ -17,8 +18,8 @@ const DEFAULT_COLOR: Color = Color {
     b: 0,
 };
 
-const INK_NEEDS_A_DRAG: &str = "Drag to draw an ink annotation.";
-const NOTE_NEEDS_TEXT: &str = "Type the note's text before adding it.";
+const INK_NEEDS_A_DRAG: &str = "annotate-ink-needs-drag";
+const NOTE_NEEDS_TEXT: &str = "annotate-note-needs-text";
 
 /// A 1×1 opaque PNG, inlined so the Stamp button has something valid to stamp
 /// without reaching for a file. `stamp_from_image_bytes` decodes it to read the
@@ -50,7 +51,7 @@ pub(super) fn annotation_at(
             // A tap leaves a single point, which is not a stroke — better to
             // say so than to record an invisible annotation.
             if placement.points.len() < 2 {
-                return Err(INK_NEEDS_A_DRAG.to_string());
+                return Err(tr(INK_NEEDS_A_DRAG));
             }
             Ok(pdf_annotate::ink(
                 id,
@@ -93,7 +94,7 @@ pub(super) fn note_annotation(
     text: &str,
 ) -> Result<Annotation, String> {
     if is_blank_note(text) {
-        return Err(NOTE_NEEDS_TEXT.to_string());
+        return Err(tr(NOTE_NEEDS_TEXT));
     }
     Ok(pdf_annotate::text_note(id, page, rect, text))
 }
@@ -113,7 +114,10 @@ pub(super) fn markup_annotation(
         Tool::Highlight => Ok(pdf_annotate::highlight(id, page, rect, DEFAULT_COLOR)),
         Tool::Underline => Ok(pdf_annotate::underline(id, page, rect, DEFAULT_COLOR)),
         Tool::Strikeout => Ok(pdf_annotate::strikeout(id, page, rect, DEFAULT_COLOR)),
-        other => Err(format!("{} does not mark up text.", other.label())),
+        other => Err(tr_args(
+            "annotate-not-markup",
+            &[("tool", other.label().into())],
+        )),
     }
 }
 
@@ -132,11 +136,20 @@ pub(crate) fn stamp_from_image_bytes(
         // `DocumentSession::backend_pages`.
         let page = session
             .backend_page_id(page_index)
-            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
-        let rect = stamp_rect(&image_bytes, point)
-            .map_err(|error| format!("Could not use the image: {error}"))?;
+            .ok_or_else(crate::app::state::page_no_longer_present)?;
+        let rect = stamp_rect(&image_bytes, point).map_err(|error| {
+            tr_args(
+                "annotate-image-unusable",
+                &[("error", error.to_string().into())],
+            )
+        })?;
         let annotation = pdf_annotate::stamp_from_image_bytes(id, page, &image_bytes, rect)
-            .map_err(|error| format!("Could not use the image: {error}"))?;
+            .map_err(|error| {
+                tr_args(
+                    "annotate-image-unusable",
+                    &[("error", error.to_string().into())],
+                )
+            })?;
         {
             let document = model(session)?;
             apply_command(document, Command::AddAnnotation(annotation));
@@ -150,7 +163,7 @@ pub(crate) fn stamp_from_image_bytes(
         }
         session.next_annotation_id += 1;
         session.selected_annotation = Some(id);
-        Ok("Image stamp added. Changes are pending save.".to_string())
+        Ok(tr("annotate-stamp-added"))
     });
 }
 
@@ -291,7 +304,7 @@ mod tests {
         let error = annotation_at(&tap, AnnotationId(1), PageId(0), committed_rect(&tap))
             .expect_err("a single point is not a stroke");
 
-        assert_eq!(error, INK_NEEDS_A_DRAG);
+        assert_eq!(error, tr(INK_NEEDS_A_DRAG));
     }
 
     #[test]
@@ -380,7 +393,7 @@ mod tests {
         ] {
             assert_eq!(
                 note_annotation(AnnotationId(1), PageId(0), rect, blank),
-                Err(NOTE_NEEDS_TEXT.to_string()),
+                Err(tr(NOTE_NEEDS_TEXT)),
                 "{blank:?} must not become a note"
             );
         }

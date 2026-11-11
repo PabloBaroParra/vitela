@@ -19,6 +19,7 @@ use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
 use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, Rect};
 use pdf_edit::EditError;
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
 use crate::app::update_content_edit_controls;
@@ -68,11 +69,11 @@ fn command_for(item: ImageItem, mode: AnnotationDragMode, to: Rect) -> Command {
 /// The status text `write::refresh_preview` shows once the
 /// refresh lands — no "pending save" suffix (T-163): by the time it shows,
 /// the canvas already reflects the edit, only the file on disk is behind.
-fn message_for(mode: AnnotationDragMode) -> &'static str {
-    match mode {
-        AnnotationDragMode::Move => "Image moved.",
-        AnnotationDragMode::Resize(_) => "Image resized.",
-    }
+fn message_for(mode: AnnotationDragMode) -> String {
+    tr(match mode {
+        AnnotationDragMode::Move => "edit-image-moved",
+        AnnotationDragMode::Resize(_) => "edit-image-resized",
+    })
 }
 
 /// Grabs an image under the pointer: a corner handle of the selected one
@@ -92,7 +93,7 @@ pub(crate) fn begin_image_drag(
     reach: f64,
 ) -> bool {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return false;
     }
 
@@ -241,7 +242,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
     }
 
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         selection::redraw(viewer);
         return true;
     }
@@ -288,7 +289,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
 /// on the UI side.
 pub(crate) fn delete_selected(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
 
@@ -318,7 +319,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
     };
 
     match result {
-        Ok(()) => refresh_preview(viewer, "Image deleted."),
+        Ok(()) => refresh_preview(viewer, tr("edit-image-deleted")),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -363,7 +364,7 @@ fn replace_readback_refusal(viewer: &Viewer) -> Option<EditError> {
 /// picked file's bytes are in hand.
 pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let has_selection = viewer
@@ -439,8 +440,8 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
     let filter = picture_filter();
 
     let chooser = FileDialog::builder()
-        .title("Replace image")
-        .accept_label("Replace")
+        .title(tr("edit-replace-image-title"))
+        .accept_label(tr("edit-replace-image-accept"))
         .default_filter(&filter)
         .build();
     chooser.open(Some(window), None::<&gio::Cancellable>, {
@@ -450,16 +451,18 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local file.");
+                viewer.status.set_text(&tr("edit-not-local-file"));
                 return;
             };
             match std::fs::read(&path) {
                 Ok(bytes) => apply_replacement(&viewer, bytes),
-                Err(error) => viewer
-                    .status
-                    .set_text(&format!("Could not read {}: {error}", path.display())),
+                Err(error) => viewer.status.set_text(&tr_args(
+                    "edit-read-failed",
+                    &[
+                        ("path", path.display().to_string().into()),
+                        ("error", error.to_string().into()),
+                    ],
+                )),
             }
         }
     });
@@ -475,7 +478,7 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
 /// dropping it silently.
 fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
 
@@ -557,7 +560,7 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     };
 
     match result {
-        Ok(()) => refresh_preview(viewer, "Image replaced."),
+        Ok(()) => refresh_preview(viewer, tr("edit-image-replaced")),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -568,7 +571,7 @@ fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
 /// Replace image, Insert image and the picture watermark.
 pub(crate) fn picture_filter() -> FileFilter {
     let filter = FileFilter::new();
-    filter.set_name(Some("Image files"));
+    filter.set_name(Some(&tr("edit-image-files")));
     filter.add_mime_type("image/png");
     filter.add_mime_type("image/jpeg");
     for pattern in ["*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG"] {
@@ -591,15 +594,15 @@ pub(crate) fn insert_at(
     point: (f64, f64),
 ) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
 
     let filter = picture_filter();
 
     let chooser = FileDialog::builder()
-        .title("Insert image")
-        .accept_label("Insert")
+        .title(tr("edit-insert-image-title"))
+        .accept_label(tr("edit-insert-image-accept"))
         .default_filter(&filter)
         .build();
     chooser.open(Some(window), None::<&gio::Cancellable>, {
@@ -609,16 +612,18 @@ pub(crate) fn insert_at(
                 return;
             };
             let Some(path) = file.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local file.");
+                viewer.status.set_text(&tr("edit-not-local-file"));
                 return;
             };
             match std::fs::read(&path) {
                 Ok(bytes) => apply_insertion(&viewer, page_index, point, bytes),
-                Err(error) => viewer
-                    .status
-                    .set_text(&format!("Could not read {}: {error}", path.display())),
+                Err(error) => viewer.status.set_text(&tr_args(
+                    "edit-read-failed",
+                    &[
+                        ("path", path.display().to_string().into()),
+                        ("error", error.to_string().into()),
+                    ],
+                )),
             }
         }
     });
@@ -628,7 +633,7 @@ pub(crate) fn insert_at(
 /// [`insert_at`]'s file dialog has resolved.
 fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes: Vec<u8>) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
 
@@ -644,9 +649,10 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
         {
             Ok(bbox) => bbox,
             Err(error) => {
-                viewer
-                    .status
-                    .set_text(&format!("Could not use the image: {error}"));
+                viewer.status.set_text(&tr_args(
+                    "edit-image-unusable",
+                    &[("error", error.to_string().into())],
+                ));
                 return;
             }
         };
@@ -722,7 +728,7 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
     };
 
     match result {
-        Ok(()) => refresh_preview(viewer, "Image inserted."),
+        Ok(()) => refresh_preview(viewer, tr("edit-image-inserted")),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);

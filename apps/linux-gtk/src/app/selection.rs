@@ -7,6 +7,7 @@
 //! What lives here is the toolkit half: the gesture, the paint, and the
 //! asynchronous text load the two depend on.
 
+use crate::app::i18n::{tr, tr_args};
 use std::collections::HashMap;
 
 use gtk::prelude::*;
@@ -1377,7 +1378,7 @@ fn begin_selection(viewer: &Viewer, page_index: usize, x: f64, y: f64, shift: bo
     // than only at the clipboard. Reporting it on the first drag also tells
     // the user why the pointer appears to do nothing.
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let needs_text = {
@@ -1519,7 +1520,7 @@ pub(crate) fn copy_selection(viewer: &Viewer) {
     // needs to hold; it must not depend on another function having held the
     // line earlier.
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let text = {
@@ -1534,15 +1535,14 @@ pub(crate) fn copy_selection(viewer: &Viewer) {
     };
 
     if text.is_empty() {
-        viewer.status.set_text("Select some text before copying.");
+        viewer.status.set_text(&tr("selection-copy-empty"));
         return;
     }
     let count = text.chars().count();
     viewer.scroll.clipboard().set_text(&text);
-    viewer.status.set_text(&format!(
-        "Copied {count} character{} to the clipboard.",
-        if count == 1 { "" } else { "s" }
-    ));
+    viewer
+        .status
+        .set_text(&tr_args("selection-copied", &[("count", count.into())]));
 }
 
 /// Requests a repaint of every page's highlight layer.

@@ -7,6 +7,7 @@
 
 use pdf_document::{Command, FormFieldId};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::{AnnotationDragMode, FormFieldDrag, FormPlacement, Viewer};
 
@@ -80,7 +81,7 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
         // `DocumentSession::backend_pages`.
         let page = session
             .backend_page_id(placement.page_index)
-            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
+            .ok_or_else(crate::app::state::page_no_longer_present)?;
         {
             let document = model(session)?;
             let field = field_for_placement(&document.form_fields, id, page, &placement);
@@ -88,9 +89,9 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
         }
         session.next_form_field_id += 1;
         session.selected_form_field = Some(id);
-        Ok(format!(
-            "{} added. Changes are pending save.",
-            placement.kind.label()
+        Ok(tr_args(
+            "forms-added",
+            &[("kind", placement.kind.label().into())],
         ))
     });
     // T-143: the panel's own focus follows the field this placement just
@@ -252,7 +253,7 @@ pub(crate) fn finish_field_drag(viewer: &Viewer) {
             .form_fields
             .get(drag.id)
             .map(|field| field.rect)
-            .ok_or_else(|| SELECTION_GONE.to_string())?;
+            .ok_or_else(|| tr(SELECTION_GONE))?;
         let after = dragged_rect(before, &drag);
         apply_command(
             document,
@@ -270,8 +271,8 @@ pub(crate) fn finish_field_drag(viewer: &Viewer) {
             },
         );
         Ok(match drag.mode {
-            AnnotationDragMode::Move => "Field moved. Changes are pending save.".to_string(),
-            AnnotationDragMode::Resize(_) => "Field resized. Changes are pending save.".to_string(),
+            AnnotationDragMode::Move => tr("forms-moved"),
+            AnnotationDragMode::Resize(_) => tr("forms-resized"),
         })
     });
 }

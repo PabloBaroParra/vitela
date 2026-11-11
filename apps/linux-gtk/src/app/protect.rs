@@ -83,7 +83,7 @@ const NEW_PROTECTION_HANDLER: SecurityHandler = SecurityHandler::Aes128;
 ///   opened with just one of its two passwords — in which case the user is
 ///   told to reopen with both, which is exactly what changing its passwords
 ///   needs.
-fn protection_refusal(viewer: &Viewer) -> Option<&'static str> {
+fn protection_refusal(viewer: &Viewer) -> Option<String> {
     viewer
         .content_edit_refusal()
         .or_else(|| viewer.full_rewrite_refusal())
@@ -95,7 +95,7 @@ pub(crate) fn begin_protect(viewer: &Viewer) {
         return;
     };
     if let Some(refusal) = protection_refusal(viewer) {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     if viewer.state.borrow().session.is_none() {

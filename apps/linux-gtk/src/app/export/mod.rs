@@ -75,7 +75,7 @@ pub(crate) fn begin_export(viewer: &Viewer) {
         return;
     };
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let Some((page_sizes, current_page)) = ({

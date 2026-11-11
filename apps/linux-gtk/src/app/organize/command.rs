@@ -28,7 +28,7 @@
 use pdf_document::{Command, Document, PageId};
 
 use crate::app::i18n::{tr, tr_args};
-use crate::app::state::{DocumentSession, Viewer, CONTENT_MODEL_UNAVAILABLE};
+use crate::app::state::{content_model_unavailable, DocumentSession, Viewer};
 
 use super::NO_DOCUMENT;
 
@@ -37,7 +37,7 @@ pub(super) fn command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) -> bool {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return false;
     }
     // Every operation that reaches this funnel changes the page list, which
@@ -46,7 +46,7 @@ pub(super) fn command(
     // withhold the other, so asking only the first would repaginate a file
     // that forbids exactly that — see `pdf_manip::document_assembly_is_allowed`.
     if let Some(refusal) = viewer.page_assembly_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return false;
     }
     // Permission granted is not the same as result writable. Moving or
@@ -57,7 +57,7 @@ pub(super) fn command(
     // way, so an edit that can never be written would not merely wait to fail
     // — it would take the preview down with it on the very next operation.
     if let Some(refusal) = viewer.full_rewrite_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return false;
     }
     commit(viewer, operation)
@@ -71,7 +71,7 @@ fn rotation_command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) -> bool {
     if let Some(refusal) = viewer.page_assembly_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return false;
     }
     commit(viewer, operation)
@@ -121,7 +121,7 @@ pub(super) fn model(session: &mut DocumentSession) -> Result<&mut Document, Stri
     session
         .document_model
         .as_mut()
-        .ok_or_else(|| CONTENT_MODEL_UNAVAILABLE.to_string())
+        .ok_or_else(content_model_unavailable)
 }
 
 /// Returns `false` when `EditLog::apply` rejected the command, leaving both

@@ -170,7 +170,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return true;
     }
     let result = {
@@ -188,7 +188,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         result
     };
     match result {
-        Ok(()) => refresh_preview(viewer, "Text deleted."),
+        Ok(()) => refresh_preview(viewer, tr("edit-text-deleted")),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);

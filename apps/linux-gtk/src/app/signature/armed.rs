@@ -57,7 +57,7 @@ enum Press {
     /// The signature was drawn for a document that is gone, and was dropped.
     Stale,
     /// The document does not permit it; the signature stays armed.
-    Refused(&'static str),
+    Refused(String),
     /// Place this picture.
     Place(Vec<u8>),
 }
@@ -79,7 +79,7 @@ pub(crate) fn place_armed(viewer: &Viewer, page_index: usize, point: (f64, f64))
             false
         }
         Press::Refused(refusal) => {
-            viewer.status.set_text(refusal);
+            viewer.status.set_text(&refusal);
             true
         }
         Press::Place(png) => {

@@ -25,7 +25,8 @@ use gtk::{
 use pdf_annotate::AnnotateError;
 use pdf_document::{Annotation, AnnotationId, AnnotationKind, Command, PageId, Rect};
 
-use crate::app::state::{Viewer, PAGE_NO_LONGER_PRESENT};
+use crate::app::i18n::{tr, tr_args};
+use crate::app::state::{page_no_longer_present, Viewer};
 
 use super::builder::is_blank_note;
 use super::command::{apply_command, command, model};
@@ -33,14 +34,14 @@ use super::geometry::clamped_to_page;
 use super::note::current_session_id;
 use super::SELECTION_GONE;
 
-const ADD_CANCELED: &str = "Text box placement canceled.";
-const EDIT_CANCELED: &str = "Text box edit canceled.";
-const NEEDS_TEXT: &str = "Type the text box's text before adding it.";
-const TOO_SMALL: &str = "That text box is too small.";
-const SELECT_A_TEXT_BOX: &str = "Select a text box first.";
-const DOCUMENT_CHANGED: &str = "The document changed while the dialog was open; nothing was added.";
-const NO_DIALOG: &str = "Could not open the text box dialog.";
-const UNCHANGED: &str = "Text unchanged.";
+const ADD_CANCELED: &str = "annotate-text-box-add-canceled";
+const EDIT_CANCELED: &str = "annotate-text-box-edit-canceled";
+const NEEDS_TEXT: &str = "annotate-text-box-needs-text";
+const TOO_SMALL: &str = "annotate-text-box-too-small";
+const SELECT_A_TEXT_BOX: &str = "annotate-text-box-select-first";
+const DOCUMENT_CHANGED: &str = "annotate-text-box-document-changed";
+const NO_DIALOG: &str = "annotate-text-box-no-dialog";
+const UNCHANGED: &str = "annotate-text-box-unchanged";
 
 /// What the dialog does with the text when the user confirms. `Err` keeps the
 /// dialog open and shows the message in it.
@@ -60,12 +61,12 @@ pub(super) fn add_enabled(text: &str) -> bool {
 /// remove it in a long paragraph.
 pub(super) fn text_error_message(error: &AnnotateError) -> String {
     match error {
-        AnnotateError::EncodingGap { character } => format!(
-            "The character '{character}' can't be used in a text box: it is drawn in \
-             Helvetica, which only covers Western European text. Remove it and try again."
+        AnnotateError::EncodingGap { character } => tr_args(
+            "annotate-text-box-encoding-gap",
+            &[("character", character.to_string().into())],
         ),
-        AnnotateError::InvalidRect => TOO_SMALL.to_string(),
-        AnnotateError::UnsupportedOperation("empty free text") => NEEDS_TEXT.to_string(),
+        AnnotateError::InvalidRect => tr(TOO_SMALL),
+        AnnotateError::UnsupportedOperation("empty free text") => tr(NEEDS_TEXT),
         other => other.to_string(),
     }
 }
@@ -74,7 +75,7 @@ pub(super) fn text_error_message(error: &AnnotateError) -> String {
 /// kept, so the dialog can refuse in place.
 pub(super) fn validate_text(text: &str) -> Result<(), String> {
     if !add_enabled(text) {
-        return Err(NEEDS_TEXT.to_string());
+        return Err(tr(NEEDS_TEXT));
     }
     // Any drawable rect will do: the text rules do not depend on it.
     let probe = Rect {
@@ -129,7 +130,7 @@ pub(super) fn is_stale(opened: u64, current: Option<u64>) -> bool {
 fn refused(viewer: &Viewer) -> bool {
     match viewer.annotation_editing_refusal() {
         Some(refusal) => {
-            viewer.status.set_text(refusal);
+            viewer.status.set_text(&refusal);
             true
         }
         None => false,
@@ -166,9 +167,12 @@ fn open_add_dialog(viewer: &Viewer, page_index: usize, rect: Rect) -> Option<Dia
         viewer,
         session_id,
         Spec {
-            title: format!("Add text box \u{2014} page {}", page_index + 1),
-            caption: "Text",
-            confirm_label: "Add",
+            title: tr_args(
+                "annotate-text-box-add-title",
+                &[("page", (page_index + 1).into())],
+            ),
+            caption: "annotate-dialog-text",
+            confirm_label: "annotate-dialog-add",
             initial: String::new(),
             canceled: ADD_CANCELED,
         },
@@ -186,7 +190,7 @@ fn open_edit_dialog(viewer: &Viewer) -> Option<Dialog> {
         return None;
     }
     let Some((session_id, id, contents)) = selected_text_box(viewer) else {
-        viewer.status.set_text(SELECT_A_TEXT_BOX);
+        viewer.status.set_text(&tr(SELECT_A_TEXT_BOX));
         return None;
     };
     let on_confirm: Confirm =
@@ -195,9 +199,9 @@ fn open_edit_dialog(viewer: &Viewer) -> Option<Dialog> {
         viewer,
         session_id,
         Spec {
-            title: "Edit text box".to_string(),
-            caption: "Text",
-            confirm_label: "Save",
+            title: tr("annotate-text-box-edit-title"),
+            caption: "annotate-dialog-text",
+            confirm_label: "annotate-dialog-save",
             initial: contents,
             canceled: EDIT_CANCELED,
         },
@@ -228,7 +232,7 @@ fn commit_new(
     text: String,
 ) -> Result<(), String> {
     if is_stale(session_id, current_session_id(viewer)) {
-        viewer.status.set_text(DOCUMENT_CHANGED);
+        viewer.status.set_text(&tr(DOCUMENT_CHANGED));
         return Ok(());
     }
     validate_text(&text)?;
@@ -236,7 +240,7 @@ fn commit_new(
         let id = AnnotationId(session.next_annotation_id);
         let page = session
             .backend_page_id(page_index)
-            .ok_or_else(|| PAGE_NO_LONGER_PRESENT.to_string())?;
+            .ok_or_else(page_no_longer_present)?;
         let annotation = free_text_annotation(id, page, rect, &text)?;
         {
             let document = model(session)?;
@@ -244,7 +248,7 @@ fn commit_new(
         }
         session.next_annotation_id += 1;
         session.selected_annotation = Some(id);
-        Ok("Text box added. Changes are pending save.".to_string())
+        Ok(tr("annotate-text-box-added"))
     });
     Ok(())
 }
@@ -257,7 +261,7 @@ fn commit_edit(
     text: String,
 ) -> Result<(), String> {
     if is_stale(session_id, current_session_id(viewer)) {
-        viewer.status.set_text(DOCUMENT_CHANGED);
+        viewer.status.set_text(&tr(DOCUMENT_CHANGED));
         return Ok(());
     }
     validate_text(&text)?;
@@ -270,13 +274,13 @@ fn commit_edit(
         .and_then(|document| document.annotations.get(id))
         .cloned();
     let Some(current) = current else {
-        viewer.status.set_text(SELECTION_GONE);
+        viewer.status.set_text(&tr(SELECTION_GONE));
         return Ok(());
     };
     // Checked before `command`, which would mark the document unsaved for an
     // edit that changed nothing.
     if retyped(&current, &text)?.is_none() {
-        viewer.status.set_text(UNCHANGED);
+        viewer.status.set_text(&tr(UNCHANGED));
         return Ok(());
     }
     command(viewer, move |session| {
@@ -285,10 +289,10 @@ fn commit_edit(
             .annotations
             .get(id)
             .cloned()
-            .ok_or_else(|| SELECTION_GONE.to_string())?;
-        let after = retyped(&before, &text)?.ok_or_else(|| UNCHANGED.to_string())?;
+            .ok_or_else(|| tr(SELECTION_GONE))?;
+        let after = retyped(&before, &text)?.ok_or_else(|| tr(UNCHANGED))?;
         apply_command(document, Command::ReplaceAnnotation { before, after });
-        Ok("Text box edited. Changes are pending save.".to_string())
+        Ok(tr("annotate-text-box-edited"))
     });
     Ok(())
 }
@@ -296,10 +300,12 @@ fn commit_edit(
 /// What a dialog says and starts with.
 struct Spec {
     title: String,
+    /// Message id of the caption above the text.
     caption: &'static str,
+    /// Message id of the confirm button.
     confirm_label: &'static str,
     initial: String,
-    /// Reported when the dialog closes without confirming.
+    /// Message id reported when the dialog closes without confirming.
     canceled: &'static str,
 }
 
@@ -321,7 +327,7 @@ fn buffer_text(buffer: &TextBuffer) -> String {
 
 fn present(viewer: &Viewer, session_id: u64, spec: Spec, on_confirm: Confirm) -> Option<Dialog> {
     let Some(parent) = viewer.window() else {
-        viewer.status.set_text(NO_DIALOG);
+        viewer.status.set_text(&tr(NO_DIALOG));
         return None;
     };
 
@@ -337,7 +343,7 @@ fn present(viewer: &Viewer, session_id: u64, spec: Spec, on_confirm: Confirm) ->
         .child(&content)
         .build();
 
-    let caption = Label::new(Some(spec.caption));
+    let caption = Label::new(Some(&tr(spec.caption)));
     caption.set_xalign(0.0);
     let text = TextView::builder()
         .wrap_mode(WrapMode::WordChar)
@@ -356,8 +362,8 @@ fn present(viewer: &Viewer, session_id: u64, spec: Spec, on_confirm: Confirm) ->
     error.set_visible(false);
     let buttons = GtkBox::new(Orientation::Horizontal, 8);
     buttons.set_halign(gtk::Align::End);
-    let cancel = Button::with_label("Cancel");
-    let confirm = Button::with_label(spec.confirm_label);
+    let cancel = Button::with_label(&tr("annotate-dialog-cancel"));
+    let confirm = Button::with_label(&tr(spec.confirm_label));
     buttons.append(&cancel);
     buttons.append(&confirm);
     content.append(&caption);
@@ -414,7 +420,7 @@ fn present(viewer: &Viewer, session_id: u64, spec: Spec, on_confirm: Confirm) ->
         let canceled = spec.canceled;
         move |_| {
             if !committed.get() && current_session_id(&viewer) == Some(session_id) {
-                viewer.status.set_text(canceled);
+                viewer.status.set_text(&tr(canceled));
             }
             glib::Propagation::Proceed
         }
@@ -484,7 +490,7 @@ mod tests {
 
     #[test]
     fn blank_text_is_refused_with_the_needs_text_message() {
-        assert_eq!(validate_text("  "), Err(NEEDS_TEXT.to_string()));
+        assert_eq!(validate_text("  "), Err(tr(NEEDS_TEXT)));
     }
 
     #[test]
@@ -636,7 +642,7 @@ mod tests {
 
         assert_eq!(annotation_count(viewer), 0);
         assert!(!can_undo(viewer));
-        assert_eq!(viewer.status.text(), ADD_CANCELED);
+        assert_eq!(viewer.status.text(), tr(ADD_CANCELED));
     }
 
     #[gtk::test]
@@ -704,7 +710,7 @@ mod tests {
         dialog.confirm.emit_clicked();
 
         assert_eq!(annotation_count(viewer), 0);
-        assert_eq!(viewer.status.text(), DOCUMENT_CHANGED);
+        assert_eq!(viewer.status.text(), tr(DOCUMENT_CHANGED));
     }
 
     #[gtk::test]
@@ -768,7 +774,7 @@ mod tests {
         dialog.confirm.emit_clicked();
 
         assert!(!can_undo(viewer));
-        assert_eq!(viewer.status.text(), UNCHANGED);
+        assert_eq!(viewer.status.text(), tr(UNCHANGED));
     }
 
     #[gtk::test]
@@ -785,7 +791,7 @@ mod tests {
 
         assert_eq!(contents_of(viewer, id).as_deref(), Some("uno"));
         assert!(!can_undo(viewer));
-        assert_eq!(viewer.status.text(), EDIT_CANCELED);
+        assert_eq!(viewer.status.text(), tr(EDIT_CANCELED));
     }
 
     #[gtk::test]
@@ -829,6 +835,6 @@ mod tests {
         }
 
         assert!(open_edit_dialog(viewer).is_none());
-        assert_eq!(viewer.status.text(), SELECT_A_TEXT_BOX);
+        assert_eq!(viewer.status.text(), tr(SELECT_A_TEXT_BOX));
     }
 }

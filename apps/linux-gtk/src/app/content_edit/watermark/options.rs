@@ -32,8 +32,11 @@ pub(super) const MAX_ANGLE: f64 = 180.0;
 pub(super) const MIN_SCALE_PERCENT: f64 = 5.0;
 pub(super) const MAX_SCALE_PERCENT: f64 = 100.0;
 
-/// What the text entry starts with — selected, so typing replaces it.
-pub(super) const DEFAULT_TEXT: &str = "DRAFT";
+/// What the text entry starts with — selected, so typing replaces it. It is
+/// stamped into the PDF as typed, so it follows the user's language.
+pub(super) fn default_text() -> String {
+    tr("watermark-default-text")
+}
 
 /// Which pages the stamp goes on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -263,6 +266,7 @@ mod tests {
 
         let _spanish = speak(Language::Spanish);
 
+        assert_eq!(default_text(), "BORRADOR");
         assert_eq!(summary(1), "Marca de agua añadida a 1 página.");
         assert_eq!(summary(4), "Marca de agua añadida a 4 páginas.");
         assert_eq!(

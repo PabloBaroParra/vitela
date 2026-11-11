@@ -46,6 +46,7 @@ mod toolbar;
 
 use gtk::prelude::*;
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection::redraw;
 use crate::app::state::{FieldKind, Viewer};
 
@@ -54,7 +55,7 @@ pub(crate) use toolbar::{build_forms_content, connect_forms_toolbar, update_form
 
 /// Reported when the selected field is gone by the time an operation acting
 /// on it runs — the forms twin of `annotations::SELECTION_GONE`.
-const SELECTION_GONE: &str = "The selected form field no longer exists.";
+const SELECTION_GONE: &str = "forms-selection-gone";
 
 pub(crate) fn mode_is_active(viewer: &Viewer) -> bool {
     viewer.state.borrow().form_edit_mode
@@ -90,9 +91,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
             session.selection = None;
         }
-        viewer.status.set_text(
-            "Edit forms armed — pick a field type to place, or click an existing field to select it.",
-        );
+        viewer.status.set_text(&tr("forms-mode-armed"));
     } else {
         {
             let mut state = viewer.state.borrow_mut();
@@ -106,7 +105,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         for (_, button) in &viewer.forms.place {
             button.set_active(false);
         }
-        viewer.status.set_text("Edit forms disarmed.");
+        viewer.status.set_text(&tr("forms-mode-disarmed"));
     }
     update_forms_controls(viewer);
     redraw(viewer);
@@ -136,8 +135,8 @@ pub(crate) fn set_field_kind(viewer: &Viewer, kind: Option<FieldKind>) {
     // that mapping here would leave a fifth kind's arming message to drift
     // from its own button the moment someone adds one and forgets this match.
     viewer.status.set_text(&match kind {
-        Some(kind) => format!("{} armed — drag on the page to place it.", kind.label()),
-        None => "Edit forms armed — click an existing field to select it.".to_string(),
+        Some(kind) => tr_args("forms-kind-armed", &[("kind", kind.label().into())]),
+        None => tr("forms-mode-armed-select"),
     });
     update_forms_controls(viewer);
     redraw(viewer);

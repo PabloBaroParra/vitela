@@ -7,6 +7,7 @@ use gtk::{gio, Button, FlowBox, PolicyType, ScrolledWindow, SelectionMode, Toggl
 use pdf_document::{AnnotationId, Command, Rect};
 use pdf_render::TextRect;
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::{AnnotationToolbar, Tool, Viewer};
 
@@ -52,7 +53,7 @@ pub(crate) fn add_annotation_toolbar() -> (AnnotationToolbar, ScrolledWindow) {
     // annotation changes — `update_annotation_controls` owns every transition
     // out of that state, for both button kinds.
     let toggle = |tool: Tool| {
-        let button = ToggleButton::with_label(tool.label());
+        let button = ToggleButton::with_label(&tool.label());
         button.set_sensitive(false);
         annotation_toolbar.append(&button);
         (tool, button)
@@ -67,14 +68,14 @@ pub(crate) fn add_annotation_toolbar() -> (AnnotationToolbar, ScrolledWindow) {
     let create = Tool::ALL.iter().map(|&tool| toggle(tool)).collect();
     let toolbar_buttons = AnnotationToolbar {
         create,
-        select_previous: button("Previous annotation"),
+        select_previous: button(&tr("annotate-previous")),
         // Named for what they actually do. These are fixed-step fine
         // adjustments; dragging the annotation itself is how you place it.
-        move_selection: button("Nudge"),
-        resize_selection: button("Grow"),
-        restyle_selection: button("Restyle"),
-        edit_text_selection: button("Edit text"),
-        delete_selection: button("Delete"),
+        move_selection: button(&tr("annotate-nudge")),
+        resize_selection: button(&tr("annotate-grow")),
+        restyle_selection: button(&tr("annotate-restyle")),
+        edit_text_selection: button(&tr("annotate-edit-text")),
+        delete_selection: button(&tr("annotate-delete")),
         delete_action: gio::SimpleAction::new("delete-annotation", None),
     };
 
@@ -214,14 +215,15 @@ fn arm_tool(viewer: &Viewer, tool: Tool, active: bool) {
                 button.set_active(false);
             }
         }
-        viewer.status.set_text(&format!(
-            "{} armed — drag on a page to place it.",
-            tool.label()
+        viewer.status.set_text(&tr_args(
+            "annotate-tool-armed",
+            &[("tool", tool.label().into())],
         ));
     } else {
-        viewer
-            .status
-            .set_text(&format!("{} disarmed.", tool.label()));
+        viewer.status.set_text(&tr_args(
+            "annotate-tool-disarmed",
+            &[("tool", tool.label().into())],
+        ));
     }
 }
 
@@ -244,7 +246,7 @@ fn markup_text_selection(viewer: &Viewer, tool: Tool) -> bool {
         // See `DocumentSession::backend_pages`.
         let page = session
             .backend_page_id(page_index)
-            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
+            .ok_or_else(crate::app::state::page_no_longer_present)?;
         for rect in &rects {
             let id = AnnotationId(session.next_annotation_id);
             let annotation = markup_annotation(tool, id, page, text_rect_to_pdf(*rect))?;
@@ -258,9 +260,9 @@ fn markup_text_selection(viewer: &Viewer, tool: Tool) -> bool {
         // The selection has become the annotation; leaving it live would let a
         // second click stack an identical one over the same words.
         session.selection = None;
-        Ok(format!(
-            "{} applied to the selected text. Changes are pending save.",
-            tool.label()
+        Ok(tr_args(
+            "annotate-markup-applied",
+            &[("tool", tool.label().into())],
         ))
     });
     true

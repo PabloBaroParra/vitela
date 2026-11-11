@@ -17,25 +17,26 @@ use gtk::{
 };
 use pdf_document::{AnnotationId, Command, Rect};
 
-use crate::app::state::{Viewer, PAGE_NO_LONGER_PRESENT};
+use crate::app::i18n::{tr, tr_args};
+use crate::app::state::{page_no_longer_present, Viewer};
 
 use super::builder::{is_blank_note, note_annotation};
 use super::command::{apply_command, command, model};
 
-const CANCELED: &str = "Note placement canceled.";
+const CANCELED: &str = "annotate-note-canceled";
 
 /// Opens the dialog for a note whose rect the user has just traced on
 /// `page_index`. Nothing is recorded until they press Add.
 pub(super) fn prompt_for_note(viewer: &Viewer, page_index: usize, rect: Rect) {
     if let Some(refusal) = viewer.annotation_editing_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let Some(session_id) = current_session_id(viewer) else {
         return;
     };
     let Some(window) = viewer.window() else {
-        viewer.status.set_text("Could not open the note dialog.");
+        viewer.status.set_text(&tr("annotate-note-no-dialog"));
         return;
     };
 
@@ -47,11 +48,14 @@ pub(super) fn prompt_for_note(viewer: &Viewer, page_index: usize, rect: Rect) {
     let dialog = Window::builder()
         .transient_for(&window)
         .modal(true)
-        .title(format!("Add note \u{2014} page {}", page_index + 1))
+        .title(tr_args(
+            "annotate-note-title",
+            &[("page", (page_index + 1).into())],
+        ))
         .child(&content)
         .build();
 
-    let label = Label::new(Some("Note text"));
+    let label = Label::new(Some(&tr("annotate-note-text")));
     label.set_xalign(0.0);
     let text = TextView::builder()
         .wrap_mode(WrapMode::WordChar)
@@ -65,8 +69,8 @@ pub(super) fn prompt_for_note(viewer: &Viewer, page_index: usize, rect: Rect) {
         .build();
     let buttons = GtkBox::new(Orientation::Horizontal, 8);
     buttons.set_halign(gtk::Align::End);
-    let cancel = Button::with_label("Cancel");
-    let add = Button::with_label("Add");
+    let cancel = Button::with_label(&tr("annotate-dialog-cancel"));
+    let add = Button::with_label(&tr("annotate-dialog-add"));
     add.set_sensitive(false);
     buttons.append(&cancel);
     buttons.append(&add);
@@ -111,7 +115,7 @@ pub(super) fn prompt_for_note(viewer: &Viewer, page_index: usize, rect: Rect) {
         let viewer = viewer.clone();
         move |_| {
             if !committed.get() && current_session_id(&viewer) == Some(session_id) {
-                viewer.status.set_text(CANCELED);
+                viewer.status.set_text(&tr(CANCELED));
             }
             glib::Propagation::Proceed
         }
@@ -148,7 +152,7 @@ fn commit_note(viewer: &Viewer, session_id: u64, page_index: usize, rect: Rect, 
         let id = AnnotationId(session.next_annotation_id);
         let page = session
             .backend_page_id(page_index)
-            .ok_or_else(|| PAGE_NO_LONGER_PRESENT.to_string())?;
+            .ok_or_else(page_no_longer_present)?;
         let annotation = note_annotation(id, page, rect, &text)?;
         {
             let document = model(session)?;
@@ -156,7 +160,7 @@ fn commit_note(viewer: &Viewer, session_id: u64, page_index: usize, rect: Rect, 
         }
         session.next_annotation_id += 1;
         session.selected_annotation = Some(id);
-        Ok("Text note added. Changes are pending save.".to_string())
+        Ok(tr("annotate-note-added"))
     });
 }
 

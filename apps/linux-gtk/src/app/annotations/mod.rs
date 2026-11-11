@@ -57,4 +57,4 @@ pub(crate) use tooltip::note_tooltip;
 /// Shared rather than duplicated: the toolbar edits and the direct-manipulation
 /// drag can both outlive the annotation they name, and a user who hits the race
 /// from either direction should be told the same thing.
-const SELECTION_GONE: &str = "The selected annotation no longer exists.";
+const SELECTION_GONE: &str = "annotate-selection-gone";

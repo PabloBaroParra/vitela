@@ -133,11 +133,11 @@ pub(crate) fn command_for(drag: &PathDrag) -> Option<Command> {
     })
 }
 
-fn message_for(mode: AnnotationDragMode) -> &'static str {
-    match mode {
-        AnnotationDragMode::Move => "Shape moved.",
-        AnnotationDragMode::Resize(_) => "Shape resized.",
-    }
+fn message_for(mode: AnnotationDragMode) -> String {
+    tr(match mode {
+        AnnotationDragMode::Move => "edit-shape-moved",
+        AnnotationDragMode::Resize(_) => "edit-shape-resized",
+    })
 }
 
 /// Grabs the path under `point` on `page_index`, selecting it; a press on
@@ -260,7 +260,7 @@ pub(crate) fn finish_path_drag(viewer: &Viewer) -> bool {
         return true;
     };
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         selection::redraw(viewer);
         return true;
     }
@@ -297,7 +297,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return true;
     }
     let result = {
@@ -315,7 +315,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         result
     };
     match result {
-        Ok(()) => refresh_preview(viewer, "Shape deleted."),
+        Ok(()) => refresh_preview(viewer, tr("edit-shape-deleted")),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);

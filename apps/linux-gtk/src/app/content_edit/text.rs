@@ -18,6 +18,7 @@ use gtk::prelude::*;
 use gtk::{cairo, Picture};
 use pdf_document::{Command, Rect, TextRun};
 
+use crate::app::i18n::tr;
 use crate::app::selection;
 use crate::app::state::{DocumentSession, DragPreview, PageSlot, TextDrag, Viewer};
 
@@ -298,7 +299,7 @@ pub(crate) fn finish_text_drag(viewer: &Viewer, offset_x: f64, offset_y: f64) ->
     // would put the message up for every click on the run, including the
     // ones that only wanted to select it.
     if let Some(refusal) = drag.refusal {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&tr(refusal));
         selection::redraw(viewer);
         return true;
     }
@@ -320,7 +321,7 @@ pub(crate) fn finish_text_drag(viewer: &Viewer, offset_x: f64, offset_y: f64) ->
     match outcome {
         Ok(()) => {
             crate::app::update_content_edit_controls(viewer);
-            crate::app::write::refresh_preview(viewer, "Text moved.");
+            crate::app::write::refresh_preview(viewer, tr("edit-text-moved"));
         }
         Err(message) => {
             viewer.status.set_text(&message);

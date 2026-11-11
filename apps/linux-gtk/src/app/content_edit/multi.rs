@@ -22,6 +22,7 @@ use gtk::prelude::*;
 use pdf_document::{ImageItem, PageContent, PathItem, Rect, TextRun};
 use pdf_edit::Selection;
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::{ContentSelection, SelectionGesture, Viewer};
 use crate::app::update_content_edit_controls;
@@ -217,10 +218,7 @@ pub(crate) fn item_count(selection: &Selection) -> usize {
 
 fn selected_message(selection: &Selection) -> String {
     let count = item_count(selection);
-    format!(
-        "{count} item{} selected — drag to move, Delete removes, Esc clears.",
-        if count == 1 { "" } else { "s" }
-    )
+    tr_args("edit-multi-selected", &[("count", count.into())])
 }
 
 /// The page content a press on `page_index` is hit-tested against, parsed
@@ -450,7 +448,7 @@ fn finish_marquee(
         }
     }
     viewer.status.set_text(&if members.is_empty() {
-        "Nothing there to select.".to_string()
+        tr("edit-multi-nothing")
     } else {
         selected_message(&members)
     });
@@ -464,7 +462,7 @@ fn finish_group_move(viewer: &Viewer, page_index: usize, origin: (f64, f64), cur
         return;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         selection::redraw(viewer);
         return;
     }
@@ -495,7 +493,7 @@ fn finish_group_move(viewer: &Viewer, page_index: usize, origin: (f64, f64), cur
         result
     };
     match result {
-        Ok(()) => refresh_preview(viewer, "Selection moved."),
+        Ok(()) => refresh_preview(viewer, tr("edit-multi-moved")),
         Err(error) => viewer.status.set_text(&error),
     }
     selection_changed(viewer);
@@ -508,7 +506,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return true;
     }
     let result = {
@@ -526,7 +524,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         result
     };
     match result {
-        Ok(()) => refresh_preview(viewer, "Selection deleted."),
+        Ok(()) => refresh_preview(viewer, tr("edit-multi-deleted")),
         Err(error) => viewer.status.set_text(&error),
     }
     selection_changed(viewer);
@@ -573,7 +571,7 @@ pub(crate) fn connect_clear_shortcut(
         move |_, _| {
             clear(&viewer);
             block::clear(&viewer);
-            viewer.status.set_text("Selection cleared.");
+            viewer.status.set_text(&tr("edit-multi-cleared"));
         }
     });
     window.add_action(&action);

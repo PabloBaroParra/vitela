@@ -3,6 +3,7 @@
 
 use pdf_document::{Annotation, AnnotationId, AnnotationKind, Command, Rect};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::Viewer;
 
@@ -23,7 +24,7 @@ const NUDGE_PT: f64 = 12.0;
 /// How much the Grow button enlarges the selected annotation.
 const RESIZE_FACTOR: f64 = 1.25;
 
-const SELECT_FIRST: &str = "Select an annotation first.";
+const SELECT_FIRST: &str = "annotate-select-first";
 
 fn edit(
     viewer: &Viewer,
@@ -32,17 +33,17 @@ fn edit(
     command(viewer, |session| {
         let id = session
             .selected_annotation
-            .ok_or_else(|| SELECT_FIRST.to_string())?;
+            .ok_or_else(|| tr(SELECT_FIRST))?;
         let document = model(session)?;
         let before = document
             .annotations
             .get(id)
             .cloned()
-            .ok_or_else(|| SELECTION_GONE.to_string())?;
+            .ok_or_else(|| tr(SELECTION_GONE))?;
         let mut after = before.clone();
         operation(&mut after).map_err(|error| error.to_string())?;
         apply_command(document, Command::ReplaceAnnotation { before, after });
-        Ok("Annotation edited. Changes are pending save.".to_string())
+        Ok(tr("annotate-edited"))
     });
 }
 
@@ -63,18 +64,18 @@ pub(super) fn delete(viewer: &Viewer) {
     command(viewer, |session| {
         let id = session
             .selected_annotation
-            .ok_or_else(|| SELECT_FIRST.to_string())?;
+            .ok_or_else(|| tr(SELECT_FIRST))?;
         {
             let document = model(session)?;
             let annotation = document
                 .annotations
                 .get(id)
                 .cloned()
-                .ok_or_else(|| SELECTION_GONE.to_string())?;
+                .ok_or_else(|| tr(SELECTION_GONE))?;
             apply_command(document, Command::RemoveAnnotation(annotation));
         }
         session.selected_annotation = None;
-        Ok("Annotation deleted. Changes are pending save.".to_string())
+        Ok(tr("annotate-deleted"))
     });
 }
 
@@ -108,7 +109,7 @@ pub(super) fn select_previous(viewer: &Viewer) {
     };
     viewer
         .status
-        .set_text(&format!("Selected annotation {}.", selected.0));
+        .set_text(&tr_args("annotate-selected", &[("id", selected.0.into())]));
     update_annotation_controls(viewer);
     selection::redraw(viewer);
 }

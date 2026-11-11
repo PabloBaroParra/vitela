@@ -35,6 +35,7 @@ use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 use pdf_edit::EditError;
 use pdf_render::{place_point, point_to_pdf, PagePlacement, PageRotation};
 
+use crate::app::i18n::tr;
 use crate::app::state::{ContentEditor, DocumentSession, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
@@ -127,9 +128,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         // `pdf-edit` has a combined command for, unlike two retypes of the
         // same run.
         PendingText::Nothing if moved => {
-            viewer.status.set_text(
-                "This text was moved and not yet saved — save and reopen before retyping it.",
-            );
+            viewer.status.set_text(&tr("edit-text-moved-unsaved"));
             return;
         }
         PendingText::Nothing => None,
@@ -140,10 +139,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         // produce a command `pdf-edit` fails to resolve at save time —
         // refused here, same posture as the composite-font case above.
         PendingText::Unresolvable => {
-            viewer.status.set_text(
-                "This text is part of an unsaved edit that is no longer available — save \
-                 and reopen before editing it again.",
-            );
+            viewer.status.set_text(&tr("edit-text-edit-unavailable"));
             return;
         }
     };
@@ -686,7 +682,7 @@ fn wire_entry(viewer: &Viewer, entry: &Entry, draggable: bool) {
 /// Safe to call with no editor open (focus-out and Enter both route here).
 pub(crate) fn commit(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
 
@@ -717,7 +713,7 @@ pub(crate) fn commit(viewer: &Viewer) {
     let (recorded, message) = if !block.is_empty() {
         (
             command::record_batch(session, pdf_edit::retype_block(&block, &after, false)),
-            "Text updated.",
+            tr("edit-text-updated"),
         )
     } else if is_insertion {
         (
@@ -725,12 +721,12 @@ pub(crate) fn commit(viewer: &Viewer) {
                 session,
                 Command::InsertTextRun(TextRun { text: after, ..run }),
             ),
-            "Text inserted.",
+            tr("edit-text-inserted"),
         )
     } else {
         (
             command::record(session, Command::ReplaceTextRunContent { item: run, after }),
-            "Text updated.",
+            tr("edit-text-updated"),
         )
     };
 
@@ -760,8 +756,7 @@ pub(crate) fn commit(viewer: &Viewer) {
 /// leave a run painting no glyphs on the page and still answering clicks.
 /// Undo removes the insertion outright, which is the operation actually being
 /// asked for.
-pub(crate) const INSERTION_NOT_DELETABLE: &str =
-    "This text hasn't been saved yet — undo the insertion to remove it.";
+pub(crate) const INSERTION_NOT_DELETABLE: &str = "edit-insertion-not-deletable";
 
 /// Removes the run the open inline editor sits on — or its whole block, as
 /// one undo step (B25 T-207) — the Edit page's "Delete text".
@@ -774,7 +769,7 @@ pub(crate) const INSERTION_NOT_DELETABLE: &str =
 /// [`INSERTION_NOT_DELETABLE`].
 pub(crate) fn delete_open_run(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
 
@@ -796,7 +791,7 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
             let editor = session.content_editor.take().expect("checked above");
             drop(state);
             detach(viewer, &editor);
-            refresh_preview(viewer, "Text deleted.");
+            refresh_preview(viewer, tr("edit-text-deleted"));
         }
         Err(error) => {
             drop(state);
@@ -815,7 +810,7 @@ pub(super) fn record_removal(
     block: &[TextRun],
 ) -> Result<(), String> {
     if block.is_empty() && model::pending_log_index(run.id).is_some() {
-        return Err(INSERTION_NOT_DELETABLE.to_string());
+        return Err(tr(INSERTION_NOT_DELETABLE));
     }
     if block.is_empty() {
         command::record(session, Command::RemoveTextRun(run))
@@ -836,7 +831,7 @@ pub(crate) fn cancel(viewer: &Viewer) {
     };
     if let Some(editor) = editor {
         detach(viewer, &editor);
-        viewer.status.set_text("Edit cancelled.");
+        viewer.status.set_text(&tr("edit-cancelled"));
     }
 }
 

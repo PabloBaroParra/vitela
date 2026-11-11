@@ -19,10 +19,10 @@ use pdf_document::{Watermark, WatermarkLayer};
 use crate::app::i18n::{tr, tr_args};
 
 use super::options::{
-    default_opacity_percent, default_scale_percent, fraction_from_percent, look_defaults,
-    resolve_pages, resolve_picture, resolve_text, MarkKind, MarkOptions, PageChoice,
-    WatermarkOptions, DEFAULT_TEXT, MAX_ANGLE, MAX_FONT_SIZE, MAX_OPACITY_PERCENT,
-    MAX_SCALE_PERCENT, MIN_ANGLE, MIN_FONT_SIZE, MIN_OPACITY_PERCENT, MIN_SCALE_PERCENT,
+    default_opacity_percent, default_scale_percent, default_text, fraction_from_percent,
+    look_defaults, resolve_pages, resolve_picture, resolve_text, MarkKind, MarkOptions, PageChoice,
+    WatermarkOptions, MAX_ANGLE, MAX_FONT_SIZE, MAX_OPACITY_PERCENT, MAX_SCALE_PERCENT, MIN_ANGLE,
+    MIN_FONT_SIZE, MIN_OPACITY_PERCENT, MIN_SCALE_PERCENT,
 };
 
 /// The dialog. Calls `submit` with the validated options; the dialog closes
@@ -62,7 +62,7 @@ pub(super) fn prompt_for_options<F>(
 
     // Text section.
     let text_section = GtkBox::new(GtkOrientation::Vertical, 8);
-    let text = Entry::builder().text(DEFAULT_TEXT).build();
+    let text = Entry::builder().text(default_text()).build();
     let size = SpinButton::with_range(MIN_FONT_SIZE, MAX_FONT_SIZE, 1.0);
     size.set_value(Watermark::DEFAULT_FONT_SIZE);
     text_section.append(&left_label(&tr("watermark-text-label")));
