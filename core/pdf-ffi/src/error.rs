@@ -108,6 +108,14 @@ pub enum FfiError {
     Internal { detail: String },
 }
 
+impl From<pdf_manip::TextExtractionDenied> for FfiError {
+    fn from(denied: pdf_manip::TextExtractionDenied) -> Self {
+        FfiError::UnsupportedOperation {
+            detail: denied.to_string(),
+        }
+    }
+}
+
 impl From<pdf_manip::ManipError> for FfiError {
     fn from(err: pdf_manip::ManipError) -> Self {
         use pdf_manip::ManipError as E;

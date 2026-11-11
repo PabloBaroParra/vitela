@@ -22,6 +22,7 @@ mod form_resources;
 mod forms;
 mod graft;
 mod import_source;
+mod layout;
 mod links;
 mod merge_split;
 mod open;
@@ -39,17 +40,18 @@ pub use document::{DocumentInfo, LopdfDocument, PageDimensions};
 pub use error::ManipError;
 pub use graft::graft_pages;
 pub use import_source::open_import_source_from_bytes;
+pub use layout::{current_page_dimensions, CurrentPageDimensions, OpenedRotations};
 pub use merge_split::{merge, split};
 pub use open::{
-    open_document, open_document_from_bytes, open_document_with_passwords,
-    open_document_with_passwords_from_bytes, read_security_context,
-    read_security_context_from_bytes,
+    open_document, open_document_from_bytes, open_document_with_credentials_from_bytes,
+    open_document_with_passwords, open_document_with_passwords_from_bytes, read_security_context,
+    read_security_context_from_bytes, OpenCredentials,
 };
 pub use page_ops::{delete_pages, extract_pages, reorder_pages, rotate_page};
 pub use report::{graft_report, GraftOutcome, GraftReport, GraftWarning};
 pub use security::{
     annotation_editing_is_allowed, content_editing_is_allowed, document_assembly_is_allowed,
-    text_extraction_is_allowed,
+    ensure_text_extraction_allowed, text_extraction_is_allowed, TextExtractionDenied,
 };
 pub use signatures::document_has_signatures;
 pub use text_string::{encode_pdf_text_string, pdf_text_string_object};

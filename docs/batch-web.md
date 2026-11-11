@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 desglosada, sin arrancar.**
+> fase 1 en curso: T-217 ✓ (#560), T-218 hecha, sin PR.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -148,15 +148,25 @@ Hechos que las fundamentan (mapeados 2026-11-11):
 
 | Tarea | Entrega | Hecho cuando |
 |---|---|---|
-| **T-217** | `pdf-render` sin hilos en wasm32: sacar los `*_job` a un módulo `jobs`, extraer `open_from_bytes_job`, y poner actor, `library.rs`, `bind_actor` y la apertura por ruta tras `cfg(not(target_arch = "wasm32"))`. En wasm32, estado en `thread_local` y métodos síncronos. | Nativo: **cero cambio de comportamiento** (tests de `core.yml` en verde). `cargo check --target wasm32-unknown-unknown -p pdf-render` pasa. |
+| **T-217** ✓ #560 | `pdf-render` sin hilos en wasm32: sacar los `*_job` a un módulo `jobs`, extraer `open_from_bytes_job`, y poner actor, `library.rs`, `bind_actor` y la apertura por ruta tras `cfg(not(target_arch = "wasm32"))`. En wasm32, estado en `thread_local` y métodos síncronos. | Nativo: **cero cambio de comportamiento** (tests de `core.yml` en verde). `cargo check --target wasm32-unknown-unknown -p pdf-render` pasa. |
 | **T-218** | Bajar al core la lógica que hoy vive en `pdf-ffi`: dimensiones de página con rotación, apertura con contraseñas y el gate de extracción de texto. `pdf-ffi` pasa a delegar. | Tests movidos junto a la lógica; los shells no notan nada. |
 | **T-219** | `core/pdf-wasm` en el workspace (wasm-bindgen): abrir desde bytes (con/sin contraseña, dual), nº de páginas, dimensiones, render → RGBA, text runs, caracteres de página, búsqueda. | `wasm-bindgen-test` en navegador headless; job wasm32 en CI; cubierto por cargo-audit/deny del root. |
-| **T-220** | Esqueleto `apps/web` (Vite + React + TS): worker que carga ambos WASM (con el alias), cliente tipado del worker, Vitest, Playwright con el test zero-network, `web.yml`. **Decidir matriz de navegadores.** | Build reproducible; Playwright abre un fixture y ve un canvas pintado; zero-network en verde. |
+| **T-220** | Esqueleto `apps/web` (Vite + React + TS): worker que carga ambos WASM (con el alias), cliente tipado del worker, Vitest, Playwright con el test zero-network, `web.yml`. Matriz: Chromium + Firefox + WebKit. | Build reproducible; Playwright abre un fixture y ve un canvas pintado; zero-network en verde. |
 | **T-221** | Visor: abrir (selector + soltar archivo), diálogo de contraseña, scroll virtualizado, zoom (incl. rueda anclada al puntero). | Flujos Playwright: abrir normal, abrir cifrado, scroll a la última página, zoom. |
 | **T-222** | Búsqueda y selección de texto (resaltado, copiar), respetando el permiso de extracción. | Flujos Playwright: buscar y saltar entre resultados; seleccionar y copiar; PDF sin permiso → bloqueado. |
 
 T-217 y T-218 son independientes entre sí y bloquean T-219; T-220 puede ir en paralelo
 a ellas. Re-verificar al arrancar que T-217…T-222 siguen libres.
+
+**Resultado de T-218 (2026-11-11).** Las tres piezas viven ahora en `pdf-manip`, que no
+tiene pdfium: `layout::current_page_dimensions` + `OpenedRotations`,
+`open::OpenCredentials` (elige la contraseña de propietario para el renderer) y
+`security::ensure_text_extraction_allowed`. La apertura **solo se bajó en parte**:
+construir el modelo (`pdf_save::document_from_lopdf`) sigue en `pdf-ffi` porque
+**`pdf-save` no compila a wasm32**: `export/mod.rs` usa `pdf_render::PdfiumRenderer`,
+que T-217 dejó fuera de wasm32. **Prerrequisito de T-219:** que `pdf-save` compile a
+wasm32 (p. ej. `export` tras `cfg(not(target_arch = "wasm32"))`). Los gates de
+portapapeles y de `image_source_bytes` no se unificaron porque tienen mensajes propios.
 
 ## Verificación
 
@@ -166,8 +176,9 @@ a ellas. Re-verificar al arrancar que T-217…T-222 siguen libres.
   **completa** se prueba con Playwright sobre el build real — cada feature que entra
   llega con su flujo de punta a punta (abrir, operar, guardar y comprobar el PDF
   resultante), no solo con tests unitarios. Una fase no se da por cerrada sin sus flujos
-  Playwright en verde en CI. Pendiente al arrancar la fase 1: fijar la matriz de
-  navegadores (el spike solo se midió en Chromium; Firefox y WebKit sin probar).
+  Playwright en verde en CI. **Matriz de navegadores (decisión del usuario,
+  2026-11-11): Chromium + Firefox + WebKit**, los tres en CI. El spike solo se midió en
+  Chromium; Firefox y WebKit se validan por primera vez en T-220.
 - **Zero-network:** un test de Playwright que falla si la app hace cualquier petición
   de red después de la carga inicial. Es el equivalente web de `zero-network-guard`.
 - **CI:** workflow propio `web.yml`. El core sigue gateado por `core.yml`.

@@ -48,6 +48,34 @@ pub fn text_extraction_is_allowed(security: Option<&SecurityContext>) -> bool {
     }
 }
 
+/// The refusal [`ensure_text_extraction_allowed`] returns: the document's
+/// permissions withhold copying or extracting its text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextExtractionDenied;
+
+impl std::fmt::Display for TextExtractionDenied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("text extraction is not permitted")
+    }
+}
+
+impl std::error::Error for TextExtractionDenied {}
+
+/// The gate every text read goes through — text runs, page characters,
+/// search, page content — as a `Result`, so a facade refuses with `?` and
+/// every boundary words the refusal the same way.
+///
+/// Same rule as [`text_extraction_is_allowed`]; this is that rule applied.
+pub fn ensure_text_extraction_allowed(
+    security: Option<&SecurityContext>,
+) -> Result<(), TextExtractionDenied> {
+    if text_extraction_is_allowed(security) {
+        Ok(())
+    } else {
+        Err(TextExtractionDenied)
+    }
+}
+
 /// Whether the document permits changes to annotation objects.
 ///
 /// PDF `/P` bit 6 grants adding or modifying annotations. This is distinct
@@ -154,6 +182,31 @@ mod tests {
             Credential::User,
             1 << 9
         ))));
+    }
+
+    #[test]
+    fn the_extraction_gate_applies_the_extraction_rule() {
+        assert_eq!(ensure_text_extraction_allowed(None), Ok(()));
+        assert_eq!(
+            ensure_text_extraction_allowed(Some(&context(Credential::Owner, 0))),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_text_extraction_allowed(Some(&context(Credential::User, COPY_OR_EXTRACT))),
+            Ok(())
+        );
+        assert_eq!(
+            ensure_text_extraction_allowed(Some(&context(Credential::User, 0))),
+            Err(TextExtractionDenied)
+        );
+    }
+
+    #[test]
+    fn the_extraction_refusal_reads_as_every_boundary_has_always_worded_it() {
+        assert_eq!(
+            TextExtractionDenied.to_string(),
+            "text extraction is not permitted"
+        );
     }
 
     #[test]

@@ -75,6 +75,16 @@ pub struct FfiPageDimensions {
     pub rotation: FfiPageRotation,
 }
 
+impl From<pdf_manip::CurrentPageDimensions> for FfiPageDimensions {
+    fn from(dimensions: pdf_manip::CurrentPageDimensions) -> Self {
+        Self {
+            width_pt: dimensions.width_pt,
+            height_pt: dimensions.height_pt,
+            rotation: dimensions.rotation.into(),
+        }
+    }
+}
+
 /// A page-space rectangle in PDF points with a bottom-left origin, suitable
 /// for mapping directly onto a rendered page.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Record)]

@@ -94,6 +94,73 @@ pub fn open_document_with_passwords(
     ))
 }
 
+/// What a caller hands over to open a PDF from bytes: nothing, one password
+/// (user or owner — the document decides which it matches), or both.
+///
+/// A session that opens the same bytes twice — once through lopdf for the
+/// model, once through a renderer for pixels — has to give the renderer a
+/// password that opens them too. [`OpenCredentials::render_password`] is that
+/// choice, made once here instead of in every facade.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpenCredentials {
+    /// No password: enough for an unencrypted document, and refused with
+    /// [`ManipError::PasswordRequired`] by an encrypted one.
+    NoPassword,
+    /// One password, matched against the user and then the owner password.
+    Password(String),
+    /// Both passwords, each verified against its own role — required before
+    /// an encrypted full rewrite (see [`open_document_with_passwords`]).
+    UserAndOwner { user: String, owner: String },
+}
+
+impl From<Option<String>> for OpenCredentials {
+    fn from(password: Option<String>) -> Self {
+        password.map_or(Self::NoPassword, Self::Password)
+    }
+}
+
+impl OpenCredentials {
+    /// The password a renderer must be given to open the same bytes.
+    ///
+    /// With both passwords it is the owner one: the lopdf side decrypts with
+    /// the owner password and records an owner credential, so the renderer
+    /// is opened under the same role the model was. Any password is passed
+    /// on even for an unencrypted document, which a renderer ignores.
+    pub fn render_password(&self) -> Option<&str> {
+        match self {
+            Self::NoPassword => None,
+            Self::Password(password) => Some(password),
+            Self::UserAndOwner { owner, .. } => Some(owner),
+        }
+    }
+
+    /// Owned [`Self::render_password`], for a session that keeps it to
+    /// reopen the renderer later.
+    pub fn into_render_password(self) -> Option<String> {
+        match self {
+            Self::NoPassword => None,
+            Self::Password(password) => Some(password),
+            Self::UserAndOwner { owner, .. } => Some(owner),
+        }
+    }
+}
+
+/// Opens `bytes` with whichever credentials the caller has: dispatches to
+/// [`open_document_from_bytes`] or [`open_document_with_passwords_from_bytes`]
+/// and returns exactly what that function does.
+pub fn open_document_with_credentials_from_bytes(
+    bytes: &[u8],
+    credentials: &OpenCredentials,
+) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
+    match credentials {
+        OpenCredentials::NoPassword => open_document_from_bytes(bytes, None),
+        OpenCredentials::Password(password) => open_document_from_bytes(bytes, Some(password)),
+        OpenCredentials::UserAndOwner { user, owner } => {
+            open_document_with_passwords_from_bytes(bytes, user, owner)
+        }
+    }
+}
+
 /// Reads a document's [`SecurityContext`] without decrypting it — the probe
 /// half of [`open_document`], on its own.
 ///
