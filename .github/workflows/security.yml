@@ -8,6 +8,7 @@ on:
     paths:
       - "**/Cargo.toml"
       - Cargo.lock
+      - spikes/web-wasm/Cargo.lock
       - deny.toml
       - .cargo/audit.toml
       - .github/workflows/security.yml
@@ -15,6 +16,7 @@ on:
     paths:
       - "**/Cargo.toml"
       - Cargo.lock
+      - spikes/web-wasm/Cargo.lock
       - deny.toml
       - .cargo/audit.toml
       - .github/workflows/security.yml
@@ -64,6 +66,11 @@ jobs:
         run: cargo install cargo-audit --locked --version 0.22.2
       - name: Check RustSec advisories
         run: cargo audit
+      # spikes/web-wasm is excluded from the root workspace and keeps its own
+      # lockfile (so its wasm deps never touch the main one); audit it too, or
+      # its dependencies would never be checked at all.
+      - name: Check RustSec advisories (spikes/web-wasm)
+        run: cargo audit --file spikes/web-wasm/Cargo.lock
 
   cargo-deny:
     name: Dependency policy
@@ -73,4 +80,9 @@ jobs:
       - name: Enforce advisory, dependency, and source policy
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
+          command-arguments: advisories bans sources
+      - name: Enforce the same policy on spikes/web-wasm (own lockfile)
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: spikes/web-wasm/Cargo.toml
           command-arguments: advisories bans sources

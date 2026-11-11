@@ -196,10 +196,11 @@ The page therefore measures as soon as `putImageData` returns.
 
 ## Open risks for B26 (not tested here)
 
-- **The spike's own `Cargo.lock` is not audited.** cargo-audit, cargo-deny and
-  Dependabot run against the root workspace only. That is acceptable for a
-  spike. The real `core/pdf-wasm` should join the root workspace so the
-  existing gates cover it.
+- **The spike's own `Cargo.lock`.** `.github/workflows/security.yml` runs
+  cargo-audit and cargo-deny (`advisories bans sources`) on it too. Dependabot
+  still watches only the root, so the spike gets no update PRs. The real
+  `core/pdf-wasm` should join the root workspace, so the existing gates cover
+  it without extra steps.
 
 - **Fonts.** The Emscripten pdfium has no system fonts. Embedded fonts and the
   base-14 fonts rendered. Non-embedded, non-base-14 fonts (CJK above all) were

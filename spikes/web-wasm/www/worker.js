@@ -6,7 +6,9 @@
 const t0 = performance.now();
 // ?cold appends a unique query to every asset (fixture included) so the
 // HTTP cache cannot help.
-const bust = new URLSearchParams(location.search).has('cold') ? '?t=' + Date.now() : '';
+const coldStamp = new URLSearchParams(location.search).has('cold') ? 't=' + Date.now() : '';
+// Appends the stamp with '?' or '&', so a URL that already has a query stays valid.
+const bust = (url) => (coldStamp ? url + (url.includes('?') ? '&' : '?') + coldStamp : url);
 const stage = (name) => self.postMessage({ stage: name, atMs: performance.now() - t0 });
 self.SPIKE_DEBUG = new URLSearchParams(location.search).has('debug');
 // Stage times are stamped where each promise settles, not where onmessage
@@ -15,7 +17,7 @@ self.SPIKE_DEBUG = new URLSearchParams(location.search).has('debug');
 const marks = {};
 const pdfiumReady = new Promise((resolve, reject) => {
   self.Module = {
-    locateFile: (path) => 'pdfium/' + path + bust,
+    locateFile: (path) => bust('pdfium/' + path),
     onRuntimeInitialized: () => {
       // pdfium-render 0.9.5's WASM FPDF_InitLibrary() ccalls either
       // `PDF_InitLibrary` (if Module.FPDF_InitLibrary exists) or
@@ -31,14 +33,14 @@ const pdfiumReady = new Promise((resolve, reject) => {
     onAbort: (what) => reject(new Error('pdfium runtime aborted: ' + what)),
   };
 });
-importScripts('pdfium/pdfium.js' + bust, 'pkg/web_wasm_spike.js' + bust);
+importScripts(bust('pdfium/pdfium.js'), bust('pkg/web_wasm_spike.js'));
 
 self.onmessage = async ({ data }) => {
   try {
     const [pdfiumModule, rustModule, bytes] = await Promise.all([
       pdfiumReady,
-      wasm_bindgen({ module_or_path: 'pkg/web_wasm_spike_bg.wasm' + bust }).then((m) => { marks.rustReadyMs = performance.now() - t0; return m; }),
-      fetch(data.fixture + bust).then((r) => {
+      wasm_bindgen({ module_or_path: bust('pkg/web_wasm_spike_bg.wasm') }).then((m) => { marks.rustReadyMs = performance.now() - t0; return m; }),
+      fetch(bust(data.fixture)).then((r) => {
         if (!r.ok) throw new Error(`fixture ${data.fixture}: HTTP ${r.status}`);
         return r.arrayBuffer();
       }).then((b) => new Uint8Array(b)),
