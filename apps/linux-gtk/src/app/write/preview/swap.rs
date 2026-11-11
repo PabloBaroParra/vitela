@@ -71,6 +71,9 @@ pub(super) fn swap_in_place(viewer: &Viewer, reopened: OpenedDocument) -> Option
         // has just dropped (`reset_slot`), as on Windows, where any block
         // edit lets go of the selection.
         session.selected_text_block = None;
+        // So is the hover: once the page is parsed again its ids may name
+        // other items.
+        crate::app::content_edit::hover::forget(session);
         session.unsaved_to_disk = true;
         session.last_visible = None;
     }

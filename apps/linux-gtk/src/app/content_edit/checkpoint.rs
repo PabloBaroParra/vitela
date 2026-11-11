@@ -154,12 +154,14 @@ pub(crate) fn can_redo(session: &DocumentSession) -> bool {
 }
 
 /// Forgets every page's parsed content: after the base is swapped, each item
-/// read before names the old one — a selected text block's runs among them.
+/// read before names the old one — a selected text block's runs and the
+/// hovered item among them.
 pub(crate) fn forget_page_content(session: &mut DocumentSession) {
     for page in &mut session.pages {
         page.content = None;
     }
     session.selected_text_block = None;
+    super::hover::forget(session);
 }
 
 #[cfg(test)]

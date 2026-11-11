@@ -399,6 +399,48 @@ pub(crate) fn clear(viewer: &Viewer) -> bool {
     true
 }
 
+/// Drops the hover, its outline and its move cursor because the page
+/// content it was read from changed: an edit was recorded, or the content
+/// was dropped to be parsed again. Content ids are positional, so after a
+/// re-parse the hover's ids could name different items. The next pointer
+/// motion finds the hover again.
+///
+/// Takes the session rather than the viewer: every caller already holds it
+/// borrowed. A cursor change and a queued draw call nothing back into it.
+pub(crate) fn forget(session: &mut DocumentSession) {
+    let Some(previous) = session.content_hover.take() else {
+        return;
+    };
+    if let Some(page) = session.pages.get(previous.page_index) {
+        set_cursor(&page.highlights, None);
+        page.highlights.queue_draw();
+    }
+}
+
+/// Whether `member` is still on the page as `content` has it now: every
+/// item with the same id and in the same place. A hover read from content
+/// that has since been parsed again fails this.
+fn still_current(content: &pdf_document::PageContent, member: &Member) -> bool {
+    match member {
+        Member::Runs(runs) => {
+            !runs.is_empty()
+                && runs.iter().all(|run| {
+                    content
+                        .text_run(run.id)
+                        .is_some_and(|now| now.bbox == run.bbox)
+                })
+        }
+        Member::Image(item) => content
+            .images
+            .iter()
+            .any(|now| now.id == item.id && now.bbox == item.bbox),
+        Member::Path(item) => content
+            .paths
+            .iter()
+            .any(|now| now.id == item.id && now.bbox == item.bbox),
+    }
+}
+
 /// What a press on the hovered item's border grabbed — so the caller can let
 /// go of whatever else was selected, as it does for the same press inside.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -408,7 +450,8 @@ pub(crate) enum Grabbed {
     Path,
 }
 
-/// The hovered item on `page_index`, when `point` is on its border band.
+/// The hovered item on `page_index`, when `point` is on its border band and
+/// the item is still where the page's current content has it.
 fn border_member(
     viewer: &Viewer,
     page_index: usize,
@@ -421,7 +464,11 @@ fn border_member(
         .content_hover
         .as_ref()
         .filter(|hover| hover.page_index == page_index)?;
-    let scale = session.pages.get(page_index)?.budget.factor;
+    let page = session.pages.get(page_index)?;
+    if !still_current(page.content.as_ref()?, &hover.member) {
+        return None;
+    }
+    let scale = page.budget.factor;
     let handles = Handles::of(session, page_index);
     (zone_of(&hover.member, point, scale, reach, handles) == Some(Zone::Border))
         .then(|| hover.member.clone())
@@ -879,5 +926,103 @@ mod tests {
             .and_then(|session| session.selected_text_block.as_ref())
             .expect("the click selects the block");
         assert_eq!(selected.run.id, fixture.runs[0].id);
+    }
+
+    /// Hovers the first block's border band, as a pointer resting there
+    /// leaves it, and returns the band point (PDF page space).
+    fn hover_border(fixture: &Fixture) -> (f64, f64) {
+        let inside = fixture.on_screen(Fixture::middle(&fixture.runs[0]));
+        track(fixture.viewer(), 0, inside.0, inside.1);
+        let press = left_of_block(fixture, 3.0);
+        let border = fixture.on_screen(press);
+        pointer_moved(
+            fixture.viewer(),
+            &highlights(fixture),
+            0,
+            border.0,
+            border.1,
+        );
+        assert_eq!(
+            hovered(fixture.viewer()).map(|hover| hover.zone),
+            Some(Zone::Border)
+        );
+        press
+    }
+
+    /// Forgetting the parsed content — a checkpoint swapped the base —
+    /// drops the hover, its outline and its move cursor: the ids it holds
+    /// may name different items once the page is parsed again.
+    #[gtk::test]
+    fn gtk_ui_forgetting_page_content_drops_the_hover_and_its_cursor() {
+        let fixture = Fixture::new(PageRotation::None);
+        hover_border(&fixture);
+        let area = highlights(&fixture);
+        assert!(area.cursor().is_some(), "the band shows the move cursor");
+
+        super::super::checkpoint::forget_page_content(
+            fixture
+                .viewer()
+                .state
+                .borrow_mut()
+                .session
+                .as_mut()
+                .expect("a session"),
+        );
+
+        assert_eq!(hovered(fixture.viewer()), None);
+        assert_eq!(area.cursor(), None);
+    }
+
+    /// A content edit recorded with the pointer still lets the hover go:
+    /// the outline would otherwise stay where the item used to be.
+    #[gtk::test]
+    fn gtk_ui_a_recorded_content_edit_drops_the_hover() {
+        let fixture = Fixture::new(PageRotation::None);
+        hover_border(&fixture);
+        let run = fixture.runs[0].clone();
+
+        {
+            let mut state = fixture.viewer().state.borrow_mut();
+            let session = state.session.as_mut().expect("a session");
+            super::super::command::record(session, pdf_document::Command::RemoveTextRun(run))
+                .expect("the delete records");
+        }
+
+        assert_eq!(hovered(fixture.viewer()), None);
+        assert_eq!(highlights(&fixture).cursor(), None);
+    }
+
+    /// Content ids are positional: re-parsed under a stale hover, the id it
+    /// holds can name another item. A press on the old band must not move
+    /// that one — it falls through to the ordinary press, a marquee here.
+    #[gtk::test]
+    fn gtk_ui_a_stale_hover_does_not_move_whatever_now_has_its_id() {
+        let fixture = Fixture::new(PageRotation::None);
+        let press = hover_border(&fixture);
+        {
+            let mut state = fixture.viewer().state.borrow_mut();
+            let session = state.session.as_mut().expect("a session");
+            let content = session.pages[0].content.as_mut().expect("parsed");
+            let (first, second) = (content.text_runs[0].id, content.text_runs[1].id);
+            content.text_runs[0].id = second;
+            content.text_runs[1].id = first;
+        }
+
+        assert!(super::super::begin_drag(
+            fixture.viewer(),
+            0,
+            press,
+            8.0,
+            false
+        ));
+
+        let state = fixture.viewer().state.borrow();
+        let session = state.session.as_ref().expect("a session");
+        assert!(
+            session.text_drag.is_none(),
+            "{:?}",
+            text_drag_run(fixture.viewer())
+        );
+        assert!(session.selection_gesture.is_some(), "a marquee");
     }
 }
