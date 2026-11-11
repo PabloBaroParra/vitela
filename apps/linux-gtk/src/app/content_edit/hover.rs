@@ -31,7 +31,7 @@
 //! corner there is [`Zone::Handle`], not border.
 
 use gtk::prelude::*;
-use gtk::{cairo, gdk, DrawingArea, EventControllerMotion};
+use gtk::{cairo, gdk, glib, DrawingArea, EventControllerMotion};
 use pdf_document::{ContentItemId, Rect, TextRun};
 use pdf_render::{place_rect, TextRect};
 
@@ -215,6 +215,18 @@ pub(crate) fn resolve(
             zone,
         });
     }
+    held_on_band(current, page_index, point, scale, reach, handles)
+}
+
+/// `current`, still hovered while `point` is on its border band.
+fn held_on_band(
+    current: Option<&Hover>,
+    page_index: usize,
+    point: (f64, f64),
+    scale: f64,
+    reach: f64,
+    handles: Handles,
+) -> Option<Hover> {
     let held = current.filter(|hover| hover.page_index == page_index)?;
     let zone =
         zone_of(&held.member, point, scale, reach, handles).filter(|zone| *zone != Zone::Inside)?;
@@ -233,6 +245,30 @@ pub(crate) fn dragging(session: &DocumentSession) -> bool {
         || session.image_drag.is_some()
         || session.path_drag.is_some()
         || session.selection_gesture.is_some()
+}
+
+/// The item whose outer band holds `point` with nothing hovered: whatever
+/// lies a band's width away along either axis, if `point` is on its band.
+fn band_owner(
+    content: &pdf_document::PageContent,
+    page_index: usize,
+    point: (f64, f64),
+    scale: f64,
+    reach: f64,
+    handles: Handles,
+) -> Option<Hover> {
+    let step = (OUTLINE_PAD_PX + BORDER_BAND_PX + 1.0) / usable_scale(scale);
+    [(step, 0.0), (-step, 0.0), (0.0, step), (0.0, -step)]
+        .into_iter()
+        .find_map(|(dx, dy)| {
+            let member = multi::member_at(content, (point.0 + dx, point.1 + dy), reach)?;
+            let candidate = Hover {
+                page_index,
+                member,
+                zone: Zone::Inside,
+            };
+            held_on_band(Some(&candidate), page_index, point, scale, reach, handles)
+        })
 }
 
 /// Wires the hover to one page's highlight layer.
@@ -270,7 +306,19 @@ pub(crate) fn pointer_moved(
     x: f64,
     y: f64,
 ) {
-    if track(viewer, page_index, x, y) {
+    follow_pointer(viewer, area, page_index, x, y, false);
+}
+
+/// [`pointer_moved`]; `refind` as for [`track`].
+fn follow_pointer(
+    viewer: &Viewer,
+    area: &impl IsA<gtk::Widget>,
+    page_index: usize,
+    x: f64,
+    y: f64,
+    refind: bool,
+) {
+    if track(viewer, page_index, x, y, refind) {
         let zone = viewer
             .state
             .borrow()
@@ -304,11 +352,15 @@ fn set_cursor(area: &impl IsA<gtk::Widget>, zone: Option<Zone>) {
     area.set_cursor(cursor.as_ref());
 }
 
-/// Follows the pointer to `(x, y)` on `page_index`'s layer. Returns whether
-/// the hover changed.
-pub(crate) fn track(viewer: &Viewer, page_index: usize, x: f64, y: f64) -> bool {
+/// Follows the pointer to `(x, y)` on `page_index`'s layer; `refind` lets
+/// the outer band count with nothing hovered ([`band_owner`]). Returns
+/// whether the hover changed.
+fn track(viewer: &Viewer, page_index: usize, x: f64, y: f64, refind: bool) -> bool {
     let armed = {
-        let state = viewer.state.borrow();
+        let mut state = viewer.state.borrow_mut();
+        if let Some(session) = state.session.as_mut() {
+            session.content_hover_pointer = Some((page_index, x, y));
+        }
         state.content_edit_mode && state.content_insert_mode.is_none()
     };
     if !armed {
@@ -334,15 +386,13 @@ pub(crate) fn track(viewer: &Viewer, page_index: usize, x: f64, y: f64) -> bool 
         }
         let handles = Handles::of(session, page_index);
         let hover = session.pages.get(page_index).and_then(|page| {
-            resolve(
-                page.content.as_ref()?,
-                session.content_hover.as_ref(),
-                page_index,
-                point,
-                page.budget.factor,
-                reach,
-                handles,
-            )
+            let (content, scale) = (page.content.as_ref()?, page.budget.factor);
+            let current = session.content_hover.as_ref();
+            resolve(content, current, page_index, point, scale, reach, handles).or_else(|| {
+                (refind && current.is_none())
+                    .then(|| band_owner(content, page_index, point, scale, reach, handles))
+                    .flatten()
+            })
         });
         if session.content_hover == hover {
             return false;
@@ -368,6 +418,12 @@ fn leave(viewer: &Viewer, page_index: usize) {
         let Some(session) = state.session.as_mut() else {
             return;
         };
+        if session
+            .content_hover_pointer
+            .is_some_and(|(page, _, _)| page == page_index)
+        {
+            session.content_hover_pointer = None;
+        }
         if session
             .content_hover
             .as_ref()
@@ -426,6 +482,32 @@ pub(crate) fn forget(session: &mut DocumentSession) {
         set_cursor(&page.highlights, None);
         page.highlights.queue_draw();
     }
+}
+
+/// Finds the hover again on the next idle where the pointer last rested,
+/// once an edit dropped it ([`forget`]) and the page was parsed again: the
+/// outline and move cursor follow a moved item, even one moved by its outer
+/// band, without the pointer moving. [`track`]'s guards all still apply.
+pub(crate) fn restore_soon(viewer: &Viewer) {
+    let viewer = viewer.clone();
+    glib::idle_add_local_once(move || restore(&viewer));
+}
+
+fn restore(viewer: &Viewer) {
+    let (page_index, x, y, area) = {
+        let state = viewer.state.borrow();
+        let Some(session) = state.session.as_ref() else {
+            return;
+        };
+        let Some((page_index, x, y)) = session.content_hover_pointer else {
+            return;
+        };
+        let Some(page) = session.pages.get(page_index) else {
+            return;
+        };
+        (page_index, x, y, page.highlights.clone())
+    };
+    follow_pointer(viewer, &area, page_index, x, y, true);
 }
 
 /// Whether `member` is still on the page as `content` has it now: every
@@ -768,6 +850,10 @@ mod tests {
         assert!(cursor_names(None).is_empty());
     }
 
+    fn track(viewer: &Viewer, page_index: usize, x: f64, y: f64) -> bool {
+        super::track(viewer, page_index, x, y, false)
+    }
+
     fn hovered(viewer: &Viewer) -> Option<Hover> {
         viewer
             .state
@@ -1038,6 +1124,55 @@ mod tests {
             text_drag_run(fixture.viewer())
         );
         assert!(session.selection_gesture.is_some(), "a marquee");
+    }
+
+    /// A block moved by its outer band is outlined again where it landed,
+    /// with the move cursor, once the refresh has re-parsed the page —
+    /// without the pointer moving off the spot it was released on.
+    #[gtk::test]
+    fn gtk_ui_the_hover_follows_a_border_move_once_the_page_reloads() {
+        let fixture = Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        // The test plays the pointer: the real one must not reach the layer
+        // while the main loop runs.
+        highlights(&fixture).set_can_target(false);
+        let context = glib::MainContext::default();
+        while context.iteration(false) {}
+        let press = hover_border(&fixture);
+        let to = (press.0 + 30.0, press.1);
+        assert!(super::super::begin_drag(viewer, 0, press, 8.0, false));
+        let released = fixture.on_screen(to);
+        track(viewer, 0, released.0, released.1);
+        super::super::extend_drag(viewer, to);
+        // Held back so the move queues its refresh instead of reopening
+        // anything through pdfium in a test.
+        viewer.state.borrow_mut().preview_refresh_in_flight = true;
+        assert!(super::super::text::finish_text_drag(viewer, 30.0, 0.0));
+        assert_eq!(hovered(viewer), None, "the edit drops the hover");
+
+        // What the refresh does once it lands.
+        super::super::checkpoint::forget_page_content(
+            viewer
+                .state
+                .borrow_mut()
+                .session
+                .as_mut()
+                .expect("a session"),
+        );
+        super::super::reload_after_refresh(viewer);
+        while context.iteration(false) {}
+
+        let hover = hovered(viewer).expect("the moved block is hovered again");
+        assert_eq!(hover.zone, Zone::Border);
+        let bbox = member_bbox(&hover.member).expect("a box");
+        assert!(
+            (bbox.x - (fixture.runs[0].bbox.x + 30.0)).abs() < 0.5,
+            "{bbox:?}"
+        );
+        let shown = highlights(&fixture)
+            .cursor()
+            .and_then(|cursor| cursor.name());
+        assert!(shown.is_some_and(|name| MOVE_CURSOR_NAMES.contains(&name.as_str())));
     }
 
     /// An open editor stands the hover down: a border press commits the

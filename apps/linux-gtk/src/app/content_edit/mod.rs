@@ -793,6 +793,15 @@ pub(crate) fn load_visible_page_content(viewer: &Viewer) {
     }
 }
 
+/// The tail of a preview refresh that landed with the mode on: parse the
+/// pages in view again, repaint them, and find the hover again under a
+/// pointer that has not moved since the edit dropped it.
+pub(crate) fn reload_after_refresh(viewer: &Viewer) {
+    load_visible_page_content(viewer);
+    redraw(viewer);
+    hover::restore_soon(viewer);
+}
+
 /// The content-edit half of a page's drag gesture.
 ///
 /// Tries [`image::finish_image_drag`] first (T-162): if an image drag was in

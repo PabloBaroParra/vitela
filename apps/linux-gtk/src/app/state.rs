@@ -1541,6 +1541,10 @@ pub(crate) struct DocumentSession {
     /// so the reader can see what a press would grab — see
     /// `content_edit::hover`.
     pub(crate) content_hover: Option<crate::app::content_edit::hover::Hover>,
+    /// Where the pointer rests on a page's layer, in layer coordinates,
+    /// until it leaves: where the hover is found again once an edit has
+    /// re-parsed the page under a pointer that has not moved.
+    pub(crate) content_hover_pointer: Option<(usize, f64, f64)>,
     /// The text run being dragged across the page right now, if any. Same
     /// reasoning as `image_drag`, and mutually exclusive with it in
     /// practice: a press is claimed by at most one item.
