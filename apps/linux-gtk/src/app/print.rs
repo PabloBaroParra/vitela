@@ -3,6 +3,7 @@
 //! viewer's coalesced render queue — from a snapshot that carries the
 //! annotations the canvas only ever overlays.
 
+use crate::app::i18n::{tr, tr_args};
 use gtk::gdk::prelude::GdkCairoContextExt;
 use gtk::prelude::*;
 use gtk::{
@@ -38,7 +39,7 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
     };
 
     match source {
-        None => viewer.status.set_text("Open a PDF before printing."),
+        None => viewer.status.set_text(&tr("print-open-first")),
         Some((
             _,
             OutputSource::Live {
@@ -54,7 +55,7 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
                 sources,
             },
         )) => {
-            viewer.status.set_text("Preparing to print…");
+            viewer.status.set_text(&tr("print-preparing"));
             glib::spawn_future_local({
                 let window = window.clone();
                 let viewer = viewer.clone();
@@ -75,13 +76,14 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
                             close_document_in_background(snapshot.document);
                         }
                         Ok(Err(error)) if viewer.session_is_generation(generation) => {
-                            viewer.status.set_text(&format!(
-                                "Could not prepare the document for printing: {error}"
+                            viewer.status.set_text(&tr_args(
+                                "print-prepare-failed",
+                                &[("error", error.to_string().into())],
                             ))
                         }
-                        Err(_) if viewer.session_is_generation(generation) => viewer
-                            .status
-                            .set_text("Could not prepare the document for printing."),
+                        Err(_) if viewer.session_is_generation(generation) => {
+                            viewer.status.set_text(&tr("print-prepare-stopped"))
+                        }
                         _ => {}
                     }
                 }
@@ -108,7 +110,7 @@ fn run_print(
     page_sizes: Vec<(f32, f32)>,
 ) {
     if page_sizes.is_empty() {
-        viewer.status.set_text("The PDF has no pages to print.");
+        viewer.status.set_text(&tr("print-no-pages"));
         return;
     }
 
@@ -120,9 +122,12 @@ fn run_print(
     });
 
     match operation.run(PrintOperationAction::PrintDialog, Some(window)) {
-        Ok(PrintOperationResult::Error) => viewer.status.set_text("Printing failed."),
+        Ok(PrintOperationResult::Error) => viewer.status.set_text(&tr("print-failed")),
         Ok(_) => {}
-        Err(error) => viewer.status.set_text(&format!("Could not print: {error}")),
+        Err(error) => viewer.status.set_text(&tr_args(
+            "print-error",
+            &[("error", error.to_string().into())],
+        )),
     }
 }
 

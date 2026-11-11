@@ -14,6 +14,7 @@ use gtk::{
     ScrolledWindow, SelectionMode, SpinButton, StringList, ToggleButton,
 };
 
+use crate::app::i18n::tr;
 use crate::app::state::{FieldKind, FormFieldToolbar, Viewer};
 use crate::app::tools_panel::panel_heading;
 
@@ -34,14 +35,14 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
     place_flow.set_column_spacing(4);
     place_flow.set_homogeneous(false);
 
-    let mode = ToggleButton::with_label("Edit forms");
+    let mode = ToggleButton::with_label(&tr("forms-edit-mode"));
     mode.set_sensitive(false);
     place_flow.append(&mode);
 
     let place: Vec<(FieldKind, ToggleButton)> = FieldKind::ALL
         .iter()
         .map(|&kind| {
-            let button = ToggleButton::with_label(kind.label());
+            let button = ToggleButton::with_label(&kind.label());
             button.set_sensitive(false);
             place_flow.append(&button);
             (kind, button)
@@ -74,11 +75,11 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
     size.set_sensitive(false);
     style_flow.append(&size);
 
-    let color = Button::with_label("Color");
+    let color = Button::with_label(&tr("forms-color"));
     color.set_sensitive(false);
     style_flow.append(&color);
 
-    let delete = Button::with_label("Delete field");
+    let delete = Button::with_label(&tr("forms-delete-field"));
     delete.set_sensitive(false);
     style_flow.append(&delete);
 
@@ -93,9 +94,7 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
     // a fixed set of controls like `place_row`/`style_row` above — see
     // `fill::refresh`'s own doc for why it is a `GtkBox` torn down and
     // rebuilt rather than a `FlowBox` of persistent widgets.
-    let fill_placeholder = Label::new(Some(
-        "Open a PDF with form fields to fill them in, or place one in Edit forms mode.",
-    ));
+    let fill_placeholder = Label::new(Some(&tr("forms-fill-placeholder")));
     fill_placeholder.set_wrap(true);
     fill_placeholder.set_xalign(0.0);
     fill_placeholder.add_css_class("tools-placeholder");
@@ -116,11 +115,11 @@ pub(crate) fn build_forms_content() -> (FormFieldToolbar, GtkBox) {
         .build();
 
     let content = GtkBox::new(Orientation::Vertical, 10);
-    content.append(&panel_heading("Form fields"));
+    content.append(&panel_heading(&tr("forms-heading-fields")));
     content.append(&place_row);
-    content.append(&panel_heading("Field style"));
+    content.append(&panel_heading(&tr("forms-heading-style")));
     content.append(&style_row);
-    content.append(&panel_heading("Fill fields"));
+    content.append(&panel_heading(&tr("forms-heading-fill")));
     content.append(&fill_scroller);
 
     (

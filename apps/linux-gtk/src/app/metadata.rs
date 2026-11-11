@@ -69,7 +69,7 @@ use gtk::{Box as GtkBox, Entry, Orientation};
 use pdf_document::{Command, Document, DocumentInfo, PdfDate, PdfDateOffset};
 
 use crate::app::state::{
-    DocumentSession, MetadataPanel, SaveBacking, Viewer, CONTENT_MODEL_UNAVAILABLE,
+    content_model_unavailable, DocumentSession, MetadataPanel, SaveBacking, Viewer,
 };
 
 use super::i18n::{tr, tr_args};
@@ -415,7 +415,7 @@ fn command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let result = {
@@ -445,7 +445,7 @@ fn model(session: &mut DocumentSession) -> Result<&mut Document, String> {
     session
         .document_model
         .as_mut()
-        .ok_or_else(|| CONTENT_MODEL_UNAVAILABLE.to_string())
+        .ok_or_else(content_model_unavailable)
 }
 
 fn apply_command(document: &mut Document, command: Command) {

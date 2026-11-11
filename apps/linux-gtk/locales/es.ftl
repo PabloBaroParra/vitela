@@ -652,6 +652,8 @@ watermark-kind-label = Sello
 watermark-kind-text = Texto
 watermark-kind-picture = Imagen
 watermark-text-label = Texto
+# Pre-filled in the text entry and stamped into the PDF as typed.
+watermark-default-text = BORRADOR
 watermark-size-label = Tamaño (pt)
 watermark-choose-picture = Elegir imagen…
 watermark-no-picture = No se ha elegido ninguna imagen
@@ -686,4 +688,236 @@ watermark-summary =
     { $count ->
         [one] Marca de agua añadida a { $count } página.
        *[other] Marca de agua añadida a { $count } páginas.
+    }
+
+## Shared refusals: document permissions and editable-model availability
+
+refusal-text-forbidden = Este documento no permite copiar ni extraer su texto.
+refusal-text-unreadable = No se pudieron leer los permisos de este documento, así que no se puede extraer su texto.
+refusal-annotation-forbidden = Este documento no permite cambiar sus anotaciones.
+refusal-annotation-model-unavailable = No se pudo preparar este documento para cambiar sus anotaciones.
+refusal-content-forbidden = Este documento no permite cambiar su contenido.
+refusal-content-model-unavailable = No se pudo preparar este documento para cambiar su contenido.
+refusal-assembly-forbidden = Este documento no permite añadir, quitar ni reordenar sus páginas.
+refusal-assembly-unreadable = No se pudieron leer los permisos de este documento, así que no se pueden cambiar sus páginas.
+refusal-rewrite-needs-passwords = Cambiar las páginas de este documento cifrado reescribe el archivo completo, lo que requiere sus contraseñas de usuario y de propietario. Vuelve a abrirlo con ambas para continuar.
+refusal-rewrite-unsupported-encryption = El cifrado de este documento todavía no se puede reproducir al reescribir el archivo, así que no se pueden cambiar sus páginas.
+refusal-page-no-longer-present = Esa página ya no forma parte del documento.
+
+## Annotate: tool buttons and controls
+
+annotate-tool-highlight = Resaltado
+annotate-tool-underline = Subrayado
+annotate-tool-strikeout = Tachado
+annotate-tool-ink = Tinta
+annotate-tool-note = Nota
+annotate-tool-text-box = Cuadro de texto
+annotate-tool-shape = Forma
+annotate-tool-stamp = Sello
+annotate-previous = Anotación anterior
+annotate-nudge = Desplazar
+annotate-grow = Agrandar
+annotate-restyle = Cambiar estilo
+annotate-edit-text = Editar texto
+annotate-delete = Eliminar
+annotate-color-title = Elegir el color de la anotación
+
+## Annotate: status messages and refusals
+
+# $tool (String) - the localized tool name (annotate-tool-*).
+annotate-tool-armed = Herramienta { $tool } activada: arrastra en una página para colocar la anotación.
+annotate-tool-disarmed = Herramienta { $tool } desactivada.
+annotate-markup-applied = Anotación ({ $tool }) aplicada al texto seleccionado. Los cambios están pendientes de guardar.
+annotate-added = Anotación añadida ({ $tool }). Los cambios están pendientes de guardar.
+annotate-not-markup = La herramienta { $tool } no marca texto.
+# $error (String) - technical detail from the image decoder, kept verbatim.
+annotate-image-unusable = No se pudo usar la imagen: { $error }
+annotate-stamp-added = Sello de imagen añadido. Los cambios están pendientes de guardar.
+annotate-undone = Cambio deshecho.
+annotate-redone = Cambio rehecho.
+annotate-undone-pending = Cambio deshecho. Los cambios están pendientes de guardar.
+annotate-redone-pending = Cambio rehecho. Los cambios están pendientes de guardar.
+annotate-edited = Anotación editada. Los cambios están pendientes de guardar.
+annotate-deleted = Anotación eliminada. Los cambios están pendientes de guardar.
+# $id (Number) - the annotation's internal number.
+annotate-selected = Anotación { $id } seleccionada.
+annotate-moved = Anotación movida. Los cambios están pendientes de guardar.
+annotate-resized = Anotación redimensionada. Los cambios están pendientes de guardar.
+annotate-color-stale = La selección de color ya no está vigente.
+annotate-restyled = Estilo de la anotación cambiado. Los cambios están pendientes de guardar.
+annotate-ink-needs-drag = Arrastra para dibujar una anotación de tinta.
+annotate-note-needs-text = Escribe el texto de la nota antes de añadirla.
+annotate-no-document = Abre un PDF antes de editar las anotaciones.
+annotate-selection-gone = La anotación seleccionada ya no existe.
+annotate-select-first = Selecciona primero una anotación.
+annotate-drag-unsupported = Esa anotación no se puede cambiar de esta forma.
+
+## Annotate: note and text box dialogs
+
+annotate-note-canceled = Colocación de la nota cancelada.
+annotate-note-no-dialog = No se pudo abrir el cuadro de diálogo de la nota.
+# $page (Number) - one-based page number.
+annotate-note-title = Añadir nota — página { $page }
+annotate-note-text = Texto de la nota
+annotate-dialog-cancel = Cancelar
+annotate-dialog-add = Añadir
+annotate-dialog-save = Guardar
+annotate-dialog-text = Texto
+annotate-note-added = Nota de texto añadida. Los cambios están pendientes de guardar.
+annotate-text-box-add-canceled = Colocación del cuadro de texto cancelada.
+annotate-text-box-edit-canceled = Edición del cuadro de texto cancelada.
+annotate-text-box-needs-text = Escribe el texto del cuadro antes de añadirlo.
+annotate-text-box-too-small = Ese cuadro de texto es demasiado pequeño.
+annotate-text-box-select-first = Selecciona primero un cuadro de texto.
+annotate-text-box-document-changed = El documento cambió mientras el cuadro de diálogo estaba abierto; no se añadió nada.
+annotate-text-box-no-dialog = No se pudo abrir el cuadro de diálogo del cuadro de texto.
+annotate-text-box-unchanged = El texto no ha cambiado.
+# $character (String) - the first character the text box font cannot show.
+annotate-text-box-encoding-gap = El carácter '{ $character }' no se puede usar en un cuadro de texto: se dibuja en Helvetica, que solo cubre texto de Europa occidental. Elimínalo y vuelve a intentarlo.
+# $page (Number) - one-based page number.
+annotate-text-box-add-title = Añadir cuadro de texto — página { $page }
+annotate-text-box-edit-title = Editar cuadro de texto
+annotate-text-box-added = Cuadro de texto añadido. Los cambios están pendientes de guardar.
+annotate-text-box-edited = Cuadro de texto editado. Los cambios están pendientes de guardar.
+
+## Edit PDF: content edit results and refusals
+
+edit-no-window = La ventana de la aplicación no está disponible.
+edit-text-deleted = Texto eliminado.
+edit-text-moved-unsaved = Este texto se movió y aún no se ha guardado: guarda y vuelve a abrir el documento antes de reescribirlo.
+edit-text-edit-unavailable = Este texto forma parte de un cambio sin guardar que ya no está disponible: guarda y vuelve a abrir el documento antes de volver a editarlo.
+edit-text-updated = Texto actualizado.
+edit-text-inserted = Texto insertado.
+edit-insertion-not-deletable = Este texto aún no se ha guardado: deshaz la inserción para quitarlo.
+edit-cancelled = Edición cancelada.
+edit-text-retyped-unsaved = Este texto tiene un cambio sin guardar: guarda el documento antes de moverlo.
+edit-no-text-there = No hay texto que editar ahí.
+edit-open-to-edit = Abre un PDF para editar su contenido.
+edit-open-to-copy = Abre un PDF para copiar su contenido.
+edit-text-moved = Texto movido.
+edit-image-moved = Imagen movida.
+edit-image-resized = Imagen redimensionada.
+edit-image-deleted = Imagen eliminada.
+edit-replace-image-title = Reemplazar imagen
+edit-replace-image-accept = Reemplazar
+edit-not-local-file = La ubicación seleccionada no es un archivo local.
+# $path (String) - file path; $error (String) - technical detail, kept verbatim.
+edit-read-failed = No se pudo leer { $path }: { $error }
+edit-image-replaced = Imagen reemplazada.
+edit-image-files = Archivos de imagen
+edit-insert-image-title = Insertar imagen
+edit-insert-image-accept = Insertar
+# $error (String) - technical detail from the image decoder, kept verbatim.
+edit-image-unusable = No se pudo usar la imagen: { $error }
+edit-image-inserted = Imagen insertada.
+edit-shape-moved = Forma movida.
+edit-shape-resized = Forma redimensionada.
+edit-shape-deleted = Forma eliminada.
+
+## Edit PDF: multi-select and content clipboard
+
+# $count (Number) - selected items.
+edit-multi-selected =
+    { $count ->
+        [one] { $count } elemento seleccionado: arrástralo para moverlo, Supr lo elimina, Esc borra la selección.
+       *[other] { $count } elementos seleccionados: arrástralos para moverlos, Supr los elimina, Esc borra la selección.
+    }
+edit-multi-nothing = No hay nada que seleccionar ahí.
+edit-multi-moved = Selección movida.
+edit-multi-deleted = Selección eliminada.
+edit-multi-cleared = Selección borrada.
+# $count (Number) - items placed on the content clipboard.
+edit-clipboard-copied =
+    { $count ->
+        [one] { $count } elemento copiado.
+       *[other] { $count } elementos copiados.
+    }
+edit-clipboard-cut =
+    { $count ->
+        [one] { $count } elemento cortado.
+       *[other] { $count } elementos cortados.
+    }
+edit-clipboard-paste-off-page = El contenido solo se puede pegar en una página del documento.
+edit-clipboard-pasted = Pegado.
+
+## Forms: toolbar, field kinds and fill panel
+
+forms-kind-text = Campo de texto
+forms-kind-checkbox = Casilla de verificación
+forms-kind-radio-group = Grupo de opciones
+forms-kind-dropdown = Lista desplegable
+forms-edit-mode = Editar formularios
+forms-color = Color
+forms-delete-field = Eliminar campo
+forms-fill-placeholder = Abre un PDF con campos de formulario para rellenarlos o coloca uno en el modo Editar formularios.
+forms-heading-fields = Campos de formulario
+forms-heading-style = Estilo del campo
+forms-heading-fill = Rellenar campos
+forms-none-choice = (ninguna)
+forms-unsupported-field = Campo no compatible
+forms-field-updated = Campo de formulario actualizado.
+
+## Forms: edit mode and field results
+
+forms-value-set = Valor del campo establecido. Los cambios están pendientes de guardar.
+forms-renamed = Campo renombrado. Los cambios están pendientes de guardar.
+forms-selection-gone = El campo de formulario seleccionado ya no existe.
+forms-mode-armed = Edición de formularios activada: elige un tipo de campo para colocarlo o haz clic en un campo existente para seleccionarlo.
+forms-mode-disarmed = Edición de formularios desactivada.
+# $kind (String) - the localized field kind (forms-kind-*).
+forms-kind-armed = { $kind }: arrastra en la página para colocar el campo.
+forms-mode-armed-select = Edición de formularios activada: haz clic en un campo existente para seleccionarlo.
+forms-no-document = Abre un PDF antes de editar los campos de formulario.
+forms-deleted = Campo eliminado. Guarda para conservar el cambio o deshazlo para recuperarlo.
+forms-added = Campo añadido ({ $kind }). Los cambios están pendientes de guardar.
+forms-moved = Campo movido. Los cambios están pendientes de guardar.
+forms-resized = Campo redimensionado. Los cambios están pendientes de guardar.
+forms-restyled = Estilo del campo cambiado. Los cambios están pendientes de guardar.
+forms-color-title = Elegir el color del campo
+forms-color-stale = La selección de color ya no está vigente.
+
+## Viewer: dropping and pasting files
+
+drop-not-local = Solo se pueden soltar archivos PDF e imágenes locales.
+paste-open-first = Abre un PDF antes de pegar una imagen.
+paste-no-image = El portapapeles no contiene una imagen de mapa de bits.
+drop-page-not-ready = La página aún no está lista para colocar la imagen.
+drop-loading = Cargando el archivo soltado...
+drop-unsupported = El archivo soltado no es un PDF ni una imagen compatible.
+# $error (String) - technical detail from the file system, kept verbatim.
+drop-read-failed = No se pudo leer el archivo soltado: { $error }
+drop-image-on-page = Suelta la imagen directamente sobre una página de un PDF abierto.
+
+## Viewer: printing
+
+print-open-first = Abre un PDF antes de imprimir.
+print-preparing = Preparando la impresión…
+# $error (String) - technical detail, kept verbatim.
+print-prepare-failed = No se pudo preparar el documento para imprimirlo: { $error }
+print-prepare-stopped = No se pudo preparar el documento para imprimirlo.
+print-no-pages = El PDF no tiene páginas que imprimir.
+print-failed = No se pudo imprimir.
+# $error (String) - technical detail from GTK, kept verbatim.
+print-error = No se pudo imprimir: { $error }
+
+## Viewer: page rendering status
+
+# $first, $last, $total (Number) - one-based visible page range and page count.
+render-showing-pages = Mostrando las páginas { $first }-{ $last } de { $total }.
+# $page (Number) - one-based page number.
+render-page-too-large = La página { $page } no se puede mostrar de forma segura con este tamaño.
+# $page, $total (Number) - one-based page and page count; $error (String) - renderer detail, kept verbatim.
+render-page-failed = No se pudo mostrar la página { $page } de { $total }: { $error }
+render-sharpen-failed = No se pudo mostrar con más nitidez la página { $page } de { $total }: { $error }
+# $page (Number) - one-based page; $returned, $requested (Number) - tile counts.
+render-tile-mismatch = La página { $page } devolvió { $returned } mosaicos de los { $requested } solicitados.
+
+## Viewer: text selection
+
+selection-copy-empty = Selecciona texto antes de copiar.
+# $count (Number) - characters copied.
+selection-copied =
+    { $count ->
+        [one] { $count } carácter copiado al portapapeles.
+       *[other] { $count } caracteres copiados al portapapeles.
     }

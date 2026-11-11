@@ -8,6 +8,7 @@ use gtk::prelude::*;
 use gtk::{gdk, ColorDialog};
 use pdf_document::{Color, Command, FontFamily, TextStyle};
 
+use crate::app::i18n::tr;
 use crate::app::state::{SessionToken, Viewer};
 
 use super::command::{apply_command, command, model};
@@ -118,7 +119,7 @@ fn restyle_selected(viewer: &Viewer, apply: impl FnOnce(&mut TextStyle) + 'stati
             .form_fields
             .get(id)
             .map(|field| field.style)
-            .ok_or_else(|| SELECTION_GONE.to_string())?;
+            .ok_or_else(|| tr(SELECTION_GONE))?;
         let mut after = before;
         apply(&mut after);
         apply_command(
@@ -129,7 +130,7 @@ fn restyle_selected(viewer: &Viewer, apply: impl FnOnce(&mut TextStyle) + 'stati
                 to: after,
             },
         );
-        Ok("Field restyled. Changes are pending save.".to_string())
+        Ok(tr("forms-restyled"))
     });
 }
 
@@ -169,7 +170,7 @@ fn choose_field_color(viewer: &Viewer) {
         .root()
         .and_then(|root| root.downcast::<gtk::Window>().ok());
     let dialog = ColorDialog::builder()
-        .title("Choose field color")
+        .title(tr("forms-color-title"))
         .modal(true)
         .with_alpha(false)
         .build();
@@ -212,7 +213,7 @@ fn choose_field_color(viewer: &Viewer) {
                         .get(id)
                         .is_some_and(|field| field.style == before);
                     if !still_current {
-                        return Ok("Color selection is no longer current.".to_string());
+                        return Ok(tr("forms-color-stale"));
                     }
                     let mut after = before;
                     after.color = color;
@@ -224,7 +225,7 @@ fn choose_field_color(viewer: &Viewer) {
                             to: after,
                         },
                     );
-                    Ok("Field restyled. Changes are pending save.".to_string())
+                    Ok(tr("forms-restyled"))
                 });
             }
         },

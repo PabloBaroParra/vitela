@@ -6,6 +6,7 @@
 
 use pdf_document::{AnnotationId, Command};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::{AnnotationDrag, AnnotationDragMode, Placement, Tool, Viewer};
 
@@ -18,7 +19,7 @@ use super::note::prompt_for_note;
 use super::toolbar::{disarm, update_annotation_controls};
 use super::SELECTION_GONE;
 
-const DRAG_UNSUPPORTED: &str = "That annotation cannot be changed this way.";
+const DRAG_UNSUPPORTED: &str = "annotate-drag-unsupported";
 
 /// Starts drawing an annotation, if a tool is armed. Returns whether the drag
 /// was claimed — a `false` leaves it to text selection.
@@ -102,7 +103,7 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
         // and only the open handle's order turns it into a page id.
         let page = session
             .backend_page_id(placement.page_index)
-            .ok_or_else(|| crate::app::state::PAGE_NO_LONGER_PRESENT.to_string())?;
+            .ok_or_else(crate::app::state::page_no_longer_present)?;
         let annotation = annotation_at(&placement, id, page, committed_rect(&placement))?;
         {
             let document = model(session)?;
@@ -110,9 +111,9 @@ pub(crate) fn finish_placement(viewer: &Viewer) {
         }
         session.next_annotation_id += 1;
         session.selected_annotation = Some(id);
-        Ok(format!(
-            "{} added. Changes are pending save.",
-            placement.tool.label()
+        Ok(tr_args(
+            "annotate-added",
+            &[("tool", placement.tool.label().into())],
         ))
     });
 }
@@ -254,14 +255,12 @@ pub(crate) fn finish_annotation_drag(viewer: &Viewer) {
             .annotations
             .get(drag.id)
             .cloned()
-            .ok_or_else(|| SELECTION_GONE.to_string())?;
-        let after = dragged(&before, &drag).ok_or_else(|| DRAG_UNSUPPORTED.to_string())?;
+            .ok_or_else(|| tr(SELECTION_GONE))?;
+        let after = dragged(&before, &drag).ok_or_else(|| tr(DRAG_UNSUPPORTED))?;
         apply_command(document, Command::ReplaceAnnotation { before, after });
         Ok(match drag.mode {
-            AnnotationDragMode::Move => "Annotation moved. Changes are pending save.".to_string(),
-            AnnotationDragMode::Resize(_) => {
-                "Annotation resized. Changes are pending save.".to_string()
-            }
+            AnnotationDragMode::Move => tr("annotate-moved"),
+            AnnotationDragMode::Resize(_) => tr("annotate-resized"),
         })
     });
 }

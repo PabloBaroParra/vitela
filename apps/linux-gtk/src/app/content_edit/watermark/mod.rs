@@ -47,7 +47,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
         return;
     };
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let Some((total_pages, current_page)) = ({
@@ -103,7 +103,7 @@ pub(crate) fn record(
     // keeps the user from switching documents, but not from this being a
     // different session than the one the tile was enabled for.
     if let Some(refusal) = session.content_edit_access.refusal() {
-        return Err(refusal.to_owned());
+        return Err(refusal);
     }
     let Some(document) = session.document_model.as_mut() else {
         return Err(tr("watermark-no-document"));

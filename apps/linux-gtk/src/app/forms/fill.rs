@@ -41,6 +41,7 @@ use gtk::{
 };
 use pdf_document::{Command, FieldValue, FormField, FormFieldId, FormFieldKind, RadioOption};
 
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 
 use super::command::{apply_command, command, fill_command, model};
@@ -49,7 +50,7 @@ use super::SELECTION_GONE;
 
 /// The dropdown/choice entry meaning "nothing selected" — index 0 in every
 /// `DropDown` this module builds, ahead of the field's real options.
-const NONE_CHOICE: &str = "(none)";
+const NONE_CHOICE: &str = "forms-none-choice";
 
 /// Rebuilds the fill panel's rows from `document.form_fields` — called from
 /// `toolbar::update_forms_controls` after every selection change, structural
@@ -194,7 +195,7 @@ fn build_control(viewer: &Viewer, field: &FormField, enabled: bool) -> gtk::Widg
         // `FormFieldKind` is `#[non_exhaustive]`: a future/unmodeled kind (a
         // pushbutton, say) shows as read-only rather than as a control that
         // could silently do nothing.
-        _ => Label::new(Some("Unsupported field")).upcast(),
+        _ => Label::new(Some(&tr("forms-unsupported-field"))).upcast(),
     }
 }
 
@@ -229,7 +230,8 @@ fn build_dropdown(
     value: &FieldValue,
     enabled: bool,
 ) -> gtk::Widget {
-    let mut items: Vec<&str> = vec![NONE_CHOICE];
+    let none = tr(NONE_CHOICE);
+    let mut items: Vec<&str> = vec![none.as_str()];
     items.extend(options.iter().map(String::as_str));
     let dropdown = DropDown::new(Some(StringList::new(&items)), None::<gtk::Expression>);
     dropdown.set_selected(dropdown_index_for(options, value));
@@ -347,7 +349,7 @@ pub(super) fn connect_settle(viewer: &Viewer) {
                     if !filled_value_awaits_the_raster(&viewer) {
                         return;
                     }
-                    crate::app::write::refresh_preview(&viewer, "Form field updated.");
+                    crate::app::write::refresh_preview(&viewer, tr("forms-field-updated"));
                 }
             });
         }
@@ -451,7 +453,7 @@ fn commit_value(viewer: &Viewer, id: FormFieldId, value: FieldValue) {
             .form_fields
             .get(id)
             .cloned()
-            .ok_or_else(|| SELECTION_GONE.to_string())?;
+            .ok_or_else(|| tr(SELECTION_GONE))?;
         let before = probe.value.clone();
         pdf_form::set_value(&mut probe, value.clone()).map_err(|error| error.to_string())?;
         apply_command(
@@ -462,7 +464,7 @@ fn commit_value(viewer: &Viewer, id: FormFieldId, value: FieldValue) {
                 to: value,
             },
         );
-        Ok("Field value set. Changes are pending save.".to_string())
+        Ok(tr("forms-value-set"))
     });
 }
 
@@ -481,7 +483,7 @@ fn rename_field(viewer: &Viewer, id: FormFieldId, to: String) {
             .form_fields
             .get(id)
             .cloned()
-            .ok_or_else(|| SELECTION_GONE.to_string())?;
+            .ok_or_else(|| tr(SELECTION_GONE))?;
         let before = probe.name.clone();
         pdf_form::rename_field(&mut probe, &document.form_fields, to)
             .map_err(|error| error.to_string())?;
@@ -493,7 +495,7 @@ fn rename_field(viewer: &Viewer, id: FormFieldId, to: String) {
                 to: probe.name,
             },
         );
-        Ok("Field renamed. Changes are pending save.".to_string())
+        Ok(tr("forms-renamed"))
     });
 }
 

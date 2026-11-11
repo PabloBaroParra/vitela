@@ -35,7 +35,7 @@ pub(super) fn open(viewer: &Viewer) {
         return;
     };
     if let Some(refusal) = viewer.annotation_editing_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     if has_dialog(viewer) {

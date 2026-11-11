@@ -19,6 +19,7 @@ use gtk::prelude::*;
 use pdf_document::Command;
 use pdf_edit::Selection;
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
 use crate::app::state::{ContentSelection, DocumentSession, Viewer};
 use crate::app::update_content_edit_controls;
@@ -83,7 +84,7 @@ pub(crate) fn try_copy(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return true;
     }
     let copied = {
@@ -99,7 +100,9 @@ pub(crate) fn try_copy(viewer: &Viewer) -> bool {
     match copied {
         Ok((clip, count)) => {
             viewer.state.borrow_mut().content_clip = Some(clip);
-            viewer.status.set_text(&copied_message("Copied", count));
+            viewer
+                .status
+                .set_text(&copied_message("edit-clipboard-copied", count));
         }
         Err(error) => viewer.status.set_text(&error),
     }
@@ -116,7 +119,7 @@ pub(crate) fn try_cut(viewer: &Viewer) -> bool {
         .text_extraction_refusal()
         .or_else(|| viewer.content_edit_refusal())
     {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return true;
     }
     let result = {
@@ -143,7 +146,7 @@ pub(crate) fn try_cut(viewer: &Viewer) -> bool {
         cut
     };
     match result {
-        Ok((_, count)) => refresh_preview(viewer, copied_message("Cut", count)),
+        Ok((_, count)) => refresh_preview(viewer, copied_message("edit-clipboard-cut", count)),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -160,7 +163,7 @@ pub(crate) fn try_paste(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return true;
     }
     let result = {
@@ -176,9 +179,7 @@ pub(crate) fn try_paste(viewer: &Viewer) -> bool {
         };
         let Some(page) = super::content_page(session, page_index) else {
             drop(state);
-            viewer
-                .status
-                .set_text("Content can only be pasted onto a page of the document.");
+            viewer.status.set_text(&tr("edit-clipboard-paste-off-page"));
             return true;
         };
         let pasted = command::paste(session, page, clip, left, top);
@@ -188,7 +189,7 @@ pub(crate) fn try_paste(viewer: &Viewer) -> bool {
         pasted
     };
     match result {
-        Ok(()) => refresh_preview(viewer, "Pasted."),
+        Ok(()) => refresh_preview(viewer, tr("edit-clipboard-pasted")),
         Err(error) => viewer.status.set_text(&error),
     }
     update_content_edit_controls(viewer);
@@ -280,8 +281,9 @@ fn select_pasted(session: &mut DocumentSession, page_index: usize) {
     });
 }
 
-fn copied_message(verb: &str, count: usize) -> String {
-    format!("{verb} {count} item{}.", if count == 1 { "" } else { "s" })
+/// `key` names the message: copied or cut.
+fn copied_message(key: &str, count: usize) -> String {
+    tr_args(key, &[("count", count.into())])
 }
 
 /// The window action CTRL+X is bound to.

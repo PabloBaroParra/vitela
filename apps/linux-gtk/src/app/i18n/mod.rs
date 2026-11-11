@@ -18,18 +18,18 @@
 //! Tests always run in English, whatever the developer's locale; a test that
 //! needs Spanish takes a [`speak`] guard.
 //!
-//! Migrated surfaces: Home, navigation rail, editor toolbar, search, tools tabs,
-//! document properties, the Edit PDF panel with its selection hints and mode
-//! messages, signing: certificate/card/token signing and the drawn signature,
-//! and the Organize screen: its header, Documents and Pages views, card
-//! controls, page-operation results and the Add PDFs flow, and every write
-//! flow — Save, Sign, Protect (with its password dialog), Compress, Split and
-//! Extract — with the destination chooser, replace guard and signature warning
-//! they share, and the preview-refresh status, and the open-document workflow —
-//! the file chooser, the unsaved-changes prompt, the encrypted-PDF password
-//! prompt, open progress and results, and the page-navigation buttons. Other
-//! feature panels, edit dialogs and shared permission/core error details are
-//! not yet localized.
+//! Every user-facing string the shell itself writes is localized: labels,
+//! buttons, tooltips, accessible names, dialogs, file choosers, status and
+//! refusal messages across every screen and panel, including the shared
+//! document-permission refusals.
+//!
+//! Deliberate exceptions, which stay as they are in every language:
+//! - technical details from the core crates, the renderer, GTK and the file
+//!   system, which arrive inside a localized sentence as `{ $error }`;
+//! - the product name, font names, keyboard shortcuts, page-range examples
+//!   (`1-3,7`) and number formats such as `3 / 12` or `100%`;
+//! - text written into the PDF itself, such as a new dropdown field's
+//!   default options or the default watermark text.
 
 mod bundle;
 mod locale;

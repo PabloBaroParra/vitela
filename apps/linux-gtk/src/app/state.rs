@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use crate::app::i18n::tr;
 use crate::app::organize::Thumbnails;
 use crate::app::signature::SignatureStore;
 use gtk::prelude::*;
@@ -166,7 +167,7 @@ impl Viewer {
     /// before querying pdfium; text selection asks it before putting a run on
     /// the clipboard. With no document open there is nothing to refuse — the
     /// caller reports that case in its own words.
-    pub(crate) fn text_extraction_refusal(&self) -> Option<&'static str> {
+    pub(crate) fn text_extraction_refusal(&self) -> Option<String> {
         self.state
             .borrow()
             .session
@@ -174,7 +175,7 @@ impl Viewer {
             .and_then(|session| session.text_access.refusal())
     }
 
-    pub(crate) fn annotation_editing_refusal(&self) -> Option<&'static str> {
+    pub(crate) fn annotation_editing_refusal(&self) -> Option<String> {
         self.state
             .borrow()
             .session
@@ -182,7 +183,7 @@ impl Viewer {
             .and_then(|session| session.annotation_access.refusal())
     }
 
-    pub(crate) fn content_edit_refusal(&self) -> Option<&'static str> {
+    pub(crate) fn content_edit_refusal(&self) -> Option<String> {
         self.state
             .borrow()
             .session
@@ -190,7 +191,7 @@ impl Viewer {
             .and_then(|session| session.content_edit_access.refusal())
     }
 
-    pub(crate) fn page_assembly_refusal(&self) -> Option<&'static str> {
+    pub(crate) fn page_assembly_refusal(&self) -> Option<String> {
         self.state
             .borrow()
             .session
@@ -248,7 +249,7 @@ impl Viewer {
             .and_then(|root| root.downcast::<ApplicationWindow>().ok())
     }
 
-    pub(crate) fn full_rewrite_refusal(&self) -> Option<&'static str> {
+    pub(crate) fn full_rewrite_refusal(&self) -> Option<String> {
         let state = self.state.borrow();
         let security = state
             .session
@@ -266,20 +267,14 @@ impl Viewer {
 /// The core reason is written for a developer reading a log; this is written
 /// for the person looking at the Organize screen, and — like every refusal in
 /// this module — it names no credential.
-fn rewrite_refusal(blocker: pdf_save::RewriteBlocker) -> &'static str {
+fn rewrite_refusal(blocker: pdf_save::RewriteBlocker) -> String {
     match blocker {
-        pdf_save::RewriteBlocker::IncompleteCredentials => {
-            "Changing this encrypted document's pages rewrites the whole file, which needs \
-             both its user and owner passwords. Reopen it with both to continue."
-        }
+        pdf_save::RewriteBlocker::IncompleteCredentials => tr("refusal-rewrite-needs-passwords"),
         // Every other blocker is a property of the encryption itself rather
         // than of what the user supplied, so there is nothing for them to do
         // differently — say that, instead of asking for a password that would
         // not help.
-        _ => {
-            "This document's encryption cannot yet be reproduced when the file is rewritten, \
-             so its pages cannot be changed."
-        }
+        _ => tr("refusal-rewrite-unsupported-encryption"),
     }
 }
 
@@ -520,15 +515,11 @@ pub(crate) enum TextAccess {
 impl TextAccess {
     /// The message to show instead of extracting text, or `None` when
     /// extraction is allowed.
-    pub(crate) fn refusal(self) -> Option<&'static str> {
+    pub(crate) fn refusal(self) -> Option<String> {
         match self {
             TextAccess::Allowed => None,
-            TextAccess::Forbidden => {
-                Some("This document does not permit copying or extracting its text.")
-            }
-            TextAccess::Unreadable => Some(
-                "This document's permissions could not be read, so its text cannot be extracted.",
-            ),
+            TextAccess::Forbidden => Some(tr("refusal-text-forbidden")),
+            TextAccess::Unreadable => Some(tr("refusal-text-unreadable")),
         }
     }
 }
@@ -563,17 +554,17 @@ impl Tool {
     /// The tool's button label, also used to name it in status messages. A
     /// `match` rather than a lookup table so adding a variant fails to
     /// compile until it is named.
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            Tool::Highlight => "Highlight",
-            Tool::Underline => "Underline",
-            Tool::Strikeout => "Strikeout",
-            Tool::Ink => "Ink",
-            Tool::TextNote => "Note",
-            Tool::FreeText => "Text box",
-            Tool::Shape => "Shape",
-            Tool::Stamp => "Stamp",
-        }
+    pub(crate) fn label(self) -> String {
+        tr(match self {
+            Tool::Highlight => "annotate-tool-highlight",
+            Tool::Underline => "annotate-tool-underline",
+            Tool::Strikeout => "annotate-tool-strikeout",
+            Tool::Ink => "annotate-tool-ink",
+            Tool::TextNote => "annotate-tool-note",
+            Tool::FreeText => "annotate-tool-text-box",
+            Tool::Shape => "annotate-tool-shape",
+            Tool::Stamp => "annotate-tool-stamp",
+        })
     }
 
     /// Whether this tool marks up existing text rather than drawing a shape.
@@ -641,13 +632,13 @@ impl FieldKind {
     ];
 
     /// The kind's toolbar button label, also used in status messages.
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            FieldKind::Text => "Text field",
-            FieldKind::Checkbox => "Checkbox",
-            FieldKind::RadioGroup => "Radio group",
-            FieldKind::Dropdown => "Dropdown",
-        }
+    pub(crate) fn label(self) -> String {
+        tr(match self {
+            FieldKind::Text => "forms-kind-text",
+            FieldKind::Checkbox => "forms-kind-checkbox",
+            FieldKind::RadioGroup => "forms-kind-radio-group",
+            FieldKind::Dropdown => "forms-kind-dropdown",
+        })
     }
 
     /// The base a freshly placed field of this kind's `/T` name is derived
@@ -1082,7 +1073,7 @@ pub(crate) struct TextDrag {
     /// [`ContentEditor`] holds one: page content has no document-wide id to
     /// re-fetch by, only the snapshot the parser handed back.
     pub(crate) run: TextRun,
-    /// Why this run cannot be moved, if it cannot.
+    /// Message id of why this run cannot be moved, if it cannot.
     pub(crate) refusal: Option<&'static str>,
     /// Every run of the block being moved, when it has more than one
     /// (B25 T-207); empty for a single run. With a block, `run` stands in for
@@ -1249,24 +1240,28 @@ pub(crate) struct Placement {
 }
 
 /// Shown when the document allows annotation changes but this shell could not
-/// build an editable model for it. Lives here as a constant because both
+/// build an editable model for it. Lives here as one function because both
 /// [`AnnotationAccess::refusal`] and the model unwrap in `app::annotations`
 /// report it, and a document that says two different things about why its
 /// toolbar is dead is worse than one that says nothing.
-pub(crate) const ANNOTATION_MODEL_UNAVAILABLE: &str =
-    "This document could not be prepared for annotation changes.";
+pub(crate) fn annotation_model_unavailable() -> String {
+    tr("refusal-annotation-model-unavailable")
+}
 
 /// Shown when the document allows content changes but this shell could not
 /// build an editable model for it — the content-edit twin of
-/// [`ANNOTATION_MODEL_UNAVAILABLE`], both driven by the same `document_model`.
-pub(crate) const CONTENT_MODEL_UNAVAILABLE: &str =
-    "This document could not be prepared for content changes.";
+/// [`annotation_model_unavailable`], both driven by the same `document_model`.
+pub(crate) fn content_model_unavailable() -> String {
+    tr("refusal-content-model-unavailable")
+}
 
 /// Refusal for a canvas page index that no longer names a page of the open
 /// document — a page removed by a page op whose preview refresh has already
 /// landed, or one the handle never held. Nothing is placed rather than
 /// placed on whatever page inherited that number.
-pub(crate) const PAGE_NO_LONGER_PRESENT: &str = "That page is no longer part of the document.";
+pub(crate) fn page_no_longer_present() -> String {
+    tr("refusal-page-no-longer-present")
+}
 
 /// Whether this document's annotations may be edited — the annotation twin of
 /// [`TextAccess`], read once at open time and cached for the session.
@@ -1291,13 +1286,11 @@ pub(crate) enum AnnotationAccess {
 impl AnnotationAccess {
     /// The message to show instead of editing annotations, or `None` when
     /// editing is allowed.
-    pub(crate) fn refusal(self) -> Option<&'static str> {
+    pub(crate) fn refusal(self) -> Option<String> {
         match self {
             AnnotationAccess::Allowed => None,
-            AnnotationAccess::Forbidden => {
-                Some("This document does not permit annotation changes.")
-            }
-            AnnotationAccess::Unavailable => Some(ANNOTATION_MODEL_UNAVAILABLE),
+            AnnotationAccess::Forbidden => Some(tr("refusal-annotation-forbidden")),
+            AnnotationAccess::Unavailable => Some(annotation_model_unavailable()),
         }
     }
 }
@@ -1326,11 +1319,11 @@ pub(crate) enum ContentEditAccess {
 impl ContentEditAccess {
     /// The message to show instead of editing content, or `None` when
     /// editing is allowed.
-    pub(crate) fn refusal(self) -> Option<&'static str> {
+    pub(crate) fn refusal(self) -> Option<String> {
         match self {
             ContentEditAccess::Allowed => None,
-            ContentEditAccess::Forbidden => Some("This document does not permit content changes."),
-            ContentEditAccess::Unavailable => Some(CONTENT_MODEL_UNAVAILABLE),
+            ContentEditAccess::Forbidden => Some(tr("refusal-content-forbidden")),
+            ContentEditAccess::Unavailable => Some(content_model_unavailable()),
         }
     }
 }
@@ -1359,15 +1352,11 @@ pub(crate) enum PageAssemblyAccess {
 impl PageAssemblyAccess {
     /// The message to show instead of changing the page list, or `None` when
     /// assembly is allowed.
-    pub(crate) fn refusal(self) -> Option<&'static str> {
+    pub(crate) fn refusal(self) -> Option<String> {
         match self {
             PageAssemblyAccess::Allowed => None,
-            PageAssemblyAccess::Forbidden => {
-                Some("This document does not permit adding, removing or reordering its pages.")
-            }
-            PageAssemblyAccess::Unreadable => Some(
-                "This document's permissions could not be read, so its pages cannot be changed.",
-            ),
+            PageAssemblyAccess::Forbidden => Some(tr("refusal-assembly-forbidden")),
+            PageAssemblyAccess::Unreadable => Some(tr("refusal-assembly-unreadable")),
         }
     }
 }
@@ -1727,7 +1716,7 @@ pub(crate) struct OpenedDocument {
 
 #[cfg(test)]
 mod tests {
-    use super::{AnnotationAccess, SessionToken, TextAccess, ANNOTATION_MODEL_UNAVAILABLE};
+    use super::{annotation_model_unavailable, AnnotationAccess, SessionToken, TextAccess};
 
     #[test]
     fn a_session_token_rejects_a_newer_generation_or_edit_revision() {
@@ -1786,7 +1775,7 @@ mod tests {
         );
         assert_eq!(
             AnnotationAccess::Unavailable.refusal(),
-            Some(ANNOTATION_MODEL_UNAVAILABLE)
+            Some(annotation_model_unavailable())
         );
     }
 }

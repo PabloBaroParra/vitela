@@ -26,12 +26,13 @@
 
 use pdf_document::{Command, Document};
 
+use crate::app::i18n::tr;
 use crate::app::selection;
-use crate::app::state::{DocumentSession, Viewer, ANNOTATION_MODEL_UNAVAILABLE};
+use crate::app::state::{annotation_model_unavailable, DocumentSession, Viewer};
 
 use super::toolbar::update_forms_controls;
 
-const NO_DOCUMENT: &str = "Open a PDF before editing form fields.";
+const NO_DOCUMENT: &str = "forms-no-document";
 
 /// The permission gate for a *structural* form-field edit — placing,
 /// moving, resizing, or restyling a field, as opposed to filling one in
@@ -49,7 +50,7 @@ const NO_DOCUMENT: &str = "Open a PDF before editing form fields.";
 /// fields a document never actually authorized. Every entry point in this
 /// module that records a structural command must call this, not
 /// `Viewer::annotation_editing_refusal` directly.
-pub(super) fn structural_edit_refusal(viewer: &Viewer) -> Option<&'static str> {
+pub(super) fn structural_edit_refusal(viewer: &Viewer) -> Option<String> {
     viewer
         .annotation_editing_refusal()
         .or_else(|| viewer.content_edit_refusal())
@@ -62,14 +63,14 @@ pub(super) fn command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) {
     if let Some(refusal) = structural_edit_refusal(viewer) {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let result = {
         let mut state = viewer.state.borrow_mut();
         match state.session.as_mut() {
             Some(session) => operation(session),
-            None => Err(NO_DOCUMENT.to_string()),
+            None => Err(tr(NO_DOCUMENT)),
         }
     };
     let recorded = match result {
@@ -101,7 +102,7 @@ pub(super) fn command(
 }
 
 /// The editable model for the open document — mirrors
-/// `annotations::command::model`. Reports `ANNOTATION_MODEL_UNAVAILABLE`
+/// `annotations::command::model`. Reports `annotation_model_unavailable`
 /// rather than a forms-specific message: this path is unreachable in
 /// practice, since [`structural_edit_refusal`] already requires the
 /// annotate permission (and with it the built model it depends on) before
@@ -110,7 +111,7 @@ pub(super) fn model(session: &mut DocumentSession) -> Result<&mut Document, Stri
     session
         .document_model
         .as_mut()
-        .ok_or_else(|| ANNOTATION_MODEL_UNAVAILABLE.to_string())
+        .ok_or_else(annotation_model_unavailable)
 }
 
 /// Records `command` in the document's own `EditLog` — mirrors
@@ -142,14 +143,14 @@ pub(super) fn fill_command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) {
     if let Some(refusal) = viewer.annotation_editing_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let result = {
         let mut state = viewer.state.borrow_mut();
         match state.session.as_mut() {
             Some(session) => operation(session),
-            None => Err(NO_DOCUMENT.to_string()),
+            None => Err(tr(NO_DOCUMENT)),
         }
     };
     match result {

@@ -176,7 +176,7 @@ pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer
 /// every other tool, only runs once a document is open.
 pub(crate) fn show(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     // Opens on Documents every time, not on whichever view was left behind:

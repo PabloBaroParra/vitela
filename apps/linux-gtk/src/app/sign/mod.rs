@@ -995,7 +995,7 @@ fn begin_sign_from_picker(
     identity_id: String,
 ) -> Result<(), String> {
     if let Some(refusal) = signing_refusal(viewer) {
-        return Err(refusal.to_owned());
+        return Err(refusal);
     }
     let request = {
         let state = viewer.state.borrow();
@@ -1038,7 +1038,7 @@ fn begin_sign_from_picker(
 /// `forms::command::structural_edit_refusal` rather than importing it —
 /// that function is `pub(super)` to `forms`, so duplicating its one line is
 /// cheaper than widening its visibility for this single caller outside it.
-fn signing_refusal(viewer: &Viewer) -> Option<&'static str> {
+fn signing_refusal(viewer: &Viewer) -> Option<String> {
     viewer
         .annotation_editing_refusal()
         .or_else(|| viewer.content_edit_refusal())

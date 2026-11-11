@@ -360,7 +360,7 @@ fn connect_insert_toggle(viewer: &Viewer, button: &ToggleButton, kind: ContentIn
 pub(crate) fn update_controls(viewer: &Viewer) {
     let state = viewer.state.borrow();
     let refusal = match state.session.as_ref() {
-        Some(session) => session.content_edit_access.refusal().map(str::to_owned),
+        Some(session) => session.content_edit_access.refusal(),
         None => Some(tr(NO_DOCUMENT_NOTICE)),
     };
     drop(state);
@@ -831,9 +831,7 @@ fn resolve_click(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
         }
         Some(ContentInsertKind::Image) => {
             let Some(window) = viewer.window() else {
-                viewer
-                    .status
-                    .set_text("The application window is unavailable.");
+                viewer.status.set_text(&tr("edit-no-window"));
                 return;
             };
             image::insert_at(&window, viewer, page_index, point);

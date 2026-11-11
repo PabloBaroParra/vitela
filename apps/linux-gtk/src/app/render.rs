@@ -1,6 +1,7 @@
 //! Viewport-driven rendering: deciding which pages to rasterize on each
 //! scroll tick, dispatching those renders to the core, and applying results.
 
+use crate::app::i18n::tr_args;
 use gtk::prelude::*;
 use gtk::{gdk_pixbuf, gio, glib};
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError, RenderOptions, Tile};
@@ -170,19 +171,22 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
     };
 
     if let Some((first, last, page_count)) = visible {
-        viewer.status.set_text(&format!(
-            "Showing pages {}-{} of {page_count}.",
-            first + 1,
-            last + 1
+        viewer.status.set_text(&tr_args(
+            "render-showing-pages",
+            &[
+                ("first", (first + 1).into()),
+                ("last", (last + 1).into()),
+                ("total", page_count.into()),
+            ],
         ));
         viewer
             .page_indicator
             .set_text(&format!("{} / {page_count}", first + 1));
     }
     if let Some(page_index) = rejected_visible_page {
-        viewer.status.set_text(&format!(
-            "Page {} cannot be rendered safely at this size.",
-            page_index + 1
+        viewer.status.set_text(&tr_args(
+            "render-page-too-large",
+            &[("page", (page_index + 1).into())],
         ));
     }
     for (document, page_index, dpi, tiles, tile_generation, zoom_generation) in tile_jobs {
@@ -344,9 +348,13 @@ fn apply_render_result(
             // Mark the slot failed so `update_viewport` doesn't re-queue the
             // same doomed render on every scroll tick. A refit resets it.
             slot.state = PageState::Failed;
-            viewer.status.set_text(&format!(
-                "Could not render page {} of {page_count}: {error}",
-                page_index + 1,
+            viewer.status.set_text(&tr_args(
+                "render-page-failed",
+                &[
+                    ("page", (page_index + 1).into()),
+                    ("total", page_count.into()),
+                    ("error", error.to_string().into()),
+                ],
             ));
         }
     }
@@ -494,9 +502,13 @@ fn apply_tile_result(
             // scroll tick can't re-queue the same doomed batch, and tell the
             // user instead of leaving the page silently soft.
             page.tile_failed_dpi = dpi;
-            viewer.status.set_text(&format!(
-                "Could not sharpen page {} of {page_count}: {error}",
-                page_index + 1,
+            viewer.status.set_text(&tr_args(
+                "render-sharpen-failed",
+                &[
+                    ("page", (page_index + 1).into()),
+                    ("total", page_count.into()),
+                    ("error", error.to_string().into()),
+                ],
             ));
             return;
         }
@@ -505,11 +517,13 @@ fn apply_tile_result(
     // mismatch is a core-side defect, not a transient failure to retry.
     if rendered.len() != tiles.len() {
         page.tile_failed_dpi = dpi;
-        viewer.status.set_text(&format!(
-            "Page {} returned {} tiles for {} requested.",
-            page_index + 1,
-            rendered.len(),
-            tiles.len(),
+        viewer.status.set_text(&tr_args(
+            "render-tile-mismatch",
+            &[
+                ("page", (page_index + 1).into()),
+                ("returned", rendered.len().into()),
+                ("requested", tiles.len().into()),
+            ],
         ));
         return;
     }

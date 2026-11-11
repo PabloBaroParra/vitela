@@ -23,7 +23,7 @@ pub(crate) fn run_search(viewer: &Viewer) {
     // the raw capability); this is the shell's half of the contract.
     if let Some(refusal) = viewer.text_extraction_refusal() {
         clear_search(viewer);
-        viewer.status.set_text(refusal);
+        viewer.status.set_text(&refusal);
         return;
     }
     let Some((document, search_id)) = begin_search(viewer) else {

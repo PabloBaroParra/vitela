@@ -9,6 +9,7 @@ use pdf_edit::EditError;
 
 use super::checkpoint::{forget_page_content, Live};
 use super::PageProbe;
+use crate::app::i18n::tr;
 use crate::app::state::DocumentSession;
 
 /// Attempts swapping `item`'s bytes for `after` against the real `pdf-edit`
@@ -220,6 +221,7 @@ pub(super) fn pending_text_command(document: &Document, target: &TextRun) -> Pen
 /// it needs a save in between.
 ///
 /// The message is deliberately about what to do, not about replay order.
+/// Returns a message id.
 pub(super) fn text_move_refusal(document: &Document, run: &TextRun) -> Option<&'static str> {
     let already_retyped = document.pending_edits.entries().iter().any(|command| {
         matches!(
@@ -228,7 +230,7 @@ pub(super) fn text_move_refusal(document: &Document, run: &TextRun) -> Option<&'
                 if item.id == run.id && item.page == run.page
         )
     });
-    already_retyped.then_some("This text has an unsaved edit — save the document before moving it.")
+    already_retyped.then_some("edit-text-retyped-unsaved")
 }
 
 /// Where `run`'s pending [`Command::MoveTextRun`] sits in the log, if it has
@@ -291,7 +293,7 @@ pub(super) fn record_batch(
     session: &mut DocumentSession,
     batch: Option<Command>,
 ) -> Result<(), String> {
-    let batch = batch.ok_or_else(|| "There is no text there to edit.".to_string())?;
+    let batch = batch.ok_or_else(|| tr("edit-no-text-there"))?;
     record_checkpointed(session, batch, |live, batch| {
         live.record(|document, base, sources| {
             pdf_save::record_content_batch(document, base, sources, batch)
@@ -313,7 +315,7 @@ pub(super) fn record_selection_move(
         let document = session
             .document_model
             .as_mut()
-            .ok_or_else(|| "Open a PDF to edit its content.".to_string())?;
+            .ok_or_else(|| tr("edit-open-to-edit"))?;
         pdf_save::move_pending_paste(document, index, dx, dy).map_err(|error| error.to_string())?;
         session.edit_revision += 1;
         session.unsaved_to_disk = true;
@@ -359,7 +361,7 @@ pub(super) fn copy(
         session.document_model.as_ref(),
         session.save_backing.as_ref(),
     ) else {
-        return Err("Open a PDF to copy its content.".to_string());
+        return Err(tr("edit-open-to-copy"));
     };
     let sources: Vec<_> = session
         .imported_sources
@@ -398,8 +400,7 @@ fn record_checkpointed(
     apply: impl FnMut(&mut Live<'_>, Command) -> Result<(), pdf_save::RecordError>,
 ) -> Result<(), String> {
     let generation = session.content_checkpoints.generation();
-    let mut live =
-        Live::of(session).ok_or_else(|| "Open a PDF to edit its content.".to_string())?;
+    let mut live = Live::of(session).ok_or_else(|| tr("edit-open-to-edit"))?;
     pdf_save::checkpoint::record(&mut live, command, apply).map_err(|error| error.to_string())?;
     if session.content_checkpoints.generation() != generation {
         forget_page_content(session);
@@ -423,7 +424,7 @@ fn record_with(
         session.document_model.as_mut(),
         session.save_backing.as_ref(),
     ) else {
-        return Err("Open a PDF to edit its content.".to_string());
+        return Err(tr("edit-open-to-edit"));
     };
     let sources: Vec<_> = session
         .imported_sources

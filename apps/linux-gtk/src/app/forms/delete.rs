@@ -9,6 +9,7 @@
 
 use pdf_document::Command;
 
+use crate::app::i18n::tr;
 use crate::app::state::{DocumentSession, Viewer};
 
 use super::command::{apply_command, command, model};
@@ -39,10 +40,10 @@ fn remove_field(
         .form_fields
         .get(id)
         .cloned()
-        .ok_or_else(|| SELECTION_GONE.to_string())?;
+        .ok_or_else(|| tr(SELECTION_GONE))?;
     apply_command(document, Command::RemoveFormField(field));
     session.selected_form_field = None;
-    Ok("Field deleted. Save to keep the change, or undo to bring it back.".to_string())
+    Ok(tr("forms-deleted"))
 }
 
 #[cfg(test)]
@@ -91,7 +92,7 @@ mod tests {
 
         let error = remove_field(&mut session, FormFieldId(99)).unwrap_err();
 
-        assert_eq!(error, SELECTION_GONE);
+        assert_eq!(error, tr(SELECTION_GONE));
         let document = session.document_model.as_ref().unwrap();
         assert!(document.form_fields.get(FormFieldId(7)).is_some());
         assert!(!document.pending_edits.can_undo());

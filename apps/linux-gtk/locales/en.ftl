@@ -701,6 +701,8 @@ watermark-kind-label = Stamp
 watermark-kind-text = Text
 watermark-kind-picture = Picture
 watermark-text-label = Text
+# Pre-filled in the text entry and stamped into the PDF as typed.
+watermark-default-text = DRAFT
 watermark-size-label = Size (pt)
 watermark-choose-picture = Choose picture…
 watermark-no-picture = No picture chosen
@@ -739,4 +741,236 @@ watermark-summary =
     { $count ->
         [one] Watermark added to { $count } page.
        *[other] Watermark added to { $count } pages.
+    }
+
+## Shared refusals: document permissions and editable-model availability
+
+refusal-text-forbidden = This document does not permit copying or extracting its text.
+refusal-text-unreadable = This document's permissions could not be read, so its text cannot be extracted.
+refusal-annotation-forbidden = This document does not permit annotation changes.
+refusal-annotation-model-unavailable = This document could not be prepared for annotation changes.
+refusal-content-forbidden = This document does not permit content changes.
+refusal-content-model-unavailable = This document could not be prepared for content changes.
+refusal-assembly-forbidden = This document does not permit adding, removing or reordering its pages.
+refusal-assembly-unreadable = This document's permissions could not be read, so its pages cannot be changed.
+refusal-rewrite-needs-passwords = Changing this encrypted document's pages rewrites the whole file, which needs both its user and owner passwords. Reopen it with both to continue.
+refusal-rewrite-unsupported-encryption = This document's encryption cannot yet be reproduced when the file is rewritten, so its pages cannot be changed.
+refusal-page-no-longer-present = That page is no longer part of the document.
+
+## Annotate: tool buttons and controls
+
+annotate-tool-highlight = Highlight
+annotate-tool-underline = Underline
+annotate-tool-strikeout = Strikeout
+annotate-tool-ink = Ink
+annotate-tool-note = Note
+annotate-tool-text-box = Text box
+annotate-tool-shape = Shape
+annotate-tool-stamp = Stamp
+annotate-previous = Previous annotation
+annotate-nudge = Nudge
+annotate-grow = Grow
+annotate-restyle = Restyle
+annotate-edit-text = Edit text
+annotate-delete = Delete
+annotate-color-title = Choose annotation color
+
+## Annotate: status messages and refusals
+
+# $tool (String) - the localized tool name (annotate-tool-*).
+annotate-tool-armed = { $tool } armed — drag on a page to place it.
+annotate-tool-disarmed = { $tool } disarmed.
+annotate-markup-applied = { $tool } applied to the selected text. Changes are pending save.
+annotate-added = { $tool } added. Changes are pending save.
+annotate-not-markup = { $tool } does not mark up text.
+# $error (String) - technical detail from the image decoder, kept verbatim.
+annotate-image-unusable = Could not use the image: { $error }
+annotate-stamp-added = Image stamp added. Changes are pending save.
+annotate-undone = Edit undone.
+annotate-redone = Edit redone.
+annotate-undone-pending = Edit undone. Changes are pending save.
+annotate-redone-pending = Edit redone. Changes are pending save.
+annotate-edited = Annotation edited. Changes are pending save.
+annotate-deleted = Annotation deleted. Changes are pending save.
+# $id (Number) - the annotation's internal number.
+annotate-selected = Selected annotation { $id }.
+annotate-moved = Annotation moved. Changes are pending save.
+annotate-resized = Annotation resized. Changes are pending save.
+annotate-color-stale = Color selection is no longer current.
+annotate-restyled = Annotation restyled. Changes are pending save.
+annotate-ink-needs-drag = Drag to draw an ink annotation.
+annotate-note-needs-text = Type the note's text before adding it.
+annotate-no-document = Open a PDF before editing annotations.
+annotate-selection-gone = The selected annotation no longer exists.
+annotate-select-first = Select an annotation first.
+annotate-drag-unsupported = That annotation cannot be changed this way.
+
+## Annotate: note and text box dialogs
+
+annotate-note-canceled = Note placement canceled.
+annotate-note-no-dialog = Could not open the note dialog.
+# $page (Number) - one-based page number.
+annotate-note-title = Add note — page { $page }
+annotate-note-text = Note text
+annotate-dialog-cancel = Cancel
+annotate-dialog-add = Add
+annotate-dialog-save = Save
+annotate-dialog-text = Text
+annotate-note-added = Text note added. Changes are pending save.
+annotate-text-box-add-canceled = Text box placement canceled.
+annotate-text-box-edit-canceled = Text box edit canceled.
+annotate-text-box-needs-text = Type the text box's text before adding it.
+annotate-text-box-too-small = That text box is too small.
+annotate-text-box-select-first = Select a text box first.
+annotate-text-box-document-changed = The document changed while the dialog was open; nothing was added.
+annotate-text-box-no-dialog = Could not open the text box dialog.
+annotate-text-box-unchanged = Text unchanged.
+# $character (String) - the first character the text box font cannot show.
+annotate-text-box-encoding-gap = The character '{ $character }' can't be used in a text box: it is drawn in Helvetica, which only covers Western European text. Remove it and try again.
+# $page (Number) - one-based page number.
+annotate-text-box-add-title = Add text box — page { $page }
+annotate-text-box-edit-title = Edit text box
+annotate-text-box-added = Text box added. Changes are pending save.
+annotate-text-box-edited = Text box edited. Changes are pending save.
+
+## Edit PDF: content edit results and refusals
+
+edit-no-window = The application window is unavailable.
+edit-text-deleted = Text deleted.
+edit-text-moved-unsaved = This text was moved and not yet saved — save and reopen before retyping it.
+edit-text-edit-unavailable = This text is part of an unsaved edit that is no longer available — save and reopen before editing it again.
+edit-text-updated = Text updated.
+edit-text-inserted = Text inserted.
+edit-insertion-not-deletable = This text hasn't been saved yet — undo the insertion to remove it.
+edit-cancelled = Edit cancelled.
+edit-text-retyped-unsaved = This text has an unsaved edit — save the document before moving it.
+edit-no-text-there = There is no text there to edit.
+edit-open-to-edit = Open a PDF to edit its content.
+edit-open-to-copy = Open a PDF to copy its content.
+edit-text-moved = Text moved.
+edit-image-moved = Image moved.
+edit-image-resized = Image resized.
+edit-image-deleted = Image deleted.
+edit-replace-image-title = Replace image
+edit-replace-image-accept = Replace
+edit-not-local-file = The selected location is not a local file.
+# $path (String) - file path; $error (String) - technical detail, kept verbatim.
+edit-read-failed = Could not read { $path }: { $error }
+edit-image-replaced = Image replaced.
+edit-image-files = Image files
+edit-insert-image-title = Insert image
+edit-insert-image-accept = Insert
+# $error (String) - technical detail from the image decoder, kept verbatim.
+edit-image-unusable = Could not use the image: { $error }
+edit-image-inserted = Image inserted.
+edit-shape-moved = Shape moved.
+edit-shape-resized = Shape resized.
+edit-shape-deleted = Shape deleted.
+
+## Edit PDF: multi-select and content clipboard
+
+# $count (Number) - selected items.
+edit-multi-selected =
+    { $count ->
+        [one] { $count } item selected — drag to move, Delete removes, Esc clears.
+       *[other] { $count } items selected — drag to move, Delete removes, Esc clears.
+    }
+edit-multi-nothing = Nothing there to select.
+edit-multi-moved = Selection moved.
+edit-multi-deleted = Selection deleted.
+edit-multi-cleared = Selection cleared.
+# $count (Number) - items placed on the content clipboard.
+edit-clipboard-copied =
+    { $count ->
+        [one] Copied { $count } item.
+       *[other] Copied { $count } items.
+    }
+edit-clipboard-cut =
+    { $count ->
+        [one] Cut { $count } item.
+       *[other] Cut { $count } items.
+    }
+edit-clipboard-paste-off-page = Content can only be pasted onto a page of the document.
+edit-clipboard-pasted = Pasted.
+
+## Forms: toolbar, field kinds and fill panel
+
+forms-kind-text = Text field
+forms-kind-checkbox = Checkbox
+forms-kind-radio-group = Radio group
+forms-kind-dropdown = Dropdown
+forms-edit-mode = Edit forms
+forms-color = Color
+forms-delete-field = Delete field
+forms-fill-placeholder = Open a PDF with form fields to fill them in, or place one in Edit forms mode.
+forms-heading-fields = Form fields
+forms-heading-style = Field style
+forms-heading-fill = Fill fields
+forms-none-choice = (none)
+forms-unsupported-field = Unsupported field
+forms-field-updated = Form field updated.
+
+## Forms: edit mode and field results
+
+forms-value-set = Field value set. Changes are pending save.
+forms-renamed = Field renamed. Changes are pending save.
+forms-selection-gone = The selected form field no longer exists.
+forms-mode-armed = Edit forms armed — pick a field type to place, or click an existing field to select it.
+forms-mode-disarmed = Edit forms disarmed.
+# $kind (String) - the localized field kind (forms-kind-*).
+forms-kind-armed = { $kind } armed — drag on the page to place it.
+forms-mode-armed-select = Edit forms armed — click an existing field to select it.
+forms-no-document = Open a PDF before editing form fields.
+forms-deleted = Field deleted. Save to keep the change, or undo to bring it back.
+forms-added = { $kind } added. Changes are pending save.
+forms-moved = Field moved. Changes are pending save.
+forms-resized = Field resized. Changes are pending save.
+forms-restyled = Field restyled. Changes are pending save.
+forms-color-title = Choose field color
+forms-color-stale = Color selection is no longer current.
+
+## Viewer: dropping and pasting files
+
+drop-not-local = Only local PDF and image files can be dropped.
+paste-open-first = Open a PDF before pasting an image.
+paste-no-image = Clipboard does not contain a bitmap image.
+drop-page-not-ready = The page is not ready for image placement.
+drop-loading = Loading dropped file...
+drop-unsupported = Dropped file is neither a PDF nor a supported image.
+# $error (String) - technical detail from the file system, kept verbatim.
+drop-read-failed = Could not read dropped file: { $error }
+drop-image-on-page = Drop an image directly onto an open PDF page.
+
+## Viewer: printing
+
+print-open-first = Open a PDF before printing.
+print-preparing = Preparing to print…
+# $error (String) - technical detail, kept verbatim.
+print-prepare-failed = Could not prepare the document for printing: { $error }
+print-prepare-stopped = Could not prepare the document for printing.
+print-no-pages = The PDF has no pages to print.
+print-failed = Printing failed.
+# $error (String) - technical detail from GTK, kept verbatim.
+print-error = Could not print: { $error }
+
+## Viewer: page rendering status
+
+# $first, $last, $total (Number) - one-based visible page range and page count.
+render-showing-pages = Showing pages { $first }-{ $last } of { $total }.
+# $page (Number) - one-based page number.
+render-page-too-large = Page { $page } cannot be rendered safely at this size.
+# $page, $total (Number) - one-based page and page count; $error (String) - renderer detail, kept verbatim.
+render-page-failed = Could not render page { $page } of { $total }: { $error }
+render-sharpen-failed = Could not sharpen page { $page } of { $total }: { $error }
+# $page (Number) - one-based page; $returned, $requested (Number) - tile counts.
+render-tile-mismatch = Page { $page } returned { $returned } tiles for { $requested } requested.
+
+## Viewer: text selection
+
+selection-copy-empty = Select some text before copying.
+# $count (Number) - characters copied.
+selection-copied =
+    { $count ->
+        [one] Copied { $count } character to the clipboard.
+       *[other] Copied { $count } characters to the clipboard.
     }
