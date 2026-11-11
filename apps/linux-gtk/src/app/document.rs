@@ -22,6 +22,7 @@ use pdf_document::{Document, FieldValue, Orientation, PageSize, SecurityContext}
 use pdf_manip::ManipError;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 
+use super::i18n::{tr, tr_args};
 use super::layout::set_placeholder_size;
 use super::render::update_viewport;
 use super::search::update_search_controls;
@@ -64,8 +65,8 @@ pub(crate) enum SampleKind {
 pub(crate) fn show_file_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     let filter = pdf_filter();
     let chooser = FileDialog::builder()
-        .title("Open PDF")
-        .accept_label("Open")
+        .title(tr("open-chooser-title"))
+        .accept_label(tr("open-accept"))
         .default_filter(&filter)
         .build();
     chooser.open(Some(window), None::<&gio::Cancellable>, {
@@ -76,9 +77,7 @@ pub(crate) fn show_file_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local file.");
+                viewer.status.set_text(&tr("open-not-local-file"));
                 return;
             };
             open_initial(&window, &viewer, DocumentSource::File(path));
@@ -141,9 +140,7 @@ pub(crate) fn open_file(viewer: &Viewer, path: PathBuf) {
         .root()
         .and_then(|root| root.downcast::<ApplicationWindow>().ok())
     else {
-        viewer
-            .status
-            .set_text("The application window is unavailable.");
+        viewer.status.set_text(&tr("open-window-unavailable"));
         return;
     };
     open_initial(&window, viewer, DocumentSource::File(path));
@@ -155,12 +152,12 @@ pub(crate) fn new_blank_document(window: &ApplicationWindow, viewer: &Viewer) {
     let base = pdf_manip::create_blank_document(PageSize::A4, Orientation::Portrait);
     let Ok(base) = pdf_manip::insert_blank_page(&base, 0, PageSize::A4, Orientation::Portrait)
     else {
-        viewer.status.set_text("Could not create a blank PDF.");
+        viewer.status.set_text(&tr("open-blank-failed"));
         return;
     };
     let mut bytes = Vec::new();
     if base.as_lopdf().clone().save_to(&mut bytes).is_err() {
-        viewer.status.set_text("Could not create a blank PDF.");
+        viewer.status.set_text(&tr("open-blank-failed"));
         return;
     }
     open_initial(window, viewer, DocumentSource::Bytes(bytes));
@@ -196,12 +193,7 @@ fn confirm_replacing_edits(
         return;
     }
 
-    confirm_unsaved_edits(
-        window,
-        viewer,
-        "Opening another document will discard them.",
-        proceed,
-    );
+    confirm_unsaved_edits(window, viewer, UNSAVED_DETAIL_OPENING, proceed);
 }
 
 /// Stops a close request while unsaved work is being resolved.
@@ -218,27 +210,35 @@ pub(crate) fn confirm_closing_edits(
     }
 
     let window_to_close = window.clone();
-    confirm_unsaved_edits(
-        window,
-        viewer,
-        "Closing Vitela will discard them.",
-        move || window_to_close.destroy(),
-    );
+    confirm_unsaved_edits(window, viewer, UNSAVED_DETAIL_CLOSING, move || {
+        window_to_close.destroy()
+    });
     glib::Propagation::Stop
 }
 
+/// The unsaved-changes detail when another document is about to replace this
+/// one — a catalog key for [`confirm_unsaved_edits`].
+const UNSAVED_DETAIL_OPENING: &str = "open-unsaved-detail-opening";
+/// The unsaved-changes detail when the window is about to close.
+const UNSAVED_DETAIL_CLOSING: &str = "open-unsaved-detail-closing";
+
+/// `detail_key` names the whole detail paragraph rather than its second
+/// sentence: two sentences joined in code would fix their order and spacing
+/// for every language.
 fn confirm_unsaved_edits(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    detail: &'static str,
+    detail_key: &'static str,
     proceed: impl Fn() + 'static,
 ) {
     let dialog = AlertDialog::builder()
-        .message("Unsaved changes")
-        .detail(format!(
-            "The open document has changes that are not saved. {detail}"
-        ))
-        .buttons(["Cancel", "Discard", "Save"])
+        .message(tr("open-unsaved-title"))
+        .detail(tr(detail_key))
+        .buttons([
+            tr("open-unsaved-cancel"),
+            tr("open-unsaved-discard"),
+            tr("open-unsaved-save"),
+        ])
         .cancel_button(0)
         .default_button(2)
         .modal(true)
@@ -253,7 +253,7 @@ fn confirm_unsaved_edits(
             UnsavedDecision::Save => {
                 save_then(&window, &viewer, proceed.clone());
             }
-            UnsavedDecision::Keep => viewer.status.set_text("Kept the unsaved changes."),
+            UnsavedDecision::Keep => viewer.status.set_text(&tr("open-unsaved-kept")),
         }
     });
 }
@@ -284,7 +284,7 @@ fn save_then(window: &ApplicationWindow, viewer: &Viewer, after_save: Rc<dyn Fn(
 
 fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
     let generation = begin_loading(viewer);
-    viewer.status.set_text("Opening PDF...");
+    viewer.status.set_text(&tr("open-busy"));
     glib::spawn_future_local({
         let window = window.clone();
         let viewer = viewer.clone();
@@ -298,13 +298,24 @@ fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSourc
                 Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
                     prompt_for_password(&window, &viewer, source, generation);
                 }
-                Err(error) if is_current(&viewer, generation) => viewer
-                    .status
-                    .set_text(&format!("Could not open PDF: {error}")),
+                Err(error) if is_current(&viewer, generation) => {
+                    viewer.status.set_text(&open_failed(&error));
+                }
                 Err(_) => {}
             }
         }
     });
+}
+
+/// The status line for an open that failed. `error` is the renderer's own
+/// detail and stays as it is, untranslated.
+fn open_failed(error: &impl std::fmt::Display) -> String {
+    tr_args("open-failed", &[("error", error.to_string().into())])
+}
+
+/// The page-navigation button's tooltip and accessible name.
+fn go_to_page(page_number: usize) -> String {
+    tr_args("open-go-to-page", &[("page", page_number.into())])
 }
 
 /// Registers a successfully opened file with the desktop's recent-files
@@ -413,15 +424,19 @@ pub(crate) fn open_document(
 /// A `Bytes` source has no name of its own: it is either Ctrl+N's blank
 /// document or a preview refresh's in-memory save, and the refresh restores
 /// the name it had rather than taking this fallback (`restore_edit_state`).
+///
+/// The fallbacks are localized: the name is shown on Organize's document card
+/// and becomes the stem of exported and split file names. This runs on the
+/// open worker thread, whose language comes from the same environment as the
+/// main thread's (see `i18n`), so both agree.
 fn source_name(source: &DocumentSource) -> String {
     match source {
         DocumentSource::File(path) => path
             .file_name()
             .and_then(|name| name.to_str())
-            .unwrap_or("Opened PDF")
-            .to_owned(),
-        DocumentSource::Embedded(_) => "Sample document".to_owned(),
-        DocumentSource::Bytes(_) => "Untitled document".to_owned(),
+            .map_or_else(|| tr("open-name-fallback"), str::to_owned),
+        DocumentSource::Embedded(_) => tr("open-name-sample"),
+        DocumentSource::Bytes(_) => tr("open-name-untitled"),
     }
 }
 
@@ -658,10 +673,9 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
         viewer.pages.append(&overlay);
         let page_number = page_index + 1;
         let page_button = Button::with_label(&page_number.to_string());
-        page_button.set_tooltip_text(Some(&format!("Go to page {page_number}")));
-        page_button.update_property(&[gtk::accessible::Property::Label(&format!(
-            "Go to page {page_number}"
-        ))]);
+        let go_to = go_to_page(page_number);
+        page_button.set_tooltip_text(Some(&go_to));
+        page_button.update_property(&[gtk::accessible::Property::Label(&go_to)]);
         page_button.connect_clicked({
             let viewer = viewer.clone();
             move |_| super::navigate_to_page(&viewer, page_index)
@@ -797,7 +811,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
     // state for a pageless document.
     viewer.app_mark.set_visible(page_count == 0);
     if page_count == 0 {
-        viewer.status.set_text("The PDF contains no pages.");
+        viewer.status.set_text(&tr("open-no-pages"));
     } else {
         update_viewport(viewer);
     }
@@ -850,7 +864,7 @@ fn prompt_for_password(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Password required")
+        .title(tr("open-password-title"))
         .child(&content)
         .build();
 
@@ -858,8 +872,8 @@ fn prompt_for_password(
     let error_label = Label::new(None);
     error_label.set_xalign(0.0);
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let open = Button::with_label("Open");
+    let cancel = Button::with_label(&tr("open-password-cancel"));
+    let open = Button::with_label(&tr("open-password-open"));
     buttons.append(&cancel);
     buttons.append(&open);
     content.append(&password_entry);
@@ -879,7 +893,7 @@ fn prompt_for_password(
         let error_label = error_label.clone();
         let source = source.clone();
         move || {
-            viewer.status.set_text("Opening password-protected PDF...");
+            viewer.status.set_text(&tr("open-password-busy"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let dialog = dialog.clone();
@@ -901,15 +915,13 @@ fn prompt_for_password(
                         Ok(document) => close_document_in_background(document.document),
                         Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
                             dialog.set_sensitive(true);
-                            viewer.status.set_text("Waiting for the document password.");
-                            error_label.set_text("The password is incorrect. Try again.");
+                            viewer.status.set_text(&tr("open-password-waiting"));
+                            error_label.set_text(&tr("open-password-wrong"));
                             password_entry.set_text("");
                             password_entry.grab_focus();
                         }
                         Err(error) if is_current(&viewer, generation) => {
-                            viewer
-                                .status
-                                .set_text(&format!("Could not open PDF: {error}"));
+                            viewer.status.set_text(&open_failed(&error));
                             dismiss_password_dialog(&viewer, &dialog);
                         }
                         Err(_) => {}
@@ -927,7 +939,7 @@ fn prompt_for_password(
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text("Password entry cancelled.");
+            viewer.status.set_text(&tr("open-password-cancelled"));
             dismiss_password_dialog(&viewer, &dialog);
         }
     });
@@ -950,12 +962,17 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Window) {
 #[cfg(test)]
 mod tests {
     use super::{
-        next_form_field_id, page_overlay, rendered_field_values, unsaved_decision, UnsavedDecision,
+        go_to_page, next_form_field_id, open_failed, page_overlay, rendered_field_values,
+        source_name, unsaved_decision, UnsavedDecision, SAMPLE_PDF, UNSAVED_DETAIL_CLOSING,
+        UNSAVED_DETAIL_OPENING,
     };
+    use crate::app::i18n::{speak, tr, Language};
+    use crate::app::state::DocumentSource;
     use crate::app::test_fixtures::a_form_field;
     use gtk::prelude::*;
     use gtk::{glib, Box as GtkBox, ContentFit, Orientation, Picture, Window};
     use pdf_document::{Document, FieldValue};
+    use std::path::PathBuf;
 
     /// Pumps the main loop until `widget` has been allocated, so a test can
     /// read real widths rather than the zeroes of an unmapped window.
@@ -1095,5 +1112,142 @@ mod tests {
     #[test]
     fn saving_unsaved_changes_continues_only_through_the_save_path() {
         assert_eq!(unsaved_decision(Some(2)), UnsavedDecision::Save);
+    }
+
+    /// Every sentence the open workflow puts on screen, in the order the
+    /// workflow reaches them: chooser, unsaved-changes prompt, progress and
+    /// results, page navigation, password prompt. The renderer's own error
+    /// detail is an argument and must come through verbatim.
+    fn workflow_text() -> Vec<String> {
+        let mut text: Vec<String> = [
+            "open-chooser-title",
+            "open-accept",
+            "open-not-local-file",
+            "open-window-unavailable",
+            "open-blank-failed",
+            "open-unsaved-title",
+            UNSAVED_DETAIL_OPENING,
+            UNSAVED_DETAIL_CLOSING,
+            "open-unsaved-cancel",
+            "open-unsaved-discard",
+            "open-unsaved-save",
+            "open-unsaved-kept",
+            "open-busy",
+            "open-no-pages",
+            "open-password-title",
+            "open-password-cancel",
+            "open-password-open",
+            "open-password-busy",
+            "open-password-waiting",
+            "open-password-wrong",
+            "open-password-cancelled",
+        ]
+        .map(tr)
+        .into();
+        text.push(open_failed(&"PDFium: {detail}"));
+        text.push(go_to_page(12));
+        text.extend(
+            [
+                DocumentSource::File(PathBuf::from("report.pdf")),
+                DocumentSource::Embedded(SAMPLE_PDF),
+                DocumentSource::Bytes(Vec::new()),
+            ]
+            .iter()
+            .map(source_name),
+        );
+        text
+    }
+
+    /// The workflow as it read before it moved into the catalogs — byte for
+    /// byte, so an English user sees no change.
+    #[test]
+    fn the_open_workflow_keeps_its_english() {
+        assert_eq!(
+            workflow_text(),
+            [
+                "Open PDF",
+                "Open",
+                "The selected location is not a local file.",
+                "The application window is unavailable.",
+                "Could not create a blank PDF.",
+                "Unsaved changes",
+                "The open document has changes that are not saved. Opening another document \
+                 will discard them.",
+                "The open document has changes that are not saved. Closing Vitela will \
+                 discard them.",
+                "Cancel",
+                "Discard",
+                "Save",
+                "Kept the unsaved changes.",
+                "Opening PDF...",
+                "The PDF contains no pages.",
+                "Password required",
+                "Cancel",
+                "Open",
+                "Opening password-protected PDF...",
+                "Waiting for the document password.",
+                "The password is incorrect. Try again.",
+                "Password entry cancelled.",
+                "Could not open PDF: PDFium: {detail}",
+                "Go to page 12",
+                "report.pdf",
+                "Sample document",
+                "Untitled document",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_open_workflow_speaks_spanish() {
+        let _spanish = speak(Language::Spanish);
+
+        assert_eq!(
+            workflow_text(),
+            [
+                "Abrir PDF",
+                "Abrir",
+                "La ubicación seleccionada no es un archivo local.",
+                "La ventana de la aplicación no está disponible.",
+                "No se pudo crear un PDF en blanco.",
+                "Cambios sin guardar",
+                "El documento abierto tiene cambios que no se han guardado. Si abres otro \
+                 documento, se descartarán.",
+                "El documento abierto tiene cambios que no se han guardado. Si cierras \
+                 Vitela, se descartarán.",
+                "Cancelar",
+                "Descartar",
+                "Guardar",
+                "Se han conservado los cambios sin guardar.",
+                "Abriendo el PDF...",
+                "El PDF no contiene páginas.",
+                "Se necesita una contraseña",
+                "Cancelar",
+                "Abrir",
+                "Abriendo el PDF protegido con contraseña...",
+                "Esperando la contraseña del documento.",
+                "La contraseña no es correcta. Inténtalo de nuevo.",
+                "Se canceló la contraseña.",
+                "No se pudo abrir el PDF: PDFium: {detail}",
+                "Ir a la página 12",
+                // A real file name is the user's, in any language.
+                "report.pdf",
+                "Documento de ejemplo",
+                "Documento sin título",
+            ]
+        );
+    }
+
+    /// The fallback for a file name that is not valid UTF-8 — the one
+    /// `source_name` branch a plain path cannot reach.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_name_that_is_not_unicode_falls_back_to_a_localized_name() {
+        use std::os::unix::ffi::OsStrExt;
+        let source =
+            DocumentSource::File(PathBuf::from(std::ffi::OsStr::from_bytes(b"bad-\xff.pdf")));
+
+        assert_eq!(source_name(&source), "Opened PDF");
+        let _spanish = speak(Language::Spanish);
+        assert_eq!(source_name(&source), "PDF abierto");
     }
 }

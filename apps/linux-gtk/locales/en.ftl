@@ -610,3 +610,43 @@ extract-busy = Extracting pages...
 extract-done = Pages extracted.
 # $error (String) - technical detail, kept verbatim.
 extract-failed = Could not extract pages: { $error }
+
+## Opening documents: chooser, progress, results and page navigation
+
+open-chooser-title = Open PDF
+open-accept = Open
+open-not-local-file = The selected location is not a local file.
+open-window-unavailable = The application window is unavailable.
+open-blank-failed = Could not create a blank PDF.
+open-busy = Opening PDF...
+# $error (String) - technical detail from the renderer, kept verbatim.
+open-failed = Could not open PDF: { $error }
+open-no-pages = The PDF contains no pages.
+# $page (Number) - one-based page number.
+open-go-to-page = Go to page { $page }
+# Document names shown on Organize's document card and used as the stem of
+# exported and split file names, when the document has no file name of its own.
+open-name-fallback = Opened PDF
+open-name-sample = Sample document
+open-name-untitled = Untitled document
+
+## Opening documents: unsaved-changes prompt (before opening another document
+## or closing the window)
+
+open-unsaved-title = Unsaved changes
+open-unsaved-detail-opening = The open document has changes that are not saved. Opening another document will discard them.
+open-unsaved-detail-closing = The open document has changes that are not saved. Closing Vitela will discard them.
+open-unsaved-cancel = Cancel
+open-unsaved-discard = Discard
+open-unsaved-save = Save
+open-unsaved-kept = Kept the unsaved changes.
+
+## Opening documents: password prompt for an encrypted PDF
+
+open-password-title = Password required
+open-password-cancel = Cancel
+open-password-open = Open
+open-password-busy = Opening password-protected PDF...
+open-password-waiting = Waiting for the document password.
+open-password-wrong = The password is incorrect. Try again.
+open-password-cancelled = Password entry cancelled.
