@@ -607,3 +607,83 @@ open-password-busy = Abriendo el PDF protegido con contraseña...
 open-password-waiting = Esperando la contraseña del documento.
 open-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
 open-password-cancelled = Se canceló la contraseña.
+
+## Export images: refusals, dialog, folder and results
+# Page-range parsing errors come from the core and stay English.
+
+export-no-document = Abre un PDF antes de exportarlo.
+export-no-pages = El PDF no tiene páginas que exportar.
+export-document-no-pages = Este documento no tiene páginas que exportar.
+export-dialog-title = Exportar páginas como imágenes
+export-pages-label = Páginas
+export-all-pages = Todas las páginas
+export-current-page = Página actual
+export-custom-pages = Páginas
+export-format-label = Formato
+export-resolution-label = Resolución (DPI)
+export-cancel = Cancelar
+export-accept = Exportar
+export-page-too-large = La página { $page } es demasiado grande para generarla a { $dpi } DPI. Elige una resolución más baja.
+export-cancelled = Exportación cancelada.
+export-chooser-title = Exportar las imágenes a una carpeta
+export-not-local-folder = La ubicación seleccionada no es una carpeta local.
+export-busy =
+    { $count ->
+        [one] Exportando { $count } página…
+       *[other] Exportando { $count } páginas…
+    }
+export-unfinished = La exportación no terminó.
+export-summary =
+    { $count ->
+        [one] Se exportó { $count } página a { $folder }.
+       *[other] Se exportaron { $count } páginas a { $folder }.
+    }
+export-prepare-failed = No se pudo preparar el documento para exportarlo: { $error }
+export-page-failed = No se pudo exportar la página { $page }: { $error }
+export-write-failed = No se pudo escribir { $name }: { $error }
+
+## Add watermark: refusals and dialog
+# Page-range parsing errors come from the core and stay English.
+
+watermark-no-document = Abre un PDF antes de añadir una marca de agua.
+watermark-cancelled = Marca de agua cancelada.
+watermark-dialog-title = Añadir marca de agua
+watermark-kind-label = Sello
+watermark-kind-text = Texto
+watermark-kind-picture = Imagen
+watermark-text-label = Texto
+watermark-size-label = Tamaño (pt)
+watermark-choose-picture = Elegir imagen…
+watermark-no-picture = No se ha elegido ninguna imagen
+watermark-picture-label = Imagen (PNG o JPEG)
+watermark-scale-label = Tamaño (% de la página)
+watermark-pages-label = Páginas
+watermark-all-pages = Todas las páginas
+watermark-current-page = Página actual
+watermark-custom-pages = Páginas
+watermark-opacity-label = Opacidad (%)
+watermark-angle-label = Ángulo (grados)
+watermark-position-label = Posición
+watermark-over = Sobre el contenido de la página
+watermark-under = Detrás del contenido de la página
+watermark-cancel = Cancelar
+watermark-accept = Añadir marca de agua
+watermark-chooser-title = Elegir la imagen de la marca de agua
+watermark-chooser-accept = Elegir
+watermark-not-local-file = La ubicación seleccionada no es un archivo local.
+watermark-read-failed = No se pudo leer { $path }: { $error }
+
+## Add watermark: validation and results
+
+watermark-no-pages = Este documento no tiene páginas que marcar.
+watermark-text-required = Escribe el texto que se estampará en las páginas.
+watermark-picture-required = Elige una imagen PNG o JPEG para estamparla en las páginas.
+watermark-no-such-page = Este documento no tiene la página { $page }.
+watermark-font-gap = La fuente de la marca de agua no puede mostrar «{ $character }». Usa letras latinas, dígitos y signos de puntuación.
+watermark-invalid-picture = No se pudo leer ese archivo como una imagen PNG o JPEG. Elige otro.
+watermark-not-recordable = No se puede añadir esta marca de agua a estas páginas.
+watermark-summary =
+    { $count ->
+        [one] Marca de agua añadida a { $count } página.
+       *[other] Marca de agua añadida a { $count } páginas.
+    }

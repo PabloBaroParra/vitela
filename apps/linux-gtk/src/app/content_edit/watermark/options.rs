@@ -8,6 +8,8 @@
 
 use pdf_document::{Watermark, WatermarkLayer};
 
+use crate::app::i18n::{tr, tr_args};
+
 /// The size spin button's range, in points. The floor keeps the stamp
 /// legible; the ceiling is past what fits across a portrait A4 page at the
 /// default angle, so the top of the range is never a value nobody could use.
@@ -106,7 +108,7 @@ pub(super) fn resolve_pages(
     total_pages: u32,
 ) -> Result<Vec<u32>, String> {
     if total_pages == 0 {
-        return Err("This document has no pages to stamp.".to_owned());
+        return Err(tr("watermark-no-pages"));
     }
     match choice {
         PageChoice::All => Ok((0..total_pages).collect()),
@@ -127,7 +129,7 @@ pub(super) fn resolve_pages(
 /// so in words before anything is recorded.
 pub(super) fn resolve_text(typed: &str) -> Result<String, String> {
     if typed.trim().is_empty() {
-        Err("Type the text to stamp on the pages.".to_owned())
+        Err(tr("watermark-text-required"))
     } else {
         Ok(typed.to_owned())
     }
@@ -139,7 +141,7 @@ pub(super) fn resolve_text(typed: &str) -> Result<String, String> {
 pub(super) fn resolve_picture(picked: Option<&[u8]>) -> Result<Vec<u8>, String> {
     match picked {
         Some(bytes) if !bytes.is_empty() => Ok(bytes.to_vec()),
-        _ => Err("Choose a PNG or JPEG picture to stamp on the pages.".to_owned()),
+        _ => Err(tr("watermark-picture-required")),
     }
 }
 
@@ -160,8 +162,7 @@ pub(super) fn default_scale_percent() -> f64 {
 
 /// What the status line says once the stamp is recorded.
 pub(crate) fn summary(count: usize) -> String {
-    let pages = if count == 1 { "page" } else { "pages" };
-    format!("Watermark added to {count} {pages}.")
+    tr_args("watermark-summary", &[("count", count.into())])
 }
 
 #[cfg(test)]
@@ -254,6 +255,28 @@ mod tests {
         assert!((MIN_OPACITY_PERCENT..=MAX_OPACITY_PERCENT).contains(&default_opacity_percent()));
         assert!((MIN_SCALE_PERCENT..=MAX_SCALE_PERCENT).contains(&default_scale_percent()));
         assert!((MIN_ANGLE..=MAX_ANGLE).contains(&Watermark::DEFAULT_IMAGE_ROTATION_DEGREES));
+    }
+
+    #[test]
+    fn spanish_messages_and_summary_use_plural_forms() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+
+        assert_eq!(summary(1), "Marca de agua añadida a 1 página.");
+        assert_eq!(summary(4), "Marca de agua añadida a 4 páginas.");
+        assert_eq!(
+            resolve_text("  ").unwrap_err(),
+            "Escribe el texto que se estampará en las páginas."
+        );
+        assert_eq!(
+            resolve_picture(None).unwrap_err(),
+            "Elige una imagen PNG o JPEG para estamparla en las páginas."
+        );
+        assert_eq!(
+            resolve_pages(PageChoice::All, "", 0, 0).unwrap_err(),
+            "Este documento no tiene páginas que marcar."
+        );
     }
 
     #[test]

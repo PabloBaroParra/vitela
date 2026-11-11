@@ -38,6 +38,7 @@ use pdf_edit::EditError;
 
 use options::{summary, MarkOptions, WatermarkOptions};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::state::{DocumentSession, Viewer};
 
 /// Opens the dialog, or says on the status line why it cannot.
@@ -57,7 +58,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
             Some((document.pages.len() as u32, current))
         })
     }) else {
-        viewer.status.set_text(NO_MODEL);
+        viewer.status.set_text(&tr("watermark-no-document"));
         return;
     };
 
@@ -67,7 +68,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
         current_page,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text("Watermark cancelled.")
+            move || viewer.status.set_text(&tr("watermark-cancelled"))
         },
         {
             let viewer = viewer.clone();
@@ -76,7 +77,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
                     let mut state = viewer.state.borrow_mut();
                     match state.session.as_mut() {
                         Some(session) => record(session, options),
-                        None => Err(NO_MODEL.to_owned()),
+                        None => Err(tr("watermark-no-document")),
                     }
                 };
                 let count = recorded?;
@@ -86,8 +87,6 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
         },
     );
 }
-
-const NO_MODEL: &str = "Open a PDF before adding a watermark.";
 
 /// Records one `Command::AddWatermark` over `options.pages` and reports how
 /// many pages it covers, or the message to show instead. Nothing is recorded
@@ -107,7 +106,7 @@ pub(crate) fn record(
         return Err(refusal.to_owned());
     }
     let Some(document) = session.document_model.as_mut() else {
-        return Err(NO_MODEL.to_owned());
+        return Err(tr("watermark-no-document"));
     };
     // Positions are read once, here: the stamp names its pages by identity,
     // so a later reorder carries it along with them.
@@ -115,9 +114,9 @@ pub(crate) fn record(
         .pages
         .iter()
         .map(|&position| {
-            document
-                .page_id_at(position as usize)
-                .ok_or_else(|| format!("This document has no page {}.", position + 1))
+            document.page_id_at(position as usize).ok_or_else(|| {
+                tr_args("watermark-no-such-page", &[("page", (position + 1).into())])
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let count = pages.len();
@@ -142,7 +141,7 @@ pub(crate) fn record(
     let recorded = log.apply(document, Command::AddWatermark(watermark));
     document.pending_edits = log;
     if !recorded {
-        return Err("This watermark cannot be added to these pages.".to_owned());
+        return Err(tr("watermark-not-recordable"));
     }
     session.edit_revision += 1;
     // Dirty at record time, not at refresh time — same as every other
@@ -157,13 +156,11 @@ pub(crate) fn record(
 /// logo.
 fn refusal_message(error: &EditError) -> String {
     match error {
-        EditError::EncodingGap { character, .. } => format!(
-            "The watermark font cannot show “{character}”. Use Latin letters, digits and \
-             punctuation."
+        EditError::EncodingGap { character, .. } => tr_args(
+            "watermark-font-gap",
+            &[("character", character.to_string().into())],
         ),
-        EditError::InvalidImage(_) => {
-            "That file could not be read as a PNG or JPEG picture. Choose another one.".to_owned()
-        }
+        EditError::InvalidImage(_) => tr("watermark-invalid-picture"),
         other => other.to_string(),
     }
 }
@@ -362,6 +359,29 @@ mod tests {
             Err("This document has no page 4.".to_owned())
         );
         assert!(log_of(&session).is_empty());
+    }
+
+    #[test]
+    fn spanish_refusals_are_localized_and_keep_the_character() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+        let mut session = three_page_session();
+
+        let font = record(&mut session, options(vec![0], "草稿")).expect_err("CJK");
+        let image = record(&mut session, picture_options(vec![0], b"nope".to_vec()))
+            .expect_err("not a picture");
+        let page = record(&mut session, options(vec![0, 3], "DRAFT")).expect_err("no page 4");
+
+        assert_eq!(
+            font,
+            "La fuente de la marca de agua no puede mostrar «草». Usa letras latinas, dígitos y signos de puntuación."
+        );
+        assert_eq!(
+            image,
+            "No se pudo leer ese archivo como una imagen PNG o JPEG. Elige otro."
+        );
+        assert_eq!(page, "Este documento no tiene la página 4.");
     }
 
     #[test]
