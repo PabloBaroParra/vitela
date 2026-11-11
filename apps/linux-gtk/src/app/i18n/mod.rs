@@ -28,8 +28,10 @@
 //!   system, which arrive inside a localized sentence as `{ $error }`;
 //! - the product name, font names, keyboard shortcuts, page-range examples
 //!   (`1-3,7`) and number formats such as `3 / 12` or `100%`;
-//! - text written into the PDF itself, such as a new dropdown field's
-//!   default options or the default watermark text.
+//! - a new dropdown field's default options, which are written into the PDF.
+//!
+//! The default watermark text is localized even though it is stamped into
+//! the PDF: the user sees it pre-filled and is expected to keep it.
 
 mod bundle;
 mod locale;
