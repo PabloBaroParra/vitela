@@ -42,6 +42,8 @@
 //! - [`text`] is the page-gesture half of moving a run — press, drag,
 //!   release — plus `record_move`, the single door every reposition goes
 //!   through, whichever gesture asked for it.
+//! - [`hover`] is what the pointer rests on: the outline round the item a
+//!   press would grab.
 //! - [`panel`] is the "Edit" page of the right-hand tools panel: the five
 //!   controls above, the cards they sit in, and the two sentences that say
 //!   what each gesture does and why a control is unavailable. It owns
@@ -69,11 +71,14 @@ pub(crate) mod checkpoint;
 pub(crate) mod clipboard;
 pub(crate) mod editor;
 pub(crate) mod geometry;
+pub(crate) mod hover;
 pub(crate) mod image;
 mod model;
 pub(crate) mod multi;
 pub(crate) mod panel;
 pub(crate) mod path;
+#[cfg(test)]
+mod test_support;
 pub(crate) mod text;
 pub(crate) mod watermark;
 
@@ -428,6 +433,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         editor::commit(viewer);
         clear_selected_image(viewer);
         clear_text_drag(viewer);
+        hover::clear(viewer);
         // T-163: an armed insert kind cannot outlive the mode that makes it
         // reachable — a page click only reaches an insert path while
         // `content_edit_mode` is true (`selection.rs`'s gesture dispatch), so
@@ -466,6 +472,9 @@ pub(crate) fn set_insert_mode(viewer: &Viewer, kind: Option<ContentInsertKind>) 
 
     if kind.is_some() {
         set_mode(viewer, true);
+        // Every click now places something new, so nothing on the page is
+        // what a press would grab.
+        hover::clear(viewer);
     }
 
     // Resolves whatever is already open/selected first — the same

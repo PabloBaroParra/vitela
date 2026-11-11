@@ -1534,6 +1534,10 @@ pub(crate) struct DocumentSession {
     /// Where the pointer last was over a page in content-edit mode, in PDF
     /// page space — where CTRL+V pastes (B25 T-209).
     pub(crate) content_pointer: Option<(usize, (f64, f64))>,
+    /// The content item the pointer rests on in content-edit mode, outlined
+    /// so the reader can see what a press would grab — see
+    /// `content_edit::hover`.
+    pub(crate) content_hover: Option<crate::app::content_edit::hover::Hover>,
     /// The text run being dragged across the page right now, if any. Same
     /// reasoning as `image_drag`, and mutually exclusive with it in
     /// practice: a press is claimed by at most one item.

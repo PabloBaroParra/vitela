@@ -143,6 +143,8 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         }
     });
     area.add_controller(motion);
+    // The outline round the content item under the pointer.
+    content_edit::hover::connect(&area, viewer, page_index);
 
     let drag = GestureDrag::new();
     drag.connect_drag_begin({
@@ -236,6 +238,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         draw_content_run_outlines(context, page, session, page_index);
         draw_content_image_outlines(context, page, session, page_index);
         draw_content_selection(context, page, session, page_index);
+        content_edit::hover::draw(context, page, session, page_index);
     }
 
     if forms::mode_is_active(viewer) {
