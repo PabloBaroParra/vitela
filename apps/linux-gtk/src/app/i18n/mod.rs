@@ -25,9 +25,11 @@
 //! controls, page-operation results and the Add PDFs flow, and every write
 //! flow — Save, Sign, Protect (with its password dialog), Compress, Split and
 //! Extract — with the destination chooser, replace guard and signature warning
-//! they share, and the preview-refresh status. Other feature panels, edit
-//! dialogs, the open/unsaved-changes document workflow and shared
-//! permission/core error details are not yet localized.
+//! they share, and the preview-refresh status, and the open-document workflow —
+//! the file chooser, the unsaved-changes prompt, the encrypted-PDF password
+//! prompt, open progress and results, and the page-navigation buttons. Other
+//! feature panels, edit dialogs and shared permission/core error details are
+//! not yet localized.
 
 mod bundle;
 mod locale;

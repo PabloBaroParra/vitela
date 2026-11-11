@@ -571,3 +571,39 @@ extract-cancelled = Extracción cancelada.
 extract-busy = Extrayendo páginas...
 extract-done = Páginas extraídas.
 extract-failed = No se pudieron extraer las páginas: { $error }
+
+## Opening documents: chooser, progress, results and page navigation
+
+open-chooser-title = Abrir PDF
+open-accept = Abrir
+open-not-local-file = La ubicación seleccionada no es un archivo local.
+open-window-unavailable = La ventana de la aplicación no está disponible.
+open-blank-failed = No se pudo crear un PDF en blanco.
+open-busy = Abriendo el PDF...
+open-failed = No se pudo abrir el PDF: { $error }
+open-no-pages = El PDF no contiene páginas.
+open-go-to-page = Ir a la página { $page }
+open-name-fallback = PDF abierto
+open-name-sample = Documento de ejemplo
+open-name-untitled = Documento sin título
+
+## Opening documents: unsaved-changes prompt (before opening another document
+## or closing the window)
+
+open-unsaved-title = Cambios sin guardar
+open-unsaved-detail-opening = El documento abierto tiene cambios que no se han guardado. Si abres otro documento, se descartarán.
+open-unsaved-detail-closing = El documento abierto tiene cambios que no se han guardado. Si cierras Vitela, se descartarán.
+open-unsaved-cancel = Cancelar
+open-unsaved-discard = Descartar
+open-unsaved-save = Guardar
+open-unsaved-kept = Se han conservado los cambios sin guardar.
+
+## Opening documents: password prompt for an encrypted PDF
+
+open-password-title = Se necesita una contraseña
+open-password-cancel = Cancelar
+open-password-open = Abrir
+open-password-busy = Abriendo el PDF protegido con contraseña...
+open-password-waiting = Esperando la contraseña del documento.
+open-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
+open-password-cancelled = Se canceló la contraseña.
