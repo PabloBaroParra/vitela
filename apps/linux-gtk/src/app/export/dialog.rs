@@ -14,6 +14,8 @@ use gtk::{
     Orientation as GtkOrientation, SpinButton, Window,
 };
 
+use crate::app::i18n::{tr, tr_args};
+
 use super::options::{
     format_at, oversized_page, resolve_pages, ExportOptions, PageChoice, DEFAULT_DPI, FORMATS,
     MAX_DPI, MIN_DPI,
@@ -41,17 +43,17 @@ pub(super) fn prompt_for_options<F>(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Export pages as images")
+        .title(tr("export-dialog-title"))
         .child(&content)
         .build();
 
-    let pages_label = Label::new(Some("Pages"));
+    let pages_label = Label::new(Some(&tr("export-pages-label")));
     pages_label.set_xalign(0.0);
-    let all = CheckButton::with_label("All pages");
+    let all = CheckButton::with_label(&tr("export-all-pages"));
     all.set_active(true);
-    let current = CheckButton::with_label("Current page");
+    let current = CheckButton::with_label(&tr("export-current-page"));
     current.set_group(Some(&all));
-    let custom = CheckButton::with_label("Pages");
+    let custom = CheckButton::with_label(&tr("export-custom-pages"));
     custom.set_group(Some(&all));
     let custom_entry = Entry::builder()
         .placeholder_text("1-3,7")
@@ -72,12 +74,12 @@ pub(super) fn prompt_for_options<F>(
     custom_row.append(&custom);
     custom_row.append(&custom_entry);
 
-    let format_label = Label::new(Some("Format"));
+    let format_label = Label::new(Some(&tr("export-format-label")));
     format_label.set_xalign(0.0);
     let names: Vec<&str> = FORMATS.iter().map(|&(name, _)| name).collect();
     let format = DropDown::from_strings(&names);
 
-    let dpi_label = Label::new(Some("Resolution (DPI)"));
+    let dpi_label = Label::new(Some(&tr("export-resolution-label")));
     dpi_label.set_xalign(0.0);
     let dpi = SpinButton::with_range(MIN_DPI, MAX_DPI, 1.0);
     dpi.set_value(DEFAULT_DPI);
@@ -87,8 +89,8 @@ pub(super) fn prompt_for_options<F>(
     error_label.set_wrap(true);
 
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let export = Button::with_label("Export");
+    let cancel = Button::with_label(&tr("export-cancel"));
+    let export = Button::with_label(&tr("export-accept"));
     buttons.append(&cancel);
     buttons.append(&export);
 
@@ -134,8 +136,9 @@ pub(super) fn prompt_for_options<F>(
             };
             let dpi = dpi.value_as_int().max(1) as u32;
             if let Some(page) = oversized_page(&page_sizes, &pages, dpi) {
-                error_label.set_text(&format!(
-                    "Page {page} is too large to render at {dpi} DPI. Choose a lower resolution."
+                error_label.set_text(&tr_args(
+                    "export-page-too-large",
+                    &[("page", page.into()), ("dpi", dpi.into())],
                 ));
                 return;
             }

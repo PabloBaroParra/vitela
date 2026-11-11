@@ -16,14 +16,14 @@ use gtk::{
 };
 use pdf_document::{Watermark, WatermarkLayer};
 
+use crate::app::i18n::{tr, tr_args};
+
 use super::options::{
     default_opacity_percent, default_scale_percent, fraction_from_percent, look_defaults,
     resolve_pages, resolve_picture, resolve_text, MarkKind, MarkOptions, PageChoice,
     WatermarkOptions, DEFAULT_TEXT, MAX_ANGLE, MAX_FONT_SIZE, MAX_OPACITY_PERCENT,
     MAX_SCALE_PERCENT, MIN_ANGLE, MIN_FONT_SIZE, MIN_OPACITY_PERCENT, MIN_SCALE_PERCENT,
 };
-
-const NO_PICTURE: &str = "No picture chosen";
 
 /// The dialog. Calls `submit` with the validated options; the dialog closes
 /// only when `submit` answers `Ok`. An `Err` — text the stamp's font cannot
@@ -47,14 +47,14 @@ pub(super) fn prompt_for_options<F>(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Add watermark")
+        .title(tr("watermark-dialog-title"))
         .child(&content)
         .build();
 
-    let kind_label = left_label("Stamp");
-    let text_kind = CheckButton::with_label("Text");
+    let kind_label = left_label(&tr("watermark-kind-label"));
+    let text_kind = CheckButton::with_label(&tr("watermark-kind-text"));
     text_kind.set_active(true);
-    let picture_kind = CheckButton::with_label("Picture");
+    let picture_kind = CheckButton::with_label(&tr("watermark-kind-picture"));
     picture_kind.set_group(Some(&text_kind));
     let kind_row = GtkBox::new(GtkOrientation::Horizontal, 8);
     kind_row.append(&text_kind);
@@ -65,16 +65,16 @@ pub(super) fn prompt_for_options<F>(
     let text = Entry::builder().text(DEFAULT_TEXT).build();
     let size = SpinButton::with_range(MIN_FONT_SIZE, MAX_FONT_SIZE, 1.0);
     size.set_value(Watermark::DEFAULT_FONT_SIZE);
-    text_section.append(&left_label("Text"));
+    text_section.append(&left_label(&tr("watermark-text-label")));
     text_section.append(&text);
-    text_section.append(&left_label("Size (pt)"));
+    text_section.append(&left_label(&tr("watermark-size-label")));
     text_section.append(&size);
 
     // Picture section — hidden until "Picture" is chosen.
     let picture_section = GtkBox::new(GtkOrientation::Vertical, 8);
     picture_section.set_visible(false);
-    let choose = Button::with_label("Choose picture…");
-    let picture_name = Label::new(Some(NO_PICTURE));
+    let choose = Button::with_label(&tr("watermark-choose-picture"));
+    let picture_name = Label::new(Some(&tr("watermark-no-picture")));
     picture_name.set_xalign(0.0);
     picture_name.set_hexpand(true);
     picture_name.set_ellipsize(gtk::pango::EllipsizeMode::Middle);
@@ -83,20 +83,20 @@ pub(super) fn prompt_for_options<F>(
     picture_row.append(&picture_name);
     let scale = SpinButton::with_range(MIN_SCALE_PERCENT, MAX_SCALE_PERCENT, 5.0);
     scale.set_value(default_scale_percent());
-    picture_section.append(&left_label("Picture (PNG or JPEG)"));
+    picture_section.append(&left_label(&tr("watermark-picture-label")));
     picture_section.append(&picture_row);
-    picture_section.append(&left_label("Size (% of page)"));
+    picture_section.append(&left_label(&tr("watermark-scale-label")));
     picture_section.append(&scale);
     // The picked file's bytes, read once when it is chosen: the dialog then
     // holds exactly what will be recorded, whatever happens to the file.
     let picked: Rc<RefCell<Option<Vec<u8>>>> = Rc::new(RefCell::new(None));
 
-    let pages_label = left_label("Pages");
-    let all = CheckButton::with_label("All pages");
+    let pages_label = left_label(&tr("watermark-pages-label"));
+    let all = CheckButton::with_label(&tr("watermark-all-pages"));
     all.set_active(true);
-    let current = CheckButton::with_label("Current page");
+    let current = CheckButton::with_label(&tr("watermark-current-page"));
     current.set_group(Some(&all));
-    let custom = CheckButton::with_label("Pages");
+    let custom = CheckButton::with_label(&tr("watermark-custom-pages"));
     custom.set_group(Some(&all));
     let custom_entry = Entry::builder()
         .placeholder_text("1-3,7")
@@ -116,16 +116,16 @@ pub(super) fn prompt_for_options<F>(
     custom_row.append(&custom);
     custom_row.append(&custom_entry);
 
-    let opacity_label = left_label("Opacity (%)");
+    let opacity_label = left_label(&tr("watermark-opacity-label"));
     let opacity = SpinButton::with_range(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT, 5.0);
     opacity.set_value(default_opacity_percent());
 
-    let angle_label = left_label("Angle (degrees)");
+    let angle_label = left_label(&tr("watermark-angle-label"));
     let angle = SpinButton::with_range(MIN_ANGLE, MAX_ANGLE, 15.0);
 
-    let layer_label = left_label("Position");
-    let over = CheckButton::with_label("Over the page content");
-    let under = CheckButton::with_label("Behind the page content");
+    let layer_label = left_label(&tr("watermark-position-label"));
+    let over = CheckButton::with_label(&tr("watermark-over"));
+    let under = CheckButton::with_label(&tr("watermark-under"));
     under.set_group(Some(&over));
 
     let set_look = {
@@ -179,8 +179,8 @@ pub(super) fn prompt_for_options<F>(
         let error_label = error_label.clone();
         move |_| {
             let chooser = FileDialog::builder()
-                .title("Choose watermark picture")
-                .accept_label("Choose")
+                .title(tr("watermark-chooser-title"))
+                .accept_label(tr("watermark-chooser-accept"))
                 .default_filter(&crate::app::content_edit::image::picture_filter())
                 .build();
             chooser.open(Some(&dialog), None::<&gio::Cancellable>, {
@@ -193,7 +193,7 @@ pub(super) fn prompt_for_options<F>(
                         return;
                     };
                     let Some(path) = file.path() else {
-                        error_label.set_text("The selected location is not a local file.");
+                        error_label.set_text(&tr("watermark-not-local-file"));
                         return;
                     };
                     match std::fs::read(&path) {
@@ -206,8 +206,13 @@ pub(super) fn prompt_for_options<F>(
                             picture_name.set_text(&name);
                             error_label.set_text("");
                         }
-                        Err(error) => error_label
-                            .set_text(&format!("Could not read {}: {error}", path.display())),
+                        Err(error) => error_label.set_text(&tr_args(
+                            "watermark-read-failed",
+                            &[
+                                ("path", path.display().to_string().into()),
+                                ("error", error.to_string().into()),
+                            ],
+                        )),
                     }
                 }
             });
@@ -215,8 +220,8 @@ pub(super) fn prompt_for_options<F>(
     });
 
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let add = Button::with_label("Add watermark");
+    let cancel = Button::with_label(&tr("watermark-cancel"));
+    let add = Button::with_label(&tr("watermark-accept"));
     buttons.append(&cancel);
     buttons.append(&add);
 

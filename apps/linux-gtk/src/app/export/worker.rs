@@ -16,6 +16,7 @@ use pdf_save::ExportFormat;
 
 use super::options;
 use super::ExportRequest;
+use crate::app::i18n::{tr, tr_args};
 use crate::app::state::Viewer;
 use crate::app::write::{snapshot_for_output, OutputSource};
 
@@ -26,10 +27,9 @@ use crate::app::write::{snapshot_for_output, OutputSource};
 /// view must never supersede a page the export still owes a file for.
 pub(super) fn spawn_export(viewer: &Viewer, request: ExportRequest, folder: PathBuf) {
     let count = request.options.pages.len();
-    let pages = if count == 1 { "page" } else { "pages" };
     viewer
         .status
-        .set_text(&format!("Exporting {count} {pages}…"));
+        .set_text(&tr_args("export-busy", &[("count", count.into())]));
 
     let ExportRequest {
         source,
@@ -67,7 +67,7 @@ pub(super) fn spawn_export(viewer: &Viewer, request: ExportRequest, folder: Path
                     .status
                     .set_text(&options::export_summary(count, &destination)),
                 Ok(Err(message)) => viewer.status.set_text(&message),
-                Err(_) => viewer.status.set_text("The export did not finish."),
+                Err(_) => viewer.status.set_text(&tr("export-unfinished")),
             }
         }
     });
@@ -98,8 +98,12 @@ fn export_source(
             backing,
             sources,
         } => {
-            let snapshot = snapshot_for_output(&document, &backing, &sources)
-                .map_err(|error| format!("Could not prepare the document for export: {error}"))?;
+            let snapshot = snapshot_for_output(&document, &backing, &sources).map_err(|error| {
+                tr_args(
+                    "export-prepare-failed",
+                    &[("error", error.to_string().into())],
+                )
+            })?;
             let written = write_pages(
                 snapshot.document,
                 stem,
@@ -133,13 +137,28 @@ fn write_pages(
     let renderer = PdfiumRenderer::new();
     for &page in pages {
         let bytes = pdf_save::export_page_as_image(&renderer, document, page, dpi, format)
-            .map_err(|error| format!("Page {} could not be exported: {error}", page + 1))?;
+            .map_err(|error| {
+                tr_args(
+                    "export-page-failed",
+                    &[
+                        ("page", (page + 1).into()),
+                        ("error", error.to_string().into()),
+                    ],
+                )
+            })?;
         // The name is a single path component by construction — see
         // `page_image_file_name`, which is why joining it onto a folder the
         // user chose cannot land anywhere else.
         let name = pdf_save::page_image_file_name(stem, page, total_pages, format);
-        std::fs::write(folder.join(&name), bytes)
-            .map_err(|error| format!("Could not write {name}: {error}"))?;
+        std::fs::write(folder.join(&name), bytes).map_err(|error| {
+            tr_args(
+                "export-write-failed",
+                &[
+                    ("name", name.as_str().into()),
+                    ("error", error.to_string().into()),
+                ],
+            )
+        })?;
     }
     Ok(pages.len())
 }

@@ -14,6 +14,7 @@ use std::path::Path;
 
 use pdf_save::ExportFormat;
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::render::raster_dimensions;
 
 /// The resolutions the spin button allows, and the one it starts on.
@@ -69,7 +70,7 @@ pub(super) fn resolve_pages(
     total_pages: u32,
 ) -> Result<Vec<u32>, String> {
     if total_pages == 0 {
-        return Err("This document has no pages to export.".to_owned());
+        return Err(tr("export-document-no-pages"));
     }
     match choice {
         PageChoice::All => Ok((0..total_pages).collect()),
@@ -109,8 +110,13 @@ pub(super) fn oversized_page(page_sizes: &[(f32, f32)], pages: &[u32], dpi: u32)
 /// Its own function so the singular/plural and the "where did it go" half are
 /// pinned by a test rather than by reading the `format!` at the call site.
 pub(super) fn export_summary(count: usize, folder: &Path) -> String {
-    let pages = if count == 1 { "page" } else { "pages" };
-    format!("Exported {count} {pages} to {}.", folder.display())
+    tr_args(
+        "export-summary",
+        &[
+            ("count", count.into()),
+            ("folder", folder.display().to_string().into()),
+        ],
+    )
 }
 
 /// The format at `index` in the dropdown, defaulting to PNG.
@@ -228,6 +234,26 @@ mod tests {
         assert_eq!(
             export_summary(12, Path::new("/tmp/out")),
             "Exported 12 pages to /tmp/out."
+        );
+    }
+
+    #[test]
+    fn the_summary_and_refusals_follow_the_language() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+
+        assert_eq!(
+            export_summary(1, Path::new("/tmp/out")),
+            "Se exportó 1 página a /tmp/out."
+        );
+        assert_eq!(
+            export_summary(12, Path::new("/tmp/out")),
+            "Se exportaron 12 páginas a /tmp/out."
+        );
+        assert_eq!(
+            resolve_pages(PageChoice::All, "", 0, 0).unwrap_err(),
+            "Este documento no tiene páginas que exportar."
         );
     }
 

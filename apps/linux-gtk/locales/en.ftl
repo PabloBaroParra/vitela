@@ -650,3 +650,93 @@ open-password-busy = Opening password-protected PDF...
 open-password-waiting = Waiting for the document password.
 open-password-wrong = The password is incorrect. Try again.
 open-password-cancelled = Password entry cancelled.
+
+## Export images: refusals, dialog, folder and results
+# Page-range parsing errors come from the core and stay English.
+
+export-no-document = Open a PDF before exporting it.
+export-no-pages = The PDF has no pages to export.
+export-document-no-pages = This document has no pages to export.
+export-dialog-title = Export pages as images
+export-pages-label = Pages
+export-all-pages = All pages
+export-current-page = Current page
+export-custom-pages = Pages
+export-format-label = Format
+export-resolution-label = Resolution (DPI)
+export-cancel = Cancel
+export-accept = Export
+# $page (Number) - one-based page number; $dpi (Number) - chosen resolution.
+export-page-too-large = Page { $page } is too large to render at { $dpi } DPI. Choose a lower resolution.
+export-cancelled = Export cancelled.
+export-chooser-title = Export images into folder
+export-not-local-folder = The selected location is not a local folder.
+# $count (Number) - pages being exported.
+export-busy =
+    { $count ->
+        [one] Exporting { $count } page…
+       *[other] Exporting { $count } pages…
+    }
+export-unfinished = The export did not finish.
+# $count (Number) - pages written; $folder (String) - folder path.
+export-summary =
+    { $count ->
+        [one] Exported { $count } page to { $folder }.
+       *[other] Exported { $count } pages to { $folder }.
+    }
+# $error (String) - technical detail, kept verbatim.
+export-prepare-failed = Could not prepare the document for export: { $error }
+# $page (Number) - one-based page number; $error (String) - technical detail, kept verbatim.
+export-page-failed = Page { $page } could not be exported: { $error }
+# $name (String) - image file name; $error (String) - technical detail, kept verbatim.
+export-write-failed = Could not write { $name }: { $error }
+
+## Add watermark: refusals and dialog
+# Page-range parsing errors come from the core and stay English.
+
+watermark-no-document = Open a PDF before adding a watermark.
+watermark-cancelled = Watermark cancelled.
+watermark-dialog-title = Add watermark
+watermark-kind-label = Stamp
+watermark-kind-text = Text
+watermark-kind-picture = Picture
+watermark-text-label = Text
+watermark-size-label = Size (pt)
+watermark-choose-picture = Choose picture…
+watermark-no-picture = No picture chosen
+watermark-picture-label = Picture (PNG or JPEG)
+watermark-scale-label = Size (% of page)
+watermark-pages-label = Pages
+watermark-all-pages = All pages
+watermark-current-page = Current page
+watermark-custom-pages = Pages
+watermark-opacity-label = Opacity (%)
+watermark-angle-label = Angle (degrees)
+watermark-position-label = Position
+watermark-over = Over the page content
+watermark-under = Behind the page content
+watermark-cancel = Cancel
+watermark-accept = Add watermark
+watermark-chooser-title = Choose watermark picture
+watermark-chooser-accept = Choose
+watermark-not-local-file = The selected location is not a local file.
+# $path (String) - file path; $error (String) - technical detail, kept verbatim.
+watermark-read-failed = Could not read { $path }: { $error }
+
+## Add watermark: validation and results
+
+watermark-no-pages = This document has no pages to stamp.
+watermark-text-required = Type the text to stamp on the pages.
+watermark-picture-required = Choose a PNG or JPEG picture to stamp on the pages.
+# $page (Number) - one-based page number.
+watermark-no-such-page = This document has no page { $page }.
+# $character (String) - the first character the stamp font cannot show.
+watermark-font-gap = The watermark font cannot show “{ $character }”. Use Latin letters, digits and punctuation.
+watermark-invalid-picture = That file could not be read as a PNG or JPEG picture. Choose another one.
+watermark-not-recordable = This watermark cannot be added to these pages.
+# $count (Number) - pages stamped.
+watermark-summary =
+    { $count ->
+        [one] Watermark added to { $count } page.
+       *[other] Watermark added to { $count } pages.
+    }

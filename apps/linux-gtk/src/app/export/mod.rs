@@ -48,6 +48,7 @@ use gtk::{gio, ApplicationWindow, FileDialog};
 use options::ExportOptions;
 use worker::spawn_export;
 
+use super::i18n::tr;
 use super::state::Viewer;
 use super::write::OutputSource;
 
@@ -89,11 +90,11 @@ pub(crate) fn begin_export(viewer: &Viewer) {
             (sizes, current)
         })
     }) else {
-        viewer.status.set_text("Open a PDF before exporting it.");
+        viewer.status.set_text(&tr("export-no-document"));
         return;
     };
     if page_sizes.is_empty() {
-        viewer.status.set_text("The PDF has no pages to export.");
+        viewer.status.set_text(&tr("export-no-pages"));
         return;
     }
 
@@ -103,13 +104,13 @@ pub(crate) fn begin_export(viewer: &Viewer) {
         current_page,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text("Export cancelled.")
+            move || viewer.status.set_text(&tr("export-cancelled"))
         },
         {
             let viewer = viewer.clone();
             move |window, options| match build_request(&viewer, options) {
                 Some(request) => choose_folder(window, &viewer, request),
-                None => viewer.status.set_text("Open a PDF before exporting it."),
+                None => viewer.status.set_text(&tr("export-no-document")),
             }
         },
     );
@@ -138,20 +139,18 @@ fn build_request(viewer: &Viewer, options: ExportOptions) -> Option<ExportReques
 /// asking a question whose answer cannot be honoured.
 fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request: ExportRequest) {
     let chooser = FileDialog::builder()
-        .title("Export images into folder")
-        .accept_label("Export")
+        .title(tr("export-chooser-title"))
+        .accept_label(tr("export-accept"))
         .build();
     chooser.select_folder(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         move |result| {
             let Ok(folder) = result else {
-                viewer.status.set_text("Export cancelled.");
+                viewer.status.set_text(&tr("export-cancelled"));
                 return;
             };
             let Some(folder) = folder.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local folder.");
+                viewer.status.set_text(&tr("export-not-local-folder"));
                 return;
             };
             spawn_export(&viewer, request, folder);
@@ -179,6 +178,21 @@ mod tests {
         assert_eq!(
             built.viewer.status.text().as_str(),
             "Open a PDF before exporting it."
+        );
+
+        built.window.close();
+    }
+
+    #[gtk::test]
+    fn gtk_ui_spanish_export_refusal_is_localized() {
+        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
+        let built = built_ui();
+
+        begin_export(&built.viewer);
+
+        assert_eq!(
+            built.viewer.status.text().as_str(),
+            "Abre un PDF antes de exportarlo."
         );
 
         built.window.close();
