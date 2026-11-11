@@ -143,9 +143,7 @@ pub(crate) fn connect(viewer: &Viewer) {
         let viewer = viewer.clone();
         move |_| match viewer.window() {
             Some(window) => image::replace_selected(&window, &viewer),
-            None => viewer
-                .status
-                .set_text("The application window is unavailable."),
+            None => viewer.status.set_text(&tr("edit-no-window")),
         }
     });
     actions.cut.connect_clicked({

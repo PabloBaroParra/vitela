@@ -293,9 +293,14 @@ pub(crate) fn cursor_names(zone: Option<Zone>) -> &'static [&'static str] {
 }
 
 fn set_cursor(area: &impl IsA<gtk::Widget>, zone: Option<Zone>) {
+    // `from_name` never fails, so the later names ride as fallbacks of the
+    // first rather than being tried in turn.
     let cursor = cursor_names(zone)
         .iter()
-        .find_map(|name| gdk::Cursor::from_name(name, None));
+        .rev()
+        .fold(None, |fallback, name| {
+            gdk::Cursor::from_name(name, fallback.as_ref())
+        });
     area.set_cursor(cursor.as_ref());
 }
 
@@ -320,6 +325,12 @@ pub(crate) fn track(viewer: &Viewer, page_index: usize, x: f64, y: f64) -> bool 
         };
         if dragging(session) {
             return false;
+        }
+        // An open editor owns the pointer: a border press commits it, which
+        // can re-parse the page under whatever the hover holds.
+        if session.content_editor.is_some() {
+            drop(state);
+            return clear(viewer);
         }
         let handles = Handles::of(session, page_index);
         let hover = session.pages.get(page_index).and_then(|page| {
@@ -460,6 +471,9 @@ fn border_member(
 ) -> Option<Member> {
     let state = viewer.state.borrow();
     let session = state.session.as_ref()?;
+    if session.content_editor.is_some() {
+        return None;
+    }
     let hover = session
         .content_hover
         .as_ref()
@@ -1024,5 +1038,27 @@ mod tests {
             text_drag_run(fixture.viewer())
         );
         assert!(session.selection_gesture.is_some(), "a marquee");
+    }
+
+    /// An open editor stands the hover down: a border press commits the
+    /// editor first, which can re-parse the page under the id the hover
+    /// holds, so it must not start a border move at all.
+    #[gtk::test]
+    fn gtk_ui_an_open_editor_stands_the_hover_down() {
+        let fixture = Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        let press = hover_border(&fixture);
+        super::super::block::open_editor_at(viewer, 0, Fixture::middle(&fixture.runs[1]));
+        assert!(viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|session| session.content_editor.is_some()));
+
+        assert_eq!(begin_border_move(viewer, 0, press, 8.0), None);
+        let border = fixture.on_screen(press);
+        track(viewer, 0, border.0, border.1);
+        assert_eq!(hovered(viewer), None);
     }
 }
