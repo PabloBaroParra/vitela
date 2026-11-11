@@ -261,6 +261,9 @@ pub(crate) fn toggle_at(viewer: &Viewer, page_index: usize, point: (f64, f64), r
     }) else {
         return true;
     };
+    // The outer half of the hovered item's border band lies off its box,
+    // where the hit-test finds nothing; a press there still means the item.
+    let member = member.or_else(|| super::hover::border_member(viewer, page_index, point, reach));
     {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {

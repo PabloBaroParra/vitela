@@ -545,7 +545,7 @@ pub(crate) enum Grabbed {
 
 /// The hovered item on `page_index`, when `point` is on its border band and
 /// the item is still where the page's current content has it.
-fn border_member(
+pub(super) fn border_member(
     viewer: &Viewer,
     page_index: usize,
     point: (f64, f64),
@@ -1173,6 +1173,28 @@ mod tests {
             .cursor()
             .and_then(|cursor| cursor.name());
         assert!(shown.is_some_and(|name| MOVE_CURSOR_NAMES.contains(&name.as_str())));
+    }
+
+    /// SHIFT+press on the hovered block's outer band, off its own box,
+    /// toggles the block into the selection as a press on its text does.
+    #[gtk::test]
+    fn gtk_ui_a_shift_press_on_the_outer_band_toggles_the_block() {
+        let fixture = Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        let press = hover_border(&fixture);
+
+        assert!(super::super::begin_drag(viewer, 0, press, 8.0, true));
+
+        let state = viewer.state.borrow();
+        let selection = state
+            .session
+            .as_ref()
+            .and_then(|session| session.content_selection.as_ref())
+            .expect("the press toggles the block in");
+        assert!(matches!(
+            selection.members.runs.as_slice(),
+            [run, ..] if run.id == fixture.runs[0].id
+        ));
     }
 
     /// An open editor stands the hover down: a border press commits the
