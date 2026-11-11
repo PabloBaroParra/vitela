@@ -16,7 +16,7 @@
 use gtk::gdk;
 use gtk::prelude::*;
 use gtk::{cairo, Picture};
-use pdf_document::{Command, Rect, TextRun};
+use pdf_document::{Command, ContentItemId, PageContent, Rect, TextRun};
 
 use crate::app::i18n::tr;
 use crate::app::selection;
@@ -37,6 +37,36 @@ use super::{editor, model, CLICK_EPSILON_PX};
 /// creating something new — see `handle_drag_end`'s own note), and one that
 /// finds no run under it has nothing to move.
 pub(crate) fn begin_text_drag(viewer: &Viewer, page_index: usize, point: (f64, f64)) -> bool {
+    let at = (point.0 as f32, point.1 as f32);
+    claim(viewer, page_index, point, |content| {
+        model::text_run_at(content, at).cloned()
+    })
+}
+
+/// Claims a press on the border band round the block holding `run`
+/// (`super::hover`), wherever on the band it landed — off the block's own
+/// box included. The drag that follows is the same one a press on the text
+/// starts: it moves the block, and a release that never travelled is the
+/// click that selects it.
+pub(crate) fn begin_block_move(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    run: ContentItemId,
+) -> bool {
+    claim(viewer, page_index, point, |content| {
+        content.text_run(run).cloned()
+    })
+}
+
+/// The press half of a text drag: `pick` names the run the press is aimed
+/// at in the page's content, and the drag starts from `point`.
+fn claim(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    pick: impl FnOnce(&PageContent) -> Option<TextRun>,
+) -> bool {
     if viewer.content_edit_refusal().is_some() {
         // Reported by the paths that actually try to record something; a
         // press that will never reach the log stays silent.
@@ -82,12 +112,10 @@ pub(crate) fn begin_text_drag(viewer: &Viewer, page_index: usize, point: (f64, f
     let hit = match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
         // A run that is part of a block (B25 T-207) carries the whole block:
         // the reader grabbed a phrase, not the fragment under the pointer.
-        Ok(content) => model::text_run_at(content, (point.0 as f32, point.1 as f32))
-            .cloned()
-            .map(|run| {
-                let block = model::block_runs(content, &run);
-                (model::block_stand_in(run, &block), block)
-            }),
+        Ok(content) => pick(content).map(|run| {
+            let block = model::block_runs(content, &run);
+            (model::block_stand_in(run, &block), block)
+        }),
         Err(error) => {
             drop(state);
             viewer.status.set_text(&error.to_string());

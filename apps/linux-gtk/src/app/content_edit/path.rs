@@ -18,7 +18,7 @@
 //! decides what a press or a release means is pure ([`path_hit`],
 //! [`path_at`], [`dragged_rect`], [`command_for`]) and carries the tests.
 
-use pdf_document::{Command, PathItem, PathPaint, Rect};
+use pdf_document::{Command, ContentItemId, PathItem, PathPaint, Rect};
 
 use crate::app::i18n::tr;
 use crate::app::selection;
@@ -149,6 +149,35 @@ pub(crate) fn begin_path_drag(
     point: (f64, f64),
     reach: f64,
 ) -> bool {
+    claim(viewer, page_index, point, Some(reach), |paths, selected| {
+        path_at(paths, point, selected, reach).cloned()
+    })
+}
+
+/// Claims a press on the border band round the path `id` (`super::hover`),
+/// wherever on the band it landed: it selects the path and moves it. Never a
+/// reshape — the selected path's corners are kept out of the band.
+pub(crate) fn begin_path_move(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    id: ContentItemId,
+) -> bool {
+    claim(viewer, page_index, point, None, |paths, _| {
+        paths.iter().find(|path| path.id == id).cloned()
+    })
+}
+
+/// The press half of a path drag: `pick` names the path the press is aimed
+/// at among the page's paths, given the selected one. With a `reach`, a
+/// press on the selected path's corner reshapes it.
+fn claim(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    reach: Option<f64>,
+    pick: impl FnOnce(&[PathItem], Option<&PathItem>) -> Option<PathItem>,
+) -> bool {
     if viewer.content_edit_refusal().is_some() {
         return false;
     }
@@ -189,7 +218,7 @@ pub(crate) fn begin_path_drag(
     };
     let hit = model::ensure_page_content(&mut page.content, probe, page_id, pending)
         .ok()
-        .and_then(|content| path_at(&content.paths, point, selected.as_ref(), reach).cloned());
+        .and_then(|content| pick(&content.paths, selected.as_ref()));
 
     let Some(item) = hit else {
         let deselected = session.selected_path.take().is_some();
@@ -200,7 +229,7 @@ pub(crate) fn begin_path_drag(
         }
         return false;
     };
-    let mode = match geometry::corner_at(item.bbox, point, reach) {
+    let mode = match reach.and_then(|reach| geometry::corner_at(item.bbox, point, reach)) {
         Some(corner) if selected.as_ref().is_some_and(|path| path.id == item.id) => {
             AnnotationDragMode::Resize(corner)
         }

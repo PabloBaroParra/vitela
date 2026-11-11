@@ -16,7 +16,7 @@
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
-use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, Rect};
+use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, PageContent, Rect};
 use pdf_edit::EditError;
 
 use crate::app::i18n::{tr, tr_args};
@@ -92,6 +92,37 @@ pub(crate) fn begin_image_drag(
     point: (f64, f64),
     reach: f64,
 ) -> bool {
+    let at = (point.0 as f32, point.1 as f32);
+    claim(viewer, page_index, point, Some(reach), |content| {
+        model::image_at(content, at).cloned()
+    })
+}
+
+/// Claims a press on the border band round the image `id`
+/// (`super::hover`), wherever on the band it landed: it selects the image
+/// and moves it, as a press on its body does. Never a resize — the band is
+/// for moving, and a selected image's corners are kept out of it.
+pub(crate) fn begin_image_move(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    id: ContentItemId,
+) -> bool {
+    claim(viewer, page_index, point, None, |content| {
+        content.images.iter().find(|image| image.id == id).cloned()
+    })
+}
+
+/// The press half of an image drag: `pick` names the image the press is
+/// aimed at in the page's content. With a `reach`, the selected image's
+/// handles and body get first refusal, as a plain press gives them.
+fn claim(
+    viewer: &Viewer,
+    page_index: usize,
+    point: (f64, f64),
+    reach: Option<f64>,
+    pick: impl FnOnce(&PageContent) -> Option<ImageItem>,
+) -> bool {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(&refusal);
         return false;
@@ -113,10 +144,11 @@ pub(crate) fn begin_image_drag(
         return false;
     };
 
-    if let Some(selected) = session
+    if let Some((selected, reach)) = session
         .selected_image
         .as_ref()
         .filter(|selected| selected.page_index == page_index)
+        .zip(reach)
     {
         if let Some(mode) = press_mode(selected.item.bbox, point, reach) {
             session.image_drag = Some(ImageDrag {
@@ -152,7 +184,7 @@ pub(crate) fn begin_image_drag(
         return false;
     };
     let hit = match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
-        Ok(content) => model::image_at(content, (point.0 as f32, point.1 as f32)).cloned(),
+        Ok(content) => pick(content),
         Err(error) => {
             drop(state);
             viewer.status.set_text(&error.to_string());

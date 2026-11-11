@@ -43,7 +43,7 @@
 //!   release — plus `record_move`, the single door every reposition goes
 //!   through, whichever gesture asked for it.
 //! - [`hover`] is what the pointer rests on: the outline round the item a
-//!   press would grab.
+//!   press would grab, and the move cursor and whole-item move on its edge.
 //! - [`panel`] is the "Edit" page of the right-hand tools panel: the five
 //!   controls above, the cards they sit in, and the two sentences that say
 //!   what each gesture does and why a control is unavailable. It owns
@@ -554,6 +554,11 @@ fn clear_selected_image(viewer: &Viewer) {
 /// press a toggle, a press inside the selection's box drags all of it, and a
 /// press nothing claimed starts a marquee.
 ///
+/// A press on the border band round the hovered item (`hover`) comes after
+/// the image ask, so a selected image's handles keep their reach, and before
+/// every other: it moves the whole item, even off the item's own box, where
+/// the asks below would find nothing and start a marquee.
+///
 /// A selected text block survives a press on text, which the release turns
 /// into a selection or a move either way, and a marquee, which only decides
 /// what it means once it has grown; a press that took an image or a shape
@@ -579,6 +584,22 @@ pub(crate) fn begin_drag(
         clear_selected_path(viewer);
         block::clear(viewer);
         return true;
+    }
+    match hover::begin_border_move(viewer, page_index, point, reach) {
+        Some(hover::Grabbed::Image) => {
+            clear_selected_path(viewer);
+            block::clear(viewer);
+            return true;
+        }
+        Some(hover::Grabbed::Text) => {
+            clear_selected_path(viewer);
+            return true;
+        }
+        Some(hover::Grabbed::Path) => {
+            block::clear(viewer);
+            return true;
+        }
+        None => {}
     }
     if text::begin_text_drag(viewer, page_index, point) {
         clear_selected_path(viewer);
@@ -851,12 +872,17 @@ fn resolve_click(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
 
     match block::text_block_at(viewer, page_index, point) {
         block::TextHit::Block(run, runs) => block::select(viewer, page_index, run, runs),
-        // An empty-space click resolves whatever was open rather than
-        // opening nothing and leaving it stranded.
-        block::TextHit::Miss => {
-            editor::commit(viewer);
-            block::clear(viewer);
-        }
+        // A click on the border band round a block, off its own box, is
+        // still aimed at the block.
+        block::TextHit::Miss => match hover::border_block(viewer, page_index, point) {
+            Some((run, runs)) => block::select(viewer, page_index, run, runs),
+            // An empty-space click resolves whatever was open rather than
+            // opening nothing and leaving it stranded.
+            None => {
+                editor::commit(viewer);
+                block::clear(viewer);
+            }
+        },
         block::TextHit::Unreadable(error) => viewer.status.set_text(&error),
         block::TextHit::Unavailable => {}
     }
