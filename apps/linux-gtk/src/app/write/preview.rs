@@ -32,6 +32,7 @@ use super::imported_sources;
 use super::worker::{
     prepare_reopened_session, reopened_matches_model, save_worker_result, session_matches,
 };
+use crate::app::i18n::{tr, tr_args};
 
 /// Runs the save→reopen→re-render cycle every content-edit commit needs
 /// (batch decision 6, `docs/batch-content-edit.md`) — the no-destination
@@ -128,7 +129,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
         (token, document, backing, sources, carried)
     };
 
-    viewer.status.set_text("Refreshing preview...");
+    viewer.status.set_text(&tr("preview-refreshing"));
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
@@ -204,9 +205,10 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                 // caller sets it when it *records* the command, not when the
                 // preview catches up, precisely so a failed refresh still
                 // reports the document as dirty.
-                Err(error) if session_matches(&viewer, token) => viewer
-                    .status
-                    .set_text(&format!("Could not refresh preview: {error}")),
+                Err(error) if session_matches(&viewer, token) => viewer.status.set_text(&tr_args(
+                    "preview-failed",
+                    &[("error", error.as_str().into())],
+                )),
                 Err(_) => {}
             }
 
@@ -350,6 +352,41 @@ fn refresh_status_for_import(
         message.to_owned()
     } else {
         format!("{message} {}", renames.join(" "))
+    }
+}
+
+#[cfg(test)]
+mod status_text_tests {
+    use crate::app::i18n::{speak, tr, tr_args, Language};
+
+    fn spoken() -> (String, String) {
+        (
+            tr("preview-refreshing"),
+            tr_args("preview-failed", &[("error", "bad {xref}".into())]),
+        )
+    }
+
+    #[test]
+    fn the_refresh_status_keeps_its_english() {
+        assert_eq!(
+            spoken(),
+            (
+                "Refreshing preview...".to_owned(),
+                "Could not refresh preview: bad {xref}".to_owned()
+            )
+        );
+    }
+
+    #[test]
+    fn the_refresh_status_speaks_spanish() {
+        let _spanish = speak(Language::Spanish);
+        assert_eq!(
+            spoken(),
+            (
+                "Actualizando la vista previa...".to_owned(),
+                "No se pudo actualizar la vista previa: bad {xref}".to_owned()
+            )
+        );
     }
 }
 

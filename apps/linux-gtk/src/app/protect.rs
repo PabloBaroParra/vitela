@@ -47,6 +47,7 @@ use pdf_document::{
     Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
 };
 
+use crate::app::i18n::tr;
 use crate::app::state::{SessionToken, Viewer};
 use crate::app::write::{self, ProtectRequest};
 
@@ -98,7 +99,7 @@ pub(crate) fn begin_protect(viewer: &Viewer) {
         return;
     }
     if viewer.state.borrow().session.is_none() {
-        viewer.status.set_text("Open a PDF before protecting it.");
+        viewer.status.set_text(&tr("protect-no-document"));
         return;
     }
     prompt_for_passwords(&window, viewer);
@@ -107,19 +108,17 @@ pub(crate) fn begin_protect(viewer: &Viewer) {
 /// What the two entries have to satisfy before a save is attempted, as a
 /// pure function of their text so it can be tested without a dialog.
 ///
-/// Returns the message to show, or `None` when the pair is usable.
+/// Returns the message id of the hint to show, or `None` when the pair is
+/// usable.
 fn validate(open_password: &str, permissions_password: &str) -> Option<&'static str> {
     if open_password.is_empty() {
-        return Some("Enter the password the document will ask for when it is opened.");
+        return Some("protect-open-missing");
     }
     if permissions_password.is_empty() {
-        return Some("Enter the permissions password.");
+        return Some("protect-permissions-missing");
     }
     if open_password == permissions_password {
-        return Some(
-            "The two passwords must be different. If they were the same, everyone who can \
-             open the document could also change what it permits.",
-        );
+        return Some("protect-same-passwords");
     }
     None
 }
@@ -155,30 +154,27 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Protect with a password")
+        .title(tr("protect-dialog-title"))
         .child(&content)
         .build();
 
-    let open_label = Label::new(Some("Password to open the document"));
+    let open_label = Label::new(Some(&tr("protect-open-label")));
     open_label.set_xalign(0.0);
     let open_entry = PasswordEntry::builder().show_peek_icon(true).build();
 
-    let permissions_label = Label::new(Some("Permissions password"));
+    let permissions_label = Label::new(Some(&tr("protect-permissions-label")));
     permissions_label.set_xalign(0.0);
     let permissions_entry = PasswordEntry::builder().show_peek_icon(true).build();
     // The one thing a user cannot be expected to know: why a PDF wants two.
-    permissions_entry.set_tooltip_text(Some(
-        "Governs what readers may do with the document once it is open, and lifts those \
-         restrictions for whoever holds it. It must not be the same as the open password.",
-    ));
+    permissions_entry.set_tooltip_text(Some(&tr("protect-permissions-tooltip")));
 
     let error_label = Label::new(None);
     error_label.set_xalign(0.0);
     error_label.set_wrap(true);
 
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let protect = Button::with_label("Protect");
+    let cancel = Button::with_label(&tr("protect-cancel"));
+    let protect = Button::with_label(&tr("protect-accept"));
     buttons.append(&cancel);
     buttons.append(&protect);
 
@@ -201,7 +197,7 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
             let open_password = open_entry.text().to_string();
             let permissions_password = permissions_entry.text().to_string();
             if let Some(message) = validate(&open_password, &permissions_password) {
-                error_label.set_text(message);
+                error_label.set_text(&tr(message));
                 return;
             }
             match build_request(&viewer, &open_password, &permissions_password) {
@@ -209,7 +205,7 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
                     dialog.destroy();
                     write::begin_protect(&window, &viewer, request);
                 }
-                None => error_label.set_text("This document cannot be protected."),
+                None => error_label.set_text(&tr("protect-not-protectable")),
             }
         }
     };
@@ -235,7 +231,7 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text("Protection cancelled.");
+            viewer.status.set_text(&tr("protect-cancelled"));
             dialog.destroy();
         }
     });
@@ -314,6 +310,83 @@ mod tests {
     #[test]
     fn two_different_passwords_are_accepted() {
         assert_eq!(validate("open-pw", "perms-pw"), None);
+    }
+
+    /// Every hint `validate` can return, then the dialog's own text, in the
+    /// order the user meets them.
+    fn dialog_text() -> Vec<String> {
+        [
+            validate("", "perms"),
+            validate("open", ""),
+            validate("same", "same"),
+        ]
+        .into_iter()
+        .map(|hint| tr(hint.expect("each pair is refused")))
+        .chain(
+            [
+                "protect-no-document",
+                "protect-dialog-title",
+                "protect-open-label",
+                "protect-permissions-label",
+                "protect-permissions-tooltip",
+                "protect-cancel",
+                "protect-accept",
+                "protect-not-protectable",
+                "protect-cancelled",
+            ]
+            .map(tr),
+        )
+        .collect()
+    }
+
+    #[test]
+    fn the_dialog_keeps_its_english() {
+        assert_eq!(
+            dialog_text(),
+            [
+                "Enter the password the document will ask for when it is opened.",
+                "Enter the permissions password.",
+                "The two passwords must be different. If they were the same, everyone who can \
+                 open the document could also change what it permits.",
+                "Open a PDF before protecting it.",
+                "Protect with a password",
+                "Password to open the document",
+                "Permissions password",
+                "Governs what readers may do with the document once it is open, and lifts those \
+                 restrictions for whoever holds it. It must not be the same as the open password.",
+                "Cancel",
+                "Protect",
+                "This document cannot be protected.",
+                "Protection cancelled.",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_dialog_speaks_spanish() {
+        use crate::app::i18n::{speak, Language};
+        let _spanish = speak(Language::Spanish);
+
+        assert_eq!(
+            dialog_text(),
+            [
+                "Introduce la contraseña que pedirá el documento al abrirlo.",
+                "Introduce la contraseña de permisos.",
+                "Las dos contraseñas deben ser distintas. Si fueran iguales, cualquiera que \
+                 pueda abrir el documento podría cambiar también lo que permite.",
+                "Abre un PDF antes de protegerlo.",
+                "Proteger con contraseña",
+                "Contraseña para abrir el documento",
+                "Contraseña de permisos",
+                "Determina qué pueden hacer los lectores con el documento una vez abierto y \
+                 levanta esas restricciones para quien la tenga. No puede ser igual que la \
+                 contraseña de apertura.",
+                "Cancelar",
+                "Proteger",
+                "Este documento no se puede proteger.",
+                "Protección cancelada.",
+            ]
+        );
     }
 
     /// The context handed to `pdf-save` must carry *both* roles, or

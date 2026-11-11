@@ -15,6 +15,7 @@ use gtk::{gio, AlertDialog, ApplicationWindow, FileDialog};
 
 use super::super::state::Viewer;
 use super::{pdf_filter, WriteOperation};
+use crate::app::i18n::{tr, tr_args};
 
 /// What [`choose_destination`] and [`confirm_destination`] hand a confirmed
 /// destination to.
@@ -41,7 +42,7 @@ pub(super) fn choose_destination(
     let filter = pdf_filter();
     let chooser = FileDialog::builder()
         .title(operation.title())
-        .accept_label("Save")
+        .accept_label(tr("write-accept"))
         .default_filter(&filter)
         .initial_name("document.pdf")
         .build();
@@ -54,9 +55,7 @@ pub(super) fn choose_destination(
                 return;
             };
             let Some(path) = file.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local file.");
+                viewer.status.set_text(&tr("write-not-local-file"));
                 return;
             };
             confirm_destination(
@@ -95,14 +94,13 @@ fn confirm_destination(
 ) {
     match destination.try_exists() {
         Ok(false) => proceed(window, viewer, destination),
-        Err(error) => viewer.status.set_text(&format!(
-            "Could not check whether {} already exists: {error}",
-            destination.display()
-        )),
+        Err(error) => viewer
+            .status
+            .set_text(&check_failed(&destination, &error.to_string())),
         Ok(true) => {
             let dialog = AlertDialog::builder()
-                .message("Replace existing PDF?")
-                .buttons(["Cancel", "Replace"])
+                .message(tr("write-replace-title"))
+                .buttons([tr("write-replace-cancel"), tr("write-replace")])
                 .cancel_button(0)
                 .default_button(1)
                 .modal(true)
@@ -148,16 +146,9 @@ pub(super) fn confirm_signature_loss(
     proceed: Rc<dyn Fn()>,
 ) {
     let dialog = AlertDialog::builder()
-        .message("Saving will break this document's signature")
-        .detail(
-            "This document is signed. Saving rewrites the file, so the signature \
-             will no longer match what it covers.\n\n\
-             It is not removed: the saved file still carries the signature, and \
-             PDF readers will report it as invalid rather than missing.\n\n\
-             To keep a copy that still verifies, cancel and save to a different \
-             file.",
-        )
-        .buttons(["Cancel", "Save anyway"])
+        .message(tr("write-signature-title"))
+        .detail(tr("write-signature-detail"))
+        .buttons([tr("write-signature-cancel"), tr("write-signature-proceed")])
         .cancel_button(0)
         .default_button(0)
         .modal(true)
@@ -175,9 +166,22 @@ pub(super) fn confirm_signature_loss(
     });
 }
 
+/// The status line for a destination whose existence could not be checked;
+/// the file-system `error` stays verbatim.
+fn check_failed(destination: &std::path::Path, error: &str) -> String {
+    tr_args(
+        "write-check-failed",
+        &[
+            ("path", destination.display().to_string().into()),
+            ("error", error.into()),
+        ],
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::pdf_destination;
+    use super::{check_failed, pdf_destination};
+    use crate::app::i18n::{speak, tr, Language};
     use std::path::PathBuf;
 
     #[test]
@@ -202,5 +206,71 @@ mod tests {
             pdf_destination(PathBuf::from("signed.PDF")),
             PathBuf::from("signed.PDF")
         );
+    }
+
+    /// The chooser, replace guard and signature warning as they read before
+    /// they moved into the catalogs — byte for byte, including the two blank
+    /// lines the signature detail is paragraphed with.
+    #[test]
+    fn the_shared_prompts_keep_their_english() {
+        assert_eq!(tr("write-accept"), "Save");
+        assert_eq!(
+            tr("write-not-local-file"),
+            "The selected location is not a local file."
+        );
+        assert_eq!(
+            check_failed(&PathBuf::from("/tmp/a {b}.pdf"), "denied {x}"),
+            "Could not check whether /tmp/a {b}.pdf already exists: denied {x}"
+        );
+        assert_eq!(tr("write-replace-title"), "Replace existing PDF?");
+        assert_eq!(tr("write-replace-cancel"), "Cancel");
+        assert_eq!(tr("write-replace"), "Replace");
+        assert_eq!(
+            tr("write-signature-title"),
+            "Saving will break this document's signature"
+        );
+        assert_eq!(
+            tr("write-signature-detail"),
+            "This document is signed. Saving rewrites the file, so the signature \
+             will no longer match what it covers.\n\n\
+             It is not removed: the saved file still carries the signature, and \
+             PDF readers will report it as invalid rather than missing.\n\n\
+             To keep a copy that still verifies, cancel and save to a different \
+             file."
+        );
+        assert_eq!(tr("write-signature-cancel"), "Cancel");
+        assert_eq!(tr("write-signature-proceed"), "Save anyway");
+    }
+
+    #[test]
+    fn the_shared_prompts_speak_spanish() {
+        let _spanish = speak(Language::Spanish);
+        assert_eq!(tr("write-accept"), "Guardar");
+        assert_eq!(
+            tr("write-not-local-file"),
+            "La ubicación seleccionada no es un archivo local."
+        );
+        assert_eq!(
+            check_failed(&PathBuf::from("/tmp/a {b}.pdf"), "denied {x}"),
+            "No se pudo comprobar si /tmp/a {b}.pdf ya existe: denied {x}"
+        );
+        assert_eq!(tr("write-replace-title"), "¿Reemplazar el PDF existente?");
+        assert_eq!(tr("write-replace-cancel"), "Cancelar");
+        assert_eq!(tr("write-replace"), "Reemplazar");
+        assert_eq!(
+            tr("write-signature-title"),
+            "Al guardar se romperá la firma de este documento"
+        );
+        assert_eq!(
+            tr("write-signature-detail"),
+            "Este documento está firmado. Al guardar se reescribe el archivo, así que \
+             la firma dejará de coincidir con lo que cubre.\n\n\
+             No se elimina: el archivo guardado sigue llevando la firma, y los lectores \
+             de PDF la mostrarán como no válida, no como ausente.\n\n\
+             Para conservar una copia que siga siendo válida, cancela y guarda en otro \
+             archivo."
+        );
+        assert_eq!(tr("write-signature-cancel"), "Cancelar");
+        assert_eq!(tr("write-signature-proceed"), "Guardar de todos modos");
     }
 }

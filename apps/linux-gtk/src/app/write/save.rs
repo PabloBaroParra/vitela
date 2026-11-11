@@ -19,6 +19,7 @@ use super::super::state::{
 use super::chooser::{choose_destination, confirm_signature_loss};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
 use super::{imported_sources, SAVE};
+use crate::app::i18n::tr;
 
 /// Lets the user choose a destination, then persists a snapshot of the current
 /// model. The live session remains untouched until the worker has completed.
@@ -53,17 +54,15 @@ fn save_current_to(
     let (token, document, backing, sources) = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
-            viewer.status.set_text("Open a PDF before saving.");
+            viewer.status.set_text(&tr("save-no-document"));
             return;
         };
         let Some(document) = session.document_model.clone() else {
-            viewer
-                .status
-                .set_text("This document cannot be saved as an editable PDF.");
+            viewer.status.set_text(&tr("save-not-editable"));
             return;
         };
         let Some(backing) = session.save_backing.clone() else {
-            viewer.status.set_text("This document has no save backing.");
+            viewer.status.set_text(&tr("write-no-save-backing"));
             return;
         };
         (
