@@ -21,8 +21,9 @@ members = [
 ]
 # spikes/uniffi-cs is a standalone crate/workspace (Batch 1 spike) — deliberately
 # excluded so its experimental uniffi-bindgen-cs dependency pin can never break
-# the main workspace build/lockfile.
-exclude = ["spikes/uniffi-cs"]
+# the main workspace build/lockfile. spikes/web-wasm (Batch 26 phase-0 web
+# spike) is excluded for the same reason.
+exclude = ["spikes/uniffi-cs", "spikes/web-wasm"]
 
 [workspace.package]
 version = "0.1.0"

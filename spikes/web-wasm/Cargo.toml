@@ -1,0 +1,36 @@
+[workspace]
+
+[package]
+name = "web-wasm-spike"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = """
+Batch 26 phase-0 spike: can the Vitela core (lopdf-backed pdf-document +
+pdf-manip) and pdfium rendering run in a browser as wasm32-unknown-unknown?
+Deliberately excluded from the root workspace (see root Cargo.toml
+`[workspace] exclude`) so its experimental wasm deps never touch the main
+lockfile.
+"""
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pdf-document = { path = "../../core/pdf-document" }
+pdf-manip = { path = "../../core/pdf-manip" }
+# Not used directly: enabling lopdf's `wasm_js` feature here is what lets the
+# shared lopdf (pulled in by pdf-manip) build its getrandom for the browser.
+lopdf = { version = "0.45", features = ["wasm_js"] }
+wasm-bindgen = "0.2"
+# Same feature set as core/pdf-render, pinned to the version the main
+# Cargo.lock resolves today (0.9.5) so the spike measures what ships.
+pdfium-render = { version = "=0.9.5", default-features = false, features = ["pdfium_7763", "thread_safe"] }
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[patch.crates-io]
+lopdf = { path = "../../vendor/lopdf-0.45.0" }
