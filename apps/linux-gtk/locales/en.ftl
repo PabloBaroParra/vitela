@@ -286,13 +286,17 @@ sign-nss-no-identities = No signing certificates were found. Check the password 
 sign-nss-load-failed = Could not load the certificate database: { $error }
 sign-nss-invalid-path = The certificate database path { $path } cannot be used.
 
-## Signing: identity picker and signing refusals
+## Signing: identity picker, refusals and writing the signed PDF
 
 sign-picker-title = Choose a signing identity
 sign-picker-prompt = Sign this document with:
 sign-picker-sign = Sign
 sign-picker-none-chosen = Choose a signing identity.
 sign-cancelled = Signing cancelled.
+sign-chooser-title = Save signed PDF
+sign-busy = Signing PDF...
+sign-done = PDF signed and reopened.
+sign-failed = Could not sign PDF: { $error }
 sign-no-document = Open a PDF before signing.
 sign-unsaved-changes = Save your changes before signing this document.
 sign-not-signable = This document cannot be signed.
@@ -433,9 +437,60 @@ organize-import-apply-failed = Could not add the selected PDFs.
 # $count (Number) - pages imported. English keeps "pages" for every count.
 organize-imported-pages = Imported { $count } pages.
 
-## Write chains: shared by Compress, Split and Extract
+## Write chains: shared by every write (destination chooser, replace guard,
+## signature warning). File-system details arrive untranslated as { $error }.
 
 write-no-save-backing = This document has no save backing.
+write-pdf-filter = PDF files
+write-accept = Save
+write-not-local-file = The selected location is not a local file.
+write-check-failed = Could not check whether { $path } already exists: { $error }
+write-replace-title = Replace existing PDF?
+write-replace-cancel = Cancel
+write-replace = Replace
+write-signature-title = Saving will break this document's signature
+write-signature-detail =
+    This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.
+
+    It is not removed: the saved file still carries the signature, and PDF readers will report it as invalid rather than missing.
+
+    To keep a copy that still verifies, cancel and save to a different file.
+write-signature-cancel = Cancel
+write-signature-proceed = Save anyway
+
+## Save: refusals and progress
+
+save-no-document = Open a PDF before saving.
+save-not-editable = This document cannot be saved as an editable PDF.
+save-chooser-title = Save PDF
+save-cancelled = Save cancelled.
+save-busy = Saving PDF...
+save-done = PDF saved and reopened.
+save-failed = Could not save PDF: { $error }
+
+## Preview refresh after an edit
+
+preview-refreshing = Refreshing preview...
+preview-failed = Could not refresh preview: { $error }
+
+## Protect: password dialog, hints and progress
+
+protect-no-document = Open a PDF before protecting it.
+protect-not-protectable = This document cannot be protected.
+protect-dialog-title = Protect with a password
+protect-open-label = Password to open the document
+protect-permissions-label = Permissions password
+protect-permissions-tooltip = Governs what readers may do with the document once it is open, and lifts those restrictions for whoever holds it. It must not be the same as the open password.
+protect-cancel = Cancel
+protect-accept = Protect
+protect-open-missing = Enter the password the document will ask for when it is opened.
+protect-permissions-missing = Enter the permissions password.
+protect-same-passwords = The two passwords must be different. If they were the same, everyone who can open the document could also change what it permits.
+protect-chooser-title = Save protected PDF
+protect-cancelled = Protection cancelled.
+protect-busy = Protecting PDF...
+protect-done = PDF protected, saved and reopened.
+protect-failed = Could not protect PDF: { $error }
 
 ## Compress: refusals, dialog, presets and sizes
 # The destination chooser, its replace prompt and the signature warning are

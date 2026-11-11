@@ -276,13 +276,17 @@ sign-nss-no-identities = No se encontraron certificados de firma. Comprueba la c
 sign-nss-load-failed = No se pudo cargar la base de datos de certificados: { $error }
 sign-nss-invalid-path = No se puede usar la ruta de la base de datos de certificados { $path }.
 
-## Signing: identity picker and signing refusals
+## Signing: identity picker, refusals and writing the signed PDF
 
 sign-picker-title = Elegir una identidad de firma
 sign-picker-prompt = Firmar este documento con:
 sign-picker-sign = Firmar
 sign-picker-none-chosen = Elige una identidad de firma.
 sign-cancelled = Firma cancelada.
+sign-chooser-title = Guardar el PDF firmado
+sign-busy = Firmando el PDF...
+sign-done = PDF firmado y vuelto a abrir.
+sign-failed = No se pudo firmar el PDF: { $error }
 sign-no-document = Abre un PDF antes de firmar.
 sign-unsaved-changes = Guarda los cambios antes de firmar este documento.
 sign-not-signable = Este documento no se puede firmar.
@@ -416,9 +420,60 @@ organize-imported-pages =
        *[other] { $count } páginas importadas.
     }
 
-## Write chains: shared by Compress, Split and Extract
+## Write chains: shared by every write (destination chooser, replace guard,
+## signature warning). File-system details arrive untranslated as { $error }.
 
 write-no-save-backing = Este documento no tiene una copia base desde la que guardarse.
+write-pdf-filter = Archivos PDF
+write-accept = Guardar
+write-not-local-file = La ubicación seleccionada no es un archivo local.
+write-check-failed = No se pudo comprobar si { $path } ya existe: { $error }
+write-replace-title = ¿Reemplazar el PDF existente?
+write-replace-cancel = Cancelar
+write-replace = Reemplazar
+write-signature-title = Al guardar se romperá la firma de este documento
+write-signature-detail =
+    Este documento está firmado. Al guardar se reescribe el archivo, así que la firma dejará de coincidir con lo que cubre.
+
+    No se elimina: el archivo guardado sigue llevando la firma, y los lectores de PDF la mostrarán como no válida, no como ausente.
+
+    Para conservar una copia que siga siendo válida, cancela y guarda en otro archivo.
+write-signature-cancel = Cancelar
+write-signature-proceed = Guardar de todos modos
+
+## Save: refusals and progress
+
+save-no-document = Abre un PDF antes de guardarlo.
+save-not-editable = Este documento no se puede guardar como un PDF editable.
+save-chooser-title = Guardar PDF
+save-cancelled = Guardado cancelado.
+save-busy = Guardando el PDF...
+save-done = PDF guardado y vuelto a abrir.
+save-failed = No se pudo guardar el PDF: { $error }
+
+## Preview refresh after an edit
+
+preview-refreshing = Actualizando la vista previa...
+preview-failed = No se pudo actualizar la vista previa: { $error }
+
+## Protect: password dialog, hints and progress
+
+protect-no-document = Abre un PDF antes de protegerlo.
+protect-not-protectable = Este documento no se puede proteger.
+protect-dialog-title = Proteger con contraseña
+protect-open-label = Contraseña para abrir el documento
+protect-permissions-label = Contraseña de permisos
+protect-permissions-tooltip = Determina qué pueden hacer los lectores con el documento una vez abierto y levanta esas restricciones para quien la tenga. No puede ser igual que la contraseña de apertura.
+protect-cancel = Cancelar
+protect-accept = Proteger
+protect-open-missing = Introduce la contraseña que pedirá el documento al abrirlo.
+protect-permissions-missing = Introduce la contraseña de permisos.
+protect-same-passwords = Las dos contraseñas deben ser distintas. Si fueran iguales, cualquiera que pueda abrir el documento podría cambiar también lo que permite.
+protect-chooser-title = Guardar el PDF protegido
+protect-cancelled = Protección cancelada.
+protect-busy = Protegiendo el PDF...
+protect-done = PDF protegido, guardado y vuelto a abrir.
+protect-failed = No se pudo proteger el PDF: { $error }
 
 ## Compress: refusals, dialog, presets and sizes
 

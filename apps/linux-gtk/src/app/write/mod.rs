@@ -47,9 +47,8 @@
 //! `&'static str` parameters, and the three constants below sit together
 //! rather than in the files that use them. Every one of those strings is
 //! user-visible, and this is the whole vocabulary of the module's UI — one
-//! table, so a reader can see at a glance that "Save cancelled." and
-//! "Protection cancelled." are the same slot rather than two unrelated
-//! literals.
+//! table, so a reader can see at a glance that `save-cancelled` and
+//! `protect-cancelled` are the same slot rather than two unrelated messages.
 
 mod chooser;
 mod compress;
@@ -92,7 +91,7 @@ fn imported_sources(
 /// than private to the write chains.
 pub(crate) fn pdf_filter() -> FileFilter {
     let filter = FileFilter::new();
-    filter.set_name(Some("PDF files"));
+    filter.set_name(Some(&tr("write-pdf-filter")));
     filter.add_mime_type("application/pdf");
     filter.add_pattern("*.pdf");
     filter.add_pattern("*.PDF");
@@ -106,8 +105,9 @@ pub(crate) fn pdf_filter() -> FileFilter {
 /// what had three separately maintained dialogs saying the same sentence in
 /// the first place.
 ///
-/// Read the strings through the methods below, never the fields: whether a
-/// field is English text or a Fluent message id depends on [`Self::localized`].
+/// Every field is a Fluent message id, not text — the English lives in
+/// `locales/en.ftl`. Read the strings through the methods below, which render
+/// them in the user's language, never the fields.
 #[derive(Clone, Copy)]
 struct WriteOperation {
     /// The destination chooser's title.
@@ -119,78 +119,60 @@ struct WriteOperation {
     busy: &'static str,
     /// Shown once the written document has been reopened and installed.
     done: &'static str,
-    /// Prefixed to the worker's own error text, as `"{failed}: {error}"` — or,
-    /// when [`Self::localized`], a message that takes it as `{ $error }`.
+    /// The failure sentence, which takes the worker's own error text verbatim
+    /// as `{ $error }`.
     failed: &'static str,
-    /// Whether the five strings above are Fluent message ids rather than
-    /// English text. Transitional: Compress, Split and Extract speak through
-    /// the catalogs; Save, Sign and Protect still carry literals.
-    localized: bool,
 }
 
 impl WriteOperation {
     fn title(self) -> String {
-        self.text(self.title)
+        tr(self.title)
     }
 
     fn cancelled(self) -> String {
-        self.text(self.cancelled)
+        tr(self.cancelled)
     }
 
     fn busy(self) -> String {
-        self.text(self.busy)
+        tr(self.busy)
     }
 
     fn done(self) -> String {
-        self.text(self.done)
+        tr(self.done)
     }
 
     /// The failure sentence for the worker's own `error` text, which stays
     /// verbatim.
     fn failed(self, error: &str) -> String {
-        if self.localized {
-            tr_args(self.failed, &[("error", error.into())])
-        } else {
-            format!("{}: {error}", self.failed)
-        }
-    }
-
-    /// One of this operation's own strings, in the user's language when it
-    /// has been localized.
-    fn text(self, field: &'static str) -> String {
-        if self.localized {
-            tr(field)
-        } else {
-            field.to_owned()
-        }
+        tr_args(self.failed, &[("error", error.into())])
     }
 }
 
 const SAVE: WriteOperation = WriteOperation {
-    title: "Save PDF",
-    cancelled: "Save cancelled.",
-    busy: "Saving PDF...",
-    done: "PDF saved and reopened.",
-    failed: "Could not save PDF",
-    localized: false,
+    title: "save-chooser-title",
+    cancelled: "save-cancelled",
+    busy: "save-busy",
+    done: "save-done",
+    failed: "save-failed",
 };
 
+/// `cancelled` is the same sentence the identity picker shows when the user
+/// backs out there, so it shares that message rather than repeating it.
 const SIGN: WriteOperation = WriteOperation {
-    title: "Save signed PDF",
-    cancelled: "Signing cancelled.",
-    busy: "Signing PDF...",
-    done: "PDF signed and reopened.",
-    failed: "Could not sign PDF",
-    localized: false,
+    title: "sign-chooser-title",
+    cancelled: "sign-cancelled",
+    busy: "sign-busy",
+    done: "sign-done",
+    failed: "sign-failed",
 };
 
+/// `cancelled` is also what `app::protect`'s own Cancel button says.
 const PROTECT: WriteOperation = WriteOperation {
-    title: "Save protected PDF",
-    cancelled: "Protection cancelled.",
-    busy: "Protecting PDF...",
-    done: "PDF protected, saved and reopened.",
-    failed: "Could not protect PDF",
-    localized: false,
+    title: "protect-chooser-title",
+    cancelled: "protect-cancelled",
+    busy: "protect-busy",
+    done: "protect-done",
+    failed: "protect-failed",
 };
 
 /// The last two operations' vocabulary — and the two entries in this table
@@ -207,7 +189,6 @@ const EXTRACT: WriteOperation = WriteOperation {
     busy: "extract-busy",
     done: "extract-done",
     failed: "extract-failed",
-    localized: true,
 };
 
 /// `title` here names a **folder** chooser rather than a save dialog — see
@@ -219,7 +200,6 @@ const SPLIT: WriteOperation = WriteOperation {
     busy: "split-busy",
     done: "split-done",
     failed: "split-failed",
-    localized: true,
 };
 
 /// The third entry whose `done` the user never sees, and for a sharper reason
@@ -229,14 +209,170 @@ const SPLIT: WriteOperation = WriteOperation {
 /// compression itself; the shorter write that follows has its own line in
 /// `compress::options`, because "Compressing PDF..." shown twice reads as the
 /// work starting over.
-///
-/// [`EXTRACT`], [`SPLIT`] and this one hold message ids (`localized`); the
-/// English text lives in `locales/en.ftl`.
 const COMPRESS: WriteOperation = WriteOperation {
     title: "compress-chooser-title",
     cancelled: "compress-cancelled",
     busy: "compress-busy",
     done: "compress-done",
     failed: "compress-failed",
-    localized: true,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::i18n::{speak, Language};
+
+    /// Every operation, in table order, with the English it spoke before its
+    /// strings moved into the catalogs: `[title, cancelled, busy, done,
+    /// failed(error)]`.
+    fn english() -> [(WriteOperation, [&'static str; 5]); 6] {
+        [
+            (
+                SAVE,
+                [
+                    "Save PDF",
+                    "Save cancelled.",
+                    "Saving PDF...",
+                    "PDF saved and reopened.",
+                    "Could not save PDF: disk {full}",
+                ],
+            ),
+            (
+                SIGN,
+                [
+                    "Save signed PDF",
+                    "Signing cancelled.",
+                    "Signing PDF...",
+                    "PDF signed and reopened.",
+                    "Could not sign PDF: disk {full}",
+                ],
+            ),
+            (
+                PROTECT,
+                [
+                    "Save protected PDF",
+                    "Protection cancelled.",
+                    "Protecting PDF...",
+                    "PDF protected, saved and reopened.",
+                    "Could not protect PDF: disk {full}",
+                ],
+            ),
+            (
+                EXTRACT,
+                [
+                    "Save extracted PDF",
+                    "Extraction cancelled.",
+                    "Extracting pages...",
+                    "Pages extracted.",
+                    "Could not extract pages: disk {full}",
+                ],
+            ),
+            (
+                SPLIT,
+                [
+                    "Split PDF into folder",
+                    "Split cancelled.",
+                    "Splitting PDF...",
+                    "PDF split.",
+                    "Could not split PDF: disk {full}",
+                ],
+            ),
+            (
+                COMPRESS,
+                [
+                    "Save compressed PDF",
+                    "Compression cancelled.",
+                    "Compressing PDF...",
+                    "PDF compressed.",
+                    "Could not compress PDF: disk {full}",
+                ],
+            ),
+        ]
+    }
+
+    fn spoken(operation: WriteOperation) -> [String; 5] {
+        [
+            operation.title(),
+            operation.cancelled(),
+            operation.busy(),
+            operation.done(),
+            operation.failed("disk {full}"),
+        ]
+    }
+
+    #[test]
+    fn every_operation_speaks_its_original_english() {
+        for (operation, expected) in english() {
+            assert_eq!(spoken(operation), expected.map(str::to_owned));
+        }
+    }
+
+    #[test]
+    fn save_sign_and_protect_speak_spanish() {
+        let _spanish = speak(Language::Spanish);
+        assert_eq!(
+            spoken(SAVE),
+            [
+                "Guardar PDF",
+                "Guardado cancelado.",
+                "Guardando el PDF...",
+                "PDF guardado y vuelto a abrir.",
+                "No se pudo guardar el PDF: disk {full}",
+            ]
+            .map(str::to_owned)
+        );
+        assert_eq!(
+            spoken(SIGN),
+            [
+                "Guardar el PDF firmado",
+                "Firma cancelada.",
+                "Firmando el PDF...",
+                "PDF firmado y vuelto a abrir.",
+                "No se pudo firmar el PDF: disk {full}",
+            ]
+            .map(str::to_owned)
+        );
+        assert_eq!(
+            spoken(PROTECT),
+            [
+                "Guardar el PDF protegido",
+                "Protección cancelada.",
+                "Protegiendo el PDF...",
+                "PDF protegido, guardado y vuelto a abrir.",
+                "No se pudo proteger el PDF: disk {full}",
+            ]
+            .map(str::to_owned)
+        );
+    }
+
+    /// The filter name and the Save chain's own refusals, which speak before
+    /// any [`WriteOperation`] does.
+    fn save_text() -> [String; 3] {
+        ["write-pdf-filter", "save-no-document", "save-not-editable"].map(tr)
+    }
+
+    #[test]
+    fn the_save_refusals_and_filter_keep_their_english() {
+        assert_eq!(
+            save_text(),
+            [
+                "PDF files",
+                "Open a PDF before saving.",
+                "This document cannot be saved as an editable PDF.",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_save_refusals_and_filter_speak_spanish() {
+        let _spanish = speak(Language::Spanish);
+        assert_eq!(
+            save_text(),
+            [
+                "Archivos PDF",
+                "Abre un PDF antes de guardarlo.",
+                "Este documento no se puede guardar como un PDF editable.",
+            ]
+        );
+    }
+}
