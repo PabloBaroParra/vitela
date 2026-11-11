@@ -30,6 +30,8 @@ use std::path::Path;
 
 use pdf_compress::{CompressPreset, CompressReport, Outcome, Refusal};
 
+use crate::app::i18n::{tr, tr_args};
+
 /// A preset as the dialog lists it: what it is called and what it costs.
 ///
 /// A total `match` with no wildcard, deliberately, mirroring `pdf-ffi`'s two
@@ -43,23 +45,19 @@ use pdf_compress::{CompressPreset, CompressReport, Outcome, Refusal};
 /// three rows is reading prose, not a table of effective-DPI ceilings — but
 /// [`descriptions_match_the_presets_they_describe`] pins them against the core
 /// so the prose cannot drift away from what the preset does.
-pub(super) fn preset_words(preset: CompressPreset) -> (&'static str, &'static str) {
-    match preset {
+pub(super) fn preset_words(preset: CompressPreset) -> (String, String) {
+    let (name, description) = match preset {
         CompressPreset::Lossless => (
-            "Lossless",
-            "Repack the file only. Every page renders exactly as it does now.",
+            "compress-preset-lossless",
+            "compress-preset-lossless-description",
         ),
         CompressPreset::Balanced => (
-            "Balanced",
-            "Also bring images down to 150 DPI. Visibly unchanged on screen, \
-             materially smaller on disk.",
+            "compress-preset-balanced",
+            "compress-preset-balanced-description",
         ),
-        CompressPreset::Small => (
-            "Small",
-            "Also bring images down to 96 DPI. For when the file has to fit \
-             through something and the pixels matter less than that.",
-        ),
-    }
+        CompressPreset::Small => ("compress-preset-small", "compress-preset-small-description"),
+    };
+    (tr(name), tr(description))
 }
 
 /// The preset the dialog starts on.
@@ -77,25 +75,36 @@ pub(super) const DEFAULT_PRESET: CompressPreset = CompressPreset::Balanced;
 /// point the compressing is over and the user has already been told what it
 /// achieved. A second stretch of the same sentence would read as the work
 /// starting again.
-pub(super) const WRITING: &str = "Writing the compressed PDF...";
+pub(super) const WRITING: &str = "compress-writing";
 
 /// A byte count as a person reads it.
 ///
 /// Powers of ten, not of two: this number sits next to an upload limit or a
 /// mail attachment cap, and every one of those is quoted in MB meaning a
 /// million bytes.
+///
+/// The megabyte figure reaches the catalog as its two digit runs rather than
+/// as one decimal, so each language writes its own decimal separator.
 pub(super) fn human_size(bytes: u64) -> String {
     const KILO: f64 = 1_000.0;
     const MEGA: f64 = 1_000_000.0;
     let size = bytes as f64;
     if size >= MEGA {
-        format!("{:.1} MB", size / MEGA)
+        let megabytes = format!("{:.1}", size / MEGA);
+        let (whole, tenth) = megabytes
+            .split_once('.')
+            .unwrap_or((megabytes.as_str(), "0"));
+        tr_args(
+            "compress-size-megabytes",
+            &[("whole", whole.into()), ("tenth", tenth.into())],
+        )
     } else if size >= KILO {
-        format!("{:.0} kB", size / KILO)
-    } else if bytes == 1 {
-        "1 byte".to_owned()
+        tr_args(
+            "compress-size-kilobytes",
+            &[("size", format!("{:.0}", size / KILO).into())],
+        )
     } else {
-        format!("{bytes} bytes")
+        tr_args("compress-size-bytes", &[("count", bytes.into())])
     }
 }
 
@@ -128,19 +137,25 @@ fn refusal_clause(report: &CompressReport) -> String {
         .iter()
         .map(|refusal| refusal.to_string())
         .collect();
-    format!(" Not everything could be done: {}.", reasons.join("; "))
+    let clause = tr_args(
+        "compress-refusals",
+        &[("reasons", reasons.join("; ").into())],
+    );
+    format!(" {clause}")
 }
 
 /// What the status line says once a compression has produced smaller bytes
 /// and the destination is the only thing left to ask for.
 pub(super) fn reduction_summary(report: &CompressReport) -> String {
-    format!(
-        "{} uncompressed → {} compressed ({}% smaller). Choose where to write it.{}",
-        human_size(report.before()),
-        human_size(report.after()),
-        percent_smaller(report),
-        refusal_clause(report)
-    )
+    let summary = tr_args(
+        "compress-reduced",
+        &[
+            ("before", human_size(report.before()).into()),
+            ("after", human_size(report.after()).into()),
+            ("percent", percent_smaller(report).into()),
+        ],
+    );
+    summary + &refusal_clause(report)
 }
 
 /// What it says when nothing smaller came out.
@@ -151,22 +166,23 @@ pub(super) fn reduction_summary(report: &CompressReport) -> String {
 /// under a name that promises it is smaller. Saying so and stopping is the
 /// honest end of the gesture.
 pub(super) fn no_gain_summary(report: &CompressReport) -> String {
-    format!(
-        "Nothing to gain: this document compresses to the same {} an uncompressed save writes, \
-         so no file was written.{}",
-        human_size(report.before()),
-        refusal_clause(report)
-    )
+    let summary = tr_args(
+        "compress-no-gain",
+        &[("size", human_size(report.before()).into())],
+    );
+    summary + &refusal_clause(report)
 }
 
 /// What it says once the compressed bytes are on disk.
 pub(super) fn written_summary(report: &CompressReport, destination: &Path) -> String {
-    format!(
-        "Compressed PDF written to {} ({} → {}, {}% smaller).",
-        destination.display(),
-        human_size(report.before()),
-        human_size(report.after()),
-        percent_smaller(report)
+    tr_args(
+        "compress-written",
+        &[
+            ("path", destination.display().to_string().into()),
+            ("before", human_size(report.before()).into()),
+            ("after", human_size(report.after()).into()),
+            ("percent", percent_smaller(report).into()),
+        ],
     )
 }
 
@@ -209,6 +225,19 @@ mod tests {
         assert_eq!(human_size(999), "999 bytes");
         assert_eq!(human_size(1), "1 byte");
         assert_eq!(human_size(0), "0 bytes");
+    }
+
+    /// Each language writes its own decimal separator; the digits are the
+    /// same rounding English shows.
+    #[test]
+    fn spanish_sizes_use_a_decimal_comma() {
+        use crate::app::i18n::{speak, Language};
+        let _spanish = speak(Language::Spanish);
+
+        assert_eq!(human_size(2_400_000), "2,4 MB");
+        assert_eq!(human_size(1_000_000), "1,0 MB");
+        assert_eq!(human_size(840_000), "840 kB");
+        assert_eq!(human_size(1), "1 byte");
     }
 
     /// The boundary each branch turns on, so a file of exactly a megabyte is

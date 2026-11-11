@@ -31,6 +31,7 @@ use gtk::{
 use pdf_compress::CompressPreset;
 
 use super::options::{human_size, preset_words, DEFAULT_PRESET};
+use crate::app::i18n::{tr, tr_args};
 
 /// Asks which preset to compress with. Calls `submit` with the chosen one,
 /// `on_cancel` when the user backs out.
@@ -50,13 +51,13 @@ pub(super) fn prompt_for_preset<F>(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Compress PDF")
+        .title(tr("compress-dialog-title"))
         .child(&content)
         .build();
 
-    let current = Label::new(Some(&format!(
-        "This file is {} on disk.",
-        human_size(current_size)
+    let current = Label::new(Some(&tr_args(
+        "compress-current-size",
+        &[("size", human_size(current_size).into())],
     )));
     current.set_xalign(0.0);
     current.set_wrap(true);
@@ -68,14 +69,14 @@ pub(super) fn prompt_for_preset<F>(
     let mut choices: Vec<(CompressPreset, CheckButton)> = Vec::new();
     for preset in CompressPreset::all() {
         let (name, description) = preset_words(preset);
-        let radio = CheckButton::with_label(name);
+        let radio = CheckButton::with_label(&name);
         if let Some((_, first)) = choices.first() {
             radio.set_group(Some(first));
         }
         radio.set_active(preset == DEFAULT_PRESET);
         content.append(&radio);
 
-        let caption = Label::new(Some(description));
+        let caption = Label::new(Some(&description));
         caption.set_xalign(0.0);
         caption.set_wrap(true);
         // Indented under the radio it belongs to, so the three rows read as
@@ -90,8 +91,8 @@ pub(super) fn prompt_for_preset<F>(
 
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
     buttons.set_halign(Align::End);
-    let cancel = Button::with_label("Cancel");
-    let compress = Button::with_label("Compress");
+    let cancel = Button::with_label(&tr("compress-cancel"));
+    let compress = Button::with_label(&tr("compress-accept"));
     buttons.append(&cancel);
     buttons.append(&compress);
     content.append(&buttons);

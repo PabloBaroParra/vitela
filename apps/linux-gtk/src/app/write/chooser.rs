@@ -40,7 +40,7 @@ pub(super) fn choose_destination(
 ) {
     let filter = pdf_filter();
     let chooser = FileDialog::builder()
-        .title(operation.title)
+        .title(operation.title())
         .accept_label("Save")
         .default_filter(&filter)
         .initial_name("document.pdf")
@@ -50,7 +50,7 @@ pub(super) fn choose_destination(
         let viewer = viewer.clone();
         move |result| {
             let Ok(file) = result else {
-                viewer.status.set_text(operation.cancelled);
+                viewer.status.set_text(&operation.cancelled());
                 return;
             };
             let Some(path) = file.path() else {
@@ -114,7 +114,7 @@ fn confirm_destination(
                     if response == Ok(1) {
                         proceed(&window, &viewer, destination.clone());
                     } else {
-                        viewer.status.set_text(operation.cancelled);
+                        viewer.status.set_text(&operation.cancelled());
                     }
                 }
             });
@@ -169,7 +169,7 @@ pub(super) fn confirm_signature_loss(
             if response == Ok(1) {
                 proceed();
             } else {
-                viewer.status.set_text(operation.cancelled);
+                viewer.status.set_text(&operation.cancelled());
             }
         }
     });

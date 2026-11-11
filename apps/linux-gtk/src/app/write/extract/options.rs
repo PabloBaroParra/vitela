@@ -13,6 +13,8 @@
 
 use std::path::Path;
 
+use crate::app::i18n::{tr, tr_args};
+
 /// The pages `typed` names, as ascending deduplicated **zero-based** indices,
 /// or the message to show instead.
 ///
@@ -26,10 +28,10 @@ use std::path::Path;
 /// verbatim.
 pub(super) fn resolve_pages(typed: &str, total_pages: u32) -> Result<Vec<u32>, String> {
     if total_pages == 0 {
-        return Err("This document has no pages to extract.".to_owned());
+        return Err(tr("extract-no-pages"));
     }
     if typed.trim().is_empty() {
-        return Err("Type which pages to extract, for example 1-3,7.".to_owned());
+        return Err(tr("extract-empty-selection"));
     }
     pdf_save::parse_page_selection(typed, total_pages).map_err(|error| error.to_string())
 }
@@ -51,13 +53,16 @@ pub(super) fn resolve_pages(typed: &str, total_pages: u32) -> Result<Vec<u32>, S
 /// that was just written carries a signature covering a page set it no longer
 /// has, so a reader will report it invalid.
 pub(super) fn extract_summary(count: usize, destination: &Path, signed: bool) -> String {
-    let pages = if count == 1 { "page" } else { "pages" };
-    let mut summary = format!("Extracted {count} {pages} to {}.", destination.display());
+    let mut summary = tr_args(
+        "extract-summary",
+        &[
+            ("count", count.into()),
+            ("path", destination.display().to_string().into()),
+        ],
+    );
     if signed {
-        summary.push_str(
-            " The original document is signed, so the extracted PDF's signature \
-             no longer verifies.",
-        );
+        summary.push(' ');
+        summary.push_str(&tr("extract-signed-note"));
     }
     summary
 }

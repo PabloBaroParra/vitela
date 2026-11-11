@@ -22,9 +22,12 @@
 //! document properties, the Edit PDF panel with its selection hints and mode
 //! messages, signing: certificate/card/token signing and the drawn signature,
 //! and the Organize screen: its header, Documents and Pages views, card
-//! controls, page-operation results and the Add PDFs flow. Other feature
-//! panels, edit dialogs, document workflows and shared permission/core error
-//! details are not yet localized.
+//! controls, page-operation results and the Add PDFs flow, and the Compress,
+//! Split and Extract write flows: their dialogs, refusals, progress and
+//! results. Other feature panels, edit dialogs, document workflows (Save,
+//! Protect, and the destination chooser and signature warning they share with
+//! Compress and Extract) and shared permission/core error details are not yet
+//! localized.
 
 mod bundle;
 mod locale;

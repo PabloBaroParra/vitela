@@ -21,6 +21,7 @@ use gtk::{
 };
 
 use super::options::resolve_cuts;
+use crate::app::i18n::{tr, tr_args};
 
 /// Asks where to cut. Calls `submit` with ascending, zero-based indices of the
 /// pages each cut falls *after* once the answer parses; says why in its own
@@ -48,11 +49,11 @@ pub(super) fn prompt_for_cuts<F>(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Split PDF")
+        .title(tr("split-dialog-title"))
         .child(&content)
         .build();
 
-    let cuts_label = Label::new(Some("Split after page"));
+    let cuts_label = Label::new(Some(&tr("split-cuts-label")));
     cuts_label.set_xalign(0.0);
     let entry = Entry::builder().placeholder_text("3,7").build();
     entry.set_activates_default(true);
@@ -61,8 +62,9 @@ pub(super) fn prompt_for_cuts<F>(
     // leaving the user to discover either from a refusal: the grammar's
     // out-of-range message is correct but arrives only after a wrong guess,
     // and "one more file than cuts" is not obvious from the label alone.
-    let range_hint = Label::new(Some(&format!(
-        "This document has {total_pages} pages. Each cut starts a new file.",
+    let range_hint = Label::new(Some(&tr_args(
+        "split-range-hint",
+        &[("total", total_pages.into())],
     )));
     range_hint.set_xalign(0.0);
     range_hint.set_wrap(true);
@@ -74,8 +76,8 @@ pub(super) fn prompt_for_cuts<F>(
 
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
     buttons.set_halign(gtk::Align::End);
-    let cancel = Button::with_label("Cancel");
-    let split = Button::with_label("Split");
+    let cancel = Button::with_label(&tr("split-cancel"));
+    let split = Button::with_label(&tr("split-accept"));
     split.add_css_class("home-primary");
     buttons.append(&cancel);
     buttons.append(&split);

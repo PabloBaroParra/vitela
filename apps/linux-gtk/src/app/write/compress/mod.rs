@@ -78,6 +78,7 @@ use pdf_document::Document;
 
 use super::chooser::confirm_signature_loss;
 use super::{imported_sources, COMPRESS};
+use crate::app::i18n::tr;
 use crate::app::state::{ImportedSource, SaveBacking, Viewer};
 
 /// What a compression carries from the live session onto the worker thread.
@@ -125,7 +126,7 @@ pub(crate) fn begin_compress(viewer: &Viewer) {
         current_size,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(COMPRESS.cancelled)
+            move || viewer.status.set_text(&COMPRESS.cancelled())
         },
         {
             let viewer = viewer.clone();
@@ -190,17 +191,15 @@ fn compress_with(window: &ApplicationWindow, viewer: &Viewer, preset: CompressPr
 fn snapshot(viewer: &Viewer) -> Option<CompressRequest> {
     let state = viewer.state.borrow();
     let Some(session) = state.session.as_ref() else {
-        viewer.status.set_text("Open a PDF before compressing it.");
+        viewer.status.set_text(&tr("compress-no-document"));
         return None;
     };
     let Some(document) = session.document_model.clone() else {
-        viewer
-            .status
-            .set_text("This document cannot be saved as an editable PDF.");
+        viewer.status.set_text(&tr("compress-not-editable"));
         return None;
     };
     let Some(backing) = session.save_backing.clone() else {
-        viewer.status.set_text("This document has no save backing.");
+        viewer.status.set_text(&tr("write-no-save-backing"));
         return None;
     };
     Some(CompressRequest {

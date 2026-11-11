@@ -23,6 +23,7 @@ use gtk::{
 };
 
 use super::options::resolve_pages;
+use crate::app::i18n::{tr, tr_args};
 
 /// Asks which pages to pull out. Calls `submit` with ascending, zero-based
 /// page indices once the answer parses; says why in its own error label when
@@ -49,11 +50,11 @@ pub(super) fn prompt_for_pages<F>(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Extract pages")
+        .title(tr("extract-dialog-title"))
         .child(&content)
         .build();
 
-    let pages_label = Label::new(Some("Pages to extract"));
+    let pages_label = Label::new(Some(&tr("extract-pages-label")));
     pages_label.set_xalign(0.0);
     let entry = Entry::builder().placeholder_text("1-3,7").build();
     entry.set_activates_default(true);
@@ -61,9 +62,9 @@ pub(super) fn prompt_for_pages<F>(
     // States the ceiling rather than leaving the user to discover it from a
     // refusal: the grammar's out-of-range message is correct but arrives
     // only after a wrong guess.
-    let range_hint = Label::new(Some(&format!(
-        "This document has {total_pages} page{}.",
-        if total_pages == 1 { "" } else { "s" }
+    let range_hint = Label::new(Some(&tr_args(
+        "extract-range-hint",
+        &[("count", total_pages.into())],
     )));
     range_hint.set_xalign(0.0);
     range_hint.add_css_class("dim-label");
@@ -74,8 +75,8 @@ pub(super) fn prompt_for_pages<F>(
 
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
     buttons.set_halign(gtk::Align::End);
-    let cancel = Button::with_label("Cancel");
-    let extract = Button::with_label("Extract");
+    let cancel = Button::with_label(&tr("extract-cancel"));
+    let extract = Button::with_label(&tr("extract-accept"));
     extract.add_css_class("home-primary");
     buttons.append(&cancel);
     buttons.append(&extract);
