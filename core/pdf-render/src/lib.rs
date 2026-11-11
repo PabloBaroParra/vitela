@@ -15,27 +15,46 @@
 //! `vendor/pdfium/README.md` and the root `.gitignore`). Production shells
 //! set `PDFIUM_DYNAMIC_LIB_PATH` to their bundled copy; local dev/test
 //! resolves `vendor/pdfium/bin/` first (see `library.rs`).
+//!
+//! ## Targets
+//!
+//! Native builds run every pdfium call on one actor thread
+//! (`PdfiumRenderer`). `wasm32-unknown-unknown` has no threads, no
+//! filesystem and no dynamic loader, so the actor, `library.rs` and
+//! path-based opens are not built there; `SyncRenderer` instead runs the
+//! same work (the private `jobs` module) synchronously on the calling
+//! thread, against a pdfium Emscripten module bound from JavaScript.
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod actor;
 pub mod bitmap;
 pub mod error;
 pub mod inversion;
+mod jobs;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod library;
 pub mod options;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod renderer;
 pub mod selection;
 pub mod state;
+#[cfg(target_arch = "wasm32")]
+pub mod sync_renderer;
 pub mod text;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use actor::CancellationHandle;
 pub use bitmap::{Bitmap, BitmapHandle, BitmapRegistry};
 pub use error::RenderError;
+pub use jobs::full_page_raster_fits;
 pub use options::{Priority, Rect, RenderOptions, Tile};
-pub use renderer::{
-    full_page_raster_fits, DocumentHandle, PdfiumActor, PdfiumRenderer, RenderHandle,
-};
+#[cfg(not(target_arch = "wasm32"))]
+pub use renderer::{PdfiumActor, PdfiumRenderer, RenderHandle};
 pub use selection::{
     caret_range, line_rects, place_point, place_rect, point_to_pdf, Caret, PageCharacters,
     PageGeometry, PagePlacement, PageRotation, PlacedRect,
 };
+pub use state::DocHandle as DocumentHandle;
+#[cfg(target_arch = "wasm32")]
+pub use sync_renderer::SyncRenderer;
 pub use text::{TextMatch, TextRect, TextRun};

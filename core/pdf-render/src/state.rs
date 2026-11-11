@@ -1,12 +1,13 @@
-//! Actor-owned pdfium state: the live `Pdfium` binding plus open documents
-//! and the bitmap registry. Never accessed outside the pdfium actor's single
-//! worker thread — see `actor.rs` and `design.md` "Threading — pdfium
-//! single-actor model".
+//! pdfium state: the live `Pdfium` binding plus open documents and (native
+//! only) the bitmap registry. Only ever touched from one thread: the pdfium
+//! actor's worker on native (see `actor.rs` and `design.md` "Threading —
+//! pdfium single-actor model"), the module's only thread on wasm32.
 
 use std::collections::HashMap;
 
 use pdfium_render::prelude::Pdfium;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::bitmap::BitmapRegistry;
 
 /// Opaque handle to a document opened via the pdfium actor. Indexes into
@@ -24,6 +25,9 @@ pub struct PdfiumState {
     pub(crate) pdfium: &'static Pdfium,
     pub(crate) documents: HashMap<u64, pdfium_render::prelude::PdfDocument<'static>>,
     next_doc_id: u64,
+    /// Release-on-drop registry behind the native actor's `BitmapHandle`s.
+    /// wasm32 hands rendered bitmaps back by value instead.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) bitmaps: BitmapRegistry,
 }
 
@@ -33,6 +37,7 @@ impl PdfiumState {
             pdfium,
             documents: HashMap::new(),
             next_doc_id: 0,
+            #[cfg(not(target_arch = "wasm32"))]
             bitmaps: BitmapRegistry::new(),
         }
     }

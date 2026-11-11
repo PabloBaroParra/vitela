@@ -13,6 +13,11 @@ use std::path::PathBuf;
 pub enum RenderError {
     /// The pdfium dynamic library could not be loaded from the resolved path.
     LibraryLoad { path: PathBuf, message: String },
+    /// pdfium could not be bound without a library path: on wasm32, the
+    /// Emscripten pdfium module was not initialized from JavaScript
+    /// (`initialize_pdfium_render`) before the first call, or was already
+    /// bound by someone else.
+    LibraryUnavailable(String),
     /// The document failed to open (corrupt file, missing file, wrong format).
     OpenDocument(String),
     /// The document is password-protected and the supplied password (or lack
@@ -46,6 +51,9 @@ impl fmt::Display for RenderError {
                      Set PDFIUM_DYNAMIC_LIB_PATH, or populate vendor/pdfium/bin/ \
                      (see vendor/pdfium/README.md)."
                 )
+            }
+            RenderError::LibraryUnavailable(message) => {
+                write!(f, "pdfium is not available: {message}")
             }
             RenderError::OpenDocument(message) => write!(f, "failed to open document: {message}"),
             RenderError::InvalidPassword => write!(f, "invalid or missing password"),
