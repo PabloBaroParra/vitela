@@ -1218,4 +1218,46 @@ mod tests {
         track(viewer, 0, border.0, border.1);
         assert_eq!(hovered(viewer), None);
     }
+
+    /// The cursor the pointer actually shows over the hovered block's border
+    /// band: GTK takes it from the widget the pointer picks, or the nearest
+    /// ancestor with one, so the move cursor only shows if nothing stacked
+    /// over the page's layer is picked there instead.
+    #[gtk::test]
+    fn gtk_ui_the_widget_picked_on_the_border_shows_the_move_cursor() {
+        let fixture = Fixture::new(PageRotation::None);
+        let layer = highlights(&fixture);
+        // The fixture's page has no raster to size it; give the layer the
+        // A4 box the page would have.
+        layer.set_size_request(595, 842);
+        let context = glib::MainContext::default();
+        while context.iteration(false) {}
+        let press = hover_border(&fixture);
+        let (x, y) = fixture.on_screen(press);
+
+        let window = &fixture.built.window;
+        let at = layer
+            .compute_point(window, &gtk::graphene::Point::new(x as f32, y as f32))
+            .expect("the layer is in the window");
+        let picked = window
+            .pick(
+                f64::from(at.x()),
+                f64::from(at.y()),
+                gtk::PickFlags::DEFAULT,
+            )
+            .expect("something is under the pointer");
+        let shown = std::iter::successors(Some(picked.clone()), |widget| widget.parent())
+            .find_map(|widget| widget.cursor())
+            .and_then(|cursor| cursor.name());
+
+        assert_eq!(
+            picked,
+            layer.clone().upcast::<gtk::Widget>(),
+            "picked {picked:?}"
+        );
+        assert!(
+            shown.is_some_and(|name| MOVE_CURSOR_NAMES.contains(&name.as_str())),
+            "the picked widget shows the default cursor"
+        );
+    }
 }
