@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Builds the browser half of the spike into www/ and prints bundle sizes.
 # Needs: rustup target wasm32-unknown-unknown, wasm-bindgen-cli matching
-# Cargo.lock's wasm-bindgen (0.2.130), gh (to fetch pdfium), gzip.
+# Cargo.lock's wasm-bindgen (0.2.130), gh (to fetch pdfium), sha256sum, gzip.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 PDFIUM_TAG="chromium/7763"   # must match pdfium-render's `pdfium_7763` feature
+# sha256 of that release's pdfium-wasm.tgz, as GitHub reports it
+# (`gh release view chromium/7763 -R bblanchon/pdfium-binaries --json assets`).
+# A release asset can be replaced under the same tag; this refuses it if so.
+PDFIUM_SHA256="213cad62710dd7b9a6eff84fe35a4b7161aeba8aa41e4c9b46463c09a85601ca"
 ROOT=../..
 
 cargo build --target wasm32-unknown-unknown --release
@@ -13,13 +17,16 @@ wasm-bindgen --target no-modules --no-typescript \
   --remove-name-section --remove-producers-section --out-dir www/pkg \
   target/wasm32-unknown-unknown/release/web_wasm_spike.wasm
 
-if [ ! -f www/pdfium/pdfium.wasm ]; then
+# Re-fetch when the cached copy is from another tag (www/pdfium/TAG records it).
+if [ "$(cat www/pdfium/TAG 2>/dev/null)" != "$PDFIUM_TAG" ]; then
   tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
   gh release download "$PDFIUM_TAG" -R bblanchon/pdfium-binaries -p pdfium-wasm.tgz -D "$tmp"
+  echo "$PDFIUM_SHA256  $tmp/pdfium-wasm.tgz" | sha256sum -c -
   tar xzf "$tmp/pdfium-wasm.tgz" -C "$tmp"
-  mkdir -p www/pdfium
+  rm -rf www/pdfium && mkdir -p www/pdfium
   cp "$tmp/lib/pdfium.js" "$tmp/lib/pdfium.wasm" "$tmp/VERSION" www/pdfium/
-  rm -rf "$tmp"
+  echo "$PDFIUM_TAG" > www/pdfium/TAG
 fi
 
 mkdir -p www/fixtures

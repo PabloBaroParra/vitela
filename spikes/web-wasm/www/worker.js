@@ -4,11 +4,12 @@
 //  - pkg/web_wasm_spike.js: our Rust crate (pdf-manip + pdfium-render),
 //    wasm-bindgen --target no-modules (global `wasm_bindgen`).
 const t0 = performance.now();
-// ?cold appends a unique query to every asset so the HTTP cache cannot help.
+// ?cold appends a unique query to every asset (fixture included) so the
+// HTTP cache cannot help.
 const bust = new URLSearchParams(location.search).has('cold') ? '?t=' + Date.now() : '';
 const stage = (name) => self.postMessage({ stage: name, atMs: performance.now() - t0 });
 self.SPIKE_DEBUG = new URLSearchParams(location.search).has('debug');
-const pdfiumReady = new Promise((resolve) => {
+const pdfiumReady = new Promise((resolve, reject) => {
   self.Module = {
     locateFile: (path) => 'pdfium/' + path + bust,
     onRuntimeInitialized: () => {
@@ -20,6 +21,9 @@ const pdfiumReady = new Promise((resolve) => {
       self.Module._PDFium_Init = self.Module._FPDF_InitLibrary;
       resolve(self.Module);
     },
+    // Without this a failed runtime (404 on pdfium.wasm, bad module, OOM)
+    // never fires onRuntimeInitialized and the worker waits forever.
+    onAbort: (what) => reject(new Error('pdfium runtime aborted: ' + what)),
   };
 });
 importScripts('pdfium/pdfium.js' + bust, 'pkg/web_wasm_spike.js' + bust);
@@ -30,7 +34,10 @@ self.onmessage = async ({ data }) => {
     const [pdfiumModule, rustModule, bytes] = await Promise.all([
       pdfiumReady.then((m) => { marks.pdfiumReadyMs = performance.now() - t0; return m; }),
       wasm_bindgen({ module_or_path: 'pkg/web_wasm_spike_bg.wasm' + bust }).then((m) => { marks.rustReadyMs = performance.now() - t0; return m; }),
-      fetch(data.fixture).then((r) => r.arrayBuffer()).then((b) => new Uint8Array(b)),
+      fetch(data.fixture + bust).then((r) => {
+        if (!r.ok) throw new Error(`fixture ${data.fixture}: HTTP ${r.status}`);
+        return r.arrayBuffer();
+      }).then((b) => new Uint8Array(b)),
     ]);
     stage('modules loaded');
     if (!wasm_bindgen.initialize_pdfium_render(pdfiumModule, rustModule, self.SPIKE_DEBUG === true)) {

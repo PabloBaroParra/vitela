@@ -26,9 +26,10 @@ fn encrypted_fixture_opens_with_user_password() {
     assert!(doc.page_count() >= 1);
 }
 
-/// already_packed.pdf stores objects in an /ObjStm, which lopdf decodes
-/// through rayon's par_iter. On wasm32-unknown-unknown rayon cannot spawn
-/// threads; this proves it degrades to the calling thread instead of panicking.
+/// lopdf's reader decodes through rayon's `par_iter` on every load (xref
+/// entries) and `par_chunks` on /ObjStm contents, which this fixture adds. rayon cannot
+/// spawn threads on wasm32-unknown-unknown; every test here passing shows it
+/// degrades to the calling thread, and this one also covers object streams.
 #[wasm_bindgen_test]
 fn object_stream_fixture_opens_through_rayon_path() {
     let bytes = include_bytes!("../../../tests/fixtures/compress/already_packed.pdf");

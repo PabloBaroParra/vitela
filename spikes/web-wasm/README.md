@@ -67,8 +67,10 @@ The "ready" times are measured from worker start, and pdfium and the Rust
 module load in parallel. **Caveats, not verified:**
 
 - Everything was served from `127.0.0.1`, so download time is ~0. "Cold" means
-  every asset URL was cache-busted (`?cold`). V8 may still have reused compiled
-  wasm code.
+  the four module URLs (both `.js` and both `.wasm`) were cache-busted
+  (`?cold`). In these runs the fixture PDF was not; `?cold` now busts it too,
+  and the effect on the numbers is negligible for a 12 KB file. V8 may still
+  have reused compiled wasm code.
 - With the network included, the 2.7 MiB gzip bundle adds about 2.3 s at
   10 Mbit/s and about 0.45 s at 50 Mbit/s. This is arithmetic, not a
   measurement. No throttled run was done.
@@ -85,7 +87,7 @@ module load in parallel. **Caveats, not verified:**
 | wasm-bindgen / wasm-bindgen-cli | 0.2.130 (`cargo install wasm-bindgen-cli --version 0.2.130 --locked`) |
 | wasm-bindgen-test | 0.3.80 |
 | pdfium-render | `=0.9.5` (the version the main `Cargo.lock` resolves today), features `pdfium_7763`, `thread_safe`, `console_log` |
-| pdfium WASM | `bblanchon/pdfium-binaries` release `chromium/7763`, asset `pdfium-wasm.tgz` (`VERSION`: 148.0.7763.0; `args.gn`: no V8, no XFA, no partition_alloc) |
+| pdfium WASM | `bblanchon/pdfium-binaries` release `chromium/7763`, asset `pdfium-wasm.tgz`, sha256 `213cad62710dd7b9a6eff84fe35a4b7161aeba8aa41e4c9b46463c09a85601ca` (checked by `build.sh`; matches GitHub's asset digest) (`VERSION`: 148.0.7763.0; `args.gn`: no V8, no XFA, no partition_alloc) |
 | lopdf | vendored `vendor/lopdf-0.45.0`, feature `wasm_js` |
 
 `chromium/7763` is the same pdfium build the native shells pin, so the binding
@@ -103,14 +105,15 @@ enabled from this crate's own `Cargo.toml`, so no `core/` file was touched.
 Nothing else was needed:
 
 - `rayon` and `chrono` (lopdf default features) both compile.
-- At runtime, rayon falls back to the calling thread.
+- At runtime, rayon falls back to the calling thread. lopdf runs `par_iter`
+  over the xref on every load, so every test below exercises it.
 
 `tests/core.rs` (5 tests, `wasm-bindgen-test` under Node) passes:
 
 - opens a plain fixture
 - refuses an AES-128 fixture without a password
 - opens the AES-128 fixture with its user password
-- opens an `/ObjStm` fixture (lopdf decodes it through rayon's `par_iter`)
+- opens an `/ObjStm` fixture (lopdf also decodes it through rayon's `par_chunks`)
 - round-trips `save_to` → reopen in memory
 
 ### Step 2: pdfium in the browser
@@ -144,12 +147,20 @@ The page therefore measures as soon as `putImageData` returns.
   render went through `ThreadSafePdfiumBindings`, and
   `tests/platform.rs::uncontended_mutex_works` pins this. You can keep the
   feature or drop it on wasm. It costs nothing either way.
-- **The actor does not work.** `tests/platform.rs` confirms both reasons on
-  wasm32:
+- **The actor does not work.** Each blocking primitive it uses fails on
+  wasm32. The first two are pinned by `tests/platform.rs`; the others were
+  measured with throwaway probes:
   - `std::thread::Builder::spawn` returns `Err`. `Actor::spawn` would panic on
     its `.expect`.
-  - Blocking on a `Condvar` panics, and `JobHandle::wait()` blocks the caller
-    until the actor replies.
+  - `Condvar::wait`, which the worker loop parks on, panics with "condvar wait
+    not supported".
+  - `mpsc::Receiver::recv()` on an empty channel, which is `JobHandle::wait()`
+    (`actor.rs:286`), **never returns**. The probe was killed by `timeout`
+    after 90 s. This is worse than a panic: a caller waiting on a job freezes
+    the worker with no error.
+  - The timed variants panic too: `Condvar::wait_timeout` ("can't sleep") and
+    `recv_timeout` ("time not implemented on this platform").
+  - Non-blocking `try_recv` works, which `tests/platform.rs` also pins.
 - **`core/pdf-render` does not compile for wasm32 today.** There are 4
   errors, all from loading pdfium as a native library:
   - `Pdfium::bind_to_library` (`renderer.rs:52`)
@@ -181,6 +192,11 @@ The page therefore measures as soon as `putImageData` returns.
    the main thread, as this spike does.
 
 ## Open risks for B26 (not tested here)
+
+- **The spike's own `Cargo.lock` is not audited.** cargo-audit, cargo-deny and
+  Dependabot run against the root workspace only. That is acceptable for a
+  spike. The real `core/pdf-wasm` should join the root workspace so the
+  existing gates cover it.
 
 - **Fonts.** The Emscripten pdfium has no system fonts. Embedded fonts and the
   base-14 fonts rendered. Non-embedded, non-base-14 fonts (CJK above all) were

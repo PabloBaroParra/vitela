@@ -36,7 +36,8 @@ wasm-bindgen-test = "0.3"
 lopdf = { path = "../../vendor/lopdf-0.45.0" }
 
 # Size-tuned like a shipping web bundle would be: LTO + 1 CGU cut the Rust
-# wasm from 2.3 MB to 1.5 MB raw (see README). opt-level stays 3 (root profile).
+# wasm from 2.3 MB to 1.5 MB raw (see README). opt-level stays at cargo's
+# release default, 3 — the same level the root workspace sets.
 [profile.release]
 lto = true
 codegen-units = 1
