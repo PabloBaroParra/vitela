@@ -19,8 +19,9 @@
 //! needs Spanish takes a [`speak`] guard.
 //!
 //! Migrated surfaces: Home, navigation rail, editor toolbar, search, tools tabs,
-//! document properties, and the Edit PDF panel with its selection hints and mode
-//! messages. Other feature panels, edit dialogs, document workflows and shared
+//! document properties, the Edit PDF panel with its selection hints and mode
+//! messages, and signing: certificate/card/token signing and the drawn
+//! signature. Other feature panels, edit dialogs, document workflows and shared
 //! permission/core error details are not yet localized.
 
 mod bundle;

@@ -7,14 +7,16 @@
 //! placement for the size, so a wide signature keeps its proportions instead of
 //! being squashed into a click-sized box, and it is one undo step.
 
+use crate::app::i18n::tr;
 use crate::app::state::{ArmedSignature, Viewer};
 use crate::app::{annotations, content_edit, forms};
 
 use super::current_session_id;
 
-const PROMPT: &str = "Click a page to place your signature.";
-const DISARMED: &str = "Signature disarmed.";
-const STALE: &str = "That signature was drawn for another document. Draw it again to place it.";
+// Fluent keys for the status line.
+const PROMPT: &str = "signature-armed";
+const DISARMED: &str = "signature-disarmed";
+const STALE: &str = "signature-stale";
 
 /// Arms `png` so the next page click places it, after releasing whatever else
 /// would take that click.
@@ -34,7 +36,7 @@ pub(super) fn arm(viewer: &Viewer, session_id: u64, png: Vec<u8>) -> bool {
     forms::set_mode(viewer, false);
     annotations::disarm(viewer);
     viewer.state.borrow_mut().signature.armed = Some(ArmedSignature { png, session_id });
-    viewer.status.set_text(PROMPT);
+    viewer.status.set_text(&tr(PROMPT));
     true
 }
 
@@ -44,7 +46,7 @@ pub(super) fn arm(viewer: &Viewer, session_id: u64, png: Vec<u8>) -> bool {
 pub(super) fn disarm(viewer: &Viewer) {
     let was_armed = viewer.state.borrow_mut().signature.armed.take().is_some();
     if was_armed {
-        viewer.status.set_text(DISARMED);
+        viewer.status.set_text(&tr(DISARMED));
     }
 }
 
@@ -73,7 +75,7 @@ pub(crate) fn place_armed(viewer: &Viewer, page_index: usize, point: (f64, f64))
     match press {
         Press::NotArmed => false,
         Press::Stale => {
-            viewer.status.set_text(STALE);
+            viewer.status.set_text(&tr(STALE));
             false
         }
         Press::Refused(refusal) => {

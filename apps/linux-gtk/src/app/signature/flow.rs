@@ -14,22 +14,24 @@
 use gtk::prelude::*;
 use gtk::{gio, glib, Window};
 
+use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 
 use super::ink::{self, Stroke};
 use super::png::render_png;
 use super::{armed, current_session_id, offer, pad};
 
-const NO_DOCUMENT: &str = "Open a PDF before drawing a signature.";
-const UNRENDERABLE: &str = "The signature could not be turned into an image.";
-const NOT_REMEMBERED: &str = "Your signature could not be remembered. Click a page to place it.";
-const FORGOTTEN: &str = "Your saved signature was deleted from this computer.";
+// Fluent keys for the status line.
+const NO_DOCUMENT: &str = "signature-no-document";
+const UNRENDERABLE: &str = "signature-unrenderable";
+const NOT_REMEMBERED: &str = "signature-not-remembered";
+const FORGOTTEN: &str = "signature-forgotten";
 
 /// **Draw signature**: the remembered signature, or a blank pad when there is
 /// none — and only where a stamp could be placed.
 pub(super) fn open(viewer: &Viewer) {
     let Some(session_id) = current_session_id(viewer) else {
-        viewer.status.set_text(NO_DOCUMENT);
+        viewer.status.set_text(&tr(NO_DOCUMENT));
         return;
     };
     if let Some(refusal) = viewer.annotation_editing_refusal() {
@@ -97,7 +99,7 @@ pub(super) fn use_drawn(
             }
             dismiss(&viewer, &dialog);
             let Some(png) = png else {
-                viewer.status.set_text(UNRENDERABLE);
+                viewer.status.set_text(&tr(UNRENDERABLE));
                 return;
             };
             // `arm` refuses a picture drawn over a document that has since
@@ -125,7 +127,7 @@ fn keep(viewer: &Viewer, png: Vec<u8>) {
                 .await
                 .unwrap_or(false);
             if !saved {
-                viewer.status.set_text(NOT_REMEMBERED);
+                viewer.status.set_text(&tr(NOT_REMEMBERED));
             }
         }
     });
@@ -158,7 +160,7 @@ pub(super) fn delete_saved(viewer: &Viewer, dialog: &Window) {
         return;
     }
     dismiss(viewer, dialog);
-    viewer.status.set_text(FORGOTTEN);
+    viewer.status.set_text(&tr(FORGOTTEN));
     let store = viewer.state.borrow().signature.store.clone();
     glib::spawn_future_local(async move {
         let _ = gio::spawn_blocking(move || store.delete()).await;
@@ -263,8 +265,24 @@ mod tests {
 
         open(viewer);
 
-        assert_eq!(viewer.status.text(), NO_DOCUMENT);
+        assert_eq!(viewer.status.text(), tr(NO_DOCUMENT));
         assert!(!has_dialog(viewer));
+    }
+
+    #[gtk::test]
+    fn gtk_ui_without_a_document_the_flow_says_so_in_spanish() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+        let built = Built::new();
+        let viewer = built.viewer();
+
+        open(viewer);
+
+        assert_eq!(
+            viewer.status.text(),
+            "Abre un PDF antes de dibujar una firma."
+        );
     }
 
     #[gtk::test]
@@ -403,10 +421,10 @@ mod tests {
         let view = a_signed_pad(viewer);
 
         view.use_button.emit_clicked();
-        settle_until(|| viewer.status.text() == NOT_REMEMBERED);
+        settle_until(|| viewer.status.text() == tr(NOT_REMEMBERED));
 
         assert!(is_armed(viewer));
-        assert_eq!(viewer.status.text(), NOT_REMEMBERED);
+        assert_eq!(viewer.status.text(), tr(NOT_REMEMBERED));
     }
 
     #[gtk::test]
@@ -502,7 +520,7 @@ mod tests {
         assert_eq!(store.current(), None);
         assert!(!is_armed(viewer));
         assert!(!has_dialog(viewer), "no confirmation, no leftover dialog");
-        assert_eq!(viewer.status.text(), FORGOTTEN);
+        assert_eq!(viewer.status.text(), tr(FORGOTTEN));
     }
 
     #[gtk::test]

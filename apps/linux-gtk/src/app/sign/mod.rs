@@ -44,6 +44,7 @@ use pdf_sign_nss::NssAdapterError;
 use pdf_sign_pfx::{PfxAdapterError, PfxCertificateSource};
 use pdf_sign_pkcs11::{Pkcs11AdapterError, Pkcs11CertificateSource};
 
+use crate::app::i18n::{tr, tr_args};
 use crate::app::state::{SessionToken, Viewer};
 use crate::app::tools_panel::panel_heading;
 use crate::app::write::{self, SignRequest};
@@ -54,21 +55,21 @@ use crate::app::write::{self, SignRequest};
 /// `mod.rs` can compose them alongside `forms::build_forms_content`'s own
 /// section on the same page.
 pub(crate) fn build_sign_content() -> (Button, Button, Button, Label, GtkBox) {
-    let choose_pfx = Button::with_label("Choose signing certificate (.pfx)…");
-    let choose_pkcs11 = Button::with_label("Use card or token…");
-    let choose_nss = Button::with_label("Use a certificate from this computer…");
+    let choose_pfx = Button::with_label(&tr("sign-choose-pfx"));
+    let choose_pkcs11 = Button::with_label(&tr("sign-use-token"));
+    let choose_nss = Button::with_label(&tr("sign-use-nss"));
 
     // Hidden until `update_sign_controls` finds a signature on the open
     // document — the one place in this shell a user can tell a signing
     // attempt actually landed, since `write::begin_sign`'s status-bar
     // message (T-185) is overwritten by the very next unrelated action.
-    let signed_indicator = Label::new(Some("✓ This document is digitally signed."));
+    let signed_indicator = Label::new(Some(&tr("sign-signed-indicator")));
     signed_indicator.set_xalign(0.0);
     signed_indicator.add_css_class("signed-indicator");
     signed_indicator.set_visible(false);
 
     let content = GtkBox::new(GtkOrientation::Vertical, 8);
-    content.append(&panel_heading("Signing"));
+    content.append(&panel_heading(&tr("sign-heading")));
     content.append(&signed_indicator);
     content.append(&choose_pfx);
     content.append(&choose_pkcs11);
@@ -142,15 +143,15 @@ pub(crate) fn connect_sign_toolbar(window: &ApplicationWindow, viewer: &Viewer) 
 /// `document::show_file_chooser`'s shape.
 fn show_pfx_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     let filter = FileFilter::new();
-    filter.set_name(Some("PKCS#12 certificates"));
+    filter.set_name(Some(&tr("sign-pfx-filter")));
     filter.add_pattern("*.pfx");
     filter.add_pattern("*.PFX");
     filter.add_pattern("*.p12");
     filter.add_pattern("*.P12");
 
     let chooser = FileDialog::builder()
-        .title("Choose signing certificate")
-        .accept_label("Open")
+        .title(tr("sign-pfx-chooser-title"))
+        .accept_label(tr("sign-open"))
         .default_filter(&filter)
         .build();
     chooser.open(Some(window), None::<&gio::Cancellable>, {
@@ -161,9 +162,7 @@ fn show_pfx_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local file.");
+                viewer.status.set_text(&tr("sign-not-local-file"));
                 return;
             };
             prompt_for_pfx_password(&window, &viewer, path);
@@ -185,7 +184,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Certificate password required")
+        .title(tr("sign-pfx-password-title"))
         .child(&content)
         .build();
 
@@ -202,8 +201,8 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
     let error_label = Label::new(None);
     error_label.set_xalign(0.0);
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let unlock = Button::with_label("Unlock");
+    let cancel = Button::with_label(&tr("sign-cancel"));
+    let unlock = Button::with_label(&tr("sign-unlock"));
     buttons.append(&cancel);
     buttons.append(&unlock);
     content.append(&password_entry);
@@ -219,7 +218,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
         let error_label = error_label.clone();
         let path = path.clone();
         move || {
-            viewer.status.set_text("Reading certificate file...");
+            viewer.status.set_text(&tr("sign-pfx-reading"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let window = window.clone();
@@ -244,7 +243,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                             let identities = source.list_identities();
                             viewer.status.set_text(&identities_status_message(
                                 &identities,
-                                "This certificate file has no usable signing identities.",
+                                &tr("sign-pfx-no-identities"),
                             ));
                             if !identities.is_empty() {
                                 open_identity_picker(
@@ -258,13 +257,8 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                         }
                         Err(PfxAdapterError::Pkcs12(_)) => {
                             dialog.set_sensitive(true);
-                            viewer
-                                .status
-                                .set_text("Waiting for the certificate password.");
-                            error_label.set_text(
-                                "The password is incorrect, or the file is not a valid \
-                                 PKCS#12 certificate.",
-                            );
+                            viewer.status.set_text(&tr("sign-pfx-waiting"));
+                            error_label.set_text(&tr("sign-pfx-wrong-password"));
                             password_entry.set_text("");
                             password_entry.grab_focus();
                         }
@@ -277,8 +271,9 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                             dismiss_pfx_dialog(&viewer, &dialog);
                         }
                         Err(PfxAdapterError::File(message)) => {
-                            viewer.status.set_text(&format!(
-                                "Could not read the certificate file: {message}"
+                            viewer.status.set_text(&tr_args(
+                                "sign-pfx-read-failed",
+                                &[("error", message.into())],
                             ));
                             dismiss_pfx_dialog(&viewer, &dialog);
                         }
@@ -296,7 +291,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text("Certificate selection cancelled.");
+            viewer.status.set_text(&tr("sign-certificate-cancelled"));
             dismiss_pfx_dialog(&viewer, &dialog);
         }
     });
@@ -368,15 +363,12 @@ fn format_found_identities(identities: &[SigningIdentity]) -> String {
         .iter()
         .map(|identity| identity.display_name.as_str())
         .collect();
-    let identity_word = if identities.len() == 1 {
-        "identity"
-    } else {
-        "identities"
-    };
-    format!(
-        "Found {} signing {identity_word}: {}",
-        identities.len(),
-        names.join(", ")
+    tr_args(
+        "sign-found-identities",
+        &[
+            ("count", identities.len().into()),
+            ("names", names.join(", ").into()),
+        ],
     )
 }
 
@@ -419,12 +411,12 @@ fn begin_pkcs11_flow(window: &ApplicationWindow, viewer: &Viewer) {
 /// shared-object files, mirroring `show_pfx_chooser`'s shape.
 fn show_pkcs11_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     let filter = FileFilter::new();
-    filter.set_name(Some("PKCS#11 modules"));
+    filter.set_name(Some(&tr("sign-pkcs11-filter")));
     filter.add_pattern("*.so");
 
     let chooser = FileDialog::builder()
-        .title("Choose PKCS#11 module")
-        .accept_label("Open")
+        .title(tr("sign-pkcs11-chooser-title"))
+        .accept_label(tr("sign-open"))
         .default_filter(&filter)
         .build();
     chooser.open(Some(window), None::<&gio::Cancellable>, {
@@ -435,9 +427,7 @@ fn show_pkcs11_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local file.");
+                viewer.status.set_text(&tr("sign-not-local-file"));
                 return;
             };
             prompt_for_pkcs11_pin(&window, &viewer, path);
@@ -466,7 +456,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Card or token PIN required")
+        .title(tr("sign-pkcs11-pin-title"))
         .child(&content)
         .build();
 
@@ -487,8 +477,8 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
     let error_label = Label::new(None);
     error_label.set_xalign(0.0);
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let unlock = Button::with_label("Unlock");
+    let cancel = Button::with_label(&tr("sign-cancel"));
+    let unlock = Button::with_label(&tr("sign-unlock"));
     buttons.append(&cancel);
     buttons.append(&unlock);
     content.append(&pin_entry);
@@ -504,7 +494,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
         let error_label = error_label.clone();
         let module_path = module_path.clone();
         move || {
-            viewer.status.set_text("Reading card or token...");
+            viewer.status.set_text(&tr("sign-pkcs11-reading"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let window = window.clone();
@@ -527,11 +517,8 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
                             let identities = source.list_identities();
                             if identities.is_empty() {
                                 dialog.set_sensitive(true);
-                                viewer.status.set_text("Waiting for the token PIN.");
-                                error_label.set_text(
-                                    "No signing identities were found. Check the PIN and \
-                                     that the card or token holds a certificate.",
-                                );
+                                viewer.status.set_text(&tr("sign-pkcs11-waiting"));
+                                error_label.set_text(&tr("sign-pkcs11-no-identities"));
                                 pin_entry.set_text("");
                                 pin_entry.grab_focus();
                                 return;
@@ -543,9 +530,10 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
                             dismiss_pkcs11_dialog(&viewer, &dialog);
                         }
                         Err(Pkcs11AdapterError::Module(message)) => {
-                            viewer
-                                .status
-                                .set_text(&format!("Could not load the PKCS#11 module: {message}"));
+                            viewer.status.set_text(&tr_args(
+                                "sign-pkcs11-load-failed",
+                                &[("error", message.into())],
+                            ));
                             dismiss_pkcs11_dialog(&viewer, &dialog);
                         }
                     }
@@ -562,7 +550,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text("Card or token selection cancelled.");
+            viewer.status.set_text(&tr("sign-pkcs11-cancelled"));
             dismiss_pkcs11_dialog(&viewer, &dialog);
         }
     });
@@ -659,12 +647,12 @@ fn continue_nss_flow_with_module(
 /// `show_pkcs11_module_chooser`.
 fn show_nss_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     let filter = FileFilter::new();
-    filter.set_name(Some("NSS modules"));
+    filter.set_name(Some(&tr("sign-nss-filter")));
     filter.add_pattern("*.so");
 
     let chooser = FileDialog::builder()
-        .title("Choose the NSS certificate module (libsoftokn3.so)")
-        .accept_label("Open")
+        .title(tr("sign-nss-module-chooser-title"))
+        .accept_label(tr("sign-open"))
         .default_filter(&filter)
         .build();
     chooser.open(Some(window), None::<&gio::Cancellable>, {
@@ -675,9 +663,7 @@ fn show_nss_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local file.");
+                viewer.status.set_text(&tr("sign-not-local-file"));
                 return;
             };
             continue_nss_flow_with_module(&window, &viewer, path);
@@ -690,8 +676,8 @@ fn show_nss_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
 /// a directory (`cert9.db`/`key4.db`/`pkcs11.txt`), not a single file.
 fn show_nss_profile_chooser(window: &ApplicationWindow, viewer: &Viewer, module_path: PathBuf) {
     let chooser = FileDialog::builder()
-        .title("Choose the certificate database folder")
-        .accept_label("Open")
+        .title(tr("sign-nss-profile-chooser-title"))
+        .accept_label(tr("sign-open"))
         .build();
     chooser.select_folder(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
@@ -701,9 +687,7 @@ fn show_nss_profile_chooser(window: &ApplicationWindow, viewer: &Viewer, module_
                 return;
             };
             let Some(path) = folder.path() else {
-                viewer
-                    .status
-                    .set_text("The selected location is not a local folder.");
+                viewer.status.set_text(&tr("sign-not-local-folder"));
                 return;
             };
             prompt_for_nss_password(&window, &viewer, module_path.clone(), path);
@@ -730,7 +714,7 @@ fn prompt_for_nss_password(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Certificate database password")
+        .title(tr("sign-nss-password-title"))
         .child(&content)
         .build();
 
@@ -743,15 +727,13 @@ fn prompt_for_nss_password(
         stale_dialog.destroy();
     }
 
-    content.append(&Label::new(Some(
-        "Leave this blank if your certificates have no password set.",
-    )));
+    content.append(&Label::new(Some(&tr("sign-nss-password-hint"))));
     let password_entry = PasswordEntry::builder().show_peek_icon(true).build();
     let error_label = Label::new(None);
     error_label.set_xalign(0.0);
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let unlock = Button::with_label("Unlock");
+    let cancel = Button::with_label(&tr("sign-cancel"));
+    let unlock = Button::with_label(&tr("sign-unlock"));
     buttons.append(&cancel);
     buttons.append(&unlock);
     content.append(&password_entry);
@@ -768,7 +750,7 @@ fn prompt_for_nss_password(
         let module_path = module_path.clone();
         let profile_dir = profile_dir.clone();
         move || {
-            viewer.status.set_text("Reading certificate database...");
+            viewer.status.set_text(&tr("sign-nss-reading"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let window = window.clone();
@@ -791,13 +773,8 @@ fn prompt_for_nss_password(
                             let identities = source.list_identities();
                             if identities.is_empty() {
                                 dialog.set_sensitive(true);
-                                viewer
-                                    .status
-                                    .set_text("Waiting for the certificate database password.");
-                                error_label.set_text(
-                                    "No signing certificates were found. Check the password and \
-                                     that this computer has certificates imported.",
-                                );
+                                viewer.status.set_text(&tr("sign-nss-waiting"));
+                                error_label.set_text(&tr("sign-nss-no-identities"));
                                 password_entry.set_text("");
                                 password_entry.grab_focus();
                                 return;
@@ -809,15 +786,16 @@ fn prompt_for_nss_password(
                             dismiss_nss_dialog(&viewer, &dialog);
                         }
                         Err(NssAdapterError::Pkcs11(Pkcs11AdapterError::Module(message))) => {
-                            viewer.status.set_text(&format!(
-                                "Could not load the certificate database: {message}"
+                            viewer.status.set_text(&tr_args(
+                                "sign-nss-load-failed",
+                                &[("error", message.into())],
                             ));
                             dismiss_nss_dialog(&viewer, &dialog);
                         }
                         Err(NssAdapterError::InvalidProfilePath(path)) => {
-                            viewer.status.set_text(&format!(
-                                "The certificate database path {} cannot be used.",
-                                path.display()
+                            viewer.status.set_text(&tr_args(
+                                "sign-nss-invalid-path",
+                                &[("path", path.display().to_string().into())],
                             ));
                             dismiss_nss_dialog(&viewer, &dialog);
                         }
@@ -835,7 +813,7 @@ fn prompt_for_nss_password(
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text("Certificate selection cancelled.");
+            viewer.status.set_text(&tr("sign-certificate-cancelled"));
             dismiss_nss_dialog(&viewer, &dialog);
         }
     });
@@ -888,7 +866,7 @@ fn open_identity_picker(
     let dialog = Window::builder()
         .transient_for(window)
         .modal(true)
-        .title("Choose a signing identity")
+        .title(tr("sign-picker-title"))
         .child(&content)
         .build();
 
@@ -905,7 +883,7 @@ fn open_identity_picker(
         stale_dialog.destroy();
     }
 
-    content.append(&Label::new(Some("Sign this document with:")));
+    content.append(&Label::new(Some(&tr("sign-picker-prompt"))));
 
     let (rows, radio_buttons) = build_identity_rows(&identities);
     content.append(&rows);
@@ -913,8 +891,8 @@ fn open_identity_picker(
     let error_label = Label::new(None);
     error_label.set_xalign(0.0);
     let buttons = GtkBox::new(GtkOrientation::Horizontal, 8);
-    let cancel = Button::with_label("Cancel");
-    let sign = Button::with_label("Sign");
+    let cancel = Button::with_label(&tr("sign-cancel"));
+    let sign = Button::with_label(&tr("sign-picker-sign"));
     buttons.append(&cancel);
     buttons.append(&sign);
     content.append(&error_label);
@@ -934,12 +912,12 @@ fn open_identity_picker(
                 .position(CheckButton::is_active)
                 .and_then(|index| identities.get(index))
             else {
-                error_label.set_text("Choose a signing identity.");
+                error_label.set_text(&tr("sign-picker-none-chosen"));
                 return;
             };
             match begin_sign_from_picker(&window, &viewer, source.clone(), chosen.id.clone()) {
                 Ok(()) => dismiss_sign_picker(&viewer, &dialog),
-                Err(message) => error_label.set_text(message),
+                Err(message) => error_label.set_text(&message),
             }
         }
     });
@@ -947,7 +925,7 @@ fn open_identity_picker(
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text("Signing cancelled.");
+            viewer.status.set_text(&tr("sign-cancelled"));
             dismiss_sign_picker(&viewer, &dialog);
         }
     });
@@ -1015,14 +993,14 @@ fn begin_sign_from_picker(
     viewer: &Viewer,
     source: Arc<dyn CertificateSourcePort>,
     identity_id: String,
-) -> Result<(), &'static str> {
+) -> Result<(), String> {
     if let Some(refusal) = signing_refusal(viewer) {
-        return Err(refusal);
+        return Err(refusal.to_owned());
     }
     let request = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
-            return Err("Open a PDF before signing.");
+            return Err(tr("sign-no-document"));
         };
         // `sign_document` writes straight from `backing.original_bytes`,
         // bypassing `document_model`/`EditLog` entirely (batch decision 1:
@@ -1032,10 +1010,10 @@ fn begin_sign_from_picker(
         // edits in here, and matches this shell's existing care around
         // unsaved work (see the window-close guard in `document.rs`).
         if session.unsaved_to_disk {
-            return Err("Save your changes before signing this document.");
+            return Err(tr("sign-unsaved-changes"));
         }
         let Some(backing) = session.save_backing.as_ref() else {
-            return Err("This document cannot be signed.");
+            return Err(tr("sign-not-signable"));
         };
         SignRequest {
             token: SessionToken {
@@ -1215,6 +1193,68 @@ mod tests {
         assert!(choose_nss.is_sensitive());
         assert!(!signed_indicator.is_visible());
         assert!(content.first_child().is_some());
+    }
+
+    #[gtk::test]
+    fn gtk_ui_the_signing_section_speaks_spanish() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+        let (choose_pfx, choose_pkcs11, choose_nss, signed_indicator, content) =
+            build_sign_content();
+
+        let heading = content.first_child().unwrap().downcast::<Label>().unwrap();
+        assert_eq!(heading.text(), "Firma digital");
+        assert_eq!(
+            choose_pfx.label().as_deref(),
+            Some("Elegir certificado de firma (.pfx)…")
+        );
+        assert_eq!(
+            choose_pkcs11.label().as_deref(),
+            Some("Usar tarjeta o token…")
+        );
+        assert_eq!(
+            choose_nss.label().as_deref(),
+            Some("Usar un certificado de este equipo…")
+        );
+        assert_eq!(
+            signed_indicator.text(),
+            "✓ Este documento está firmado digitalmente."
+        );
+    }
+
+    #[test]
+    fn found_identities_are_counted_and_named_in_spanish() {
+        use crate::app::i18n::{speak, Language};
+
+        let _spanish = speak(Language::Spanish);
+        assert_eq!(
+            format_found_identities(&[identity("Alicia {PDF}")]),
+            "Se encontró 1 identidad de firma: Alicia {PDF}"
+        );
+        assert_eq!(
+            format_found_identities(&[identity("Alicia"), identity("Firma 2")]),
+            "Se encontraron 2 identidades de firma: Alicia, Firma 2"
+        );
+    }
+
+    #[gtk::test]
+    fn gtk_ui_signing_without_an_open_document_is_refused_in_spanish() {
+        use crate::app::i18n::{speak, Language};
+
+        let application = test_application();
+        let built = crate::app::build_ui(&application);
+        let identities = vec![identity("Alice Doe")];
+        let source: Arc<dyn CertificateSourcePort> = Arc::new(StaticCertificateSource(identities));
+
+        let _spanish = speak(Language::Spanish);
+        let error =
+            begin_sign_from_picker(&built.window, &built.viewer, source, "Alice Doe".to_owned())
+                .expect_err("signing with no open document must be refused");
+
+        assert_eq!(error, "Abre un PDF antes de firmar.");
+
+        built.window.close();
     }
 
     fn test_application() -> gtk::Application {
