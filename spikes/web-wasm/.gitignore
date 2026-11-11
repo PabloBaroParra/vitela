@@ -1,4 +1,4 @@
 target/
 www/pkg/
 www/pdfium/
-www/fixture.pdf
+www/fixtures/
