@@ -20,7 +20,14 @@ use pdfium_render::prelude::Pdfium;
 const ENV_OVERRIDE: &str = "PDFIUM_DYNAMIC_LIB_PATH";
 
 pub fn resolve_library_path() -> PathBuf {
-    if let Ok(path) = std::env::var(ENV_OVERRIDE) {
+    resolve_library_path_from(std::env::var(ENV_OVERRIDE).ok())
+}
+
+/// [`resolve_library_path`] with the env override passed in, so tests never
+/// mutate the process-wide env var (other tests in the same process bind
+/// pdfium through it concurrently).
+fn resolve_library_path_from(env_override: Option<String>) -> PathBuf {
+    if let Some(path) = env_override {
         return PathBuf::from(path);
     }
 
@@ -41,21 +48,16 @@ pub fn resolve_library_path() -> PathBuf {
 mod tests {
     use super::*;
 
-    // A single test function, not two: both cases mutate the process-wide
-    // `PDFIUM_DYNAMIC_LIB_PATH` env var, and `cargo test` runs tests in
-    // parallel threads within one process by default, so splitting this
-    // into separate `#[test]` fns would be a data race on the env var.
     #[test]
-    fn env_override_wins_and_fallback_resolves_a_bare_platform_name() {
-        std::env::set_var(ENV_OVERRIDE, "/nonexistent/path/to/pdfium.so");
-        let overridden = resolve_library_path();
-        assert_eq!(overridden, PathBuf::from("/nonexistent/path/to/pdfium.so"));
+    fn env_override_wins() {
+        let resolved = resolve_library_path_from(Some("/nonexistent/path/to/pdfium.so".into()));
+        assert_eq!(resolved, PathBuf::from("/nonexistent/path/to/pdfium.so"));
+    }
 
-        std::env::remove_var(ENV_OVERRIDE);
-        // With no override, resolution either finds the vendored dev/test
-        // copy or falls back to a bare platform library name — either way,
-        // it must resolve to a non-empty file name.
-        let resolved = resolve_library_path();
+    #[test]
+    fn fallback_resolves_to_a_non_empty_file_name() {
+        // Either the vendored dev/test copy or the bare platform name.
+        let resolved = resolve_library_path_from(None);
         assert!(resolved
             .file_name()
             .map(|f| !f.to_string_lossy().is_empty())
