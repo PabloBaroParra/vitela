@@ -1,0 +1,43 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Vitela web-wasm spike</title>
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 16px; background: #eee; }
+  canvas { background: #fff; box-shadow: 0 1px 4px #0004; max-width: 100%; }
+  pre { background: #fff; padding: 8px; }
+</style>
+<p>Phase-0 spike: pdf-manip (lopdf) + pdfium <code>chromium/7763</code>, both as
+WASM inside a Web Worker. Fixture: <code id="name"></code></p>
+<pre id="log">loading…</pre>
+<canvas id="page"></canvas>
+<script>
+  const fixture = new URLSearchParams(location.search).get('f') || 'reportlab_acroform.pdf';
+  document.getElementById('name').textContent = fixture;
+  const log = document.getElementById('log');
+  const worker = new Worker('worker.js' + location.search);
+  // A worker whose scripts fail to load (or that throws outside onmessage)
+  // never posts a message; report it so the page cannot stay on "loading…".
+  worker.onerror = (event) => {
+    event.preventDefault();
+    const error = 'worker failed: ' + (event.message || 'script did not load');
+    log.textContent = 'ERROR: ' + error;
+    window.spikeResult = { error };
+  };
+  worker.onmessage = ({ data }) => {
+    if (data.stage) { log.textContent += '\n' + data.stage + ' @ ' + data.atMs.toFixed(0) + 'ms'; return; }
+    if (data.error) { log.textContent = 'ERROR: ' + data.error; window.spikeResult = data; return; }
+    const canvas = document.getElementById('page');
+    canvas.width = data.width; canvas.height = data.height;
+    const pixels = new Uint8ClampedArray(data.rgba);
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(new ImageData(pixels, data.width, data.height), 0, 0);
+    // performance.now() is ms since this page's navigation start. Measured
+    // once the pixels are in the canvas, not on the next frame: a background
+    // tab never runs requestAnimationFrame, and that would hang the report.
+    const pixelsOnCanvasMs = performance.now();
+    window.spikeResult = { ...data, rgba: undefined, pixelsOnCanvasMs };
+    log.textContent = JSON.stringify(window.spikeResult, null, 2);
+  };
+  worker.postMessage({ fixture: 'fixtures/' + fixture, width: 1200,
+                      page: Number(new URLSearchParams(location.search).get('p') || 0) });
+</script>
