@@ -80,8 +80,10 @@ pub use content::{
     validate_content_command_after_pending,
 };
 pub use error::SaveError;
+#[cfg(not(target_arch = "wasm32"))]
+pub use export::export_page_as_image;
 pub use export::{
-    document_file_stem, export_page_as_image, page_image_file_name, parse_page_selection,
+    document_file_stem, encode_rgba_image, page_image_file_name, parse_page_selection,
     resolve_split_cuts, split_part_file_name, split_parts, ExportFormat, PageSelectionError,
 };
 pub use forms::{ensure_acroform, remove_form_fields, removed_existing_fields, write_form_fields};

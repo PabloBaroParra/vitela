@@ -37,6 +37,11 @@ pub enum ExportFormat {
 /// Renders `page_index` of `doc` (already opened via
 /// `pdf_render::PdfiumRenderer::open_document`) at `dpi` and encodes it as
 /// `format`.
+///
+/// Native only: `PdfiumRenderer` is the threaded actor, which does not exist
+/// on wasm32. A wasm caller renders through its own synchronous renderer and
+/// hands the pixels to [`encode_rgba_image`], the half this function shares.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn export_page_as_image(
     renderer: &pdf_render::PdfiumRenderer,
     doc: pdf_render::DocumentHandle,
@@ -59,6 +64,18 @@ pub fn export_page_as_image(
     let height = bitmap.height()?;
     let pixels = bitmap.get_pixels()?;
 
+    encode_rgba_image(width, height, pixels, format)
+}
+
+/// Encodes a rendered RGBA bitmap (`width * height * 4` bytes, row-major) as
+/// `format`. Pure — no renderer, no I/O — so every target, wasm32 included,
+/// writes exported images through the same encoder.
+pub fn encode_rgba_image(
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+    format: ExportFormat,
+) -> Result<Vec<u8>, SaveError> {
     let image_buffer =
         RgbaImage::from_raw(width, height, pixels).ok_or(SaveError::InvalidSaveRequest(
             "rendered bitmap dimensions do not match its pixel buffer length",
@@ -140,6 +157,44 @@ mod tests {
         let decoded = image::load_from_memory(&bytes).expect("must decode");
         assert_eq!(decoded.width(), 612);
         assert_eq!(decoded.height(), 792);
+    }
+
+    /// A 2x1 bitmap: one opaque red pixel, one fully transparent pixel.
+    fn two_pixel_rgba() -> Vec<u8> {
+        vec![255, 0, 0, 255, 0, 0, 255, 0]
+    }
+
+    #[test]
+    fn encodes_an_rgba_buffer_as_a_png_that_keeps_alpha() {
+        let bytes = encode_rgba_image(2, 1, two_pixel_rgba(), ExportFormat::Png)
+            .expect("encode should succeed");
+
+        assert_eq!(&bytes[0..8], b"\x89PNG\r\n\x1a\n", "must be a valid PNG");
+        let decoded = image::load_from_memory(&bytes)
+            .expect("must decode")
+            .to_rgba8();
+        assert_eq!(decoded.dimensions(), (2, 1));
+        assert_eq!(decoded.get_pixel(0, 0).0, [255, 0, 0, 255]);
+        assert_eq!(decoded.get_pixel(1, 0).0[3], 0, "alpha must survive PNG");
+    }
+
+    #[test]
+    fn encodes_an_rgba_buffer_as_a_jpeg_without_alpha() {
+        let bytes = encode_rgba_image(2, 1, two_pixel_rgba(), ExportFormat::Jpeg)
+            .expect("encode should succeed");
+
+        assert_eq!(&bytes[0..2], &[0xFF, 0xD8], "must be a valid JPEG");
+        let decoded = image::load_from_memory(&bytes).expect("must decode");
+        assert_eq!((decoded.width(), decoded.height()), (2, 1));
+        assert!(!decoded.color().has_alpha());
+    }
+
+    #[test]
+    fn refuses_a_buffer_whose_length_does_not_match_its_dimensions() {
+        let error = encode_rgba_image(3, 1, two_pixel_rgba(), ExportFormat::Png)
+            .expect_err("a 2-pixel buffer cannot be 3x1");
+
+        assert!(matches!(error, SaveError::InvalidSaveRequest(_)));
     }
 
     #[test]
