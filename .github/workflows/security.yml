@@ -9,6 +9,7 @@ on:
       - "**/Cargo.toml"
       - Cargo.lock
       - spikes/web-wasm/Cargo.lock
+      - apps/web/render-wasm/Cargo.lock
       - deny.toml
       - .cargo/audit.toml
       - .github/workflows/security.yml
@@ -17,6 +18,7 @@ on:
       - "**/Cargo.toml"
       - Cargo.lock
       - spikes/web-wasm/Cargo.lock
+      - apps/web/render-wasm/Cargo.lock
       - deny.toml
       - .cargo/audit.toml
       - .github/workflows/security.yml
@@ -71,6 +73,10 @@ jobs:
       # its dependencies would never be checked at all.
       - name: Check RustSec advisories (spikes/web-wasm)
         run: cargo audit --file spikes/web-wasm/Cargo.lock
+      # apps/web/render-wasm (the web worker's temporary render crate until
+      # core/pdf-wasm lands) is excluded from the workspace for the same reason.
+      - name: Check RustSec advisories (apps/web/render-wasm)
+        run: cargo audit --file apps/web/render-wasm/Cargo.lock
 
   cargo-deny:
     name: Dependency policy
@@ -85,4 +91,9 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           manifest-path: spikes/web-wasm/Cargo.toml
+          command-arguments: advisories bans sources
+      - name: Enforce the same policy on apps/web/render-wasm (own lockfile)
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          manifest-path: apps/web/render-wasm/Cargo.toml
           command-arguments: advisories bans sources

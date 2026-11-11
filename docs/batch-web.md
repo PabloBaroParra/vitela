@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 en curso: T-217 ✓ (#560), T-218 hecha, sin PR.**
+> fase 1 en curso: T-217 ✓ (#560), T-218 ✓ (#561), T-220 hecha.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -149,9 +149,9 @@ Hechos que las fundamentan (mapeados 2026-11-11):
 | Tarea | Entrega | Hecho cuando |
 |---|---|---|
 | **T-217** ✓ #560 | `pdf-render` sin hilos en wasm32: sacar los `*_job` a un módulo `jobs`, extraer `open_from_bytes_job`, y poner actor, `library.rs`, `bind_actor` y la apertura por ruta tras `cfg(not(target_arch = "wasm32"))`. En wasm32, estado en `thread_local` y métodos síncronos. | Nativo: **cero cambio de comportamiento** (tests de `core.yml` en verde). `cargo check --target wasm32-unknown-unknown -p pdf-render` pasa. |
-| **T-218** | Bajar al core la lógica que hoy vive en `pdf-ffi`: dimensiones de página con rotación, apertura con contraseñas y el gate de extracción de texto. `pdf-ffi` pasa a delegar. | Tests movidos junto a la lógica; los shells no notan nada. |
+| **T-218** ✓ #561 | Bajar al core la lógica que hoy vive en `pdf-ffi`: dimensiones de página con rotación, apertura con contraseñas y el gate de extracción de texto. `pdf-ffi` pasa a delegar. | Tests movidos junto a la lógica; los shells no notan nada. |
 | **T-219** | `core/pdf-wasm` en el workspace (wasm-bindgen): abrir desde bytes (con/sin contraseña, dual), nº de páginas, dimensiones, render → RGBA, text runs, caracteres de página, búsqueda. | `wasm-bindgen-test` en navegador headless; job wasm32 en CI; cubierto por cargo-audit/deny del root. |
-| **T-220** | Esqueleto `apps/web` (Vite + React + TS): worker que carga ambos WASM (con el alias), cliente tipado del worker, Vitest, Playwright con el test zero-network, `web.yml`. Matriz: Chromium + Firefox + WebKit. | Build reproducible; Playwright abre un fixture y ve un canvas pintado; zero-network en verde. |
+| **T-220** ✓ | Esqueleto `apps/web` (Vite + React + TS): worker que carga ambos WASM (con el alias), cliente tipado del worker, Vitest, Playwright con el test zero-network, `web.yml`. Matriz: Chromium, Firefox y WebKit (decidida 2026-11-11). | Build reproducible; Playwright abre un fixture y ve un canvas pintado; zero-network en verde. |
 | **T-221** | Visor: abrir (selector + soltar archivo), diálogo de contraseña, scroll virtualizado, zoom (incl. rueda anclada al puntero). | Flujos Playwright: abrir normal, abrir cifrado, scroll a la última página, zoom. |
 | **T-222** | Búsqueda y selección de texto (resaltado, copiar), respetando el permiso de extracción. | Flujos Playwright: buscar y saltar entre resultados; seleccionar y copiar; PDF sin permiso → bloqueado. |
 
@@ -168,6 +168,32 @@ que T-217 dejó fuera de wasm32. **Prerrequisito de T-219:** que `pdf-save` comp
 wasm32 (p. ej. `export` tras `cfg(not(target_arch = "wasm32"))`). Los gates de
 portapapeles y de `image_source_bytes` no se unificaron porque tienen mensajes propios.
 
+### T-220 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md). Lo que condiciona lo que sigue:
+
+- **Los tres navegadores pintan pdfium WASM.** Playwright abre
+  `forms/reportlab_acroform.pdf` y comprueba un canvas de 1200×1553 con tinta en
+  Chromium, Firefox y WebKit, y el test zero-network pasa en los tres. Verificado en
+  local (Windows, Playwright 1.65); en CI corre en Linux.
+- **Motor provisional:** `apps/web/render-wasm/` (wasm-bindgen sobre
+  `pdfium-render =0.9.5`, solo abrir + render) hace de `pdf-wasm` hasta T-219. Fuera del
+  workspace, con su propio `Cargo.lock` auditado en `security.yml`. Solo lo importa
+  `src/worker/engine.ts`: el cambio a `pdf-wasm` queda dentro de `src/worker/`.
+- **Segundo workaround de pdfium-render, además del alias.** El worker es un *module
+  worker* (Vite), donde `importScripts` no existe, así que el glue de pdfium se evalúa
+  como cuerpo de función y no como script global. Así su `wasmTable` deja de ser global,
+  y pdfium-render lo busca ahí primero. La solución es exponer `Module.wasmExports`,
+  el fallback documentado de pdfium-render (issue #128). El alias y este fallback tienen
+  tests, también contra el pdfium real (`src/worker/pdfium.real.test.ts`, en Node).
+- **Build reproducible:** el bundle, con la misma toolchain, sale idéntico byte a byte
+  tras un build desde cero. El módulo Rust pesa 513 KB crudo / 100 KB gzip (sin
+  `pdf-manip`, a diferencia del spike).
+- **Zero-network** = ninguna petición después de `data-engine="ready"`, incluidas las
+  del worker. El test exige ver el `pdfium.wasm` del worker durante la carga, para
+  demostrar que no es ciego en ese navegador. Además se comprobó que falla en los tres
+  navegadores si el worker hace un `fetch` tras la carga.
+
 ## Verificación
 
 - **Fachada:** `wasm-bindgen-test` en navegador headless.
@@ -176,9 +202,8 @@ portapapeles y de `image_source_bytes` no se unificaron porque tienen mensajes p
   **completa** se prueba con Playwright sobre el build real — cada feature que entra
   llega con su flujo de punta a punta (abrir, operar, guardar y comprobar el PDF
   resultante), no solo con tests unitarios. Una fase no se da por cerrada sin sus flujos
-  Playwright en verde en CI. **Matriz de navegadores (decisión del usuario,
-  2026-11-11): Chromium + Firefox + WebKit**, los tres en CI. El spike solo se midió en
-  Chromium; Firefox y WebKit se validan por primera vez en T-220.
+  Playwright en verde en CI. Matriz de navegadores (decisión del usuario, 2026-11-11):
+  **Chromium, Firefox y WebKit**, los tres en CI.
 - **Zero-network:** un test de Playwright que falla si la app hace cualquier petición
   de red después de la carga inicial. Es el equivalente web de `zero-network-guard`.
 - **CI:** workflow propio `web.yml`. El core sigue gateado por `core.yml`.

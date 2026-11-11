@@ -1,0 +1,33 @@
+[workspace]
+
+[package]
+name = "vitela-web-render"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = """
+TEMPORARY render entry point for the apps/web worker (B26 T-220), modelled on
+the phase-0 spike (spikes/web-wasm). It exists only until core/pdf-wasm
+(T-219) lands; the worker is the only consumer, so swapping it out touches
+apps/web/src/worker/ alone. Excluded from the root workspace (root Cargo.toml
+`[workspace] exclude`) so its wasm-only dependency set never touches the main
+lockfile; security.yml audits its own Cargo.lock.
+"""
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.130"
+# Same pin and pdfium feature as the spike: chromium/7763 is the build the
+# worker downloads (scripts/fetch-pdfium.sh), and 0.9.5 is the version the
+# spike proved against it. No `thread_safe` (a wasm32 module is one thread)
+# and no `console_log` (debug tracing; it only costs bundle size).
+pdfium-render = { version = "=0.9.5", default-features = false, features = ["pdfium_7763"] }
+console_error_panic_hook = "0.1"
+
+# Size-tuned the way the spike measured (LTO + 1 CGU: 2.3 MB -> 1.5 MB raw).
+[profile.release]
+lto = true
+codegen-units = 1

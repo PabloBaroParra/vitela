@@ -162,7 +162,7 @@ docs: mark completed Linux/Windows shell tasks in B8/B10
 ```
 
 Scopes in use: `core`, `ffi`, `linux`, `windows`, `macos`, `ios`, `android`,
-`apple`, `ci`, `deps`, `docs`.
+`apple`, `web`, `ci`, `deps`, `docs`.
 
 Explain **why** in the body, not what — the diff already says what. If a fix is
 subtle, the commit message is where the next person finds out what went wrong

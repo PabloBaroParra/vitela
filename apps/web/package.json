@@ -1,0 +1,35 @@
+{
+  "name": "vitela-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Vitela web shell: the Rust core as WASM in a Web Worker, React UI.",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --strictPort",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "jsdom": "29.1.1",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.1.0"
+  }
+}
