@@ -264,7 +264,11 @@ pub(crate) fn toggle_at(viewer: &Viewer, page_index: usize, point: (f64, f64), r
     // The outer half of the hovered item's border band lies off its box,
     // where the hit-test finds nothing; a press there still means the item.
     let member = member.or_else(|| super::hover::border_member(viewer, page_index, point, reach));
-    {
+    // Reported once the borrow below has ended: the status label mirrors its
+    // text into its tooltip, and setting a tooltip makes GTK re-query the
+    // tooltip of the widget under the pointer on the spot — the page's own
+    // highlight layer, whose handler reads the state.
+    let message = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
             return true;
@@ -300,13 +304,19 @@ pub(crate) fn toggle_at(viewer: &Viewer, page_index: usize, point: (f64, f64), r
         if let Some(member) = member {
             current = toggled(current, member);
         }
-        if !current.is_empty() {
-            viewer.status.set_text(&selected_message(&current));
+        if current.is_empty() {
+            None
+        } else {
+            let message = selected_message(&current);
             session.content_selection = Some(ContentSelection {
                 page_index,
                 members: current,
             });
+            Some(message)
         }
+    };
+    if let Some(message) = message {
+        viewer.status.set_text(&message);
     }
     selection_changed(viewer);
     true
@@ -632,6 +642,40 @@ mod tests {
             bbox,
             paint: PathPaint::Stroke,
         }
+    }
+
+    /// SHIFT+click reports the selection only once it has let go of the
+    /// state. The status label mirrors its text into its tooltip, and GTK
+    /// answers a tooltip change by querying the widget under the pointer —
+    /// the page layer, which reads the state. Seen on a real desktop as a
+    /// `BorrowError` panic inside that query's `extern "C"` trampoline,
+    /// which aborts the app; here a status listener stands in for it.
+    #[gtk::test]
+    fn gtk_ui_a_shift_toggle_reports_after_releasing_the_state() {
+        use crate::app::content_edit::test_support::Fixture;
+        use std::{cell::Cell, rc::Rc};
+
+        let fixture = Fixture::new(pdf_render::PageRotation::None);
+        let viewer = fixture.viewer().clone();
+        let held_on_report = Rc::new(Cell::new(false));
+        let listener = viewer.status.connect_label_notify({
+            let viewer = viewer.clone();
+            let held_on_report = held_on_report.clone();
+            move |_| held_on_report.set(viewer.state.try_borrow().is_err())
+        });
+
+        let point = Fixture::middle(&fixture.runs[0]);
+        assert!(toggle_at(&viewer, 0, point, 8.0));
+        viewer.status.disconnect(listener);
+
+        assert_eq!(
+            viewer.status.text().as_str(),
+            tr_args("edit-multi-selected", &[("count", 1usize.into())])
+        );
+        assert!(
+            !held_on_report.get(),
+            "the status changed while the state was borrowed"
+        );
     }
 
     #[test]

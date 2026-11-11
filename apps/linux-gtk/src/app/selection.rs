@@ -111,18 +111,18 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
     area.set_has_tooltip(true);
     area.connect_query_tooltip({
         let viewer = viewer.clone();
-        move |_, x, y, keyboard_mode, tooltip| {
-            // Keyboard-triggered tooltips carry no pointer position.
-            if keyboard_mode {
-                return false;
+        move |_, x, y, keyboard_mode, tooltip| match tooltip_text(
+            &viewer,
+            page_index,
+            x,
+            y,
+            keyboard_mode,
+        ) {
+            Some(text) => {
+                tooltip.set_text(Some(&text));
+                true
             }
-            match annotations::note_tooltip(&viewer, page_index, f64::from(x), f64::from(y)) {
-                Some(text) => {
-                    tooltip.set_text(Some(&text));
-                    true
-                }
-                None => false,
-            }
+            None => false,
         }
     });
 
@@ -192,6 +192,28 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
     content_edit::block::connect_double_click(&area, viewer, page_index);
     super::input::connect_file_drop(&area, viewer, page_index);
     area
+}
+
+/// What the highlight layer's tooltip says at `(x, y)`, if anything.
+///
+/// GTK runs this not only from pointer motion but synchronously from any
+/// tooltip change anywhere in the window (`gtk_widget_set_tooltip_text`
+/// re-queries the widget under the pointer), so it can land in the middle of
+/// a handler that holds the state mutably. A panic here would cross GTK's
+/// `extern "C"` trampoline and abort the app, so a busy state shows no
+/// tooltip this time instead; the next pointer motion asks again.
+fn tooltip_text(
+    viewer: &Viewer,
+    page_index: usize,
+    x: i32,
+    y: i32,
+    keyboard_mode: bool,
+) -> Option<String> {
+    // Keyboard-triggered tooltips carry no pointer position.
+    if keyboard_mode || viewer.state.try_borrow().is_err() {
+        return None;
+    }
+    annotations::note_tooltip(viewer, page_index, f64::from(x), f64::from(y))
 }
 
 /// A pointer position on a drawn page, in PDF page space.
@@ -1610,6 +1632,20 @@ pub(crate) fn connect_copy(
 mod tests {
     use super::*;
     use pdf_document::{FormFieldId, FormFieldKind, PageId, TextStyle};
+
+    /// A tooltip query that lands while a handler holds the state — a
+    /// status change re-queries the tooltip under the pointer on the spot —
+    /// shows nothing rather than panicking inside GTK's trampoline, which
+    /// would abort the app.
+    #[gtk::test]
+    fn gtk_ui_the_page_tooltip_stands_down_while_the_state_is_held() {
+        let built = crate::app::ui_tests::built_ui();
+        {
+            let _held = built.viewer.state.borrow_mut();
+            assert_eq!(tooltip_text(&built.viewer, 0, 10, 10, false), None);
+        }
+        built.window.close();
+    }
 
     fn a_field(name: &str, value: &str) -> FormField {
         FormField {
